@@ -2,13 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { gzipSync } from "node:zlib";
 import * as db from "@/lib/db";
 import {
+  buildNativeMetaDecisionsWorkspaceReadModel,
   buildMetaDecisionsWorkspaceReadModel,
   buildUnavailableMetaDecisionsWorkspaceReadModel,
+  reconcileMetaDecisionIdentityRowsWithCurrentAds,
   readMetaDecisionsWorkspaceReadModel,
+  resolveProvisionalCampaignKind,
   type MetaDecisionCampaignContextSourceRow,
   type MetaDecisionIdentitySourceRow,
   type MetaDecisionSnapshotSourceRow,
+  type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
+import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -16,7 +22,62 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/creative-decision-engine/campaign-context/source", () => ({
   resolveCampaignContextMode: vi.fn(() => "automatic"),
+  isCampaignContextHardAuthorityEnabled: vi.fn(
+    () =>
+      process.env.CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED === "1" ||
+      process.env.CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED === "true",
+  ),
 }));
+
+describe("resolveProvisionalCampaignKind", () => {
+  it("uses stored resolver scores without granting a trusted kind", () => {
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: null,
+        signalScores: { mainScore: 0.17, testScore: 0.35, mixedScore: 0 },
+      }),
+    ).toBe("test");
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: null,
+        signalScores: { mainScore: 0.53, testScore: 0.17, mixedScore: 0 },
+      }),
+    ).toBe("main");
+  });
+
+  it("keeps a persisted automatic or override kind unchanged", () => {
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: "mixed",
+        signalScores: { mainScore: 1, testScore: 0, mixedScore: 0 },
+      }),
+    ).toBe("mixed");
+  });
+
+  it("uses the resolver name vocabulary before the role-neutral fallback", () => {
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: null,
+        signalScores: null,
+        campaignName: "R3 US Test",
+      }),
+    ).toBe("test");
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: null,
+        signalScores: null,
+        campaignName: "R3 US Winners",
+      }),
+    ).toBe("main");
+    expect(
+      resolveProvisionalCampaignKind({
+        kind: null,
+        signalScores: null,
+        campaignName: "Unclassified current campaign",
+      }),
+    ).toBe("main");
+  });
+});
 
 function snapshot(
   creativeId: string,
@@ -70,6 +131,9 @@ function identity(
     adset_name: "Broad",
     ad_id: adId,
     ad_name: `Ad ${creativeId}`,
+    campaign_status: "ACTIVE",
+    adset_status: "ACTIVE",
+    ad_status: "ACTIVE",
     candidate_ad_count: 1,
     currency: "USD",
     thumbnail_url: `https://cdn.example/${creativeId}.jpg`,
@@ -95,9 +159,282 @@ function context(
   };
 }
 
+function nativeSnapshot(
+  adId: string,
+  overrides: Partial<MetaNativeDecisionSnapshotSourceRow> = {},
+): MetaNativeDecisionSnapshotSourceRow {
+  return {
+    snapshot_id: `00000000-0000-4000-8000-${adId.slice(-12).padStart(12, "0")}`,
+    evaluation_id: `10000000-0000-4000-8000-${adId.slice(-12).padStart(12, "0")}`,
+    job_run_id: "20000000-0000-4000-8000-000000000001",
+    provider_account_ref_id: "30000000-0000-4000-8000-000000000001",
+    provider_account_id: "act_1",
+    ad_id: adId,
+    creative_id: "creative_shared",
+    as_of_date: "2026-07-12",
+    engine_version: NATIVE_AD_ENGINE_VERSION,
+    scope_type: "account",
+    scope_id: "act_1",
+    label: "cut",
+    raw_label: "cut",
+    confidence: 88,
+    truth_source: "commercial_truth",
+    effective_target_roas: 2,
+    ratio_to_target: 0.5,
+    badges: [],
+    reason: "Exact Ad evidence is below the account target.",
+    spend: 120,
+    purchases: 1,
+    roas: 1,
+    recent7d_roas: 0.9,
+    label_transform: null,
+    blocked_action_type: null,
+    authorized_action: "cut",
+    input_hash: "a".repeat(64),
+    decision_hash: "b".repeat(64),
+    computed_at: "2026-07-12T05:00:00.000Z",
+    episode_started_at: "2026-07-12",
+    lineage_valid: true,
+    creative_name: "Shared creative",
+    campaign_id: "cmp_1",
+    campaign_name: "Main Sales",
+    adset_id: "adset_1",
+    adset_name: "Broad",
+    ad_name: `Ad ${adId}`,
+    campaign_status: "ACTIVE",
+    adset_status: "ACTIVE",
+    ad_status: "ACTIVE",
+    currency: "USD",
+    thumbnail_url: "https://cdn.example/shared.jpg",
+    media_source_present: true,
+    media_available: true,
+    media_source: "meta_creative_media",
+    source_updated_at: "2026-07-12T04:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function nativeModel(rows: MetaNativeDecisionSnapshotSourceRow[]) {
+  const adIds = rows.map((row) => row.ad_id);
+  return buildNativeMetaDecisionsWorkspaceReadModel({
+    businessId: "biz_1",
+    providerAccountId: "act_1",
+    generation: {
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+      asOfDate: "2026-07-12",
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      manifestHash: hashAdDecisionIdentityManifest({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        asOfDate: "2026-07-12",
+        adIds,
+      }),
+      expectedAdCount: rows.length,
+    },
+    snapshotRows: rows,
+    campaignContextRows: [context()],
+    eventSourceAvailable: false,
+    outcomeSourceAvailable: false,
+    responseSourceAvailable: false,
+    generatedAt: "2026-07-12T12:00:00.000Z",
+  });
+}
+
 describe("Meta Decisions workspace canonical read model", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("holds inferred high campaign context below hard authority until its independent gate opens", () => {
+    const input = {
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_1", { label: "scale" })],
+      identityRows: [identity("creative_1")],
+      campaignContextRows: [
+        context({
+          source: "system_inferred",
+          confidenceClass: "high",
+          resolverVersion: "campaign-context.v1",
+        }),
+      ],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    };
+
+    const held = buildMetaDecisionsWorkspaceReadModel(input);
+    expect(
+      held.queue.sections.creative_rotation.items[0]?.classification
+        .lifecycleRole,
+    ).toMatchObject({
+      value: "main",
+      confidence: "medium",
+      trustedForAction: false,
+      blockerCode: "campaign_context_low_confidence",
+    });
+
+    vi.stubEnv("CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED", "true");
+    const enabled = buildMetaDecisionsWorkspaceReadModel(input);
+    expect(
+      enabled.queue.sections.creative_rotation.items[0]?.classification
+        .lifecycleRole,
+    ).toMatchObject({
+      value: "main",
+      confidence: "high",
+      trustedForAction: true,
+      blockerCode: null,
+    });
+  });
+
+  it("keeps two Ads that share one creative as independent native decisions", () => {
+    const firstAdId = "120000000000000001";
+    const secondAdId = "120000000000000002";
+    const model = nativeModel([
+      nativeSnapshot(firstAdId),
+      nativeSnapshot(secondAdId, {
+        adset_id: "adset_2",
+        adset_name: "Retargeting",
+      }),
+    ]);
+
+    expect(model.source).toMatchObject({
+      authority: "native_ad",
+      table: "engine_v3_ad_decision_snapshots_daily",
+      generation: { expectedAdCount: 2 },
+    });
+    expect(model.queue.deduplicationGrain).toBe("ad");
+    expect(
+      model.queue.adCandidates?.items
+        .map((item) => item.parentChain.ad?.id)
+        .sort(),
+    ).toEqual([firstAdId, secondAdId]);
+    expect(
+      model.queue.adCandidates?.items.map((item) => item.decisionId),
+    ).toEqual(expect.arrayContaining([expect.any(String), expect.any(String)]));
+    expect(
+      new Set(model.queue.adCandidates?.items.map((item) => item.decisionId))
+        .size,
+    ).toBe(2);
+    expect(
+      model.queue.adCandidates?.items.every(
+        (item) => item.identityResolution?.basis === "native_ad_exact",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a native Ad authoritative when creative grouping is null", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000003", {
+        creative_id: null,
+        creative_name: null,
+        thumbnail_url: null,
+        media_source_present: false,
+        media_available: false,
+        media_source: null,
+      }),
+    ]);
+    const decision = model.queue.adCandidates?.items[0]!;
+
+    expect(decision.identityGrain).toBe("ad");
+    expect(decision.parentChain.ad?.id).toBe("120000000000000003");
+    expect(decision.parentChain.creative).toBeNull();
+    expect(decision.sourceAuthority).toMatchObject({
+      status: "native_exact",
+      actionEligible: true,
+      realAdId: "120000000000000003",
+      authorizedAction: "cut",
+    });
+  });
+
+  it("keeps closed hierarchy Ads out of the main queue and advisory-only", () => {
+    const activeAdId = "120000000000000007";
+    const pausedAdId = "120000000000000008";
+    const model = nativeModel([
+      nativeSnapshot(activeAdId),
+      nativeSnapshot(pausedAdId, { adset_status: "PAUSED" }),
+    ]);
+
+    expect(
+      model.queue.adCandidates?.items.map(
+        (decision) => decision.parentChain.ad?.id,
+      ),
+    ).toEqual([activeAdId]);
+    expect(model.queue.inactiveAssets).toMatchObject({
+      preCapCount: 1,
+      inactiveCount: 1,
+      unknownCount: 0,
+    });
+    expect(model.queue.inactiveAssets?.items[0]).toMatchObject({
+      parentChain: { ad: { id: pausedAdId } },
+      deliveryScope: {
+        state: "inactive",
+        adsetStatus: "PAUSED",
+      },
+      sourceAuthority: {
+        status: "native_exact",
+        actionEligible: false,
+        reviewOnlyReason: "current_hierarchy_is_not_active",
+      },
+    });
+  });
+
+  it("defaults missing hierarchy truth to the advisory-only inactive queue", () => {
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_unknown")],
+      identityRows: [
+        identity("creative_unknown", {
+          campaign_status: null,
+          adset_status: "ACTIVE",
+          ad_status: "ACTIVE",
+        }),
+      ],
+      campaignContextRows: [context()],
+      generatedAt: "2026-07-10T12:00:00.000Z",
+    });
+
+    expect(model.queue.adCandidates?.items).toHaveLength(0);
+    expect(model.queue.inactiveAssets).toMatchObject({
+      preCapCount: 1,
+      inactiveCount: 0,
+      unknownCount: 1,
+    });
+    expect(model.queue.inactiveAssets?.items[0]).toMatchObject({
+      deliveryScope: { state: "unknown" },
+      sourceAuthority: {
+        actionEligible: false,
+        reviewOnlyReason: "current_hierarchy_status_is_unknown",
+      },
+    });
+  });
+
+  it("rejects broken native lineage and cross-account rows", () => {
+    expect(() =>
+      nativeModel([
+        nativeSnapshot("120000000000000004", { lineage_valid: false }),
+      ]),
+    ).toThrow(/lineage or manifest is incomplete/i);
+    expect(() =>
+      nativeModel([
+        nativeSnapshot("120000000000000005", {
+          provider_account_id: "act_other",
+        }),
+      ]),
+    ).toThrow(/lineage or manifest is incomplete/i);
+  });
+
+  it("serves an authoritative native zero-Ad account as available, not missing", () => {
+    const model = nativeModel([]);
+    expect(model).toMatchObject({
+      status: "available",
+      unavailable: null,
+      source: {
+        authority: "native_ad",
+        generation: { expectedAdCount: 0 },
+      },
+      queue: { deduplicationGrain: "ad", sourcePreCapCount: 0 },
+    });
   });
 
   it("keeps decision and episode ids stable across daily snapshots without dates in the ids", () => {
@@ -281,6 +618,113 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(model.queue.adCandidates?.items).toEqual([]);
   });
 
+  it("does not expose a representative Ad for an ambiguous legacy creative", () => {
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_reused")],
+      identityRows: [identity("creative_reused", { candidate_ad_count: 2 })],
+      campaignContextRows: [context()],
+    });
+    const decision = model.queue.sections.creative_rotation.items[0]!;
+
+    expect(decision.parentChain.ad).toBeNull();
+    expect(decision.identityResolution).toMatchObject({
+      basis: "creative_ambiguous",
+      adActionEligible: false,
+    });
+    expect(decision.sourceAuthority?.realAdId).toBeNull();
+    expect(model.queue.adCandidates?.items).toEqual([]);
+  });
+
+  it("keeps legacy creative compatibility visible but review-only", () => {
+    const model = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_legacy", { label: "cut" })],
+      identityRows: [identity("creative_legacy")],
+      campaignContextRows: [context()],
+    });
+    const decision = model.queue.adCandidates?.items[0]!;
+
+    expect(model.source.authority).toBe("legacy_creative");
+    expect(decision.parentChain.ad?.id).toMatch(/^\d+$/);
+    expect(decision.sourceAuthority).toMatchObject({
+      status: "legacy_review_only",
+      actionEligible: false,
+      authorizedAction: null,
+    });
+  });
+
+  it("uses a complete current Meta Ad receipt as delivery truth without changing identity ambiguity", () => {
+    const reconciled = reconcileMetaDecisionIdentityRowsWithCurrentAds({
+      identityRows: [
+        identity("creative_active", {
+          ad_id: "120000000000000001",
+          candidate_ad_count: 1,
+          campaign_status: null,
+          adset_status: null,
+          ad_status: null,
+        }),
+        identity("creative_paused", {
+          ad_id: "120000000000000002",
+          candidate_ad_count: 2,
+        }),
+        identity("creative_deleted", {
+          ad_id: "120000000000000003",
+          candidate_ad_count: 1,
+        }),
+      ],
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000001",
+          adName: "Current active Ad",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_active",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: "2026-07-13T08:00:00.000Z",
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000002",
+          adName: "Paused by campaign",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_paused",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "CAMPAIGN_PAUSED",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+      sourceComplete: true,
+    });
+
+    expect(reconciled[0]).toMatchObject({
+      ad_name: "Current active Ad",
+      campaign_status: "ACTIVE",
+      adset_status: "ACTIVE",
+      ad_status: "ACTIVE",
+      candidate_ad_count: 1,
+      status_source: "meta_graph_ad_configs",
+    });
+    expect(reconciled[1]).toMatchObject({
+      campaign_status: "CAMPAIGN_PAUSED",
+      adset_status: "CAMPAIGN_PAUSED",
+      ad_status: "CAMPAIGN_PAUSED",
+      candidate_ad_count: 2,
+    });
+    expect(reconciled[2]).toMatchObject({
+      campaign_status: "NOT_ACTIVE",
+      adset_status: "NOT_ACTIVE",
+      ad_status: "NOT_ACTIVE",
+    });
+  });
+
   it("caps each section from true pre-cap rows and never aggregates exposure across currencies", () => {
     const model = buildMetaDecisionsWorkspaceReadModel({
       businessId: "biz_1",
@@ -421,7 +865,7 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
     expect(
       model.queue.adCandidates?.items.some(
-        (item) => item.parentChain.creative.id === "urgent_cut",
+        (item) => item.parentChain.creative?.id === "urgent_cut",
       ),
     ).toBe(true);
   });
@@ -460,9 +904,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       expanded.queue.adCandidates?.items
         .slice(0, 60)
         .map((item) => item.decisionId),
-    ).toEqual(
-      first.queue.adCandidates?.items.map((item) => item.decisionId),
-    );
+    ).toEqual(first.queue.adCandidates?.items.map((item) => item.decisionId));
   });
 
   it("serves a held cut as blocked resolution without erasing its assessment", () => {
@@ -519,10 +961,10 @@ describe("Meta Decisions workspace canonical read model", () => {
 
     const items = model.queue.sections.creative_rotation.items;
     const stable = items.find(
-      (item) => item.parentChain.creative.id === "stable_keep",
+      (item) => item.parentChain.creative?.id === "stable_keep",
     );
     const notApplicable = items.find(
-      (item) => item.parentChain.creative.id === "not_applicable",
+      (item) => item.parentChain.creative?.id === "not_applicable",
     );
     expect(stable?.classification).toMatchObject({
       decisionState: "monitor",
@@ -623,9 +1065,11 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
 
     const items = model.queue.sections.creative_rotation.items;
-    const thin = items.find((item) => item.parentChain.creative.id === "thin")!;
+    const thin = items.find(
+      (item) => item.parentChain.creative?.id === "thin",
+    )!;
     const relative = items.find(
-      (item) => item.parentChain.creative.id === "relative",
+      (item) => item.parentChain.creative?.id === "relative",
     )!;
     expect(thin.classification.assessment).toMatchObject({
       value: "evidence_incomplete",
@@ -699,5 +1143,170 @@ describe("Meta Decisions workspace canonical read model", () => {
       ["cmp_1"],
       "2026-07-10",
     ]);
+  });
+
+  it("falls back cleanly when the optional entity-state table is not migrated", async () => {
+    const undefinedRelation = Object.assign(
+      new Error('relation "meta_entity_state_history" does not exist'),
+      { code: "42P01" },
+    );
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("WITH latest_job AS")) return [];
+      if (sql.includes("scoped_history")) return [snapshot("creative_1")];
+      if (sql.includes("FROM meta_entity_state_history state")) {
+        throw undefinedRelation;
+      }
+      if (sql.includes("NULL::text AS campaign_status")) {
+        return [
+          identity("creative_1", {
+            campaign_status: null,
+            adset_status: null,
+            ad_status: null,
+          }),
+        ];
+      }
+      if (sql.includes("FROM meta_campaign_labels")) return [];
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      currentAdSourceComplete: true,
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: identity("creative_1").ad_id!,
+          adName: "Current active Ad",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_1",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: "2026-07-13T08:00:00.000Z",
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(model.status).toBe("available");
+    expect(model.queue.adCandidates?.items).toHaveLength(1);
+    expect(model.queue.adCandidates?.items[0]?.deliveryScope).toMatchObject({
+      state: "active",
+      campaignStatus: "ACTIVE",
+      adsetStatus: "ACTIVE",
+      adStatus: "ACTIVE",
+      provenance: { source: "meta_graph_ad_configs" },
+    });
+    expect(
+      query.mock.calls.some(([sql]) =>
+        String(sql).includes("NULL::text AS campaign_status"),
+      ),
+    ).toBe(true);
+    const generationCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes("WITH latest_job AS"),
+    );
+    expect(String(generationCall?.[0])).toContain(
+      "run.business_id = $1::text",
+    );
+  });
+
+  it("falls back to visible legacy rows when the latest native account manifest is incomplete", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("WITH latest_job AS")) {
+        return [
+          {
+            job_run_id: "native-run",
+            as_of_date: "2026-07-12",
+            engine_version: NATIVE_AD_ENGINE_VERSION,
+            provider_account_ref_id: "30000000-0000-4000-8000-000000000001",
+            provider_account_id: "act_1",
+            expected_ad_count: 2,
+            expected_manifest_hash: "a".repeat(64),
+            hydrated_ad_count: 1,
+            hydrated_manifest_hash: "b".repeat(64),
+            authoritative_for_prune: false,
+          },
+        ];
+      }
+      if (sql.includes("scoped_history")) return [snapshot("creative_1")];
+      if (sql.includes("COALESCE(creative_dim.provider_account_id")) {
+        return [identity("creative_1")];
+      }
+      if (sql.includes("FROM meta_campaign_labels")) return [];
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+
+    expect(model.status).toBe("available");
+    expect(model.source).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_account_manifest_incomplete",
+    });
+    expect(model.queue.adCandidates?.items).toHaveLength(1);
+    expect(
+      model.queue.adCandidates?.items[0]?.sourceAuthority?.actionEligible,
+    ).toBe(false);
+  });
+
+  it("reads native identity by exact Ad id without choosing a representative Ad", async () => {
+    const row = nativeSnapshot("120000000000000006");
+    const manifestHash = hashAdDecisionIdentityManifest({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      asOfDate: "2026-07-12",
+      adIds: [row.ad_id],
+    });
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("WITH latest_job AS")) {
+        return [
+          {
+            job_run_id: row.job_run_id,
+            as_of_date: row.as_of_date,
+            engine_version: NATIVE_AD_ENGINE_VERSION,
+            provider_account_ref_id: row.provider_account_ref_id,
+            provider_account_id: row.provider_account_id,
+            expected_ad_count: 1,
+            expected_manifest_hash: manifestHash,
+            hydrated_ad_count: 1,
+            hydrated_manifest_hash: manifestHash,
+            authoritative_for_prune: true,
+          },
+        ];
+      }
+      if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
+        return [row];
+      }
+      if (sql.includes("FROM meta_campaign_labels")) return [];
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const nativeSnapshotCall = query.mock.calls.find(([sql]) =>
+      String(sql).includes(
+        "FROM engine_v3_ad_decision_snapshots_daily snapshot",
+      ),
+    );
+
+    expect(model.source.authority).toBe("native_ad");
+    expect(model.queue.adCandidates?.items[0]?.parentChain.ad?.id).toBe(
+      row.ad_id,
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "dimension.ad_id = snapshot.ad_id",
+    );
+    expect(String(nativeSnapshotCall?.[0])).not.toContain(
+      "creative_id = requested.creative_id",
+    );
   });
 });

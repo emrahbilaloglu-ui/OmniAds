@@ -31,11 +31,18 @@ import {
 import { buildMetaAdsetRecommendations } from "@/lib/meta/adset-decisions";
 import { buildMetaEntityStateRows } from "@/lib/meta/engine-v1/state-rows";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
+import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
 import {
   applyMetaCampaignLabelGuard,
   buildMetaCampaignLabelKindMap,
+  type MetaCampaignContextGuardEntry,
+  type MetaCampaignContextGuardMap,
   type MetaCampaignLabelKindMap,
 } from "@/lib/meta/campaign-label-guard";
+import {
+  readCampaignContextLabelMap,
+  resolveCampaignContextMode,
+} from "@/lib/creative-decision-engine/campaign-context/source";
 import { readMetaEntityDecisionSignalsDaily } from "@/lib/meta/entity-signals";
 import { runMetaSignalsBackfillForBusiness } from "@/lib/meta/entity-signals-backfill";
 import { attachMetaEmpiricalOutcomeSummariesFromLogs } from "@/lib/meta/empirical-outcome-integration";
@@ -176,6 +183,62 @@ async function readCampaignLabelKindMap(input: {
     return [];
   });
   return buildMetaCampaignLabelKindMap(labels);
+}
+
+async function readCampaignContextGuardState(input: {
+  businessId: string;
+  campaignIds: string[];
+  asOf: string;
+}): Promise<{
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  campaignContextById: MetaCampaignContextGuardMap;
+  automaticContextEnabled: boolean;
+}> {
+  const mode = resolveCampaignContextMode();
+  try {
+    const resolved = await readCampaignContextLabelMap({
+      businessId: input.businessId,
+      campaignIds: input.campaignIds,
+      asOf: input.asOf,
+      mode,
+    });
+    const context = new Map<string, MetaCampaignContextGuardEntry>();
+    const labels = new Map<string, MetaCampaignKind>();
+    for (const [campaignId, entry] of resolved) {
+      const source = entry.provenance.source;
+      const contextTrust =
+        entry.contextTrust ??
+        (source === "legacy_label" || source === "user_override"
+          ? "override"
+          : "unknown");
+      context.set(campaignId, {
+        kind: entry.kind,
+        contextTrust,
+        source,
+      });
+      if (
+        entry.kind &&
+        (contextTrust === "override" || contextTrust === "high")
+      ) {
+        labels.set(campaignId, entry.kind);
+      }
+    }
+    return {
+      campaignLabelsById: labels,
+      campaignContextById: context,
+      automaticContextEnabled: mode === "automatic",
+    };
+  } catch (error) {
+    console.warn("[meta-snapshot] campaign_context_read_failed", {
+      businessId: input.businessId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      campaignLabelsById: await readCampaignLabelKindMap(input),
+      campaignContextById: new Map(),
+      automaticContextEnabled: false,
+    };
+  }
 }
 
 function scopeForRecommendation(recommendation: MetaRecommendation, businessId: string) {
@@ -709,10 +772,12 @@ async function buildSnapshotRecommendations(input: {
 
   const campaigns = selectedCampaigns.rows ?? [];
   const campaignIds = campaigns.map((campaign) => campaign.id);
-  const campaignLabelsById = await readCampaignLabelKindMap({
+  const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
     campaignIds,
+    asOf: endDate,
   });
+  const campaignLabelsById = campaignContextState.campaignLabelsById;
   const entitySignals = await readMetaEntityDecisionSignalsDaily({
     businessId: input.businessId,
     asOfDate: endDate,
@@ -798,6 +863,8 @@ async function buildSnapshotRecommendations(input: {
   const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: [...stateRows, ...campaignRecommendations, ...adsetRecommendations],
     campaignLabelsById,
+    campaignContextById: campaignContextState.campaignContextById,
+    automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
   return attachMetaEmpiricalOutcomeSummariesFromLogs({
@@ -1182,13 +1249,17 @@ export async function readLatestMetaDecisionSnapshot(input: {
         .filter((campaignId): campaignId is string => Boolean(campaignId)),
     ),
   );
-  const campaignLabelsById = await readCampaignLabelKindMap({
+  const campaignContextState = await readCampaignContextGuardState({
     businessId: input.businessId,
     campaignIds,
+    asOf: rows[0]?.snapshot_date ?? normalizeDate(input.endDate),
   });
+  const campaignLabelsById = campaignContextState.campaignLabelsById;
   const guardedRecommendations = applyMetaCampaignLabelGuard({
     recommendations: commerciallyGuardedRecommendations,
     campaignLabelsById,
+    campaignContextById: campaignContextState.campaignContextById,
+    automaticContextEnabled: campaignContextState.automaticContextEnabled,
     activeCampaignIds: campaignIds,
   }).recommendations;
   const recommendations = await attachMetaEmpiricalOutcomeSummariesFromLogs({

@@ -1526,3 +1526,289 @@ Reason: repeated terminal polls can share a partition/run while page indexes
 continue globally. Re-fetching page one after restoring a completed generation
 double-counts metrics and then creates a checkpoint/raw mismatch. Counting pages
 also fails whenever the generation begins at a non-zero global index.
+
+## D047 - Exhaust Historical Simulation Before Declaring An Evidence Blocker
+
+Decision: every decision change that can be evaluated from retained historical
+facts must run through one cutoff-strict, paired baseline-versus-challenger
+simulation contract before it may be deferred to live accrual. The opportunity
+cohort is fixed before any variant is evaluated; variants may not create their
+own episode populations. Results are reported separately for exact raw PIT,
+persisted decision-input, and restated warehouse source modes.
+
+The execution grain is native `ad_id` for Ads decisions, `adset_id` for ad-set
+actions, and `campaign_id` for campaign actions. `creative_id` remains a
+portfolio/grouping identity and must not own provider execution when one
+creative is reused. A Test winner is an ad-level portfolio role with a
+`promote_to_main` action; budget expansion belongs only to the verified campaign
+or ad-set budget owner.
+
+Each simulated row must bind an input manifest containing the cutoff, source
+generation or row identifiers, hierarchy/goal/country/currency provenance,
+target/config provenance, missing/conflicting fields, outcome-completeness
+receipt, and deterministic hash. Restated rows or current SCD0 dimensions may
+support sensitivity analysis, but they must never be labeled exact PIT.
+
+Historical evaluation uses rolling-origin fitting and later-period testing.
+Hard precision, opportunity recall, ECE, false-action cost, unknown/censored
+rates, action stability, and safety violations are stratified by grain, action,
+business, objective/optimization context, currency, source mode, and treatment
+status. Zero-ROAS rows with complete positive-spend outcomes are known losers,
+not unknown. Closed windows require a dated ingestion-completeness receipt.
+
+Only facts that were never retained, provider/manual actions that were never
+logged, missing successor lineage, and counterfactual effects without a
+contemporaneous control may remain physically unreconstructable. Mutable-target
+projection, unmatched variant cohorts, partial outcome windows, window-seam
+duplication, reversed non-hard polarity, and zero-ROAS censoring are
+implementation defects and must be fixed rather than listed as evidence limits.
+
+Campaign-kind conditioning may enter H1 only after its own cutoff-safe
+segmentation gate passes. H11's four bounded automatic-context policies did not
+pass the locked coverage/Test-recall gates, while legacy labels are current-only
+operator state. A rejected shadow classifier may not manufacture calibration
+cells; kind-conditioned H1 is therefore eliminated by an upstream authority
+invariant, not silently omitted. Country conditioning may run as a separately
+labeled restated sensitivity only when every source day uses the latest
+complete raw country generation observed by that decision's producer cutoff;
+both retained `fetched_at` and `created_at` must be at or before the cutoff.
+The generation is reconciled to each normalized ad-day, multi-country ads
+remain spend-share vectors, and sparse shares fall back without increasing
+confidence. The cutoff-strict 288-variant replay found 69
+country-conditioned locked rows but zero
+decision changes, so the account-goal parent is retained without claiming
+country irrelevance or exact PIT authority.
+
+H9 seasonality includes `none` and `day_of_week_match` on the same fixed
+structure cohort. Month-of-year/year-over-year adjustment is eliminated because
+the retained 224-day history contains less than one annual cycle; fitting it
+would be an unidentifiable calendar recency proxy, not seasonal evidence.
+
+Reason: replay can eliminate many formula, segmentation, confidence, stability,
+and authority alternatives immediately. Waiting for new data while retained
+history can answer the same question wastes evidence. Conversely, presenting a
+restated or unmatched replay as causal proof creates false certainty. This
+decision maximizes historical learning while preserving D043 and D044.
+
+### D047 runtime implementation addendum - parallel native-ad shadow
+
+Decision: native-ad runtime authority is implemented as a parallel shadow
+producer, not as nullable ad columns on the legacy creative decision tables.
+`runAdDecisionsJob` uses `engine_v3_native_ad_decisions_shadow_job`, epoch
+`v3-ad-2026-07-12-native-provenance-shadow`, and only the
+`engine_v3_ad_decision_*` context/evaluation/snapshot/event family. The legacy
+`runDecisionsJob` and creative authority tables remain untouched so an older
+rollback binary cannot interpret a native ad row as a creative row.
+
+Every native computation is keyed by business, provider account, entity type,
+ad ID, scope, and epoch. `creative_id` is nullable grouping evidence only.
+Campaign context comes from the ad's own campaign. Hysteresis and change events
+use the same native composite key. Context, immutable evaluation, and snapshot
+materialization share one transaction/savepoint and a snapshot is accepted only
+when its evaluation ID, identity, scope, date, input hash, and decision hash all
+match. A missing schema capability or broken link fails closed before native
+snapshot authority is committed.
+
+Native profile availability is isolated per account/calibration cell. A
+missing or evidence-unready cell does not abort unrelated ready cells and does
+not make a present-day dimension-only ad disappear. Instead the producer
+persists a canonical `native_ad_soft_only` context plus a `diagnose` snapshot
+with zero hard-action eligibility, a `native_calibration_unavailable` badge,
+an explicit blocker, and `calibration_row_id = NULL`. Ready cells retain their
+exact native calibration UUID. Only schema failure, invalid batch/replacement
+lineage, target-authority mismatch, or broken evaluation linkage aborts the
+transaction. No legacy creative calibration or lifecycle row is promoted to
+calibration authority.
+
+Present-day hydration may seed a currently assigned dimension/state ad with no
+insights row, but marks performance metrics unobserved and publishes only a
+diagnostic/context fail-close result. Historical hydration never seeds from
+current dimensions. Optional event metrics remain null when their source keys
+are absent; they are not coerced into measured zeroes. The parallel migration
+contract is recorded in
+`D047_NATIVE_AD_PARALLEL_SCHEMA_2026-07-12.md`; the shadow producer is not yet
+scheduled and cannot activate until that capability gate passes.
+The migration-ready CREATE/constraint/index SQL is exported from
+`lib/creative-decision-engine/ad-evaluation-schema.ts` and alters no legacy
+creative table.
+
+## D048 - Require Controlled Causal Evidence For Automation Eligibility
+
+Decision: observational pre/post outcomes remain valid review metrics but can
+never satisfy the Meta automation gate. Automation evidence must declare the
+controlled-causal contract, use a randomized controlled assignment, bind the
+experiment, assignment, estimate, recommendation, and treatment receipt IDs,
+and reconcile that receipt to a successful provider-verified
+`meta_ads_action_log` row. A payload claim, `operatorActed`, or the legacy
+`empiricalOutcomeModelAvailable` flag is insufficient.
+
+Payload `experimentId`, `assignmentId`, and `estimateId` values are descriptive
+only. A controlled row must also join a durable randomized-assignment registry
+and finalized control-estimate registry. Until those registries exist, the
+production read model returns both validations as false and the controlled
+sample is structurally zero. Duplicate assignments and reused action receipts
+are excluded and block eligibility; one provider receipt may not be amplified
+into multiple causal observations. Eligibility also requires exact equality
+between claimed and accepted controlled rows and zero invalid receipt,
+assignment, or estimate counts, so a high-confidence valid subset cannot hide a
+malformed row in the same claimed batch. Dry-run action logs are not treatment
+receipts, a finalized control estimate may not be reused across observations,
+and causal evidence cannot open execution without a separate explicit operator
+enablement gate that defaults closed.
+
+Precision, negative-rate, sample-size, confidence, commercial-anchor,
+preflight, rollback, and executor requirements continue to apply to the
+controlled subset. The observational summary remains visible and separate so
+operators can learn from it without silently promoting correlation to causal
+authority.
+
+Reason: natural regression to the mean after an unexecuted recommendation can
+look positive. The previous contract could therefore open automation after ten
+correlational rows even when no treatment occurred. Requiring a reconciled
+controlled assignment closes that false-authority path without deleting useful
+observational evidence.
+
+## D049 - Cap Account Cut Grading At Fresh Explicit Breakeven
+
+Decision: the account-relative cut-zone boundary is
+`min(account_ROAS_ratio_P25, break_even_ROAS / target_ROAS, 1.0)` only when the
+account P25 and both commercial anchors are finite, positive, explicit, and
+fresh enough to retain cut authority. Otherwise the existing account-P25 path
+remains unchanged. Break-even is a safety ceiling; it may narrow but never
+widen the account cut zone.
+
+Reason: the cutoff-strict H3 replay evaluated all 16 preregistered boundary and
+purchase-floor variants. The same full-cohort V0 comparison before and after
+D049 changed cut emissions from 1,390 to 1,380, removed all ten
+breakeven-above safety violations, retained 96 supported known cuts, reduced
+refuted known cuts from 32 to 29, and left opportunity recall unchanged. The
+calibration-selected midpoint challenger found 18 additional supported losses,
+but had only 90 known outcomes, 82.2% precision, a 73.1% Wilson lower bound,
+and changed established working-zone/fatigue semantics; it did not pass the
+declared promotion gate and is rejected.
+
+This is a review-only resolver safety change, not causal lift or automation
+evidence. The engine version changes to
+`v3-2026-07-12-breakeven-cut-ceiling`; prior snapshots remain readable under
+their original version key.
+
+Rejected alternatives:
+
+- Midpoint P25-to-breakeven expansion. It increased recall but widened the cut
+  zone and failed the precision/sample gate.
+- Fixed purchase floors. They reduced opportunity recall without establishing
+  a portable precision gain.
+- Current P25 without a breakeven ceiling. It retained seven locked-test safety
+  violations.
+
+## D050 - Active-Only Decisions And Automatic Context Without Required Labeling
+
+Decision: the Meta Decisions workspace serves actionable campaign, ad-set, and
+Ad decisions only when the current provider hierarchy is live. `ACTIVE` and
+`WITH_ISSUES` are live states; `PAUSED`, `ARCHIVED`, `DELETED`, and unknown
+status are withheld from the main queues. Existing snapshots are not deleted or
+excluded from lineage reconciliation. Their outputs are served in a separate
+`Inactive assets` envelope as advisory-only records with zero provider-write
+authority.
+
+Automatic Campaign Context is now the product default. Explicit user
+corrections still override system inference. The retained H11 challenger did
+not pass the locked authority gate, so inferred Main/Test/Mixed context cannot
+silently gain kind-specific hard-action authority. Until
+`CAMPAIGN_CONTEXT_HARD_AUTHORITY_ENABLED=1` is opened after a new passing gate,
+even high-confidence inferred context is consumed as medium, canonical
+role-neutral semantics are used, and any context-dependent hard action remains
+explicit but review-only. It is not rewritten to `diagnose` and the operator is
+not asked to label the campaign. `CAMPAIGN_CONTEXT_MODE=legacy_labels` remains
+the rollback compatibility mode; `unknown` remains the emergency circuit
+breaker.
+
+Presentation addendum (2026-07-13): when evidence floors prevent a trusted
+Main/Test/Mixed classification, the server may expose the resolver's
+highest-scoring role as a provisional automatic role. The persisted decision
+input remains `kind=null`, canonical role-neutral baselines remain in force,
+and no Test transform, hard-action authority, or provider write may follow
+from the provisional value. The UI must say that classification is automatic
+and optional to correct; it must not render `Label needed` or create a manual
+campaign-label queue.
+
+If a current provider campaign has not reached the daily context source yet,
+the same presentation layer uses the resolver's shared name vocabulary and
+falls back to provisional Main when no token is present. This closes the
+operator-label requirement without claiming evidence that does not exist:
+confidence remains Unknown and the value still has zero evaluation or write
+authority. The current provider campaign name is fetched in the existing
+read-only active-Ad receipt; no extra provider request or mutation is added.
+
+Structure recommendations expose current bid strategy/value, the previous
+different bid value and capture time, daily/lifetime budget, and range-correct
+budget utilization from the server contract. Constrained-bid scale advice
+requires a complete 30-day delivery window and profitable account-relative
+evidence before recommending a bid increase; selected-range spend is not
+divided by a hard-coded 28 days. Meta budget and currency-formatted bid fields
+remain provider minor units at the write boundary, but all decision math and
+operator display convert them to account-currency major units before comparing
+them with spend or formatting money.
+
+Reason: closed assets in an actionable queue mix resurrection advice with live
+budget decisions and can authorize the wrong provider mutation. Requiring
+manual campaign labeling recreates an operator queue the automatic system was
+designed to remove. Conversely, treating a failed shadow classifier as action
+authority is not automation; it is unmeasured risk. This split preserves clear
+mathematical verdicts, keeps corrections optional, and retains a separate gate
+for behavior-changing role semantics.
+
+## D051 - Structure Requires Exact Current ACTIVE Status
+
+Decision: this narrows D050 for the buyer-facing Structure surface. A campaign
+or ad set may enter Structure only when its current served status is explicitly
+`ACTIVE`. `WITH_ISSUES`, closed statuses, and missing status truth are excluded
+from Structure and served through the advisory-only `Inactive assets` envelope.
+An ad set additionally requires an explicitly `ACTIVE` parent campaign.
+
+The lane classifier owns the primary filter. The OS presentation composer
+rechecks `entityConfiguration.status === ACTIVE` and fails closed if upstream
+lane data is malformed or status truth is missing. This is a serving-contract
+change only: persisted recommendation snapshots and decision mathematics are
+unchanged.
+
+Selected-range metrics may remain historical, but their end-of-range status is
+not current-delivery authority. Before classification, every Structure
+candidate and its parent hierarchy are reconciled with a read-only current Meta
+status probe. If the metric source is historical and current status cannot be
+verified, the candidate is normalized to `UNKNOWN` and withheld rather than
+inheriting a stale `ACTIVE` value.
+
+Reason: treating `WITH_ISSUES` as operationally live made the word "active"
+ambiguous and allowed non-delivering hierarchy rows to occupy the same surface
+as budget and bid decisions. Exact status membership is deterministic, visible
+to the operator, and prevents synthetic campaign groups from resurrecting an
+active child whose parent campaign is closed.
+
+## D052 - Structure Separates Inventory Visibility From Action Authority
+
+Decision: this supersedes D051 only for buyer-facing Structure membership.
+Structure shows the complete account-scoped campaign and ad-set inventory by
+default, with optional delivery-status and decision-lane filters. The server
+presentation contract owns membership, hierarchy, and urgency; the UI may only
+filter those supplied fields and must not derive a buyer action or urgency.
+
+D051 remains binding for action authority. A recommendation, provider mutation,
+or urgent action badge requires the entity's current served status to be exactly
+`ACTIVE`; an ad set also requires an exactly `ACTIVE` parent campaign. Closed,
+`WITH_ISSUES`, and unknown inventory rows are context-only, receive no provider
+write action, and cannot inherit a stale recommendation merely because they are
+visible. Their neutral inventory state is distinct from the advisory inactive
+asset envelope used for explicit reactivation candidates.
+
+Urgency is a server-owned presentation field derived from the canonical
+recommendation lane and priority. Campaign urgency is the maximum of its own
+active recommendation and active child-ad-set urgencies. It changes ordering
+and attention treatment only; it does not change resolver math, confidence,
+execution eligibility, or provider-write authority.
+
+Reason: operators need the whole account hierarchy for orientation and should
+choose when to narrow it, while execution safety requires a much smaller exact
+active set. Conflating visibility with authority either hides useful structure
+or resurrects closed assets. Keeping the two contracts separate provides full
+inventory without weakening D051's write boundary.

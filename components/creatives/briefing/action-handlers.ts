@@ -2,6 +2,16 @@ import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { LaunchpadOverlayMode } from "@/components/common/briefing/LaunchpadOverlay";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import { asDecisionLabel, cardName } from "@/components/creatives/briefing/card-utils";
+import {
+  DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+  createDecisionOriginAdActionIdempotencyKey,
+  runDecisionOriginAdExecutionPreflight,
+  validateDecisionOriginAdExecutionRequest,
+  type DecisionOriginAdAction,
+  type DecisionOriginAdExecutionEvidence,
+  type DecisionOriginAdExecutionPreflightResult,
+  type DecisionOriginAdExecutionRequest,
+} from "@/lib/creative-decision-engine/execution-safety";
 
 export interface BriefingToastLink {
   href: string;
@@ -26,6 +36,16 @@ export interface PauseBriefingCardResult {
 
 type FetchLike = typeof fetch;
 
+export interface DecisionOriginBriefingCard extends BriefingCreativeCard {
+  sourceDecisionEvaluationId?: string | null;
+  sourceDecisionHash?: string | null;
+}
+
+export interface DecisionOriginAdActionHandlerResult<T> {
+  preflight: DecisionOriginAdExecutionPreflightResult;
+  providerResult: T | null;
+}
+
 export function getCreativeScopeId(card: BriefingCreativeCard) {
   return card.creativeId?.trim() || card.id;
 }
@@ -33,6 +53,15 @@ export function getCreativeScopeId(card: BriefingCreativeCard) {
 function nonEmptyId(value: string | null | undefined) {
   const id = value?.trim();
   return id ? id : null;
+}
+
+export function hasNativeDecisionOriginLineage(
+  card: DecisionOriginBriefingCard,
+) {
+  return Boolean(
+    nonEmptyId(card.sourceDecisionEvaluationId) ||
+      nonEmptyId(card.sourceDecisionHash),
+  );
 }
 
 function uniqueIds(ids: Array<string | null | undefined>) {
@@ -45,7 +74,7 @@ function uniqueIds(ids: Array<string | null | undefined>) {
   });
 }
 
-export function getBriefingAdActionCandidateIds(card: BriefingCreativeCard) {
+export function getManualBriefingAdActionCandidateIds(card: BriefingCreativeCard) {
   return uniqueIds([
     card.realAdId,
     card.metaAdId,
@@ -57,7 +86,68 @@ export function getBriefingAdActionCandidateIds(card: BriefingCreativeCard) {
 }
 
 export function getBriefingAdActionInputId(card: BriefingCreativeCard) {
-  return getBriefingAdActionCandidateIds(card)[0] ?? "";
+  return nonEmptyId(card.realAdId) ?? "";
+}
+
+export function buildBriefingDecisionOriginAdActionRequest(input: {
+  businessId: string;
+  card: DecisionOriginBriefingCard;
+  action: DecisionOriginAdAction;
+  idempotencyKey?: string;
+  dryRun?: boolean;
+}): DecisionOriginAdExecutionRequest {
+  const requestBase = {
+    contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+    businessId: input.businessId.trim(),
+    providerAccountId: input.card.providerAccountId?.trim() ?? "",
+    adId: getBriefingAdActionInputId(input.card),
+    snapshotId:
+      input.card.sourceDecisionSnapshotMatch === "matched"
+        ? input.card.sourceDecisionSnapshotId?.trim() ?? ""
+        : "",
+    evaluationId: input.card.sourceDecisionEvaluationId?.trim() ?? "",
+    engineVersion:
+      input.card.sourceDecisionSnapshotEngineVersion?.trim() ?? "",
+    decisionHash: input.card.sourceDecisionHash?.trim() ?? "",
+    action: input.action,
+    creativeId: nonEmptyId(input.card.creativeId),
+    ...(input.dryRun === true ? { dryRun: true } : {}),
+  };
+  const request: DecisionOriginAdExecutionRequest = {
+    ...requestBase,
+    idempotencyKey:
+      input.idempotencyKey?.trim() ||
+      createDecisionOriginAdActionIdempotencyKey(requestBase),
+  };
+  const blockers = validateDecisionOriginAdExecutionRequest(request);
+  if (blockers.length > 0) {
+    throw new Error(
+      `Decision-origin ad execution blocked (${blockers.join(", ")}).`,
+    );
+  }
+  return request;
+}
+
+export async function executeDecisionOriginAdActionWithPreflight<T>(input: {
+  request: DecisionOriginAdExecutionRequest;
+  rereadEvidence: (
+    request: DecisionOriginAdExecutionRequest,
+  ) => Promise<DecisionOriginAdExecutionEvidence>;
+  mutateProvider: (request: DecisionOriginAdExecutionRequest) => Promise<T>;
+  now?: Date;
+}): Promise<DecisionOriginAdActionHandlerResult<T>> {
+  const preflight = await runDecisionOriginAdExecutionPreflight({
+    request: input.request,
+    rereadEvidence: input.rereadEvidence,
+    now: input.now,
+  });
+  if (!preflight.shouldMutate) {
+    return { preflight, providerResult: null };
+  }
+  return {
+    preflight,
+    providerResult: await input.mutateProvider(input.request),
+  };
 }
 
 export function isCutPrimaryAction(card: BriefingCreativeCard) {
@@ -148,48 +238,98 @@ export function buildLaunchpadOpenToast(mode: LaunchpadOverlayMode): BriefingToa
 
 export async function pauseBriefingCard(input: {
   businessId: string;
-  card: BriefingCreativeCard;
+  card: DecisionOriginBriefingCard;
+  idempotencyKey?: string;
+  dryRun?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<PauseBriefingCardResult> {
   if (!isCutPrimaryAction(input.card)) {
     throw new Error("This card does not carry a server-authorized cut action.");
   }
-  const candidateIds = getBriefingAdActionCandidateIds(input.card);
-  const fetcher = input.fetchImpl ?? fetch;
-  if (candidateIds.length === 0) {
-    throw new Error("No actionable Meta ad id was available for this creative.");
+  if (!hasNativeDecisionOriginLineage(input.card)) {
+    if (input.dryRun === true) {
+      throw new Error(
+        "Dry run requires exact native decision lineage for this ad.",
+      );
+    }
+    return pauseBriefingCardManualLegacy({
+      businessId: input.businessId,
+      card: input.card,
+      fetchImpl: input.fetchImpl,
+    });
   }
-
-  const attemptedIds: string[] = [];
-  let lastMessage = "Pause failed.";
-  for (const targetId of candidateIds) {
-    attemptedIds.push(targetId);
-    const response = await fetcher(`/api/meta/ads/${encodeURIComponent(targetId)}/pause`, {
+  const request = buildBriefingDecisionOriginAdActionRequest({
+    businessId: input.businessId,
+    card: input.card,
+    action: "pause",
+    idempotencyKey: input.idempotencyKey,
+    dryRun: input.dryRun,
+  });
+  const fetcher = input.fetchImpl ?? fetch;
+  const response = await fetcher(
+    `/api/meta/ads/${encodeURIComponent(request.adId)}/pause`,
+    {
       method: "POST",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
       cache: "no-store",
-      body: JSON.stringify({
-        businessId: input.businessId,
-        recIdOrigin: getCreativeScopeId(input.card),
-      }),
-    });
+      body: JSON.stringify(request),
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as
+    | (PauseBriefingCardResult & { error?: { code?: string; message?: string } })
+    | null;
+  if (response.ok && payload?.ok) {
+    return { ...payload, attemptedIds: [request.adId] };
+  }
+  throw new Error(metaAdActionFailureMessage(payload, response.status));
+}
+
+/** Explicit compatibility path for operator-selected legacy cards only. */
+export async function pauseBriefingCardManualLegacy(input: {
+  businessId: string;
+  card: BriefingCreativeCard;
+  fetchImpl?: FetchLike;
+}): Promise<PauseBriefingCardResult> {
+  if (!isCutPrimaryAction(input.card)) {
+    throw new Error("This card does not carry a server-authorized cut action.");
+  }
+  const candidateIds = getManualBriefingAdActionCandidateIds(input.card);
+  if (candidateIds.length === 0) {
+    throw new Error("No actionable Meta ad id was available for this creative.");
+  }
+  const fetcher = input.fetchImpl ?? fetch;
+  const attemptedIds: string[] = [];
+  let lastMessage = "Pause failed.";
+  for (const targetId of candidateIds) {
+    attemptedIds.push(targetId);
+    const response = await fetcher(
+      `/api/meta/ads/${encodeURIComponent(targetId)}/pause`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+        body: JSON.stringify({
+          businessId: input.businessId,
+          resolutionMode: "manual_legacy",
+          recIdOrigin: getCreativeScopeId(input.card),
+        }),
+      },
+    );
     const payload = (await response.json().catch(() => null)) as
       | (PauseBriefingCardResult & { error?: { code?: string; message?: string } })
       | null;
     if (response.ok && payload?.ok) {
       return { ...payload, attemptedIds };
     }
-
     const message = metaAdActionFailureMessage(payload, response.status);
     lastMessage = message;
-    if (isAdNotFoundResponse(payload)) {
-      continue;
-    }
-    throw new Error(message);
+    if (!isAdNotFoundResponse(payload)) throw new Error(message);
   }
-
   throw new Error(`${lastMessage} Tried ${attemptedIds.join(", ")}.`);
 }

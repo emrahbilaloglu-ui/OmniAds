@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultBusinessConfig } from "../../config";
-import { ratioZonesGate } from "../../gates/ratio-zones";
+import { ratioZonesGate, resolveCutBoundary } from "../../gates/ratio-zones";
 import type { GateContext } from "../../gates/types";
 import type {
   AccountCalibration,
@@ -500,7 +500,9 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toContain("[recovery hold]");
-    expect(output.reason).toContain("do not hard cut while recovery is holding");
+    expect(output.reason).toContain(
+      "do not hard cut while recovery is holding",
+    );
     expect(output.badges).toContainEqual({
       type: "weak_performance",
       label: "Below target",
@@ -831,6 +833,72 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
       "below_breakeven",
     );
   });
+
+  it("does not expand the account cut zone toward breakeven", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: { spend: 9000 },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[demote candidate]")).toBe(true);
+  });
+
+  it("does not cut above breakeven when account P25 is economically too high", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: { spend: 9000 },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.7,
+            bottomQuartileRatio: 0.9,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[weak zone]")).toBe(true);
+  });
+
+  it("keeps the current P25 boundary when commercial authority is stale", () => {
+    const context = ratioContext(0.6, {
+      profile: profileWithBreakeven({
+        breakEvenRoas: TARGET_ROAS * 0.78,
+      }),
+      gate: { truthSource: "commercial_truth_stale" },
+    });
+
+    expect(resolveCutBoundary(context)).toEqual({
+      ratio: 0.52,
+      mode: "account_p25",
+      accountP25: 0.52,
+      breakevenRatio: null,
+    });
+  });
+
+  it("does not feed the 0.7 cold-start fallback into the adaptive formula", () => {
+    const context = ratioContext(0.6, {
+      profile: profileWithBreakeven({
+        breakEvenRoas: TARGET_ROAS * 0.78,
+        bottomQuartileRatio: undefined,
+      }),
+    });
+    context.profile.thresholds.bottomQuartileRatio = null;
+
+    expect(resolveCutBoundary(context)).toEqual({
+      ratio: 0.7,
+      mode: "account_p25",
+      accountP25: null,
+      breakevenRatio: null,
+    });
+  });
 });
 
 describe("ratioZonesGate - edge cases", () => {
@@ -1029,6 +1097,8 @@ describe("ratioZonesGate - paused-delivery advisory badges", () => {
       ),
     );
     expect(output.label).toBe("cut");
-    expect(output.badges.map((badge) => badge.type)).not.toContain("confirm_kill");
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "confirm_kill",
+    );
   });
 });

@@ -1,5 +1,9 @@
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
-import type { DecisionLabel, DecisionOutput } from "./types";
+import {
+  NATIVE_AD_ENGINE_VERSION,
+  type DecisionLabel,
+  type DecisionOutput,
+} from "./types";
 
 export type CreativeExecutableAction = Extract<
   DecisionLabel,
@@ -71,7 +75,159 @@ export interface CreativeExecutionReadinessResult {
   readinessBlockers: MetaAutomationReadiness["blockers"];
 }
 
+export const DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION =
+  "meta-decision-origin-ad-execution.v1" as const;
+
+export type DecisionOriginAdAction = "pause" | "resume";
+
+export type DecisionOriginAdExecutionBlocker =
+  | "missing_business_id"
+  | "missing_provider_account_id"
+  | "missing_ad_id"
+  | "missing_snapshot_id"
+  | "missing_evaluation_id"
+  | "missing_engine_version"
+  | "missing_decision_hash"
+  | "invalid_decision_hash"
+  | "idempotency_key_required"
+  | "unsupported_action"
+  | "kill_switch_state_unavailable"
+  | "kill_switch_engaged"
+  | "meta_account_unresolved"
+  | "provider_account_mismatch"
+  | "ad_not_found"
+  | "ad_identity_mismatch"
+  | "current_ad_state_unverified"
+  | "current_ad_state_rejected"
+  | "current_ad_state_stale"
+  | "source_decision_not_found"
+  | "source_decision_lineage_mismatch"
+  | "engine_version_drift"
+  | "decision_hash_mismatch"
+  | "decision_stale"
+  | "action_not_authorized"
+  | "policy_state_unverified"
+  | "policy_blocked"
+  | "ad_status_incompatible"
+  | "idempotency_conflict"
+  | "verification_timestamp_missing"
+  | "verification_ad_mismatch"
+  | "verification_action_mismatch";
+
+/**
+ * The execution identity is ad-owned. creativeId is deliberately optional
+ * grouping metadata and is never used to resolve or authorize a provider write.
+ */
+export interface DecisionOriginAdExecutionRequest {
+  contractVersion: typeof DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION;
+  businessId: string;
+  providerAccountId: string;
+  adId: string;
+  snapshotId: string;
+  evaluationId: string;
+  engineVersion: string;
+  decisionHash: string;
+  action: string;
+  idempotencyKey: string;
+  creativeId?: string | null;
+  dryRun?: boolean;
+}
+
+export interface DecisionOriginCurrentAccountEvidence {
+  found: boolean;
+  businessId: string | null;
+  providerAccountId: string | null;
+  writable: boolean;
+}
+
+export interface DecisionOriginCurrentAdEvidence {
+  found: boolean;
+  businessId: string | null;
+  providerAccountId: string | null;
+  adId: string | null;
+  configuredStatus: string | null;
+  effectiveStatus: string | null;
+  policyEligible: boolean | null;
+  reviewStatus: string | null;
+  observedAt: string | null;
+  readBlocker?: Extract<
+    DecisionOriginAdExecutionBlocker,
+    | "ad_not_found"
+    | "ad_identity_mismatch"
+    | "current_ad_state_unverified"
+    | "current_ad_state_rejected"
+    | "meta_account_unresolved"
+  > | null;
+}
+
+export interface DecisionOriginSourceDecisionEvidence {
+  found: boolean;
+  businessId: string | null;
+  providerAccountId: string | null;
+  decisionEntityType: string | null;
+  decisionEntityId: string | null;
+  adId: string | null;
+  creativeId: string | null;
+  snapshotId: string | null;
+  evaluationId: string | null;
+  engineVersion: string | null;
+  decisionHash: string | null;
+  decisionLabel: string | null;
+  blockedActionType?: string | null;
+  explicitAuthorizedAction?: DecisionOriginAdAction | null;
+  computedAt: string | null;
+}
+
+export interface DecisionOriginIdempotencyReceipt {
+  actionLogId: string;
+  businessId: string;
+  providerAccountId: string | null;
+  adId: string;
+  snapshotId: string | null;
+  evaluationId: string | null;
+  engineVersion: string | null;
+  decisionHash: string | null;
+  action: string;
+  idempotencyKey: string;
+  status: string;
+  dryRun: boolean;
+  providerVerified: boolean;
+  treatmentEligible: boolean;
+}
+
+export interface DecisionOriginAdExecutionEvidence {
+  killSwitch: {
+    verified: boolean;
+    engaged: boolean;
+  };
+  currentAccount: DecisionOriginCurrentAccountEvidence;
+  currentAd: DecisionOriginCurrentAdEvidence;
+  sourceDecision: DecisionOriginSourceDecisionEvidence;
+  idempotencyReceipt: DecisionOriginIdempotencyReceipt | null;
+}
+
+export interface DecisionOriginAdExecutionPreflightResult {
+  ok: boolean;
+  disposition: "proceed" | "duplicate" | "reject";
+  shouldMutate: boolean;
+  blockers: DecisionOriginAdExecutionBlocker[];
+  errorCode: DecisionOriginAdExecutionBlocker | null;
+  duplicateReceipt: DecisionOriginIdempotencyReceipt | null;
+  decisionAgeHours: number | null;
+  currentAdStateAgeMinutes: number | null;
+}
+
+export interface DecisionOriginProviderVerificationResult {
+  providerVerified: boolean;
+  treatmentEligible: boolean;
+  blockers: DecisionOriginAdExecutionBlocker[];
+  verificationAdId: string | null;
+  verificationStatus: string | null;
+  expectedStatus: "ACTIVE" | "PAUSED" | null;
+}
+
 const HARD_ACTIONS = new Set<DecisionLabel>(["scale", "cut", "refresh"]);
+const DECISION_HASH_PATTERN = /^[a-f0-9]{64}$/;
 
 function normalizedPart(value: string | number | null | undefined): string {
   const raw = value == null || value === "" ? "unknown" : String(value);
@@ -82,10 +238,86 @@ function unique<T extends string>(values: readonly T[]): T[] {
   return Array.from(new Set(values));
 }
 
+function trimmed(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function upper(value: string | null | undefined): string {
+  return trimmed(value).toUpperCase();
+}
+
 function ageHours(generatedAt: string, now: Date): number | null {
   const generated = new Date(generatedAt);
   if (!Number.isFinite(generated.getTime())) return null;
   return (now.getTime() - generated.getTime()) / (60 * 60 * 1000);
+}
+
+function ageMinutes(observedAt: string, now: Date): number | null {
+  const observed = new Date(observedAt);
+  if (!Number.isFinite(observed.getTime())) return null;
+  return (now.getTime() - observed.getTime()) / (60 * 1000);
+}
+
+function requestContractBlockers(
+  input: DecisionOriginAdExecutionRequest,
+): DecisionOriginAdExecutionBlocker[] {
+  const blockers: DecisionOriginAdExecutionBlocker[] = [];
+  if (!trimmed(input.businessId)) blockers.push("missing_business_id");
+  if (!trimmed(input.providerAccountId)) {
+    blockers.push("missing_provider_account_id");
+  }
+  if (!trimmed(input.adId)) blockers.push("missing_ad_id");
+  if (!trimmed(input.snapshotId)) blockers.push("missing_snapshot_id");
+  if (!trimmed(input.evaluationId)) blockers.push("missing_evaluation_id");
+  if (!trimmed(input.engineVersion)) blockers.push("missing_engine_version");
+  if (!trimmed(input.decisionHash)) {
+    blockers.push("missing_decision_hash");
+  } else if (!DECISION_HASH_PATTERN.test(trimmed(input.decisionHash))) {
+    blockers.push("invalid_decision_hash");
+  }
+  if (!trimmed(input.idempotencyKey)) {
+    blockers.push("idempotency_key_required");
+  }
+  if (input.action !== "pause" && input.action !== "resume") {
+    blockers.push("unsupported_action");
+  }
+  return unique(blockers);
+}
+
+function receiptMatchesRequest(
+  receipt: DecisionOriginIdempotencyReceipt,
+  request: DecisionOriginAdExecutionRequest,
+): boolean {
+  return (
+    receipt.businessId === trimmed(request.businessId) &&
+    receipt.providerAccountId === trimmed(request.providerAccountId) &&
+    receipt.adId === trimmed(request.adId) &&
+    receipt.snapshotId === trimmed(request.snapshotId) &&
+    receipt.evaluationId === trimmed(request.evaluationId) &&
+    receipt.engineVersion === trimmed(request.engineVersion) &&
+    receipt.decisionHash === trimmed(request.decisionHash) &&
+    receipt.action === request.action &&
+    receipt.idempotencyKey === trimmed(request.idempotencyKey) &&
+    receipt.dryRun === (request.dryRun === true)
+  );
+}
+
+function rejectedDecisionOriginPreflight(input: {
+  blockers: readonly DecisionOriginAdExecutionBlocker[];
+  decisionAgeHours?: number | null;
+  currentAdStateAgeMinutes?: number | null;
+}): DecisionOriginAdExecutionPreflightResult {
+  const blockers = unique(input.blockers);
+  return {
+    ok: false,
+    disposition: "reject",
+    shouldMutate: false,
+    blockers,
+    errorCode: blockers[0] ?? null,
+    duplicateReceipt: null,
+    decisionAgeHours: input.decisionAgeHours ?? null,
+    currentAdStateAgeMinutes: input.currentAdStateAgeMinutes ?? null,
+  };
 }
 
 function sameNullable(left: unknown, right: unknown): boolean {
@@ -150,6 +382,307 @@ export function isCreativeExecutableAction(
   label: DecisionLabel,
 ): label is CreativeExecutableAction {
   return HARD_ACTIONS.has(label);
+}
+
+export function validateDecisionOriginAdExecutionRequest(
+  input: DecisionOriginAdExecutionRequest,
+): DecisionOriginAdExecutionBlocker[] {
+  return requestContractBlockers(input);
+}
+
+export function createDecisionOriginAdActionIdempotencyKey(input: {
+  businessId: string;
+  providerAccountId: string;
+  adId: string;
+  snapshotId: string;
+  evaluationId: string;
+  engineVersion: string;
+  decisionHash: string;
+  action: string;
+  dryRun?: boolean;
+}): string {
+  return [
+    "decision-ad-action",
+    normalizedPart(input.businessId),
+    normalizedPart(input.providerAccountId),
+    normalizedPart(input.adId),
+    normalizedPart(input.action),
+    normalizedPart(input.snapshotId),
+    normalizedPart(input.evaluationId),
+    normalizedPart(input.engineVersion),
+    normalizedPart(input.decisionHash),
+    input.dryRun === true ? "dry-run" : "execute",
+  ].join(":");
+}
+
+export function evaluateDecisionOriginAdExecutionPreflight(input: {
+  request: DecisionOriginAdExecutionRequest;
+  evidence: DecisionOriginAdExecutionEvidence;
+  now?: Date;
+  maxDecisionAgeHours?: number;
+  maxCurrentAdStateAgeMinutes?: number;
+  requiredEngineVersion?: string;
+}): DecisionOriginAdExecutionPreflightResult {
+  const requestBlockers = requestContractBlockers(input.request);
+  if (requestBlockers.length > 0) {
+    return rejectedDecisionOriginPreflight({ blockers: requestBlockers });
+  }
+
+  const request = {
+    ...input.request,
+    businessId: trimmed(input.request.businessId),
+    providerAccountId: trimmed(input.request.providerAccountId),
+    adId: trimmed(input.request.adId),
+    snapshotId: trimmed(input.request.snapshotId),
+    evaluationId: trimmed(input.request.evaluationId),
+    engineVersion: trimmed(input.request.engineVersion),
+    decisionHash: trimmed(input.request.decisionHash),
+    idempotencyKey: trimmed(input.request.idempotencyKey),
+  };
+  const existingReceipt = input.evidence.idempotencyReceipt;
+  if (existingReceipt) {
+    if (!receiptMatchesRequest(existingReceipt, request)) {
+      return rejectedDecisionOriginPreflight({
+        blockers: ["idempotency_conflict"],
+      });
+    }
+    return {
+      ok: true,
+      disposition: "duplicate",
+      shouldMutate: false,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: existingReceipt,
+      decisionAgeHours: null,
+      currentAdStateAgeMinutes: null,
+    };
+  }
+
+  const blockers: DecisionOriginAdExecutionBlocker[] = [];
+  const now = input.now ?? new Date();
+  const maxDecisionAgeHours = input.maxDecisionAgeHours ?? 12;
+  const maxCurrentAdStateAgeMinutes =
+    input.maxCurrentAdStateAgeMinutes ?? 5;
+  const requiredEngineVersion =
+    input.requiredEngineVersion ?? NATIVE_AD_ENGINE_VERSION;
+
+  if (request.engineVersion !== requiredEngineVersion) {
+    blockers.push("engine_version_drift");
+  }
+
+  if (!input.evidence.killSwitch.verified) {
+    blockers.push("kill_switch_state_unavailable");
+  } else if (input.evidence.killSwitch.engaged) {
+    blockers.push("kill_switch_engaged");
+  }
+
+  const account = input.evidence.currentAccount;
+  if (!account.found || !account.writable) {
+    blockers.push("meta_account_unresolved");
+  } else if (
+    account.businessId !== request.businessId ||
+    account.providerAccountId !== request.providerAccountId
+  ) {
+    blockers.push("provider_account_mismatch");
+  }
+
+  const currentAd = input.evidence.currentAd;
+  const currentAdReadBlocker = currentAd.readBlocker ?? null;
+  if (currentAdReadBlocker) {
+    blockers.push(currentAdReadBlocker);
+  } else {
+    if (!currentAd.found) {
+      blockers.push("ad_not_found");
+    } else {
+      if (currentAd.businessId !== request.businessId) {
+        blockers.push("ad_identity_mismatch");
+      }
+      if (currentAd.providerAccountId !== request.providerAccountId) {
+        blockers.push("provider_account_mismatch");
+      }
+      if (currentAd.adId !== request.adId) {
+        blockers.push("ad_identity_mismatch");
+      }
+    }
+  }
+
+  const currentAdStateAgeMinutes = !currentAdReadBlocker && currentAd.observedAt
+    ? ageMinutes(currentAd.observedAt, now)
+    : null;
+  if (!currentAdReadBlocker) {
+    if (currentAdStateAgeMinutes === null) {
+      blockers.push("current_ad_state_unverified");
+    } else if (
+      currentAdStateAgeMinutes < -1 ||
+      currentAdStateAgeMinutes > maxCurrentAdStateAgeMinutes
+    ) {
+      blockers.push("current_ad_state_stale");
+    }
+  }
+
+  const source = input.evidence.sourceDecision;
+  if (!source.found) {
+    blockers.push("source_decision_not_found");
+  } else {
+    if (
+      source.businessId !== request.businessId ||
+      source.providerAccountId !== request.providerAccountId ||
+      source.decisionEntityType !== "ad" ||
+      source.decisionEntityId !== request.adId ||
+      source.adId !== request.adId ||
+      source.snapshotId !== request.snapshotId ||
+      source.evaluationId !== request.evaluationId
+    ) {
+      blockers.push("source_decision_lineage_mismatch");
+    }
+    if (source.engineVersion !== request.engineVersion) {
+      blockers.push("engine_version_drift");
+    }
+    if (source.decisionHash !== request.decisionHash) {
+      blockers.push("decision_hash_mismatch");
+    }
+  }
+
+  const decisionAgeHours = source.computedAt
+    ? ageHours(source.computedAt, now)
+    : null;
+  if (
+    decisionAgeHours === null ||
+    decisionAgeHours < -(1 / 60) ||
+    decisionAgeHours > maxDecisionAgeHours
+  ) {
+    blockers.push("decision_stale");
+  }
+
+  if (request.action === "pause") {
+    if (
+      source.decisionLabel !== "cut" ||
+      source.blockedActionType != null ||
+      (source.explicitAuthorizedAction != null &&
+        source.explicitAuthorizedAction !== "pause")
+    ) {
+      blockers.push("action_not_authorized");
+    }
+  } else if (request.action === "resume") {
+    if (
+      source.blockedActionType != null ||
+      source.explicitAuthorizedAction !== "resume"
+    ) {
+      blockers.push("action_not_authorized");
+    }
+  }
+
+  if (!currentAdReadBlocker) {
+    if (currentAd.policyEligible === null) {
+      blockers.push("policy_state_unverified");
+    } else if (!currentAd.policyEligible) {
+      blockers.push("policy_blocked");
+    }
+
+    const configuredStatus = upper(currentAd.configuredStatus);
+    const effectiveStatus = upper(currentAd.effectiveStatus);
+    if (
+      (request.action === "pause" &&
+        (configuredStatus !== "ACTIVE" || effectiveStatus !== "ACTIVE")) ||
+      (request.action === "resume" &&
+        (configuredStatus !== "PAUSED" || effectiveStatus !== "PAUSED"))
+    ) {
+      blockers.push("ad_status_incompatible");
+    }
+  }
+
+  if (blockers.length > 0) {
+    return rejectedDecisionOriginPreflight({
+      blockers,
+      decisionAgeHours,
+      currentAdStateAgeMinutes,
+    });
+  }
+  return {
+    ok: true,
+    disposition: "proceed",
+    shouldMutate: true,
+    blockers: [],
+    errorCode: null,
+    duplicateReceipt: null,
+    decisionAgeHours,
+    currentAdStateAgeMinutes,
+  };
+}
+
+export async function runDecisionOriginAdExecutionPreflight(input: {
+  request: DecisionOriginAdExecutionRequest;
+  rereadEvidence: (
+    request: DecisionOriginAdExecutionRequest,
+  ) => Promise<DecisionOriginAdExecutionEvidence>;
+  now?: Date;
+  maxDecisionAgeHours?: number;
+  maxCurrentAdStateAgeMinutes?: number;
+  requiredEngineVersion?: string;
+}): Promise<DecisionOriginAdExecutionPreflightResult> {
+  const requestBlockers = requestContractBlockers(input.request);
+  if (requestBlockers.length > 0) {
+    return rejectedDecisionOriginPreflight({ blockers: requestBlockers });
+  }
+  const evidence = await input.rereadEvidence(input.request);
+  return evaluateDecisionOriginAdExecutionPreflight({
+    request: input.request,
+    evidence,
+    now: input.now,
+    maxDecisionAgeHours: input.maxDecisionAgeHours,
+    maxCurrentAdStateAgeMinutes: input.maxCurrentAdStateAgeMinutes,
+    requiredEngineVersion: input.requiredEngineVersion,
+  });
+}
+
+export function expectedProviderStatusForDecisionOriginAction(
+  action: string,
+): "ACTIVE" | "PAUSED" | null {
+  if (action === "pause") return "PAUSED";
+  if (action === "resume") return "ACTIVE";
+  return null;
+}
+
+export function validateDecisionOriginProviderVerification(input: {
+  request: DecisionOriginAdExecutionRequest;
+  verifiedAt: string | null | undefined;
+  verificationPayload: Record<string, unknown> | null | undefined;
+}): DecisionOriginProviderVerificationResult {
+  const blockers: DecisionOriginAdExecutionBlocker[] = [];
+  const expectedStatus = expectedProviderStatusForDecisionOriginAction(
+    input.request.action,
+  );
+  const verificationAdId =
+    typeof input.verificationPayload?.id === "string"
+      ? input.verificationPayload.id.trim() || null
+      : null;
+  const rawStatus =
+    input.verificationPayload?.status ??
+    input.verificationPayload?.effective_status;
+  const verificationStatus =
+    typeof rawStatus === "string" ? rawStatus.trim().toUpperCase() || null : null;
+  const verifiedTime = input.verifiedAt ? new Date(input.verifiedAt) : null;
+
+  if (!verifiedTime || !Number.isFinite(verifiedTime.getTime())) {
+    blockers.push("verification_timestamp_missing");
+  }
+  if (verificationAdId !== trimmed(input.request.adId)) {
+    blockers.push("verification_ad_mismatch");
+  }
+  if (expectedStatus === null || verificationStatus !== expectedStatus) {
+    blockers.push("verification_action_mismatch");
+  }
+
+  const providerVerified =
+    input.request.dryRun !== true && blockers.length === 0;
+  return {
+    providerVerified,
+    treatmentEligible: providerVerified,
+    blockers: unique(blockers),
+    verificationAdId,
+    verificationStatus,
+    expectedStatus,
+  };
 }
 
 export function createCreativeActionIdempotencyKey(input: {

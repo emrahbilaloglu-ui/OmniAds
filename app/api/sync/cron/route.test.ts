@@ -30,8 +30,10 @@ vi.mock("@/lib/meta/outcome-accrual", () => ({
 }));
 
 vi.mock("@/lib/creative-decision-engine", () => ({
+  runAdDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
   runDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
   runEngineV3ProducerChainForActiveBusinessesIfDue: vi.fn(),
+  runNativeAdShadowChainForActiveBusinessesIfDue: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/ga4-sync", () => ({
@@ -121,6 +123,21 @@ describe("POST /api/sync/cron", () => {
     });
     vi.mocked(
       creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
+    ).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+    });
+    vi.mocked(
+      creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
+    ).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+      engineVersion: "v3-ad-test",
+    } as never);
+    vi.mocked(
+      creativeDecisionEngine.runAdDecisionOutcomesJobForActiveBusinessesIfDue,
     ).mockResolvedValue({
       skipped: true,
       reason: "outside_slot",
@@ -312,11 +329,33 @@ describe("POST /api/sync/cron", () => {
       reason: "outside_slot",
       asOf: "2026-04-15",
     });
+    expect(payload.nativeAdShadowJob).toEqual(
+      expect.objectContaining({
+        skipped: true,
+        reason: "outside_slot",
+        asOf: "2026-04-15",
+      }),
+    );
+    expect(payload.nativeAdOutcomesJob).toEqual({
+      skipped: true,
+      reason: "outside_slot",
+      asOf: "2026-04-15",
+    });
     expect(
       creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
     ).toHaveBeenCalledWith(expect.any(Date));
     expect(
       creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).toHaveBeenCalledWith(expect.any(Date), [
+      { id: "biz_1", name: "Biz 1" },
+    ]);
+    expect(
+      creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
+    ).toHaveBeenCalledWith(expect.any(Date), [
+      { id: "biz_1", name: "Biz 1" },
+    ]);
+    expect(
+      creativeDecisionEngine.runAdDecisionOutcomesJobForActiveBusinessesIfDue,
     ).toHaveBeenCalledWith(expect.any(Date), [
       { id: "biz_1", name: "Biz 1" },
     ]);
@@ -443,6 +482,56 @@ describe("POST /api/sync/cron", () => {
       expect.any(Error),
     );
 
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when the native ad shadow chain fails", async () => {
+    vi.mocked(
+      creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
+    ).mockRejectedValue(new Error("native shadow failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.nativeAdShadowJob).toMatchObject({
+      skipped: true,
+      reason: "failed",
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] native_ad_shadow_job_failed",
+      expect.any(Error),
+    );
+    spy.mockRestore();
+  });
+
+  it("does not fail cron when native ad outcomes fail", async () => {
+    vi.mocked(
+      creativeDecisionEngine.runAdDecisionOutcomesJobForActiveBusinessesIfDue,
+    ).mockRejectedValue(new Error("native outcomes failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const request = new NextRequest("http://localhost/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.nativeAdOutcomesJob).toMatchObject({
+      skipped: true,
+      reason: "failed",
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] native_ad_outcomes_job_failed",
+      expect.any(Error),
+    );
     spy.mockRestore();
   });
 

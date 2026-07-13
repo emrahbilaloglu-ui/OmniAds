@@ -973,5 +973,31 @@
     "expectedTopReasonTag": "commercial_truth_unknown_scale_block",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-080",
+    "inputSummary": "mature ad is above fresh break-even but below an unusually high account P25",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "medium",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "breakeven_cut_ceiling",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-081",
+    "inputSummary": "mature ad is between account P25 and fresh break-even when P25 is the lower boundary",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "medium",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "no_cut_zone_expansion",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }
 ]

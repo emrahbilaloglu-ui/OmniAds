@@ -4,15 +4,26 @@ import { getIntegration } from "@/lib/integrations";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
+  completeDecisionOriginMetaAdsActionLog,
   completeMetaAdsActionLog,
+  createDecisionOriginMetaAdsActionLog,
   createMetaAdsActionLog,
+  decisionOriginIdempotencyReceiptFromLog,
   findRecentDuplicateActionResult,
   hasRecentPendingMetaAdsAction,
   listRecentMetaAdsActionLogs,
+  resolveExactMetaAdActionTarget,
   resolveMetaAdActionTarget,
   type MetaAdsActionKind,
   type MetaAdsActionStatus,
 } from "@/lib/meta/ads-action-log";
+import { runServerDecisionOriginAdActionPreflight } from "@/lib/meta/decision-origin-action-preflight";
+import {
+  DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+  validateDecisionOriginAdExecutionRequest,
+  type DecisionOriginAdExecutionRequest,
+  type DecisionOriginIdempotencyReceipt,
+} from "@/lib/creative-decision-engine/execution-safety";
 import {
   duplicateAd,
   pauseAd,
@@ -24,7 +35,17 @@ import {
 type RouteParams = { params: Promise<{ adId: string }> };
 
 interface ActionBody {
+  contractVersion?: string;
   businessId?: string;
+  providerAccountId?: string;
+  adId?: string;
+  snapshotId?: string;
+  evaluationId?: string;
+  engineVersion?: string;
+  decisionHash?: string;
+  action?: string;
+  idempotencyKey?: string;
+  creativeId?: string | null;
   targetAdsetId?: string;
   name?: string;
   activateAfterCreate?: boolean;
@@ -61,6 +82,77 @@ function recIdOriginFromBody(body: ActionBody | null) {
 
 function dryRunFromBody(body: ActionBody | null) {
   return body?.dryRun === true;
+}
+
+function parseDecisionOriginRequest(input: {
+  body: ActionBody | null;
+  pathAdId: string;
+  action: MetaAdsActionKind;
+}):
+  | { ok: true; request: DecisionOriginAdExecutionRequest | null }
+  | { ok: false; response: NextResponse } {
+  const body = input.body;
+  const decisionFieldsPresent = Boolean(
+    body?.contractVersion ||
+      body?.providerAccountId ||
+      body?.snapshotId ||
+      body?.evaluationId ||
+      body?.engineVersion ||
+      body?.decisionHash ||
+      body?.idempotencyKey,
+  );
+  if (!decisionFieldsPresent) return { ok: true, request: null };
+  if (
+    body?.contractVersion !== DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION
+  ) {
+    return {
+      ok: false,
+      response: jsonError(
+        400,
+        "invalid_decision_origin_contract",
+        "Decision-origin fields require the exact supported contractVersion.",
+      ),
+    };
+  }
+  const request: DecisionOriginAdExecutionRequest = {
+    contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+    businessId: body.businessId?.trim() ?? "",
+    providerAccountId: body.providerAccountId?.trim() ?? "",
+    adId: body.adId?.trim() ?? "",
+    snapshotId: body.snapshotId?.trim() ?? "",
+    evaluationId: body.evaluationId?.trim() ?? "",
+    engineVersion: body.engineVersion?.trim() ?? "",
+    decisionHash: body.decisionHash?.trim() ?? "",
+    action: body.action?.trim() ?? "",
+    idempotencyKey: body.idempotencyKey?.trim() ?? "",
+    creativeId: body.creativeId?.trim() || null,
+    ...(body.dryRun === true ? { dryRun: true } : {}),
+  };
+  const blockers = validateDecisionOriginAdExecutionRequest(request);
+  if (
+    blockers.length > 0 ||
+    request.adId !== input.pathAdId ||
+    request.action !== input.action
+  ) {
+    return {
+      ok: false,
+      response: jsonError(
+        400,
+        "invalid_decision_origin_lineage",
+        "Decision-origin request does not match the exact route ad/action lineage.",
+        {
+          blockers: [
+            ...blockers,
+            ...(request.adId !== input.pathAdId ? ["route_ad_mismatch"] : []),
+            ...(request.action !== input.action
+              ? ["route_action_mismatch"]
+              : []),
+          ],
+        },
+      ),
+    };
+  }
+  return { ok: true, request };
 }
 
 function adsManagerAdUrl(accountNumericId: string, adId: string | null | undefined) {
@@ -118,11 +210,59 @@ async function resolveWriteContext(input: {
   };
 }
 
+function decisionOriginReplayResponse(input: {
+  action: MetaAdsActionKind;
+  adId: string;
+  receipt: DecisionOriginIdempotencyReceipt;
+}) {
+  const succeeded = input.receipt.status === "success";
+  const pending = input.receipt.status === "pending";
+  return NextResponse.json(
+    {
+      ok: succeeded,
+      action: input.action,
+      adId: input.adId,
+      status:
+        succeeded && input.action === "pause"
+          ? "PAUSED"
+          : succeeded && input.action === "resume"
+            ? "ACTIVE"
+            : null,
+      duplicate: true,
+      receipt: input.receipt,
+      ...(!succeeded
+        ? {
+            error: {
+              code: pending
+                ? "action_in_flight"
+                : "idempotent_action_failed",
+              message: `The existing idempotent action is ${input.receipt.status}; no new provider write was attempted.`,
+            },
+          }
+        : {}),
+    },
+    { status: pending ? 409 : 200 },
+  );
+}
+
+function decisionOriginPreflightStatus(errorCode: string | null) {
+  if (
+    errorCode === "kill_switch_engaged" ||
+    errorCode === "kill_switch_state_unavailable" ||
+    errorCode === "current_ad_state_unverified" ||
+    errorCode === "current_ad_state_stale"
+  ) {
+    return 503;
+  }
+  if (errorCode === "ad_not_found") return 404;
+  return 409;
+}
+
 async function prepareAction(input: {
   request: NextRequest;
   adId: string;
   body: ActionBody | null;
-  action: string;
+  action: MetaAdsActionKind;
 }) {
   const businessId = input.body?.businessId?.trim() ?? "";
   if (!businessId) {
@@ -136,6 +276,14 @@ async function prepareAction(input: {
       ok: false as const,
       response: jsonError(400, "missing_ad_id", "adId is required."),
     };
+  }
+  const parsedDecisionOrigin = parseDecisionOriginRequest({
+    body: input.body,
+    pathAdId: input.adId,
+    action: input.action,
+  });
+  if (!parsedDecisionOrigin.ok) {
+    return { ok: false as const, response: parsedDecisionOrigin.response };
   }
 
   const access = await requireBusinessAccess({
@@ -154,10 +302,16 @@ async function prepareAction(input: {
   });
   if (blocked) return { ok: false as const, response: blocked };
 
-  const targetResult = await resolveMetaAdActionTarget({
-    businessId: access.membership.businessId,
-    adId: input.adId,
-  });
+  const targetResult = parsedDecisionOrigin.request
+    ? await resolveExactMetaAdActionTarget({
+        businessId: access.membership.businessId,
+        providerAccountId: parsedDecisionOrigin.request.providerAccountId,
+        adId: parsedDecisionOrigin.request.adId,
+      })
+    : await resolveMetaAdActionTarget({
+        businessId: access.membership.businessId,
+        adId: input.adId,
+      });
   if (!targetResult.ok) {
     return {
       ok: false as const,
@@ -166,6 +320,52 @@ async function prepareAction(input: {
           ? jsonError(404, "business_not_found", "Business not found.")
           : jsonError(404, "ad_not_found", "Ad not found for this business."),
     };
+  }
+
+  const ctxResult = await resolveWriteContext({
+    businessId: access.membership.businessId,
+    providerAccountId: targetResult.target.providerAccountId,
+  });
+  if (!ctxResult.ok) return { ok: false as const, response: ctxResult.response };
+
+  if (parsedDecisionOrigin.request) {
+    let preflight;
+    try {
+      preflight = await runServerDecisionOriginAdActionPreflight({
+        request: parsedDecisionOrigin.request,
+        ctx: ctxResult.ctx,
+      });
+    } catch (error) {
+      return {
+        ok: false as const,
+        response: jsonError(
+          503,
+          "decision_preflight_unavailable",
+          sanitizeErrorMessage(error),
+        ),
+      };
+    }
+    if (preflight.disposition === "duplicate" && preflight.duplicateReceipt) {
+      return {
+        ok: false as const,
+        response: decisionOriginReplayResponse({
+          action: input.action,
+          adId: targetResult.target.adId,
+          receipt: preflight.duplicateReceipt,
+        }),
+      };
+    }
+    if (!preflight.shouldMutate) {
+      return {
+        ok: false as const,
+        response: jsonError(
+          decisionOriginPreflightStatus(preflight.errorCode),
+          preflight.errorCode ?? "decision_preflight_blocked",
+          `Decision-origin preflight blocked the provider write (${preflight.blockers.join(", ")}).`,
+          { blockers: preflight.blockers },
+        ),
+      };
+    }
   }
 
   const pending = await hasRecentPendingMetaAdsAction({
@@ -184,18 +384,13 @@ async function prepareAction(input: {
     };
   }
 
-  const ctxResult = await resolveWriteContext({
-    businessId: access.membership.businessId,
-    providerAccountId: targetResult.target.providerAccountId,
-  });
-  if (!ctxResult.ok) return { ok: false as const, response: ctxResult.response };
-
   return {
     ok: true as const,
     businessId: access.membership.businessId,
     userId: access.session.user.id,
     target: targetResult.target,
     ctx: ctxResult.ctx,
+    decisionOriginRequest: parsedDecisionOrigin.request,
   };
 }
 
@@ -207,8 +402,9 @@ async function completeFailure(input: {
   logId: string;
   startedAt: number;
   result: MetaAdsWriteFailure;
+  decisionOrigin: boolean;
 }) {
-  return completeMetaAdsActionLog({
+  const completion = {
     id: input.logId,
     status: getFailureLogStatus(input.result),
     payloadResponse: ensureRecord(input.result.responsePayload),
@@ -216,11 +412,16 @@ async function completeFailure(input: {
     errorMessage: input.result.error.message,
     resultingAdId: input.result.resultingAdId ?? null,
     durationMs: Date.now() - input.startedAt,
-    verifiedAt: input.result.verificationPayload
-      ? new Date().toISOString()
-      : null,
     verificationPayload: ensureRecord(input.result.verificationPayload),
-  });
+  };
+  return input.decisionOrigin
+    ? completeDecisionOriginMetaAdsActionLog(completion)
+    : completeMetaAdsActionLog({
+        ...completion,
+        verifiedAt: input.result.verificationPayload
+          ? new Date().toISOString()
+          : null,
+      });
 }
 
 export async function handleMetaAdStatusAction(
@@ -238,22 +439,40 @@ export async function handleMetaAdStatusAction(
   // that does not match the actual Meta entity).
   const resolvedAdId = prepared.target.adId;
   const status = action === "pause" ? "PAUSED" : "ACTIVE";
-  const log = await createMetaAdsActionLog({
-    businessId: prepared.businessId,
-    adId: resolvedAdId,
-    creativeId: prepared.target.creativeId,
-    action,
-    requestedBy: prepared.userId,
-    recIdOrigin: recIdOriginFromBody(body),
-    payloadRequest: {
+  const payloadRequest = {
       method: "POST",
       endpoint: `/${resolvedAdId}`,
       body: { status },
       dry_run: dryRunFromBody(body),
       input_ad_id: inputAdId,
       rec_id_origin: recIdOriginFromBody(body),
-    },
-  });
+    };
+  const log = prepared.decisionOriginRequest
+    ? await createDecisionOriginMetaAdsActionLog({
+        request: prepared.decisionOriginRequest,
+        requestedBy: prepared.userId,
+        payloadRequest,
+      })
+    : await createMetaAdsActionLog({
+        businessId: prepared.businessId,
+        adId: resolvedAdId,
+        creativeId: prepared.target.creativeId,
+        action,
+        requestedBy: prepared.userId,
+        recIdOrigin: recIdOriginFromBody(body),
+        payloadRequest,
+      });
+
+  if (prepared.decisionOriginRequest && log.idempotentReplay) {
+    return decisionOriginReplayResponse({
+      action,
+      adId: resolvedAdId,
+      receipt: decisionOriginIdempotencyReceiptFromLog(
+        log,
+        prepared.decisionOriginRequest.idempotencyKey,
+      ),
+    });
+  }
 
   const startedAt = Date.now();
   try {
@@ -267,7 +486,12 @@ export async function handleMetaAdStatusAction(
           : await resumeAd(prepared.ctx, resolvedAdId);
 
     if (!result.ok) {
-      await completeFailure({ logId: log.id, startedAt, result });
+      await completeFailure({
+        logId: log.id,
+        startedAt,
+        result,
+        decisionOrigin: Boolean(prepared.decisionOriginRequest),
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -278,14 +502,21 @@ export async function handleMetaAdStatusAction(
       );
     }
 
-    await completeMetaAdsActionLog({
+    const successCompletion = {
       id: log.id,
-      status: "success",
+      status: "success" as const,
       payloadResponse: ensureRecord(result.responsePayload),
       durationMs: Date.now() - startedAt,
-      verifiedAt: new Date().toISOString(),
       verificationPayload: ensureRecord(result.verificationPayload),
-    });
+    };
+    if (prepared.decisionOriginRequest) {
+      await completeDecisionOriginMetaAdsActionLog(successCompletion);
+    } else {
+      await completeMetaAdsActionLog({
+        ...successCompletion,
+        verifiedAt: new Date().toISOString(),
+      });
+    }
 
     return NextResponse.json({
       ok: true,
@@ -297,13 +528,17 @@ export async function handleMetaAdStatusAction(
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);
-    await completeMetaAdsActionLog({
+    const failureCompletion = {
       id: log.id,
-      status: "failure",
+      status: "failure" as const,
       errorCode: "internal_error",
       errorMessage: message,
       durationMs: Date.now() - startedAt,
-    }).catch(() => null);
+    };
+    await (prepared.decisionOriginRequest
+      ? completeDecisionOriginMetaAdsActionLog(failureCompletion)
+      : completeMetaAdsActionLog(failureCompletion)
+    ).catch(() => null);
     return jsonError(500, "internal_error", message);
   }
 }
@@ -388,7 +623,12 @@ export async function handleMetaAdDuplicateAction(
     });
 
     if (!result.ok) {
-      await completeFailure({ logId: log.id, startedAt, result });
+      await completeFailure({
+        logId: log.id,
+        startedAt,
+        result,
+        decisionOrigin: false,
+      });
       return NextResponse.json(
         {
           ok: false,

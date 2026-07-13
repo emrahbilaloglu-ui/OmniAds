@@ -56,13 +56,9 @@ import {
 import { formatCurrency, formatRoas } from "@/lib/briefing/utils";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
-import {
-  BRIEFING_STATUS_FILTER_LABELS,
-  BRIEFING_STATUS_FILTERS,
-  parseBriefingStatusFilter,
-  type BriefingStatusFilter,
-} from "@/lib/meta/briefing-filter";
+import type { BriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import type {
+  MetaArchivedEntity,
   MetaDecisionsWorkspacePayload,
   MetaDecisionsWorkspaceBanner as MetaWorkspaceBanner,
   MetaDrillItem,
@@ -645,14 +641,6 @@ function percentDelta(
   return ((current - previous) / previous) * 100;
 }
 
-function labelCoveragePercent(pulse?: MetaPulsePayload | null) {
-  const coverage = pulse?.labelCoverage;
-  if (!coverage || coverage.activeCampaigns <= 0) return null;
-  return Math.round(
-    (coverage.labeledCampaigns / coverage.activeCampaigns) * 100,
-  );
-}
-
 function trackingClass(
   status: MetaPulsePayload["trackingHealth"]["status"] | undefined,
 ) {
@@ -1024,31 +1012,6 @@ function MetaMobileDecisionsScreen({
   );
 }
 
-function MetaStatusControls({
-  selectedStatusFilter,
-  onStatusFilterChange,
-}: {
-  selectedStatusFilter: BriefingStatusFilter;
-  onStatusFilterChange: (filter: BriefingStatusFilter) => void;
-}) {
-  return (
-    <div className={styles.statusSegment} aria-label="Meta status selector">
-      {BRIEFING_STATUS_FILTERS.map((filter) => (
-        <button
-          key={filter}
-          type="button"
-          data-active={selectedStatusFilter === filter ? "true" : "false"}
-          aria-pressed={selectedStatusFilter === filter}
-          data-status-filter-option={filter}
-          onClick={() => onStatusFilterChange(filter)}
-        >
-          {BRIEFING_STATUS_FILTER_LABELS[filter]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function FinalMetaPulse({
   pulse,
   window,
@@ -1092,7 +1055,6 @@ function FinalMetaPulse({
 
   const endIsToday =
     !pulse?.endDate || pulse.endDate === new Date().toISOString().slice(0, 10);
-  const labelPercent = labelCoveragePercent(pulse);
   const dailySpend =
     pulse?.pacing.spendToday ??
     (pulse?.pacing.dayPace != null && pulse?.pacing.dailyTarget != null
@@ -1139,11 +1101,14 @@ function FinalMetaPulse({
         {pulse?.trackingHealth?.status ?? "unknown"}
       </span>
       <span>
-        campaign context{" "}
+        {pulse?.campaignContextMode === "automatic"
+          ? "automatic context"
+          : pulse?.campaignContextMode === "legacy_labels"
+            ? "legacy context"
+            : "context withheld"}
         {pulse?.labelCoverage
-          ? `${pulse.labelCoverage.labeledCampaigns}/${pulse.labelCoverage.activeCampaigns}`
-          : "—"}
-        {labelPercent != null ? ` · ${labelPercent}%` : ""}
+          ? ` · ${pulse.labelCoverage.labeledCampaigns} overrides`
+          : ""}
         {" · "}
         <button
           type="button"
@@ -1336,8 +1301,10 @@ function canonicalCreativeSearchMatch(
   const query = search.trim().toLowerCase();
   if (!query) return true;
   return [
-    decision.parentChain.creative.name,
-    decision.parentChain.creative.id,
+    decision.parentChain.ad?.name,
+    decision.parentChain.ad?.id,
+    decision.parentChain.creative?.name,
+    decision.parentChain.creative?.id,
     decision.parentChain.campaign?.name,
     decision.parentChain.campaign?.id,
     decision.parentChain.adset?.name,
@@ -1356,8 +1323,16 @@ function MetaCreativeDecisionCard({
   onOpen: () => void;
 }) {
   const previewUrl = decision.media.thumbnail.url;
+  const adName =
+    decision.parentChain.ad?.name ??
+    decision.parentChain.ad?.id ??
+    decision.parentChain.creative?.name ??
+    decision.parentChain.creative?.id ??
+    "Ad identity unavailable";
   const creativeName =
-    decision.parentChain.creative.name ?? decision.parentChain.creative.id;
+    decision.parentChain.creative?.name ??
+    decision.parentChain.creative?.id ??
+    null;
   const action = decision.classification.executionAction
     ? `${decision.classification.buyerLabel} · ${humanizeDecisionToken(decision.classification.executionAction)}`
     : decision.classification.buyerLabel;
@@ -1370,11 +1345,12 @@ function MetaCreativeDecisionCard({
         previewUrl && styles.creativeCardWithPreview,
       )}
       data-testid="meta-creative-call"
-      data-creative-id={decision.parentChain.creative.id}
+      data-ad-id={decision.parentChain.ad?.id ?? undefined}
+      data-creative-id={decision.parentChain.creative?.id ?? undefined}
       data-decision-id={decision.decisionId}
       data-preview-state={previewUrl ? "ready" : "missing"}
       onClick={onOpen}
-      aria-label={`Open creative evidence for ${creativeName}`}
+      aria-label={`Open ad evidence for ${adName}`}
     >
       <span className={styles.creativeMedia}>
         {previewUrl ? (
@@ -1398,11 +1374,16 @@ function MetaCreativeDecisionCard({
             {decision.sourceDecision.confidenceBand} confidence
           </span>
         </span>
-        <strong title={creativeName}>{creativeName}</strong>
+        <strong title={adName}>{adName}</strong>
         <small>
           {decision.parentChain.campaign?.name ?? "Campaign unavailable"} ·{" "}
           {humanizeDecisionToken(decision.classification.assessment.value)}
         </small>
+        {creativeName ? (
+          <small>Creative group · {creativeName}</small>
+        ) : (
+          <small>Creative grouping unavailable</small>
+        )}
         <span className={styles.creativeReason}>
           {decision.sourceDecision.reason ||
             "Creative engine evidence is available."}
@@ -1473,16 +1454,20 @@ function MetaCreativeEvidenceDrawer({
         onClick={onClose}
         aria-label="Close creative evidence"
       />
-      <aside className={styles.creativeDrawer} aria-label="Creative evidence">
+      <aside className={styles.creativeDrawer} aria-label="Ad evidence">
         <header className={styles.creativeDrawerHeader}>
           <div>
-            <span>Creative evidence</span>
+            <span>Ad evidence</span>
             <h2>
-              {decision.parentChain.creative.name ??
-                decision.parentChain.creative.id}
+              {decision.parentChain.ad?.name ??
+                decision.parentChain.ad?.id ??
+                "Ad identity unavailable"}
             </h2>
             <p>
-              Creative engine · {decision.sourceDecision.engineVersion} ·{" "}
+              {decision.identityGrain === "ad"
+                ? "Native Ad"
+                : "Legacy creative"}{" "}
+              engine · {decision.sourceDecision.engineVersion} ·{" "}
               {decision.providerAccountId}
             </p>
           </div>
@@ -1523,6 +1508,18 @@ function MetaCreativeEvidenceDrawer({
           <section>
             <span className={styles.sectionEyebrow}>Evidence context</span>
             <dl className={styles.drawerFacts}>
+              <div>
+                <dt>Ad ID</dt>
+                <dd>{decision.parentChain.ad?.id ?? "—"}</dd>
+              </div>
+              <div>
+                <dt>Creative group</dt>
+                <dd>
+                  {decision.parentChain.creative?.name ??
+                    decision.parentChain.creative?.id ??
+                    "Unavailable"}
+                </dd>
+              </div>
               <div>
                 <dt>Truth source</dt>
                 <dd>{decision.sourceDecision.truthSource}</dd>
@@ -1584,18 +1581,22 @@ function MetaCreativeEvidenceDrawer({
           </div>
         </div>
         <footer className={styles.creativeDrawerFooter}>
-          <a
-            className="btn btn--primary"
-            href={`/platforms/meta/launchpad?fromMetaBriefing=true&providerAccountId=${encodeURIComponent(decision.providerAccountId)}&sourceDecisionId=${encodeURIComponent(decision.decisionId)}&sourceDecisionSnapshotId=${encodeURIComponent(decision.sourceSnapshotId)}&creativeIds=${encodeURIComponent(decision.parentChain.creative.id)}&mode=rebuild`}
-          >
-            Open in Launchpad
-          </a>
-          <a
-            className="btn"
-            href={`/platforms/meta/creatives?providerAccountId=${encodeURIComponent(decision.providerAccountId)}&creativeId=${encodeURIComponent(decision.parentChain.creative.id)}`}
-          >
-            Open Creative Studio
-          </a>
+          {decision.parentChain.creative ? (
+            <>
+              <a
+                className="btn btn--primary"
+                href={`/platforms/meta/launchpad?fromMetaBriefing=true&providerAccountId=${encodeURIComponent(decision.providerAccountId)}&sourceDecisionId=${encodeURIComponent(decision.decisionId)}&sourceDecisionSnapshotId=${encodeURIComponent(decision.sourceSnapshotId)}&creativeIds=${encodeURIComponent(decision.parentChain.creative.id)}&mode=rebuild`}
+              >
+                Open in Launchpad
+              </a>
+              <a
+                className="btn"
+                href={`/platforms/meta/creatives?providerAccountId=${encodeURIComponent(decision.providerAccountId)}&creativeId=${encodeURIComponent(decision.parentChain.creative.id)}`}
+              >
+                Open Creative Studio
+              </a>
+            </>
+          ) : null}
         </footer>
       </aside>
     </div>
@@ -1676,7 +1677,11 @@ function MetaMonitorPager({
         Showing {start}-{end} of {total} {noun} · page {page} of {pageCount}
       </span>
       <div className={styles.monitorPagerActions}>
-        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => onPage(page - 1)}
+        >
           Previous
         </button>
         <button
@@ -1756,6 +1761,121 @@ function MetaQuietEntityRow({
       </span>
       <span className={styles.quietStatus} data-tone="healthy">
         Healthy
+      </span>
+    </div>
+  );
+}
+
+function MetaInactiveStructureRow({
+  row,
+  moneyCurrency,
+}: {
+  row: MetaArchivedEntity;
+  moneyCurrency: string | null;
+}) {
+  return (
+    <div className={styles.quietRow} data-quiet-row="inactive-structure">
+      <span className={styles.quietGrain}>
+        {row.level === "adset" ? "SET" : "CMP"}
+      </span>
+      <span className={styles.quietIdentity}>
+        <strong>{row.name}</strong>
+        <small>
+          {row.level === "adset"
+            ? (row.campaignName ?? "Ad set")
+            : (row.campaignKind ?? "Campaign")}
+        </small>
+        {row.advisory ? (
+          <small title={row.advisory.why}>
+            Advisory · {row.advisory.primaryActionLabel}
+          </small>
+        ) : null}
+      </span>
+      <span className={styles.quietMetrics}>
+        <span>
+          <small>Spend</small>
+          <b>{formatMoney(row.spend, moneyCurrency)}</b>
+        </span>
+        <span>
+          <small>ROAS</small>
+          <b>{formatRoas(row.roas)}</b>
+        </span>
+        <span>
+          <small>Purchases</small>
+          <b>{row.purchases}</b>
+        </span>
+      </span>
+      <span className={styles.quietStatus} data-tone="inactive">
+        {row.statusLabel}
+      </span>
+    </div>
+  );
+}
+
+function MetaInactiveAdRow({
+  decision,
+  moneyCurrency,
+  onOpen,
+}: {
+  decision: MetaCanonicalDecision;
+  moneyCurrency: string | null;
+  onOpen: () => void;
+}) {
+  const ad = decision.parentChain.ad;
+  const status =
+    decision.deliveryScope?.adStatus ??
+    decision.deliveryScope?.adsetStatus ??
+    decision.deliveryScope?.campaignStatus ??
+    "Unknown";
+  return (
+    <div
+      className={styles.quietRow}
+      data-quiet-row="inactive-ad"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <span className={styles.quietGrain}>AD</span>
+      <span className={styles.quietIdentity}>
+        <strong>{ad?.name ?? ad?.id ?? "Ad identity unavailable"}</strong>
+        <small>
+          {decision.parentChain.campaign?.name ?? "Campaign unavailable"} ·{" "}
+          {decision.parentChain.adset?.name ?? "Ad set unavailable"}
+        </small>
+        <small title={decision.sourceDecision.reason}>
+          Advisory · {decision.sourceDecision.label.replaceAll("_", " ")}
+        </small>
+      </span>
+      <span className={styles.quietMetrics}>
+        <span>
+          <small>Spend</small>
+          <b>
+            {decision.metrics.spend == null
+              ? "—"
+              : formatMoney(decision.metrics.spend, moneyCurrency)}
+          </b>
+        </span>
+        <span>
+          <small>ROAS</small>
+          <b>
+            {decision.metrics.roas == null
+              ? "—"
+              : formatRoas(decision.metrics.roas)}
+          </b>
+        </span>
+        <span>
+          <small>Confidence</small>
+          <b>{decision.sourceDecision.confidenceBand}</b>
+        </span>
+      </span>
+      <span className={styles.quietStatus} data-tone="inactive">
+        {status.replaceAll("_", " ")}
       </span>
     </div>
   );
@@ -2152,9 +2272,7 @@ export function MetaPlatformPage({
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const selectedWindow = parseMetaWindow(searchParams.get("window"));
-  const selectedStatusFilter = parseBriefingStatusFilter(
-    searchParams.get("status_filter"),
-  );
+  const selectedStatusFilter: BriefingStatusFilter = "active";
   const initialLane = parseMetaWorkspaceLane(searchParams);
   const requestedProviderAccountId =
     searchParams.get("providerAccountId")?.trim() || null;
@@ -2428,6 +2546,40 @@ export function MetaPlatformPage({
     canonicalDecisionModel?.status === "available"
       ? canonicalDecisionModel.queue.sections.creative_rotation
       : null;
+  const nativeAdDecisionAuthority =
+    canonicalDecisionModel?.source.authority === "native_ad";
+  const inactiveStructureRows = laneQuery.data?.archive ?? [];
+  const inactiveAdDecisions =
+    canonicalDecisionModel?.queue.inactiveAssets?.items ?? [];
+  const inactiveViewItems = useMemo(() => {
+    const query = rowSearch.trim().toLowerCase();
+    const structures = inactiveStructureRows
+      .filter(
+        (row) =>
+          !query ||
+          [row.name, row.campaignName ?? "", row.statusLabel].some((value) =>
+            value.toLowerCase().includes(query),
+          ),
+      )
+      .filter((row) => !minSpendOnly || row.spend >= META_MIN_SPEND_THRESHOLD)
+      .map((row) => ({ kind: "structure" as const, row, spend: row.spend }));
+    const ads = inactiveAdDecisions
+      .filter((decision) => canonicalCreativeSearchMatch(decision, rowSearch))
+      .filter(
+        (decision) =>
+          !minSpendOnly ||
+          (decision.metrics.spend != null &&
+            decision.metrics.spend >= META_MIN_SPEND_THRESHOLD),
+      )
+      .map((decision) => ({
+        kind: "ad" as const,
+        decision,
+        spend: decision.metrics.spend ?? -1,
+      }));
+    return [...structures, ...ads].sort(
+      (left, right) => right.spend - left.spend,
+    );
+  }, [inactiveAdDecisions, inactiveStructureRows, minSpendOnly, rowSearch]);
   // Presentation-only filters run over the server-selected top-N. They never
   // reclassify, rerank, or pull suppressed decisions into the client.
   const creativeActionDecisions = useMemo(() => {
@@ -2603,16 +2755,6 @@ export function MetaPlatformPage({
     }
     latestSearchParamsRef.current = query;
     router.replace(nextHref);
-  };
-
-  const setStatusFilter = (next: BriefingStatusFilter) => {
-    const params = currentUrlParams();
-    if (next === "active") {
-      params.delete("status_filter");
-    } else {
-      params.set("status_filter", next);
-    }
-    replaceMetaParams(params);
   };
 
   const setProviderAccount = (nextProviderAccountId: string) => {
@@ -3295,15 +3437,14 @@ export function MetaPlatformPage({
         ? healthyRowsForView.length
         : activeLane === "nonSales"
           ? visibleNonSalesRecs.length
+          : activeLane === "archive"
+            ? inactiveViewItems.length
           : 0;
   const activeMonitorPageCount = Math.max(
     1,
     Math.ceil(activeMonitorTotal / META_MONITOR_PAGE_SIZE),
   );
-  const effectiveMonitorPage = Math.min(
-    monitorPage,
-    activeMonitorPageCount,
-  );
+  const effectiveMonitorPage = Math.min(monitorPage, activeMonitorPageCount);
   const boundedWatchingRecs = paginateMetaMonitorRows(
     visibleWatchingRecs,
     effectiveMonitorPage,
@@ -3314,6 +3455,10 @@ export function MetaPlatformPage({
   );
   const boundedHealthyRows = paginateMetaMonitorRows(
     healthyRowsForView,
+    effectiveMonitorPage,
+  );
+  const boundedInactiveItems = paginateMetaMonitorRows(
+    inactiveViewItems,
     effectiveMonitorPage,
   );
 
@@ -3439,10 +3584,6 @@ export function MetaPlatformPage({
                 includeCurrentDayInRollingRanges
                 align="end"
               />
-              <MetaStatusControls
-                selectedStatusFilter={selectedStatusFilter}
-                onStatusFilterChange={setStatusFilter}
-              />
               <button
                 type="button"
                 className="btn"
@@ -3566,7 +3707,11 @@ export function MetaPlatformPage({
           </button>
           <button
             type="button"
-            data-active={activeLane !== "action" ? "true" : "false"}
+            data-active={
+              activeLane !== "action" && activeLane !== "archive"
+                ? "true"
+                : "false"
+            }
             onClick={() => selectLane("watching")}
           >
             <span>Monitor</span>
@@ -3577,6 +3722,14 @@ export function MetaPlatformPage({
                   filteredHealthy.length +
                   filteredNonSales.length}
             </b>
+          </button>
+          <button
+            type="button"
+            data-active={activeLane === "archive" ? "true" : "false"}
+            onClick={() => selectLane("archive")}
+          >
+            <span>Inactive assets</span>
+            <b>{briefingUnavailable ? "—" : inactiveViewItems.length}</b>
           </button>
           <a href="/platforms/meta/history">
             <History size={13} aria-hidden="true" />
@@ -3769,9 +3922,17 @@ export function MetaPlatformPage({
 
                   <section data-decision-section="creative_rotation">
                     <MetaLaneSectionHeader
-                      title="Creative rotation"
+                      title={
+                        nativeAdDecisionAuthority
+                          ? "Ad decisions"
+                          : "Creative rotation"
+                      }
                       count={creativeActionTotal ?? "—"}
-                      note="Creative-grain calls · evidence stays separate from structure math"
+                      note={
+                        nativeAdDecisionAuthority
+                          ? "Exact Ad decisions · optional creative grouping"
+                          : "Legacy creative-grain calls · review only"
+                      }
                     />
                     {boundedCreativeDecisions.length > 0 ? (
                       <div className={styles.creativeGrid}>
@@ -3798,11 +3959,12 @@ export function MetaPlatformPage({
                 </div>
               ) : (
                 <div className={styles.osMonitor}>
-                  <div
-                    className={styles.monitorSegments}
-                    role="tablist"
-                    aria-label="Monitor segment"
-                  >
+                  {activeLane !== "archive" ? (
+                    <div
+                      className={styles.monitorSegments}
+                      role="tablist"
+                      aria-label="Monitor segment"
+                    >
                     <button
                       type="button"
                       role="tab"
@@ -3830,7 +3992,8 @@ export function MetaPlatformPage({
                     >
                       Out of sales scope · {visibleNonSalesRecs.length}
                     </button>
-                  </div>
+                    </div>
+                  ) : null}
 
                   {activeLane === "watching" ? (
                     boundedWatchingRecs.length > 0 ? (
@@ -3980,22 +4143,42 @@ export function MetaPlatformPage({
                         filters.
                       </div>
                     )
-                  ) : (
-                    <div className={styles.historyHandoff}>
-                      <History size={18} aria-hidden="true" />
-                      <div>
-                        <strong>Closed structures now live in History.</strong>
-                        <p>
-                          History preserves status, response, write receipt, and
-                          outcome provenance.
-                        </p>
+                  ) : boundedInactiveItems.length > 0 ? (
+                    <>
+                      <MetaLaneSectionHeader
+                        title="Inactive assets"
+                        count={inactiveViewItems.length}
+                        note="Closed or status-unknown campaign, ad-set, and Ad rows · advisory only"
+                      />
+                      <div className={styles.quietList}>
+                        {boundedInactiveItems.map((item) =>
+                          item.kind === "structure" ? (
+                            <MetaInactiveStructureRow
+                              key={`inactive-${item.row.level}-${item.row.id}`}
+                              row={item.row}
+                              moneyCurrency={moneyCurrency}
+                            />
+                          ) : (
+                            <MetaInactiveAdRow
+                              key={`inactive-ad-${item.decision.decisionId}`}
+                              decision={item.decision}
+                              moneyCurrency={moneyCurrency}
+                              onOpen={() => setCreativeDrill(item.decision)}
+                            />
+                          ),
+                        )}
                       </div>
-                      <a
-                        className="btn"
-                        href="/platforms/meta/history?kind=structures"
-                      >
-                        Open History
-                      </a>
+                      <MetaMonitorPager
+                        page={effectiveMonitorPage}
+                        total={inactiveViewItems.length}
+                        noun="inactive assets"
+                        onPage={setMonitorPage}
+                      />
+                    </>
+                  ) : (
+                    <div className="lane-empty">
+                      No inactive asset recommendation is available for this
+                      account.
                     </div>
                   )}
                 </div>

@@ -137,25 +137,24 @@ async function fetchCreativeStudioBriefing(input: {
   return payload;
 }
 
-async function fetchDecisionsWorkspace(input: {
+async function fetchStudioWriteAuthority(input: {
   businessId: string;
   providerAccountId: string;
 }): Promise<StudioOsDecisionsData> {
   const query = new URLSearchParams({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    window: "28d",
-    status_filter: "all",
+    summary: "1",
   });
-  const response = await fetch(`/api/meta/decisions-workspace?${query.toString()}`, {
+  const response = await fetch(`/api/meta/automation?${query.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
   const payload = (await response.json().catch(() => null)) as
     | (StudioOsDecisionsData & { error?: string; message?: string })
     | null;
-  if (!response.ok || !payload || !payload.lanes) {
-    throw new Error(payload?.message ?? payload?.error ?? `Decisions workspace could not load (${response.status}).`);
+  if (!response.ok || !payload || !payload.system) {
+    throw new Error(payload?.message ?? payload?.error ?? `Write authority could not load (${response.status}).`);
   }
   return payload;
 }
@@ -327,10 +326,11 @@ export default function MetaCreativeStudioPage() {
     refetchOnWindowFocus: false,
   });
   const decisionsWorkspaceQuery = useQuery({
-    queryKey: ["meta-decisions-workspace-studio", businessId, providerAccountId],
+    queryKey: ["meta-studio-write-authority", businessId, providerAccountId],
     enabled: hasExplicitAccountScope,
-    queryFn: () => fetchDecisionsWorkspace({ businessId, providerAccountId }),
-    staleTime: 30 * 1000,
+    queryFn: () => fetchStudioWriteAuthority({ businessId, providerAccountId }),
+    staleTime: 60 * 1000,
+    gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 

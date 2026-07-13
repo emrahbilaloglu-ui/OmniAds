@@ -36,10 +36,8 @@ export const RECENT_SIGNAL_FRESHNESS_HOURS = 36;
 export const PREFLIGHT_FRESHNESS_HOURS = 12;
 export const STALE_CONFIDENCE_CAP = 65;
 
-// F2: the cut-zone boundary is the account-relative roasRatioP25. In strong
-// accounts that percentile can exceed 1.0, which would put profitable
-// near-target creatives inside the hard-cut zone. Clamp the boundary so a
-// creative at or above target ratio can never be zone-cut by curve grading.
+// The account/economic cut boundary is capped at target. The resolver may
+// narrow it further to fresh explicit breakeven, but never widen account P25.
 export const CUT_BOUNDARY_RATIO_CLAMP = 1.0;
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;

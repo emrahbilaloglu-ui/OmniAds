@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   duplicateAd,
   pauseAd,
+  readMetaAdExecutionState,
   resumeAdset,
   resumeCampaign,
   updateAdsetBidAmount,
@@ -54,6 +55,106 @@ describe("Meta ads write client", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v22.0/ad_1?");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("access_token=secret-token");
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("reads current ad execution state without issuing a provider write", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        status: "ACTIVE",
+        effective_status: "ACTIVE",
+      }),
+    );
+
+    const result = await readMetaAdExecutionState(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: true,
+      adId: "ad_1",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+  });
+
+  it("marks provider policy states ineligible for exact execution", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        status: "ACTIVE",
+        effective_status: "DISAPPROVED",
+      }),
+    );
+
+    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+      ok: true,
+      policyEligible: false,
+      reviewStatus: "DISAPPROVED",
+    });
+  });
+
+  it("classifies transient provider reads as retryable preflight evidence", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("connection reset"));
+
+    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      adId: "ad_1",
+      httpStatus: null,
+      preflightBlocker: "current_ad_state_unverified",
+      error: { code: "network_error" },
+    });
+  });
+
+  it.each([
+    {
+      name: "deleted object",
+      response: jsonResponse(
+        { error: { code: 100, message: "Unsupported get request." } },
+        { status: 404 },
+      ),
+      blocker: "ad_not_found",
+    },
+    {
+      name: "expired token",
+      response: jsonResponse(
+        { error: { code: 190, message: "Invalid OAuth access token." } },
+        { status: 400 },
+      ),
+      blocker: "meta_account_unresolved",
+    },
+    {
+      name: "other permanent request rejection",
+      response: jsonResponse(
+        { error: { code: 10, message: "Application does not have permission." } },
+        { status: 400 },
+      ),
+      blocker: "current_ad_state_rejected",
+    },
+  ])("preserves $name as a non-retryable preflight blocker", async ({ response, blocker }) => {
+    vi.mocked(fetch).mockResolvedValueOnce(response);
+
+    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      adId: "ad_1",
+      preflightBlocker: blocker,
+    });
+  });
+
+  it("preserves provider identity mismatches as a hard preflight blocker", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ id: "ad_other", status: "ACTIVE", effective_status: "ACTIVE" }),
+    );
+
+    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      adId: "ad_other",
+      httpStatus: 200,
+      preflightBlocker: "ad_identity_mismatch",
+    });
   });
 
   it("pauseAd returns silent_failure when verification shows unchanged status", async () => {

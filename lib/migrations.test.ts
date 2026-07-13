@@ -8,6 +8,9 @@ vi.mock("@/lib/startup-diagnostics", () => ({
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
   getDbWithTimeout: vi.fn(),
+  runDbTransaction: vi.fn(async (operation: () => Promise<unknown>) =>
+    operation(),
+  ),
 }));
 
 const db = await import("@/lib/db");
@@ -50,6 +53,7 @@ describe("runMigrations", () => {
       force: true,
       reason: "test",
       timeoutMs: 120_000,
+      verifyNativeSchemaCapabilities: false,
     });
 
     expect(db.getDbWithTimeout).toHaveBeenCalledWith(120_000);
@@ -152,6 +156,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "legacy-cleanup-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const joinedQueries = queries.join("\n");
@@ -187,6 +192,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "shopify-cutover-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const joinedQueries = queries.join("\n");
@@ -233,6 +239,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "config-history-guard-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const joinedQueries = queries.join("\n");
@@ -276,6 +283,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "provider-seed-guard-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const providerSeedQueries = queries.filter(
@@ -326,6 +334,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "google-product-dimension-guard-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const productBackfillQueries = queries.filter(
@@ -369,6 +378,7 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "meta-dimension-guard-test",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const joinedQueries = queries.join("\n");
@@ -409,10 +419,12 @@ describe("runMigrations", () => {
     await migrations.runMigrations({
       force: true,
       reason: "meta-calibration-cohort-test",
+      verifyNativeSchemaCapabilities: false,
     });
     await migrations.runMigrations({
       force: true,
       reason: "meta-calibration-cohort-test-rerun",
+      verifyNativeSchemaCapabilities: false,
     });
 
     const joinedQueries = queries.join("\n");

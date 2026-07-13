@@ -24,6 +24,7 @@ import {
   applyLabelHysteresis,
   type PreviousPublishedLabel,
 } from "@/lib/creative-decision-engine/decision-stability";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   ENGINE_VERSION,
   type AccountDecisionProfile,
@@ -471,13 +472,6 @@ function toBoolean(value: unknown): boolean {
   return false;
 }
 
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
-}
-
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -673,10 +667,10 @@ async function readSourceMode(input: {
           : "lifecycle_carry_forward",
     lifecycleRows,
     sameDayLifecycleRows,
-    latestLifecycleAsOfDate: toDateOnly(row?.latest_lifecycle_as_of_date),
+    latestLifecycleAsOfDate: normalizePostgresDate(row?.latest_lifecycle_as_of_date),
     calibrationRows: toNumber(row?.calibration_rows),
     sameDayCalibrationRows: toNumber(row?.same_day_calibration_rows),
-    latestCalibrationAsOfDate: toDateOnly(row?.latest_calibration_as_of_date),
+    latestCalibrationAsOfDate: normalizePostgresDate(row?.latest_calibration_as_of_date),
   };
 }
 

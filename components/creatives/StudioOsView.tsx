@@ -11,7 +11,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
-import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import type { MetaCreativeBrief } from "@/lib/meta/creative-brief-contract";
 import type {
@@ -427,49 +426,13 @@ function previewAssetState(row: MetaCreativeRow): "ready" | "pending" | "missing
   return "missing";
 }
 
-/**
- * Compatibility subset of `/api/meta/decisions-workspace`. Studio consumes
- * only the read-only kill-switch authority flag; lane and digest fields remain
- * in the type because the existing page contract supplies the full payload.
- */
+/** Lightweight read-only authority contract from `/api/meta/automation?summary=1`. */
 export interface StudioOsDecisionsData {
-  lanes: {
-    actionNow: MetaRecommendation[];
-    watching: MetaRecommendation[];
-    nonSales: MetaRecommendation[];
-    watchingSegments?: Array<{ key: string; label: string; count: number; description: string }>;
-    counts: { actionNow: number; watching: number; nonSales: number };
-  };
   system: {
-    killSwitchEngaged: boolean;
+    killSwitchEngaged: boolean | null;
+    writeEndpointsBlocked?: boolean;
+    blockReason?: string | null;
     snapshotHealth?: { status: string } | null;
-  };
-  digest: {
-    labelFlips: {
-      items: Array<{
-        id: string;
-        title: string;
-        previousLabel: string;
-        currentLabel: string;
-        occurredAt: string | null;
-      }>;
-    };
-    actions: {
-      items: Array<{
-        id: string;
-        action: string;
-        target: string;
-        status: string;
-        occurredAt: string | null;
-        detail: string | null;
-      }>;
-    };
-    anomalies: {
-      items: Array<{ id: string; title: string; status: string; occurredAt: string | null }>;
-    };
-    deferrals: {
-      items: Array<{ id: string; title: string; dueAt: string | null; detail: string | null }>;
-    };
   };
 }
 

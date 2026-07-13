@@ -129,6 +129,9 @@
 .laneSwitch button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink3); font-size: 11.5px; font-weight: 600; }
 .laneSwitch button[aria-pressed="true"] { background: var(--ink); color: var(--s2); }
 .laneSwitch button[aria-pressed="true"] span { background: rgb(255 255 255 / 15%); color: inherit; }
+.statusFilter { display: inline-flex; align-items: center; gap: 7px; color: var(--ink3); font-size: 10.5px; font-weight: 600; }
+.statusFilter select { height: 30px; max-width: 180px; border: 1px solid var(--b2); border-radius: 8px; background: var(--s2); padding: 0 27px 0 9px; color: var(--ink2); font: inherit; }
+.advisoryOnly { display: inline-flex; align-items: center; padding: 6px 10px; border: 1px solid var(--b2); border-radius: 8px; background: var(--s2); color: var(--ink2); font-size: 10.5px; font-weight: 600; }
 .listCaption { margin-left: auto; color: var(--ink3); font-size: 11px; }
 
 .workspace { position: relative; display: flex; min-height: 0; flex: 1; gap: 14px; overflow: hidden; padding: 11px 16px 14px; }
@@ -151,6 +154,10 @@
 .actionChip[data-tone="caution"], .assessmentChip[data-tone="caution"] { border-color: var(--caution-bd); background: var(--caution-bg); color: var(--caution-fg); }
 .actionChip[data-tone="positive"], .assessmentChip[data-tone="positive"] { border-color: var(--pos-bd); background: var(--pos-bg); color: var(--pos-fg); }
 .actionChip[data-tone="info"] { border-color: var(--info-bd); background: var(--info-bg); color: var(--info-fg); }
+.urgencyBadge { display: inline-flex; flex: none; align-items: center; gap: 4px; border: 1px solid var(--caution-bd); border-radius: 5px; padding: 1px 6px; background: var(--caution-bg); color: var(--caution-fg); font-size: 9.5px; font-weight: 700; white-space: nowrap; }
+.urgencyBadge[data-level="critical"] { border-color: var(--danger-bd); background: var(--danger-bg); color: var(--danger-fg); }
+.structureRow[data-urgency="critical"] { box-shadow: inset 3px 0 0 var(--danger-fg); }
+.structureRow[data-urgency="high"] { box-shadow: inset 3px 0 0 var(--caution-fg); }
 .rowMeta { display: flex; flex-wrap: wrap; gap: 5px 8px; color: var(--ink3); font-size: 9.5px; }
 .rowMeta span { padding-right: 8px; border-right: 1px solid var(--b1); }
 .rowMeta span:last-child { border-right: 0; }
@@ -159,6 +166,9 @@
 .rowMetrics span { color: var(--ink2); font-size: 10.5px; }
 .rowMetrics small { color: var(--ink4); font-size: 9px; }
 .rowChevron { flex: none; color: var(--ink4); }
+.inactiveRow { display: flex; min-width: 0; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--b1); color: var(--ink); }
+.inactiveRow:last-child { border-bottom: 0; }
+.inactiveReason { display: -webkit-box; overflow: hidden; max-width: 760px; color: var(--ink2); font-size: 10px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 .adRow { display: flex; width: 100%; align-items: center; gap: 12px; padding: 11px 14px; border: 0; border-bottom: 1px solid var(--b1); border-left: 3px solid transparent; background: transparent; color: var(--ink); text-align: left; }
 .adRow:last-child { border-bottom: 0; }
@@ -211,6 +221,10 @@
 .blockedBox { border-color: var(--danger-bd); background: var(--danger-bg); color: var(--danger-fg); }
 .blockedBox[data-resolution="true"] { border-color: var(--caution-bd); background: var(--caution-bg); color: var(--caution-fg); }
 .roleCorrection { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 7px; }
+.roleSummary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.roleSummary strong { font-size: 11.5px; }
+.roleSummary span { color: var(--ink3); font-size: 9.5px; }
+.roleHelp { margin-top: 5px !important; color: var(--ink3) !important; font-size: 9.5px !important; }
 .roleOptions { display: grid; overflow: hidden; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--caution-bd); border-radius: 7px; }
 .roleOptions button { min-width: 0; padding: 6px 5px; border: 0; border-right: 1px solid var(--caution-bd); background: transparent; color: var(--caution-fg); font-size: 10px; font-weight: 600; }
 .roleOptions button:last-child { border-right: 0; }
@@ -242,13 +256,16 @@
   .layerTools :global([data-testid="meta-decisions-date-range-picker-trigger"]) { max-width: calc(100vw - 92px); }
   .historyLink { font-size: 0; }
   .historyLink svg { width: 16px; height: 16px; }
-  .laneBar { padding: 8px 10px 0; }
+  .laneBar { flex-wrap: wrap; padding: 8px 10px 0; }
   .laneSwitch { display: grid; width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .laneSwitch[data-structure="true"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .laneSwitch button { min-width: 0; justify-content: center; padding: 6px 5px; font-size: 10.5px; white-space: nowrap; }
+  .statusFilter { width: 100%; justify-content: space-between; }
+  .statusFilter select { min-width: 0; flex: 1; }
   .listCaption { display: none; }
   .workspace { overflow: visible; padding: 8px 10px 12px; }
   .listPane { overflow: visible; }
-  .structureRow, .adRow { min-height: 64px; padding: 9px 10px; }
+  .structureRow, .adRow, .inactiveRow { min-height: 64px; padding: 9px 10px; }
   .structureRow[data-child="true"] { padding-left: 20px; }
   .rowMetrics { min-width: 82px; }
   .rowMetrics small, .adMetrics, .assessmentBlock small, .assessmentBlock > span:last-child { display: none; }
@@ -256,6 +273,7 @@
   .assessmentBlock { width: auto; }
   .assessmentChip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
   .rowMeta span:nth-child(n + 3) { display: none; }
+  .urgencyBadge { max-width: 116px; overflow: hidden; text-overflow: ellipsis; }
   .inspector { inset: 46px 0 0; width: 100%; max-width: none; }
   .inspectorScrim { display: none; }
   .identitySection { grid-template-columns: 1fr; }

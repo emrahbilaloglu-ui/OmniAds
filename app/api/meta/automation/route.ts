@@ -5,6 +5,7 @@ import {
   releaseMetaAutomationKillSwitch,
   setMetaAutomationDecisionTypeMode,
   getMetaAutomationControlPlane,
+  getMetaWriteBlockState,
   META_AUTOMATION_DECISION_TYPES,
   type MetaAutomationDecisionType,
   type MetaAutomationDecisionMode,
@@ -77,6 +78,25 @@ export async function GET(request: NextRequest) {
   if (!accountScope.ok) return accountScope.response;
 
   try {
+    if (request.nextUrl.searchParams.get("summary") === "1") {
+      const writeBlock = await getMetaWriteBlockState({
+        businessId: access.membership.businessId,
+      });
+      return NextResponse.json({
+        ok: true,
+        system: {
+          killSwitchEngaged:
+            writeBlock.reason === "META_ADS_WRITE_KILL_SWITCH" ||
+            writeBlock.reason === "business_kill_switch"
+              ? true
+              : writeBlock.reason === null
+                ? false
+                : null,
+          writeEndpointsBlocked: writeBlock.blocked,
+          blockReason: writeBlock.reason,
+        },
+      });
+    }
     const automation = await getMetaAutomationControlPlane({
       businessId: access.membership.businessId,
       providerAccountId: accountScope.providerAccountId,

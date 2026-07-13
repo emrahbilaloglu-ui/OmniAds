@@ -1,4 +1,28 @@
-import { getDb, getDbWithTimeout } from "@/lib/db";
+import {
+  getDb,
+  getDbWithTimeout,
+  runDbTransaction,
+  type DbClient,
+} from "@/lib/db";
+import { NATIVE_AD_DECISION_SCHEMA_SQL } from "@/lib/creative-decision-engine/ad-evaluation-schema";
+import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
+import {
+  NATIVE_AD_CALIBRATION_MIGRATION_SQL,
+  inspectNativeAdCalibrationSchemaCapability,
+} from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
+import {
+  CREATE_AD_DECISION_OUTCOMES_TABLE_SQL,
+  inspectAdDecisionOutcomeSchemaCapability,
+} from "@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job";
+import {
+  AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL,
+  AD_OPERATOR_RESPONSE_SCHEMA_SQL,
+  inspectAdOperatorResponseSchemaCapability,
+} from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
+import {
+  CONTROLLED_REGISTRY_SCHEMA_SQL,
+  inspectControlledRegistryCapabilities,
+} from "@/lib/meta/controlled-experiment-registry";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let migrationsPromise: Promise<void> | null = null;
@@ -8,6 +32,204 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+
+type NativeSchemaCapability = {
+  ready: boolean;
+  missing?: readonly string[];
+  mismatched?: readonly string[];
+  issues?: readonly string[];
+};
+
+function nativeSchemaIssues(capability: NativeSchemaCapability) {
+  return [
+    ...(capability.missing ?? []),
+    ...(capability.mismatched ?? []),
+    ...(capability.issues ?? []),
+  ];
+}
+
+function assertNativeSchemaCapability(
+  name: string,
+  capability: NativeSchemaCapability,
+) {
+  if (capability.ready) return;
+  throw new Error(
+    `Native ad schema contract is not ready after ${name}: ${nativeSchemaIssues(capability).join(", ")}`,
+  );
+}
+
+async function hasPartialNonIdempotentNativeSchema(
+  db: DbClient,
+  input: {
+    tables: readonly string[];
+    columns?: readonly { table: string; column: string }[];
+  },
+) {
+  const [row] = await db.query<{
+    table_count: number | string;
+    column_count: number | string;
+  }>(
+    `
+    SELECT
+      COUNT(DISTINCT table_name)::integer AS table_count,
+      COUNT(*) FILTER (WHERE column_name IS NOT NULL)::integer AS column_count
+    FROM (
+      SELECT table_name, NULL::text AS column_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])
+      UNION ALL
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND (table_name, column_name) IN (
+          SELECT item->>'table', item->>'column'
+          FROM jsonb_array_elements($2::jsonb) item
+        )
+    ) capability
+    `,
+    [input.tables, JSON.stringify(input.columns ?? [])],
+  );
+  return Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0;
+}
+
+async function runNativeAdSchemaMigrations(
+  timeoutMs: number,
+  verifyCapabilities: boolean,
+) {
+  await runDbTransaction(
+    async () => {
+      const db = getDbWithTimeout(timeoutMs);
+      const inspectorDb = createMigrationDb(db);
+
+      // SQL-capture unit tests exercise the emitted migration text with a
+      // deliberately non-stateful DB mock. Production and the ephemeral
+      // PostgreSQL seam always use the strict post-apply catalog verification.
+      if (!verifyCapabilities) {
+        await db.query(NATIVE_AD_CALIBRATION_MIGRATION_SQL);
+        for (const statement of NATIVE_AD_DECISION_SCHEMA_SQL) {
+          await db.query(statement);
+        }
+        await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
+        await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
+        await db.query(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL);
+        await db.query(CONTROLLED_REGISTRY_SCHEMA_SQL);
+        return;
+      }
+
+      let calibration = await inspectNativeAdCalibrationSchemaCapability(
+        inspectorDb,
+      );
+      if (!calibration.ready) {
+        await db.query(NATIVE_AD_CALIBRATION_MIGRATION_SQL);
+        calibration = await inspectNativeAdCalibrationSchemaCapability(
+          inspectorDb,
+        );
+      }
+      assertNativeSchemaCapability("native calibration migration", calibration);
+
+      let decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
+      if (!decisions.ready) {
+        const partial = await hasPartialNonIdempotentNativeSchema(db, {
+          tables: [
+            "engine_v3_ad_decision_evaluation_contexts",
+            "engine_v3_ad_decision_evaluations",
+            "engine_v3_ad_decision_snapshots_daily",
+            "engine_v3_ad_decision_events",
+          ],
+        });
+        if (partial) {
+          throw new Error(
+            "Refusing to apply the non-idempotent native decision contract over a partial schema.",
+          );
+        }
+        for (const statement of NATIVE_AD_DECISION_SCHEMA_SQL) {
+          await db.query(statement);
+        }
+        decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
+      }
+      assertNativeSchemaCapability("native decision migration", decisions);
+
+      let operatorResponse =
+        await inspectAdOperatorResponseSchemaCapability(inspectorDb);
+      if (!operatorResponse.ready) {
+        const partial = await hasPartialNonIdempotentNativeSchema(db, {
+          tables: [
+            "engine_v3_ad_recommendation_episodes",
+            "engine_v3_ad_operator_action_receipts",
+            "engine_v3_ad_operator_response_events",
+            "engine_v3_ad_operator_responses",
+          ],
+          columns: [
+            { table: "meta_ads_action_log", column: "decision_contract_version" },
+            { table: "meta_ads_action_log", column: "decision_episode_key" },
+            { table: "meta_ads_action_log", column: "terminal_finalized_at" },
+          ],
+        });
+        if (partial) {
+          throw new Error(
+            "Refusing to apply the non-idempotent native operator-response contract over a partial schema.",
+          );
+        }
+        await db.query(`
+          DO $native_operator_dependency$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint
+              WHERE conrelid = 'engine_v3_ad_decision_evaluations'::regclass
+                AND conname = 'engine_v3_ad_evaluations_operator_response_lineage_unique'
+            ) THEN
+              ALTER TABLE engine_v3_ad_decision_evaluations
+                ADD CONSTRAINT engine_v3_ad_evaluations_operator_response_lineage_unique
+                UNIQUE (
+                  id, business_ref_id, provider_account_id,
+                  decision_entity_type, decision_entity_id, ad_id, as_of_date,
+                  engine_version, scope_type, scope_id, input_hash,
+                  decision_hash
+                );
+            END IF;
+          END
+          $native_operator_dependency$
+        `);
+        await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
+        await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
+        operatorResponse =
+          await inspectAdOperatorResponseSchemaCapability(inspectorDb);
+      }
+      assertNativeSchemaCapability(
+        "native operator-response migration",
+        operatorResponse,
+      );
+
+      await db.query(`
+        ALTER TABLE engine_v3_ad_decision_snapshots_daily
+          ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+          NOT NULL DEFAULT gen_random_uuid()::text
+      `);
+      await db.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS
+          engine_v3_ad_snapshots_idempotency_key_unique
+        ON engine_v3_ad_decision_snapshots_daily (idempotency_key)
+      `);
+
+      let outcomes = await inspectAdDecisionOutcomeSchemaCapability(inspectorDb);
+      if (!outcomes.ready) {
+        await db.query(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL);
+        outcomes = await inspectAdDecisionOutcomeSchemaCapability(inspectorDb);
+      }
+      assertNativeSchemaCapability("native outcome migration", outcomes);
+
+      let controlled = await inspectControlledRegistryCapabilities();
+      if (!controlled.ready) {
+        await db.query(CONTROLLED_REGISTRY_SCHEMA_SQL);
+        controlled = await inspectControlledRegistryCapabilities();
+      }
+      assertNativeSchemaCapability("controlled registry migration", controlled);
+    },
+    { timeoutMs },
+  );
+}
 
 function createMigrationDb(sql: ReturnType<typeof getDb>) {
   let queue = Promise.resolve();
@@ -501,6 +723,7 @@ export async function runMigrations(options?: {
   force?: boolean;
   reason?: string;
   timeoutMs?: number;
+  verifyNativeSchemaCapabilities?: boolean;
 }) {
   const force = options?.force ?? false;
   const reason = options?.reason ?? "unspecified";
@@ -3183,6 +3406,592 @@ export async function runMigrations(options?: {
           ON meta_campaign_labels (business_id, campaign_kind, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_labels_account
           ON meta_campaign_labels (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_id_external
+          ON provider_accounts (id, external_account_id)`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_provider_accounts_binding
+          ON business_provider_accounts (business_id, provider_account_ref_id, provider_account_id)`,
+        sql`CREATE TABLE IF NOT EXISTS meta_entity_observation_runs (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_version          TEXT NOT NULL DEFAULT 'meta-entity-observation.v1'
+                                    CHECK (length(btrim(contract_version)) > 0),
+          business_ref_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE RESTRICT,
+          business_id               TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_ref_id   UUID NOT NULL,
+          provider_account_id       TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          entity_type               TEXT NOT NULL
+                                    CHECK (entity_type IN ('campaign', 'adset', 'ad', 'creative')),
+          endpoint                  TEXT NOT NULL CHECK (length(btrim(endpoint)) > 0),
+          observed_at               TIMESTAMPTZ NOT NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          completeness              TEXT NOT NULL
+                                    CHECK (completeness IN ('complete', 'partial', 'point_lookup', 'failed')),
+          page_count                INTEGER NOT NULL DEFAULT 0 CHECK (page_count >= 0),
+          row_count                 INTEGER NOT NULL DEFAULT 0 CHECK (row_count >= 0),
+          source_snapshot_id        TEXT,
+          payload_hash              CHAR(64)
+                                    CHECK (payload_hash IS NULL OR payload_hash ~ '^[0-9a-f]{64}$'),
+          run_hash                  CHAR(64) NOT NULL CHECK (run_hash ~ '^[0-9a-f]{64}$'),
+          error_json                JSONB
+                                    CHECK (error_json IS NULL OR jsonb_typeof(error_json) = 'object'),
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_entity_observation_runs_business_identity_check
+            CHECK (business_id = business_ref_id::text),
+          CONSTRAINT meta_entity_observation_runs_account_fk FOREIGN KEY (
+            provider_account_ref_id,
+            provider_account_id
+          ) REFERENCES provider_accounts (id, external_account_id) ON DELETE RESTRICT,
+          CONSTRAINT meta_entity_observation_runs_binding_fk FOREIGN KEY (
+            business_id,
+            provider_account_ref_id,
+            provider_account_id
+          ) REFERENCES business_provider_accounts (
+            business_id,
+            provider_account_ref_id,
+            provider_account_id
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_entity_observation_runs_time_check
+            CHECK (captured_at >= observed_at),
+          CONSTRAINT meta_entity_observation_runs_failure_check
+            CHECK (completeness <> 'failed' OR error_json IS NOT NULL),
+          CONSTRAINT meta_entity_observation_runs_hash_unique UNIQUE (run_hash),
+          CONSTRAINT meta_entity_observation_runs_lineage_unique UNIQUE (
+            id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            observed_at,
+            captured_at,
+            completeness
+          ),
+          CONSTRAINT meta_entity_observation_runs_capture_lineage_unique UNIQUE (
+            id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            captured_at,
+            completeness
+          )
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_runs_asof
+          ON meta_entity_observation_runs
+          (business_id, provider_account_id, entity_type, observed_at DESC, captured_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_runs_refs
+          ON meta_entity_observation_runs
+          (business_ref_id, provider_account_ref_id, entity_type, observed_at DESC)`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_entity_observation_runs'::regclass
+                AND conname = 'meta_entity_observation_runs_capture_lineage_unique'
+            ) THEN
+              ALTER TABLE meta_entity_observation_runs
+                ADD CONSTRAINT meta_entity_observation_runs_capture_lineage_unique
+                UNIQUE (
+                  id, business_ref_id, business_id, provider_account_ref_id,
+                  provider_account_id, entity_type, captured_at, completeness
+                );
+            END IF;
+          END
+          $$`,
+        sql`CREATE TABLE IF NOT EXISTS meta_entity_state_history (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          run_id                    UUID NOT NULL,
+          business_ref_id           UUID NOT NULL,
+          business_id               TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_ref_id   UUID NOT NULL,
+          provider_account_id       TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          entity_type               TEXT NOT NULL
+                                    CHECK (entity_type IN ('campaign', 'adset', 'ad', 'creative')),
+          entity_id                 TEXT NOT NULL CHECK (length(btrim(entity_id)) > 0),
+          campaign_id               TEXT,
+          adset_id                  TEXT,
+          ad_id                     TEXT,
+          creative_id               TEXT,
+          entity_name               TEXT,
+          configured_status         TEXT,
+          effective_status          TEXT,
+          learning_status           TEXT,
+          learning_source           TEXT NOT NULL DEFAULT 'not_observed'
+                                    CHECK (learning_source IN ('provider', 'inferred', 'not_observed')),
+          campaign_daily_budget_raw TEXT,
+          campaign_lifetime_budget_raw TEXT,
+          adset_daily_budget_raw    TEXT,
+          adset_lifetime_budget_raw TEXT,
+          budget_currency           TEXT,
+          budget_origin             TEXT NOT NULL DEFAULT 'not_observed'
+                                    CHECK (budget_origin IN ('campaign', 'adset', 'not_observed', 'not_applicable')),
+          review_status             TEXT,
+          policy_status             TEXT,
+          policy_reasons_json       JSONB
+                                    CHECK (policy_reasons_json IS NULL OR jsonb_typeof(policy_reasons_json) = 'array'),
+          provider_updated_at       TIMESTAMPTZ,
+          presence                  TEXT NOT NULL
+                                    CHECK (presence IN ('present', 'absent_unconfirmed')),
+          field_coverage_json       JSONB NOT NULL DEFAULT '{}'::jsonb
+                                    CHECK (jsonb_typeof(field_coverage_json) = 'object'),
+          observed_at               TIMESTAMPTZ NOT NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          run_completeness          TEXT NOT NULL
+                                    CHECK (run_completeness IN ('complete', 'partial', 'point_lookup')),
+          state_hash                CHAR(64) NOT NULL CHECK (state_hash ~ '^[0-9a-f]{64}$'),
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_entity_state_history_run_fk FOREIGN KEY (
+            run_id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            captured_at,
+            run_completeness
+          ) REFERENCES meta_entity_observation_runs (
+            id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            captured_at,
+            completeness
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_entity_state_history_entity_identity_check CHECK (
+            (entity_type = 'campaign' AND campaign_id IS NOT NULL AND campaign_id = entity_id) OR
+            (entity_type = 'adset' AND campaign_id IS NOT NULL AND adset_id IS NOT NULL AND adset_id = entity_id) OR
+            (entity_type = 'ad' AND campaign_id IS NOT NULL AND adset_id IS NOT NULL AND ad_id IS NOT NULL AND ad_id = entity_id) OR
+            (entity_type = 'creative' AND creative_id IS NOT NULL AND creative_id = entity_id)
+          ),
+          CONSTRAINT meta_entity_state_history_learning_check CHECK (
+            (learning_source = 'not_observed' AND learning_status IS NULL) OR
+            (learning_source IN ('provider', 'inferred') AND learning_status IS NOT NULL)
+          ),
+          CONSTRAINT meta_entity_state_history_budget_check CHECK (
+            (budget_origin = 'campaign' AND (
+              campaign_daily_budget_raw IS NOT NULL OR campaign_lifetime_budget_raw IS NOT NULL
+            )) OR
+            (budget_origin = 'adset' AND (
+              adset_daily_budget_raw IS NOT NULL OR adset_lifetime_budget_raw IS NOT NULL
+            )) OR
+            budget_origin IN ('not_observed', 'not_applicable')
+          ),
+          CONSTRAINT meta_entity_state_history_time_check CHECK (captured_at >= observed_at),
+          CONSTRAINT meta_entity_state_history_run_entity_unique UNIQUE (run_id, entity_id)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_state_history_asof
+          ON meta_entity_state_history
+          (business_id, provider_account_id, entity_type, entity_id, observed_at DESC, captured_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_state_history_run
+          ON meta_entity_state_history (run_id, entity_id)`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_entity_state_history_run_ad_identity
+          ON meta_entity_state_history (run_id, entity_type, ad_id, creative_id)`,
+        sql`DO $$
+          DECLARE
+            existing_definition TEXT;
+          BEGIN
+            SELECT pg_get_constraintdef(oid)
+            INTO existing_definition
+            FROM pg_constraint
+            WHERE conrelid = 'meta_entity_state_history'::regclass
+              AND conname = 'meta_entity_state_history_run_fk';
+
+            IF existing_definition IS NOT NULL AND existing_definition LIKE '%observed_at%' THEN
+              ALTER TABLE meta_entity_state_history
+                DROP CONSTRAINT meta_entity_state_history_run_fk;
+              existing_definition := NULL;
+            END IF;
+
+            IF existing_definition IS NULL THEN
+              ALTER TABLE meta_entity_state_history
+                ADD CONSTRAINT meta_entity_state_history_run_fk
+                FOREIGN KEY (
+                  run_id, business_ref_id, business_id, provider_account_ref_id,
+                  provider_account_id, entity_type, captured_at, run_completeness
+                ) REFERENCES meta_entity_observation_runs (
+                  id, business_ref_id, business_id, provider_account_ref_id,
+                  provider_account_id, entity_type, captured_at, completeness
+                ) ON DELETE RESTRICT NOT VALID;
+            END IF;
+          END
+          $$`,
+        sql`CREATE TABLE IF NOT EXISTS meta_campaign_label_history (
+          id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_version             TEXT NOT NULL DEFAULT 'meta-campaign-label-history.v1'
+                                       CHECK (length(btrim(contract_version)) > 0),
+          business_ref_id              UUID,
+          business_id                  TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          campaign_id                  TEXT NOT NULL CHECK (length(btrim(campaign_id)) > 0),
+          provider_account_ref_id      UUID,
+          provider_account_id          TEXT,
+          campaign_name                TEXT,
+          campaign_kind                TEXT NOT NULL
+                                       CHECK (campaign_kind IN ('main', 'test', 'mixed')),
+          test_dimension               TEXT CHECK (
+            test_dimension IS NULL OR
+            test_dimension IN ('creative', 'audience', 'bid', 'offer', 'structure', 'other')
+          ),
+          source                       TEXT NOT NULL
+                                       CHECK (source IN ('user', 'bulk_apply_confirmed')),
+          previous_provider_account_id TEXT,
+          previous_campaign_name       TEXT,
+          previous_campaign_kind       TEXT
+                                       CHECK (previous_campaign_kind IS NULL OR previous_campaign_kind IN ('main', 'test', 'mixed')),
+          previous_test_dimension      TEXT CHECK (
+            previous_test_dimension IS NULL OR
+            previous_test_dimension IN ('creative', 'audience', 'bid', 'offer', 'structure', 'other')
+          ),
+          previous_source              TEXT
+                                       CHECK (previous_source IS NULL OR previous_source IN ('user', 'bulk_apply_confirmed')),
+          labeled_by                   TEXT,
+          change_kind                  TEXT NOT NULL CHECK (change_kind IN ('created', 'updated')),
+          observed_at                  TIMESTAMPTZ NOT NULL,
+          state_hash                   CHAR(64) NOT NULL CHECK (state_hash ~ '^[0-9a-f]{64}$'),
+          created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_campaign_label_history_current_dimension_check
+            CHECK (campaign_kind = 'test' OR test_dimension IS NULL),
+          CONSTRAINT meta_campaign_label_history_previous_dimension_check
+            CHECK (previous_test_dimension IS NULL OR previous_campaign_kind = 'test'),
+          CONSTRAINT meta_campaign_label_history_change_check CHECK (
+            (change_kind = 'created' AND
+              previous_provider_account_id IS NULL AND previous_campaign_name IS NULL AND
+              previous_campaign_kind IS NULL AND previous_test_dimension IS NULL AND previous_source IS NULL) OR
+            (change_kind = 'updated' AND previous_campaign_kind IS NOT NULL AND previous_source IS NOT NULL)
+          ),
+          CONSTRAINT meta_campaign_label_history_event_unique
+            UNIQUE (business_id, campaign_id, observed_at, state_hash)
+        )`,
+        sql`ALTER TABLE meta_campaign_label_history
+          ADD COLUMN IF NOT EXISTS business_ref_id UUID,
+          ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID`,
+        sql`UPDATE meta_campaign_label_history history
+          SET business_ref_id = business.id
+          FROM businesses business
+          WHERE history.business_ref_id IS NULL
+            AND history.business_id = business.id::text`,
+        sql`UPDATE meta_campaign_label_history history
+          SET provider_account_ref_id = assignment.provider_account_ref_id
+          FROM business_provider_accounts assignment
+          WHERE history.provider_account_ref_id IS NULL
+            AND history.provider_account_id IS NOT NULL
+            AND assignment.business_id = history.business_id
+            AND assignment.provider = 'meta'
+            AND assignment.provider_account_id = history.provider_account_id`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_campaign_label_history'::regclass
+                AND conname = 'meta_campaign_label_history_tenant_fields_check'
+            ) THEN
+              ALTER TABLE meta_campaign_label_history
+                ADD CONSTRAINT meta_campaign_label_history_tenant_fields_check
+                CHECK (
+                  business_ref_id IS NOT NULL AND
+                  (
+                    (provider_account_id IS NULL AND provider_account_ref_id IS NULL) OR
+                    (provider_account_id IS NOT NULL AND provider_account_ref_id IS NOT NULL)
+                  )
+                ) NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_campaign_label_history'::regclass
+                AND conname = 'meta_campaign_label_history_business_identity_check'
+            ) THEN
+              ALTER TABLE meta_campaign_label_history
+                ADD CONSTRAINT meta_campaign_label_history_business_identity_check
+                CHECK (business_ref_id IS NULL OR business_id = business_ref_id::text)
+                NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_campaign_label_history'::regclass
+                AND conname = 'meta_campaign_label_history_business_fk'
+            ) THEN
+              ALTER TABLE meta_campaign_label_history
+                ADD CONSTRAINT meta_campaign_label_history_business_fk
+                FOREIGN KEY (business_ref_id) REFERENCES businesses(id)
+                ON DELETE RESTRICT NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_campaign_label_history'::regclass
+                AND conname = 'meta_campaign_label_history_account_fk'
+            ) THEN
+              ALTER TABLE meta_campaign_label_history
+                ADD CONSTRAINT meta_campaign_label_history_account_fk
+                FOREIGN KEY (provider_account_ref_id, provider_account_id)
+                REFERENCES provider_accounts (id, external_account_id)
+                ON DELETE RESTRICT NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_campaign_label_history'::regclass
+                AND conname = 'meta_campaign_label_history_binding_fk'
+            ) THEN
+              ALTER TABLE meta_campaign_label_history
+                ADD CONSTRAINT meta_campaign_label_history_binding_fk
+                FOREIGN KEY (business_id, provider_account_ref_id, provider_account_id)
+                REFERENCES business_provider_accounts (
+                  business_id, provider_account_ref_id, provider_account_id
+                ) ON DELETE RESTRICT NOT VALID;
+            END IF;
+          END
+          $$`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_label_history_asof
+          ON meta_campaign_label_history
+          (business_id, provider_account_id, campaign_id, observed_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_label_history_refs
+          ON meta_campaign_label_history
+          (business_ref_id, provider_account_ref_id, campaign_id, observed_at DESC)`,
+        sql`CREATE TABLE IF NOT EXISTS meta_entity_tombstones (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          run_id                    UUID NOT NULL,
+          business_ref_id           UUID NOT NULL,
+          business_id               TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_ref_id   UUID NOT NULL,
+          provider_account_id       TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          entity_type               TEXT NOT NULL
+                                    CHECK (entity_type IN ('campaign', 'adset', 'ad', 'creative')),
+          entity_id                 TEXT NOT NULL CHECK (length(btrim(entity_id)) > 0),
+          reason                    TEXT NOT NULL CHECK (reason IN ('explicit_deleted', 'explicit_not_found')),
+          provider_evidence_json    JSONB NOT NULL CHECK (jsonb_typeof(provider_evidence_json) = 'object'),
+          observed_at               TIMESTAMPTZ NOT NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          run_completeness          TEXT NOT NULL
+                                    CHECK (run_completeness IN ('complete', 'point_lookup')),
+          tombstone_hash            CHAR(64) NOT NULL CHECK (tombstone_hash ~ '^[0-9a-f]{64}$'),
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_entity_tombstones_run_fk FOREIGN KEY (
+            run_id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            observed_at,
+            captured_at,
+            run_completeness
+          ) REFERENCES meta_entity_observation_runs (
+            id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            observed_at,
+            captured_at,
+            completeness
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_entity_tombstones_time_check CHECK (captured_at >= observed_at),
+          CONSTRAINT meta_entity_tombstones_not_found_check CHECK (
+            reason <> 'explicit_not_found' OR run_completeness = 'point_lookup'
+          ),
+          CONSTRAINT meta_entity_tombstones_event_unique
+            UNIQUE (run_id, entity_type, entity_id, reason)
+        )`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_entity_tombstones'::regclass
+                AND conname = 'meta_entity_tombstones_point_evidence_check'
+            ) THEN
+              ALTER TABLE meta_entity_tombstones
+                ADD CONSTRAINT meta_entity_tombstones_point_evidence_check
+                CHECK (run_completeness = 'point_lookup') NOT VALID;
+            END IF;
+          END
+          $$`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_tombstones_asof
+          ON meta_entity_tombstones
+          (business_id, provider_account_id, entity_type, entity_id, observed_at DESC, captured_at DESC)`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_ads_action_log_id_business
+          ON meta_ads_action_log (id, business_id)`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_ads_action_log_verified_lineage
+          ON meta_ads_action_log (
+            id, business_id, action, status, verified_at, ad_id, resulting_ad_id, creative_id
+          )`,
+        sql`CREATE TABLE IF NOT EXISTS meta_creative_lineage_edges (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_version          TEXT NOT NULL DEFAULT 'meta-creative-lineage.v1'
+                                    CHECK (length(btrim(contract_version)) > 0),
+          business_ref_id           UUID NOT NULL REFERENCES businesses(id) ON DELETE RESTRICT,
+          business_id               TEXT NOT NULL CHECK (length(btrim(business_id)) > 0),
+          provider_account_ref_id   UUID NOT NULL,
+          provider_account_id       TEXT NOT NULL CHECK (length(btrim(provider_account_id)) > 0),
+          source_ad_id              TEXT NOT NULL CHECK (length(btrim(source_ad_id)) > 0),
+          source_creative_id        TEXT NOT NULL CHECK (length(btrim(source_creative_id)) > 0),
+          target_ad_id              TEXT NOT NULL CHECK (length(btrim(target_ad_id)) > 0),
+          target_creative_id        TEXT NOT NULL CHECK (length(btrim(target_creative_id)) > 0),
+          lineage_type              TEXT NOT NULL
+                                    CHECK (lineage_type IN ('reuse_same_creative', 'rebuild_successor')),
+          evidence_source           TEXT NOT NULL
+                                    CHECK (evidence_source IN ('observation_run', 'verified_action', 'manual_verified')),
+          observation_run_id        UUID,
+          observation_run_entity_type TEXT
+                                    CHECK (observation_run_entity_type IS NULL OR observation_run_entity_type IN ('ad', 'creative')),
+          observation_run_completeness TEXT
+                                    CHECK (observation_run_completeness IS NULL OR observation_run_completeness IN ('complete', 'partial', 'point_lookup')),
+          action_log_id             UUID,
+          action_type               TEXT CHECK (action_type IS NULL OR action_type = 'duplicate'),
+          action_status             TEXT CHECK (action_status IS NULL OR action_status = 'success'),
+          action_verified_at        TIMESTAMPTZ,
+          evidence_json             JSONB NOT NULL DEFAULT '{}'::jsonb
+                                    CHECK (jsonb_typeof(evidence_json) = 'object'),
+          observed_at               TIMESTAMPTZ NOT NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          lineage_hash              CHAR(64) NOT NULL CHECK (lineage_hash ~ '^[0-9a-f]{64}$'),
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT meta_creative_lineage_business_identity_check
+            CHECK (business_id = business_ref_id::text),
+          CONSTRAINT meta_creative_lineage_account_fk FOREIGN KEY (
+            provider_account_ref_id,
+            provider_account_id
+          ) REFERENCES provider_accounts (id, external_account_id) ON DELETE RESTRICT,
+          CONSTRAINT meta_creative_lineage_binding_fk FOREIGN KEY (
+            business_id,
+            provider_account_ref_id,
+            provider_account_id
+          ) REFERENCES business_provider_accounts (
+            business_id,
+            provider_account_ref_id,
+            provider_account_id
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_creative_lineage_observation_account_fk FOREIGN KEY (
+            observation_run_id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            observation_run_entity_type,
+            observed_at,
+            captured_at,
+            observation_run_completeness
+          ) REFERENCES meta_entity_observation_runs (
+            id,
+            business_ref_id,
+            business_id,
+            provider_account_ref_id,
+            provider_account_id,
+            entity_type,
+            observed_at,
+            captured_at,
+            completeness
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_creative_lineage_action_business_fk FOREIGN KEY (
+            action_log_id,
+            business_ref_id,
+            action_type,
+            action_status,
+            action_verified_at,
+            source_ad_id,
+            target_ad_id,
+            source_creative_id
+          ) REFERENCES meta_ads_action_log (
+            id,
+            business_id,
+            action,
+            status,
+            verified_at,
+            ad_id,
+            resulting_ad_id,
+            creative_id
+          ) ON DELETE RESTRICT,
+          CONSTRAINT meta_creative_lineage_time_check CHECK (captured_at >= observed_at),
+          CONSTRAINT meta_creative_lineage_observation_fields_check CHECK (
+            (observation_run_id IS NULL AND
+              observation_run_entity_type IS NULL AND
+              observation_run_completeness IS NULL) OR
+            (observation_run_id IS NOT NULL AND
+              observation_run_entity_type IS NOT NULL AND
+              observation_run_completeness IS NOT NULL)
+          ),
+          CONSTRAINT meta_creative_lineage_action_fields_check CHECK (
+            (action_log_id IS NULL AND action_type IS NULL AND action_status IS NULL AND action_verified_at IS NULL) OR
+            (action_log_id IS NOT NULL AND action_type = 'duplicate' AND
+              action_status = 'success' AND action_verified_at IS NOT NULL)
+          ),
+          CONSTRAINT meta_creative_lineage_action_time_check CHECK (
+            action_log_id IS NULL OR observed_at >= action_verified_at
+          ),
+          CONSTRAINT meta_creative_lineage_identity_check CHECK (
+            (lineage_type = 'reuse_same_creative' AND
+              source_creative_id = target_creative_id AND source_ad_id <> target_ad_id) OR
+            (lineage_type = 'rebuild_successor' AND source_creative_id <> target_creative_id)
+          ),
+          CONSTRAINT meta_creative_lineage_evidence_check CHECK (
+            (evidence_source = 'observation_run' AND
+              observation_run_id IS NOT NULL AND
+              observation_run_entity_type IS NOT NULL AND
+              observation_run_entity_type IN ('ad', 'creative') AND
+              observation_run_completeness IS NOT NULL AND
+              observation_run_completeness IN ('complete', 'partial', 'point_lookup')) OR
+            (evidence_source = 'verified_action' AND
+              action_log_id IS NOT NULL AND
+              action_type = 'duplicate' AND
+              action_status = 'success' AND
+              action_verified_at IS NOT NULL) OR
+            evidence_source = 'manual_verified'
+          ),
+          CONSTRAINT meta_creative_lineage_hash_unique
+            UNIQUE (business_id, provider_account_id, lineage_hash)
+        )`,
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_creative_lineage_edges'::regclass
+                AND conname = 'meta_creative_lineage_account_authority_check'
+            ) THEN
+              ALTER TABLE meta_creative_lineage_edges
+                ADD CONSTRAINT meta_creative_lineage_account_authority_check
+                CHECK (
+                  evidence_source IN ('observation_run', 'verified_action') AND
+                  observation_run_id IS NOT NULL AND
+                  observation_run_entity_type = 'ad' AND
+                  observation_run_completeness IN ('complete', 'partial', 'point_lookup')
+                ) NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_creative_lineage_edges'::regclass
+                AND conname = 'meta_creative_lineage_source_state_fk'
+            ) THEN
+              ALTER TABLE meta_creative_lineage_edges
+                ADD CONSTRAINT meta_creative_lineage_source_state_fk
+                FOREIGN KEY (
+                  observation_run_id, observation_run_entity_type,
+                  source_ad_id, source_creative_id
+                ) REFERENCES meta_entity_state_history (
+                  run_id, entity_type, ad_id, creative_id
+                ) ON DELETE RESTRICT NOT VALID;
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'meta_creative_lineage_edges'::regclass
+                AND conname = 'meta_creative_lineage_target_state_fk'
+            ) THEN
+              ALTER TABLE meta_creative_lineage_edges
+                ADD CONSTRAINT meta_creative_lineage_target_state_fk
+                FOREIGN KEY (
+                  observation_run_id, observation_run_entity_type,
+                  target_ad_id, target_creative_id
+                ) REFERENCES meta_entity_state_history (
+                  run_id, entity_type, ad_id, creative_id
+                ) ON DELETE RESTRICT NOT VALID;
+            END IF;
+          END
+          $$`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_lineage_source_asof
+          ON meta_creative_lineage_edges
+          (business_id, provider_account_id, source_creative_id, observed_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_lineage_target_asof
+          ON meta_creative_lineage_edges
+          (business_id, provider_account_id, target_creative_id, observed_at DESC)`,
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
@@ -5390,6 +6199,114 @@ export async function runMigrations(options?: {
           ON engine_v3_creative_lifecycle_daily
           (business_ref_id, as_of_date DESC, lifecycle_position)
           WHERE lifecycle_position IN ('rising', 'plateau', 'past_peak_inaction', 'past_peak_unclear')`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_evaluation_contexts (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL CHECK (length(btrim(engine_version)) > 0),
+          scope_type                 TEXT NOT NULL CHECK (length(btrim(scope_type)) > 0),
+          scope_id                   TEXT NOT NULL CHECK (length(btrim(scope_id)) > 0),
+          contract_version           TEXT NOT NULL CHECK (length(btrim(contract_version)) > 0),
+          context_json               JSONB NOT NULL CHECK (jsonb_typeof(context_json) = 'object'),
+          account_profile_json       JSONB NOT NULL CHECK (jsonb_typeof(account_profile_json) = 'object'),
+          data_health_json           JSONB NOT NULL CHECK (jsonb_typeof(data_health_json) = 'object'),
+          flags_json                 JSONB NOT NULL CHECK (jsonb_typeof(flags_json) = 'object'),
+          context_hash               CHAR(64) NOT NULL
+                                       CHECK (context_hash ~ '^[0-9a-f]{64}$'),
+          job_run_id                 UUID NOT NULL,
+          evaluated_at               TIMESTAMPTZ NOT NULL,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT engine_v3_eval_contexts_business_fk
+            FOREIGN KEY (business_ref_id) REFERENCES businesses(id) ON DELETE RESTRICT,
+          CONSTRAINT engine_v3_eval_contexts_job_run_fk
+            FOREIGN KEY (job_run_id) REFERENCES engine_v3_job_runs(id) ON DELETE RESTRICT,
+          CONSTRAINT engine_v3_eval_contexts_run_scope_hash_unique
+            UNIQUE (
+              job_run_id,
+              business_ref_id,
+              as_of_date,
+              engine_version,
+              scope_type,
+              scope_id,
+              context_hash
+            ),
+          CONSTRAINT engine_v3_eval_contexts_lineage_unique
+            UNIQUE (
+              id,
+              business_ref_id,
+              as_of_date,
+              engine_version,
+              scope_type,
+              scope_id,
+              contract_version,
+              job_run_id
+            )
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_eval_contexts_business_scope
+          ON engine_v3_decision_evaluation_contexts
+          (business_ref_id, as_of_date DESC, engine_version, scope_type, scope_id, evaluated_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_eval_contexts_job_run
+          ON engine_v3_decision_evaluation_contexts (job_run_id, evaluated_at DESC)`,
+        sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_evaluations (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          context_id                 UUID NOT NULL,
+          business_ref_id            UUID NOT NULL,
+          business_id                TEXT,
+          creative_id                TEXT NOT NULL CHECK (length(btrim(creative_id)) > 0),
+          as_of_date                 DATE NOT NULL,
+          engine_version             TEXT NOT NULL CHECK (length(btrim(engine_version)) > 0),
+          scope_type                 TEXT NOT NULL CHECK (length(btrim(scope_type)) > 0),
+          scope_id                   TEXT NOT NULL CHECK (length(btrim(scope_id)) > 0),
+          contract_version           TEXT NOT NULL CHECK (length(btrim(contract_version)) > 0),
+          creative_input_json        JSONB NOT NULL CHECK (jsonb_typeof(creative_input_json) = 'object'),
+          campaign_context_json      JSONB NOT NULL CHECK (jsonb_typeof(campaign_context_json) = 'object'),
+          prior_hysteresis_json      JSONB NOT NULL CHECK (jsonb_typeof(prior_hysteresis_json) = 'object'),
+          decision_output_json       JSONB NOT NULL CHECK (jsonb_typeof(decision_output_json) = 'object'),
+          raw_label                  TEXT NOT NULL CHECK (raw_label IN (
+            'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+          )),
+          hysteresis_suppressed      BOOLEAN NOT NULL DEFAULT FALSE,
+          input_hash                 CHAR(64) NOT NULL CHECK (input_hash ~ '^[0-9a-f]{64}$'),
+          decision_hash              CHAR(64) NOT NULL CHECK (decision_hash ~ '^[0-9a-f]{64}$'),
+          job_run_id                 UUID NOT NULL,
+          evaluated_at               TIMESTAMPTZ NOT NULL,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT engine_v3_decision_evaluations_business_fk
+            FOREIGN KEY (business_ref_id) REFERENCES businesses(id) ON DELETE RESTRICT,
+          CONSTRAINT engine_v3_decision_evaluations_job_run_fk
+            FOREIGN KEY (job_run_id) REFERENCES engine_v3_job_runs(id) ON DELETE RESTRICT,
+          CONSTRAINT engine_v3_decision_evaluations_context_lineage_fk
+            FOREIGN KEY (
+              context_id,
+              business_ref_id,
+              as_of_date,
+              engine_version,
+              scope_type,
+              scope_id,
+              contract_version,
+              job_run_id
+            ) REFERENCES engine_v3_decision_evaluation_contexts (
+              id,
+              business_ref_id,
+              as_of_date,
+              engine_version,
+              scope_type,
+              scope_id,
+              contract_version,
+              job_run_id
+            ) ON DELETE RESTRICT,
+          CONSTRAINT engine_v3_decision_evaluations_event_unique
+            UNIQUE (context_id, creative_id, input_hash, decision_hash)
+        )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_evaluations_business_scope_creative
+          ON engine_v3_decision_evaluations
+          (business_ref_id, as_of_date DESC, engine_version, scope_type, scope_id, creative_id)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_evaluations_creative_timeline
+          ON engine_v3_decision_evaluations
+          (business_ref_id, creative_id, as_of_date DESC, evaluated_at DESC)`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_evaluations_context
+          ON engine_v3_decision_evaluations (context_id, evaluated_at DESC)`,
         sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_snapshots_daily (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_ref_id            UUID NOT NULL,
@@ -5420,7 +6337,9 @@ export async function runMigrations(options?: {
           job_run_id                 UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
           lifecycle_row_id           UUID REFERENCES engine_v3_creative_lifecycle_daily(id) ON DELETE SET NULL,
           calibration_row_id         UUID REFERENCES engine_v3_account_calibration_daily(id) ON DELETE SET NULL,
+          evaluation_id              UUID,
           input_hash                 TEXT,
+          decision_hash              CHAR(64),
           computed_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -5430,9 +6349,44 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'account',
           ADD COLUMN IF NOT EXISTS scope_id TEXT NOT NULL DEFAULT '*',
           ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut')),
-          ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh'))`.catch(
+          ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh')),
+          ADD COLUMN IF NOT EXISTS evaluation_id UUID,
+          ADD COLUMN IF NOT EXISTS decision_hash CHAR(64)`.catch(
           () => {},
         ),
+        sql`DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_decision_snapshots_daily'
+                AND c.conname = 'engine_v3_decision_snapshots_daily_evaluation_fk'
+            ) THEN
+              ALTER TABLE engine_v3_decision_snapshots_daily
+                ADD CONSTRAINT engine_v3_decision_snapshots_daily_evaluation_fk
+                FOREIGN KEY (evaluation_id)
+                REFERENCES engine_v3_decision_evaluations(id)
+                ON DELETE RESTRICT;
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = current_schema()
+                AND t.relname = 'engine_v3_decision_snapshots_daily'
+                AND c.conname = 'engine_v3_decision_snapshots_daily_decision_hash_check'
+            ) THEN
+              ALTER TABLE engine_v3_decision_snapshots_daily
+                ADD CONSTRAINT engine_v3_decision_snapshots_daily_decision_hash_check
+                CHECK (decision_hash IS NULL OR decision_hash ~ '^[0-9a-f]{64}$');
+            END IF;
+          END
+          $$`,
         sql`DO $$
           DECLARE
             old_constraint_name TEXT;
@@ -5539,6 +6493,12 @@ export async function runMigrations(options?: {
           ON engine_v3_decision_snapshots_daily
           (business_ref_id, creative_id, as_of_date)
           WHERE label = 'scale'`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_engine_v3_decisions_evaluation_unique
+          ON engine_v3_decision_snapshots_daily (evaluation_id)
+          WHERE evaluation_id IS NOT NULL`,
+        sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_decisions_decision_hash
+          ON engine_v3_decision_snapshots_daily (business_ref_id, decision_hash)
+          WHERE decision_hash IS NOT NULL`,
         sql`CREATE TABLE IF NOT EXISTS engine_v3_decision_events (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_ref_id            UUID NOT NULL,
@@ -8082,6 +9042,15 @@ export async function runMigrations(options?: {
           ).catch(() => {}),
         ),
       ]);
+
+      // The native-ad path is an isolated shadow epoch. Its exported schema
+      // contracts depend on the canonical physical account references above,
+      // so they are applied last in one dependency-ordered transaction and
+      // re-read through the same capability gates used by the runtime jobs.
+      await runNativeAdSchemaMigrations(
+        timeoutMs,
+        options?.verifyNativeSchemaCapabilities ?? true,
+      );
 
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  META_AUTOMATIC_CONTEXT_REVIEW_REASON,
   META_CAMPAIGN_LABEL_GUARD_REASON,
   META_TEST_REFRESH_TO_CUT_REASON,
   META_TEST_SCALE_TO_PROMOTE_REASON,
@@ -234,6 +235,43 @@ describe("applyMetaCampaignLabelGuard", () => {
       },
     });
     expect(result.recommendations[0]?.recommendedAction).toContain("Promote the validated Test setup");
+  });
+
+  it("keeps an automatic unresolved scale verdict explicit and review-only", () => {
+    const result = applyMetaCampaignLabelGuard({
+      recommendations: [rec()],
+      campaignLabelsById: buildMetaCampaignLabelKindMap([]),
+      campaignContextById: new Map([
+        [
+          "cmp-1",
+          {
+            kind: "test",
+            contextTrust: "medium",
+            source: "system_inferred",
+          } as const,
+        ],
+      ]),
+      automaticContextEnabled: true,
+      activeCampaignIds: ["cmp-1"],
+    });
+
+    expect(result.recommendations[0]).toMatchObject({
+      decisionLabel: "scale",
+      decisionState: "watch",
+      confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+      campaignContext: {
+        kind: "test",
+        source: "system_inferred",
+        confidence: "medium",
+        trustedForAction: false,
+      },
+      automationReadiness: {
+        autoExecuteEligible: false,
+        blockers: expect.arrayContaining(["campaign_context_unresolved"]),
+      },
+    });
+    expect(result.recommendations[0]?.campaignKind).toBeUndefined();
+    expect(result.recommendations[0]?.kind).not.toBe("state");
   });
 
   it("downgrades account-level hard actions unless all active campaigns are labeled", () => {

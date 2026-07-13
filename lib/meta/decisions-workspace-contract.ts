@@ -44,10 +44,7 @@ export type MetaDecisionServedBuyerAction = Exclude<
 >;
 
 export type MetaDecisionState =
-  | "act"
-  | "monitor"
-  | "blocked"
-  | "not_applicable";
+  "act" | "monitor" | "blocked" | "not_applicable";
 
 export interface MetaDecisionResolution {
   code: string;
@@ -125,7 +122,7 @@ export interface MetaDecisionParentChain {
   campaign: MetaDecisionParentRef | null;
   adset: MetaDecisionParentRef | null;
   ad: MetaDecisionParentRef | null;
-  creative: MetaDecisionParentRef;
+  creative: MetaDecisionParentRef | null;
   provenance: MetaDecisionProvenance;
 }
 
@@ -139,12 +136,29 @@ export interface MetaDecisionMediaEnvelope {
   provenance: MetaDecisionProvenance;
 }
 
+export type MetaDecisionDeliveryScopeState =
+  | "active"
+  | "inactive"
+  | "unknown";
+
+export interface MetaDecisionDeliveryScope {
+  state: MetaDecisionDeliveryScopeState;
+  campaignStatus: string | null;
+  adsetStatus: string | null;
+  adStatus: string | null;
+  reason:
+    | "active_hierarchy"
+    | "hierarchy_not_active"
+    | "hierarchy_status_unknown";
+  provenance: MetaDecisionProvenance;
+}
+
 export interface MetaDecisionExposure {
   kind: "exposure_proxy";
   amount: number;
   currency: string;
   attribution: "meta_attributed";
-  grain: "creative";
+  grain: "ad" | "creative";
   provenance: MetaDecisionProvenance;
 }
 
@@ -166,7 +180,7 @@ export interface MetaDecisionHistoryEvent {
 
 export interface MetaDecisionOutcome {
   id: string;
-  outcomeWindowDays: 7 | 14;
+  outcomeWindowDays: 3 | 7 | 14;
   evaluationDate: string;
   realizedOutcome: "positive" | "negative" | "neutral" | "unknown";
   severity: "critical" | "high" | "medium" | "low";
@@ -186,13 +200,36 @@ export interface MetaDecisionHistoryEnvelope {
     items: MetaDecisionOutcome[];
   };
   responses: {
-    status: "unavailable";
-    reason: "legacy_response_journal_not_keyed_by_decision_episode";
+    status: "available" | "unavailable";
+    reason: string | null;
+    items?: Array<{
+      id: string;
+      observationStatus:
+        "observed_response" | "observed_no_response" | "unknown_incomplete";
+      responseType: string;
+      detectedAt: string | null;
+      responseCutoff: string;
+    }>;
   };
   providerWrites: {
-    status: "unavailable";
-    reason: "provider_write_journal_not_keyed_by_decision_episode";
+    status: "available" | "unavailable";
+    reason: string | null;
   };
+}
+
+export interface MetaDecisionSourceAuthority {
+  status: "native_exact" | "legacy_review_only";
+  actionEligible: boolean;
+  reviewOnlyReason: string | null;
+  snapshotId: string;
+  evaluationId: string | null;
+  inputHash: string | null;
+  decisionHash: string | null;
+  providerAccountRefId: string | null;
+  engineVersion: string;
+  realAdId: string | null;
+  authorizedAction: "scale" | "cut" | "refresh" | null;
+  jobRunId: string | null;
 }
 
 export interface MetaCanonicalDecision {
@@ -200,8 +237,9 @@ export interface MetaCanonicalDecision {
   episodeId: string;
   episodeStartedAt: string;
   providerAccountId: string;
-  identityGrain: "creative";
+  identityGrain: "ad" | "creative";
   sourceSnapshotId: string;
+  sourceAuthority?: MetaDecisionSourceAuthority;
   sourceDecision: {
     label: string;
     rawLabel: string | null;
@@ -218,6 +256,7 @@ export interface MetaCanonicalDecision {
   parentChain: MetaDecisionParentChain;
   identityResolution?: {
     basis:
+      | "native_ad_exact"
       | "single_ad_creative_equivalent"
       | "creative_ambiguous"
       | "unresolved";
@@ -226,6 +265,10 @@ export interface MetaCanonicalDecision {
     adActionEligible: boolean;
   };
   media: MetaDecisionMediaEnvelope;
+  /** Current provider delivery truth. Main decision queues require every
+   * available hierarchy level to be ACTIVE or WITH_ISSUES. Closed/unknown
+   * assets are served separately and can never authorize a provider write. */
+  deliveryScope?: MetaDecisionDeliveryScope;
   classification: {
     overlayVersion: typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION;
     queueSection: MetaDecisionQueueSectionKey;
@@ -335,13 +378,23 @@ export interface MetaDecisionsWorkspaceReadModel {
   } | null;
   source: {
     status: "available" | "unavailable";
-    table: "engine_v3_decision_snapshots_daily";
+    authority: "native_ad" | "legacy_creative" | "unavailable";
+    table:
+      | "engine_v3_ad_decision_snapshots_daily"
+      | "engine_v3_decision_snapshots_daily";
     snapshotAsOf: string | null;
     computedAt: string | null;
     engineVersion: string | null;
+    fallbackReason: string | null;
+    generation: {
+      jobRunId: string;
+      providerAccountRefId: string;
+      manifestHash: string;
+      expectedAdCount: number;
+    } | null;
   };
   queue: {
-    deduplicationGrain: "creative";
+    deduplicationGrain: "ad" | "creative";
     sourcePreCapCount: number;
     queuedPreCapCount: number;
     sections: Record<MetaDecisionQueueSectionKey, MetaDecisionQueueSection>;
@@ -363,6 +416,14 @@ export interface MetaDecisionsWorkspaceReadModel {
       omittedAmbiguousIdentity: number;
       omittedWithoutVerifiedAdId: number;
       omittedNotApplicable: number;
+      items: MetaCanonicalDecision[];
+    };
+    /** Advisory-only rows withheld from the live decision queues because at
+     * least one current campaign/ad-set/ad status is closed or unknown. */
+    inactiveAssets?: {
+      preCapCount: number;
+      inactiveCount: number;
+      unknownCount: number;
       items: MetaCanonicalDecision[];
     };
     omittedFromQueue: {

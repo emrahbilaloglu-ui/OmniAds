@@ -1,12 +1,15 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getDbWithTimeout, resetDbClientCache } from "@/lib/db";
 import {
   ENGINE_PRESET_MULTIPLIERS,
   ZERO_CONV_MIN_AGE_DAYS,
 } from "@/lib/creative-decision-engine/config-values";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import { resolveSpendUnit } from "@/lib/creative-decision-engine/spend-unit-resolver";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 import type { EngineRiskPreset } from "@/lib/creative-decision-engine/types";
@@ -21,6 +24,9 @@ const DEFAULT_JSON_OUT =
 const DEFAULT_MD_OUT =
   "docs/creative-decision-center/F1_F2_CUT_THRESHOLD_SWEEP_2026-07-02.md";
 const MIN_DEFENSIBLE_EPISODES = 30;
+export const F1_F2_SWEEP_CONTRACT_VERSION =
+  "adsecute.f1-f2-cut-threshold-sweep.v1" as const;
+export const F1_F2_SWEEP_CONTRACT_REVISION = 4 as const;
 
 type Row = Record<string, unknown>;
 type CountMap = Record<string, number>;
@@ -150,7 +156,7 @@ interface CutEvaluation {
   blockedReason: string | null;
 }
 
-interface Episode {
+export interface Episode {
   variantId: string;
   business: BusinessIdentity;
   asOfDate: string;
@@ -199,7 +205,7 @@ interface VariantBusinessSummary {
   window28: WindowSummary;
 }
 
-interface WindowSummary {
+export interface WindowSummary {
   knownEpisodes: number;
   unknownEpisodes: number;
   recoveredAboveTarget: number;
@@ -239,9 +245,13 @@ interface PooledSummary {
 }
 
 interface SweepReport {
-  contractVersion: "adsecute.f1-f2-cut-threshold-sweep.v1";
-  revision: 3;
+  contractVersion: typeof F1_F2_SWEEP_CONTRACT_VERSION;
+  revision: typeof F1_F2_SWEEP_CONTRACT_REVISION;
   revisionNotes: string[];
+  lineage: {
+    gitSha: string;
+    scriptContractRevision: typeof F1_F2_SWEEP_CONTRACT_REVISION;
+  };
   generatedAt: string;
   readOnly: true;
   mutatesData: false;
@@ -441,13 +451,6 @@ function toText(value: unknown): string | null {
   return String(value);
 }
 
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
-}
-
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -551,8 +554,8 @@ async function readSourceStats(businessId: string): Promise<BusinessSourceStats>
   );
 
   return {
-    latestDataDate: toDateOnly(row?.latest_data_date),
-    earliestDataDate: toDateOnly(row?.earliest_data_date),
+    latestDataDate: normalizePostgresDate(row?.latest_data_date),
+    earliestDataDate: normalizePostgresDate(row?.earliest_data_date),
     sourceRows: toNumber(row?.source_rows),
     creativeCount: toNumber(row?.creative_count),
     campaignCount: toNumber(row?.campaign_count),
@@ -827,7 +830,7 @@ async function readDailyCandidateRows(input: {
     const forward28Spend = toNumber(row.forward_28d_spend);
     return {
       business: input.business,
-      asOfDate: toDateOnly(row.as_of_date) ?? input.startDate,
+      asOfDate: normalizePostgresDate(row.as_of_date) ?? input.startDate,
       creativeId: toText(row.creative_id) ?? "",
       creativeName: toText(row.creative_name),
       campaignId: toText(row.campaign_id),
@@ -1227,7 +1230,7 @@ function dailyKey(row: DailyCandidateRow) {
   return `${row.asOfDate}::${row.creativeId}`;
 }
 
-function summarizeWindow(episodes: Episode[], windowDays: 14 | 28): WindowSummary {
+export function summarizeWindow(episodes: Episode[], windowDays: 14 | 28): WindowSummary {
   let knownEpisodes = 0;
   let unknownEpisodes = 0;
   let recoveredAboveTarget = 0;
@@ -1241,7 +1244,7 @@ function summarizeWindow(episodes: Episode[], windowDays: 14 | 28): WindowSummar
       windowDays === 14 ? episode.forward14Spend : episode.forward28Spend;
     const forwardRoas =
       windowDays === 14 ? episode.forward14Roas : episode.forward28Roas;
-    if (!positiveFinite(forwardSpend) || !positiveFinite(forwardRoas)) {
+    if (!positiveFinite(forwardSpend) || forwardRoas === null || !Number.isFinite(forwardRoas)) {
       unknownEpisodes += 1;
       continue;
     }
@@ -1803,14 +1806,19 @@ function buildReport(input: {
   reviews: BusinessReview[];
 }): SweepReport {
   const base = {
-    contractVersion: "adsecute.f1-f2-cut-threshold-sweep.v1" as const,
-    revision: 3 as const,
+    contractVersion: F1_F2_SWEEP_CONTRACT_VERSION,
+    revision: F1_F2_SWEEP_CONTRACT_REVISION,
     revisionNotes: [
+      "Finite zero-ROAS outcomes with positive forward spend are known loser outcomes, not unknown censoring.",
       "Episode dedup now requires at least one post-trigger daily spend > 0 before the same creative can open a new cut episode.",
       "Evidence limits now describe attribution lag in both directions.",
       "Recommendation is reframed from no-change-supported to no-uniform-change-supported with account-level signals.",
       "Adds 3.1 lossBudgetMultiplier absolute-override variants from 1.0 to 4.0; these are univariate shadow-only sensitivity rows and do not imply production adoption.",
     ],
+    lineage: {
+      gitSha: currentGitSha(),
+      scriptContractRevision: F1_F2_SWEEP_CONTRACT_REVISION,
+    },
     generatedAt: new Date().toISOString(),
     readOnly: true as const,
     mutatesData: false as const,
@@ -1857,6 +1865,17 @@ function buildReport(input: {
   };
 }
 
+function currentGitSha() {
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  if (!/^[a-f0-9]{40}$/.test(sha)) {
+    throw new Error("Unable to derive a valid current git SHA for artifact lineage.");
+  }
+  return sha;
+}
+
 function tradeoffText(
   summary: Pick<VariantBusinessSummary | PooledSummary, "window14" | "window28">,
   baseline: Pick<VariantBusinessSummary | PooledSummary, "window14" | "window28"> | null,
@@ -1898,6 +1917,8 @@ function renderMarkdown(report: SweepReport) {
   lines.push(`- asOf: ${report.asOf}`);
   lines.push(`- engineVersion: ${report.engineVersion}`);
   lines.push(`- revision: ${report.revision}`);
+  lines.push(`- gitSha: ${report.lineage.gitSha}`);
+  lines.push(`- scriptContractRevision: ${report.lineage.scriptContractRevision}`);
   lines.push("- source: live_db_read_only");
   lines.push(
     "- tables: meta_creative_daily, businesses, business_target_packs, business_decision_calibration_profiles, business_engine_v3_flags",
@@ -2150,11 +2171,17 @@ async function main() {
   );
 }
 
-void withOperationalStartupLogsSilenced(main)
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(() => {
-    void resetDbClientCache();
-  });
+const isMain =
+  Boolean(process.argv[1]) &&
+  pathToFileURL(resolve(process.argv[1] as string)).href === import.meta.url;
+
+if (isMain) {
+  void withOperationalStartupLogsSilenced(main)
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      void resetDbClientCache();
+    });
+}

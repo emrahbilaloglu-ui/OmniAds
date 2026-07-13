@@ -65,6 +65,15 @@ function buildMetaRec(overrides: Partial<MetaRecommendation> = {}): MetaRecommen
     campaignRole: "prospecting_scale",
     bidRegime: "lowest_cost",
     cohort: "purchase",
+    entityConfiguration: {
+      source: "account_scoped_campaign_row",
+      budgetOwner: "campaign",
+      budgetMode: "campaign_budget",
+      controlOwner: "campaign",
+      status: "ACTIVE",
+      optimizationGoal: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+    },
     ...overrides,
   };
 }
@@ -134,6 +143,7 @@ export function metaPulse(overrides: Partial<MetaPulsePayload> = {}): MetaPulseP
     seasonalRegime: "normalized",
     engineLastRun: "2026-05-07T03:00:00.000Z",
     engineVersion: "v3.6.0-meta-taxonomy",
+    campaignContextMode: "automatic",
     currency: "USD",
     trackingHealth: { status: "healthy", detail: "Tracking signal is stable." },
     ...overrides,

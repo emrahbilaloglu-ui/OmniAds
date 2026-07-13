@@ -19,20 +19,46 @@ vi.mock("@/lib/meta/configuration", () => ({
   summarizeCampaignConfig: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/entity-state-history", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/meta/entity-state-history")>();
+  return {
+    ...actual,
+    persistMetaEntityObservation: vi.fn().mockResolvedValue({
+      runId: "observation-run-1",
+      runHash: "a".repeat(64),
+      stateCount: 0,
+      lineageCount: 0,
+      completeness: "complete",
+      observedAt: "2026-07-12T12:00:00.000Z",
+      capturedAt: "2026-07-12T12:00:01.000Z",
+    }),
+    persistMetaExplicitEntityTombstone: vi.fn(),
+  };
+});
+
 vi.mock("@/lib/meta/warehouse", () => ({
-  createMetaAuthoritativeReconciliationEvent: vi.fn().mockResolvedValue({ id: "event-1" }),
-  createMetaAuthoritativeSliceVersion: vi.fn().mockImplementation(async (input) => ({
-    id: `${input.surface}-slice`,
-    ...input,
-    candidateVersion: input.candidateVersion ?? 1,
-  })),
-  createMetaAuthoritativeSourceManifest: vi.fn().mockResolvedValue({ id: "manifest-1" }),
+  createMetaAuthoritativeReconciliationEvent: vi
+    .fn()
+    .mockResolvedValue({ id: "event-1" }),
+  createMetaAuthoritativeSliceVersion: vi
+    .fn()
+    .mockImplementation(async (input) => ({
+      id: `${input.surface}-slice`,
+      ...input,
+      candidateVersion: input.candidateVersion ?? 1,
+    })),
+  createMetaAuthoritativeSourceManifest: vi
+    .fn()
+    .mockResolvedValue({ id: "manifest-1" }),
   buildMetaSyncCheckpointHash: vi.fn(() => "checkpoint-hash"),
   getMetaSyncCheckpoint: vi.fn(),
   getMetaActivePublishedSliceVersion: vi.fn().mockResolvedValue(null),
   heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
   listMetaRawSnapshotsForRun: vi.fn().mockResolvedValue([]),
-  publishMetaAuthoritativeSliceVersion: vi.fn().mockResolvedValue({ id: "publication-1" }),
+  publishMetaAuthoritativeSliceVersion: vi
+    .fn()
+    .mockResolvedValue({ id: "publication-1" }),
   buildMetaRawSnapshotHash: vi.fn(() => "snapshot-hash"),
   createMetaSyncJob: vi.fn(),
   persistMetaRawSnapshot: vi.fn().mockResolvedValue("snapshot-id"),
@@ -51,20 +77,145 @@ vi.mock("@/lib/meta/warehouse", () => ({
   upsertMetaAdDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaAdSetDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaCampaignDailyRows: vi.fn().mockResolvedValue(undefined),
-  updateMetaAuthoritativeSliceVersion: vi.fn().mockImplementation(async (input) => input),
-  updateMetaAuthoritativeSourceManifest: vi.fn().mockImplementation(async (input) => input),
+  updateMetaAuthoritativeSliceVersion: vi
+    .fn()
+    .mockImplementation(async (input) => input),
+  updateMetaAuthoritativeSourceManifest: vi
+    .fn()
+    .mockImplementation(async (input) => input),
 }));
 
 const warehouse = await import("@/lib/meta/warehouse");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const configuration = await import("@/lib/meta/configuration");
+const entityStateHistory = await import("@/lib/meta/entity-state-history");
 const {
+  fetchMetaActiveAdConfigsReceipt,
+  fetchMetaPagedCollectionReceipt,
   getAdSets,
   getCampaigns,
   resolveMetaCurrencyForAccount,
   syncMetaAccountBreakdownWarehouseDay,
   syncMetaAccountCoreWarehouseDay,
 } = await import("@/lib/api/meta");
+
+describe("Meta pagination receipts", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("requests only effective ACTIVE Ads for the Decisions inventory", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request) =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "120000000000000001",
+                status: "ACTIVE",
+                effective_status: "ACTIVE",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await fetchMetaActiveAdConfigsReceipt(
+      "act_1",
+      "test-token",
+    );
+
+    expect(receipt).toMatchObject({
+      complete: true,
+      termination: "natural_end",
+      rows: [{ id: "120000000000000001" }],
+    });
+    const requested = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requested.searchParams.get("fields")).toContain(
+      "campaign{id,name}",
+    );
+    expect(JSON.parse(requested.searchParams.get("filtering") ?? "[]")).toEqual(
+      [
+        {
+          field: "effective_status",
+          operator: "IN",
+          value: ["ACTIVE"],
+        },
+      ],
+    );
+  });
+
+  it("returns an explicit partial receipt at the page cap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: [{ id: "campaign-1" }],
+              paging: {
+                next: "https://graph.facebook.com/v25.0/next?access_token=secret",
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/start?access_token=secret",
+      { pageLimit: 1 },
+    );
+
+    expect(receipt).toMatchObject({
+      rows: [{ id: "campaign-1" }],
+      pageCount: 1,
+      complete: false,
+      termination: "page_cap",
+      failure: { kind: "page_cap", pageIndex: 1 },
+    });
+    expect(receipt.failure?.pageUrl).not.toContain("secret");
+    expect(
+      entityStateHistory.persistMetaExplicitEntityTombstone,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("keeps fetched rows but marks a later HTTP failure partial", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "ad-1" }],
+            paging: { next: "https://graph.facebook.com/v25.0/page-2" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "rate limited" } }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const receipt = await fetchMetaPagedCollectionReceipt<{ id: string }>(
+      "https://graph.facebook.com/v25.0/page-1",
+    );
+
+    expect(receipt).toMatchObject({
+      rows: [{ id: "ad-1" }],
+      pageCount: 1,
+      complete: false,
+      termination: "http_failure",
+      failure: { httpStatus: 429 },
+    });
+  });
+});
 
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
@@ -73,87 +224,157 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     delete process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES;
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
-    vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
-    vi.mocked(warehouse.deleteMetaSyncCheckpointsForPartition).mockResolvedValue(1);
-    vi.mocked(warehouse.supersedeMetaRawSnapshotsForPartition).mockResolvedValue(1);
-    vi.mocked(warehouse.upsertMetaAccountDailyRows).mockResolvedValue(undefined);
-    vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(undefined);
+    vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue(
+      "snapshot-id",
+    );
+    vi.mocked(
+      warehouse.deleteMetaSyncCheckpointsForPartition,
+    ).mockResolvedValue(1);
+    vi.mocked(
+      warehouse.supersedeMetaRawSnapshotsForPartition,
+    ).mockResolvedValue(1);
+    vi.mocked(warehouse.upsertMetaAccountDailyRows).mockResolvedValue(
+      undefined,
+    );
+    vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(
+      undefined,
+    );
     vi.mocked(warehouse.upsertMetaAdSetDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdDailyRows).mockResolvedValue(undefined);
-    vi.mocked(warehouse.refreshMetaAccountDailyOverviewSummary).mockResolvedValue(undefined);
-    vi.mocked(warehouse.createMetaAuthoritativeSourceManifest).mockResolvedValue({
+    vi.mocked(
+      warehouse.refreshMetaAccountDailyOverviewSummary,
+    ).mockResolvedValue(undefined);
+    vi.mocked(
+      warehouse.createMetaAuthoritativeSourceManifest,
+    ).mockResolvedValue({
       id: "manifest-1",
     } as never);
-    vi.mocked(warehouse.createMetaAuthoritativeSliceVersion).mockImplementation(async (input) => ({
-      id: `${input.surface}-slice`,
-      ...input,
-      candidateVersion: input.candidateVersion ?? 1,
-    }) as never);
-    vi.mocked(warehouse.publishMetaAuthoritativeSliceVersion).mockResolvedValue({
-      id: "publication-1",
-    } as never);
-    vi.mocked(warehouse.updateMetaAuthoritativeSourceManifest).mockImplementation(async (input) => input as never);
-    vi.mocked(warehouse.updateMetaAuthoritativeSliceVersion).mockImplementation(async (input) => input as never);
-    vi.mocked(warehouse.createMetaAuthoritativeReconciliationEvent).mockResolvedValue({
+    vi.mocked(warehouse.createMetaAuthoritativeSliceVersion).mockImplementation(
+      async (input) =>
+        ({
+          id: `${input.surface}-slice`,
+          ...input,
+          candidateVersion: input.candidateVersion ?? 1,
+        }) as never,
+    );
+    vi.mocked(warehouse.publishMetaAuthoritativeSliceVersion).mockResolvedValue(
+      {
+        id: "publication-1",
+      } as never,
+    );
+    vi.mocked(
+      warehouse.updateMetaAuthoritativeSourceManifest,
+    ).mockImplementation(async (input) => input as never);
+    vi.mocked(warehouse.updateMetaAuthoritativeSliceVersion).mockImplementation(
+      async (input) => input as never,
+    );
+    vi.mocked(
+      warehouse.createMetaAuthoritativeReconciliationEvent,
+    ).mockResolvedValue({
       id: "event-1",
     } as never);
-    vi.mocked(warehouse.replaceMetaAccountDailySlice).mockImplementation(async (input) => {
-      await warehouse.upsertMetaAccountDailyRows(input.rows as never);
-    });
-    vi.mocked(warehouse.replaceMetaAdDailySlice).mockImplementation(async (input) => {
-      await warehouse.upsertMetaAdDailyRows(input.rows as never);
-    });
-    vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(async (input) => {
-      await warehouse.upsertMetaCampaignDailyRows(input.rows as never);
-    });
-    vi.mocked(warehouse.replaceMetaAdSetDailySlice).mockImplementation(async (input) => {
-      await warehouse.upsertMetaAdSetDailyRows(input.rows as never);
-    });
-    vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue("checkpoint-hash");
-    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
-    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue("phase-timing-id" as never);
-    vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(undefined);
-    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
-    vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
-    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
-      campaignId: input.campaignId ?? null,
-      objective: input.objective ?? null,
-      optimizationGoal: input.optimizationGoal ?? null,
-      bidStrategyType: input.bidStrategy ?? null,
-      bidStrategyLabel: input.bidStrategy ?? null,
-      manualBidAmount: input.manualBidAmount ?? null,
-      bidValue: input.targetRoas ?? input.manualBidAmount ?? null,
-      bidValueFormat: input.targetRoas != null ? "roas" : input.manualBidAmount != null ? "currency" : null,
-      dailyBudget: input.dailyBudget ?? null,
-      lifetimeBudget: input.lifetimeBudget ?? null,
-      isBudgetMixed: false,
-      isConfigMixed: false,
-      isOptimizationGoalMixed: false,
-      isBidStrategyMixed: false,
-      isBidValueMixed: false,
-    }));
-    vi.mocked(configuration.summarizeCampaignConfig).mockImplementation((input) => {
-      const firstAdset = input.adsets[0] ?? null;
-      return {
+    vi.mocked(warehouse.replaceMetaAccountDailySlice).mockImplementation(
+      async (input) => {
+        await warehouse.upsertMetaAccountDailyRows(input.rows as never);
+      },
+    );
+    vi.mocked(warehouse.replaceMetaAdDailySlice).mockImplementation(
+      async (input) => {
+        await warehouse.upsertMetaAdDailyRows(input.rows as never);
+      },
+    );
+    vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(
+      async (input) => {
+        await warehouse.upsertMetaCampaignDailyRows(input.rows as never);
+      },
+    );
+    vi.mocked(warehouse.replaceMetaAdSetDailySlice).mockImplementation(
+      async (input) => {
+        await warehouse.upsertMetaAdSetDailyRows(input.rows as never);
+      },
+    );
+    vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue(
+      "checkpoint-hash",
+    );
+    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue(
+      "checkpoint-id",
+    );
+    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue(
+      "phase-timing-id" as never,
+    );
+    vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(
+      undefined,
+    );
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+      new Map(),
+    );
+    vi.mocked(
+      configSnapshots.readPreviousDifferentMetaConfigDiffs,
+    ).mockResolvedValue(new Map());
+    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation(
+      (input) => ({
         campaignId: input.campaignId ?? null,
-        objective: null,
-        optimizationGoal: firstAdset?.optimizationGoal ?? null,
-        bidStrategyType: firstAdset?.bidStrategyType ?? null,
-        bidStrategyLabel: firstAdset?.bidStrategyLabel ?? null,
-        manualBidAmount: firstAdset?.manualBidAmount ?? null,
-        bidValue: firstAdset?.bidValue ?? null,
-        bidValueFormat: firstAdset?.bidValueFormat ?? null,
-        previousManualBidAmount: null,
-        previousBidValue: null,
-        dailyBudget: input.campaignDailyBudget ?? firstAdset?.dailyBudget ?? null,
-        lifetimeBudget: input.campaignLifetimeBudget ?? firstAdset?.lifetimeBudget ?? null,
+        objective: input.objective ?? null,
+        optimizationGoal: input.optimizationGoal ?? null,
+        bidStrategyType: input.bidStrategy ?? null,
+        bidStrategyLabel: input.bidStrategy ?? null,
+        manualBidAmount: input.manualBidAmount ?? null,
+        bidValue: input.targetRoas ?? input.manualBidAmount ?? null,
+        bidValueFormat:
+          input.targetRoas != null
+            ? "roas"
+            : input.manualBidAmount != null
+              ? "currency"
+              : null,
+        dailyBudget: input.dailyBudget ?? null,
+        lifetimeBudget: input.lifetimeBudget ?? null,
         isBudgetMixed: false,
         isConfigMixed: false,
         isOptimizationGoalMixed: false,
         isBidStrategyMixed: false,
         isBidValueMixed: false,
-      };
+      }),
+    );
+    vi.mocked(configuration.summarizeCampaignConfig).mockImplementation(
+      (input) => {
+        const firstAdset = input.adsets[0] ?? null;
+        return {
+          campaignId: input.campaignId ?? null,
+          objective: null,
+          optimizationGoal: firstAdset?.optimizationGoal ?? null,
+          bidStrategyType: firstAdset?.bidStrategyType ?? null,
+          bidStrategyLabel: firstAdset?.bidStrategyLabel ?? null,
+          manualBidAmount: firstAdset?.manualBidAmount ?? null,
+          bidValue: firstAdset?.bidValue ?? null,
+          bidValueFormat: firstAdset?.bidValueFormat ?? null,
+          previousManualBidAmount: null,
+          previousBidValue: null,
+          dailyBudget:
+            input.campaignDailyBudget ?? firstAdset?.dailyBudget ?? null,
+          lifetimeBudget:
+            input.campaignLifetimeBudget ?? firstAdset?.lifetimeBudget ?? null,
+          isBudgetMixed: false,
+          isConfigMixed: false,
+          isOptimizationGoalMixed: false,
+          isBidStrategyMixed: false,
+          isBidValueMixed: false,
+        };
+      },
+    );
+    vi.mocked(
+      entityStateHistory.persistMetaEntityObservation,
+    ).mockResolvedValue({
+      runId: "observation-run-1",
+      runHash: "a".repeat(64),
+      stateCount: 0,
+      lineageCount: 0,
+      completeness: "complete",
+      observedAt: "2026-07-12T12:00:00.000Z",
+      capturedAt: "2026-07-12T12:00:01.000Z",
     });
+    vi.mocked(
+      entityStateHistory.persistMetaExplicitEntityTombstone,
+    ).mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -178,7 +399,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         workerId: "worker-1",
         leaseEpoch: 1,
         attemptCount: 1,
-      })
+      }),
     ).rejects.toThrow("meta_currency_unavailable:core_warehouse:act_1");
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -200,8 +421,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       },
     };
 
-    expect(resolveMetaCurrencyForAccount(credentials, "act_primary")).toBe("TRY");
-    expect(resolveMetaCurrencyForAccount(credentials, "act_secondary")).toBeNull();
+    expect(resolveMetaCurrencyForAccount(credentials, "act_primary")).toBe(
+      "TRY",
+    );
+    expect(
+      resolveMetaCurrencyForAccount(credentials, "act_secondary"),
+    ).toBeNull();
   });
 
   it("does not refetch ad insights after restoring a completed terminal generation", async () => {
@@ -262,11 +487,13 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     });
 
     expect(
-      vi.mocked(warehouse.persistMetaRawSnapshot).mock.calls.filter(
-        ([payload]) =>
-          payload.partitionId === "partition-terminal-resume" &&
-          payload.entityScope === "ad",
-      ),
+      vi
+        .mocked(warehouse.persistMetaRawSnapshot)
+        .mock.calls.filter(
+          ([payload]) =>
+            payload.partitionId === "partition-terminal-resume" &&
+            payload.entityScope === "ad",
+        ),
     ).toHaveLength(0);
     expect(
       fetchMock.mock.calls.some(
@@ -317,6 +544,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 name: "Campaign 1",
                 effective_status: "ACTIVE",
                 status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
                 buying_type: "AUCTION",
                 daily_budget: "25",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
@@ -360,7 +588,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         }),
       ]),
     );
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type"))).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type")),
+    ).toBe(true);
     expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
@@ -369,24 +599,45 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         }),
       ]),
     );
+    const campaignObservationCall = vi
+      .mocked(entityStateHistory.persistMetaEntityObservation)
+      .mock.calls.map(([call]) => call)
+      .find((call) => call.entityType === "campaign");
+    expect(campaignObservationCall).toMatchObject({
+      entityType: "campaign",
+      completeness: "complete",
+      states: [
+        expect.objectContaining({
+          entityId: "cmp-1",
+          observedAt: "2026-07-01T09:30:00.000Z",
+          providerUpdatedAt: "2026-07-01T09:30:00.000Z",
+        }),
+      ],
+    });
+    expect(campaignObservationCall?.observedAt).not.toContain("2026-04-03");
+    expect(
+      entityStateHistory.persistMetaExplicitEntityTombstone,
+    ).not.toHaveBeenCalled();
   });
 
   it("finalizes derived account_daily, adset_daily, and ad_daily checkpoints after core writes", async () => {
-    vi.mocked(warehouse.getMetaSyncCheckpoint).mockImplementation(async ({ checkpointScope }) => {
-      if (checkpointScope === "core_ad_insights") {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockImplementation(
+      async ({ checkpointScope }) => {
+        if (checkpointScope === "core_ad_insights") {
+          return null;
+        }
+        if (checkpointScope === "account_daily") {
+          return { startedAt: "2026-04-03T20:44:30.156Z" } as never;
+        }
+        if (checkpointScope === "adset_daily") {
+          return { startedAt: "2026-04-03T20:44:30.200Z" } as never;
+        }
+        if (checkpointScope === "ad_daily") {
+          return { startedAt: "2026-04-03T20:44:30.240Z" } as never;
+        }
         return null;
-      }
-      if (checkpointScope === "account_daily") {
-        return { startedAt: "2026-04-03T20:44:30.156Z" } as never;
-      }
-      if (checkpointScope === "adset_daily") {
-        return { startedAt: "2026-04-03T20:44:30.200Z" } as never;
-      }
-      if (checkpointScope === "ad_daily") {
-        return { startedAt: "2026-04-03T20:44:30.240Z" } as never;
-      }
-      return null;
-    });
+      },
+    );
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
@@ -413,15 +664,17 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } }
+          { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       if (url.includes("/campaigns")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+            data: [
+              { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } }
+          { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
@@ -451,18 +704,25 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const checkpointCalls = vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock.calls.map(([arg]) => arg);
+    const checkpointCalls = vi
+      .mocked(warehouse.upsertMetaSyncCheckpoint)
+      .mock.calls.map(([arg]) => arg);
     const accountFinalize = checkpointCalls.find(
-      (call) => call.checkpointScope === "account_daily" && call.phase === "finalize"
+      (call) =>
+        call.checkpointScope === "account_daily" && call.phase === "finalize",
     );
     const adsetFinalize = checkpointCalls.find(
-      (call) => call.checkpointScope === "adset_daily" && call.phase === "finalize"
+      (call) =>
+        call.checkpointScope === "adset_daily" && call.phase === "finalize",
     );
     const adFinalize = checkpointCalls.find(
-      (call) => call.checkpointScope === "ad_daily" && call.phase === "finalize"
+      (call) =>
+        call.checkpointScope === "ad_daily" && call.phase === "finalize",
     );
     const coreFinalize = checkpointCalls.find(
-      (call) => call.checkpointScope === "core_ad_insights" && call.phase === "finalize"
+      (call) =>
+        call.checkpointScope === "core_ad_insights" &&
+        call.phase === "finalize",
     );
     const phaseTimingCalls = vi
       .mocked(warehouse.upsertMetaSyncPhaseTiming)
@@ -522,43 +782,69 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       ]),
     );
     expect(checkpointCalls.every((call) => call.leaseEpoch === 11)).toBe(true);
-    const heartbeatOrder = vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder;
-    const accountUpsertOrder = vi.mocked(warehouse.upsertMetaAccountDailyRows).mock.invocationCallOrder[0]!;
-    const campaignUpsertOrder = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.invocationCallOrder[0]!;
-    const adsetUpsertOrder = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.invocationCallOrder[0]!;
-    const adUpsertOrder = vi.mocked(warehouse.upsertMetaAdDailyRows).mock.invocationCallOrder[0]!;
+    const heartbeatOrder = vi.mocked(warehouse.heartbeatMetaPartitionLease).mock
+      .invocationCallOrder;
+    const accountUpsertOrder = vi.mocked(warehouse.upsertMetaAccountDailyRows)
+      .mock.invocationCallOrder[0]!;
+    const campaignUpsertOrder = vi.mocked(warehouse.upsertMetaCampaignDailyRows)
+      .mock.invocationCallOrder[0]!;
+    const adsetUpsertOrder = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock
+      .invocationCallOrder[0]!;
+    const adUpsertOrder = vi.mocked(warehouse.upsertMetaAdDailyRows).mock
+      .invocationCallOrder[0]!;
     const derivedFinalizeOrder = vi
       .mocked(warehouse.upsertMetaSyncCheckpoint)
       .mock.calls.map(([call], index) => ({
         call,
-        order: vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock.invocationCallOrder[index]!,
+        order: vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock
+          .invocationCallOrder[index]!,
       }))
-      .find(({ call }) => call.checkpointScope === "account_daily" && call.phase === "finalize")?.order;
+      .find(
+        ({ call }) =>
+          call.checkpointScope === "account_daily" && call.phase === "finalize",
+      )?.order;
 
     expect(heartbeatOrder.every((order) => Number.isFinite(order))).toBe(true);
-    expect(heartbeatOrder.some((order) => order < accountUpsertOrder)).toBe(true);
-    expect(heartbeatOrder.some((order) => order > accountUpsertOrder && order < campaignUpsertOrder)).toBe(
-      true
+    expect(heartbeatOrder.some((order) => order < accountUpsertOrder)).toBe(
+      true,
     );
-    expect(heartbeatOrder.some((order) => order > campaignUpsertOrder && order < adsetUpsertOrder)).toBe(
-      true
-    );
-    expect(heartbeatOrder.some((order) => order > adsetUpsertOrder && order < adUpsertOrder)).toBe(true);
     expect(
-      heartbeatOrder.some((order) => derivedFinalizeOrder != null && order > adUpsertOrder && order < derivedFinalizeOrder)
+      heartbeatOrder.some(
+        (order) => order > accountUpsertOrder && order < campaignUpsertOrder,
+      ),
     ).toBe(true);
     expect(
-      vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.calls.every(
-        ([input]) => input.leaseEpoch === 11
-      )
+      heartbeatOrder.some(
+        (order) => order > campaignUpsertOrder && order < adsetUpsertOrder,
+      ),
+    ).toBe(true);
+    expect(
+      heartbeatOrder.some(
+        (order) => order > adsetUpsertOrder && order < adUpsertOrder,
+      ),
+    ).toBe(true);
+    expect(
+      heartbeatOrder.some(
+        (order) =>
+          derivedFinalizeOrder != null &&
+          order > adUpsertOrder &&
+          order < derivedFinalizeOrder,
+      ),
+    ).toBe(true);
+    expect(
+      vi
+        .mocked(warehouse.heartbeatMetaPartitionLease)
+        .mock.calls.every(([input]) => input.leaseEpoch === 11),
     ).toBe(true);
   });
 
   it("marks derived checkpoints succeeded even when adset rows are empty", async () => {
-    vi.mocked(warehouse.getMetaSyncCheckpoint).mockImplementation(async ({ checkpointScope }) => {
-      if (checkpointScope === "core_ad_insights") return null;
-      return null;
-    });
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockImplementation(
+      async ({ checkpointScope }) => {
+        if (checkpointScope === "core_ad_insights") return null;
+        return null;
+      },
+    );
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
@@ -585,15 +871,17 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
               },
             ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } }
+          { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       if (url.includes("/campaigns")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+            data: [
+              { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
           }),
-          { status: 200, headers: { "content-type": "application/json" } }
+          { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
@@ -623,9 +911,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const checkpointCalls = vi.mocked(warehouse.upsertMetaSyncCheckpoint).mock.calls.map(([arg]) => arg);
+    const checkpointCalls = vi
+      .mocked(warehouse.upsertMetaSyncCheckpoint)
+      .mock.calls.map(([arg]) => arg);
     const adsetFinalize = checkpointCalls.find(
-      (call) => call.checkpointScope === "adset_daily" && call.phase === "finalize"
+      (call) =>
+        call.checkpointScope === "adset_daily" && call.phase === "finalize",
     );
 
     expect(adsetFinalize).toMatchObject({
@@ -660,16 +951,16 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         );
       }
       if (url.includes("/campaigns")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/adsets")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -725,10 +1016,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights") && url.includes("level=account")) {
-        return new Response(
-          JSON.stringify({ data: [{ spend: "9.00" }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [{ spend: "9.00" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/insights")) {
         return new Response(
@@ -760,16 +1051,18 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       if (url.includes("/campaigns")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+            data: [
+              { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       if (url.includes("/adsets")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -801,15 +1094,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       campaignRowsWritten: 1,
     });
 
-    expect(warehouse.supersedeMetaRawSnapshotsForPartition).toHaveBeenCalledWith({
+    expect(
+      warehouse.supersedeMetaRawSnapshotsForPartition,
+    ).toHaveBeenCalledWith({
       partitionId: "partition-failed",
     });
-    expect(warehouse.deleteMetaSyncCheckpointsForPartition).toHaveBeenCalledWith({
+    expect(
+      warehouse.deleteMetaSyncCheckpointsForPartition,
+    ).toHaveBeenCalledWith({
       partitionId: "partition-failed",
     });
     expect(warehouse.listMetaRawSnapshotsForRun).not.toHaveBeenCalled();
     expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
-    expect(warehouse.createMetaAuthoritativeReconciliationEvent).toHaveBeenCalledWith(
+    expect(
+      warehouse.createMetaAuthoritativeReconciliationEvent,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         eventKind: "totals_mismatch",
         result: "repair_required",
@@ -838,10 +1137,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights") && url.includes("level=account")) {
-        return new Response(
-          JSON.stringify({ data: [{ spend: "12.50" }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [{ spend: "12.50" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/insights")) {
         return new Response(
@@ -873,16 +1172,18 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       if (url.includes("/campaigns")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+            data: [
+              { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       if (url.includes("/adsets")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -943,16 +1244,16 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         );
       }
       if (url.includes("/campaigns")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/adsets")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -1076,8 +1377,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
-    const campaignRows = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+    const adsetRows =
+      vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
+    const campaignRows =
+      vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
 
     expect(adsetRows).toEqual(
       expect.arrayContaining([
@@ -1224,8 +1527,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
-    const campaignRows = vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+    const adsetRows =
+      vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
+    const campaignRows =
+      vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
 
     expect(campaignRows).toEqual(
       expect.arrayContaining([
@@ -1346,7 +1651,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       false,
     );
 
-    const adsetRows = vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls.at(-1)?.[0] ?? [];
+    const adsetRows =
+      vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls.at(-1)?.[0] ??
+      [];
     expect(adsetRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1449,29 +1756,35 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       true,
     );
 
-    expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
-    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
+    expect(
+      configSnapshots.readLatestMetaConfigSnapshots,
+    ).not.toHaveBeenCalled();
+    expect(
+      configSnapshots.readPreviousDifferentMetaConfigDiffs,
+    ).not.toHaveBeenCalled();
   });
 
   it("fails core sync when required config truth is still missing", async () => {
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
-    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
-      campaignId: input.campaignId ?? null,
-      objective: null,
-      optimizationGoal: null,
-      bidStrategyType: null,
-      bidStrategyLabel: null,
-      manualBidAmount: null,
-      bidValue: null,
-      bidValueFormat: null,
-      dailyBudget: null,
-      lifetimeBudget: null,
-      isBudgetMixed: false,
-      isConfigMixed: false,
-      isOptimizationGoalMixed: false,
-      isBidStrategyMixed: false,
-      isBidValueMixed: false,
-    }));
+    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation(
+      (input) => ({
+        campaignId: input.campaignId ?? null,
+        objective: null,
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+      }),
+    );
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
@@ -1560,7 +1873,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         leaseEpoch: 11,
         attemptCount: 1,
         leaseMinutes: 15,
-      })
+      }),
     ).rejects.toThrow("Meta core truth incomplete");
   });
 
@@ -1572,10 +1885,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights") && url.includes("level=account")) {
-        return new Response(
-          JSON.stringify({ data: [{ spend: "12.50" }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [{ spend: "12.50" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/insights")) {
         return new Response(
@@ -1696,8 +2009,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       "syncMetaAccountCoreWarehouseDay.refresh_overview_summary",
       "syncMetaAccountCoreWarehouseDay.finalize_phase_timings",
     ]);
-    expect(warehouse.refreshMetaAccountDailyOverviewSummary).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ providerAccountId: "act_1" })]),
+    expect(
+      warehouse.refreshMetaAccountDailyOverviewSummary,
+    ).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ providerAccountId: "act_1" }),
+      ]),
     );
 
     infoSpy.mockRestore();
@@ -1715,10 +2032,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights") && url.includes("level=account")) {
-        return new Response(
-          JSON.stringify({ data: [{ spend: "12.50" }] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [{ spend: "12.50" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/insights")) {
         return new Response(
@@ -1750,16 +2067,18 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       if (url.includes("/campaigns")) {
         return new Response(
           JSON.stringify({
-            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+            data: [
+              { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
       if (url.includes("/adsets")) {
-        return new Response(
-          JSON.stringify({ data: [] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -1798,7 +2117,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
             "syncMetaAccountCoreWarehouseDay.",
           ),
       )
-      .map(([, payload]) => payload as { stage: string; ok: boolean; errorMessage?: string | null });
+      .map(
+        ([, payload]) =>
+          payload as {
+            stage: string;
+            ok: boolean;
+            errorMessage?: string | null;
+          },
+      );
 
     expect(failedStagePayload).toContainEqual(
       expect.objectContaining({
@@ -1807,11 +2133,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         errorMessage: "Database query timed out after 60000ms",
       }),
     );
-    expect(infoSpy.mock.calls.some(([, payload]) =>
-      typeof payload === "object" &&
-      payload != null &&
-      (payload as { stage?: string }).stage === "syncMetaAccountCoreWarehouseDay.write_campaign_daily",
-    )).toBe(false);
+    expect(
+      infoSpy.mock.calls.some(
+        ([, payload]) =>
+          typeof payload === "object" &&
+          payload != null &&
+          (payload as { stage?: string }).stage ===
+            "syncMetaAccountCoreWarehouseDay.write_campaign_daily",
+      ),
+    ).toBe(false);
 
     infoSpy.mockRestore();
     warnSpy.mockRestore();
@@ -1869,7 +2199,11 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         accountIds: ["act_1"],
         currency: "USD",
         accountProfiles: {
-          act_1: { currency: "USD", timezone: "America/Anchorage", name: "Account 1" },
+          act_1: {
+            currency: "USD",
+            timezone: "America/Anchorage",
+            name: "Account 1",
+          },
         },
       },
       "2026-03-31",
@@ -1886,9 +2220,15 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     vi.resetAllMocks();
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
-    vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
-    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
-    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue("phase-timing-id" as never);
+    vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue(
+      "snapshot-id",
+    );
+    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue(
+      "checkpoint-id",
+    );
+    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue(
+      "phase-timing-id" as never,
+    );
   });
 
   it("maps runtime breakdown params to the correct warehouse slice", async () => {
@@ -1966,7 +2306,9 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const credentials: Parameters<typeof syncMetaAccountBreakdownWarehouseDay>[0]["credentials"] = {
+    const credentials: Parameters<
+      typeof syncMetaAccountBreakdownWarehouseDay
+    >[0]["credentials"] = {
       businessId: "biz-1",
       accessToken: "token-1",
       accountIds: ["act_1"],
@@ -1989,7 +2331,8 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
       },
       {
         breakdowns: "publisher_platform,platform_position,impression_device",
-        endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+        endpointName:
+          "breakdown_publisher_platform,platform_position,impression_device",
         expected: "placement",
       },
     ] as const;

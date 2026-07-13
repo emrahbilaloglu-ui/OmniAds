@@ -181,9 +181,11 @@ const INVARIANT_COVERAGE: InvariantCoverage[] = [
   },
   {
     id: "I26",
-    docText: "Unlabeled creatives must use canonical baselines; the campaign-label guard",
+    docText:
+      "Automatic-context uncertainty must use canonical baselines and preserve the",
     status: "executable",
-    reason: "campaign-label guard tests cover unlabeled and no-campaign hard-action downgrades",
+    reason:
+      "campaign-context and campaign-label guard tests cover canonical review-only hard verdicts",
   },
   {
     id: "I27",

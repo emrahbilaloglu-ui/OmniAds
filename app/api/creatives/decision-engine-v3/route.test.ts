@@ -24,6 +24,7 @@ vi.mock("@/lib/meta/campaign-labels", () => ({
 }));
 
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
+const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
 
 function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
@@ -83,6 +84,7 @@ function mockAccessError(status: 401 | 403) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
   mockBusinessAccess();
   vi.mocked(readMetaCampaignLabels).mockResolvedValue([
     {
@@ -108,6 +110,11 @@ afterEach(() => {
     delete process.env.DECISION_ENGINE_V3_DATA_SOURCE;
   } else {
     process.env.DECISION_ENGINE_V3_DATA_SOURCE = previousDataSourceFlag;
+  }
+  if (previousCampaignContextMode === undefined) {
+    delete process.env.CAMPAIGN_CONTEXT_MODE;
+  } else {
+    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
   }
 });
 

@@ -10,17 +10,27 @@ vi.mock("@/lib/integrations", () => ({
 }));
 
 vi.mock("@/lib/meta/ads-action-log", () => ({
+  resolveExactMetaAdActionTarget: vi.fn(),
   resolveMetaAdActionTarget: vi.fn(),
   hasRecentPendingMetaAdsAction: vi.fn(),
   createMetaAdsActionLog: vi.fn(),
+  createDecisionOriginMetaAdsActionLog: vi.fn(),
   completeMetaAdsActionLog: vi.fn(),
+  completeDecisionOriginMetaAdsActionLog: vi.fn(),
   findRecentDuplicateActionResult: vi.fn(),
   listRecentMetaAdsActionLogs: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decision-origin-action-preflight", () => ({
+  runServerDecisionOriginAdActionPreflight: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const actionLog = await import("@/lib/meta/ads-action-log");
+const decisionPreflight = await import(
+  "@/lib/meta/decision-origin-action-preflight"
+);
 const { POST } = await import("./route");
 
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
@@ -77,13 +87,40 @@ describe("POST /api/meta/ads/[adId]/resume", () => {
         providerAccountId: "act_123",
       },
     } as never);
+    vi.mocked(actionLog.resolveExactMetaAdActionTarget).mockResolvedValue({
+      ok: true,
+      target: {
+        businessId: BUSINESS_ID,
+        adId: "ad_1",
+        creativeId: "creative_1",
+        providerAccountId: "act_123",
+      },
+    } as never);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: 0,
+    });
     vi.mocked(actionLog.createMetaAdsActionLog).mockResolvedValue({
       id: "log_1",
+    } as never);
+    vi.mocked(actionLog.createDecisionOriginMetaAdsActionLog).mockResolvedValue({
+      id: "log_decision_1",
     } as never);
     vi.mocked(actionLog.completeMetaAdsActionLog).mockResolvedValue({
       id: "log_1",
     } as never);
+    vi.mocked(
+      actionLog.completeDecisionOriginMetaAdsActionLog,
+    ).mockResolvedValue({ id: "log_decision_1" } as never);
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
       provider_account_id: "act_123",
@@ -161,6 +198,45 @@ describe("POST /api/meta/ads/[adId]/resume", () => {
     expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ id: "log_1", status: "success" }),
     );
+  });
+
+  it("uses the exact typed and atomic path for a decision-origin resume", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "ad_1", status: "ACTIVE", effective_status: "ACTIVE" }),
+      );
+
+    const response = await POST(
+      request({
+        contractVersion: "meta-decision-origin-ad-execution.v1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: "00000000-0000-4000-8000-000000000011",
+        evaluationId: "00000000-0000-4000-8000-000000000012",
+        engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+        decisionHash: "d".repeat(64),
+        action: "resume",
+        idempotencyKey: "decision-resume-1",
+        creativeId: "creative_1",
+      }),
+      params(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(actionLog.resolveExactMetaAdActionTarget).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      adId: "ad_1",
+    });
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).toHaveBeenCalled();
+    expect(
+      actionLog.completeDecisionOriginMetaAdsActionLog,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "log_decision_1", status: "success" }),
+    );
+    expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
   });
 
   it("logs silent_failure when Meta success verifies unchanged", async () => {

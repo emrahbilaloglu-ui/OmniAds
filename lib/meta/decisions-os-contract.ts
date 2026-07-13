@@ -9,12 +9,7 @@ export const META_OS_DECISIONS_PRESENTATION_VERSION =
 export type MetaOsDecisionLane = "act" | "blocked" | "monitor";
 export type MetaOsDecisionLevel = "campaign" | "adset" | "ad";
 export type MetaOsCommandIntent =
-  | "execute"
-  | "launchpad"
-  | "brief"
-  | "manual"
-  | "review"
-  | "none";
+  "execute" | "launchpad" | "brief" | "manual" | "review" | "none";
 
 export interface MetaOsDecisionAction {
   code: string;
@@ -31,6 +26,13 @@ export interface MetaOsDecisionPriority {
   version: typeof META_OS_DECISIONS_PRESENTATION_VERSION;
 }
 
+export interface MetaOsDecisionUrgency {
+  level: "critical" | "high" | "medium" | "none";
+  rank: number;
+  label: string;
+  reason: string | null;
+}
+
 export interface MetaOsDecisionMetrics {
   spend: number | null;
   purchases: number | null;
@@ -42,7 +44,20 @@ export interface MetaOsDecisionMetrics {
   ratioToTarget: number | null;
   currency: string | null;
   attribution: "meta_attributed";
-  grain: "campaign_or_adset" | "creative_context";
+  grain: "campaign_or_adset" | "ad" | "creative_context";
+}
+
+export interface MetaOsStructureBidConfiguration {
+  strategyType: string | null;
+  strategyLabel: string | null;
+  currentValue: number | null;
+  currentValueFormat: "currency" | "roas" | null;
+  previousValue: number | null;
+  previousValueFormat: "currency" | "roas" | null;
+  previousValueCapturedAt: string | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  budgetUtilization: number | null;
 }
 
 export interface MetaOsStructureNode {
@@ -59,9 +74,11 @@ export interface MetaOsStructureNode {
   controlOwner: "campaign" | "adset" | "mixed" | "unknown";
   status: string | null;
   optimizationGoal: string | null;
+  bidConfiguration?: MetaOsStructureBidConfiguration;
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
   priority: MetaOsDecisionPriority;
+  urgency: MetaOsDecisionUrgency;
   confidence: "high" | "medium" | "low" | "unknown";
   assessment: string;
   whyNow: string;
@@ -80,6 +97,8 @@ export interface MetaOsStructureGroup {
   campaign: MetaOsStructureNode;
   adsets: MetaOsStructureNode[];
   highestPriority: MetaOsDecisionPriority;
+  highestUrgency: MetaOsDecisionUrgency;
+  urgentAdsetCount: number;
 }
 
 export interface MetaOsAdDecision {
@@ -94,10 +113,13 @@ export interface MetaOsAdDecision {
   campaignName: string | null;
   adsetId: string | null;
   adsetName: string | null;
-  creativeId: string;
+  creativeId: string | null;
   creativeName: string | null;
   thumbnailUrl: string | null;
-  lifecycleRole: "test" | "main" | "mixed" | "label_needed";
+  lifecycleRole: "test" | "main" | "mixed" | "label_needed" | "unknown";
+  campaignRoleSource: "automatic" | "user_override" | "unknown";
+  campaignRoleConfidence: "high" | "medium" | "low" | "unknown" | "conflict";
+  campaignRoleTrustedForAction: boolean;
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
   priority: MetaOsDecisionPriority;
@@ -120,7 +142,25 @@ export interface MetaOsAdDecision {
   publishedLabel: string;
   engineVersion: string;
   snapshotAsOf: string;
-  sourceGrain: "creative_context";
+  sourceGrain: "ad" | "creative_context";
+  decisionAvailability: "available" | "pending_native_evidence";
+}
+
+export interface MetaOsInactiveAsset {
+  id: string;
+  level: MetaOsDecisionLevel | "creative";
+  providerEntityId: string;
+  name: string;
+  campaignName: string | null;
+  adsetName: string | null;
+  status: string;
+  deliveryState: "inactive" | "unknown";
+  advisoryLabel: string;
+  advisoryReason: string;
+  confidence: "high" | "medium" | "low";
+  metrics: MetaOsDecisionMetrics;
+  source: "structure_archive" | "canonical_decision_snapshot";
+  providerWriteAuthority: "none";
 }
 
 export interface MetaOsDecisionsPresentation {
@@ -130,7 +170,7 @@ export interface MetaOsDecisionsPresentation {
     snapshotAsOf: string | null;
     engineVersion: string | null;
     structureSource: "meta_recommendations";
-    adsSource: "creative_decision_with_verified_ad_identity";
+    adsSource: "native_ad_decision" | "legacy_creative_review_only";
   };
   structure: {
     groups: MetaOsStructureGroup[];
@@ -150,6 +190,12 @@ export interface MetaOsDecisionsPresentation {
     omittedAmbiguousIdentity: number;
     omittedNotApplicable: number;
     sourcePreCapCount: number;
+  };
+  inactive?: {
+    items: MetaOsInactiveAsset[];
+    count: number;
+    inactiveCount: number;
+    unknownCount: number;
   };
   limitations: Array<{
     code: string;

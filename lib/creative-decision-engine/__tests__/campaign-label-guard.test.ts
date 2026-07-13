@@ -260,13 +260,13 @@ describe("automatic campaign context trust classes (D033)", () => {
     ).toBe(true);
   });
 
-  it("demotes hard scale at medium trust with blockedActionType preserved", () => {
+  it("keeps the scale verdict visible but blocked at medium trust", () => {
     const guarded = applyCreativeCampaignLabelGuard({
       decision: makeDecision({ label: "scale", confidence: 82 }),
       input: makeInput("campaign-9"),
       campaignLabelsById: contextMap("medium"),
     });
-    expect(guarded.label).toBe("diagnose");
+    expect(guarded.label).toBe("scale");
     expect(guarded.blockedActionType).toBe("scale");
     expect(guarded.confidence).toBeLessThanOrEqual(
       CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
@@ -288,13 +288,13 @@ describe("automatic campaign context trust classes (D033)", () => {
     expect(guarded.campaignLabelStatus).toBe("labeled");
   });
 
-  it("demotes hard actions at unknown trust with the unresolved badge", () => {
+  it("keeps the cut verdict visible but blocked at unknown trust", () => {
     const guarded = applyCreativeCampaignLabelGuard({
       decision: makeDecision({ label: "cut", confidence: 80 }),
       input: makeInput("campaign-9"),
       campaignLabelsById: contextMap("unknown"),
     });
-    expect(guarded.label).toBe("diagnose");
+    expect(guarded.label).toBe("cut");
     expect(guarded.blockedActionType).toBe("cut");
     expect(guarded.confidence).toBeLessThanOrEqual(
       CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
@@ -309,13 +309,13 @@ describe("automatic campaign context trust classes (D033)", () => {
     ).toBe(true);
   });
 
-  it("marks conflict trust with the conflict badge and demotes hard actions", () => {
+  it("marks conflict trust while preserving the review-only verdict", () => {
     const guarded = applyCreativeCampaignLabelGuard({
       decision: makeDecision({ label: "refresh", confidence: 75 }),
       input: makeInput("campaign-9"),
       campaignLabelsById: contextMap("conflict"),
     });
-    expect(guarded.label).toBe("diagnose");
+    expect(guarded.label).toBe("refresh");
     expect(guarded.blockedActionType).toBe("refresh");
     expect(
       guarded.badges.some(

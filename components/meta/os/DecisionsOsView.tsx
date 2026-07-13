@@ -22,6 +22,8 @@ import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
   MetaOsDecisionLane,
+  MetaOsInactiveAsset,
+  MetaOsStructureBidConfiguration,
   MetaOsStructureGroup,
   MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
@@ -30,7 +32,7 @@ import {
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
 } from "@/lib/meta/decisions-workspace-contract";
 import type {
-  MetaDecisionsWorkspacePayload,
+  MetaDecisionsOsWorkspacePayload,
   MetaWindowKey,
 } from "@/components/meta/redesign/types";
 import {
@@ -49,7 +51,15 @@ interface DecisionsOsViewProps {
   currency?: string | null;
 }
 
-type Layer = "structure" | "ads";
+type DecisionLayer = "structure" | "ads";
+type Layer = DecisionLayer | "inactive";
+type StructureDecisionFilter = "all" | MetaOsDecisionLane;
+type StructureStatusFilter =
+  | "all"
+  | "active"
+  | "paused"
+  | "issues"
+  | "unknown";
 type SelectedDecision =
   | { kind: "structure"; value: MetaOsStructureNode }
   | { kind: "ad"; value: MetaOsAdDecision };
@@ -58,6 +68,10 @@ interface AnomaliesPayload {
   anomalies: MetaAnomaly[];
   snapshotDate: string | null;
   count: number;
+}
+
+interface StructureConfigurationPayload {
+  configuration: MetaOsStructureBidConfiguration;
 }
 
 async function readJson<T>(url: string): Promise<T> {
@@ -122,16 +136,42 @@ function metric(value: number | null, suffix = "") {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`;
 }
 
+function bidValue(
+  value: number | null,
+  format: "currency" | "roas" | null,
+  currency: string | null,
+) {
+  if (value === null) return "—";
+  return format === "roas" ? metric(value, "×") : money(value, currency);
+}
+
+function dateTime(value: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function actionTone(action: MetaOsDecisionAction) {
-  if (action.providerMutation === "pause" || action.code === "cut") return "danger";
-  if (action.code.includes("policy") || action.code.includes("delivery")) return "caution";
+  if (action.providerMutation === "pause" || action.code === "cut")
+    return "danger";
+  if (action.code.includes("policy") || action.code.includes("delivery"))
+    return "caution";
   if (
     action.code.includes("resolve") ||
     action.code.includes("tracking") ||
     action.code.includes("landing") ||
     action.code.includes("checkout")
-  ) return "caution";
-  if (action.code.includes("budget") || action.code.includes("promotion")) return "positive";
+  )
+    return "caution";
+  if (action.code.includes("budget") || action.code.includes("promotion"))
+    return "positive";
   if (action.intent === "brief" || action.intent === "launchpad") return "info";
   return "neutral";
 }
@@ -139,11 +179,39 @@ function actionTone(action: MetaOsDecisionAction) {
 function assessmentTone(value: string) {
   if (/winner|above target/i.test(value)) return "positive";
   if (/underperform|below target/i.test(value)) return "danger";
-  if (/fatigue|risk|blocked|bottleneck|incomplete/i.test(value)) return "caution";
+  if (/fatigue|risk|blocked|bottleneck|incomplete|pending/i.test(value))
+    return "caution";
   return "neutral";
 }
 
 const DECISION_LANES: MetaOsDecisionLane[] = ["act", "blocked", "monitor"];
+const STRUCTURE_DECISION_FILTERS: StructureDecisionFilter[] = [
+  "all",
+  ...DECISION_LANES,
+];
+
+function structureDecisionFilterLabel(value: StructureDecisionFilter) {
+  return value === "all" ? "All" : laneLabel(value);
+}
+
+function structureStatusBucket(
+  status: string | null,
+): Exclude<StructureStatusFilter, "all"> {
+  const normalized = status?.trim().toUpperCase() ?? "";
+  if (normalized === "ACTIVE") return "active";
+  if (
+    normalized === "PAUSED" ||
+    normalized === "ARCHIVED" ||
+    normalized === "DELETED" ||
+    normalized.startsWith("CAMPAIGN_PAUSED")
+  ) {
+    return "paused";
+  }
+  if (!normalized || normalized === "UNKNOWN" || normalized === "UNAVAILABLE") {
+    return "unknown";
+  }
+  return "issues";
+}
 
 function laneLabel(lane: MetaOsDecisionLane) {
   if (lane === "act") return "Act Now";
@@ -152,19 +220,20 @@ function laneLabel(lane: MetaOsDecisionLane) {
 }
 
 function presentationLaneCount(
-  presentation: MetaDecisionsWorkspacePayload["os"] | null | undefined,
-  layer: Layer,
+  presentation: MetaDecisionsOsWorkspacePayload["os"] | null | undefined,
+  layer: DecisionLayer,
   lane: MetaOsDecisionLane,
 ) {
   if (!presentation) return 0;
-  const group = layer === "structure" ? presentation.structure : presentation.ads;
+  const group =
+    layer === "structure" ? presentation.structure : presentation.ads;
   if (lane === "act") return group.actCount;
   if (lane === "blocked") return group.blockedCount;
   return group.monitorCount;
 }
 
 function adsEmptyDetail(
-  presentation: MetaDecisionsWorkspacePayload["os"],
+  presentation: MetaDecisionsOsWorkspacePayload["os"],
   lane: MetaOsDecisionLane,
 ) {
   const withheld = [
@@ -187,15 +256,14 @@ function adsEmptyDetail(
 }
 
 export function resolveAvailableDecisionLane(
-  presentation: MetaDecisionsWorkspacePayload["os"] | null | undefined,
-  layer: Layer,
+  presentation: MetaDecisionsOsWorkspacePayload["os"] | null | undefined,
+  layer: DecisionLayer,
   current: MetaOsDecisionLane,
 ) {
   if (presentationLaneCount(presentation, layer, current) > 0) return current;
   return (
     DECISION_LANES.find(
-      (candidate) =>
-        presentationLaneCount(presentation, layer, candidate) > 0,
+      (candidate) => presentationLaneCount(presentation, layer, candidate) > 0,
     ) ?? current
   );
 }
@@ -207,8 +275,29 @@ export function nextAdCandidateLimit(current: number) {
   );
 }
 
-function lifecycleLabel(value: MetaOsStructureNode["lifecycleRole"] | MetaOsAdDecision["lifecycleRole"]) {
-  if (value === "label_needed") return "Label needed";
+export function preserveDecisionWorkspacePlaceholder<T>(
+  previous: T | undefined,
+  previousQuery: { queryKey: readonly unknown[] } | undefined,
+  businessId: string,
+  providerAccountId: string | null,
+) {
+  const previousKey = previousQuery?.queryKey;
+  if (
+    previousKey?.[0] !== "meta-decisions-os-v2" ||
+    previousKey[1] !== businessId ||
+    previousKey[2] !== providerAccountId
+  ) {
+    return undefined;
+  }
+  return previous;
+}
+
+function lifecycleLabel(
+  value:
+    MetaOsStructureNode["lifecycleRole"] | MetaOsAdDecision["lifecycleRole"],
+) {
+  if (value === "label_needed" || value === "unknown")
+    return "Auto-classifying";
   return titleCase(value);
 }
 
@@ -242,7 +331,11 @@ function decisionsDateRangeFromParams(
     }
   }
   return rangeValueToDateWindow(
-    dateWindowToRangeValue({ window: window === "custom" ? "28d" : window, start: "", end: "" }),
+    dateWindowToRangeValue({
+      window: window === "custom" ? "28d" : window,
+      start: "",
+      end: "",
+    }),
     referenceDate,
   );
 }
@@ -254,12 +347,17 @@ export function DecisionsOsView({
 }: DecisionsOsViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const requestedProviderAccountId = searchParams.get("providerAccountId")?.trim() || null;
+  const requestedProviderAccountId =
+    searchParams.get("providerAccountId")?.trim() || null;
   const requestedCreativeId = searchParams.get("creativeId")?.trim() || null;
-  const [layer, setLayer] = useState<Layer>(requestedCreativeId ? "ads" : "structure");
-  const [lanesByLayer, setLanesByLayer] = useState<
-    Record<Layer, MetaOsDecisionLane>
-  >({ structure: "act", ads: "act" });
+  const [layer, setLayer] = useState<Layer>(
+    requestedCreativeId ? "ads" : "structure",
+  );
+  const [structureDecisionFilter, setStructureDecisionFilter] =
+    useState<StructureDecisionFilter>("all");
+  const [structureStatusFilter, setStructureStatusFilter] =
+    useState<StructureStatusFilter>("all");
+  const [adsLane, setAdsLane] = useState<MetaOsDecisionLane>("act");
   const [selected, setSelected] = useState<SelectedDecision | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -268,6 +366,8 @@ export function DecisionsOsView({
   const [adCandidateLimit, setAdCandidateLimit] = useState(
     META_DECISIONS_AD_CANDIDATE_LIMIT,
   );
+  const [inactiveVisibleLimit, setInactiveVisibleLimit] = useState(50);
+  const [structureVisibleLimit, setStructureVisibleLimit] = useState(50);
 
   const providerAccountsQuery = useQuery({
     queryKey: ["meta-provider-accounts", businessId],
@@ -279,7 +379,11 @@ export function DecisionsOsView({
   const providerAccounts = providerAccountsQuery.data ?? [];
   const selectedAccount = useMemo<MetaHistoryAccount | null>(() => {
     if (requestedProviderAccountId) {
-      return providerAccounts.find((account) => account.id === requestedProviderAccountId) ?? null;
+      return (
+        providerAccounts.find(
+          (account) => account.id === requestedProviderAccountId,
+        ) ?? null
+      );
     }
     return providerAccounts.length === 1 ? providerAccounts[0]! : null;
   }, [providerAccounts, requestedProviderAccountId]);
@@ -310,18 +414,28 @@ export function DecisionsOsView({
         providerAccountId: providerAccountId!,
         window: windowKey,
         status_filter: "all",
+        surface: "os",
         adLimit: String(adCandidateLimit),
       });
       if (windowKey === "custom") {
         params.set("startDate", selectedDateRange.start);
         params.set("endDate", selectedDateRange.end);
       }
-      return readJson<MetaDecisionsWorkspacePayload>(
+      return readJson<MetaDecisionsOsWorkspacePayload>(
         `/api/meta/decisions-workspace?${params.toString()}`,
       );
     },
-    placeholderData: (previous) => previous,
+    placeholderData: (previous, previousQuery) =>
+      preserveDecisionWorkspacePlaceholder(
+        previous,
+        previousQuery,
+        businessId,
+        providerAccountId,
+      ),
     retry: 2,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
   const anomaliesQuery = useQuery({
     queryKey: [
@@ -340,67 +454,97 @@ export function DecisionsOsView({
         status_filter: "active",
       });
       if (windowKey === "custom") params.set("endDate", selectedDateRange.end);
-      return readJson<AnomaliesPayload>(`/api/meta/anomalies?${params.toString()}`);
+      return readJson<AnomaliesPayload>(
+        `/api/meta/anomalies?${params.toString()}`,
+      );
     },
     retry: 1,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const workspace = workspaceQuery.data ?? null;
   const presentation = workspace?.os ?? null;
-  const lane = lanesByLayer[layer];
+  const lane = layer === "ads" ? adsLane : "monitor";
   const currency =
-    selectedAccount?.currency ?? workspace?.system.currency ?? businessCurrency ?? null;
+    selectedAccount?.currency ??
+    workspace?.system.currency ??
+    businessCurrency ??
+    null;
   const structureGroups = presentation?.structure.groups ?? [];
   const adItems = presentation?.ads.items ?? [];
-  const visibleStructureGroups = useMemo(
+  const inactiveItems = presentation?.inactive?.items ?? [];
+  const visibleInactiveItems = inactiveItems.slice(0, inactiveVisibleLimit);
+  const remainingInactiveItems = Math.max(
+    0,
+    inactiveItems.length - visibleInactiveItems.length,
+  );
+  const filteredStructureGroups = useMemo(
     () =>
-      structureGroups.filter(
-        (group) =>
-          group.campaign.lane === lane || group.adsets.some((adset) => adset.lane === lane),
-      ),
-    [lane, structureGroups],
+      structureGroups.flatMap((group) => {
+        const matches = (node: MetaOsStructureNode) =>
+          (structureDecisionFilter === "all" ||
+            node.lane === structureDecisionFilter) &&
+          (structureStatusFilter === "all" ||
+            structureStatusBucket(node.status) === structureStatusFilter);
+        const campaignMatches = matches(group.campaign);
+        const adsets = group.adsets.filter(matches);
+        if (!campaignMatches && adsets.length === 0) return [];
+        return [{ ...group, adsets }];
+      }),
+    [structureDecisionFilter, structureGroups, structureStatusFilter],
+  );
+  const visibleStructureGroups = filteredStructureGroups.slice(
+    0,
+    structureVisibleLimit,
+  );
+  const remainingStructureGroups = Math.max(
+    0,
+    filteredStructureGroups.length - visibleStructureGroups.length,
   );
   const visibleAds = useMemo(
     () => adItems.filter((item) => item.lane === lane),
     [adItems, lane],
   );
-  const structureCount = presentationLaneCount(presentation, "structure", lane);
-  const adsCount = presentationLaneCount(presentation, "ads", lane);
-  const layerCount = layer === "structure" ? structureCount : adsCount;
-  const blockingBanner = workspace?.banners.find((banner) => banner.blocking) ?? null;
-  const integrityCount = (anomaliesQuery.data?.count ?? 0) + (blockingBanner ? 1 : 0);
-  const freshAt = workspace?.system.laneSnapshotCreatedAt ?? workspace?.pulse.lastSyncAt ?? null;
+  const structureCount = filteredStructureGroups.length;
+  const adsCount = presentationLaneCount(presentation, "ads", adsLane);
+  const layerCount =
+    layer === "structure"
+      ? structureCount
+      : layer === "ads"
+        ? adsCount
+        : inactiveItems.length;
+  const blockingBanner =
+    workspace?.banners.find((banner) => banner.blocking) ?? null;
+  const integrityCount =
+    (anomaliesQuery.data?.count ?? 0) + (blockingBanner ? 1 : 0);
+  const freshAt =
+    workspace?.system.laneSnapshotCreatedAt ??
+    workspace?.pulse.lastSyncAt ??
+    null;
   const remainingAds = Math.max(
     0,
     (presentation?.ads.eligiblePreCapCount ?? 0) - adItems.length,
   );
   const canLoadMoreAds =
-    remainingAds > 0 && adCandidateLimit < META_DECISIONS_AD_CANDIDATE_MAX_LIMIT;
+    remainingAds > 0 &&
+    adCandidateLimit < META_DECISIONS_AD_CANDIDATE_MAX_LIMIT;
 
   useEffect(() => {
     setSelected(null);
     setHowOpen(false);
     setAdCandidateLimit(META_DECISIONS_AD_CANDIDATE_LIMIT);
+    setInactiveVisibleLimit(50);
+    setStructureVisibleLimit(50);
+    setStructureDecisionFilter("all");
+    setStructureStatusFilter("all");
   }, [providerAccountId]);
 
   useEffect(() => {
     if (!presentation) return;
-    setLanesByLayer((current) => {
-      let changed = false;
-      const next = { ...current };
-      for (const targetLayer of ["structure", "ads"] as const) {
-        const fallback = resolveAvailableDecisionLane(
-          presentation,
-          targetLayer,
-          current[targetLayer],
-        );
-        if (fallback !== current[targetLayer]) {
-          next[targetLayer] = fallback;
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
+    setAdsLane((current) =>
+      resolveAvailableDecisionLane(presentation, "ads", current),
+    );
   }, [presentation]);
 
   useEffect(() => {
@@ -412,7 +556,7 @@ export function DecisionsOsView({
     );
     if (!item) return;
     setLayer("ads");
-    setLanesByLayer((current) => ({ ...current, ads: item.lane }));
+    setAdsLane(item.lane);
     setSelected({ kind: "ad", value: item });
   }, [adItems, requestedCreativeId]);
 
@@ -424,7 +568,9 @@ export function DecisionsOsView({
     router.replace(`/platforms/meta?${next.toString()}`);
   };
 
-  const chooseDateRange = (nextValue: ReturnType<typeof dateWindowToRangeValue>) => {
+  const chooseDateRange = (
+    nextValue: ReturnType<typeof dateWindowToRangeValue>,
+  ) => {
     const nextRange = rangeValueToDateWindow(nextValue, accountReferenceDate);
     const nextWindow: MetaWindowKey =
       nextRange.window === "7d" ||
@@ -444,7 +590,10 @@ export function DecisionsOsView({
       next.delete("endDate");
     }
     setAdCandidateLimit(META_DECISIONS_AD_CANDIDATE_LIMIT);
-    router.replace(`/platforms/meta${next.toString() ? `?${next.toString()}` : ""}`);
+    setStructureVisibleLimit(50);
+    router.replace(
+      `/platforms/meta${next.toString() ? `?${next.toString()}` : ""}`,
+    );
   };
 
   const toggleGroup = (groupId: string) => {
@@ -477,16 +626,21 @@ export function DecisionsOsView({
               {accountMark(selectedAccount?.name ?? businessName)}
             </span>
             <span className={styles.accountCopy}>
-              <strong>{selectedAccount?.name ?? "Select a Meta account"}</strong>
+              <strong>
+                {selectedAccount?.name ?? "Select a Meta account"}
+              </strong>
               <span>
-                {providerAccountId ?? "account required"} · {currency ?? "currency —"}
+                {providerAccountId ?? "account required"} ·{" "}
+                {currency ?? "currency —"}
               </span>
             </span>
             <ChevronDown size={13} aria-hidden="true" />
           </button>
           {accountMenuOpen ? (
             <div className={styles.accountMenu} role="listbox">
-              <div className={styles.menuHeading}>Assigned accounts · no cross-account totals</div>
+              <div className={styles.menuHeading}>
+                Assigned accounts · no cross-account totals
+              </div>
               {providerAccounts.map((account) => (
                 <button
                   type="button"
@@ -495,10 +649,14 @@ export function DecisionsOsView({
                   aria-selected={account.id === providerAccountId}
                   onClick={() => chooseAccount(account.id)}
                 >
-                  <span className={styles.accountMark}>{accountMark(account.name)}</span>
+                  <span className={styles.accountMark}>
+                    {accountMark(account.name)}
+                  </span>
                   <span className={styles.accountCopy}>
                     <strong>{account.name}</strong>
-                    <span>{account.id} · {account.currency ?? "currency —"}</span>
+                    <span>
+                      {account.id} · {account.currency ?? "currency —"}
+                    </span>
                   </span>
                 </button>
               ))}
@@ -534,7 +692,7 @@ export function DecisionsOsView({
                 <dt>Ad identity omissions</dt>
                 <dd>{presentation?.ads.omittedWithoutVerifiedAdId ?? 0}</dd>
                 <dt>Ambiguous creative use</dt>
-                  <dd>{presentation?.ads.omittedAmbiguousIdentity ?? 0}</dd>
+                <dd>{presentation?.ads.omittedAmbiguousIdentity ?? 0}</dd>
                 <dt>Not applicable</dt>
                 <dd>{presentation?.ads.omittedNotApplicable ?? 0}</dd>
               </dl>
@@ -557,7 +715,9 @@ export function DecisionsOsView({
           data-engaged={workspace?.system.killSwitchEngaged === true}
         >
           <CircleStop size={13} aria-hidden="true" />
-          {workspace?.system.killSwitchEngaged ? "Writes stopped" : "Business STOP"}
+          {workspace?.system.killSwitchEngaged
+            ? "Writes stopped"
+            : "Business STOP"}
         </Link>
       </header>
 
@@ -566,12 +726,19 @@ export function DecisionsOsView({
           <AlertTriangle size={14} aria-hidden="true" />
           <strong>{blockingBanner.title}</strong>
           <span>{blockingBanner.detail}</span>
-          <Link href={buildMetaScopedHref("/platforms/meta/automation", routeScope)}>Review controls</Link>
+          <Link
+            href={buildMetaScopedHref("/platforms/meta/automation", routeScope)}
+          >
+            Review controls
+          </Link>
         </div>
       ) : integrityCount > 0 ? (
         <div className={styles.integrityBand} role="status">
           <Info size={13} aria-hidden="true" />
-          <span>{integrityCount} integrity item{integrityCount === 1 ? "" : "s"} available in evidence.</span>
+          <span>
+            {integrityCount} integrity item{integrityCount === 1 ? "" : "s"}{" "}
+            available in evidence.
+          </span>
           <button type="button" onClick={() => setStatusOpen(true)}>
             View evidence
           </button>
@@ -580,12 +747,24 @@ export function DecisionsOsView({
 
       <div className={styles.layerBar}>
         <div role="tablist" className={styles.layerTabs}>
-          {(["structure", "ads"] as const).map((value) => {
-            const count = DECISION_LANES.reduce(
-              (sum, candidate) =>
-                sum + presentationLaneCount(presentation, value, candidate),
-              0,
-            );
+          {(
+            [
+              { value: "structure", label: "Structure" },
+              { value: "ads", label: "Ads" },
+              { value: "inactive", label: "Inactive assets" },
+            ] as const
+          ).map(({ value, label }) => {
+            const count =
+              value === "inactive"
+                ? inactiveItems.length
+                : value === "structure"
+                  ? structureGroups.length
+                : DECISION_LANES.reduce(
+                    (sum, candidate) =>
+                      sum +
+                      presentationLaneCount(presentation, value, candidate),
+                    0,
+                  );
             return (
               <button
                 type="button"
@@ -598,7 +777,7 @@ export function DecisionsOsView({
                   setHowOpen(false);
                 }}
               >
-                {value === "structure" ? "Structure" : "Ads"}
+                {label}
                 <span>{count}</span>
               </button>
             );
@@ -626,44 +805,104 @@ export function DecisionsOsView({
             timeZoneLabel={accountTimeZone}
             align="end"
           />
-          <Link href={buildMetaScopedHref("/platforms/meta/history", routeScope)} className={styles.historyLink}>
+          <Link
+            href={buildMetaScopedHref("/platforms/meta/history", routeScope)}
+            className={styles.historyLink}
+          >
             <History size={13} aria-hidden="true" /> History
           </Link>
         </div>
       </div>
 
       <div className={styles.laneBar}>
-        <div className={styles.laneSwitch} aria-label="Decision state">
-          {DECISION_LANES.map((value) => (
-            <button
-              type="button"
-              key={value}
-              aria-pressed={lane === value}
-              onClick={() => {
-                setLanesByLayer((current) => ({
-                  ...current,
-                  [layer]: value,
-                }));
-                setSelected(null);
-                setHowOpen(false);
-              }}
+        {layer === "inactive" ? (
+          <div className={styles.advisoryOnly}>
+            Advisory only · provider writes disabled
+          </div>
+        ) : layer === "structure" ? (
+          <>
+            <div
+              className={styles.laneSwitch}
+              aria-label="Structure decision state"
+              data-structure="true"
             >
-              {laneLabel(value)}
-              <span>{presentationLaneCount(presentation, layer, value)}</span>
-            </button>
-          ))}
-        </div>
+              {STRUCTURE_DECISION_FILTERS.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-pressed={structureDecisionFilter === value}
+                  onClick={() => {
+                    setStructureDecisionFilter(value);
+                    setStructureVisibleLimit(50);
+                    setSelected(null);
+                    setHowOpen(false);
+                  }}
+                >
+                  {structureDecisionFilterLabel(value)}
+                  <span>
+                    {value === "all"
+                      ? structureGroups.length
+                      : presentationLaneCount(presentation, "structure", value)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <label className={styles.statusFilter}>
+              <span>Delivery</span>
+              <select
+                aria-label="Filter Structure by delivery status"
+                value={structureStatusFilter}
+                onChange={(event) => {
+                  setStructureStatusFilter(
+                    event.target.value as StructureStatusFilter,
+                  );
+                  setStructureVisibleLimit(50);
+                  setSelected(null);
+                }}
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused or archived</option>
+                <option value="issues">Delivery issues</option>
+                <option value="unknown">Status unknown</option>
+              </select>
+            </label>
+          </>
+        ) : (
+          <div className={styles.laneSwitch} aria-label="Decision state">
+            {DECISION_LANES.map((value) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={adsLane === value}
+                onClick={() => {
+                  setAdsLane(value);
+                  setSelected(null);
+                  setHowOpen(false);
+                }}
+              >
+                {laneLabel(value)}
+                <span>{presentationLaneCount(presentation, "ads", value)}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <span className={styles.listCaption}>
           {layer === "structure"
-            ? `${visibleStructureGroups.length} campaigns · sorted by highest urgency`
-            : `${visibleAds.length} shown · ${presentation?.ads.statePreCapCounts[lane] ?? visibleAds.length} eligible in ${laneLabel(lane)}`}
+            ? `${visibleStructureGroups.length} of ${filteredStructureGroups.length} campaigns · urgency first`
+            : layer === "ads"
+              ? `${visibleAds.length} shown · ${presentation?.ads.statePreCapCounts[lane] ?? visibleAds.length} rows in ${laneLabel(lane)}`
+              : `${inactiveItems.length} closed or status-unknown assets`}
         </span>
       </div>
 
       <div className={styles.workspace} data-inspector-open={Boolean(selected)}>
         <div className={styles.listPane}>
           {providerAccountsQuery.isLoading || workspaceQuery.isLoading ? (
-            <DecisionState title="Loading decision workspace" detail="Reading the account-scoped server presentation." />
+            <DecisionState
+              title="Loading decision workspace"
+              detail="Reading the account-scoped server presentation."
+            />
           ) : providerAccountsQuery.isError || workspaceQuery.isError ? (
             <DecisionState
               title="Decision workspace unavailable"
@@ -684,7 +923,9 @@ export function DecisionsOsView({
               title="Decision presentation unavailable"
               detail="The UI will not derive actions from legacy recommendation fields."
             />
-          ) : layer === "ads" && workspace?.decisionReadModel?.status === "unavailable" ? (
+          ) : layer === "ads" &&
+            workspace?.decisionReadModel?.status === "unavailable" &&
+            visibleAds.length === 0 ? (
             <DecisionState
               title="Ads decisions unavailable"
               detail={
@@ -696,27 +937,62 @@ export function DecisionsOsView({
           ) : layerCount === 0 ? (
             <DecisionState
               title={
-                lane === "act"
-                  ? "No actions in this layer"
-                  : lane === "blocked"
-                    ? "No unresolved decisions in this layer"
-                    : "Nothing is currently monitoring"
+                layer === "inactive"
+                  ? "No inactive asset recommendations"
+                  : lane === "act"
+                    ? "No actions in this layer"
+                    : lane === "blocked"
+                      ? "No unresolved decisions in this layer"
+                      : "Nothing is currently monitoring"
               }
               detail={
-                layer === "ads"
-                  ? adsEmptyDetail(presentation, lane)
-                  : "No server-presented rows match this layer and state."
+                layer === "inactive"
+                  ? "Closed assets remain outside current Decisions. Historical snapshots stay available in History."
+                  : layer === "ads"
+                    ? adsEmptyDetail(presentation, lane)
+                    : "No campaigns or ad sets match the selected filters."
               }
             />
+          ) : layer === "inactive" ? (
+            <>
+              <InactiveAssetsList
+                items={visibleInactiveItems}
+                currency={currency}
+              />
+              {remainingInactiveItems > 0 ? (
+                <button
+                  type="button"
+                  className={styles.loadMoreButton}
+                  onClick={() =>
+                    setInactiveVisibleLimit((current) => current + 50)
+                  }
+                >
+                  Show more inactive assets ({remainingInactiveItems} remaining)
+                </button>
+              ) : null}
+            </>
           ) : layer === "structure" ? (
-            <StructureList
-              groups={visibleStructureGroups}
-              currency={currency}
-              expandedGroups={expandedGroups}
-              onToggle={toggleGroup}
-              onSelect={(value) => setSelected({ kind: "structure", value })}
-              selected={selected}
-            />
+            <>
+              <StructureList
+                groups={visibleStructureGroups}
+                currency={currency}
+                expandedGroups={expandedGroups}
+                onToggle={toggleGroup}
+                onSelect={(value) => setSelected({ kind: "structure", value })}
+                selected={selected}
+              />
+              {remainingStructureGroups > 0 ? (
+                <button
+                  type="button"
+                  className={styles.loadMoreButton}
+                  onClick={() =>
+                    setStructureVisibleLimit((current) => current + 50)
+                  }
+                >
+                  Show more campaigns ({remainingStructureGroups} remaining)
+                </button>
+              ) : null}
+            </>
           ) : (
             <>
               <AdsList
@@ -760,7 +1036,11 @@ export function DecisionsOsView({
               providerAccountId={providerAccountId}
               currency={currency}
               blocked={Boolean(blockingBanner || workspace?.viewer?.readOnly)}
-              blockReason={blockingBanner?.title ?? workspace?.viewer?.readOnlyReason ?? null}
+              blockReason={
+                blockingBanner?.title ??
+                workspace?.viewer?.readOnlyReason ??
+                null
+              }
               readOnly={workspace?.viewer?.readOnly === true}
               howOpen={howOpen}
               onToggleHow={() => setHowOpen((open) => !open)}
@@ -816,16 +1096,27 @@ function StructureList({
               type="button"
               className={styles.expandButton}
               onClick={() => onToggle(group.id)}
-              aria-label={expanded ? "Collapse ad set decisions" : "Expand ad set decisions"}
+              aria-label={
+                expanded
+                  ? "Collapse ad set decisions"
+                  : "Expand ad set decisions"
+              }
             >
-              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {expanded ? (
+                <ChevronDown size={12} />
+              ) : (
+                <ChevronRight size={12} />
+              )}
             </button>
             <StructureRow
               node={group.campaign}
               currency={currency}
               childCount={group.adsets.length}
+              groupUrgency={group.highestUrgency}
+              urgentAdsetCount={group.urgentAdsetCount}
               selected={
-                selected?.kind === "structure" && selected.value.id === group.campaign.id
+                selected?.kind === "structure" &&
+                selected.value.id === group.campaign.id
               }
               onSelect={() => onSelect(group.campaign)}
             />
@@ -835,7 +1126,10 @@ function StructureList({
                     key={adset.id}
                     node={adset}
                     currency={currency}
-                    selected={selected?.kind === "structure" && selected.value.id === adset.id}
+                    selected={
+                      selected?.kind === "structure" &&
+                      selected.value.id === adset.id
+                    }
                     onSelect={() => onSelect(adset)}
                     child
                   />
@@ -852,6 +1146,8 @@ function StructureRow({
   node,
   currency,
   childCount = 0,
+  groupUrgency,
+  urgentAdsetCount = 0,
   selected,
   onSelect,
   child = false,
@@ -859,43 +1155,136 @@ function StructureRow({
   node: MetaOsStructureNode;
   currency: string | null;
   childCount?: number;
+  groupUrgency?: MetaOsStructureGroup["highestUrgency"];
+  urgentAdsetCount?: number;
   selected: boolean;
   onSelect: () => void;
   child?: boolean;
 }) {
+  const nodeUrgency = node.urgency ?? {
+    level: "none" as const,
+    rank: 0,
+    label: "No alert",
+    reason: null,
+  };
+  const presentedUrgency = child
+    ? nodeUrgency
+    : (groupUrgency ?? nodeUrgency);
+  const urgencyLabel =
+    !child && nodeUrgency.level === "none" && urgentAdsetCount > 0
+      ? `${urgentAdsetCount} urgent ad set${urgentAdsetCount === 1 ? "" : "s"}`
+      : presentedUrgency.label;
   return (
     <button
       type="button"
       className={styles.structureRow}
       data-child={child}
       data-selected={selected}
+      data-urgency={presentedUrgency.level}
       onClick={onSelect}
       aria-pressed={selected}
     >
       <span className={styles.rowMain}>
         <span className={styles.rowHeadline}>
-          <span className={styles.actionChip} data-tone={actionTone(node.action)}>
+          <span
+            className={styles.actionChip}
+            data-tone={actionTone(node.action)}
+          >
             {node.action.label}
           </span>
+          {presentedUrgency.level !== "none" ? (
+            <span
+              className={styles.urgencyBadge}
+              data-level={presentedUrgency.level}
+              title={presentedUrgency.reason ?? urgencyLabel}
+            >
+              <AlertTriangle size={11} aria-hidden="true" />
+              {urgencyLabel}
+            </span>
+          ) : null}
           <strong>{node.name}</strong>
         </span>
         <span className={styles.rowMeta}>
           <span>{lifecycleLabel(node.lifecycleRole)}</span>
           <span>{titleCase(node.budgetMode)}</span>
           <span>{node.level === "campaign" ? "Campaign" : "Ad Set"}</span>
-          {childCount > 0 ? <span>{childCount} ad set decision{childCount === 1 ? "" : "s"}</span> : null}
+          {node.bidConfiguration?.strategyLabel ||
+          node.bidConfiguration?.strategyType ? (
+            <span>
+              {node.bidConfiguration.strategyLabel ??
+                titleCase(node.bidConfiguration.strategyType)}
+            </span>
+          ) : null}
+          {childCount > 0 ? (
+            <span>
+              {childCount} ad set{childCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
           {node.suppressedAlternativeCount > 0 ? (
-            <span>{node.suppressedAlternativeCount} lower-priority alternative suppressed</span>
+            <span>
+              {node.suppressedAlternativeCount} lower-priority alternative
+              suppressed
+            </span>
           ) : null}
         </span>
       </span>
       <span className={styles.rowMetrics}>
-        <strong>{money(node.metrics.spend, node.metrics.currency ?? currency)}</strong>
+        <strong>
+          {money(node.metrics.spend, node.metrics.currency ?? currency)}
+        </strong>
         <span>{metric(node.metrics.roas, "×")} ROAS</span>
         <small>{node.assessment}</small>
       </span>
-      <ChevronRight size={13} className={styles.rowChevron} aria-hidden="true" />
+      <ChevronRight
+        size={13}
+        className={styles.rowChevron}
+        aria-hidden="true"
+      />
     </button>
+  );
+}
+
+function InactiveAssetsList({
+  items,
+  currency,
+}: {
+  items: MetaOsInactiveAsset[];
+  currency: string | null;
+}) {
+  return (
+    <div className={styles.decisionList} data-testid="inactive-assets-list">
+      {items.map((item) => (
+        <div className={styles.inactiveRow} key={item.id}>
+          <span className={styles.rowMain}>
+            <span className={styles.rowHeadline}>
+              <span className={styles.actionChip} data-tone="neutral">
+                {item.advisoryLabel}
+              </span>
+              <strong>{item.name}</strong>
+            </span>
+            <span className={styles.parentChain}>
+              {[item.campaignName, item.adsetName]
+                .filter(Boolean)
+                .join(" › ") || "No parent context"}
+            </span>
+            <span className={styles.rowMeta}>
+              <span>{titleCase(item.level)}</span>
+              <span>{item.status}</span>
+              <span>{titleCase(item.confidence)} confidence</span>
+              <span>No provider write</span>
+            </span>
+            <span className={styles.inactiveReason}>{item.advisoryReason}</span>
+          </span>
+          <span className={styles.rowMetrics}>
+            <strong>
+              {money(item.metrics.spend, item.metrics.currency ?? currency)}
+            </strong>
+            <span>{metric(item.metrics.roas, "×")} ROAS</span>
+            <small>Historical evidence</small>
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -916,25 +1305,37 @@ function AdsList({
         <button
           type="button"
           className={styles.adRow}
-          data-selected={selected?.kind === "ad" && selected.value.id === item.id}
+          data-selected={
+            selected?.kind === "ad" && selected.value.id === item.id
+          }
           key={item.id}
           onClick={() => onSelect(item)}
         >
           <span
             className={styles.thumbnail}
-            style={item.thumbnailUrl ? { backgroundImage: `url(${JSON.stringify(item.thumbnailUrl)})` } : undefined}
+            style={
+              item.thumbnailUrl
+                ? {
+                    backgroundImage: `url(${JSON.stringify(item.thumbnailUrl)})`,
+                  }
+                : undefined
+            }
           >
             {!item.thumbnailUrl ? "AD" : null}
           </span>
           <span className={styles.rowMain}>
             <span className={styles.rowHeadline}>
-              <span className={styles.actionChip} data-tone={actionTone(item.action)}>
+              <span
+                className={styles.actionChip}
+                data-tone={actionTone(item.action)}
+              >
                 {item.action.label}
               </span>
               <strong>{item.adName}</strong>
             </span>
             <span className={styles.parentChain}>
-              {item.campaignName ?? item.campaignId ?? "Campaign unavailable"} › {item.adsetName ?? item.adsetId ?? "Ad set unavailable"}
+              {item.campaignName ?? item.campaignId ?? "Campaign unavailable"} ›{" "}
+              {item.adsetName ?? item.adsetId ?? "Ad set unavailable"}
             </span>
             <span className={styles.rowMeta}>
               <span>{lifecycleLabel(item.lifecycleRole)}</span>
@@ -947,15 +1348,53 @@ function AdsList({
             </span>
           </span>
           <span className={styles.adMetrics}>
-            <span><strong>{metric(item.metrics.roas, "×")}</strong><small>ROAS · creative</small></span>
-            <span><strong>{metric(item.metrics.purchases)}</strong><small>Purchases · creative</small></span>
-            <span><strong>{money(item.metrics.spend, item.metrics.currency ?? currency)}</strong><small>Spend · creative</small></span>
+            <span>
+              <strong>{metric(item.metrics.roas, "×")}</strong>
+              <small>
+                ROAS ·{" "}
+                {item.decisionAvailability === "pending_native_evidence"
+                  ? "pending"
+                  : item.sourceGrain === "ad"
+                    ? "ad"
+                    : "creative"}
+              </small>
+            </span>
+            <span>
+              <strong>{metric(item.metrics.purchases)}</strong>
+              <small>
+                Purchases ·{" "}
+                {item.decisionAvailability === "pending_native_evidence"
+                  ? "pending"
+                  : item.sourceGrain === "ad"
+                    ? "ad"
+                    : "creative"}
+              </small>
+            </span>
+            <span>
+              <strong>
+                {money(item.metrics.spend, item.metrics.currency ?? currency)}
+              </strong>
+              <small>
+                Spend ·{" "}
+                {item.decisionAvailability === "pending_native_evidence"
+                  ? "pending"
+                  : item.sourceGrain === "ad"
+                    ? "ad"
+                    : "creative"}
+              </small>
+            </span>
           </span>
           <span className={styles.assessmentBlock}>
-            <span className={styles.assessmentChip} data-tone={assessmentTone(item.assessment)}>
+            <span
+              className={styles.assessmentChip}
+              data-tone={assessmentTone(item.assessment)}
+            >
               {item.assessment}
             </span>
-            <small>Decision confidence {titleCase(item.confidence)} · {item.riskTier ? titleCase(item.riskTier) : "Risk unclassified"}</small>
+            <small>
+              Decision confidence {titleCase(item.confidence)} ·{" "}
+              {item.riskTier ? titleCase(item.riskTier) : "Risk unclassified"}
+            </small>
             <span>{item.action.scopeNote}</span>
           </span>
         </button>
@@ -998,6 +1437,31 @@ function DecisionInspector({
   );
   const ad = selected.kind === "ad" ? selected.value : null;
   const structure = selected.kind === "structure" ? selected.value : null;
+  const structureConfigurationQuery = useQuery({
+    queryKey: [
+      "meta-structure-configuration-v1",
+      businessId,
+      providerAccountId,
+      structure?.level ?? null,
+      structure?.providerEntityId ?? null,
+    ],
+    enabled: Boolean(structure?.providerEntityId),
+    queryFn: () => {
+      const params = new URLSearchParams({
+        businessId,
+        providerAccountId,
+        level: structure!.level,
+        entityId: structure!.providerEntityId!,
+      });
+      return readJson<StructureConfigurationPayload>(
+        `/api/meta/structure-configuration?${params.toString()}`,
+      );
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
   const value = ad ?? structure!;
   const action = value.action;
   const metrics = value.metrics;
@@ -1009,6 +1473,17 @@ function DecisionInspector({
   const blockers = ad ? ad.blockers : [];
   const monitor = value.lane === "monitor";
   const resolutionBlocked = value.lane === "blocked";
+  const hydratedBidConfiguration =
+    structureConfigurationQuery.data?.configuration ?? null;
+  const bidConfiguration = hydratedBidConfiguration
+    ? {
+        ...structure?.bidConfiguration,
+        ...hydratedBidConfiguration,
+        budgetUtilization:
+          structure?.bidConfiguration?.budgetUtilization ??
+          hydratedBidConfiguration.budgetUtilization,
+      }
+    : (structure?.bidConfiguration ?? null);
 
   const saveCampaignRoleCorrection = async () => {
     if (!ad?.campaignId || !campaignRoleCorrection || readOnly) return;
@@ -1064,12 +1539,21 @@ function DecisionInspector({
     <aside className={styles.inspector} aria-label="Decision inspector">
       <div className={styles.inspectorHeader}>
         <div>
-          <span className={styles.actionChip} data-tone={actionTone(action)}>{action.label}</span>
+          <span className={styles.actionChip} data-tone={actionTone(action)}>
+            {action.label}
+          </span>
           <small>{ad ? "Ad" : titleCase(structure!.level)}</small>
           <h2>{entityName}</h2>
-          <span className={styles.objectId}>{entityId ?? "provider identity unavailable"}</span>
+          <span className={styles.objectId}>
+            {entityId ?? "provider identity unavailable"}
+          </span>
         </div>
-        <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Close inspector">
+        <button
+          type="button"
+          className={styles.iconButton}
+          onClick={onClose}
+          aria-label="Close inspector"
+        >
           <X size={14} />
         </button>
       </div>
@@ -1082,37 +1566,238 @@ function DecisionInspector({
 
         {ad ? (
           <section className={styles.identitySection}>
-            <div><span>Campaign</span><strong>{ad.campaignName ?? ad.campaignId ?? "—"}</strong></div>
-            <div><span>Ad Set</span><strong>{ad.adsetName ?? ad.adsetId ?? "—"}</strong></div>
-            <div><span>Creative</span><strong>{ad.creativeName ?? ad.creativeId}</strong></div>
+            <div>
+              <span>Campaign</span>
+              <strong>{ad.campaignName ?? ad.campaignId ?? "—"}</strong>
+            </div>
+            <div>
+              <span>Ad Set</span>
+              <strong>{ad.adsetName ?? ad.adsetId ?? "—"}</strong>
+            </div>
+            <div>
+              <span>Creative</span>
+              <strong>{ad.creativeName ?? ad.creativeId}</strong>
+            </div>
           </section>
         ) : (
           <section className={styles.identitySection}>
-            <div><span>Budget owner</span><strong>{titleCase(structure!.budgetOwner)}</strong></div>
-            <div><span>Budget mode</span><strong>{titleCase(structure!.budgetMode)}</strong></div>
-            <div><span>Control owner</span><strong>{titleCase(structure!.controlOwner)}</strong></div>
+            <div>
+              <span>Budget owner</span>
+              <strong>{titleCase(structure!.budgetOwner)}</strong>
+            </div>
+            <div>
+              <span>Budget mode</span>
+              <strong>{titleCase(structure!.budgetMode)}</strong>
+            </div>
+            <div>
+              <span>Control owner</span>
+              <strong>{titleCase(structure!.controlOwner)}</strong>
+            </div>
           </section>
         )}
+
+        {structure && bidConfiguration ? (
+          <section className={styles.inspectorSection}>
+            <h3>Provider configuration</h3>
+            <div className={styles.factGrid}>
+              <div>
+                <span>Bid strategy</span>
+                <strong>
+                  {bidConfiguration.strategyLabel ??
+                    titleCase(bidConfiguration.strategyType)}
+                </strong>
+                <small>
+                  {structure.optimizationGoal ?? "optimization unknown"}
+                </small>
+              </div>
+              <div>
+                <span>Current bid / target</span>
+                <strong>
+                  {bidValue(
+                    bidConfiguration.currentValue,
+                    bidConfiguration.currentValueFormat,
+                    currency,
+                  )}
+                </strong>
+                <small>{structure.status ?? "status unknown"}</small>
+              </div>
+              <div>
+                <span>Previous bid / target</span>
+                <strong>
+                  {bidValue(
+                    bidConfiguration.previousValue,
+                    bidConfiguration.previousValueFormat,
+                    currency,
+                  )}
+                </strong>
+                <small>
+                  {structureConfigurationQuery.isPending &&
+                  bidConfiguration.previousValueCapturedAt === null
+                    ? "Loading change history..."
+                    : structureConfigurationQuery.isError &&
+                        bidConfiguration.previousValueCapturedAt === null
+                      ? "Change history unavailable"
+                      : dateTime(bidConfiguration.previousValueCapturedAt)}
+                </small>
+              </div>
+              <div>
+                <span>Budget utilization</span>
+                <strong>
+                  {bidConfiguration.budgetUtilization === null
+                    ? "—"
+                    : `${Math.round(
+                        bidConfiguration.budgetUtilization * 100,
+                      )}%`}
+                </strong>
+                <small>
+                  {bidConfiguration.dailyBudget !== null
+                    ? `${money(bidConfiguration.dailyBudget, currency)} daily`
+                    : bidConfiguration.lifetimeBudget !== null
+                      ? `${money(
+                          bidConfiguration.lifetimeBudget,
+                          currency,
+                        )} lifetime`
+                      : "budget unknown"}
+                </small>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {ad?.campaignId ? (
+          <section className={styles.inspectorSection}>
+            <h3>Campaign role</h3>
+            <div className={styles.roleSummary}>
+              <strong>{lifecycleLabel(ad.lifecycleRole)}</strong>
+              <span>
+                {ad.campaignRoleSource === "user_override"
+                  ? "User override"
+                  : ad.campaignRoleSource === "automatic"
+                    ? "Automatic"
+                    : "Unresolved"}
+                {` · ${titleCase(ad.campaignRoleConfidence)} confidence`}
+              </span>
+            </div>
+            <p className={styles.roleHelp}>
+              Classification is automatic by default. Save a correction only
+              when the inferred role is wrong; the override takes priority on
+              later decisions.
+            </p>
+            <div className={styles.roleCorrection}>
+              <div
+                className={styles.roleOptions}
+                aria-label="Correct automatic campaign role"
+              >
+                {(["main", "test", "mixed"] as const).map((role) => (
+                  <button
+                    type="button"
+                    key={role}
+                    aria-pressed={campaignRoleCorrection === role}
+                    disabled={campaignRoleSaving || readOnly}
+                    onClick={() => {
+                      setCampaignRoleCorrection(role);
+                      setCampaignRoleNotice(null);
+                    }}
+                  >
+                    {titleCase(role)}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={styles.saveRoleButton}
+                disabled={
+                  campaignRoleSaving ||
+                  readOnly ||
+                  campaignRoleCorrection === null
+                }
+                onClick={() => void saveCampaignRoleCorrection()}
+              >
+                {campaignRoleSaving ? "Saving" : "Save correction"}
+              </button>
+              {campaignRoleNotice ? (
+                <span className={styles.roleNotice} aria-live="polite">
+                  {campaignRoleNotice}
+                </span>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
         <section className={styles.inspectorSection}>
           <h3>Verified facts</h3>
           <div className={styles.factGrid}>
-            <div><span>Spend</span><strong>{money(metrics.spend, metrics.currency ?? currency)}</strong><small>{metrics.grain}</small></div>
-            <div><span>ROAS</span><strong>{metric(metrics.roas, "×")}</strong><small>Meta-attributed</small></div>
-            <div><span>Purchases</span><strong>{metric(metrics.purchases)}</strong><small>{metrics.grain}</small></div>
-            <div><span>Target</span><strong>{metric(metrics.effectiveTargetRoas, "×")}</strong><small>commercial truth</small></div>
+            <div>
+              <span>Spend</span>
+              <strong>
+                {money(metrics.spend, metrics.currency ?? currency)}
+              </strong>
+              <small>{metrics.grain}</small>
+            </div>
+            <div>
+              <span>ROAS</span>
+              <strong>{metric(metrics.roas, "×")}</strong>
+              <small>Meta-attributed</small>
+            </div>
+            <div>
+              <span>Purchases</span>
+              <strong>{metric(metrics.purchases)}</strong>
+              <small>{metrics.grain}</small>
+            </div>
+            <div>
+              <span>Target</span>
+              <strong>{metric(metrics.effectiveTargetRoas, "×")}</strong>
+              <small>commercial truth</small>
+            </div>
           </div>
-          {ad ? (
-            <p className={styles.truthNote}>These metrics are creative-context evidence. They are not presented as ad-grain performance.</p>
+          {ad?.decisionAvailability === "pending_native_evidence" ? (
+            <p className={styles.truthNote}>
+              Meta currently reports this Ad as ACTIVE. Exact Ad-grain decision
+              and performance evidence are still pending, so no action is
+              authorized.
+            </p>
+          ) : ad?.sourceGrain === "creative_context" ? (
+            <p className={styles.truthNote}>
+              These metrics are creative-context evidence. They are not
+              presented as ad-grain performance.
+            </p>
+          ) : ad ? (
+            <p className={styles.truthNote}>
+              These metrics and the served decision are keyed to this exact Ad
+              ID.
+            </p>
           ) : null}
         </section>
 
         <section className={styles.assessmentSection}>
-          <span className={styles.assessmentChip} data-tone={assessmentTone(assessment)}>{assessment}</span>
-          <div><span>Confidence</span><strong>{titleCase(confidence)}</strong></div>
-          <div><span>Priority</span><strong>{titleCase(value.priority.band)}</strong></div>
-          {ad ? <div><span>Risk</span><strong>{ad.riskTier ? titleCase(ad.riskTier) : "Unclassified"}</strong></div> : null}
-          {ad?.resolution ? <div><span>Resolution owner</span><strong>{titleCase(ad.resolution.owner)}</strong></div> : null}
+          <span
+            className={styles.assessmentChip}
+            data-tone={assessmentTone(assessment)}
+          >
+            {assessment}
+          </span>
+          <div>
+            <span>Confidence</span>
+            <strong>{titleCase(confidence)}</strong>
+          </div>
+          <div>
+            <span>Priority</span>
+            <strong>{titleCase(value.priority.band)}</strong>
+          </div>
+          {ad ? (
+            <div>
+              <span>Risk</span>
+              <strong>
+                {ad.riskTier ? titleCase(ad.riskTier) : "Unclassified"}
+              </strong>
+            </div>
+          ) : null}
+          {ad?.resolution ? (
+            <div>
+              <span>Resolution owner</span>
+              <strong>{titleCase(ad.resolution.owner)}</strong>
+            </div>
+          ) : null}
         </section>
 
         {structure ? (
@@ -1125,7 +1810,9 @@ function DecisionInspector({
         {blockers.length > 0 ? (
           <section className={styles.warningSection}>
             <h3>Missing / stale / conflicting evidence</h3>
-            {blockers.map((item) => <p key={item.code}>{item.label}</p>)}
+            {blockers.map((item) => (
+              <p key={item.code}>{item.label}</p>
+            ))}
           </section>
         ) : null}
 
@@ -1137,10 +1824,14 @@ function DecisionInspector({
           </button>
           {howOpen ? (
             <dl>
-              <dt>Raw engine label</dt><dd>{ad ? ad.rawLabel ?? "—" : "See source recommendation"}</dd>
-              <dt>Published label</dt><dd>{ad ? ad.publishedLabel : action.code}</dd>
-              <dt>Engine version</dt><dd>{ad ? ad.engineVersion : structure!.priority.version}</dd>
-              <dt>Engine score</dt><dd>{ad ? ad.confidenceScore.toFixed(2) : "—"}</dd>
+              <dt>Raw engine label</dt>
+              <dd>{ad ? (ad.rawLabel ?? "—") : "See source recommendation"}</dd>
+              <dt>Published label</dt>
+              <dd>{ad ? ad.publishedLabel : action.code}</dd>
+              <dt>Engine version</dt>
+              <dd>{ad ? ad.engineVersion : structure!.priority.version}</dd>
+              <dt>Engine score</dt>
+              <dd>{ad ? ad.confidenceScore.toFixed(2) : "—"}</dd>
             </dl>
           ) : null}
         </section>
@@ -1156,43 +1847,6 @@ function DecisionInspector({
           <div className={styles.blockedBox} data-resolution="true">
             <strong>{action.label}</strong>
             <span>{ad?.resolution?.nextStep ?? action.scopeNote}</span>
-            {ad?.resolution?.code === "resolve_campaign_role" && ad.campaignId ? (
-              <div className={styles.roleCorrection}>
-                <div className={styles.roleOptions} aria-label="Correct automatic campaign role">
-                  {(["main", "test", "mixed"] as const).map((role) => (
-                    <button
-                      type="button"
-                      key={role}
-                      aria-pressed={campaignRoleCorrection === role}
-                      disabled={campaignRoleSaving || readOnly}
-                      onClick={() => {
-                        setCampaignRoleCorrection(role);
-                        setCampaignRoleNotice(null);
-                      }}
-                    >
-                      {titleCase(role)}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className={styles.saveRoleButton}
-                  disabled={
-                    campaignRoleSaving ||
-                    readOnly ||
-                    campaignRoleCorrection === null
-                  }
-                  onClick={() => void saveCampaignRoleCorrection()}
-                >
-                  {campaignRoleSaving ? "Saving" : "Save correction"}
-                </button>
-                {campaignRoleNotice ? (
-                  <span className={styles.roleNotice} aria-live="polite">
-                    {campaignRoleNotice}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         ) : blocked ? (
           <div className={styles.blockedBox}>
@@ -1220,13 +1874,23 @@ function DecisionInspector({
             Open in Launchpad <ChevronRight size={13} />
           </Link>
         ) : action.intent === "brief" ? (
-          <Link className={styles.primaryLink} href={buildMetaScopedHref("/platforms/meta/creatives?tab=briefs", { businessId, providerAccountId })}>
+          <Link
+            className={styles.primaryLink}
+            href={buildMetaScopedHref("/platforms/meta/creatives?tab=briefs", {
+              businessId,
+              providerAccountId,
+            })}
+          >
             Create Creative Brief <ChevronRight size={13} />
           </Link>
         ) : (
           <div className={styles.reviewActions}>
             <span>No simulated preflight or receipt is shown.</span>
-            <a href={providerAccountHref(providerAccountId)} target="_blank" rel="noreferrer">
+            <a
+              href={providerAccountHref(providerAccountId)}
+              target="_blank"
+              rel="noreferrer"
+            >
               Review in Ads Manager <ExternalLink size={12} />
             </a>
           </div>

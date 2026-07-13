@@ -12,6 +12,7 @@ import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source"
 import { decideCreative } from "@/lib/creative-decision-engine/engine";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   ENGINE_VERSION,
   type AccountDecisionProfile,
@@ -180,13 +181,6 @@ function toText(value: unknown): string | null {
   return String(value);
 }
 
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
-}
-
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
@@ -235,8 +229,8 @@ async function resolveSimulationAsOf(input: {
   );
 
   return (
-    toDateOnly(row?.lifecycle_as_of_date) ??
-    toDateOnly(row?.meta_as_of_date)
+    normalizePostgresDate(row?.lifecycle_as_of_date) ??
+    normalizePostgresDate(row?.meta_as_of_date)
   );
 }
 

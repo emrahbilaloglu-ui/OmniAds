@@ -87,9 +87,9 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
       code: "resolve_campaign_role",
       category: "campaign_context",
       owner: "system",
-      label: "Resolve Campaign Role",
+      label: "Automatic Classification Pending",
       nextStep:
-        "The automatic resolver must reach a trusted Main, Test, or Mixed role; use an explicit correction only when its classification is wrong.",
+        "The automatic resolver will keep evaluating this campaign. No label is required; save an explicit correction only when the provisional role is wrong.",
     };
   }
   if (

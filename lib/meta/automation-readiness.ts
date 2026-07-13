@@ -1,6 +1,9 @@
 import { decisionLabelForMetaRec } from "@/lib/meta/rec-label-mapping";
 import { META_CONFIDENCE_ACT_THRESHOLD } from "@/lib/meta/confidence-thresholds";
-import type { MetaEmpiricalOutcomeSummary } from "@/lib/meta/empirical-outcomes";
+import {
+  isMetaOutcomeSummaryAutoEligible,
+  type MetaEmpiricalOutcomeSummary,
+} from "@/lib/meta/empirical-outcomes";
 import type { MetaDecisionLabel, MetaRecommendation } from "@/lib/meta/recommendations";
 
 export type MetaAutomationReadinessTier =
@@ -16,7 +19,12 @@ export type MetaAutomationReadinessBlocker =
   | "diagnostic_or_watch_state"
   | "low_confidence"
   | "missing_campaign_label"
+  | "campaign_context_unresolved"
   | "missing_commercial_anchor"
+  | "missing_controlled_causal_evidence"
+  | "missing_valid_treatment_receipt"
+  | "missing_valid_random_assignment"
+  | "missing_valid_control_estimate"
   | "insufficient_empirical_sample"
   | "empirical_precision_below_floor"
   | "missing_executor"
@@ -43,6 +51,7 @@ export interface MetaAutomationReadinessOptions {
   empiricalOutcomeSummary?: MetaEmpiricalOutcomeSummary | null;
   livePreflightAvailable?: boolean;
   rollbackPlanAvailable?: boolean;
+  operatorEnablementAvailable?: boolean;
 }
 
 const AUTO_CANDIDATE_TYPES = new Set<MetaRecommendation["type"]>([
@@ -89,6 +98,14 @@ function isMissingCampaignLabel(rec: MetaRecommendation) {
   );
 }
 
+function isAutomaticCampaignContextUnresolved(rec: MetaRecommendation) {
+  return (
+    rec.confidenceReason === "automatic_campaign_context_review_only" ||
+    stringSignalQualityValue(rec, "campaign_context_action_authority") ===
+      "review_only"
+  );
+}
+
 function hasCommercialAnchor(rec: MetaRecommendation) {
   return rec.evidence.some((item) =>
     item.label === "Target ROAS" ||
@@ -106,6 +123,9 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   if (blockers.includes("missing_campaign_label")) {
     return "Campaign label is missing, so automation is blocked until Main/Test/Mixed context is explicit.";
   }
+  if (blockers.includes("campaign_context_unresolved")) {
+    return "The automatic Main/Test/Mixed context is review-only; the decision stays visible but provider execution is blocked.";
+  }
   if (blockers.includes("diagnostic_or_watch_state")) {
     return "This recommendation is diagnostic, protective, or watch-only; it is not an execution candidate.";
   }
@@ -117,6 +137,18 @@ function reasonFor(tier: MetaAutomationReadinessTier, blockers: MetaAutomationRe
   }
   if (blockers.includes("missing_commercial_anchor")) {
     return "Commercial target or break-even proof is missing.";
+  }
+  if (blockers.includes("missing_controlled_causal_evidence")) {
+    return "Observational outcomes remain review-only; controlled causal evidence is required for automation.";
+  }
+  if (blockers.includes("missing_valid_treatment_receipt")) {
+    return "A successful, provider-verified treatment receipt tied to the controlled assignment is missing.";
+  }
+  if (blockers.includes("missing_valid_random_assignment")) {
+    return "A persisted randomized assignment tied to the recommendation is missing.";
+  }
+  if (blockers.includes("missing_valid_control_estimate")) {
+    return "A finalized control-arm estimate tied to the assignment is missing.";
   }
   if (blockers.includes("insufficient_empirical_sample")) {
     return "Empirical outcome sample is still too thin for automation.";
@@ -161,19 +193,46 @@ export function deriveMetaAutomationReadiness(
   const blockers: MetaAutomationReadinessBlocker[] = [];
   const requiredEvidence = [
     "empirical_outcome_backtest",
+    "controlled_causal_outcomes",
+    "valid_treatment_receipt",
+    "valid_random_assignment",
+    "valid_control_estimate",
     "live_preflight",
     "rollback_plan",
     "campaign_label",
+    "operator_enablement",
   ];
   const empiricalSummary = options.empiricalOutcomeSummary ?? null;
   const empiricalOutcomeModelAvailable =
     options.empiricalOutcomeModelAvailable === true ||
     Boolean(empiricalSummary && empiricalSummary.confidenceBand !== "insufficient_sample");
-  const empiricalOutcomeAutoEligible =
-    empiricalSummary?.autoEligible === true ||
-    (options.empiricalOutcomeModelAvailable === true && !empiricalSummary);
+  const empiricalOutcomeAutoEligible = isMetaOutcomeSummaryAutoEligible(empiricalSummary);
+  const controlledCausal = empiricalSummary?.controlledCausal ?? null;
+  const controlledCausalEvidenceAvailable = Boolean(
+    controlledCausal && controlledCausal.sampleSize > 0,
+  );
+  const validTreatmentReceiptAvailable = Boolean(
+    controlledCausal &&
+      controlledCausal.sampleSize > 0 &&
+      controlledCausal.validTreatmentReceiptCount === controlledCausal.sampleSize &&
+      controlledCausal.reusedTreatmentReceiptCount === 0,
+  );
+  const validRandomAssignmentAvailable = Boolean(
+    controlledCausal &&
+      controlledCausal.sampleSize > 0 &&
+      controlledCausal.validatedAssignmentCount === controlledCausal.sampleSize &&
+      controlledCausal.duplicateAssignmentCount === 0,
+  );
+  const validControlEstimateAvailable = Boolean(
+    controlledCausal &&
+      controlledCausal.sampleSize > 0 &&
+      controlledCausal.validatedEstimateCount === controlledCausal.sampleSize &&
+      controlledCausal.reusedEstimateCount === 0,
+  );
   const livePreflightAvailable = options.livePreflightAvailable === true;
   const rollbackPlanAvailable = options.rollbackPlanAvailable === true;
+  const operatorEnablementAvailable =
+    options.operatorEnablementAvailable === true;
   const missingEvidence = empiricalOutcomeModelAvailable ? [] : ["empirical_outcome_backtest"];
   const readOnly =
     rec.kind === "state" ||
@@ -184,10 +243,26 @@ export function deriveMetaAutomationReadiness(
   const score = confidenceScore(rec);
 
   if (!empiricalOutcomeModelAvailable) blockers.push("no_empirical_outcome_model");
-  if (empiricalSummary?.confidenceBand === "insufficient_sample") {
+  if (!controlledCausalEvidenceAvailable) {
+    blockers.push("missing_controlled_causal_evidence");
+    missingEvidence.push("controlled_causal_outcomes");
+  }
+  if (!validTreatmentReceiptAvailable) {
+    blockers.push("missing_valid_treatment_receipt");
+    missingEvidence.push("valid_treatment_receipt");
+  }
+  if (!validRandomAssignmentAvailable) {
+    blockers.push("missing_valid_random_assignment");
+    missingEvidence.push("valid_random_assignment");
+  }
+  if (!validControlEstimateAvailable) {
+    blockers.push("missing_valid_control_estimate");
+    missingEvidence.push("valid_control_estimate");
+  }
+  if (controlledCausal?.confidenceBand === "insufficient_sample") {
     blockers.push("insufficient_empirical_sample");
     missingEvidence.push("empirical_outcome_sample");
-  } else if (empiricalSummary && !empiricalSummary.autoEligible) {
+  } else if (controlledCausal && !empiricalOutcomeAutoEligible) {
     blockers.push("empirical_precision_below_floor");
   }
   if (!livePreflightAvailable) {
@@ -198,6 +273,10 @@ export function deriveMetaAutomationReadiness(
     blockers.push("missing_rollback_plan");
     missingEvidence.push("rollback_plan");
   }
+  if (!operatorEnablementAvailable) {
+    blockers.push("missing_operator_enablement");
+    missingEvidence.push("operator_enablement");
+  }
   if (rec.decisionState !== "act") blockers.push("not_action_state");
   if (readOnly) blockers.push("diagnostic_or_watch_state");
   if (!autoCandidateType) blockers.push("unsupported_action_class");
@@ -205,6 +284,10 @@ export function deriveMetaAutomationReadiness(
   if (isMissingCampaignLabel(rec)) {
     blockers.push("missing_campaign_label");
     missingEvidence.push("campaign_label");
+  }
+  if (isAutomaticCampaignContextUnresolved(rec)) {
+    blockers.push("campaign_context_unresolved");
+    missingEvidence.push("automatic_campaign_context_authority");
   }
   if (COMMERCIAL_ACTION_LABELS.has(decisionLabel) && !hasCommercialAnchor(rec)) {
     blockers.push("missing_commercial_anchor");
@@ -222,7 +305,10 @@ export function deriveMetaAutomationReadiness(
     tier = "read_only";
   } else if (executionCandidate) {
     tier =
-      empiricalOutcomeAutoEligible && livePreflightAvailable && rollbackPlanAvailable
+      empiricalOutcomeAutoEligible &&
+      livePreflightAvailable &&
+      rollbackPlanAvailable &&
+      operatorEnablementAvailable
         ? "auto_execute"
         : "backtest_candidate";
   }

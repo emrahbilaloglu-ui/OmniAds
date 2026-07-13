@@ -350,6 +350,17 @@ function MetricRow({
   );
 }
 
+function configuredBidDisplay(
+  value: number | null | undefined,
+  format: "currency" | "roas" | null | undefined,
+  currency: string | null | undefined,
+) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return format === "roas"
+    ? `${value.toFixed(2)}×`
+    : formatMoney(value / 100, currency);
+}
+
 function DecisionKpis({
   rec,
   relatedRecs,
@@ -738,6 +749,56 @@ export function MetaDrillDrawer({
               </p>
               <EvidenceCitationChips rec={item.rec} />
             </Panel>
+
+            {item.rec.entityConfiguration ? (
+              <Panel section="entity-configuration">
+                <SectionLabel>Provider configuration</SectionLabel>
+                <FieldRow
+                  label="status"
+                  value={item.rec.entityConfiguration.status ?? "—"}
+                />
+                <FieldRow
+                  label="optimization"
+                  value={item.rec.entityConfiguration.optimizationGoal ?? "—"}
+                />
+                <FieldRow
+                  label="bid strategy"
+                  value={
+                    item.rec.entityConfiguration.bidStrategyLabel ??
+                    item.rec.entityConfiguration.bidStrategyType ??
+                    "—"
+                  }
+                />
+                <FieldRow
+                  label="current bid"
+                  value={configuredBidDisplay(
+                    item.rec.entityConfiguration.bidValue,
+                    item.rec.entityConfiguration.bidValueFormat,
+                    moneyCurrency,
+                  )}
+                />
+                <FieldRow
+                  label="previous bid"
+                  value={`${configuredBidDisplay(
+                    item.rec.entityConfiguration.previousBidValue,
+                    item.rec.entityConfiguration.previousBidValueFormat,
+                    moneyCurrency,
+                  )}${
+                    item.rec.entityConfiguration.previousBidValueCapturedAt
+                      ? ` · ${item.rec.entityConfiguration.previousBidValueCapturedAt.slice(0, 10)}`
+                      : ""
+                  }`}
+                />
+                <FieldRow
+                  label="budget utilization"
+                  value={
+                    item.rec.entityConfiguration.budgetUtilization == null
+                      ? "—"
+                      : `${Math.round(item.rec.entityConfiguration.budgetUtilization * 100)}%`
+                  }
+                />
+              </Panel>
+            ) : null}
 
             <DecisionKpis rec={item.rec} relatedRecs={relatedRecs} moneyCurrency={moneyCurrency} targetRoas={targetRoas} gradientId={gradientId} />
 

@@ -1,4 +1,5 @@
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
 export interface MetaAdsWriteContext {
   businessId: string;
@@ -14,6 +15,15 @@ export interface MetaAdsWriteError {
   code: string;
   message: string;
 }
+
+export type MetaAdExecutionStateReadBlocker = Extract<
+  DecisionOriginAdExecutionBlocker,
+  | "ad_not_found"
+  | "ad_identity_mismatch"
+  | "current_ad_state_unverified"
+  | "current_ad_state_rejected"
+  | "meta_account_unresolved"
+>;
 
 export interface MetaAdsWouldHaveWritten {
   method: MetaFetchMethod;
@@ -38,6 +48,24 @@ export type MetaAdStatusWriteSuccess = {
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
 };
+
+export type MetaAdExecutionStateRead =
+  | {
+      ok: true;
+      adId: string;
+      configuredStatus: string | null;
+      effectiveStatus: string | null;
+      policyEligible: boolean | null;
+      reviewStatus: string | null;
+      observedAt: string;
+    }
+  | {
+      ok: false;
+      adId: string | null;
+      error: MetaAdsWriteError;
+      httpStatus: number | null;
+      preflightBlocker: MetaAdExecutionStateReadBlocker;
+    };
 
 export type MetaAdsetBidWriteSuccess = {
   ok: true;
@@ -193,6 +221,46 @@ function getMetaError(
         : String(rawCode || fallback.code),
     message: sanitizeMetaMessage(String(rawMessage || fallback.message)),
   };
+}
+
+const RETRYABLE_META_READ_ERROR_CODES = new Set([
+  "network_error",
+  "rate_limited",
+  "4",
+  "17",
+  "32",
+  "613",
+]);
+
+function classifyMetaAdExecutionReadFailure(input: {
+  httpStatus: number | null;
+  error: MetaAdsWriteError;
+}): MetaAdExecutionStateReadBlocker {
+  const code = input.error.code.trim().toLowerCase();
+  const status = input.httpStatus;
+  if (
+    RETRYABLE_META_READ_ERROR_CODES.has(code) ||
+    status === 429 ||
+    (status != null && status >= 500)
+  ) {
+    return "current_ad_state_unverified";
+  }
+  if (status === 404 || code === "100" || code === "ad_not_found") {
+    return "ad_not_found";
+  }
+  if (
+    status === 401 ||
+    status === 403 ||
+    code === "102" ||
+    code === "190" ||
+    code === "200"
+  ) {
+    return "meta_account_unresolved";
+  }
+  if (status != null && status >= 400 && status < 500) {
+    return "current_ad_state_rejected";
+  }
+  return "current_ad_state_unverified";
 }
 
 function isRateLimitPayload(payload: Record<string, unknown> | null | undefined) {
@@ -552,6 +620,84 @@ async function verifyAd(input: {
     httpStatus: status,
     payload: result.payload,
     error: null,
+  };
+}
+
+const POLICY_BLOCKED_AD_STATUSES = new Set([
+  "DISAPPROVED",
+  "PENDING_BILLING_INFO",
+  "PENDING_REVIEW",
+  "WITH_ISSUES",
+]);
+
+/** Live, read-only state used by the exact decision-origin write preflight. */
+export async function readMetaAdExecutionState(
+  ctx: MetaAdsWriteContext,
+  adId: string,
+): Promise<MetaAdExecutionStateRead> {
+  const result = await metaFetch({
+    ctx,
+    path: adId,
+    method: "GET",
+    fields: "id,status,effective_status",
+  });
+  if (
+    result.error ||
+    !result.response?.ok ||
+    isFailureBody(result.payload)
+  ) {
+    const error =
+      result.error ??
+      getMetaError(result.payload, {
+        code: "current_ad_state_unverified",
+        message: "Meta current ad state could not be verified.",
+      });
+    const httpStatus = result.response?.status ?? null;
+    return {
+      ok: false,
+      adId,
+      error,
+      httpStatus,
+      preflightBlocker: classifyMetaAdExecutionReadFailure({
+        httpStatus,
+        error,
+      }),
+    };
+  }
+  const resolvedAdId = readStringField(result.payload, "id");
+  if (!resolvedAdId || resolvedAdId !== adId) {
+    return {
+      ok: false,
+      adId: resolvedAdId,
+      error: {
+        code: "ad_identity_mismatch",
+        message: "Meta current ad state resolved to a different ad.",
+      },
+      httpStatus: result.response.status,
+      preflightBlocker: "ad_identity_mismatch",
+    };
+  }
+  const configuredStatus = readStringField(result.payload, "status");
+  const effectiveStatus = readStringField(
+    result.payload,
+    "effective_status",
+  );
+  const normalizedEffectiveStatus = effectiveStatus?.toUpperCase() ?? null;
+  return {
+    ok: true,
+    adId: resolvedAdId,
+    configuredStatus,
+    effectiveStatus,
+    policyEligible:
+      normalizedEffectiveStatus === null
+        ? null
+        : !POLICY_BLOCKED_AD_STATUSES.has(normalizedEffectiveStatus),
+    reviewStatus: POLICY_BLOCKED_AD_STATUSES.has(
+      normalizedEffectiveStatus ?? "",
+    )
+      ? normalizedEffectiveStatus
+      : null,
+    observedAt: new Date().toISOString(),
   };
 }
 

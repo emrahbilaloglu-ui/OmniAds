@@ -27,14 +27,25 @@ function recommendation(
     recommendedAction: input.recommendedAction ?? "Review",
     expectedImpact: input.expectedImpact ?? "Cannot calculate",
     evidence: input.evidence ?? [],
-    timeframeContext:
-      input.timeframeContext ?? {
-        coreVerdict: "Review",
-        selectedRangeOverlay: "Current range",
-        historicalSupport: "Unavailable",
-        seasonalityFlag: "none",
-        note: null,
-      },
+    timeframeContext: input.timeframeContext ?? {
+      coreVerdict: "Review",
+      selectedRangeOverlay: "Current range",
+      historicalSupport: "Unavailable",
+      seasonalityFlag: "none",
+      note: null,
+    },
+    entityConfiguration: input.entityConfiguration ?? {
+      source:
+        input.level === "adset"
+          ? "account_scoped_adset_row"
+          : "account_scoped_campaign_row",
+      budgetOwner: input.level === "adset" ? "adset" : "campaign",
+      budgetMode: input.level === "adset" ? "adset_budget" : "campaign_budget",
+      controlOwner: input.level === "adset" ? "adset" : "campaign",
+      status: "ACTIVE",
+      optimizationGoal: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+    },
     ...input,
     id: input.id,
     level: input.level,
@@ -226,8 +237,12 @@ function canonicalDecision(input: {
   };
 }
 
-function readModel(items: MetaCanonicalDecision[]): MetaDecisionsWorkspaceReadModel {
-  const emptySection = (key: "integrity_fires" | "money_moves" | "creative_rotation") => ({
+function readModel(
+  items: MetaCanonicalDecision[],
+): MetaDecisionsWorkspaceReadModel {
+  const emptySection = (
+    key: "integrity_fires" | "money_moves" | "creative_rotation",
+  ) => ({
     key,
     label: key,
     topN: 5,
@@ -236,7 +251,12 @@ function readModel(items: MetaCanonicalDecision[]): MetaDecisionsWorkspaceReadMo
     rankablePreCapCount: key === "creative_rotation" ? items.length : 0,
     unrankablePreCapCount: 0,
     items: key === "creative_rotation" ? items : [],
-    exposureDigest: { basis: "pre_cap" as const, byCurrency: [], unavailableCount: 0, crossCurrencyTotal: null },
+    exposureDigest: {
+      basis: "pre_cap" as const,
+      byCurrency: [],
+      unavailableCount: 0,
+      crossCurrencyTotal: null,
+    },
     suppressionReceipt: {
       receiptId: `receipt:${key}`,
       selectionVersion: "meta-decisions-section-selection.v1" as const,
@@ -260,10 +280,13 @@ function readModel(items: MetaCanonicalDecision[]): MetaDecisionsWorkspaceReadMo
     unavailable: null,
     source: {
       status: "available",
+      authority: "legacy_creative",
       table: "engine_v3_decision_snapshots_daily",
       snapshotAsOf: "2026-07-10",
       computedAt: "2026-07-10T04:00:00.000Z",
       engineVersion: "v3-test",
+      fallbackReason: "native_generation_unavailable",
+      generation: null,
     },
     queue: {
       deduplicationGrain: "creative",
@@ -290,6 +313,131 @@ function readModel(items: MetaCanonicalDecision[]): MetaDecisionsWorkspaceReadMo
 }
 
 describe("buildMetaOsDecisionsPresentation", () => {
+  it("merges the complete Structure inventory while keeping live recommendation authority", () => {
+    const activeRecommendation = recommendation({
+      id: "rec_set_live",
+      level: "adset",
+      campaignId: "cmp_live",
+      campaignName: "Live campaign",
+      adsetId: "set_live",
+      adsetName: "Broad",
+      priority: "high",
+      confidence: "high",
+      decisionState: "act",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      primaryActionLabel: "Pause Ad Set",
+    });
+    const configuration = (
+      level: "campaign" | "adset",
+      status: string,
+    ) => ({
+      source:
+        level === "campaign"
+          ? ("account_scoped_campaign_row" as const)
+          : ("account_scoped_adset_row" as const),
+      budgetOwner: level,
+      budgetMode:
+        level === "campaign"
+          ? ("campaign_budget" as const)
+          : ("adset_budget" as const),
+      controlOwner: level,
+      status,
+      optimizationGoal: "PURCHASE",
+      bidStrategyType: "lowest_cost",
+    });
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [activeRecommendation],
+      watching: [],
+      nonSales: [],
+      structureInventory: [
+        {
+          id: "cmp_live",
+          level: "campaign",
+          name: "Live campaign",
+          campaignId: "cmp_live",
+          campaignName: "Live campaign",
+          campaignKind: "main",
+          status: "ACTIVE",
+          statusLabel: "Active",
+          metrics: {
+            spend: 1000,
+            purchases: 20,
+            roas: 2.5,
+            cpa: 50,
+            ctr: 1.2,
+            frequency: 1.4,
+          },
+          entityConfiguration: configuration("campaign", "ACTIVE"),
+        },
+        {
+          id: "set_live",
+          level: "adset",
+          name: "Broad",
+          campaignId: "cmp_live",
+          campaignName: "Live campaign",
+          campaignKind: "main",
+          status: "ACTIVE",
+          statusLabel: "Active",
+          metrics: {
+            spend: 600,
+            purchases: 8,
+            roas: 1.1,
+            cpa: 75,
+            ctr: 0.8,
+            frequency: 1.6,
+          },
+          entityConfiguration: configuration("adset", "ACTIVE"),
+        },
+        {
+          id: "cmp_paused",
+          level: "campaign",
+          name: "Paused campaign",
+          campaignId: "cmp_paused",
+          campaignName: "Paused campaign",
+          campaignKind: null,
+          status: "PAUSED",
+          statusLabel: "Paused",
+          metrics: {
+            spend: 200,
+            purchases: 2,
+            roas: 0.9,
+            cpa: 100,
+            ctr: null,
+            frequency: null,
+          },
+          entityConfiguration: configuration("campaign", "PAUSED"),
+        },
+      ],
+      decisionReadModel: readModel([]),
+      currency: "EUR",
+    });
+
+    expect(result.structure.groups).toHaveLength(2);
+    const live = result.structure.groups.find(
+      (group) => group.campaign.campaignId === "cmp_live",
+    )!;
+    expect(live.campaign.action.code).toBe("no_current_intervention");
+    expect(live.adsets[0]).toMatchObject({
+      sourceRecommendationId: "rec_set_live",
+      action: { providerMutation: "pause" },
+      urgency: { level: "critical" },
+    });
+    expect(live).toMatchObject({
+      highestUrgency: { level: "critical" },
+      urgentAdsetCount: 1,
+    });
+    const paused = result.structure.groups.find(
+      (group) => group.campaign.campaignId === "cmp_paused",
+    )!.campaign;
+    expect(paused).toMatchObject({
+      status: "PAUSED",
+      action: { code: "inactive_inventory", providerMutation: null },
+      urgency: { level: "none" },
+    });
+  });
+
   it("deduplicates structure controls and never exposes Scale as the action label", () => {
     const high = recommendation({
       id: "campaign-high",
@@ -317,13 +465,31 @@ describe("buildMetaOsDecisionsPresentation", () => {
       watching: [],
       nonSales: [],
       decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_1",
+          kind: null,
+          suggestedKind: "test",
+          source: "system_inferred",
+          confidenceClass: "unknown",
+          sourceUpdatedAt: "2026-07-13T04:00:00.000Z",
+          resolverVersion: "campaign-context-resolver.v1",
+        },
+      ],
       currency: "EUR",
     });
 
     expect(result.structure.groups).toHaveLength(1);
-    expect(result.structure.groups[0]!.campaign.action.label).toBe("Review Campaign Budget");
-    expect(result.structure.groups[0]!.campaign.action.label).not.toMatch(/scale/i);
-    expect(result.structure.groups[0]!.campaign.suppressedAlternativeCount).toBe(1);
+    expect(result.structure.groups[0]!.campaign.action.label).toBe(
+      "Review Campaign Budget",
+    );
+    expect(result.structure.groups[0]!.campaign.action.label).not.toMatch(
+      /scale/i,
+    );
+    expect(result.structure.groups[0]!.campaign.lifecycleRole).toBe("test");
+    expect(
+      result.structure.groups[0]!.campaign.suppressedAlternativeCount,
+    ).toBe(1);
   });
 
   it("uses server-composed provider configuration for budget and bid ownership", () => {
@@ -345,6 +511,15 @@ describe("buildMetaOsDecisionsPresentation", () => {
         status: "ACTIVE",
         optimizationGoal: "PURCHASE",
         bidStrategyType: "cost_cap",
+        bidStrategyLabel: "Cost cap",
+        bidValue: 1800,
+        bidValueFormat: "currency",
+        previousBidValue: 1600,
+        previousBidValueFormat: "currency",
+        previousBidValueCapturedAt: "2026-07-09T11:00:00.000Z",
+        dailyBudget: 10000,
+        lifetimeBudget: null,
+        budgetUtilization: 0.72,
       },
     });
     const costCapCampaign = recommendation({
@@ -362,6 +537,15 @@ describe("buildMetaOsDecisionsPresentation", () => {
         status: "ACTIVE",
         optimizationGoal: "PURCHASE",
         bidStrategyType: "cost_cap",
+        bidStrategyLabel: "Cost cap",
+        bidValue: 1800,
+        bidValueFormat: "currency",
+        previousBidValue: 1600,
+        previousBidValueFormat: "currency",
+        previousBidValueCapturedAt: "2026-07-09T11:00:00.000Z",
+        dailyBudget: 10000,
+        lifetimeBudget: null,
+        budgetUtilization: 0.72,
       },
     });
 
@@ -372,9 +556,9 @@ describe("buildMetaOsDecisionsPresentation", () => {
       decisionReadModel: readModel([]),
       currency: "EUR",
     });
-    const cboNode = result.structure.groups
-      .find((group) => group.campaign.campaignId === "cmp_cbo")!
-      .adsets[0]!;
+    const cboNode = result.structure.groups.find(
+      (group) => group.campaign.campaignId === "cmp_cbo",
+    )!.adsets[0]!;
     const capNode = result.structure.groups.find(
       (group) => group.campaign.campaignId === "cmp_cap",
     )!.campaign;
@@ -388,9 +572,162 @@ describe("buildMetaOsDecisionsPresentation", () => {
       action: { targetLevel: "campaign" },
     });
     expect(capNode.action).toMatchObject({
+      label: "Apply cost cap",
       targetLevel: "adset",
       providerMutation: "apply_bid",
     });
+    expect(capNode.bidConfiguration).toEqual({
+      strategyType: "cost_cap",
+      strategyLabel: "Cost cap",
+      currentValue: 18,
+      currentValueFormat: "currency",
+      previousValue: 16,
+      previousValueFormat: "currency",
+      previousValueCapturedAt: "2026-07-09T11:00:00.000Z",
+      dailyBudget: 100,
+      lifetimeBudget: null,
+      budgetUtilization: 0.72,
+    });
+  });
+
+  it("keeps closed structure and Ad evidence in an advisory-only inactive envelope", () => {
+    const inactiveAd = canonicalDecision({
+      id: "inactive-ad",
+      adId: "120000000000000099",
+      buyerAction: "cut",
+    });
+    inactiveAd.deliveryScope = {
+      state: "inactive",
+      campaignStatus: "PAUSED",
+      adsetStatus: "PAUSED",
+      adStatus: "PAUSED",
+      reason: "hierarchy_not_active",
+      provenance: {
+        source: "meta_entity_state_history",
+        field: "status",
+        recordId: "inactive-ad",
+        asOf: "2026-07-10",
+        version: null,
+      },
+    };
+    const inactiveCreative = canonicalDecision({
+      id: "inactive-creative",
+      adId: null,
+      buyerAction: "refresh",
+    });
+    inactiveCreative.deliveryScope = {
+      state: "unknown",
+      campaignStatus: "PAUSED",
+      adsetStatus: null,
+      adStatus: null,
+      reason: "hierarchy_status_unknown",
+      provenance: {
+        source: "meta_entity_state_history",
+        field: "status",
+        recordId: "inactive-creative",
+        asOf: "2026-07-10",
+        version: null,
+      },
+    };
+    const model = readModel([]);
+    model.queue.inactiveAssets = {
+      preCapCount: 2,
+      inactiveCount: 1,
+      unknownCount: 1,
+      items: [inactiveAd, inactiveCreative],
+    };
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      inactiveStructure: [
+        {
+          id: "cmp_paused",
+          level: "campaign",
+          name: "Paused campaign",
+          campaignName: "Paused campaign",
+          status: "PAUSED",
+          statusLabel: "Paused",
+          spend: 250,
+          roas: 1.2,
+          cpa: 50,
+          purchases: 5,
+          diagnosticNote: "Campaign is not active.",
+          advisory: {
+            decisionLabel: "keep",
+            primaryActionLabel: "Review before reactivation",
+            why: "Historical performance is retained for review.",
+            confidence: "medium",
+          },
+        },
+      ],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.structure.actCount).toBe(0);
+    expect(result.ads.actCount).toBe(0);
+    expect(result.inactive).toMatchObject({
+      count: 3,
+      inactiveCount: 2,
+      unknownCount: 1,
+    });
+    expect(result.inactive?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: "campaign",
+          providerEntityId: "cmp_paused",
+          providerWriteAuthority: "none",
+        }),
+        expect.objectContaining({
+          level: "ad",
+          providerEntityId: "120000000000000099",
+          providerWriteAuthority: "none",
+        }),
+        expect.objectContaining({
+          level: "creative",
+          providerEntityId: "creative:inactive-creative",
+          providerWriteAuthority: "none",
+        }),
+      ]),
+    );
+  });
+
+  it("fails closed when a malformed upstream lane includes a non-active Structure recommendation", () => {
+    const paused = recommendation({
+      id: "paused-upstream-rec",
+      level: "campaign",
+      campaignId: "cmp_paused_upstream",
+      campaignName: "Paused upstream campaign",
+      entityConfiguration: {
+        source: "account_scoped_campaign_row",
+        budgetOwner: "campaign",
+        budgetMode: "campaign_budget",
+        controlOwner: "campaign",
+        status: "PAUSED",
+        optimizationGoal: "PURCHASE",
+        bidStrategyType: "lowest_cost",
+      },
+    });
+    const unknown = recommendation({
+      id: "unknown-upstream-rec",
+      level: "campaign",
+      campaignId: "cmp_unknown_upstream",
+      campaignName: "Unknown upstream campaign",
+      entityConfiguration: undefined,
+    });
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [paused, unknown],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currency: "EUR",
+    });
+
+    expect(result.structure.actCount).toBe(0);
+    expect(result.structure.groups).toHaveLength(0);
   });
 
   it("maps winner verdicts to Ad-safe language and withholds ambiguous creative identities", () => {
@@ -399,9 +736,24 @@ describe("buildMetaOsDecisionsPresentation", () => {
       watching: [],
       nonSales: [],
       decisionReadModel: readModel([
-        canonicalDecision({ id: "main-winner", adId: "120000000000000001", buyerAction: "scale", role: "main" }),
-        canonicalDecision({ id: "test-winner", adId: "120000000000000002", buyerAction: "scale", role: "test" }),
-        canonicalDecision({ id: "ambiguous-cut", adId: "120000000000000003", buyerAction: "cut", candidateAdCount: 2 }),
+        canonicalDecision({
+          id: "main-winner",
+          adId: "120000000000000001",
+          buyerAction: "scale",
+          role: "main",
+        }),
+        canonicalDecision({
+          id: "test-winner",
+          adId: "120000000000000002",
+          buyerAction: "scale",
+          role: "test",
+        }),
+        canonicalDecision({
+          id: "ambiguous-cut",
+          adId: "120000000000000003",
+          buyerAction: "cut",
+          candidateAdCount: 2,
+        }),
       ]),
       currency: "EUR",
     });
@@ -410,7 +762,9 @@ describe("buildMetaOsDecisionsPresentation", () => {
       "Promote to Main",
       "Keep Running",
     ]);
-    expect(result.ads.items.some((item) => /scale/i.test(item.action.label))).toBe(false);
+    expect(
+      result.ads.items.some((item) => /scale/i.test(item.action.label)),
+    ).toBe(false);
     expect(result.ads.omittedAmbiguousIdentity).toBe(1);
     expect(result.ads.items[0]).toMatchObject({
       sourceSnapshotId: "test-winner:snapshot",
@@ -424,7 +778,11 @@ describe("buildMetaOsDecisionsPresentation", () => {
       watching: [],
       nonSales: [],
       decisionReadModel: readModel([
-        canonicalDecision({ id: "exact-cut", adId: "120000000000000001", buyerAction: "cut" }),
+        canonicalDecision({
+          id: "exact-cut",
+          adId: "120000000000000001",
+          buyerAction: "cut",
+        }),
       ]),
       currency: "EUR",
     });
@@ -433,8 +791,55 @@ describe("buildMetaOsDecisionsPresentation", () => {
       label: "Cut",
       intent: "review",
       providerMutation: null,
-      scopeNote: "Pauses this ad only",
+      scopeNote: "Review only until exact native ad authority is available",
     });
+  });
+
+  it("enables an exact Ad pause only when native lineage authorizes the served Cut", () => {
+    const exact = canonicalDecision({
+      id: "native-cut",
+      adId: "120000000000000099",
+      buyerAction: "cut",
+    });
+    exact.identityGrain = "ad";
+    exact.sourceAuthority = {
+      status: "native_exact",
+      actionEligible: true,
+      reviewOnlyReason: null,
+      snapshotId: exact.sourceSnapshotId,
+      evaluationId: "10000000-0000-4000-8000-000000000099",
+      inputHash: "a".repeat(64),
+      decisionHash: "b".repeat(64),
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      engineVersion: "v3-ad-test",
+      realAdId: "120000000000000099",
+      authorizedAction: "cut",
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+    };
+    const model = readModel([exact]);
+    model.source.authority = "native_ad";
+    model.source.table = "engine_v3_ad_decision_snapshots_daily";
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.ads.items[0]).toMatchObject({
+      sourceGrain: "ad",
+      creativeId: "creative:native-cut",
+      action: {
+        label: "Cut",
+        intent: "execute",
+        providerMutation: "pause",
+        scopeNote: "Pauses this exact ad only",
+      },
+    });
+    expect(result.source.adsSource).toBe("native_ad_decision");
+    expect(result.limitations).toEqual([]);
   });
 
   it("serves exact Ads from the independent candidate envelope even when section top-N omits them", () => {
@@ -476,7 +881,9 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.ads.items.map((item) => item.adId)).toEqual(["120000000000000011"]);
+    expect(result.ads.items.map((item) => item.adId)).toEqual([
+      "120000000000000011",
+    ]);
     expect(result.ads.omittedAmbiguousIdentity).toBe(1);
   });
 
@@ -535,6 +942,117 @@ describe("buildMetaOsDecisionsPresentation", () => {
         providerMutation: null,
       },
     });
-    expect(JSON.stringify(result)).not.toMatch(/Cannot Assess|Investigate Data/);
+    expect(JSON.stringify(result)).not.toMatch(
+      /Cannot Assess|Investigate Data/,
+    );
+  });
+
+  it("shows current ACTIVE provider inventory instead of an empty Ads layer", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000021",
+          adName: "Live without native snapshot",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_21",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000022",
+          adName: "Closed",
+          campaignId: "cmp_1",
+          adsetId: "adset_1",
+          creativeId: "creative_22",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_1",
+          kind: null,
+          suggestedKind: "test",
+          source: "system_inferred",
+          confidenceClass: "unknown",
+          sourceUpdatedAt: "2026-07-13T04:00:00.000Z",
+          resolverVersion: "campaign-context-resolver.v1",
+        },
+      ],
+      currency: "EUR",
+    });
+
+    expect(result.ads.items).toHaveLength(1);
+    expect(result.ads.items[0]).toMatchObject({
+      adId: "120000000000000021",
+      lane: "blocked",
+      decisionAvailability: "pending_native_evidence",
+      lifecycleRole: "test",
+      campaignRoleSource: "automatic",
+      campaignRoleConfidence: "unknown",
+      campaignRoleTrustedForAction: false,
+      action: {
+        code: "await_ad_grain_evidence",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
+    expect(result.ads.blockedCount).toBe(1);
+    expect(JSON.stringify(result)).not.toContain("label_needed");
+    expect(result.limitations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "active_ad_inventory_pending_native_decision",
+        }),
+      ]),
+    );
+  });
+
+  it("auto-assigns a non-authoritative role when the daily context row is missing", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAds: [
+        {
+          providerAccountId: "act_1",
+          adId: "120000000000000031",
+          adName: "New live Ad",
+          campaignId: "cmp_new",
+          campaignName: "R3 US Test",
+          adsetId: "adset_new",
+          creativeId: "creative_31",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          providerUpdatedAt: null,
+          fetchedAt: "2026-07-13T09:00:00.000Z",
+        },
+      ],
+      currentAdCampaignContexts: [],
+      currency: "USD",
+    });
+
+    expect(result.ads.items[0]).toMatchObject({
+      campaignName: "R3 US Test",
+      lifecycleRole: "test",
+      campaignRoleSource: "automatic",
+      campaignRoleConfidence: "unknown",
+      campaignRoleTrustedForAction: false,
+      decisionAvailability: "pending_native_evidence",
+      action: { providerMutation: null },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/label_needed|Label needed/i);
   });
 });

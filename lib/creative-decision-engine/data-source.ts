@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import {
@@ -24,6 +25,7 @@ import {
   ENGINE_VERSION,
   type AccountCalibration,
   type AccountFunnelCalibration,
+  type AdDecisionInput,
   type CalibrationCampaignKind,
   type CampaignObjective,
   type CommercialTargetFreshness,
@@ -54,7 +56,10 @@ const CALIBRATION_CAMPAIGN_KINDS: readonly CalibrationCampaignKind[] = [
   "mixed",
 ];
 
-function emptyCalibrationByKind<T>(): Record<CalibrationCampaignKind, T | null> {
+function emptyCalibrationByKind<T>(): Record<
+  CalibrationCampaignKind,
+  T | null
+> {
   return {
     all: null,
     main: null,
@@ -200,6 +205,65 @@ export interface CreativeDecisionDataSource {
     asOf: string;
     windowDays?: number;
   }): Promise<MetaAttributedAovResult>;
+}
+
+export interface AdDecisionInputQuery {
+  businessId: string;
+  asOf: string;
+  /** Exact producer/evaluation cutoff; required for point-in-time status truth. */
+  decisionCutoff: string;
+  providerAccountIds?: string[];
+  adIds?: string[];
+}
+
+export const AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION =
+  "native-ad-hydration-receipt.v1" as const;
+
+export interface AdDecisionHydrationReceipt {
+  contractVersion: typeof AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION;
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  scopeType: "account";
+  scopeId: string;
+  asOfDate: string;
+  decisionCutoff: string;
+  sourceRunId: string | null;
+  sourceObservedAt: string | null;
+  sourceCapturedAt: string | null;
+  sourceRunHash: string | null;
+  sourcePayloadHash: string | null;
+  sourceExpectedRowCount: number | null;
+  sourcePersistedRowCount: number | null;
+  expectedAdCount: number;
+  expectedAdIds: string[];
+  expectedManifestHash: string;
+  hydratedAdCount: number;
+  hydratedManifestHash: string;
+  sourceComplete: boolean;
+  hydrationComplete: boolean;
+  authoritativeForPrune: boolean;
+  reason: string | null;
+}
+
+export interface AdDecisionHydrationResult {
+  inputs: AdDecisionInput[];
+  receipts: AdDecisionHydrationReceipt[];
+  accountCoverageComplete: boolean;
+}
+
+export interface AdDecisionDataSource {
+  hydrateAdDecisionInputs(
+    input: AdDecisionInputQuery,
+  ): Promise<AdDecisionHydrationResult>;
+  listAdDecisionInputs(input: AdDecisionInputQuery): Promise<AdDecisionInput[]>;
+  getAdDecisionInput(input: {
+    businessId: string;
+    providerAccountId: string;
+    adId: string;
+    asOf: string;
+    decisionCutoff: string;
+  }): Promise<AdDecisionInput | null>;
 }
 
 /**
@@ -401,7 +465,9 @@ export class MockDataSource implements CreativeDecisionDataSource {
   async getAccountFunnelCalibrationAllKinds(input: {
     businessId: string;
     asOf: string;
-  }): Promise<Record<CalibrationCampaignKind, AccountFunnelCalibration | null>> {
+  }): Promise<
+    Record<CalibrationCampaignKind, AccountFunnelCalibration | null>
+  > {
     const byKind = emptyCalibrationByKind<AccountFunnelCalibration>();
     for (const campaignKind of CALIBRATION_CAMPAIGN_KINDS) {
       byKind[campaignKind] = await this.getAccountFunnelCalibrationByKind({
@@ -514,9 +580,9 @@ export class MockDataSource implements CreativeDecisionDataSource {
     const end = new Date(`${input.asOf}T00:00:00.000Z`);
     const start = Number.isNaN(end.getTime())
       ? input.asOf
-      : new Date(
-          end.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000,
-        ).toISOString().slice(0, 10);
+      : new Date(end.getTime() - (windowDays - 1) * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
     return {
       aovMean: 50,
       purchaseCount: 42,
@@ -671,6 +737,128 @@ type CreativeHydrationRow = Record<string, unknown> & {
   engagement_rate_ranking: unknown;
   conversion_rate_ranking: unknown;
   creative_format: unknown;
+};
+
+type AdDecisionHydrationRow = Record<string, unknown> & {
+  provider_account_ref_id: unknown;
+  provider_account_id: unknown;
+  account_timezone: unknown;
+  account_currency: unknown;
+  ad_id: unknown;
+  ad_name: unknown;
+  creative_id: unknown;
+  creative_name: unknown;
+  campaign_id: unknown;
+  adset_id: unknown;
+  objective: unknown;
+  optimization_goal: unknown;
+  custom_event_type: unknown;
+  campaign_count: unknown;
+  adset_count: unknown;
+  optimization_context_count: unknown;
+  objective_count: unknown;
+  context_identity_unknown: unknown;
+  metric_row_count: unknown;
+  event_metrics_observed: unknown;
+  spend: unknown;
+  conversions: unknown;
+  revenue: unknown;
+  impressions: unknown;
+  link_clicks: unknown;
+  roas: unknown;
+  cpa: unknown;
+  ctr: unknown;
+  frequency: unknown;
+  recent_spend: unknown;
+  recent_conversions: unknown;
+  recent_revenue: unknown;
+  recent_impressions: unknown;
+  recent_roas: unknown;
+  spend_24h: unknown;
+  impressions_24h: unknown;
+  first_seen_at: unknown;
+  first_spend_at: unknown;
+  last_spend_date: unknown;
+  data_freshness_hours: unknown;
+  target_roas: unknown;
+  break_even_roas: unknown;
+  target_pack_updated_at: unknown;
+  cpm: unknown;
+  outbound_clicks: unknown;
+  landing_page_views: unknown;
+  add_to_cart: unknown;
+  initiate_checkout: unknown;
+  thumbstop: unknown;
+  video25_rate: unknown;
+  video50_rate: unknown;
+  video75_rate: unknown;
+  video100_rate: unknown;
+  current_dimension_id: unknown;
+  current_ad_status: unknown;
+  lifecycle_row_id: unknown;
+  lifecycle_as_of_date: unknown;
+  lifecycle_computed_at: unknown;
+  lifecycle_source_max_updated_at: unknown;
+  lifecycle_position: unknown;
+  days_since_peak: unknown;
+  peak_roas_30d: unknown;
+  peak_confidence: unknown;
+  spend_trajectory_30d: unknown;
+  spend_slope_7d: unknown;
+  spend_slope_30d: unknown;
+  roas_slope_7d: unknown;
+  roas_slope_30d: unknown;
+  fatigue_status: unknown;
+  quality_ranking: unknown;
+  engagement_rate_ranking: unknown;
+  conversion_rate_ranking: unknown;
+  creative_format: unknown;
+};
+
+type AdEntityStateRow = Record<string, unknown> & {
+  event_kind: unknown;
+  id: unknown;
+  provider_account_ref_id: unknown;
+  provider_account_id: unknown;
+  entity_id: unknown;
+  entity_name: unknown;
+  campaign_id: unknown;
+  adset_id: unknown;
+  creative_id: unknown;
+  configured_status: unknown;
+  effective_status: unknown;
+  review_status: unknown;
+  policy_status: unknown;
+  policy_reasons_json: unknown;
+  observed_at: unknown;
+  captured_at: unknown;
+  tombstone_reason: unknown;
+};
+
+type PresentAdStateSeedRow = Record<string, unknown> & {
+  business_id: unknown;
+  provider_account_ref_id: unknown;
+  provider_account_id: unknown;
+  ad_id: unknown;
+  campaign_id: unknown;
+  adset_id: unknown;
+  creative_id: unknown;
+  captured_at: unknown;
+};
+
+type AdHydrationReceiptRow = Record<string, unknown> & {
+  business_ref_id: unknown;
+  business_id: unknown;
+  provider_account_ref_id: unknown;
+  provider_account_id: unknown;
+  source_run_id: unknown;
+  source_observed_at: unknown;
+  source_captured_at: unknown;
+  source_run_hash: unknown;
+  source_payload_hash: unknown;
+  source_expected_row_count: unknown;
+  source_persisted_row_count: unknown;
+  expected_ad_ids: unknown;
 };
 
 type CalibrationRow = Record<string, unknown> & {
@@ -889,6 +1077,855 @@ interface CalibrationReadMetadata {
   note: string | null;
   staleTierOverride?: StaleTier;
 }
+
+export const HYDRATE_AD_DECISION_INPUTS_QUERY = `
+/* ad-decision-hydration: native business/account/ad grain */
+WITH assigned_accounts AS (
+  SELECT
+    binding.business_id,
+    binding.provider_account_ref_id,
+    binding.provider_account_id
+  FROM business_provider_accounts binding
+  WHERE binding.business_id = $1::text
+    AND binding.provider = 'meta'
+    AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
+),
+selected_ad_days AS (
+  SELECT d.*
+  FROM meta_ad_daily d
+  INNER JOIN assigned_accounts assignment
+    ON assignment.business_id = d.business_id
+   AND assignment.provider_account_id = d.provider_account_id
+  WHERE d.business_id = $1::text
+    AND d.date BETWEEN ($2::date - INTERVAL '27 days') AND $2::date
+    AND (NOT $4::boolean OR d.provider_account_id = ANY($3::text[]))
+    AND (NOT $6::boolean OR d.ad_id = ANY($5::text[]))
+    AND d.truth_state = 'finalized'
+    AND d.validation_status = 'passed'
+    AND d.created_at <= $11::timestamptz
+    AND d.updated_at <= $11::timestamptz
+),
+metric_ads AS (
+  SELECT DISTINCT business_id, provider_account_id, ad_id
+  FROM selected_ad_days
+),
+present_dimension_ads AS (
+  SELECT d.business_id, d.provider_account_id, d.ad_id
+  FROM meta_ad_dimensions d
+  INNER JOIN assigned_accounts assignment
+    ON assignment.business_id = d.business_id
+   AND assignment.provider_account_id = d.provider_account_id
+  WHERE $12::boolean
+    AND d.business_id = $1::text
+    AND (NOT $4::boolean OR d.provider_account_id = ANY($3::text[]))
+    AND (NOT $6::boolean OR d.ad_id = ANY($5::text[]))
+    AND (
+      UPPER(COALESCE(NULLIF(BTRIM(d.ad_status), ''), '')) = 'ACTIVE'
+      OR (
+        NULLIF(BTRIM(d.ad_status), '') IS NULL
+        AND d.last_seen_at::date = $2::date
+      )
+    )
+    AND d.created_at <= $11::timestamptz
+    AND d.updated_at <= $11::timestamptz
+),
+present_state_ads AS (
+  SELECT *
+  FROM jsonb_to_recordset($13::jsonb) AS row(
+    business_id text,
+    provider_account_ref_id uuid,
+    provider_account_id text,
+    ad_id text,
+    campaign_id text,
+    adset_id text,
+    creative_id text,
+    captured_at timestamptz
+  )
+),
+selected_ads AS (
+  SELECT business_id, provider_account_id, ad_id FROM metric_ads
+  UNION
+  SELECT business_id, provider_account_id, ad_id FROM present_dimension_ads
+  UNION
+  SELECT business_id, provider_account_id, ad_id FROM present_state_ads
+),
+selected_accounts AS (
+  SELECT DISTINCT business_id, provider_account_id
+  FROM selected_ads
+),
+account_identity AS (
+  SELECT DISTINCT ON (d.provider_account_id)
+    d.provider_account_id,
+    NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
+    NULLIF(BTRIM(d.account_currency), '') AS account_currency
+  FROM meta_ad_daily d
+  INNER JOIN selected_accounts selected
+    ON selected.business_id = d.business_id
+   AND selected.provider_account_id = d.provider_account_id
+  WHERE d.business_id = $1::text
+    AND d.date <= $2::date
+    AND d.truth_state = 'finalized'
+    AND d.validation_status = 'passed'
+    AND d.created_at <= $11::timestamptz
+    AND d.updated_at <= $11::timestamptz
+    AND NULLIF(BTRIM(d.account_timezone), '') IS NOT NULL
+    AND NULLIF(BTRIM(d.account_currency), '') IS NOT NULL
+  ORDER BY d.provider_account_id, d.date DESC, d.updated_at DESC, d.id DESC
+),
+metric_context_days AS (
+  SELECT
+    d.provider_account_id,
+    d.ad_id,
+    d.date,
+    d.updated_at AS source_updated_at,
+    NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
+    NULLIF(BTRIM(d.adset_id), '') AS adset_id,
+    NULLIF(BTRIM(c.objective), '') AS objective,
+    COALESCE(
+      NULLIF(BTRIM(a.optimization_goal), ''),
+      NULLIF(BTRIM(c.optimization_goal), '')
+    ) AS optimization_goal,
+    COALESCE(
+      NULLIF(BTRIM(a.custom_event_type), ''),
+      NULLIF(BTRIM(c.custom_event_type), '')
+    ) AS custom_event_type
+  FROM selected_ad_days d
+  LEFT JOIN meta_adset_daily a
+    ON a.business_id = d.business_id
+   AND a.provider_account_id = d.provider_account_id
+   AND a.date = d.date
+   AND a.adset_id = d.adset_id
+   AND a.truth_state = 'finalized'
+   AND a.validation_status = 'passed'
+   AND a.created_at <= $11::timestamptz
+   AND a.updated_at <= $11::timestamptz
+  LEFT JOIN meta_campaign_daily c
+    ON c.business_id = d.business_id
+   AND c.provider_account_id = d.provider_account_id
+   AND c.date = d.date
+   AND c.campaign_id = d.campaign_id
+   AND c.truth_state = 'finalized'
+   AND c.validation_status = 'passed'
+   AND c.created_at <= $11::timestamptz
+   AND c.updated_at <= $11::timestamptz
+),
+dimension_only_context AS (
+  SELECT
+    selected.provider_account_id,
+    selected.ad_id,
+    $2::date AS date,
+    COALESCE(dimensions.updated_at, state.captured_at) AS source_updated_at,
+    COALESCE(
+      NULLIF(BTRIM(state.campaign_id), ''),
+      NULLIF(BTRIM(dimensions.campaign_id), '')
+    ) AS campaign_id,
+    COALESCE(
+      NULLIF(BTRIM(state.adset_id), ''),
+      NULLIF(BTRIM(dimensions.adset_id), '')
+    ) AS adset_id,
+    NULLIF(BTRIM(campaign_config.objective), '') AS objective,
+    COALESCE(
+      NULLIF(BTRIM(adset_config.optimization_goal), ''),
+      NULLIF(BTRIM(campaign_config.optimization_goal), '')
+    ) AS optimization_goal,
+    COALESCE(
+      NULLIF(BTRIM(adset_config.custom_event_type), ''),
+      NULLIF(BTRIM(campaign_config.custom_event_type), '')
+    ) AS custom_event_type
+  FROM selected_ads selected
+  LEFT JOIN meta_ad_dimensions dimensions
+    ON dimensions.business_id = selected.business_id
+   AND dimensions.provider_account_id = selected.provider_account_id
+   AND dimensions.ad_id = selected.ad_id
+   AND dimensions.created_at <= $11::timestamptz
+   AND dimensions.updated_at <= $11::timestamptz
+  LEFT JOIN present_state_ads state
+    ON state.provider_account_id = selected.provider_account_id
+   AND state.ad_id = selected.ad_id
+  LEFT JOIN LATERAL (
+    SELECT config.optimization_goal, config.custom_event_type
+    FROM meta_adset_config_history config
+    WHERE config.business_id = selected.business_id
+      AND config.provider_account_id = selected.provider_account_id
+      AND config.adset_id = COALESCE(
+        NULLIF(BTRIM(state.adset_id), ''),
+        NULLIF(BTRIM(dimensions.adset_id), '')
+      )
+      AND config.captured_at <= $11::timestamptz
+    ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
+    LIMIT 1
+  ) adset_config ON true
+  LEFT JOIN LATERAL (
+    SELECT config.objective, config.optimization_goal, config.custom_event_type
+    FROM meta_campaign_config_history config
+    WHERE config.business_id = selected.business_id
+      AND config.provider_account_id = selected.provider_account_id
+      AND config.campaign_id = COALESCE(
+        NULLIF(BTRIM(state.campaign_id), ''),
+        NULLIF(BTRIM(dimensions.campaign_id), '')
+      )
+      AND config.captured_at <= $11::timestamptz
+    ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
+    LIMIT 1
+  ) campaign_config ON true
+  WHERE $12::boolean
+    AND NOT EXISTS (
+      SELECT 1
+      FROM selected_ad_days day
+      WHERE day.provider_account_id = selected.provider_account_id
+        AND day.ad_id = selected.ad_id
+    )
+),
+context_days AS (
+  SELECT * FROM metric_context_days
+  UNION ALL
+  SELECT * FROM dimension_only_context
+),
+context_cardinality AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    COUNT(DISTINCT campaign_id) AS campaign_count,
+    COUNT(DISTINCT adset_id) AS adset_count,
+    COUNT(DISTINCT (optimization_goal, custom_event_type)) FILTER (
+      WHERE optimization_goal IS NOT NULL OR custom_event_type IS NOT NULL
+    ) AS optimization_context_count,
+    COUNT(DISTINCT objective) AS objective_count,
+    BOOL_OR(
+      campaign_id IS NULL
+      OR adset_id IS NULL
+      OR objective IS NULL
+      OR (optimization_goal IS NULL AND custom_event_type IS NULL)
+    ) AS has_unknown_context
+  FROM context_days
+  GROUP BY provider_account_id, ad_id
+),
+latest_context AS (
+  SELECT DISTINCT ON (provider_account_id, ad_id)
+    provider_account_id,
+    ad_id,
+    campaign_id,
+    adset_id,
+    objective,
+    optimization_goal,
+    custom_event_type
+  FROM context_days
+  ORDER BY provider_account_id, ad_id, date DESC, source_updated_at DESC
+),
+metric_cumulative AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    COUNT(*)::integer AS metric_row_count,
+    BOOL_OR(
+      payload_json ? 'outbound_clicks'
+      OR payload_json ? 'landing_page_views'
+      OR payload_json ? 'add_to_cart'
+      OR payload_json ? 'initiate_checkout'
+      OR payload_json ? 'thumbstop'
+      OR payload_json ? 'video25'
+      OR payload_json ? 'video50'
+      OR payload_json ? 'video75'
+      OR payload_json ? 'video100'
+    ) AS event_metrics_observed,
+    MAX(ad_name_current) FILTER (WHERE ad_name_current IS NOT NULL) AS ad_name,
+    SUM(spend) AS spend,
+    SUM(conversions) AS conversions,
+    SUM(revenue) AS revenue,
+    SUM(impressions) AS impressions,
+    SUM(link_clicks) AS link_clicks,
+    CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas,
+    CASE WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions) END AS cpa,
+    CASE
+      WHEN SUM(impressions) > 0
+      THEN SUM(clicks)::numeric / NULLIF(SUM(impressions), 0) * 100
+    END AS ctr,
+    CASE
+      WHEN SUM(reach) > 0
+      THEN SUM(impressions)::numeric / NULLIF(SUM(reach), 0)
+    END AS frequency,
+    CASE
+      WHEN SUM(impressions) > 0
+      THEN SUM(spend) / NULLIF(SUM(impressions), 0) * 1000
+    END AS cpm,
+    SUM((NULLIF(payload_json->>'outbound_clicks', ''))::numeric)
+      FILTER (WHERE payload_json ? 'outbound_clicks') AS outbound_clicks,
+    SUM((NULLIF(payload_json->>'landing_page_views', ''))::numeric)
+      FILTER (WHERE payload_json ? 'landing_page_views') AS landing_page_views,
+    SUM((NULLIF(payload_json->>'add_to_cart', ''))::numeric)
+      FILTER (WHERE payload_json ? 'add_to_cart') AS add_to_cart,
+    SUM((NULLIF(payload_json->>'initiate_checkout', ''))::numeric)
+      FILTER (WHERE payload_json ? 'initiate_checkout') AS initiate_checkout,
+    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'thumbstop') > 0 THEN
+      SUM((NULLIF(payload_json->>'thumbstop', ''))::numeric * impressions)
+        FILTER (WHERE payload_json ? 'thumbstop')
+        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'thumbstop'), 0)
+    END AS thumbstop,
+    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video25') > 0 THEN
+      SUM((NULLIF(payload_json->>'video25', ''))::numeric * impressions)
+        FILTER (WHERE payload_json ? 'video25')
+        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video25'), 0)
+    END AS video25_rate,
+    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video50') > 0 THEN
+      SUM((NULLIF(payload_json->>'video50', ''))::numeric * impressions)
+        FILTER (WHERE payload_json ? 'video50')
+        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video50'), 0)
+    END AS video50_rate,
+    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video75') > 0 THEN
+      SUM((NULLIF(payload_json->>'video75', ''))::numeric * impressions)
+        FILTER (WHERE payload_json ? 'video75')
+        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video75'), 0)
+    END AS video75_rate,
+    CASE WHEN SUM(impressions) FILTER (WHERE payload_json ? 'video100') > 0 THEN
+      SUM((NULLIF(payload_json->>'video100', ''))::numeric * impressions)
+        FILTER (WHERE payload_json ? 'video100')
+        / NULLIF(SUM(impressions) FILTER (WHERE payload_json ? 'video100'), 0)
+    END AS video100_rate,
+    MAX(updated_at) AS source_max_updated_at
+  FROM selected_ad_days
+  GROUP BY provider_account_id, ad_id
+),
+cumulative AS (
+  SELECT
+    selected.provider_account_id,
+    selected.ad_id,
+    metrics.metric_row_count,
+    COALESCE(metrics.event_metrics_observed, FALSE) AS event_metrics_observed,
+    metrics.ad_name,
+    metrics.spend,
+    metrics.conversions,
+    metrics.revenue,
+    metrics.impressions,
+    metrics.link_clicks,
+    metrics.roas,
+    metrics.cpa,
+    metrics.ctr,
+    metrics.frequency,
+    metrics.cpm,
+    metrics.outbound_clicks,
+    metrics.landing_page_views,
+    metrics.add_to_cart,
+    metrics.initiate_checkout,
+    metrics.thumbstop,
+    metrics.video25_rate,
+    metrics.video50_rate,
+    metrics.video75_rate,
+    metrics.video100_rate,
+    metrics.source_max_updated_at
+  FROM selected_ads selected
+  LEFT JOIN metric_cumulative metrics
+    ON metrics.provider_account_id = selected.provider_account_id
+   AND metrics.ad_id = selected.ad_id
+),
+recent AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    SUM(spend) AS spend,
+    SUM(conversions) AS conversions,
+    SUM(revenue) AS revenue,
+    SUM(impressions) AS impressions,
+    CASE WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend) END AS roas
+  FROM selected_ad_days
+  WHERE date BETWEEN ($2::date - INTERVAL '6 days') AND $2::date
+  GROUP BY provider_account_id, ad_id
+),
+recent_24h AS (
+  SELECT
+    provider_account_id,
+    ad_id,
+    SUM(spend) AS spend,
+    SUM(impressions) AS impressions
+  FROM selected_ad_days
+  WHERE date = $2::date
+  GROUP BY provider_account_id, ad_id
+),
+activity_bounds AS (
+  SELECT
+    d.provider_account_id,
+    d.ad_id,
+    MIN(d.date) FILTER (WHERE d.spend > 0) AS first_spend_at,
+    MAX(d.date) FILTER (WHERE d.spend > 0) AS last_spend_date
+  FROM meta_ad_daily d
+  INNER JOIN selected_ads selected
+    ON selected.business_id = d.business_id
+   AND selected.provider_account_id = d.provider_account_id
+   AND selected.ad_id = d.ad_id
+  WHERE d.business_id = $1::text
+    AND d.date <= $2::date
+    AND d.truth_state = 'finalized'
+    AND d.validation_status = 'passed'
+    AND d.created_at <= $11::timestamptz
+    AND d.updated_at <= $11::timestamptz
+  GROUP BY d.provider_account_id, d.ad_id
+)
+SELECT
+  assignment.provider_account_ref_id,
+  cumulative.provider_account_id,
+  COALESCE(
+    account_identity.account_timezone,
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END
+  ) AS account_timezone,
+  COALESCE(
+    account_identity.account_currency,
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END
+  ) AS account_currency,
+  cumulative.ad_id,
+  COALESCE(cumulative.ad_name, dimensions.ad_name_current) AS ad_name,
+  COALESCE(dimensions.creative_id, state_dimension.creative_id) AS creative_id,
+  creative_dimensions.creative_name,
+  CASE WHEN cardinality.campaign_count = 1 THEN latest.campaign_id END AS campaign_id,
+  CASE WHEN cardinality.adset_count = 1 THEN latest.adset_id END AS adset_id,
+  CASE WHEN cardinality.objective_count = 1 THEN latest.objective END AS objective,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.optimization_goal END AS optimization_goal,
+  CASE WHEN cardinality.optimization_context_count = 1 THEN latest.custom_event_type END AS custom_event_type,
+  COALESCE(cardinality.campaign_count, 0) AS campaign_count,
+  COALESCE(cardinality.adset_count, 0) AS adset_count,
+  COALESCE(cardinality.optimization_context_count, 0) AS optimization_context_count,
+  COALESCE(cardinality.objective_count, 0) AS objective_count,
+  (
+    COALESCE(cardinality.has_unknown_context, TRUE)
+    OR cardinality.campaign_count <> 1
+    OR cardinality.adset_count <> 1
+    OR cardinality.optimization_context_count <> 1
+    OR cardinality.objective_count <> 1
+  ) AS context_identity_unknown,
+  COALESCE(cumulative.metric_row_count, 0) AS metric_row_count,
+  cumulative.event_metrics_observed,
+  cumulative.spend,
+  cumulative.conversions,
+  cumulative.revenue,
+  cumulative.impressions,
+  cumulative.link_clicks,
+  cumulative.roas,
+  cumulative.cpa,
+  cumulative.ctr,
+  cumulative.frequency,
+  recent.spend AS recent_spend,
+  recent.conversions AS recent_conversions,
+  recent.revenue AS recent_revenue,
+  recent.impressions AS recent_impressions,
+  recent.roas AS recent_roas,
+  recent_24h.spend AS spend_24h,
+  recent_24h.impressions AS impressions_24h,
+  dimensions.first_seen_at,
+  bounds.first_spend_at,
+  bounds.last_spend_date,
+  CASE WHEN cumulative.source_max_updated_at IS NOT NULL THEN GREATEST(
+    0,
+    FLOOR(EXTRACT(EPOCH FROM ($11::timestamptz - cumulative.source_max_updated_at)) / 3600)
+  ) END AS data_freshness_hours,
+  $7::double precision AS target_roas,
+  $8::double precision AS break_even_roas,
+  $9::timestamptz AS target_pack_updated_at,
+  cumulative.cpm,
+  cumulative.outbound_clicks,
+  cumulative.landing_page_views,
+  cumulative.add_to_cart,
+  cumulative.initiate_checkout,
+  cumulative.thumbstop,
+  cumulative.video25_rate,
+  cumulative.video50_rate,
+  cumulative.video75_rate,
+  cumulative.video100_rate,
+  dimensions.id AS current_dimension_id,
+  dimensions.ad_status AS current_ad_status,
+  lifecycle.id AS lifecycle_row_id,
+  lifecycle.as_of_date::text AS lifecycle_as_of_date,
+  lifecycle.computed_at AS lifecycle_computed_at,
+  lifecycle.source_max_updated_at AS lifecycle_source_max_updated_at,
+  lifecycle.lifecycle_position,
+  lifecycle.days_since_peak,
+  lifecycle.peak_roas_30d,
+  lifecycle.peak_confidence,
+  lifecycle.spend_trajectory_30d,
+  lifecycle.spend_slope_7d,
+  lifecycle.spend_slope_30d,
+  lifecycle.roas_slope_7d,
+  lifecycle.roas_slope_30d,
+  lifecycle.fatigue_status,
+  lifecycle.quality_ranking,
+  lifecycle.engagement_rate_ranking,
+  lifecycle.conversion_rate_ranking,
+  COALESCE(lifecycle.creative_format, creative_dimensions.asset_type) AS creative_format
+FROM cumulative
+INNER JOIN assigned_accounts assignment
+  ON assignment.business_id = $1::text
+ AND assignment.provider_account_id = cumulative.provider_account_id
+INNER JOIN provider_accounts provider_account
+  ON provider_account.id = assignment.provider_account_ref_id
+ AND provider_account.external_account_id = assignment.provider_account_id
+LEFT JOIN account_identity
+  ON account_identity.provider_account_id = cumulative.provider_account_id
+LEFT JOIN context_cardinality cardinality
+  ON cardinality.provider_account_id = cumulative.provider_account_id
+ AND cardinality.ad_id = cumulative.ad_id
+LEFT JOIN latest_context latest
+  ON latest.provider_account_id = cumulative.provider_account_id
+ AND latest.ad_id = cumulative.ad_id
+LEFT JOIN recent
+  ON recent.provider_account_id = cumulative.provider_account_id
+ AND recent.ad_id = cumulative.ad_id
+LEFT JOIN recent_24h
+  ON recent_24h.provider_account_id = cumulative.provider_account_id
+ AND recent_24h.ad_id = cumulative.ad_id
+LEFT JOIN activity_bounds bounds
+  ON bounds.provider_account_id = cumulative.provider_account_id
+ AND bounds.ad_id = cumulative.ad_id
+LEFT JOIN meta_ad_dimensions dimensions
+  ON $12::boolean
+ AND dimensions.business_id = $1::text
+ AND dimensions.provider_account_id = cumulative.provider_account_id
+ AND dimensions.ad_id = cumulative.ad_id
+ AND dimensions.created_at <= $11::timestamptz
+ AND dimensions.updated_at <= $11::timestamptz
+LEFT JOIN present_state_ads state_dimension
+  ON state_dimension.business_id = $1::text
+ AND state_dimension.provider_account_id = cumulative.provider_account_id
+ AND state_dimension.ad_id = cumulative.ad_id
+LEFT JOIN meta_creative_dimensions creative_dimensions
+  ON $12::boolean
+ AND creative_dimensions.business_id = $1::text
+ AND creative_dimensions.provider_account_id = cumulative.provider_account_id
+ AND creative_dimensions.creative_id = COALESCE(
+   dimensions.creative_id,
+   state_dimension.creative_id
+ )
+ AND creative_dimensions.created_at <= $11::timestamptz
+ AND creative_dimensions.updated_at <= $11::timestamptz
+LEFT JOIN LATERAL (
+  SELECT
+    row.id,
+    row.as_of_date,
+    row.computed_at,
+    row.source_max_updated_at,
+    row.lifecycle_position,
+    row.days_since_peak,
+    row.peak_roas_30d,
+    row.peak_confidence,
+    row.spend_trajectory_30d,
+    row.spend_slope_7d,
+    row.spend_slope_30d,
+    row.roas_slope_7d,
+    row.roas_slope_30d,
+    row.fatigue_status,
+    row.quality_ranking,
+    row.engagement_rate_ranking,
+    row.conversion_rate_ranking,
+    row.creative_format
+  FROM engine_v3_creative_lifecycle_daily row
+  WHERE row.business_ref_id = $1::uuid
+    AND row.creative_id = COALESCE(
+      dimensions.creative_id,
+      state_dimension.creative_id
+    )
+    AND row.as_of_date <= $2::date
+    AND row.engine_version = $10
+    AND row.computed_at <= $11::timestamptz
+  ORDER BY row.as_of_date DESC, row.computed_at DESC, row.id DESC
+  LIMIT 1
+) lifecycle ON COALESCE(dimensions.creative_id, state_dimension.creative_id) IS NOT NULL
+ORDER BY cumulative.provider_account_id, cumulative.ad_id
+`;
+
+export const READ_AD_ENTITY_STATE_AS_OF_QUERY = `
+/* ad-decision-state-asof: latest cutoff-strict state versus explicit tombstone */
+WITH truth_events AS (
+  SELECT
+    'state'::text AS event_kind,
+    state.id,
+    state.provider_account_ref_id,
+    state.provider_account_id,
+    state.entity_id,
+    state.entity_name,
+    state.campaign_id,
+    state.adset_id,
+    state.creative_id,
+    state.configured_status,
+    state.effective_status,
+    state.review_status,
+    state.policy_status,
+    state.policy_reasons_json,
+    state.observed_at,
+    state.captured_at,
+    state.created_at,
+    NULL::text AS tombstone_reason
+  FROM meta_entity_state_history state
+  WHERE state.business_ref_id = $1::uuid
+    AND state.business_id = $1::text
+    AND state.provider_account_id = $2
+    AND state.entity_type = 'ad'
+    AND state.entity_id = ANY($3::text[])
+    AND state.observed_at <= $4::timestamptz
+    AND state.captured_at <= $4::timestamptz
+    AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
+    AND state.presence = 'present'
+
+  UNION ALL
+
+  SELECT
+    'tombstone'::text AS event_kind,
+    tombstone.id,
+    tombstone.provider_account_ref_id,
+    tombstone.provider_account_id,
+    tombstone.entity_id,
+    NULL::text AS entity_name,
+    NULL::text AS campaign_id,
+    NULL::text AS adset_id,
+    NULL::text AS creative_id,
+    NULL::text AS configured_status,
+    NULL::text AS effective_status,
+    NULL::text AS review_status,
+    NULL::text AS policy_status,
+    NULL::jsonb AS policy_reasons_json,
+    tombstone.observed_at,
+    tombstone.captured_at,
+    tombstone.created_at,
+    tombstone.reason AS tombstone_reason
+  FROM meta_entity_tombstones tombstone
+  WHERE tombstone.business_ref_id = $1::uuid
+    AND tombstone.business_id = $1::text
+    AND tombstone.provider_account_id = $2
+    AND tombstone.entity_type = 'ad'
+    AND tombstone.entity_id = ANY($3::text[])
+    AND tombstone.observed_at <= $4::timestamptz
+    AND tombstone.captured_at <= $4::timestamptz
+    AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
+)
+SELECT DISTINCT ON (entity_id)
+  event_kind,
+  id,
+  provider_account_ref_id,
+  provider_account_id,
+  entity_id,
+  entity_name,
+  campaign_id,
+  adset_id,
+  creative_id,
+  configured_status,
+  effective_status,
+  review_status,
+  policy_status,
+  policy_reasons_json,
+  observed_at::text AS observed_at,
+  captured_at::text AS captured_at,
+  tombstone_reason
+FROM truth_events
+ORDER BY entity_id, observed_at DESC, captured_at DESC,
+  (event_kind = 'tombstone') DESC, created_at DESC, id DESC
+`;
+
+export const READ_PRESENT_AD_STATE_SEEDS_QUERY = `
+/* ad-decision-present-state-seeds: current truth, explicit tombstone wins ties */
+WITH truth_events AS (
+  SELECT
+    'state'::text AS event_kind,
+    state.id,
+    state.business_id,
+    state.provider_account_ref_id,
+    state.provider_account_id,
+    state.entity_id AS ad_id,
+    state.campaign_id,
+    state.adset_id,
+    state.creative_id,
+    state.observed_at,
+    state.captured_at,
+    state.created_at
+  FROM meta_entity_state_history state
+  WHERE state.business_ref_id = $1::uuid
+    AND state.business_id = $1::text
+    AND state.entity_type = 'ad'
+    AND state.presence = 'present'
+    AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
+    AND state.observed_at <= $2::timestamptz
+    AND state.captured_at <= $2::timestamptz
+    AND (NOT $4::boolean OR state.provider_account_id = ANY($3::text[]))
+    AND (NOT $6::boolean OR state.entity_id = ANY($5::text[]))
+
+  UNION ALL
+
+  SELECT
+    'tombstone'::text AS event_kind,
+    tombstone.id,
+    tombstone.business_id,
+    tombstone.provider_account_ref_id,
+    tombstone.provider_account_id,
+    tombstone.entity_id AS ad_id,
+    NULL::text AS campaign_id,
+    NULL::text AS adset_id,
+    NULL::text AS creative_id,
+    tombstone.observed_at,
+    tombstone.captured_at,
+    tombstone.created_at
+  FROM meta_entity_tombstones tombstone
+  WHERE tombstone.business_ref_id = $1::uuid
+    AND tombstone.business_id = $1::text
+    AND tombstone.entity_type = 'ad'
+    AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
+    AND tombstone.observed_at <= $2::timestamptz
+    AND tombstone.captured_at <= $2::timestamptz
+    AND (NOT $4::boolean OR tombstone.provider_account_id = ANY($3::text[]))
+    AND (NOT $6::boolean OR tombstone.entity_id = ANY($5::text[]))
+), latest AS (
+  SELECT DISTINCT ON (provider_account_id, ad_id) *
+  FROM truth_events
+  ORDER BY provider_account_id, ad_id, observed_at DESC, captured_at DESC,
+    (event_kind = 'tombstone') DESC, created_at DESC, id DESC
+)
+SELECT business_id, provider_account_ref_id, provider_account_id, ad_id,
+  campaign_id, adset_id, creative_id, captured_at
+FROM latest
+WHERE event_kind = 'state'
+ORDER BY provider_account_id, ad_id
+`;
+
+/** Backward-compatible export name; the query now seeds every present ad. */
+export const READ_PRESENT_ACTIVE_AD_STATE_SEEDS_QUERY =
+  READ_PRESENT_AD_STATE_SEEDS_QUERY;
+
+export const READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY = `
+/* ad-decision-hydration-receipts: same-day complete account manifest proof */
+WITH assigned_accounts AS (
+  SELECT
+    $1::uuid AS business_ref_id,
+    binding.business_id,
+    binding.provider_account_ref_id,
+    binding.provider_account_id
+  FROM business_provider_accounts binding
+  WHERE binding.business_id = $1::text
+    AND binding.provider = 'meta'
+    AND (NOT $5::boolean OR binding.provider_account_id = ANY($4::text[]))
+), complete_runs AS (
+  SELECT
+    account.business_ref_id,
+    account.business_id,
+    account.provider_account_ref_id,
+    account.provider_account_id,
+    run.id AS source_run_id,
+    run.observed_at AS source_observed_at,
+    run.captured_at AS source_captured_at,
+    run.run_hash AS source_run_hash,
+    run.payload_hash AS source_payload_hash,
+    run.row_count AS source_expected_row_count
+  FROM assigned_accounts account
+  LEFT JOIN LATERAL (
+    SELECT run.*
+    FROM meta_entity_observation_runs run
+    WHERE run.business_ref_id = account.business_ref_id
+      AND run.business_id = account.business_id
+      AND run.provider_account_ref_id = account.provider_account_ref_id
+      AND run.provider_account_id = account.provider_account_id
+      AND run.entity_type = 'ad'
+      AND run.completeness = 'complete'
+      AND run.observed_at >= $2::date
+      AND run.observed_at <= $3::timestamptz
+      AND run.captured_at <= $3::timestamptz
+    ORDER BY run.observed_at DESC, run.captured_at DESC, run.created_at DESC, run.id DESC
+    LIMIT 1
+  ) run ON true
+), base_counts AS (
+  SELECT
+    run.source_run_id,
+    COUNT(state.id)::integer AS source_persisted_row_count
+  FROM complete_runs run
+  LEFT JOIN meta_entity_state_history state
+    ON state.run_id = run.source_run_id
+   AND state.business_ref_id = run.business_ref_id
+   AND state.business_id = run.business_id
+   AND state.provider_account_ref_id = run.provider_account_ref_id
+   AND state.provider_account_id = run.provider_account_id
+   AND state.entity_type = 'ad'
+   AND state.presence = 'present'
+  GROUP BY run.source_run_id
+), truth_events AS (
+  SELECT
+    run.provider_account_id,
+    'state'::text AS event_kind,
+    state.id,
+    state.entity_id,
+    state.observed_at,
+    state.captured_at,
+    state.created_at
+  FROM complete_runs run
+  INNER JOIN meta_entity_state_history state
+    ON run.source_run_id IS NOT NULL
+   AND state.business_ref_id = run.business_ref_id
+   AND state.business_id = run.business_id
+   AND state.provider_account_ref_id = run.provider_account_ref_id
+   AND state.provider_account_id = run.provider_account_id
+   AND state.entity_type = 'ad'
+   AND state.presence = 'present'
+   AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
+   AND state.observed_at >= run.source_observed_at
+   AND state.observed_at <= $3::timestamptz
+   AND state.captured_at <= $3::timestamptz
+
+  UNION ALL
+
+  SELECT
+    run.provider_account_id,
+    'tombstone'::text AS event_kind,
+    tombstone.id,
+    tombstone.entity_id,
+    tombstone.observed_at,
+    tombstone.captured_at,
+    tombstone.created_at
+  FROM complete_runs run
+  INNER JOIN meta_entity_tombstones tombstone
+    ON run.source_run_id IS NOT NULL
+   AND tombstone.business_ref_id = run.business_ref_id
+   AND tombstone.business_id = run.business_id
+   AND tombstone.provider_account_ref_id = run.provider_account_ref_id
+   AND tombstone.provider_account_id = run.provider_account_id
+   AND tombstone.entity_type = 'ad'
+   AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
+   AND tombstone.observed_at >= run.source_observed_at
+   AND tombstone.observed_at <= $3::timestamptz
+   AND tombstone.captured_at <= $3::timestamptz
+), latest_truth AS (
+  SELECT DISTINCT ON (provider_account_id, entity_id)
+    provider_account_id,
+    event_kind,
+    entity_id
+  FROM truth_events
+  ORDER BY provider_account_id, entity_id, observed_at DESC, captured_at DESC,
+    (event_kind = 'tombstone') DESC, created_at DESC, id DESC
+)
+SELECT
+  run.business_ref_id,
+  run.business_id,
+  run.provider_account_ref_id,
+  run.provider_account_id,
+  run.source_run_id,
+  run.source_observed_at::text AS source_observed_at,
+  run.source_captured_at::text AS source_captured_at,
+  run.source_run_hash,
+  run.source_payload_hash,
+  run.source_expected_row_count,
+  counts.source_persisted_row_count,
+  COALESCE(
+    ARRAY_AGG(truth.entity_id ORDER BY truth.entity_id)
+      FILTER (WHERE truth.event_kind = 'state'),
+    ARRAY[]::text[]
+  ) AS expected_ad_ids
+FROM complete_runs run
+LEFT JOIN base_counts counts ON counts.source_run_id = run.source_run_id
+LEFT JOIN latest_truth truth
+  ON truth.provider_account_id = run.provider_account_id
+GROUP BY
+  run.business_ref_id,
+  run.business_id,
+  run.provider_account_ref_id,
+  run.provider_account_id,
+  run.source_run_id,
+  run.source_observed_at,
+  run.source_captured_at,
+  run.source_run_hash,
+  run.source_payload_hash,
+  run.source_expected_row_count,
+  counts.source_persisted_row_count
+ORDER BY run.provider_account_id
+`;
 
 const HYDRATE_CREATIVE_INPUTS_QUERY = `
 WITH input_creatives AS (
@@ -2150,7 +3187,9 @@ export function toEffectiveStatus(value: unknown): EffectiveStatus {
 function toFatigueStatus(value: unknown): CreativeInput["fatigueStatus"] {
   const text = toStringOrNull(value);
   if (text === null) return null;
-  return FATIGUE_STATUSES.has(text as NonNullable<CreativeInput["fatigueStatus"]>)
+  return FATIGUE_STATUSES.has(
+    text as NonNullable<CreativeInput["fatigueStatus"]>,
+  )
     ? (text as NonNullable<CreativeInput["fatigueStatus"]>)
     : null;
 }
@@ -2172,7 +3211,10 @@ function toSpendTrajectory(value: unknown): SpendTrajectory | null {
 }
 
 function normalizeToken(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
 }
 
 function toMetaRanking(value: unknown): MetaRanking | null {
@@ -2254,6 +3296,626 @@ function toStringArray(value: unknown): string[] {
     }
   }
   return [];
+}
+
+function normalizedIdentityList(values: readonly string[]): string[] {
+  return values.map((value) => value.trim()).filter(Boolean).sort();
+}
+
+function hasDuplicateIdentity(values: readonly string[]): boolean {
+  return new Set(values).size !== values.length;
+}
+
+function isSha256(value: string | null): value is string {
+  return value !== null && /^[0-9a-f]{64}$/.test(value);
+}
+
+export function hashAdDecisionIdentityManifest(input: {
+  businessId: string;
+  providerAccountId: string;
+  asOfDate: string;
+  adIds: readonly string[];
+}): string {
+  const adIds = normalizedIdentityList(input.adIds);
+  if (hasDuplicateIdentity(adIds)) {
+    throw new TypeError("Ad identity manifest contains duplicate IDs.");
+  }
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        contractVersion: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        asOfDate: input.asOfDate,
+        adIds,
+      }),
+    )
+    .digest("hex");
+}
+
+function mapAdHydrationSourceReceipt(input: {
+  row: AdHydrationReceiptRow;
+  businessId: string;
+  asOf: string;
+  decisionCutoff: string;
+}): AdDecisionHydrationReceipt {
+  const businessRefId = toStringOrNull(input.row.business_ref_id);
+  const businessDisplayId = toStringOrNull(input.row.business_id);
+  const providerAccountRefId = toStringOrNull(
+    input.row.provider_account_ref_id,
+  );
+  const providerAccountId = toStringOrNull(input.row.provider_account_id);
+  if (
+    businessRefId !== input.businessId ||
+    businessDisplayId !== input.businessId ||
+    providerAccountRefId === null ||
+    providerAccountId === null
+  ) {
+    throw new Error("Ad hydration receipt tenant/account lineage is invalid.");
+  }
+  const rawExpectedAdIds = normalizedIdentityList(
+    toStringArray(input.row.expected_ad_ids),
+  );
+  const duplicateIdentity = hasDuplicateIdentity(rawExpectedAdIds);
+  const expectedAdIds = duplicateIdentity
+    ? Array.from(new Set(rawExpectedAdIds)).sort()
+    : rawExpectedAdIds;
+  const sourceRunId = toStringOrNull(input.row.source_run_id);
+  const sourceRunHash = toStringOrNull(input.row.source_run_hash);
+  const sourceExpectedRowCount = toIntegerOrNull(
+    input.row.source_expected_row_count,
+  );
+  const sourcePersistedRowCount = toIntegerOrNull(
+    input.row.source_persisted_row_count,
+  );
+  const sourceComplete =
+    sourceRunId !== null &&
+    isSha256(sourceRunHash) &&
+    sourceExpectedRowCount !== null &&
+    sourceExpectedRowCount >= 0 &&
+    sourcePersistedRowCount === sourceExpectedRowCount &&
+    !duplicateIdentity;
+  const expectedManifestHash = hashAdDecisionIdentityManifest({
+    businessId: input.businessId,
+    providerAccountId,
+    asOfDate: input.asOf,
+    adIds: expectedAdIds,
+  });
+  return {
+    contractVersion: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+    businessId: input.businessId,
+    providerAccountRefId,
+    providerAccountId,
+    scopeType: "account",
+    scopeId: providerAccountId,
+    asOfDate: input.asOf,
+    decisionCutoff: input.decisionCutoff,
+    sourceRunId,
+    sourceObservedAt: toIsoTimestampOrNull(input.row.source_observed_at),
+    sourceCapturedAt: toIsoTimestampOrNull(input.row.source_captured_at),
+    sourceRunHash,
+    sourcePayloadHash: toStringOrNull(input.row.source_payload_hash),
+    sourceExpectedRowCount,
+    sourcePersistedRowCount,
+    expectedAdCount: expectedAdIds.length,
+    expectedAdIds,
+    expectedManifestHash,
+    hydratedAdCount: 0,
+    hydratedManifestHash: hashAdDecisionIdentityManifest({
+      businessId: input.businessId,
+      providerAccountId,
+      asOfDate: input.asOf,
+      adIds: [],
+    }),
+    sourceComplete,
+    hydrationComplete: false,
+    authoritativeForPrune: false,
+    reason: sourceComplete
+      ? null
+      : duplicateIdentity
+        ? "duplicate_expected_identity"
+        : sourceRunId === null
+          ? "complete_source_run_missing"
+          : "complete_source_run_count_or_hash_invalid",
+  };
+}
+
+function finalizeAdHydrationReceipts(input: {
+  sourceReceipts: AdDecisionHydrationReceipt[];
+  inputs: AdDecisionInput[];
+  businessId: string;
+  asOf: string;
+  decisionCutoff: string;
+  adIdentityFilterApplied: boolean;
+}): AdDecisionHydrationReceipt[] {
+  const byAccount = new Map<string, AdDecisionHydrationReceipt>();
+  for (const receipt of input.sourceReceipts) {
+    if (byAccount.has(receipt.providerAccountId)) {
+      throw new Error(
+        `Duplicate ad hydration receipt for ${receipt.providerAccountId}.`,
+      );
+    }
+    byAccount.set(receipt.providerAccountId, receipt);
+  }
+  const hydratedByAccount = new Map<string, string[]>();
+  for (const ad of input.inputs) {
+    const ids = hydratedByAccount.get(ad.providerAccountId) ?? [];
+    ids.push(ad.adId);
+    hydratedByAccount.set(ad.providerAccountId, ids);
+    if (!byAccount.has(ad.providerAccountId)) {
+      byAccount.set(ad.providerAccountId, {
+        contractVersion: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+        businessId: input.businessId,
+        providerAccountRefId: ad.providerAccountRefId,
+        providerAccountId: ad.providerAccountId,
+        scopeType: "account",
+        scopeId: ad.providerAccountId,
+        asOfDate: input.asOf,
+        decisionCutoff: input.decisionCutoff,
+        sourceRunId: null,
+        sourceObservedAt: null,
+        sourceCapturedAt: null,
+        sourceRunHash: null,
+        sourcePayloadHash: null,
+        sourceExpectedRowCount: null,
+        sourcePersistedRowCount: null,
+        expectedAdCount: 0,
+        expectedAdIds: [],
+        expectedManifestHash: hashAdDecisionIdentityManifest({
+          businessId: input.businessId,
+          providerAccountId: ad.providerAccountId,
+          asOfDate: input.asOf,
+          adIds: [],
+        }),
+        hydratedAdCount: 0,
+        hydratedManifestHash: "",
+        sourceComplete: false,
+        hydrationComplete: false,
+        authoritativeForPrune: false,
+        reason: "account_receipt_missing",
+      });
+    }
+  }
+  return Array.from(byAccount.values())
+    .map((receipt) => {
+      const hydratedAdIds = normalizedIdentityList(
+        hydratedByAccount.get(receipt.providerAccountId) ?? [],
+      );
+      if (hasDuplicateIdentity(hydratedAdIds)) {
+        throw new Error(
+          `Duplicate hydrated ad identity for ${receipt.providerAccountId}.`,
+        );
+      }
+      const hydratedManifestHash = hashAdDecisionIdentityManifest({
+        businessId: input.businessId,
+        providerAccountId: receipt.providerAccountId,
+        asOfDate: input.asOf,
+        adIds: hydratedAdIds,
+      });
+      const hydrationComplete =
+        receipt.sourceComplete &&
+        hydratedAdIds.length === receipt.expectedAdCount &&
+        hydratedManifestHash === receipt.expectedManifestHash;
+      const authoritativeForPrune =
+        hydrationComplete && !input.adIdentityFilterApplied;
+      return {
+        ...receipt,
+        hydratedAdCount: hydratedAdIds.length,
+        hydratedManifestHash,
+        hydrationComplete,
+        authoritativeForPrune,
+        reason: authoritativeForPrune
+          ? null
+          : input.adIdentityFilterApplied
+            ? "ad_identity_filter_applied"
+            : receipt.reason ?? "hydrated_manifest_mismatch",
+      };
+    })
+    .sort((left, right) =>
+      left.providerAccountId.localeCompare(right.providerAccountId),
+    );
+}
+
+function requireAdDecisionAsOf(value: string): string {
+  const normalized = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new TypeError("asOf must be an ISO date (YYYY-MM-DD).");
+  }
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== normalized
+  ) {
+    throw new TypeError("asOf must be a valid calendar date.");
+  }
+  return normalized;
+}
+
+function requireDecisionCutoff(value: string, asOf: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new TypeError("decisionCutoff must be a valid timestamp.");
+  }
+  const normalized = parsed.toISOString();
+  if (normalized.slice(0, 10) < asOf) {
+    throw new TypeError("decisionCutoff cannot precede asOf.");
+  }
+  return normalized;
+}
+
+function normalizeOptionalIdentityFilter(values: string[] | undefined) {
+  if (values === undefined) return undefined;
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  ).sort();
+}
+
+export function isPresentDayAdDecisionAsOf(
+  asOf: string,
+  decisionCutoff: string,
+  now: Date = new Date(),
+): boolean {
+  const cutoff = new Date(decisionCutoff);
+  if (Number.isNaN(cutoff.getTime()) || Number.isNaN(now.getTime()))
+    return false;
+  const today = now.toISOString().slice(0, 10);
+  return asOf === today && cutoff.toISOString().slice(0, 10) === today;
+}
+
+function adDecisionIdentityKey(input: {
+  businessId: string;
+  providerAccountId: string;
+  adId: string;
+}) {
+  return `${input.businessId}\u0000${input.providerAccountId}\u0000${input.adId}`;
+}
+
+function dateDistanceDays(asOf: string, earlier: string | null) {
+  if (earlier === null || earlier > asOf) return null;
+  const end = new Date(`${asOf}T00:00:00.000Z`).getTime();
+  const start = new Date(`${earlier}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(end) || !Number.isFinite(start)) return null;
+  return Math.floor((end - start) / 86_400_000);
+}
+
+interface MappedAdDecisionInput {
+  input: AdDecisionInput;
+  currentDimensionId: string | null;
+  currentDimensionStatus: EffectiveStatus;
+}
+
+function mapAdDecisionHydrationRow(input: {
+  row: AdDecisionHydrationRow;
+  businessId: string;
+  asOf: string;
+  decisionCutoff: string;
+}): MappedAdDecisionInput {
+  const allowCurrentDimensions = isPresentDayAdDecisionAsOf(
+    input.asOf,
+    input.decisionCutoff,
+  );
+  const providerAccountRefId = toStringOrNull(
+    input.row.provider_account_ref_id,
+  );
+  const providerAccountId = toStringOrNull(input.row.provider_account_id);
+  const adId = toStringOrNull(input.row.ad_id);
+  if (
+    providerAccountRefId === null ||
+    providerAccountId === null ||
+    adId === null
+  ) {
+    throw new Error(
+      "Ad decision hydration returned a row without native identity.",
+    );
+  }
+
+  const campaignCount = toIntegerOrNull(input.row.campaign_count) ?? 0;
+  const adsetCount = toIntegerOrNull(input.row.adset_count) ?? 0;
+  const optimizationContextCount =
+    toIntegerOrNull(input.row.optimization_context_count) ?? 0;
+  const objectiveCount = toIntegerOrNull(input.row.objective_count) ?? 0;
+  const contextIdentityUnknown =
+    toBoolean(input.row.context_identity_unknown) ||
+    campaignCount !== 1 ||
+    adsetCount !== 1 ||
+    optimizationContextCount !== 1 ||
+    objectiveCount !== 1;
+  const metricRowCount = Math.max(
+    0,
+    toIntegerOrNull(input.row.metric_row_count) ?? 0,
+  );
+  const objective = contextIdentityUnknown
+    ? null
+    : toCampaignObjective(input.row.objective);
+  const optimizationGoal = contextIdentityUnknown
+    ? null
+    : toStringOrNull(input.row.optimization_goal);
+  const customEventType = contextIdentityUnknown
+    ? null
+    : toStringOrNull(input.row.custom_event_type);
+  const conversions = toNumberOrNull(input.row.conversions) ?? 0;
+  const revenue = toNumberOrNull(input.row.revenue) ?? 0;
+  const effectiveCohort = contextIdentityUnknown
+    ? "unknown"
+    : resolveMetaFunnelCohort({
+        optimizationGoal,
+        customEventType,
+        objective,
+        purchases: conversions,
+        revenue,
+      });
+  const isPurchase = effectiveCohort === "purchase";
+  const recentConversions = toNumberOrNull(input.row.recent_conversions) ?? 0;
+  const lifecyclePosition = allowCurrentDimensions
+    ? toLifecyclePosition(input.row.lifecycle_position)
+    : null;
+  const daysSincePeak = allowCurrentDimensions
+    ? toIntegerOrNull(input.row.days_since_peak)
+    : null;
+  const peakRoas30d = allowCurrentDimensions
+    ? toNumberOrNull(input.row.peak_roas_30d)
+    : null;
+  const peakConfidence = allowCurrentDimensions
+    ? toNumberOrNull(input.row.peak_confidence)
+    : null;
+  const spendTrajectory30d = allowCurrentDimensions
+    ? toSpendTrajectory(input.row.spend_trajectory_30d)
+    : null;
+  const spendSlope7d = allowCurrentDimensions
+    ? toNumberOrNull(input.row.spend_slope_7d)
+    : null;
+  const spendSlope30d = allowCurrentDimensions
+    ? toNumberOrNull(input.row.spend_slope_30d)
+    : null;
+  const roasSlope7d = allowCurrentDimensions
+    ? toNumberOrNull(input.row.roas_slope_7d)
+    : null;
+  const roasSlope30d = allowCurrentDimensions
+    ? toNumberOrNull(input.row.roas_slope_30d)
+    : null;
+  const fatigueStatus = allowCurrentDimensions
+    ? toFatigueStatus(input.row.fatigue_status)
+    : null;
+  const qualityRanking = allowCurrentDimensions
+    ? toMetaRanking(input.row.quality_ranking)
+    : null;
+  const engagementRateRanking = allowCurrentDimensions
+    ? toMetaRanking(input.row.engagement_rate_ranking)
+    : null;
+  const conversionRateRanking = allowCurrentDimensions
+    ? toMetaRanking(input.row.conversion_rate_ranking)
+    : null;
+  const creativeFormat = allowCurrentDimensions
+    ? toCreativeFormat(input.row.creative_format)
+    : null;
+  const firstSeenAt = allowCurrentDimensions
+    ? toIsoTimestampOrNull(input.row.first_seen_at)
+    : null;
+  const firstSeenDate = firstSeenAt?.slice(0, 10) ?? null;
+
+  return {
+    currentDimensionId: allowCurrentDimensions
+      ? toStringOrNull(input.row.current_dimension_id)
+      : null,
+    currentDimensionStatus: allowCurrentDimensions
+      ? toEffectiveStatus(input.row.current_ad_status)
+      : null,
+    input: {
+      decisionEntityType: "ad",
+      decisionEntityId: adId,
+      adId,
+      providerAccountId,
+      providerAccountRefId,
+      accountTimezone: toStringOrNull(input.row.account_timezone),
+      accountCurrency: toStringOrNull(input.row.account_currency),
+      adsetId: contextIdentityUnknown
+        ? null
+        : toStringOrNull(input.row.adset_id),
+      creativeId: allowCurrentDimensions
+        ? toStringOrNull(input.row.creative_id)
+        : null,
+      creativeName:
+        (allowCurrentDimensions
+          ? toStringOrNull(input.row.creative_name)
+          : null) ??
+        toStringOrNull(input.row.ad_name),
+      businessId: input.businessId,
+      campaignId: contextIdentityUnknown
+        ? null
+        : toStringOrNull(input.row.campaign_id),
+      optimizationGoal,
+      customEventType,
+      metricEvidence: {
+        sourceRowCount: metricRowCount,
+        performanceMetricsObserved: metricRowCount > 0,
+        eventMetricsObserved:
+          metricRowCount > 0 && toBoolean(input.row.event_metrics_observed),
+      },
+      objective,
+      contextGrain: {
+        providerAccountCount: 1,
+        campaignCount,
+        adsetCount,
+        optimizationContextCount,
+        objectiveCount,
+        contextIdentityUnknown,
+      },
+      effectiveCohort,
+      spend: toNumberOrNull(input.row.spend) ?? 0,
+      purchases: isPurchase ? conversions : 0,
+      purchaseValue: isPurchase ? revenue : null,
+      impressions: toNumberOrNull(input.row.impressions),
+      linkClicks: toNumberOrNull(input.row.link_clicks),
+      roas: isPurchase ? toNumberOrNull(input.row.roas) : null,
+      cpa: isPurchase ? toNumberOrNull(input.row.cpa) : null,
+      ctr: toNumberOrNull(input.row.ctr),
+      frequency: toNumberOrNull(input.row.frequency),
+      recent7dSpend: toNumberOrNull(input.row.recent_spend),
+      recent7dPurchases: isPurchase ? recentConversions : 0,
+      recent7dRoas: isPurchase ? toNumberOrNull(input.row.recent_roas) : null,
+      recent7dImpressions: toNumberOrNull(input.row.recent_impressions),
+      effectiveStatus: null,
+      ageDays: dateDistanceDays(input.asOf, firstSeenDate),
+      firstSeenAt,
+      firstSpendAt: toIsoDateOrNull(input.row.first_spend_at),
+      lastSpendAt: toIsoDateOrNull(input.row.last_spend_date),
+      spend24h: toNumberOrNull(input.row.spend_24h),
+      impressions24h: toNumberOrNull(input.row.impressions_24h),
+      reviewStatus: null,
+      policyReason: null,
+      disapprovalReason: null,
+      limitedReason: null,
+      dataFreshnessHours: toIntegerOrNull(input.row.data_freshness_hours),
+      fatigueStatus,
+      targetRoas: toNumberOrNull(input.row.target_roas),
+      breakevenRoas: toNumberOrNull(input.row.break_even_roas),
+      commercialTargetFreshness: resolveBusinessTargetPackFreshness(
+        toIsoTimestampOrNull(input.row.target_pack_updated_at),
+        new Date(input.decisionCutoff),
+      ),
+      lifecyclePosition,
+      daysSincePeak,
+      peakRoas30d,
+      peakConfidence,
+      spendTrajectory30d,
+      spendSlope7d,
+      spendSlope30d,
+      roasSlope7d,
+      roasSlope30d,
+      cpm: toNumberOrNull(input.row.cpm),
+      outboundClicks: toIntegerOrNull(input.row.outbound_clicks),
+      landingPageViews: toIntegerOrNull(input.row.landing_page_views),
+      addToCart: toIntegerOrNull(input.row.add_to_cart),
+      initiateCheckout: toIntegerOrNull(input.row.initiate_checkout),
+      thumbstop: toNumberOrNull(input.row.thumbstop),
+      video25Rate: toNumberOrNull(input.row.video25_rate),
+      video50Rate: toNumberOrNull(input.row.video50_rate),
+      video75Rate: toNumberOrNull(input.row.video75_rate),
+      video100Rate: toNumberOrNull(input.row.video100_rate),
+      qualityRanking,
+      engagementRateRanking,
+      conversionRateRanking,
+      creativeFormat,
+      statusEvidence: {
+        source: "missing",
+        sourceRecordId: null,
+        observedAt: null,
+        capturedAt: null,
+      },
+      creativeEvidence: {
+        sourceLifecycleRowId: allowCurrentDimensions
+          ? toStringOrNull(input.row.lifecycle_row_id)
+          : null,
+        sourceAsOfDate: allowCurrentDimensions
+          ? toIsoDateOrNull(input.row.lifecycle_as_of_date)
+          : null,
+        sourceComputedAt: allowCurrentDimensions
+          ? toIsoTimestampOrNull(input.row.lifecycle_computed_at)
+          : null,
+        sourceMaxUpdatedAt: allowCurrentDimensions
+          ? toIsoTimestampOrNull(input.row.lifecycle_source_max_updated_at)
+          : null,
+        lifecyclePosition,
+        daysSincePeak,
+        peakRoas30d,
+        peakConfidence,
+        spendTrajectory30d,
+        spendSlope7d,
+        spendSlope30d,
+        roasSlope7d,
+        roasSlope30d,
+        fatigueStatus,
+        qualityRanking,
+        engagementRateRanking,
+        conversionRateRanking,
+        creativeFormat,
+      },
+    },
+  };
+}
+
+function policyReasonFromState(row: AdEntityStateRow) {
+  const policyStatus = toStringOrNull(row.policy_status);
+  if (policyStatus !== null) return policyStatus;
+  const reasons = toStringArray(row.policy_reasons_json);
+  return reasons.length > 0 ? reasons.join("; ") : null;
+}
+
+function applyAdStatusEvidence(input: {
+  mapped: MappedAdDecisionInput;
+  state: AdEntityStateRow | undefined;
+  allowCurrentDimensionFallback: boolean;
+}): AdDecisionInput {
+  if (input.state) {
+    const stateProviderAccountRefId = toStringOrNull(
+      input.state.provider_account_ref_id,
+    );
+    if (
+      stateProviderAccountRefId !== null &&
+      stateProviderAccountRefId !== input.mapped.input.providerAccountRefId
+    ) {
+      throw new Error(
+        `Ad state account lineage mismatch for ${input.mapped.input.providerAccountId}/${input.mapped.input.adId}.`,
+      );
+    }
+    if (input.state.event_kind === "tombstone") {
+      return {
+        ...input.mapped.input,
+        creativeId: null,
+        effectiveStatus: "DELETED",
+        reviewStatus: null,
+        policyReason: toStringOrNull(input.state.tombstone_reason),
+        statusEvidence: {
+          source: "entity_tombstone",
+          sourceRecordId: toStringOrNull(input.state.id),
+          observedAt: toIsoTimestampOrNull(input.state.observed_at),
+          capturedAt: toIsoTimestampOrNull(input.state.captured_at),
+        },
+      };
+    }
+    return {
+      ...input.mapped.input,
+      creativeId:
+        toStringOrNull(input.state.creative_id) ??
+        input.mapped.input.creativeId,
+      effectiveStatus: toEffectiveStatus(
+        input.state.effective_status ?? input.state.configured_status,
+      ),
+      reviewStatus: toStringOrNull(input.state.review_status),
+      policyReason: policyReasonFromState(input.state),
+      statusEvidence: {
+        source: "entity_state_history",
+        sourceRecordId: toStringOrNull(input.state.id),
+        observedAt: toIsoTimestampOrNull(input.state.observed_at),
+        capturedAt: toIsoTimestampOrNull(input.state.captured_at),
+      },
+    };
+  }
+  if (
+    input.allowCurrentDimensionFallback &&
+    input.mapped.currentDimensionStatus !== null
+  ) {
+    return {
+      ...input.mapped.input,
+      effectiveStatus: input.mapped.currentDimensionStatus,
+      statusEvidence: {
+        source: "current_dimension",
+        sourceRecordId: input.mapped.currentDimensionId,
+        observedAt: null,
+        capturedAt: null,
+      },
+    };
+  }
+  return input.mapped.input;
+}
+
+function isUndefinedTableError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    String((error as { code?: unknown }).code ?? "") === "42P01"
+  );
 }
 
 function mapFunnelDiagnosisRow(
@@ -2590,11 +4252,7 @@ function toFunnelQualityStatus(
   sampleSize: number,
 ): FormatFunnelBaseline["qualityStatus"] {
   const text = toStringOrNull(value);
-  if (
-    text === "ready" ||
-    text === "low_sample" ||
-    text === "insufficient"
-  ) {
+  if (text === "ready" || text === "low_sample" || text === "insufficient") {
     return text;
   }
   if (sampleSize >= 30) return "ready";
@@ -2671,7 +4329,9 @@ function buildWarehouseDataLayerHealth(input: {
  * append-only business target history. The engine still consumes the same
  * CreativeInput contract as MockDataSource.
  */
-export class WarehouseDataSource implements CreativeDecisionDataSource {
+export class WarehouseDataSource
+  implements CreativeDecisionDataSource, AdDecisionDataSource
+{
   private lastCalibrationMetadata: CalibrationReadMetadata | null = null;
 
   private async computeCreativeInputsViaRuntimeSql(input: {
@@ -2771,6 +4431,222 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       creativeIds: [input.creativeId],
     });
     return results[0] ?? null;
+  }
+
+  async hydrateAdDecisionInputs(
+    input: AdDecisionInputQuery,
+  ): Promise<AdDecisionHydrationResult> {
+    const asOf = requireAdDecisionAsOf(input.asOf);
+    const decisionCutoff = requireDecisionCutoff(input.decisionCutoff, asOf);
+    const providerAccountIds = normalizeOptionalIdentityFilter(
+      input.providerAccountIds,
+    );
+    const adIds = normalizeOptionalIdentityFilter(input.adIds);
+    if (providerAccountIds?.length === 0 || adIds?.length === 0) {
+      return { inputs: [], receipts: [], accountCoverageComplete: false };
+    }
+    const allowCurrentDimensionFallback = isPresentDayAdDecisionAsOf(
+      asOf,
+      decisionCutoff,
+    );
+    let presentAdStateSeeds: PresentAdStateSeedRow[] = [];
+    if (allowCurrentDimensionFallback) {
+      try {
+        presentAdStateSeeds = await getDb().query<PresentAdStateSeedRow>(
+            READ_PRESENT_AD_STATE_SEEDS_QUERY,
+            [
+              input.businessId,
+              decisionCutoff,
+              providerAccountIds ?? [],
+              providerAccountIds !== undefined,
+              adIds ?? [],
+              adIds !== undefined,
+            ],
+          );
+      } catch (error) {
+        if (!isUndefinedTableError(error)) throw error;
+      }
+    }
+
+    let receiptRows: AdHydrationReceiptRow[] = [];
+    try {
+      receiptRows = await getDb().query<AdHydrationReceiptRow>(
+        READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
+        [
+          input.businessId,
+          asOf,
+          decisionCutoff,
+          providerAccountIds ?? [],
+          providerAccountIds !== undefined,
+        ],
+      );
+    } catch (error) {
+      if (!isUndefinedTableError(error)) throw error;
+    }
+
+    const targetPack = await this.getBusinessTargetPack({
+      businessId: input.businessId,
+      asOf: decisionCutoff,
+    });
+    const rows = await getDb().query<AdDecisionHydrationRow>(
+      HYDRATE_AD_DECISION_INPUTS_QUERY,
+      [
+        input.businessId,
+        asOf,
+        providerAccountIds ?? [],
+        providerAccountIds !== undefined,
+        adIds ?? [],
+        adIds !== undefined,
+        targetPack?.targetRoas ?? null,
+        targetPack?.breakEvenRoas ?? null,
+        targetPack?.updatedAt ?? null,
+        ENGINE_VERSION,
+        decisionCutoff,
+        allowCurrentDimensionFallback,
+        JSON.stringify(presentAdStateSeeds),
+      ],
+    );
+    const mapped = rows.map((row) =>
+      mapAdDecisionHydrationRow({
+        row,
+        businessId: input.businessId,
+        asOf,
+        decisionCutoff,
+      }),
+    );
+    const sourceReceipts = receiptRows.map((row) =>
+      mapAdHydrationSourceReceipt({
+        row,
+        businessId: input.businessId,
+        asOf,
+        decisionCutoff,
+      }),
+    );
+    const completeExpectedByAccount = new Map(
+      sourceReceipts
+        .filter((receipt) => receipt.sourceComplete)
+        .map((receipt) => [
+          receipt.providerAccountId,
+          new Set(receipt.expectedAdIds),
+        ]),
+    );
+    const mappedByIdentity = new Map<string, MappedAdDecisionInput>();
+    for (const item of mapped) {
+      const expected = completeExpectedByAccount.get(
+        item.input.providerAccountId,
+      );
+      if (expected && !expected.has(item.input.adId)) continue;
+      const key = adDecisionIdentityKey({
+        businessId: input.businessId,
+        providerAccountId: item.input.providerAccountId,
+        adId: item.input.adId,
+      });
+      if (mappedByIdentity.has(key)) {
+        throw new Error(
+          `Duplicate ad decision hydration row for ${item.input.providerAccountId}/${item.input.adId}.`,
+        );
+      }
+      mappedByIdentity.set(key, item);
+    }
+
+    const statesByIdentity = new Map<string, AdEntityStateRow>();
+    const adIdsByAccount = new Map<string, string[]>();
+    for (const item of mappedByIdentity.values()) {
+      const ids = adIdsByAccount.get(item.input.providerAccountId) ?? [];
+      ids.push(item.input.adId);
+      adIdsByAccount.set(item.input.providerAccountId, ids);
+    }
+    for (const [providerAccountId, accountAdIds] of Array.from(
+      adIdsByAccount.entries(),
+    ).sort(([left], [right]) => left.localeCompare(right))) {
+      let stateRows: AdEntityStateRow[];
+      try {
+        stateRows = await getDb().query<AdEntityStateRow>(
+          READ_AD_ENTITY_STATE_AS_OF_QUERY,
+          [
+            input.businessId,
+            providerAccountId,
+            Array.from(new Set(accountAdIds)).sort(),
+            decisionCutoff,
+          ],
+        );
+      } catch (error) {
+        if (isUndefinedTableError(error)) continue;
+        throw error;
+      }
+      for (const state of stateRows) {
+        const stateAccountId = toStringOrNull(state.provider_account_id);
+        const stateAdId = toStringOrNull(state.entity_id);
+        if (stateAccountId !== providerAccountId || stateAdId === null)
+          continue;
+        statesByIdentity.set(
+          adDecisionIdentityKey({
+            businessId: input.businessId,
+            providerAccountId: stateAccountId,
+            adId: stateAdId,
+          }),
+          state,
+        );
+      }
+    }
+
+    const inputs = Array.from(mappedByIdentity.entries())
+      .sort(
+        ([, left], [, right]) =>
+          left.input.providerAccountId.localeCompare(
+            right.input.providerAccountId,
+          ) || left.input.adId.localeCompare(right.input.adId),
+      )
+      .map(([key, item]) =>
+        applyAdStatusEvidence({
+          mapped: item,
+          state: statesByIdentity.get(key),
+          allowCurrentDimensionFallback,
+        }),
+      );
+    const receipts = finalizeAdHydrationReceipts({
+      sourceReceipts,
+      inputs,
+      businessId: input.businessId,
+      asOf,
+      decisionCutoff,
+      adIdentityFilterApplied: adIds !== undefined,
+    });
+    return {
+      inputs,
+      receipts,
+      accountCoverageComplete:
+        receipts.length > 0 &&
+        receipts.every((receipt) => receipt.authoritativeForPrune),
+    };
+  }
+
+  async listAdDecisionInputs(
+    input: AdDecisionInputQuery,
+  ): Promise<AdDecisionInput[]> {
+    return (await this.hydrateAdDecisionInputs(input)).inputs;
+  }
+
+  async getAdDecisionInput(input: {
+    businessId: string;
+    providerAccountId: string;
+    adId: string;
+    asOf: string;
+    decisionCutoff: string;
+  }): Promise<AdDecisionInput | null> {
+    const providerAccountId = input.providerAccountId.trim();
+    const adId = input.adId.trim();
+    if (!providerAccountId || !adId) {
+      throw new TypeError("providerAccountId and adId are required.");
+    }
+    const rows = await this.listAdDecisionInputs({
+      businessId: input.businessId,
+      asOf: input.asOf,
+      decisionCutoff: input.decisionCutoff,
+      providerAccountIds: [providerAccountId],
+      adIds: [adId],
+    });
+    return rows[0] ?? null;
   }
 
   async getAccountCalibration(input: {
@@ -2873,7 +4749,9 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
   async getAccountFunnelCalibrationAllKinds(input: {
     businessId: string;
     asOf: string;
-  }): Promise<Record<CalibrationCampaignKind, AccountFunnelCalibration | null>> {
+  }): Promise<
+    Record<CalibrationCampaignKind, AccountFunnelCalibration | null>
+  > {
     const byKind = emptyCalibrationByKind<AccountFunnelCalibration>();
     for (const campaignKind of CALIBRATION_CAMPAIGN_KINDS) {
       byKind[campaignKind] = await this.getAccountFunnelCalibrationByKind({
@@ -2952,9 +4830,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
     const matureCount = toIntegerOrNull(row?.mature_count) ?? 0;
     const refreshRatioCount = toIntegerOrNull(row?.refresh_ratio_count) ?? 0;
     const ctrCount = toIntegerOrNull(row?.ctr_count) ?? 0;
-    const sourceMaxUpdatedAt = toIsoTimestampOrNull(
-      row?.source_max_updated_at,
-    );
+    const sourceMaxUpdatedAt = toIsoTimestampOrNull(row?.source_max_updated_at);
     const sourceMaxDate = toIsoDateOrNull(row?.source_max_date);
 
     const calibration: AccountCalibration = {
@@ -3055,9 +4931,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
       };
     }
 
-    const sourceMaxUpdatedAt = toIsoTimestampOrNull(
-      row.source_max_updated_at,
-    );
+    const sourceMaxUpdatedAt = toIsoTimestampOrNull(row.source_max_updated_at);
     const computedAt = toIsoTimestampOrNull(row.computed_at);
     const asOfDate = toIsoDateOrNull(row.as_of_date) ?? asOf;
     const engineVersion = toStringOrNull(row.engine_version) ?? "unknown";
@@ -3104,8 +4978,7 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
         businessId: toStringOrNull(row.business_ref_id) ?? businessId,
         computedAt: computedAt ?? new Date().toISOString(),
         campaignKind: rowCampaignKind,
-        matureCreativeCount:
-          toIntegerOrNull(row.mature_creative_count) ?? 0,
+        matureCreativeCount: toIntegerOrNull(row.mature_creative_count) ?? 0,
         roasP75: toNumberOrNull(row.roas_p75),
         roasP60: toNumberOrNull(row.roas_p60),
         refreshRatioP10: toNumberOrNull(row.refresh_ratio_p10),
@@ -3403,20 +5276,14 @@ export class WarehouseDataSource implements CreativeDecisionDataSource {
 
     return {
       enginePresetLabel: toEngineRiskPreset(row.engine_preset_label),
-      zeroConvBurnerMultiplier: toNumberOrNull(
-        row.zero_conv_burner_multiplier,
-      ),
+      zeroConvBurnerMultiplier: toNumberOrNull(row.zero_conv_burner_multiplier),
       cutCandidateMultiplier: toNumberOrNull(row.cut_candidate_multiplier),
-      sustainedLoserMultiplier: toNumberOrNull(
-        row.sustained_loser_multiplier,
-      ),
+      sustainedLoserMultiplier: toNumberOrNull(row.sustained_loser_multiplier),
       hardCutMultiplier: toNumberOrNull(row.hard_cut_multiplier),
       scalePurchaseMultiplier: toNumberOrNull(row.scale_purchase_multiplier),
       winnerMemoryMultiplier: toNumberOrNull(row.winner_memory_multiplier),
       recentSampleMultiplier: toNumberOrNull(row.recent_sample_multiplier),
-      weakFunnelRateMultiplier: toNumberOrNull(
-        row.weak_funnel_rate_multiplier,
-      ),
+      weakFunnelRateMultiplier: toNumberOrNull(row.weak_funnel_rate_multiplier),
       attributionAovAdjustmentMultiplier: toNumberOrNull(
         row.attribution_aov_adjustment_multiplier,
       ),

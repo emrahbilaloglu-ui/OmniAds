@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
@@ -49,6 +49,8 @@ const dataSource = {
   getLatestFunnelDiagnosis: vi.fn(),
   getLatestOperatorResponse: vi.fn(),
 };
+
+const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
 
 const input: CreativeInput = {
   creativeId: "creative-1",
@@ -309,6 +311,7 @@ function mockAccessError(status: 401 | 403) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
   mockBusinessAccess();
   vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags());
   vi.mocked(resolveDataSource).mockReturnValue({
@@ -335,6 +338,14 @@ beforeEach(() => {
   dataSource.getLatestOperatorResponse.mockResolvedValue(operatorResponse);
   vi.mocked(resolveAccountDecisionProfile).mockResolvedValue(makeAccountProfile());
   vi.mocked(decideCreative).mockReturnValue(decision);
+});
+
+afterEach(() => {
+  if (previousCampaignContextMode === undefined) {
+    delete process.env.CAMPAIGN_CONTEXT_MODE;
+  } else {
+    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
+  }
 });
 
 describe("GET /api/creatives/decision-engine-v3/evidence", () => {

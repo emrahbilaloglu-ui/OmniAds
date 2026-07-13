@@ -11,8 +11,10 @@ import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 import {
+  runAdDecisionOutcomesJobForActiveBusinessesIfDue,
   runDecisionOutcomesJobForActiveBusinessesIfDue,
   runEngineV3ProducerChainForActiveBusinessesIfDue,
+  runNativeAdShadowChainForActiveBusinessesIfDue,
 } from "@/lib/creative-decision-engine";
 import {
   evaluateAndPersistSyncGates,
@@ -276,11 +278,54 @@ export async function POST(request: NextRequest) {
       }
     }
   }
+  const nativeAdShadowJob = await runNativeAdShadowChainForActiveBusinessesIfDue(
+    new Date(),
+    businesses,
+  ).catch((error) => {
+    console.error("[sync-cron] native_ad_shadow_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      asOf: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+  if (!nativeAdShadowJob.skipped && "results" in nativeAdShadowJob) {
+    for (const result of nativeAdShadowJob.results ?? []) {
+      for (const [job, step] of [
+        ["calibration", result.calibration],
+        ["decisions", result.decisions],
+        ["operator_response", result.operatorResponse],
+      ] as const) {
+        if (step.status === "failed") {
+          console.error("[sync-cron] native_ad_shadow_business_job_failed", {
+            businessId: result.businessId,
+            businessName: result.businessName,
+            job,
+            jobRunId: step.result?.jobRunId ?? null,
+            errorMessage: step.errorMessage,
+          });
+        }
+      }
+    }
+  }
   const decisionOutcomesJob = await runDecisionOutcomesJobForActiveBusinessesIfDue(
     new Date(),
     businesses,
   ).catch((error) => {
     console.error("[sync-cron] decision_outcomes_job_failed", error);
+    return {
+      skipped: true,
+      reason: "failed" as const,
+      asOf: new Date().toISOString().slice(0, 10),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
+  const nativeAdOutcomesJob = await runAdDecisionOutcomesJobForActiveBusinessesIfDue(
+    new Date(),
+    businesses,
+  ).catch((error) => {
+    console.error("[sync-cron] native_ad_outcomes_job_failed", error);
     return {
       skipped: true,
       reason: "failed" as const,
@@ -417,9 +462,15 @@ export async function POST(request: NextRequest) {
     decisionProducerJobSkipped: decisionProducerJob.skipped,
     decisionProducerJobReason:
       "reason" in decisionProducerJob ? decisionProducerJob.reason : null,
+    nativeAdShadowJobSkipped: nativeAdShadowJob.skipped,
+    nativeAdShadowJobReason:
+      "reason" in nativeAdShadowJob ? nativeAdShadowJob.reason : null,
     decisionOutcomesJobSkipped: decisionOutcomesJob.skipped,
     decisionOutcomesJobReason:
       "reason" in decisionOutcomesJob ? decisionOutcomesJob.reason : null,
+    nativeAdOutcomesJobSkipped: nativeAdOutcomesJob.skipped,
+    nativeAdOutcomesJobReason:
+      "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
   });
   return NextResponse.json(
     {
@@ -437,7 +488,9 @@ export async function POST(request: NextRequest) {
       metaIgnoredMarkerJob,
       metaOutcomeAccrualJob,
       decisionProducerJob,
+      nativeAdShadowJob,
       decisionOutcomesJob,
+      nativeAdOutcomesJob,
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

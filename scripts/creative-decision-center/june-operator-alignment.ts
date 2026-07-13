@@ -36,6 +36,7 @@ import { WarehouseDataSource } from "@/lib/creative-decision-engine/data-source"
 import { decideCreative } from "@/lib/creative-decision-engine/engine";
 import { listEnabledBusinessIds } from "@/lib/creative-decision-engine/feature-flags";
 import { resolveAccountDecisionProfile } from "@/lib/creative-decision-engine/account-decision-profile";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   ENGINE_VERSION,
   type CreativeInput,
@@ -154,13 +155,6 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
-}
-
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
 }
 
 function dateToMs(date: string) {
@@ -558,7 +552,7 @@ async function measureDecision(
   ]);
   const byDate = new Map<string, DailyPoint>();
   for (const row of rows) {
-    const date = toDateOnly(row.date);
+    const date = normalizePostgresDate(row.date);
     if (!date) continue;
     byDate.set(date, {
       date,
@@ -876,7 +870,7 @@ async function main() {
   const rawCeilings = new Map<string, string>();
   for (const row of ceilingRows) {
     const key = toText(row.business_key);
-    const maxDate = toDateOnly(row.max_date);
+    const maxDate = normalizePostgresDate(row.max_date);
     if (key && maxDate) rawCeilings.set(key, maxDate);
   }
   const completeCeiling = (raw: string | null) => {

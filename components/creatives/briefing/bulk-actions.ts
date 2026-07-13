@@ -6,9 +6,13 @@ import {
   type LaunchpadBridgeMode,
 } from "@/components/creatives/briefing/launchpad-bridge";
 import {
-  getBriefingAdActionCandidateIds,
+  buildBriefingDecisionOriginAdActionRequest,
   getBriefingAdActionInputId,
   getCreativeScopeId,
+  getManualBriefingAdActionCandidateIds,
+  hasNativeDecisionOriginLineage,
+  isCutPrimaryAction,
+  type DecisionOriginBriefingCard,
 } from "@/components/creatives/briefing/action-handlers";
 import {
   asDecisionLabel,
@@ -17,6 +21,7 @@ import {
   numberOrZero,
 } from "@/components/creatives/briefing/card-utils";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
+import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/execution-safety";
 
 type FetchLike = typeof fetch;
 
@@ -62,63 +67,140 @@ export function successfulBulkPauseCardIds(
   cards: BriefingCreativeCard[],
   result: BulkPauseResult,
 ) {
-  if (result.ok) return cards.map(cardId);
-  const successfulIds = new Set(
-    (result.results ?? [])
-      .filter((item) => item.ok)
-      .flatMap((item) => [
-        item.inputAdId,
-        item.adId,
-        item.creativeId,
-        ...(item.attemptedIds ?? []),
-      ])
-      .flatMap((id) => {
-        const normalized = id?.trim();
-        return normalized ? [normalized] : [];
-      }),
-  );
-  if (successfulIds.size === 0) return [];
+  const successfulResults = (result.results ?? []).filter((item) => item.ok);
+  if (successfulResults.length === 0) return [];
   return cards.flatMap((card) => {
-    const ids = [
-      cardId(card),
-      getCreativeScopeId(card),
-      ...getBriefingAdActionCandidateIds(card),
-    ];
-    return ids.some((id) => successfulIds.has(id)) ? [cardId(card)] : [];
+    const candidateIds = getManualBriefingAdActionCandidateIds(card);
+    const candidateIdSet = new Set(candidateIds);
+    const inputAdId = getBriefingAdActionInputId(card) || candidateIds[0];
+    if (!inputAdId) return [];
+
+    const matched = successfulResults.some((item) => {
+      if (item.inputAdId?.trim() !== inputAdId) return false;
+      const resolvedAdId = item.adId?.trim();
+      if (!resolvedAdId || resolvedAdId === inputAdId) return true;
+      if (hasNativeDecisionOriginLineage(card)) return false;
+      if (candidateIdSet.has(resolvedAdId)) return true;
+      const resolvedFromCandidate = item.attemptedIds?.at(-1)?.trim();
+      return Boolean(
+        resolvedFromCandidate && candidateIdSet.has(resolvedFromCandidate),
+      );
+    });
+    return matched ? [cardId(card)] : [];
   });
 }
 
 export function buildBulkPauseRequestBody(input: {
   businessId: string;
-  cards: BriefingCreativeCard[];
+  cards: DecisionOriginBriefingCard[];
   idempotencyKey?: string;
 }) {
+  input.cards.forEach((card) => {
+    if (!isCutPrimaryAction(card)) {
+      throw new Error("Every bulk card must carry a server-authorized cut action.");
+    }
+  });
+  const nativeLineageCount = input.cards.filter(
+    hasNativeDecisionOriginLineage,
+  ).length;
+  if (nativeLineageCount > 0 && nativeLineageCount < input.cards.length) {
+    throw new Error(
+      "Bulk cut cannot mix native decision lineage with legacy briefing cards.",
+    );
+  }
+
+  if (nativeLineageCount === 0) {
+    const adsById = new Map<
+      string,
+      {
+        adId: string;
+        candidateAdIds: string[];
+        creativeId: string;
+        name: string | null;
+      }
+    >();
+    input.cards.forEach((card) => {
+      const candidateAdIds = getManualBriefingAdActionCandidateIds(card);
+      const adId = candidateAdIds[0] ?? "";
+      if (!adId) {
+        throw new Error(
+          "Every legacy bulk card requires at least one Meta ad candidate.",
+        );
+      }
+      adsById.set(adId, {
+        adId,
+        candidateAdIds,
+        creativeId: getCreativeScopeId(card),
+        name: cardName(card),
+      });
+    });
+    const ads = Array.from(adsById.values());
+    const providerAccountIds = new Set(
+      input.cards
+        .map((card) => card.providerAccountId?.trim())
+        .filter((value): value is string => Boolean(value)),
+    );
+    if (providerAccountIds.size > 1) {
+      throw new Error(
+        "Bulk legacy execution requires exactly one provider account.",
+      );
+    }
+    const stableBulkKey = `manual-legacy-bulk-pause:${input.businessId}:${ads
+      .map((ad) => ad.adId)
+      .sort()
+      .join("|")}`;
+    return {
+      businessId: input.businessId,
+      providerAccountId: Array.from(providerAccountIds)[0],
+      action: "pause" as const,
+      idempotencyKey: input.idempotencyKey?.trim() || stableBulkKey,
+      ads,
+    };
+  }
+
   const adsById = new Map<
     string,
-    {
-      adId: string;
-      candidateAdIds: string[];
-      creativeId: string | null;
+    ReturnType<typeof buildBriefingDecisionOriginAdActionRequest> & {
       name: string | null;
     }
   >();
   input.cards.forEach((card) => {
-    const adId = getBriefingAdActionInputId(card).trim();
-    if (!adId) return;
-    adsById.set(adId, {
-      adId,
-      candidateAdIds: getBriefingAdActionCandidateIds(card),
-      creativeId: getCreativeScopeId(card),
-      name: cardName(card),
+    const request = buildBriefingDecisionOriginAdActionRequest({
+      businessId: input.businessId,
+      card,
+      action: "pause",
     });
+    const existing = adsById.get(request.adId);
+    const next = { ...request, name: cardName(card) };
+    if (existing && existing.idempotencyKey !== next.idempotencyKey) {
+      throw new Error(
+        `Conflicting decision lineage was supplied for ad ${request.adId}.`,
+      );
+    }
+    adsById.set(request.adId, next);
   });
 
+  const ads = Array.from(adsById.values());
+  const providerAccountIds = new Set(
+    ads.map((ad) => ad.providerAccountId),
+  );
+  if (providerAccountIds.size !== 1) {
+    throw new Error(
+      "Bulk decision-origin execution requires exactly one provider account.",
+    );
+  }
+  const stableBulkKey = `decision-origin-bulk-pause:${ads
+    .map((ad) => ad.idempotencyKey)
+    .sort()
+    .join("|")}`;
+
   return {
+    contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
     businessId: input.businessId,
+    providerAccountId: ads[0]?.providerAccountId ?? "",
     action: "pause",
-    idempotencyKey:
-      input.idempotencyKey ?? `briefing-bulk-pause-${Date.now()}-${adsById.size}`,
-    ads: Array.from(adsById.values()),
+    idempotencyKey: input.idempotencyKey?.trim() || stableBulkKey,
+    ads,
   };
 }
 

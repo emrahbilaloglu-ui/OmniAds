@@ -172,20 +172,7 @@ function assessedCard(): BriefingCreativeCard {
 
 function decisions(killSwitchEngaged: boolean): React.ComponentProps<typeof StudioOsView>["decisions"] {
   return {
-    lanes: {
-      actionNow: [],
-      watching: [],
-      nonSales: [],
-      watchingSegments: [],
-      counts: { actionNow: 0, watching: 0, nonSales: 0 },
-    },
     system: { killSwitchEngaged, snapshotHealth: { status: "fresh" } },
-    digest: {
-      labelFlips: { items: [] },
-      actions: { items: [] },
-      anomalies: { items: [] },
-      deferrals: { items: [] },
-    },
   };
 }
 

@@ -124,8 +124,8 @@ function buildNearScaleReadiness(input: {
     input.purchases < input.purchasesThreshold
   ) {
     const reason = `spend $${formatSpend(input.spend)} / purchases ${input.purchases} below scale floor (need ≥$${formatSpend(
-        input.spendThreshold,
-      )}, ≥${input.purchasesThreshold})`;
+      input.spendThreshold,
+    )}, ≥${input.purchasesThreshold})`;
     reasons.push(reason);
     if (input.spend < input.spendThreshold) {
       blockers.push(
@@ -163,8 +163,8 @@ function buildNearScaleReadiness(input: {
     );
   } else if (input.recent7dRoas < input.targetRoas) {
     const reason = `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below target ${formatRoas(
-        input.targetRoas,
-      )}`;
+      input.targetRoas,
+    )}`;
     reasons.push(reason);
     blockers.push(
       blocker({
@@ -504,16 +504,8 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const ratio = ctx.ratioToTarget;
   const roas = input.roas;
   const purchases = input.purchases ?? 0;
-  // Defense-in-depth, currently shadowed: rows with ratio >=
-  // TARGET_BAND_MIN_RATIO (0.85) exit as keep before the cut-zone check, so
-  // this clamp changes no label while that band exists. It documents the
-  // invariant (an above-breakeven creative must never enter the cut zone via
-  // curve grading) and becomes load-bearing if the keep band is ever
-  // narrowed or removed.
-  const workingZoneMinRatio = Math.min(
-    profile.thresholds.bottomQuartileRatio ?? 0.7,
-    CUT_BOUNDARY_RATIO_CLAMP,
-  );
+  const cutBoundary = resolveCutBoundary(ctx);
+  const workingZoneMinRatio = cutBoundary.ratio;
 
   if (ratio === null || roas === null) {
     return terminal(
@@ -747,14 +739,22 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const matureSpend = hardCutSpend !== null && input.spend >= hardCutSpend;
 
   if (breakevenRatio !== null && ratio < breakevenRatio && matureSpend) {
+    const boundaryExplanation =
+      cutBoundary.mode === "breakeven_ceiling"
+        ? `economic cut ceiling (${formatRatioPercent(
+            cutBoundary.ratio,
+          )}%; minimum of account P25 ${formatRatioPercent(
+            cutBoundary.accountP25 ?? cutBoundary.ratio,
+          )}% and breakeven ${formatRatioPercent(
+            cutBoundary.breakevenRatio ?? breakevenRatio,
+          )}%)`
+        : `account bottom quartile (${formatRatioPercent(cutBoundary.ratio)}%)`;
     return terminal(
       ctx,
       "keep",
       `[demote candidate] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
         ratio,
-      )}% of target — above account bottom quartile (${formatRatioPercent(
-        Math.min(profile.thresholds.bottomQuartileRatio ?? 0.7, CUT_BOUNDARY_RATIO_CLAMP),
-      )}%) but below breakeven (${formatRoas(
+      )}% of target — above ${boundaryExplanation} but below breakeven (${formatRoas(
         breakevenRoas ?? 0,
       )} = ${formatRatioPercent(breakevenRatio)}% of target) at $${formatSpend(
         input.spend,
@@ -771,4 +771,46 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     )}% of target — below target but in working zone, no aggressive action; revisit if ROAS drifts further.`,
     [WEAK_PERFORMANCE_BADGE, ...fatigueBadges],
   );
+}
+
+export interface CutBoundaryResolution {
+  ratio: number;
+  mode: "account_p25" | "breakeven_ceiling";
+  accountP25: number | null;
+  breakevenRatio: number | null;
+}
+
+export function resolveCutBoundary(ctx: GateContext): CutBoundaryResolution {
+  const accountP25 = ctx.profile.thresholds.bottomQuartileRatio;
+  const currentRatio = Math.min(accountP25 ?? 0.7, CUT_BOUNDARY_RATIO_CLAMP);
+  const breakEvenRoas = ctx.profile.spendUnitEvidence.breakEvenRoas;
+  const canUseBreakevenCeiling =
+    ctx.truthSource === "commercial_truth" &&
+    ctx.profile.hardActionEligibility.cut &&
+    accountP25 !== null &&
+    Number.isFinite(accountP25) &&
+    accountP25 > 0 &&
+    breakEvenRoas !== null &&
+    Number.isFinite(breakEvenRoas) &&
+    breakEvenRoas > 0 &&
+    Number.isFinite(ctx.effectiveTargetRoas) &&
+    ctx.effectiveTargetRoas > 0;
+
+  if (!canUseBreakevenCeiling) {
+    return {
+      ratio: currentRatio,
+      mode: "account_p25",
+      accountP25,
+      breakevenRatio: null,
+    };
+  }
+
+  const breakevenRatio = breakEvenRoas / ctx.effectiveTargetRoas;
+  const ratio = Math.min(accountP25, breakevenRatio, CUT_BOUNDARY_RATIO_CLAMP);
+  return {
+    ratio,
+    mode: ratio < currentRatio ? "breakeven_ceiling" : "account_p25",
+    accountP25,
+    breakevenRatio,
+  };
 }

@@ -25,6 +25,8 @@ describe("Meta retention migrations", () => {
     vi.doMock("@/lib/db", () => ({
       getDb: () => sql,
       getDbWithTimeout: () => sql,
+      runDbTransaction: async (operation: () => Promise<unknown>) =>
+        operation(),
     }));
     vi.doMock("@/lib/startup-diagnostics", () => ({
       logStartupError: vi.fn(),
@@ -32,7 +34,11 @@ describe("Meta retention migrations", () => {
     }));
 
     const { runMigrations } = await import("@/lib/migrations");
-    await runMigrations({ force: true, reason: "test" });
+    await runMigrations({
+      force: true,
+      reason: "test",
+      verifyNativeSchemaCapabilities: false,
+    });
 
     const joined = queries.join("\n");
     expect(joined).toContain("CREATE TABLE IF NOT EXISTS meta_retention_runs");

@@ -34,3 +34,14 @@ export {
   ENGINE_V3_PRODUCER_DAILY_UTC_START_HOUR,
   runEngineV3ProducerChainForActiveBusinessesIfDue,
 } from "./jobs/scheduled";
+export {
+  NATIVE_AD_SHADOW_DAILY_UTC_START_HOUR,
+  inspectNativeAdShadowSchemaReadiness,
+  runNativeAdShadowChainForActiveBusinessesIfDue,
+} from "./jobs/native-ad-scheduled";
+export {
+  AD_DECISION_OUTCOME_DAILY_UTC_HOUR as NATIVE_AD_DECISION_OUTCOME_DAILY_UTC_HOUR,
+  AD_DECISION_OUTCOMES_JOB_NAME as NATIVE_AD_DECISION_OUTCOMES_JOB_NAME,
+  runAdDecisionOutcomesJob,
+  runAdDecisionOutcomesJobForActiveBusinessesIfDue,
+} from "./jobs/ad-decision-outcomes-job";

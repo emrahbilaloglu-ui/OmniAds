@@ -68,12 +68,22 @@ describe("Meta empirical outcome integration", () => {
       sampleSize: 12,
       judgedSampleSize: 12,
       confidenceBand: "high",
-      autoEligible: true,
+      controlledCausal: {
+        sampleSize: 0,
+        validTreatmentReceiptCount: 0,
+        confidenceBand: "insufficient_sample",
+      },
+      autoEligible: false,
     });
     expect(enriched?.automationReadiness?.tier).toBe("backtest_candidate");
     expect(enriched?.automationReadiness?.blockers).not.toContain("no_empirical_outcome_model");
     expect(enriched?.automationReadiness?.blockers).toEqual(
-      expect.arrayContaining(["missing_live_preflight", "missing_rollback_plan"]),
+      expect.arrayContaining([
+        "missing_controlled_causal_evidence",
+        "missing_valid_treatment_receipt",
+        "missing_live_preflight",
+        "missing_rollback_plan",
+      ]),
     );
   });
 });

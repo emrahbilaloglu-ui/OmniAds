@@ -18,6 +18,7 @@ import {
 } from "@/lib/meta/recommendations";
 import type {
   MetaLanePayload,
+  MetaStructureInventoryEntity,
   MetaWatchingSegment,
   MetaWatchingSegmentKey,
 } from "@/components/meta/redesign/types";
@@ -25,7 +26,6 @@ import { resolveMetaFunnelCohort, type MetaFunnelCohort } from "@/lib/meta/funne
 import {
   briefingStatusForEntity,
   briefingStatusLabel,
-  isArchiveOnlyEntity,
   isInBriefing,
   isWithIssuesEntity,
   parseBriefingStatusFilter,
@@ -41,6 +41,7 @@ import {
   type MetaCampaignLabelKindMap,
 } from "@/lib/meta/campaign-label-guard";
 import type { MetaCampaignKind } from "@/lib/meta/campaign-label-types";
+import { getCachedValue } from "@/lib/server-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +113,12 @@ interface ArchivedMetaRow {
   purchases: number;
   lastKnownWindow: string;
   diagnosticNote: string | null;
+  advisory?: {
+    decisionLabel: string | null;
+    primaryActionLabel: string;
+    why: string;
+    confidence: "high" | "medium" | "low";
+  } | null;
 }
 
 function parseWindow(value: string | null): PulseWindow {
@@ -141,6 +148,33 @@ function addDaysToISO(value: string, days: number) {
 function toNumber(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function inclusiveRangeDays(startDate: string, endDate: string) {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
+function rowBudgetUtilization(
+  row: CampaignRow | AdsetRow,
+  rangeDays: number | null,
+) {
+  if (
+    rangeDays == null ||
+    rangeDays <= 0 ||
+    row.dailyBudget == null ||
+    !Number.isFinite(row.dailyBudget) ||
+    row.dailyBudget <= 0
+  ) {
+    return null;
+  }
+  const spend = Number(row.spend);
+  if (!Number.isFinite(spend) || spend < 0) return null;
+  return spend / ((row.dailyBudget / 100) * rangeDays);
 }
 
 async function readCampaignLabelKinds(input: {
@@ -231,6 +265,7 @@ function attachEntityConfiguration(input: {
   rec: MetaRecommendation;
   campaignsById: Map<string, CampaignRow>;
   adsetsById: Map<string, AdsetRow>;
+  rangeDays: number | null;
 }): MetaRecommendation {
   const row =
     input.rec.level === "adset"
@@ -245,6 +280,22 @@ function attachEntityConfiguration(input: {
   if (!row || (input.rec.level !== "campaign" && input.rec.level !== "adset")) {
     return input.rec;
   }
+  return {
+    ...input.rec,
+    entityConfiguration: entityConfigurationForRow({
+      level: input.rec.level,
+      row,
+      rangeDays: input.rangeDays,
+    }),
+  };
+}
+
+function entityConfigurationForRow(input: {
+  level: "campaign" | "adset";
+  row: CampaignRow | AdsetRow;
+  rangeDays: number | null;
+}): NonNullable<MetaRecommendation["entityConfiguration"]> {
+  const row = input.row;
   const budgetOwner = row.isBudgetMixed
     ? ("mixed" as const)
     : (row.budgetLevel ?? "unknown");
@@ -257,24 +308,89 @@ function attachEntityConfiguration(input: {
           ? ("mixed" as const)
           : ("unknown" as const);
   return {
-    ...input.rec,
-    entityConfiguration: {
-      source:
-        input.rec.level === "campaign"
-          ? "account_scoped_campaign_row"
-          : "account_scoped_adset_row",
-      budgetOwner,
-      budgetMode,
-      controlOwner: controlOwnerForEntity({
-        level: input.rec.level,
-        budgetLevel: row.budgetLevel,
-        bidStrategyType: row.bidStrategyType,
-      }),
-      status: row.status ?? null,
-      optimizationGoal: row.optimizationGoal ?? null,
-      bidStrategyType: row.bidStrategyType ?? null,
-    },
+    source:
+      input.level === "campaign"
+        ? "account_scoped_campaign_row"
+        : "account_scoped_adset_row",
+    budgetOwner,
+    budgetMode,
+    controlOwner: controlOwnerForEntity({
+      level: input.level,
+      budgetLevel: row.budgetLevel,
+      bidStrategyType: row.bidStrategyType,
+    }),
+    status: row.status ?? null,
+    optimizationGoal: row.optimizationGoal ?? null,
+    bidStrategyType: row.bidStrategyType ?? null,
+    bidStrategyLabel: row.bidStrategyLabel ?? null,
+    bidValue: row.bidValue ?? row.manualBidAmount ?? null,
+    bidValueFormat: row.bidValueFormat ?? null,
+    previousBidValue:
+      row.previousBidValue ?? row.previousManualBidAmount ?? null,
+    previousBidValueFormat: row.previousBidValueFormat ?? null,
+    previousBidValueCapturedAt: row.previousBidValueCapturedAt ?? null,
+    dailyBudget: row.dailyBudget ?? null,
+    lifetimeBudget: row.lifetimeBudget ?? null,
+    budgetUtilization: rowBudgetUtilization(row, input.rangeDays),
   };
+}
+
+function structureInventoryForRows(input: {
+  campaignRows: CampaignRow[];
+  adsetRows: AdsetRow[];
+  campaignLabelsById: MetaCampaignLabelKindMap;
+  rangeDays: number | null;
+}): MetaStructureInventoryEntity[] {
+  const campaignNamesById = new Map(
+    input.campaignRows.map((row) => [row.id, row.name]),
+  );
+  const metrics = (row: CampaignRow | AdsetRow) => ({
+    spend: nullableNumber(row.spend),
+    purchases: nullableNumber(row.purchases),
+    roas: nullableNumber(row.roas),
+    cpa: nullableNumber(row.cpa),
+    ctr: nullableNumber(row.ctr),
+    frequency: nullableNumber(row.frequency),
+  });
+  return [
+    ...input.campaignRows.map((row) => ({
+      id: row.id,
+      level: "campaign" as const,
+      name: row.name,
+      campaignId: row.id,
+      campaignName: row.name,
+      campaignKind: campaignKindForId(row.id, input.campaignLabelsById),
+      status: row.status ?? null,
+      statusLabel: briefingStatusLabel(row),
+      metrics: metrics(row),
+      entityConfiguration: entityConfigurationForRow({
+        level: "campaign",
+        row,
+        rangeDays: input.rangeDays,
+      }),
+    })),
+    ...input.adsetRows.map((row) => ({
+      id: row.id,
+      level: "adset" as const,
+      name: row.name,
+      campaignId: row.campaignId || null,
+      campaignName: row.campaignId
+        ? (campaignNamesById.get(row.campaignId) ?? null)
+        : null,
+      campaignKind: campaignKindForId(
+        row.campaignId,
+        input.campaignLabelsById,
+      ),
+      status: row.status ?? null,
+      statusLabel: briefingStatusLabel(row),
+      metrics: metrics(row),
+      entityConfiguration: entityConfigurationForRow({
+        level: "adset",
+        row,
+        rangeDays: input.rangeDays,
+      }),
+    })),
+  ];
 }
 
 function cohortForCampaignRow(row: CampaignRow) {
@@ -299,8 +415,11 @@ function isNonSalesCohort(cohort: MetaFunnelCohort | null | undefined) {
   return Boolean(cohort && cohort !== "purchase" && cohort !== "unknown");
 }
 
-function isVisibleForStatusLane(row: CampaignRow | AdsetRow, statusFilter: BriefingStatusFilter) {
-  return isWithIssuesEntity(row) || isInBriefing(row, statusFilter) || isArchiveOnlyEntity(row, statusFilter);
+function isVisibleForStatusLane(
+  row: CampaignRow | AdsetRow,
+  statusFilter: BriefingStatusFilter,
+) {
+  return isInBriefing(row, statusFilter);
 }
 
 function formatCohort(cohort: MetaFunnelCohort) {
@@ -536,7 +655,20 @@ function isRecommendationInScope(input: {
   if (input.rec.level === "account") return true;
   const entity = recScopeEntity(input);
   if (!entity) return input.statusFilter === "all";
-  return isWithIssuesEntity(entity) || isInBriefing(entity, input.statusFilter);
+  const entityVisible = isVisibleForStatusLane(entity, input.statusFilter);
+  if (!entityVisible) return false;
+  if (input.rec.level !== "adset" || input.statusFilter !== "active") {
+    return true;
+  }
+  const campaignId =
+    input.rec.campaignId ??
+    (input.rec.adsetId
+      ? input.adsetsById.get(input.rec.adsetId)?.campaignId
+      : null);
+  const campaign = campaignId
+    ? input.campaignsById.get(campaignId)
+    : null;
+  return Boolean(campaign && isVisibleForStatusLane(campaign, "active"));
 }
 
 function isWithIssuesRec(input: {
@@ -872,6 +1004,36 @@ function collectLiveStatusProbeIds(
   return [...ids];
 }
 
+function collectStructureStatusProbeIds(input: {
+  recommendations: MetaRecommendation[];
+  campaigns: CampaignRow[];
+  adsets: AdsetRow[];
+}) {
+  const ids = new Set<string>();
+  const adsetsById = new Map(input.adsets.map((row) => [row.id, row]));
+  for (const rec of input.recommendations) {
+    if (rec.level === "campaign" && rec.campaignId) {
+      ids.add(rec.campaignId);
+    }
+    if (rec.level === "adset") {
+      if (rec.adsetId) ids.add(rec.adsetId);
+      const campaignId =
+        rec.campaignId ??
+        (rec.adsetId ? adsetsById.get(rec.adsetId)?.campaignId : null);
+      if (campaignId) ids.add(campaignId);
+    }
+  }
+  for (const row of input.campaigns) {
+    if (isNonSalesCohort(cohortForCampaignRow(row))) ids.add(row.id);
+  }
+  for (const row of input.adsets) {
+    if (!isNonSalesCohort(cohortForAdsetRow(row))) continue;
+    ids.add(row.id);
+    if (row.campaignId) ids.add(row.campaignId);
+  }
+  return ids;
+}
+
 function chunkIds(ids: string[], size: number) {
   const chunks: string[][] = [];
   for (let index = 0; index < ids.length; index += size) {
@@ -880,7 +1042,7 @@ function chunkIds(ids: string[], size: number) {
   return chunks;
 }
 
-async function readLiveMetaEntityStatuses(businessId: string, entityIds: string[]) {
+async function loadLiveMetaEntityStatuses(businessId: string, entityIds: string[]) {
   const uniqueIds = [...new Set(entityIds.filter(Boolean))];
   const statuses = new Map<string, LiveMetaEntityStatus>();
   if (uniqueIds.length === 0) return statuses;
@@ -949,7 +1111,7 @@ async function readLiveMetaEntityStatuses(businessId: string, entityIds: string[
           });
         }
       } catch (error) {
-        // Live reconciliation is a source-of-truth improvement, not an availability dependency.
+        // Historical candidates fail closed later when current truth is unavailable.
         console.warn("[meta-lane-classify] live status probe request failed", {
           businessId,
           entityCount: ids.length,
@@ -963,14 +1125,53 @@ async function readLiveMetaEntityStatuses(businessId: string, entityIds: string[
   return statuses;
 }
 
-function applyLiveStatusesToRows<Row extends { id: string; status?: string | null; statusUpdatedAt?: string | null }>(
+async function readLiveMetaEntityStatuses(
+  businessId: string,
+  entityIds: string[],
+) {
+  const uniqueIds = [...new Set(entityIds.filter(Boolean))].sort();
+  if (
+    process.env.VITEST === "true" ||
+    process.env.NODE_ENV === "test" ||
+    uniqueIds.length > 200
+  ) {
+    return loadLiveMetaEntityStatuses(businessId, uniqueIds);
+  }
+  return (
+    await getCachedValue({
+      key: `meta-live-structure-status-v1:${businessId}:${uniqueIds.join(",")}`,
+      ttlMs: 45_000,
+      staleWhileRevalidateMs: 120_000,
+      loader: () => loadLiveMetaEntityStatuses(businessId, uniqueIds),
+    })
+  ).value;
+}
+
+function applyLiveStatusesToRows<
+  Row extends {
+    id: string;
+    status?: string | null;
+    statusUpdatedAt?: string | null;
+  },
+>(
   rows: Row[],
   liveStatusesById: Map<string, LiveMetaEntityStatus>,
+  options: {
+    requiredCurrentStatusIds: Set<string>;
+    sourceHasCurrentStatus: boolean;
+  },
 ) {
-  if (liveStatusesById.size === 0) return rows;
   return rows.map((row) => {
     const liveStatus = liveStatusesById.get(row.id);
-    if (!liveStatus) return row;
+    if (!liveStatus) {
+      if (
+        options.requiredCurrentStatusIds.has(row.id) &&
+        !options.sourceHasCurrentStatus
+      ) {
+        return { ...row, status: "UNKNOWN", statusUpdatedAt: null };
+      }
+      return row;
+    }
     return {
       ...row,
       status: liveStatus.deliveryStatus ?? row.status ?? null,
@@ -1030,6 +1231,7 @@ function healthyAdsetRows(input: {
   rows: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"];
   recommendedScopeIds: Set<string>;
   campaignNamesById?: Map<string, string>;
+  campaignsById: Map<string, CampaignRow>;
   statusFilter: BriefingStatusFilter;
   campaignLabelsById: MetaCampaignLabelKindMap;
 }): HealthyMetaRow[] {
@@ -1037,6 +1239,12 @@ function healthyAdsetRows(input: {
     .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
     .filter((row) => !input.recommendedScopeIds.has(row.id))
     .filter((row) => isInBriefing(row, input.statusFilter))
+    .filter((row) => {
+      const campaign = input.campaignsById.get(row.campaignId);
+      return Boolean(
+        campaign && isVisibleForStatusLane(campaign, input.statusFilter),
+      );
+    })
     .filter((row) => toNumber(row.spend) >= 75 || toNumber(row.purchases) >= 3)
     .slice(0, 12)
     .map((row) => ({
@@ -1136,8 +1344,7 @@ function archiveCampaignRows(input: {
   campaignLabelsById: MetaCampaignLabelKindMap;
 }): ArchivedMetaRow[] {
   return input.rows
-    .filter((row) => isPurchaseScopedCohort(cohortForCampaignRow(row)))
-    .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
+    .filter((row) => !isVisibleForStatusLane(row, input.statusFilter))
     .map((row) => ({
       id: row.id,
       level: "campaign" as const,
@@ -1162,27 +1369,42 @@ function archiveAdsetRows(input: {
   statusFilter: BriefingStatusFilter;
   window: PulseWindow;
   campaignNamesById?: Map<string, string>;
+  campaignsById: Map<string, CampaignRow>;
   campaignLabelsById: MetaCampaignLabelKindMap;
 }): ArchivedMetaRow[] {
   return input.rows
-    .filter((row) => isPurchaseScopedCohort(cohortForAdsetRow(row)))
-    .filter((row) => isArchiveOnlyEntity(row, input.statusFilter))
-    .map((row) => ({
+    .map((row) => {
+      const parent = input.campaignsById.get(row.campaignId);
+      const parentLive = Boolean(
+        parent && isVisibleForStatusLane(parent, input.statusFilter),
+      );
+      return { row, parent, parentLive };
+    })
+    .filter(
+      ({ row, parentLive }) =>
+        !parentLive || !isVisibleForStatusLane(row, input.statusFilter),
+    )
+    .map(({ row, parent, parentLive }) => ({
       id: row.id,
       level: "adset" as const,
       name: row.name,
       campaignId: row.campaignId,
       campaignName: input.campaignNamesById?.get(row.campaignId) ?? null,
       campaignKind: campaignKindForId(row.campaignId, input.campaignLabelsById),
-      status: briefingStatusForEntity(row),
-      statusLabel: briefingStatusLabel(row),
+      status: parentLive
+        ? briefingStatusForEntity(row)
+        : `CAMPAIGN_${briefingStatusForEntity(parent ?? {})}`,
+      statusLabel: parentLive
+        ? briefingStatusLabel(row)
+        : `Campaign ${briefingStatusLabel(parent ?? {}).toLowerCase()}`,
       spend: toNumber(row.spend),
       roas: toNumber(row.roas),
       cpa: row.cpa == null ? null : toNumber(row.cpa),
       purchases: toNumber(row.purchases),
       lastKnownWindow: input.window,
-      diagnosticNote:
-        briefingStatusForEntity(row) === "UNKNOWN"
+      diagnosticNote: !parentLive
+        ? "Parent campaign is not active; this ad-set recommendation is advisory-only."
+        : briefingStatusForEntity(row) === "UNKNOWN"
           ? "Status truth is incomplete; engine recommendations are suppressed."
           : null,
     }));
@@ -1222,6 +1444,7 @@ function nonSalesAdsetRows(input: {
   rows: AdsetRow[];
   recommendedScopeIds: Set<string>;
   campaignNamesById?: Map<string, string>;
+  campaignsById: Map<string, CampaignRow>;
   statusFilter: BriefingStatusFilter;
   costPerThruplayP50: number | null;
   campaignLabelsById: MetaCampaignLabelKindMap;
@@ -1231,6 +1454,12 @@ function nonSalesAdsetRows(input: {
     .filter(({ cohort }) => isNonSalesCohort(cohort))
     .filter(({ row }) => !input.recommendedScopeIds.has(row.id))
     .filter(({ row }) => isVisibleForStatusLane(row, input.statusFilter))
+    .filter(({ row }) => {
+      const campaign = input.campaignsById.get(row.campaignId);
+      return Boolean(
+        campaign && isVisibleForStatusLane(campaign, input.statusFilter),
+      );
+    })
     .map(({ row, cohort }) =>
       nonSalesStateRecommendation({
         id: row.id,
@@ -1252,16 +1481,19 @@ function nonSalesAdsetRows(input: {
 }
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = performance.now();
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId")?.trim() ?? "";
   const providerAccountId =
     searchParams.get("providerAccountId")?.trim() || null;
   const window = parseWindow(searchParams.get("window"));
   const statusFilter = parseBriefingStatusFilter(searchParams.get("status_filter"));
+  const compactWorkspace = searchParams.get("workspace_surface") === "os";
   const endDate = searchParams.get("endDate")?.trim() || todayISO();
   const startDate =
     searchParams.get("startDate")?.trim() ||
     addDaysToISO(endDate, -(windowDays(window) - 1));
+  const rangeDays = inclusiveRangeDays(startDate, endDate);
 
   const access = await requireBusinessAccess({
     request,
@@ -1269,6 +1501,7 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
+  const accessCompletedAt = performance.now();
   if (!businessId) {
     return NextResponse.json(
       { error: "missing_business_id", message: "businessId is required." },
@@ -1276,27 +1509,78 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [snapshot, operatorStates, campaigns, adsets, upperFunnelCostPerThruplayP50] = await Promise.all([
-    readLatestMetaDecisionSnapshot({ businessId, startDate, endDate }),
-    readOperatorRecStates(businessId).catch(() => new Map<string, OperatorRecState>()),
-    getMetaCampaignsForRange({
-      businessId,
-      accountId: providerAccountId,
-      startDate,
-      endDate,
-      includePrev: false,
-      includePrevBudget: false,
-    }),
-    getMetaAdSetsForRange({
-      businessId,
-      accountId: providerAccountId,
-      startDate,
-      endDate,
-      includePrev: false,
-      includePrevBudget: false,
-    }),
-    readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
-  ]);
+  const baseStageDurations: Record<string, number> = {};
+  const timedBaseRead = async <T,>(
+    name: string,
+    loader: () => Promise<T>,
+  ): Promise<T> => {
+    const startedAt = performance.now();
+    try {
+      return await loader();
+    } finally {
+      baseStageDurations[name] = performance.now() - startedAt;
+    }
+  };
+  const loadBaseEvidence = () =>
+    Promise.all([
+      timedBaseRead("snapshot", () =>
+        readLatestMetaDecisionSnapshot({ businessId, startDate, endDate }),
+      ),
+      timedBaseRead("operator", () =>
+        readOperatorRecStates(businessId).catch(
+          () => new Map<string, OperatorRecState>(),
+        ),
+      ),
+      timedBaseRead("campaigns", () =>
+        getMetaCampaignsForRange({
+          businessId,
+          accountId: providerAccountId,
+          startDate,
+          endDate,
+          includePrev: !compactWorkspace,
+          includePrevBudget: !compactWorkspace,
+        }),
+      ),
+      timedBaseRead("adsets", () =>
+        getMetaAdSetsForRange({
+          businessId,
+          accountId: providerAccountId,
+          startDate,
+          endDate,
+          includePrev: !compactWorkspace,
+          includePrevBudget: !compactWorkspace,
+        }),
+      ),
+      timedBaseRead("upper_funnel", () =>
+        readUpperFunnelCostPerThruplayP50(businessId).catch(() => null),
+      ),
+    ] as const);
+  const baseEvidence =
+    process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      ? await loadBaseEvidence()
+      : (
+          await getCachedValue({
+            key: [
+              "meta-lane-base-v2",
+              businessId,
+              providerAccountId ?? "all",
+              startDate,
+              endDate,
+              compactWorkspace ? "compact" : "full",
+            ].join(":"),
+            ttlMs: 30_000,
+            staleWhileRevalidateMs: 120_000,
+            loader: loadBaseEvidence,
+          })
+        ).value;
+  const [
+    snapshot,
+    operatorStates,
+    campaigns,
+    adsets,
+    upperFunnelCostPerThruplayP50,
+  ] = baseEvidence;
+  const baseEvidenceCompletedAt = performance.now();
 
   const campaignIdsInScope = new Set(
     (campaigns.rows ?? []).map((row) => row.id).filter(Boolean),
@@ -1322,26 +1606,87 @@ export async function GET(request: NextRequest) {
       return false;
     },
   );
+  const requiredCurrentStatusIds = collectStructureStatusProbeIds({
+    recommendations: snapshotRecommendations,
+    campaigns: compactWorkspace
+      ? (campaigns.rows ?? []).filter((row) =>
+          isVisibleForStatusLane(row, "active"),
+        )
+      : (campaigns.rows ?? []),
+    adsets: compactWorkspace
+      ? (adsets.rows ?? []).filter((row) =>
+          isVisibleForStatusLane(row, "active"),
+        )
+      : (adsets.rows ?? []),
+  });
   const liveStatusesById = await readLiveMetaEntityStatuses(
     businessId,
-    collectLiveStatusProbeIds(snapshotRecommendations, operatorStates),
+    [
+      ...requiredCurrentStatusIds,
+      ...collectLiveStatusProbeIds(snapshotRecommendations, operatorStates),
+    ],
   );
-  const campaignRows = applyLiveStatusesToRows(campaigns.rows ?? [], liveStatusesById);
-  const adsetRows = applyLiveStatusesToRows(adsets.rows ?? [], liveStatusesById);
+  const liveStatusesCompletedAt = performance.now();
+  const campaignRows = applyLiveStatusesToRows(
+    campaigns.rows ?? [],
+    liveStatusesById,
+    {
+      requiredCurrentStatusIds,
+      sourceHasCurrentStatus:
+        campaigns.evidenceSource === "live" ||
+        campaigns.evidenceSource === "demo",
+    },
+  );
+  const adsetRows = applyLiveStatusesToRows(
+    adsets.rows ?? [],
+    liveStatusesById,
+    {
+      requiredCurrentStatusIds,
+      sourceHasCurrentStatus:
+        adsets.evidenceSource === "live" || adsets.evidenceSource === "demo",
+    },
+  );
   const campaignLabelsById = await readCampaignLabelKinds({
     businessId,
     campaignIds: [
-      ...campaignRows.map((row) => row.id),
-      ...adsetRows.map((row) => row.campaignId),
+      ...campaignRows
+        .filter(
+          (row) =>
+            !compactWorkspace || isVisibleForStatusLane(row, "active"),
+        )
+        .map((row) => row.id),
+      ...adsetRows
+        .filter(
+          (row) =>
+            !compactWorkspace || isVisibleForStatusLane(row, "active"),
+        )
+        .map((row) => row.campaignId),
     ],
   });
-  const activeCampaignIds = campaignRows.map((row) => row.id);
+  const campaignLabelsCompletedAt = performance.now();
+  const activeCampaignIds = campaignRows
+    .filter((row) => isVisibleForStatusLane(row, "active"))
+    .map((row) => row.id);
   const deferredIds = deferredIdsFromOperatorStates(operatorStates);
   const campaignsById = new Map(campaignRows.map((row) => [row.id, row]));
   const adsetsById = new Map(adsetRows.map((row) => [row.id, row]));
+  const structureInventory = structureInventoryForRows({
+    campaignRows,
+    adsetRows,
+    campaignLabelsById,
+    rangeDays,
+  });
+  const recommendationStatusFilter = compactWorkspace
+    ? ("active" as const)
+    : statusFilter;
   const recommendations = snapshotRecommendations
     .filter((rec) =>
-      isRecommendationInScope({ rec, statusFilter, campaignsById, adsetsById }),
+      isRecommendationInScope({
+        rec,
+        statusFilter: recommendationStatusFilter,
+        campaignsById,
+        adsetsById,
+      }),
     )
     .map((rec) => annotateOperatorState(rec, operatorStates, { campaignsById, adsetsById, liveStatusesById }))
     .map((rec) =>
@@ -1352,7 +1697,38 @@ export async function GET(request: NextRequest) {
       }),
     )
     .map((rec) =>
-      attachEntityConfiguration({ rec, campaignsById, adsetsById }),
+      attachEntityConfiguration({
+        rec,
+        campaignsById,
+        adsetsById,
+        rangeDays,
+      }),
+    );
+  const inactiveRecommendations = (compactWorkspace
+    ? []
+    : snapshotRecommendations)
+    .filter((rec) => {
+      if (rec.level === "account") return false;
+      const entity = recScopeEntity({ rec, campaignsById, adsetsById });
+      if (!entity) return false;
+      return !isRecommendationInScope({
+        rec,
+        statusFilter: "active",
+        campaignsById,
+        adsetsById,
+      });
+    })
+    .map((rec) =>
+      attachEntityConfiguration({
+        rec: attachCampaignKindToRecommendation({
+          rec,
+          campaignLabelsById,
+          activeCampaignIds,
+        }),
+        campaignsById,
+        adsetsById,
+        rangeDays,
+      }),
     );
   const purchaseScopedRecs = recommendations.filter((rec) => isPurchaseScopedCohort(rec.cohort));
   const nonSalesRecs = recommendations
@@ -1406,11 +1782,27 @@ export async function GET(request: NextRequest) {
     recommendations.flatMap((rec) => [rec.campaignId, rec.adsetId]).filter(Boolean) as string[],
   );
   const campaignNamesById = new Map(campaignRows.map((row) => [row.id, row.name]));
-  const healthyBase = [
-    ...healthyCampaignRows({ rows: campaignRows, recommendedScopeIds, statusFilter, campaignLabelsById }),
-    ...healthyAdsetRows({ rows: adsetRows, recommendedScopeIds, campaignNamesById, statusFilter, campaignLabelsById }),
-  ].slice(0, 18);
-  const healthy = await attachPreviousBidDiffsToHealthyRows(businessId, healthyBase);
+  const healthyBase = compactWorkspace
+    ? []
+    : [
+        ...healthyCampaignRows({
+          rows: campaignRows,
+          recommendedScopeIds,
+          statusFilter,
+          campaignLabelsById,
+        }),
+        ...healthyAdsetRows({
+          rows: adsetRows,
+          recommendedScopeIds,
+          campaignNamesById,
+          campaignsById,
+          statusFilter,
+          campaignLabelsById,
+        }),
+      ].slice(0, 18);
+  const healthy = compactWorkspace
+    ? []
+    : await attachPreviousBidDiffsToHealthyRows(businessId, healthyBase);
   const nonSales = [
     ...nonSalesRecs,
     ...nonSalesCampaignRows({
@@ -1424,14 +1816,31 @@ export async function GET(request: NextRequest) {
       rows: adsetRows,
       recommendedScopeIds,
       campaignNamesById,
+      campaignsById,
       statusFilter,
       costPerThruplayP50: upperFunnelCostPerThruplayP50,
       campaignLabelsById,
     }),
-  ].slice(0, 30);
-  const archive = [
+  ]
+    .map((rec) =>
+      attachEntityConfiguration({
+        rec,
+        campaignsById,
+        adsetsById,
+        rangeDays,
+      }),
+    )
+    .slice(0, 30);
+  const archiveBase = [
     ...archiveCampaignRows({ rows: campaignRows, statusFilter, window, campaignLabelsById }),
-    ...archiveAdsetRows({ rows: adsetRows, statusFilter, window, campaignNamesById, campaignLabelsById }),
+    ...archiveAdsetRows({
+      rows: adsetRows,
+      statusFilter,
+      window,
+      campaignNamesById,
+      campaignsById,
+      campaignLabelsById,
+    }),
   ].sort((left, right) => right.spend - left.spend);
 
   // Server-owned action presentation + structured numeric metrics: every
@@ -1473,6 +1882,32 @@ export async function GET(request: NextRequest) {
   const annotatedActionNow = annotateMetaRecPresentation(actionNow, metricsByEntityId, rowPresentationByEntityId);
   const annotatedWatching = annotateMetaRecPresentation(watching, metricsByEntityId, rowPresentationByEntityId);
   const annotatedNonSales = annotateMetaRecPresentation(nonSales, metricsByEntityId, rowPresentationByEntityId);
+  const annotatedInactiveRecommendations = annotateMetaRecPresentation(
+    inactiveRecommendations,
+    metricsByEntityId,
+    rowPresentationByEntityId,
+  );
+  const inactiveRecommendationByEntityId = new Map(
+    annotatedInactiveRecommendations.map((rec) => [
+      rec.level === "adset" ? rec.adsetId : rec.campaignId,
+      rec,
+    ]),
+  );
+  const archive = archiveBase.map((row) => {
+    const rec = inactiveRecommendationByEntityId.get(row.id);
+    return {
+      ...row,
+      advisory: rec
+        ? {
+            decisionLabel: rec.decisionLabel ?? null,
+            primaryActionLabel:
+              rec.primaryActionLabel ?? rec.recommendedAction ?? "Review evidence",
+            why: rec.why || rec.summary,
+            confidence: rec.confidence,
+          }
+        : null,
+    };
+  });
 
   // Typed against the shared client contract so response drift fails typecheck.
   const payload = {
@@ -1491,6 +1926,7 @@ export async function GET(request: NextRequest) {
     healthy,
     nonSales: annotatedNonSales,
     archive,
+    structureInventory,
     deferredIds: [...deferredIds],
     watchingSegments: buildWatchingSegments(annotatedWatching),
     counts: {
@@ -1502,5 +1938,27 @@ export async function GET(request: NextRequest) {
     },
   } satisfies MetaLanePayload;
 
-  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
+  const payloadCompletedAt = performance.now();
+  return NextResponse.json(payload, {
+    headers: {
+      "Cache-Control": "no-store",
+      ...(compactWorkspace
+        ? {
+            "Server-Timing": [
+              `access;dur=${(accessCompletedAt - requestStartedAt).toFixed(1)}`,
+              `base_evidence;dur=${(baseEvidenceCompletedAt - accessCompletedAt).toFixed(1)}`,
+              `snapshot;dur=${(baseStageDurations.snapshot ?? 0).toFixed(1)}`,
+              `operator;dur=${(baseStageDurations.operator ?? 0).toFixed(1)}`,
+              `campaigns;dur=${(baseStageDurations.campaigns ?? 0).toFixed(1)}`,
+              `adsets;dur=${(baseStageDurations.adsets ?? 0).toFixed(1)}`,
+              `upper_funnel;dur=${(baseStageDurations.upper_funnel ?? 0).toFixed(1)}`,
+              `live_status;dur=${(liveStatusesCompletedAt - baseEvidenceCompletedAt).toFixed(1)}`,
+              `campaign_labels;dur=${(campaignLabelsCompletedAt - liveStatusesCompletedAt).toFixed(1)}`,
+              `presentation;dur=${(payloadCompletedAt - campaignLabelsCompletedAt).toFixed(1)}`,
+              `total;dur=${(payloadCompletedAt - requestStartedAt).toFixed(1)}`,
+            ].join(", "),
+          }
+        : {}),
+    },
+  });
 }

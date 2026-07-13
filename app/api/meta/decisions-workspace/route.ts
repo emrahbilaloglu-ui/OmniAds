@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import type {
+  MetaDecisionsOsWorkspacePayload,
   MetaDecisionsWorkspaceBanner,
   MetaDecisionsWorkspacePayload,
   MetaLanePayload,
   MetaPulsePayload,
   MetaWindowKey,
 } from "@/components/meta/redesign/types";
-import { findMembership } from "@/lib/access";
-import { getSessionFromRequest } from "@/lib/auth";
+import { requireBusinessAccess } from "@/lib/access";
+import {
+  fetchMetaActiveAdConfigsReceipt,
+  resolveMetaCredentials,
+} from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import {
   META_DECISIONS_AD_CANDIDATE_LIMIT,
@@ -16,11 +20,15 @@ import {
 } from "@/lib/meta/decisions-workspace-contract";
 import {
   buildUnavailableMetaDecisionsWorkspaceReadModel,
+  readMetaDecisionCampaignContextRows,
   readMetaDecisionsWorkspaceReadModel,
+  type MetaCurrentAdStatusSourceRow,
+  type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { isReviewerEmail } from "@/lib/reviewer-access";
+import { getCachedValue } from "@/lib/server-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +52,123 @@ class UpstreamError extends Error {
   }
 }
 
+interface CurrentMetaAdsResult {
+  rows: MetaCurrentAdStatusSourceRow[];
+  complete: boolean;
+  unavailableReason: string | null;
+}
+
+async function loadCurrentMetaAds(input: {
+  businessId: string;
+  providerAccountId: string | null;
+}): Promise<CurrentMetaAdsResult> {
+  if (!input.providerAccountId) {
+    return {
+      rows: [],
+      complete: false,
+      unavailableReason: "provider_account_required",
+    };
+  }
+  try {
+    const credentials = await resolveMetaCredentials(input.businessId);
+    if (
+      !credentials ||
+      !credentials.accountIds.includes(input.providerAccountId)
+    ) {
+      return {
+        rows: [],
+        complete: false,
+        unavailableReason: "provider_account_credentials_unavailable",
+      };
+    }
+    const receipt = await fetchMetaActiveAdConfigsReceipt(
+      input.providerAccountId,
+      credentials.accessToken,
+    );
+    if (!receipt.complete) {
+      return {
+        rows: [],
+        complete: false,
+        unavailableReason: `provider_ad_inventory_incomplete:${receipt.termination}`,
+      };
+    }
+    const fetchedAt = new Date().toISOString();
+    return {
+      complete: true,
+      unavailableReason: null,
+      rows: receipt.rows.map((row) => ({
+        providerAccountId: input.providerAccountId!,
+        adId: row.id,
+        adName: row.name ?? null,
+        campaignId: row.campaign_id ?? null,
+        campaignName: row.campaign?.name ?? null,
+        adsetId: row.adset_id ?? null,
+        creativeId: row.creative?.id ?? null,
+        configuredStatus: row.status ?? null,
+        effectiveStatus: row.effective_status ?? null,
+        providerUpdatedAt: row.updated_time ?? null,
+        fetchedAt,
+      })),
+    };
+  } catch (error) {
+    return {
+      rows: [],
+      complete: false,
+      unavailableReason:
+        error instanceof Error
+          ? `provider_ad_inventory_failed:${error.message}`
+          : "provider_ad_inventory_failed",
+    };
+  }
+}
+
+async function readCurrentMetaAds(input: {
+  businessId: string;
+  providerAccountId: string | null;
+}): Promise<CurrentMetaAdsResult> {
+  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+    return loadCurrentMetaAds(input);
+  }
+  return (
+    await getCachedValue({
+      key: `meta-current-active-ads-v2:${input.businessId}:${input.providerAccountId ?? "none"}`,
+      ttlMs: 60_000,
+      staleWhileRevalidateMs: 240_000,
+      loader: () => loadCurrentMetaAds(input),
+    })
+  ).value;
+}
+
+async function readCurrentAdCampaignContexts(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  snapshotAsOf: string;
+  currentAds: CurrentMetaAdsResult;
+}): Promise<MetaDecisionCampaignContextSourceRow[]> {
+  if (!input.providerAccountId || !input.currentAds.complete) return [];
+  const campaignIds = [
+    ...new Set(
+      input.currentAds.rows
+        .map((row) => row.campaignId?.trim() ?? "")
+        .filter(Boolean),
+    ),
+  ];
+  if (campaignIds.length === 0) return [];
+  try {
+    return await readMetaDecisionCampaignContextRows({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      campaignIds,
+      snapshotAsOf: input.snapshotAsOf,
+    });
+  } catch {
+    // The active inventory remains visible even when automatic context is
+    // temporarily unavailable. Presentation assigns an untrusted provisional
+    // role and keeps decision authority unchanged.
+    return [];
+  }
+}
+
 function forwardedHeaders(request: NextRequest) {
   const headers = new Headers({ accept: "application/json" });
   for (const name of ["cookie", "authorization"]) {
@@ -59,15 +184,18 @@ function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
     "businessId",
     "providerAccountId",
     "window",
-    "status_filter",
     "startDate",
     "endDate",
   ]) {
     const value = source.get(key);
     if (value) params.set(key, value);
   }
+  // Structure is an account inventory. Action authority is still restricted
+  // to live recommendations by the server presentation layer.
+  params.set("status_filter", source.get("status_filter") ?? "all");
   if (!params.has("endDate")) params.set("endDate", resolvedEndDate);
   params.set("decision_workspace", "1");
+  if (source.get("surface") === "os") params.set("workspace_surface", "os");
   return params;
 }
 
@@ -84,6 +212,22 @@ async function resolveWorkspaceEndDate(input: {
 }) {
   if (input.explicitEndDate?.trim()) return input.explicitEndDate.trim();
   if (!input.providerAccountId) return previousUtcDate();
+  try {
+    const rows = await getDb().query<{ latest_as_of: string | null }>(
+      `
+        SELECT MAX(as_of_date)::text AS latest_as_of
+        FROM engine_v3_ad_decision_snapshots_daily
+        WHERE business_ref_id = $1::uuid
+          AND business_id = $1
+          AND provider_account_id = $2
+      `,
+      [input.businessId, input.providerAccountId],
+    );
+    const latest = rows[0]?.latest_as_of?.trim() ?? "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
+  } catch {
+    // Native tables are introduced behind a schema/capability gate.
+  }
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
@@ -107,6 +251,7 @@ async function canonicalDecisionReadModel(input: {
   businessId: string;
   providerAccountId: string | null;
   adCandidateLimit: number;
+  currentAds: CurrentMetaAdsResult;
 }): Promise<
   | { ok: true; model: MetaDecisionsWorkspaceReadModel }
   | { ok: false; status: 403; payload: Record<string, unknown> }
@@ -118,7 +263,8 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: null,
         code: "provider_account_required",
-        message: "providerAccountId is required for the canonical Meta Decisions read model.",
+        message:
+          "providerAccountId is required for the canonical Meta Decisions read model.",
         adCandidateLimit: input.adCandidateLimit,
       }),
     };
@@ -134,7 +280,8 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         code: "provider_account_scope_unverified",
-        message: "The provider-account assignment source is unavailable; no canonical decisions were read.",
+        message:
+          "The provider-account assignment source is unavailable; no canonical decisions were read.",
         adCandidateLimit: input.adCandidateLimit,
       }),
     };
@@ -158,6 +305,8 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         adCandidateLimit: input.adCandidateLimit,
+        currentAds: input.currentAds.rows,
+        currentAdSourceComplete: input.currentAds.complete,
       }),
     };
   } catch {
@@ -167,7 +316,8 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         code: "source_read_failed",
-        message: "The account-scoped decision sources could not be read; no decision values were fabricated.",
+        message:
+          "The account-scoped decision sources could not be read; no decision values were fabricated.",
         adCandidateLimit: input.adCandidateLimit,
       }),
     };
@@ -192,7 +342,10 @@ async function readInternalJson<T>(
   const url = new URL(pathname, request.nextUrl.origin);
   url.search = params.toString();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), WORKSPACE_UPSTREAM_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_UPSTREAM_TIMEOUT_MS,
+  );
   let response: Response;
   try {
     response = await fetch(url, {
@@ -239,18 +392,12 @@ function isMetaWritesKillSwitchEngaged() {
   return value === "1" || value === "true";
 }
 
-async function workspaceViewer(
-  request: NextRequest,
-  businessId: string,
-): Promise<MetaDecisionsWorkspacePayload["viewer"]> {
-  const session = await getSessionFromRequest(request).catch(() => null);
-  if (!session) return null;
-  const membership = await findMembership({
-    userId: session.user.id,
-    businessId,
-  }).catch(() => null);
-  const role = membership?.status === "active" ? membership.role : null;
-  const reviewer = isReviewerEmail(session.user.email);
+function workspaceViewer(input: {
+  role: NonNullable<MetaDecisionsWorkspacePayload["viewer"]>["role"];
+  email: string;
+}): MetaDecisionsWorkspacePayload["viewer"] {
+  const role = input.role;
+  const reviewer = isReviewerEmail(input.email);
   const readOnly = reviewer || role === "guest";
   return {
     role,
@@ -264,24 +411,41 @@ async function workspaceViewer(
   };
 }
 
-function queueGroups(lanes: MetaLanePayload): MetaDecisionsWorkspacePayload["queue"]["groups"] {
+function queueGroups(
+  lanes: MetaLanePayload,
+): MetaDecisionsWorkspacePayload["queue"]["groups"] {
   return [
     { key: "action", label: "Action Now", count: lanes.counts.actionNow },
     { key: "watching", label: "Watching", count: lanes.counts.watching },
     { key: "healthy", label: "Healthy", count: lanes.counts.healthy },
     { key: "nonSales", label: "Non-sales", count: lanes.counts.nonSales },
-    { key: "archive", label: "Archive", count: lanes.counts.archive },
+    {
+      key: "archive",
+      label: "Inactive assets",
+      count: lanes.counts.archive,
+    },
   ];
 }
 
-function actionStates(lanes: MetaLanePayload): MetaDecisionsWorkspacePayload["queue"]["actionStates"] {
-  const recommendations = [...lanes.actionNow, ...lanes.watching, ...lanes.nonSales];
-  return recommendations.reduce<MetaDecisionsWorkspacePayload["queue"]["actionStates"]>(
+function actionStates(
+  lanes: MetaLanePayload,
+): MetaDecisionsWorkspacePayload["queue"]["actionStates"] {
+  const recommendations = [
+    ...lanes.actionNow,
+    ...lanes.watching,
+    ...lanes.nonSales,
+  ];
+  return recommendations.reduce<
+    MetaDecisionsWorkspacePayload["queue"]["actionStates"]
+  >(
     (acc, rec) => {
       if (rec.actionKind === "execute_pause") acc.executablePause += 1;
       else if (rec.actionKind === "execute_bid") acc.executableBid += 1;
       else if (rec.actionKind === "execute_resume") acc.executableResume += 1;
-      else if (rec.actionKind === "route_launchpad_duplicate" || rec.actionKind === "route_launchpad_rebuild") {
+      else if (
+        rec.actionKind === "route_launchpad_duplicate" ||
+        rec.actionKind === "route_launchpad_rebuild"
+      ) {
         acc.launchpadRoutes += 1;
       } else if (rec.actionKind === "review_drill") {
         acc.reviewOnly += 1;
@@ -353,7 +517,10 @@ function normalizeDigestLabel(value: string | null | undefined) {
   return label ? label.replace(/_/g, " ") : "unknown";
 }
 
-function digestSince(snapshotDate: string | null, fallbackEndDate: string | null) {
+function digestSince(
+  snapshotDate: string | null,
+  fallbackEndDate: string | null,
+) {
   const source = snapshotDate ?? fallbackEndDate;
   if (!source) return null;
   const date = new Date(`${source.slice(0, 10)}T00:00:00.000Z`);
@@ -372,8 +539,9 @@ async function readDecisionDigest(input: {
   try {
     const sql = getDb();
     const since = digestSince(input.snapshotDate, input.endDate);
-    const [labelRows, actionRows, anomalyRows, deferralRows] = await Promise.all([
-      sql`
+    const [labelRows, actionRows, anomalyRows, deferralRows] =
+      await Promise.all([
+        sql`
         WITH target_date AS (
           SELECT COALESCE(
             ${input.snapshotDate}::date,
@@ -417,7 +585,7 @@ async function readDecisionDigest(input: {
         ORDER BY latest.snapshot_date DESC, latest.created_at DESC
         LIMIT 20
       ` as Promise<LabelFlipDigestRow[]>,
-      sql`
+        sql`
         SELECT
           log.id::text AS id,
           log.action::text AS action,
@@ -461,7 +629,7 @@ async function readDecisionDigest(input: {
         ORDER BY COALESCE(log.verified_at, log.updated_at, log.requested_at, log.created_at) DESC
         LIMIT 20
       ` as Promise<ActionDigestRow[]>,
-      sql`
+        sql`
         SELECT
           snapshot.rec_id AS id,
           COALESCE(
@@ -480,7 +648,7 @@ async function readDecisionDigest(input: {
         ORDER BY COALESCE(snapshot.detected_at, snapshot.created_at) DESC
         LIMIT 20
       ` as Promise<AnomalyDigestRow[]>,
-      sql`
+        sql`
         WITH ranked AS (
           SELECT
             response.rec_id,
@@ -514,18 +682,24 @@ async function readDecisionDigest(input: {
         ORDER BY ranked.reappear_at ASC
         LIMIT 20
       ` as Promise<DeferralDigestRow[]>,
-    ]);
+      ]);
 
     const actions = actionRows.map((row) => ({
       id: row.id,
       action: normalizeDigestLabel(row.action),
       target: row.target?.trim() || "unknown target",
       actor: row.actor?.trim() || null,
-      status: row.status === "silent_failure" ? ("silent_failure" as const) : ("verified" as const),
+      status:
+        row.status === "silent_failure"
+          ? ("silent_failure" as const)
+          : ("verified" as const),
       occurredAt: row.occurred_at ?? null,
-      detail: row.status === "silent_failure"
-        ? row.error_message ?? row.error_code ?? "Meta verification disagreed."
-        : null,
+      detail:
+        row.status === "silent_failure"
+          ? (row.error_message ??
+            row.error_code ??
+            "Meta verification disagreed.")
+          : null,
     }));
 
     return {
@@ -544,8 +718,11 @@ async function readDecisionDigest(input: {
         })),
       },
       actions: {
-        verifiedCount: actions.filter((item) => item.status === "verified").length,
-        silentFailureCount: actions.filter((item) => item.status === "silent_failure").length,
+        verifiedCount: actions.filter((item) => item.status === "verified")
+          .length,
+        silentFailureCount: actions.filter(
+          (item) => item.status === "silent_failure",
+        ).length,
         items: actions,
       },
       anomalies: {
@@ -570,7 +747,8 @@ async function readDecisionDigest(input: {
   } catch {
     return {
       ...digest,
-      unavailableReason: "Digest source tables are not available in this runtime.",
+      unavailableReason:
+        "Digest source tables are not available in this runtime.",
     };
   }
 }
@@ -585,9 +763,13 @@ function workspaceBanners(input: {
   const banners: MetaDecisionsWorkspaceBanner[] = [];
   if (input.viewer?.readOnly && input.viewer.readOnlyReason) {
     banners.push({
-      id: input.viewer.isReviewer ? "reviewer_read_only" : "workspace_read_only",
+      id: input.viewer.isReviewer
+        ? "reviewer_read_only"
+        : "workspace_read_only",
       tone: "info",
-      title: input.viewer.isReviewer ? "Reviewer access is read-only." : "Workspace access is read-only.",
+      title: input.viewer.isReviewer
+        ? "Reviewer access is read-only."
+        : "Workspace access is read-only.",
       detail: input.viewer.readOnlyReason,
       blocking: false,
     });
@@ -598,7 +780,9 @@ function workspaceBanners(input: {
       id: "data_readiness",
       tone: "warning",
       title: "Data is not fully ready.",
-      detail: readiness.notReadyReason ?? "The selected range is partially verified; numbers may be incomplete.",
+      detail:
+        readiness.notReadyReason ??
+        "The selected range is partially verified; numbers may be incomplete.",
       blocking: false,
     });
   }
@@ -611,13 +795,16 @@ function workspaceBanners(input: {
       blocking: true,
     });
   }
-  const snapshotHealth = input.pulse.snapshotHealth ?? input.lanes.snapshotHealth ?? null;
+  const snapshotHealth =
+    input.pulse.snapshotHealth ?? input.lanes.snapshotHealth ?? null;
   if (snapshotHealth && snapshotHealth.status !== "fresh") {
     banners.push({
       id: "snapshot_health",
       tone: snapshotHealth.status === "missing" ? "danger" : "warning",
       title: "Decision snapshot is not fresh.",
-      detail: snapshotHealth.staleReason ?? "The served snapshot does not meet the current freshness contract.",
+      detail:
+        snapshotHealth.staleReason ??
+        "The served snapshot does not meet the current freshness contract.",
       blocking: snapshotHealth.status === "missing",
     });
   }
@@ -626,7 +813,8 @@ function workspaceBanners(input: {
       id: "meta_write_kill_switch",
       tone: "danger",
       title: "Kill switch engaged.",
-      detail: "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
+      detail:
+        "All active Meta write endpoints are blocked by META_ADS_WRITE_KILL_SWITCH.",
       blocking: true,
     });
   }
@@ -634,28 +822,90 @@ function workspaceBanners(input: {
 }
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = performance.now();
   const businessId = request.nextUrl.searchParams.get("businessId");
   if (!businessId) {
-    return NextResponse.json({ error: "businessId is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "businessId is required" },
+      { status: 400 },
+    );
   }
+  const access = await requireBusinessAccess({
+    request,
+    businessId,
+    minRole: "guest",
+  });
+  if ("error" in access) return access.error;
+  const viewer = workspaceViewer({
+    role: access.membership.role,
+    email: access.session.user.email,
+  });
   const providerAccountId =
     request.nextUrl.searchParams.get("providerAccountId")?.trim() || null;
   const adCandidateLimit = requestedAdCandidateLimit(
     request.nextUrl.searchParams,
   );
+  const compactOsSurface = request.nextUrl.searchParams.get("surface") === "os";
 
-  const resolvedEndDate = await resolveWorkspaceEndDate({
+  const explicitEndDate = request.nextUrl.searchParams.get("endDate");
+  const loadResolvedEndDate = () =>
+    resolveWorkspaceEndDate({
+      businessId,
+      providerAccountId,
+      explicitEndDate,
+    });
+  const resolvedEndDate =
+    process.env.VITEST === "true" ||
+    process.env.NODE_ENV === "test" ||
+    Boolean(explicitEndDate?.trim())
+      ? await loadResolvedEndDate()
+      : (
+          await getCachedValue({
+            key: `meta-decisions-end-date-v1:${businessId}:${providerAccountId ?? "none"}`,
+            ttlMs: 5 * 60_000,
+            staleWhileRevalidateMs: 60 * 60_000,
+            loader: loadResolvedEndDate,
+          })
+        ).value;
+  const endDateResolvedAt = performance.now();
+  const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
+  let currentAdsCompletedAt = endDateResolvedAt;
+  const currentAdsPromise = readCurrentMetaAds({
     businessId,
     providerAccountId,
-    explicitEndDate: request.nextUrl.searchParams.get("endDate"),
+  }).then((result) => {
+    currentAdsCompletedAt = performance.now();
+    return result;
   });
-  const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
 
   try {
-    const [pulse, lanes] = await Promise.all([
-      readInternalJson<MetaPulsePayload>(request, "account-pulse", "/api/meta/account-pulse", params),
-      readInternalJson<MetaLanePayload>(request, "lane-classify", "/api/meta/lane-classify", params),
-    ]);
+    const loadUpstreams = () =>
+      Promise.all([
+        readInternalJson<MetaPulsePayload>(
+          request,
+          "account-pulse",
+          "/api/meta/account-pulse",
+          params,
+        ),
+        readInternalJson<MetaLanePayload>(
+          request,
+          "lane-classify",
+          "/api/meta/lane-classify",
+          params,
+        ),
+      ] as const);
+    const [pulse, lanes] =
+      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+        ? await loadUpstreams()
+        : (
+            await getCachedValue({
+              key: `meta-decisions-upstreams-v1:${params.toString()}`,
+              ttlMs: 30_000,
+              staleWhileRevalidateMs: 5 * 60_000,
+              loader: loadUpstreams,
+            })
+          ).value;
+    const upstreamsCompletedAt = performance.now();
     const trackingBlocked = isTrackingBlocked(pulse);
     const killSwitchEngaged = isMetaWritesKillSwitchEngaged();
     const scopedRecommendations = [
@@ -663,32 +913,65 @@ export async function GET(request: NextRequest) {
       ...lanes.watching,
       ...lanes.nonSales,
     ];
-    const [viewer, decisionRead, digest] = await Promise.all([
-      workspaceViewer(request, businessId),
-      canonicalDecisionReadModel({
-        businessId,
-        providerAccountId,
-        adCandidateLimit,
-      }),
-      readDecisionDigest({
-        businessId,
-        providerAccountId,
-        recommendationIds: [
-          ...new Set(scopedRecommendations.map((rec) => rec.id).filter(Boolean)),
-        ],
-        entityIds: [
-          ...new Set(
-            scopedRecommendations
-              .flatMap((rec) => [rec.campaignId, rec.adsetId])
-              .filter((value): value is string => Boolean(value)),
-          ),
-        ],
-        snapshotDate: lanes.snapshotDate,
-        endDate: lanes.endDate ?? pulse.endDate,
-      }),
+    const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
+      const loadDecisionBundle = async () => {
+        const [decisionRead, currentAdCampaignContexts] = await Promise.all([
+          canonicalDecisionReadModel({
+            businessId,
+            providerAccountId,
+            adCandidateLimit,
+            currentAds,
+          }),
+          readCurrentAdCampaignContexts({
+            businessId,
+            providerAccountId,
+            snapshotAsOf: resolvedEndDate,
+            currentAds,
+          }),
+        ]);
+        return { currentAds, decisionRead, currentAdCampaignContexts };
+      };
+      if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+        return loadDecisionBundle();
+      }
+      return (
+        await getCachedValue({
+          key: `meta-decisions-bundle-v2:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}`,
+          ttlMs: 60_000,
+          staleWhileRevalidateMs: 240_000,
+          loader: loadDecisionBundle,
+        })
+      ).value;
+    });
+    const [decisionBundle, digest] = await Promise.all([
+      decisionReadPromise,
+      compactOsSurface
+        ? Promise.resolve(null)
+        : readDecisionDigest({
+            businessId,
+            providerAccountId,
+            recommendationIds: [
+              ...new Set(
+                scopedRecommendations.map((rec) => rec.id).filter(Boolean),
+              ),
+            ],
+            entityIds: [
+              ...new Set(
+                scopedRecommendations
+                  .flatMap((rec) => [rec.campaignId, rec.adsetId])
+                  .filter((value): value is string => Boolean(value)),
+              ),
+            ],
+            snapshotDate: lanes.snapshotDate,
+            endDate: lanes.endDate ?? pulse.endDate,
+          }),
     ]);
+    const decisionBundleCompletedAt = performance.now();
+    const { currentAds, decisionRead, currentAdCampaignContexts } = decisionBundle;
     if (!decisionRead.ok) {
-      return NextResponse.json(decisionRead.payload, { status: decisionRead.status });
+      return NextResponse.json(decisionRead.payload, {
+        status: decisionRead.status,
+      });
     }
     const payload: MetaDecisionsWorkspacePayload & {
       decisionReadModel: MetaDecisionsWorkspaceReadModel;
@@ -713,20 +996,69 @@ export async function GET(request: NextRequest) {
         engineVersion: pulse.engineVersion,
         currency: pulse.currency ?? null,
         killSwitchEngaged,
-        killSwitchReason: killSwitchEngaged ? "META_ADS_WRITE_KILL_SWITCH" : null,
+        killSwitchReason: killSwitchEngaged
+          ? "META_ADS_WRITE_KILL_SWITCH"
+          : null,
       },
       viewer,
-      banners: workspaceBanners({ pulse, lanes, trackingBlocked, killSwitchEngaged, viewer }),
-      digest,
+      banners: workspaceBanners({
+        pulse,
+        lanes,
+        trackingBlocked,
+        killSwitchEngaged,
+        viewer,
+      }),
+      digest: digest ?? {
+        snapshotDate: lanes.snapshotDate,
+        unavailableReason: "not_requested_for_compact_surface",
+        labelFlips: { count: 0, publishedCount: 0, items: [] },
+        actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
+        anomalies: { openedCount: 0, items: [] },
+        deferrals: { dueCount: 0, items: [] },
+      },
       decisionReadModel: decisionRead.model,
       os: buildMetaOsDecisionsPresentation({
         actionNow: lanes.actionNow,
         watching: lanes.watching,
         nonSales: lanes.nonSales,
+        structureInventory: lanes.structureInventory,
+        inactiveStructure: lanes.archive,
         decisionReadModel: decisionRead.model,
+        currentAds: currentAds.complete ? currentAds.rows : [],
+        currentAdCampaignContexts,
         currency: pulse.currency ?? null,
       }),
     };
+    if (compactOsSurface) {
+      const compactPayload: MetaDecisionsOsWorkspacePayload = {
+        businessId: payload.businessId,
+        window: payload.window,
+        statusFilter: payload.statusFilter,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        pulse: { lastSyncAt: payload.pulse.lastSyncAt ?? null },
+        system: payload.system,
+        viewer: payload.viewer,
+        banners: payload.banners,
+        decisionReadModel: {
+          status: payload.decisionReadModel.status,
+          unavailable: payload.decisionReadModel.unavailable ?? null,
+        },
+        os: payload.os,
+      };
+      return NextResponse.json(compactPayload, {
+        headers: {
+          "Cache-Control": "private, max-age=0",
+          "Server-Timing": [
+            `resolve_end_date;dur=${(endDateResolvedAt - requestStartedAt).toFixed(1)}`,
+            `upstreams;dur=${(upstreamsCompletedAt - endDateResolvedAt).toFixed(1)}`,
+            `current_ads;dur=${(currentAdsCompletedAt - endDateResolvedAt).toFixed(1)}`,
+            `decision_bundle;dur=${(decisionBundleCompletedAt - upstreamsCompletedAt).toFixed(1)}`,
+            `total;dur=${(decisionBundleCompletedAt - requestStartedAt).toFixed(1)}`,
+          ].join(", "),
+        },
+      });
+    }
     return NextResponse.json(payload);
   } catch (error) {
     if (error instanceof UpstreamError) {
@@ -740,7 +1072,12 @@ export async function GET(request: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to build Meta decisions workspace." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to build Meta decisions workspace.",
+      },
       { status: 500 },
     );
   }

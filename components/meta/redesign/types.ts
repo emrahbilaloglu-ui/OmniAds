@@ -48,6 +48,7 @@ export interface MetaPulsePayload {
   seasonalRegime: string;
   engineLastRun: string | null;
   engineVersion: string;
+  campaignContextMode?: "legacy_labels" | "automatic" | "unknown";
   snapshotHealth?: MetaSnapshotHealth | null;
   labelCoverage?: MetaLabelCoverage | null;
   targetAnchor?: MetaTargetAnchor | null;
@@ -126,6 +127,33 @@ export interface MetaHealthyEntity {
   isBidValueMixed?: boolean;
 }
 
+/**
+ * Account-scoped provider inventory for the Structure surface. This is not a
+ * recommendation: action authority remains in the server recommendation
+ * envelope and the presentation layer merges it onto these rows.
+ */
+export interface MetaStructureInventoryEntity {
+  id: string;
+  level: "campaign" | "adset";
+  name: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  campaignKind: MetaCampaignKind | null;
+  status: string | null;
+  statusLabel: string;
+  metrics: {
+    spend: number | null;
+    purchases: number | null;
+    roas: number | null;
+    cpa: number | null;
+    ctr: number | null;
+    frequency: number | null;
+  };
+  entityConfiguration: NonNullable<
+    MetaRecommendation["entityConfiguration"]
+  >;
+}
+
 export interface MetaArchivedEntity {
   id: string;
   level: "campaign" | "adset";
@@ -141,6 +169,12 @@ export interface MetaArchivedEntity {
   purchases: number;
   lastKnownWindow: string;
   diagnosticNote: string | null;
+  advisory?: {
+    decisionLabel: string | null;
+    primaryActionLabel: string;
+    why: string;
+    confidence: "high" | "medium" | "low";
+  } | null;
 }
 
 export interface MetaLanePayload {
@@ -158,6 +192,8 @@ export interface MetaLanePayload {
   healthy: MetaHealthyEntity[];
   nonSales: MetaRecommendation[];
   archive: MetaArchivedEntity[];
+  /** Complete campaign/ad-set inventory for optional client-side filtering. */
+  structureInventory?: MetaStructureInventoryEntity[];
   deferredIds: string[];
   watchingSegments?: MetaWatchingSegment[];
   snapshotHealth?: MetaSnapshotHealth | null;
@@ -274,6 +310,24 @@ export interface MetaDecisionsWorkspacePayload {
   banners: MetaDecisionsWorkspaceBanner[];
   digest: MetaDecisionsDigest;
   decisionReadModel: MetaDecisionsWorkspaceReadModel;
+  os: MetaOsDecisionsPresentation;
+}
+
+/** Compact contract consumed by the route-owned Decisions OS. */
+export interface MetaDecisionsOsWorkspacePayload {
+  businessId: string;
+  window: MetaWindowKey;
+  statusFilter?: BriefingStatusFilter;
+  startDate: string;
+  endDate: string;
+  pulse: Pick<MetaPulsePayload, "lastSyncAt">;
+  system: MetaDecisionsWorkspacePayload["system"];
+  viewer: MetaDecisionsWorkspaceViewer | null;
+  banners: MetaDecisionsWorkspaceBanner[];
+  decisionReadModel: Pick<
+    MetaDecisionsWorkspaceReadModel,
+    "status" | "unavailable"
+  >;
   os: MetaOsDecisionsPresentation;
 }
 

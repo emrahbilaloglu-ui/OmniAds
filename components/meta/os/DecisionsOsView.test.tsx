@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DecisionsOsView,
   nextAdCandidateLimit,
+  preserveDecisionWorkspacePlaceholder,
   resolveAvailableDecisionLane,
 } from "@/components/meta/os/DecisionsOsView";
 
@@ -30,6 +31,13 @@ const priority = {
   rank: 330,
   version: "meta-os-decisions.presentation.v2",
 };
+
+const urgency = {
+  level: "critical",
+  rank: 4,
+  label: "Urgent",
+  reason: "Above target at mature spend.",
+} as const;
 
 const metrics = {
   spend: 1000,
@@ -74,6 +82,8 @@ const workspace = {
         {
           id: "group:cmp_1",
           highestPriority: priority,
+          highestUrgency: urgency,
+          urgentAdsetCount: 0,
           adsets: [],
           campaign: {
             id: "campaign:cmp_1",
@@ -92,6 +102,7 @@ const workspace = {
             action,
             lane: "act",
             priority,
+            urgency,
             confidence: "high",
             assessment: "Budget opportunity",
             whyNow: "Above target at mature spend.",
@@ -161,9 +172,12 @@ describe("DecisionsOsView", () => {
 
     expect(html).toContain("Structure");
     expect(html).toContain("Ads");
+    expect(html).toContain("Inactive assets");
     expect(html).toContain("Act Now");
     expect(html).toContain("Needs Resolution");
     expect(html).toContain("Monitoring");
+    expect(html).toContain("All statuses");
+    expect(html).toContain("Urgent");
     expect(html).toContain("Review Campaign Budget");
     expect(html).toContain("Prospecting");
     expect(html).toContain('data-provider-writes="none"');
@@ -205,5 +219,39 @@ describe("DecisionsOsView", () => {
     expect(nextAdCandidateLimit(60)).toBe(120);
     expect(nextAdCandidateLimit(240)).toBe(300);
     expect(nextAdCandidateLimit(300)).toBe(300);
+  });
+
+  it("never carries Ads rows across businesses or provider accounts", () => {
+    const previous = { os: { ads: { items: ["prior-account-ad"] } } };
+
+    expect(
+      preserveDecisionWorkspacePlaceholder(
+        previous,
+        { queryKey: ["meta-decisions-os-v2", "biz_1", "act_1"] },
+        "biz_2",
+        "act_2",
+      ),
+    ).toBeUndefined();
+    expect(
+      preserveDecisionWorkspacePlaceholder(
+        previous,
+        { queryKey: ["meta-decisions-os-v2", "biz_1", "act_1"] },
+        "biz_1",
+        "act_2",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps prior rows only while the same scoped workspace refreshes", () => {
+    const previous = { os: { ads: { items: ["same-account-ad"] } } };
+
+    expect(
+      preserveDecisionWorkspacePlaceholder(
+        previous,
+        { queryKey: ["meta-decisions-os-v2", "biz_1", "act_1", "28d"] },
+        "biz_1",
+        "act_1",
+      ),
+    ).toBe(previous);
   });
 });

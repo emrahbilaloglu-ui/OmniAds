@@ -6,10 +6,13 @@ vi.mock("@/lib/access", () => ({
 }));
 
 vi.mock("@/lib/meta/ads-action-log", () => ({
+  completeDecisionOriginMetaAdsActionLog: vi.fn(),
   completeMetaAdsActionLog: vi.fn(),
+  createDecisionOriginMetaAdsActionLog: vi.fn(),
   createMetaAdsActionLog: vi.fn(),
   hasRecentPendingMetaAdsAction: vi.fn(),
   readLaunchpadCreatedAdIds: vi.fn(),
+  resolveExactMetaAdActionTarget: vi.fn(),
   resolveMetaAdActionTarget: vi.fn(),
 }));
 
@@ -20,6 +23,10 @@ vi.mock("@/lib/meta/ads-write", () => ({
 
 vi.mock("@/lib/meta/automation-write-guard", () => ({
   rejectIfMetaWritesBlocked: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decision-origin-action-preflight", () => ({
+  runServerDecisionOriginAdActionPreflight: vi.fn(),
 }));
 
 vi.mock("@/lib/launchpad/meta-validation", () => ({
@@ -38,6 +45,9 @@ const access = await import("@/lib/access");
 const actionLog = await import("@/lib/meta/ads-action-log");
 const adsWrite = await import("@/lib/meta/ads-write");
 const writeGuard = await import("@/lib/meta/automation-write-guard");
+const decisionPreflight = await import(
+  "@/lib/meta/decision-origin-action-preflight"
+);
 const validation = await import("@/lib/launchpad/meta-validation");
 const { POST } = await import("./route");
 
@@ -69,6 +79,30 @@ function body() {
   };
 }
 
+function decisionBody() {
+  return {
+    contractVersion: "meta-decision-origin-ad-execution.v1",
+    businessId: BUSINESS_ID,
+    providerAccountId: "act_123",
+    action: "pause" as const,
+    idempotencyKey: "decision-bulk-1",
+    ads: ["ad_1", "ad_2"].map((adId, index) => ({
+      contractVersion: "meta-decision-origin-ad-execution.v1",
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_123",
+      adId,
+      snapshotId: `00000000-0000-4000-8000-0000000000${index + 11}`,
+      evaluationId: `00000000-0000-4000-8000-0000000000${index + 21}`,
+      engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+      decisionHash: String(index + 1).repeat(64),
+      action: "pause",
+      idempotencyKey: `decision-${adId}`,
+      creativeId: `creative_${index + 1}`,
+      name: `Creative ${index + 1}`,
+    })),
+  };
+}
+
 describe("POST /api/launchpad/meta/bulk-ad-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -90,6 +124,18 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     });
     vi.mocked(writeGuard.rejectIfMetaWritesBlocked).mockResolvedValue(null);
     vi.mocked(actionLog.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: 0,
+    });
     vi.mocked(actionLog.readLaunchpadCreatedAdIds).mockResolvedValue(
       new Set(["ad_1", "ad_2"]),
     );
@@ -100,7 +146,18 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     vi.mocked(actionLog.createMetaAdsActionLog).mockImplementation(async () => ({
       id: `log_${vi.mocked(actionLog.createMetaAdsActionLog).mock.calls.length}`,
     }) as never);
+    vi.mocked(actionLog.createDecisionOriginMetaAdsActionLog).mockImplementation(
+      async () => ({
+        id: `decision_log_${
+          vi.mocked(actionLog.createDecisionOriginMetaAdsActionLog).mock.calls
+            .length
+        }`,
+      }) as never,
+    );
     vi.mocked(actionLog.completeMetaAdsActionLog).mockResolvedValue({ id: "log" } as never);
+    vi.mocked(
+      actionLog.completeDecisionOriginMetaAdsActionLog,
+    ).mockResolvedValue({ id: "decision_log" } as never);
     vi.mocked(actionLog.resolveMetaAdActionTarget).mockImplementation(async (input) => ({
       ok: true,
       target: {
@@ -110,6 +167,17 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
         providerAccountId: "act_123",
       },
     }) as never);
+    vi.mocked(actionLog.resolveExactMetaAdActionTarget).mockImplementation(
+      async (input) => ({
+        ok: true,
+        target: {
+          businessId: BUSINESS_ID,
+          adId: input.adId,
+          creativeId: input.adId === "ad_1" ? "creative_1" : "creative_2",
+          providerAccountId: input.providerAccountId,
+        },
+      }) as never,
+    );
     vi.mocked(adsWrite.pauseAd)
       .mockResolvedValueOnce({
         ok: true,
@@ -157,6 +225,87 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({ action: "pause", adId: "ad_1", creativeId: "creative_1" }),
     );
+  });
+
+  it("uses exact targets and atomic receipts for every decision-origin bulk item", async () => {
+    const response = await POST(request(decisionBody()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, successCount: 2, failedCount: 0 });
+    expect(actionLog.resolveExactMetaAdActionTarget).toHaveBeenCalledTimes(2);
+    expect(actionLog.resolveMetaAdActionTarget).not.toHaveBeenCalled();
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      actionLog.completeDecisionOriginMetaAdsActionLog,
+    ).toHaveBeenCalledTimes(2);
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("blocks stale exact bulk actions before any provider write", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: ["decision_stale"],
+      errorCode: "decision_stale",
+      duplicateReceipt: null,
+      decisionAgeHours: 13,
+      currentAdStateAgeMinutes: 0,
+    });
+
+    const response = await POST(request(decisionBody()));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: false, successCount: 0, failedCount: 2 });
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("replays an exact bulk receipt without another provider write", async () => {
+    const retryBody = decisionBody();
+    retryBody.ads = retryBody.ads.slice(0, 1);
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      disposition: "duplicate",
+      shouldMutate: false,
+      blockers: [],
+      errorCode: null,
+      duplicateReceipt: {
+        actionLogId: "decision_log_1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: retryBody.ads[0]!.snapshotId,
+        evaluationId: retryBody.ads[0]!.evaluationId,
+        engineVersion: retryBody.ads[0]!.engineVersion,
+        decisionHash: retryBody.ads[0]!.decisionHash,
+        action: "pause",
+        idempotencyKey: retryBody.ads[0]!.idempotencyKey,
+        status: "success",
+        dryRun: false,
+        providerVerified: true,
+        treatmentEligible: true,
+      },
+      decisionAgeHours: null,
+      currentAdStateAgeMinutes: null,
+    });
+
+    const response = await POST(request(retryBody));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true, successCount: 1, failedCount: 0 });
+    expect(adsWrite.pauseAd).not.toHaveBeenCalled();
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
   });
 
   it("continues after a failed ad and returns partial results", async () => {

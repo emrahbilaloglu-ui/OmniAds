@@ -34,7 +34,7 @@ const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_job_runs: 22,
   engine_v3_account_calibration_daily: 42,
   engine_v3_creative_lifecycle_daily: 62,
-  engine_v3_decision_snapshots_daily: 28,
+  engine_v3_decision_snapshots_daily: 30,
   engine_v3_decision_events: 17,
   engine_v3_decision_outcomes_daily: 27,
 } satisfies Record<(typeof ENGINE_V3_TABLES)[number], number>;
@@ -79,6 +79,7 @@ async function collectMigrationQueries() {
   vi.doMock("@/lib/db", () => ({
     getDb: () => sql,
     getDbWithTimeout: () => sql,
+    runDbTransaction: async (operation: () => Promise<unknown>) => operation(),
   }));
   vi.doMock("@/lib/startup-diagnostics", () => ({
     logStartupError: vi.fn(),
@@ -86,7 +87,11 @@ async function collectMigrationQueries() {
   }));
 
   const { runMigrations } = await import("@/lib/migrations");
-  await runMigrations({ force: true, reason: "engine-v3-schema-test" });
+  await runMigrations({
+    force: true,
+    reason: "engine-v3-schema-test",
+    verifyNativeSchemaCapabilities: false,
+  });
 
   return queries;
 }
@@ -157,7 +162,9 @@ function engineStatements(queries: string[]) {
 
 function precomputedEngineStatements(queries: string[]) {
   return engineStatements(queries).filter(
-    (query) => !query.includes("business_engine_v3_flags"),
+    (query) =>
+      !query.includes("business_engine_v3_flags") &&
+      !query.includes("engine_v3_ad_"),
   );
 }
 
@@ -287,7 +294,7 @@ describe("Engine v3 precomputed table migrations", () => {
 
     for (const statement of firstRun) {
       expect(statement).toMatch(
-        /^(CREATE (TABLE|INDEX) IF NOT EXISTS|ALTER TABLE .* ADD COLUMN IF NOT EXISTS|DO \$\$) /,
+        /^(CREATE (?:TABLE|(?:UNIQUE )?INDEX) IF NOT EXISTS|ALTER TABLE .* ADD COLUMN IF NOT EXISTS|DO \$\$) /,
       );
     }
 

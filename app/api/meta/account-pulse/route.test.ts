@@ -332,7 +332,7 @@ describe("GET /api/meta/account-pulse", () => {
             },
           ];
         }
-        if (text.includes("MAX(updated_at)")) {
+        if (text.includes("ORDER BY date DESC, updated_at DESC")) {
           return [{ last_sync_at: "2026-07-10T23:00:00.000Z" }];
         }
         return [];

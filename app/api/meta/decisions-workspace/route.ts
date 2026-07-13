@@ -33,12 +33,8 @@ import { getCachedValue } from "@/lib/server-cache";
 export const dynamic = "force-dynamic";
 
 type UpstreamName = "account-pulse" | "lane-classify";
-// The upstream account-pulse / lane-classify routes can be slow to respond on a cold
-// dev compile (each route module compiles on first hit, 2-9s under webpack), which used
-// to abort the whole workspace to a 504 → the Decisions page rendered an empty shell.
-// Give dev generous headroom; keep prod tighter but above the old 8s so a slow warm
-// query no longer blanks the page. (The right long-term fix is to drop the HTTP
-// self-fetch for in-process calls — tracked in the redesign plan.)
+// The composed route still has a bounded deadline, but production avoids a
+// network hairpin by invoking both read-only route handlers in-process.
 const WORKSPACE_UPSTREAM_TIMEOUT_MS =
   process.env.NODE_ENV === "production" ? 15_000 : 45_000;
 
@@ -176,6 +172,45 @@ function forwardedHeaders(request: NextRequest) {
     if (value) headers.set(name, value);
   }
   return headers;
+}
+
+function useInProcessUpstreams() {
+  const override = process.env.META_DECISIONS_UPSTREAM_TRANSPORT
+    ?.trim()
+    .toLowerCase();
+  if (override === "http") return false;
+  if (override === "in_process") return true;
+  return process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
+async function invokeWorkspaceUpstream(input: {
+  request: NextRequest;
+  source: UpstreamName;
+  url: URL;
+  signal: AbortSignal;
+}) {
+  const headers = forwardedHeaders(input.request);
+  if (!useInProcessUpstreams()) {
+    return fetch(input.url, {
+      cache: "no-store",
+      headers,
+      signal: input.signal,
+    });
+  }
+  const upstreamRequest = new NextRequest(input.url, {
+    headers,
+    signal: input.signal,
+  });
+  if (input.source === "account-pulse") {
+    const { GET: getAccountPulse } = await import(
+      "@/app/api/meta/account-pulse/route"
+    );
+    return getAccountPulse(upstreamRequest);
+  }
+  const { GET: getLaneClassification } = await import(
+    "@/app/api/meta/lane-classify/route"
+  );
+  return getLaneClassification(upstreamRequest);
 }
 
 function workspaceParams(source: URLSearchParams, resolvedEndDate: string) {
@@ -342,18 +377,30 @@ async function readInternalJson<T>(
   const url = new URL(pathname, request.nextUrl.origin);
   url.search = params.toString();
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    WORKSPACE_UPSTREAM_TIMEOUT_MS,
-  );
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   let response: Response;
   try {
-    response = await fetch(url, {
-      cache: "no-store",
-      headers: forwardedHeaders(request),
-      signal: controller.signal,
-    });
+    response = await Promise.race([
+      invokeWorkspaceUpstream({
+        request,
+        source,
+        url,
+        signal: controller.signal,
+      }),
+      new Promise<Response>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(
+            new UpstreamError(source, 504, {
+              error: "upstream_timeout",
+              timeoutMs: WORKSPACE_UPSTREAM_TIMEOUT_MS,
+            }),
+          );
+        }, WORKSPACE_UPSTREAM_TIMEOUT_MS);
+      }),
+    ]);
   } catch (error) {
+    if (error instanceof UpstreamError) throw error;
     if (controller.signal.aborted) {
       throw new UpstreamError(source, 504, {
         error: "upstream_timeout",
@@ -362,7 +409,7 @@ async function readInternalJson<T>(
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout);
   }
   const raw = await response.text();
   let payload: unknown = null;

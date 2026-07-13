@@ -28,6 +28,18 @@ const metaApiMock = vi.hoisted(() => ({
   resolveMetaCredentials: vi.fn(),
   fetchMetaActiveAdConfigsReceipt: vi.fn(),
 }));
+const upstreamRouteMock = vi.hoisted(() => ({
+  accountPulseGet: vi.fn(),
+  laneClassificationGet: vi.fn(),
+}));
+
+vi.mock("@/app/api/meta/account-pulse/route", () => ({
+  GET: upstreamRouteMock.accountPulseGet,
+}));
+
+vi.mock("@/app/api/meta/lane-classify/route", () => ({
+  GET: upstreamRouteMock.laneClassificationGet,
+}));
 
 vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials: metaApiMock.resolveMetaCredentials,
@@ -183,6 +195,42 @@ describe("GET /api/meta/decisions-workspace", () => {
 
     expect(response.status).toBe(403);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("composes production upstreams in-process without an HTTP self-fetch", async () => {
+    vi.stubEnv("META_DECISIONS_UPSTREAM_TRANSPORT", "in_process");
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    upstreamRouteMock.accountPulseGet.mockResolvedValue(jsonResponse(pulse));
+    upstreamRouteMock.laneClassificationGet.mockResolvedValue(
+      jsonResponse(lanes),
+    );
+    const fetchMock = vi.fn(() => {
+      throw new Error("HTTP self-fetch must not run");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+        { headers: { cookie: "session=test-session" } },
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.businessId).toBe("biz_1");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(upstreamRouteMock.accountPulseGet).toHaveBeenCalledTimes(1);
+    expect(upstreamRouteMock.laneClassificationGet).toHaveBeenCalledTimes(1);
+    const accountPulseRequest = upstreamRouteMock.accountPulseGet.mock
+      .calls[0]?.[0] as NextRequest;
+    expect(accountPulseRequest.nextUrl.pathname).toBe(
+      "/api/meta/account-pulse",
+    );
+    expect(accountPulseRequest.headers.get("cookie")).toBe(
+      "session=test-session",
+    );
   });
 
   it("keeps the canonical read model unavailable until providerAccountId is explicit", async () => {

@@ -136,6 +136,8 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-077",
   "GC-078",
   "GC-079",
+  "GC-080",
+  "GC-081",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -742,6 +744,52 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         }),
       );
     }
+    case "GC-080": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: { bottomQuartileRatio: 0.9 },
+      });
+      return decideCreative(
+        makeCreativeInput({
+          spend: 1500,
+          purchases: 12,
+          roas: 1.6,
+          recent7dRoas: 1.6,
+          targetRoas: 2,
+          breakevenRoas: 1.4,
+        }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.4,
+          },
+        },
+      );
+    }
+    case "GC-081": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: { bottomQuartileRatio: 0.52 },
+      });
+      return decideCreative(
+        makeCreativeInput({
+          spend: 1500,
+          purchases: 12,
+          roas: 1.2,
+          recent7dRoas: 1.2,
+          targetRoas: 2,
+          breakevenRoas: 1.56,
+        }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.56,
+          },
+        },
+      );
+    }
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -799,7 +847,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(75);
+    expect(fixtureCases).toHaveLength(77);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -866,6 +914,8 @@ describe("Creative Decision Center golden cases", () => {
       "GC-077",
       "GC-078",
       "GC-079",
+      "GC-080",
+      "GC-081",
     ]);
 
     expect(pendingCases).toHaveLength(37);

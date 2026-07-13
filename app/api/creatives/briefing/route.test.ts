@@ -57,6 +57,7 @@ const previousObservabilitySalt =
   process.env.DECISION_CENTER_OBSERVABILITY_SALT;
 const previousDecisionCenterDefaultDisabled =
   process.env.DECISION_CENTER_DEFAULT_DISABLED;
+const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
 
 function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
@@ -117,6 +118,7 @@ beforeEach(() => {
     return [];
   });
   process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
   delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
   delete process.env.DECISION_CENTER_OBSERVABILITY;
   delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
@@ -228,6 +230,11 @@ afterEach(() => {
   } else {
     process.env.DECISION_CENTER_DEFAULT_DISABLED =
       previousDecisionCenterDefaultDisabled;
+  }
+  if (previousCampaignContextMode === undefined) {
+    delete process.env.CAMPAIGN_CONTEXT_MODE;
+  } else {
+    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
   }
 });
 

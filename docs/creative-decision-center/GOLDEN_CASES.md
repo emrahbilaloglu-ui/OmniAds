@@ -79,6 +79,8 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-077  | scale-ready winner uses a positive commercial target confirmed within the 30-day freshness window                      | Scale                   | scale               | review_only           | performance          | high                 | high                   | fresh_commercial_truth_unchanged        | mature           | diagnose_data                     |
 | GC-078  | scale-ready winner uses a positive commercial target last confirmed more than 30 days ago                              | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_stale_scale_block      | mature           | diagnose_data                     |
 | GC-079  | scale-ready winner uses a positive commercial target whose update time is unknown                                      | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_unknown_scale_block    | mature           | diagnose_data                     |
+| GC-080  | mature ad is above fresh break-even but below an unusually high account P25                                            | Keep                    | review              | review_only           | performance          | medium               | medium                 | breakeven_cut_ceiling                   | mature           | diagnose_data                     |
+| GC-081  | mature ad is between account P25 and fresh break-even when P25 is the lower boundary                                   | Keep                    | review              | review_only           | performance          | medium               | medium                 | no_cut_zone_expansion                   | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -199,6 +201,9 @@ These cases must become executable fixtures before resolver behavior changes. Do
   math but blocks hard scale and carries reduced authority.
 - GC-079 proves an unknown target update time is stale-equivalent and never
   restores hard scale authority by default.
+- GC-080 proves fresh break-even narrows an economically unsafe account P25
+  boundary and prevents an above-break-even cut.
+- GC-081 proves break-even never widens a calibrated account P25 cut zone.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match
@@ -255,6 +260,11 @@ change persisted engine labels or formula outputs.
 | MOG-008 | 100 high-confidence Monitoring rows + lower-confidence `cut`    | Act row retained     | Underperformer             | Cut                                        |
 | MOG-009 | selected lane empty while another lane has rows                 | Non-empty lane shown | server assessment retained | no fabricated action                       |
 | MOG-010 | 140 eligible rows; explicit candidate limit grows 60 -> 120     | Same ordering expands| server assessment retained | first 60 remain stable                      |
+| MOG-011 | Ad active, parent ad set paused                                 | Inactive assets      | prior verdict advisory      | no provider mutation                        |
+| MOG-012 | automatic Test/Main inference lacks authority gate              | Review-only          | original verdict retained   | no manual-label task and no provider mutation |
+| MOG-013 | constrained bid winner with complete 30d under-utilization      | Money move           | current/previous bid shown  | server-proposed bid review                   |
+| MOG-014 | USD daily budget `100000`, bid `15000`, spend `124`             | Structure            | USD 1,000 / USD 150 shown  | utilization uses major units; write stays minor |
+| MOG-015 | campaign `WITH_ISSUES`, paused, or unknown; or active ad set under paused campaign | Inactive assets | prior verdict advisory | no Structure row and no provider mutation |
 
 - MOG-003 through MOG-006 require `buyerAction: null`, a non-null resolution,
   and no provider mutation.
@@ -264,6 +274,16 @@ change persisted engine labels or formula outputs.
   server decision or action.
 - MOG-010 requires server recomposition. The UI must not concatenate, re-rank,
   or classify raw decisions locally.
+- MOG-011 requires all three current hierarchy statuses to be live before an Ad
+  can enter the main queue; unknown fails closed into the inactive envelope.
+- MOG-012 preserves the mathematical label while blocking action authority;
+  rendering `diagnose` or asking the operator to supply a required label fails.
+- MOG-013 requires current value, previous different value, capture date, and
+  range-correct utilization to come from the server contract.
+- MOG-014 requires provider minor-unit values to be converted before spend
+  comparison and display without changing the provider-write integer contract.
+- MOG-015 requires exact current `ACTIVE` membership at every Structure
+  hierarchy level; `WITH_ISSUES` is not accepted as active on this surface.
 
 ## Authority And Raw-Restore Regression Cases
 

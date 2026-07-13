@@ -1102,7 +1102,9 @@ test.describe("full UI redesign route and visual smoke", () => {
             timeout: 30_000,
           });
           await expect(
-            shotPage.getByText("Action blocked", { exact: true }),
+            shotPage.getByText(
+              /^(Monitoring · no provider write|Action blocked)$/,
+            ),
             "Meta Decisions mobile write suppression",
           ).toBeVisible();
         } else if (shot.name === "creative-studio") {

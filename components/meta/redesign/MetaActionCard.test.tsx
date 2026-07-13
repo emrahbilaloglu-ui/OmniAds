@@ -65,6 +65,39 @@ describe("MetaActionCard lean decision row", () => {
     expect(html).toContain("2.00× target");
   });
 
+  it("renders current and previous bid authority from the server contract", () => {
+    const html = renderToStaticMarkup(
+      <MetaActionCard
+        moneyCurrency="USD"
+        rec={metaRec({
+          entityConfiguration: {
+            source: "account_scoped_campaign_row",
+            budgetOwner: "campaign",
+            budgetMode: "campaign_budget",
+            controlOwner: "adset",
+            status: "ACTIVE",
+            optimizationGoal: "OFFSITE_CONVERSIONS",
+            bidStrategyType: "cost_cap",
+            bidStrategyLabel: "Cost Cap",
+            bidValue: 2500,
+            bidValueFormat: "currency",
+            previousBidValue: 2000,
+            previousBidValueFormat: "currency",
+            previousBidValueCapturedAt: "2026-07-10T04:00:00.000Z",
+            dailyBudget: 100,
+            lifetimeBudget: null,
+            budgetUtilization: 0.72,
+          },
+        })}
+      />,
+    );
+
+    expect(html).toContain("data-bid-configuration");
+    expect(html).toContain("Cost Cap $25.00");
+    expect(html).toContain("previous $20.00 · 2026-07-10");
+    expect(html).toContain("72% budget used");
+  });
+
   it("never fabricates a money figure — missing metrics render an em dash", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard rec={metaRec({ metrics: null })} />,

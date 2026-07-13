@@ -1,13 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { creativeAutomationReadiness } from "../automation-readiness";
 import {
   buildCreativeRollbackPlan,
   createCreativeActionIdempotencyKey,
+  createDecisionOriginAdActionIdempotencyKey,
   createCreativePostActionMonitorPlan,
+  evaluateDecisionOriginAdExecutionPreflight,
   evaluateCreativeExecutionReadiness,
   evaluateCreativeMutationPreflight,
+  runDecisionOriginAdExecutionPreflight,
+  validateDecisionOriginProviderVerification,
 } from "../execution-safety";
-import type { DecisionOutput } from "../types";
+import type {
+  DecisionOriginAdExecutionEvidence,
+  DecisionOriginAdExecutionRequest,
+} from "../execution-safety";
+import { NATIVE_AD_ENGINE_VERSION, type DecisionOutput } from "../types";
 
 function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
   return {
@@ -365,5 +373,345 @@ describe("creative execution safety", () => {
         "base_readiness_not_auto_eligible",
       ]),
     );
+  });
+});
+
+const NATIVE_DECISION_HASH = "b".repeat(64);
+
+function nativeRequest(
+  overrides: Partial<DecisionOriginAdExecutionRequest> = {},
+): DecisionOriginAdExecutionRequest {
+  const base = {
+    contractVersion: "meta-decision-origin-ad-execution.v1" as const,
+    businessId: "biz-1",
+    providerAccountId: "act-1",
+    adId: "ad-1",
+    snapshotId: "snapshot-1",
+    evaluationId: "evaluation-1",
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    decisionHash: NATIVE_DECISION_HASH,
+    action: "pause",
+    idempotencyKey: "decision-action-1",
+    creativeId: "shared-creative",
+  };
+  return { ...base, ...overrides };
+}
+
+function nativeEvidence(
+  overrides: {
+    currentAd?: Partial<DecisionOriginAdExecutionEvidence["currentAd"]>;
+    sourceDecision?: Partial<
+      DecisionOriginAdExecutionEvidence["sourceDecision"]
+    >;
+    receipt?: DecisionOriginAdExecutionEvidence["idempotencyReceipt"];
+    killSwitch?: Partial<DecisionOriginAdExecutionEvidence["killSwitch"]>;
+  } = {},
+): DecisionOriginAdExecutionEvidence {
+  return {
+    killSwitch: {
+      verified: true,
+      engaged: false,
+      ...overrides.killSwitch,
+    },
+    currentAccount: {
+      found: true,
+      businessId: "biz-1",
+      providerAccountId: "act-1",
+      writable: true,
+    },
+    currentAd: {
+      found: true,
+      businessId: "biz-1",
+      providerAccountId: "act-1",
+      adId: "ad-1",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: "APPROVED",
+      observedAt: "2026-07-12T09:59:00.000Z",
+      ...overrides.currentAd,
+    },
+    sourceDecision: {
+      found: true,
+      businessId: "biz-1",
+      providerAccountId: "act-1",
+      decisionEntityType: "ad",
+      decisionEntityId: "ad-1",
+      adId: "ad-1",
+      creativeId: "shared-creative",
+      snapshotId: "snapshot-1",
+      evaluationId: "evaluation-1",
+      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      decisionHash: NATIVE_DECISION_HASH,
+      decisionLabel: "cut",
+      blockedActionType: null,
+      explicitAuthorizedAction: "pause",
+      computedAt: "2026-07-12T09:30:00.000Z",
+      ...overrides.sourceDecision,
+    },
+    idempotencyReceipt: overrides.receipt ?? null,
+  };
+}
+
+describe("exact native-ad decision execution", () => {
+  it("builds idempotency from exact account, ad, source, epoch, hash, and action", () => {
+    const first = createDecisionOriginAdActionIdempotencyKey(nativeRequest());
+    const sameCreativeOtherAd = createDecisionOriginAdActionIdempotencyKey(
+      nativeRequest({ adId: "ad-2" }),
+    );
+    const changedHash = createDecisionOriginAdActionIdempotencyKey(
+      nativeRequest({ decisionHash: "c".repeat(64) }),
+    );
+
+    expect(first).toContain("decision-ad-action:biz-1:act-1:ad-1:pause");
+    expect(first).not.toBe(sameCreativeOtherAd);
+    expect(first).not.toBe(changedHash);
+  });
+
+  it("passes only with exact current state and source lineage", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence(),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      disposition: "proceed",
+      shouldMutate: true,
+      blockers: [],
+      decisionAgeHours: 0.5,
+      currentAdStateAgeMinutes: 1,
+    });
+  });
+
+  it("same creative on two ads cannot authorize the other ad", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest({ adId: "ad-1", creativeId: "shared-creative" }),
+      evidence: nativeEvidence({
+        currentAd: { adId: "ad-2" },
+        sourceDecision: {
+          decisionEntityId: "ad-2",
+          adId: "ad-2",
+          creativeId: "shared-creative",
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.disposition).toBe("reject");
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        "ad_identity_mismatch",
+        "source_decision_lineage_mismatch",
+      ]),
+    );
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("rejects same-account wrong-ad evidence instead of falling back", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({ currentAd: { adId: "alternate-ad" } }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toContain("ad_identity_mismatch");
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("rejects missing snapshot/evaluation before any evidence read", async () => {
+    const rereadEvidence = vi.fn(async () => nativeEvidence());
+
+    const result = await runDecisionOriginAdExecutionPreflight({
+      request: nativeRequest({ snapshotId: "", evaluationId: "" }),
+      rereadEvidence,
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toEqual([
+      "missing_snapshot_id",
+      "missing_evaluation_id",
+    ]);
+    expect(result.shouldMutate).toBe(false);
+    expect(rereadEvidence).not.toHaveBeenCalled();
+  });
+
+  it("rejects source hash drift and stale decisions", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        sourceDecision: {
+          decisionHash: "d".repeat(64),
+          computedAt: "2026-07-10T00:00:00.000Z",
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toEqual(
+      expect.arrayContaining(["decision_hash_mismatch", "decision_stale"]),
+    );
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("rejects a matching source from a different engine epoch", () => {
+    const request = nativeRequest({ engineVersion: "v3-ad-old-epoch" });
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        sourceDecision: { engineVersion: "v3-ad-old-epoch" },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toContain("engine_version_drift");
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("rejects budget/promote labels at ad execution grain", async () => {
+    const rereadEvidence = vi.fn(async () => nativeEvidence());
+    const result = await runDecisionOriginAdExecutionPreflight({
+      request: nativeRequest({ action: "scale_budget" }),
+      rereadEvidence,
+    });
+
+    expect(result.blockers).toEqual(["unsupported_action"]);
+    expect(rereadEvidence).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit source authorization for resume", () => {
+    const request = nativeRequest({ action: "resume" });
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        currentAd: {
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+        },
+        sourceDecision: { explicitAuthorizedAction: null },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toContain("action_not_authorized");
+  });
+
+  it("fails closed on kill-switch, policy, and status evidence", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        killSwitch: { engaged: true },
+        currentAd: {
+          policyEligible: null,
+          configuredStatus: "UNKNOWN",
+          effectiveStatus: null,
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toEqual(
+      expect.arrayContaining([
+        "kill_switch_engaged",
+        "policy_state_unverified",
+        "ad_status_incompatible",
+      ]),
+    );
+  });
+
+  it("treats an exact duplicate receipt as inert", () => {
+    const request = nativeRequest();
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        receipt: {
+          actionLogId: "log-1",
+          businessId: request.businessId,
+          providerAccountId: request.providerAccountId,
+          adId: request.adId,
+          snapshotId: request.snapshotId,
+          evaluationId: request.evaluationId,
+          engineVersion: request.engineVersion,
+          decisionHash: request.decisionHash,
+          action: request.action,
+          idempotencyKey: request.idempotencyKey,
+          status: "success",
+          dryRun: false,
+          providerVerified: true,
+          treatmentEligible: true,
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      disposition: "duplicate",
+      shouldMutate: false,
+      duplicateReceipt: { actionLogId: "log-1" },
+    });
+  });
+
+  it("rejects an idempotency key reused for another ad", () => {
+    const request = nativeRequest();
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        receipt: {
+          actionLogId: "log-1",
+          businessId: request.businessId,
+          providerAccountId: request.providerAccountId,
+          adId: "ad-2",
+          snapshotId: request.snapshotId,
+          evaluationId: request.evaluationId,
+          engineVersion: request.engineVersion,
+          decisionHash: request.decisionHash,
+          action: request.action,
+          idempotencyKey: request.idempotencyKey,
+          status: "success",
+          dryRun: false,
+          providerVerified: true,
+          treatmentEligible: true,
+        },
+      }),
+    });
+
+    expect(result.blockers).toEqual(["idempotency_conflict"]);
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("counts provider verification only for the exact ad/action and never for dry-run", () => {
+    const exact = validateDecisionOriginProviderVerification({
+      request: nativeRequest(),
+      verifiedAt: "2026-07-12T10:00:01.000Z",
+      verificationPayload: {
+        id: "ad-1",
+        status: "PAUSED",
+        effective_status: "PAUSED",
+      },
+    });
+    const wrongAd = validateDecisionOriginProviderVerification({
+      request: nativeRequest(),
+      verifiedAt: "2026-07-12T10:00:01.000Z",
+      verificationPayload: { id: "ad-2", status: "PAUSED" },
+    });
+    const dryRun = validateDecisionOriginProviderVerification({
+      request: nativeRequest({ dryRun: true }),
+      verifiedAt: "2026-07-12T10:00:01.000Z",
+      verificationPayload: { id: "ad-1", status: "PAUSED" },
+    });
+
+    expect(exact).toMatchObject({
+      providerVerified: true,
+      treatmentEligible: true,
+      blockers: [],
+    });
+    expect(wrongAd.providerVerified).toBe(false);
+    expect(wrongAd.blockers).toContain("verification_ad_mismatch");
+    expect(dryRun).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveCampaignContextMode } from "@/lib/creative-decision-engine/campaign-context/source";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -9,6 +10,7 @@ import {
 import { getMetaCanonicalOverviewTrends } from "@/lib/meta/canonical-overview";
 import { isInBriefing, parseBriefingStatusFilter } from "@/lib/meta/briefing-filter";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
+import { getCachedValue } from "@/lib/server-cache";
 import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import { resolveBusinessTargetPackFreshness } from "@/lib/business-commercial";
 import type {
@@ -449,10 +451,12 @@ async function readDecisionWorkspaceWarehousePulse(input: {
     ),
     sql.query<{ last_sync_at: string | null }>(
       `
-        SELECT MAX(updated_at)::text AS last_sync_at
+        SELECT updated_at::text AS last_sync_at
         FROM meta_campaign_daily
         WHERE business_id = $1
           AND provider_account_id = $2
+        ORDER BY date DESC, updated_at DESC
+        LIMIT 1
       `,
       [input.businessId, input.providerAccountId],
     ),
@@ -476,6 +480,27 @@ async function readDecisionWorkspaceWarehousePulse(input: {
     })),
     lastSyncAt: syncRows[0]?.last_sync_at ?? null,
   };
+}
+
+async function readDecisionWorkspacePulseStatus(input: {
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const rows = await getDb().query<{
+    account_currency: string | null;
+    last_sync_at: string | null;
+  }>(
+    `
+      SELECT account_currency, updated_at::text AS last_sync_at
+      FROM meta_campaign_daily
+      WHERE business_id = $1
+        AND provider_account_id = $2
+      ORDER BY date DESC, updated_at DESC
+      LIMIT 1
+    `,
+    [input.businessId, input.providerAccountId],
+  );
+  return rows[0] ?? null;
 }
 
 function pulseRollupTotals(rows: PulseDailyRollup[], startDate: string, endDate: string) {
@@ -514,19 +539,94 @@ export async function GET(request: NextRequest) {
     searchParams.get("decision_workspace") === "1" &&
     statusFilter === "all" &&
     Boolean(providerAccountId);
+  const compactOsWorkspace =
+    decisionWorkspaceFastPath &&
+    searchParams.get("workspace_surface") === "os";
+  if (compactOsWorkspace) {
+    const loadStatus = async () => {
+      const [engineMetadata, trackingHealth, latest] = await Promise.all([
+        readEngineMetadata(businessId).catch(() => ({
+          engineLastRun: null,
+          engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+          latestSnapshotDate: null,
+          snapshotHealth: buildSnapshotHealth({
+            latestSnapshotDate: null,
+            lastRunAt: null,
+            engineVersion: META_RECOMMENDATION_ENGINE_VERSION,
+          }),
+        })),
+        readTrackingHealth(businessId, providerAccountId).catch(() => ({
+          status: "unknown" as const,
+          detail: "Tracking health is unavailable.",
+        })),
+        readDecisionWorkspacePulseStatus({
+          businessId,
+          providerAccountId: providerAccountId!,
+        }).catch(() => null),
+      ]);
+      return { engineMetadata, trackingHealth, latest };
+    };
+    const { engineMetadata, trackingHealth, latest } =
+      process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+        ? await loadStatus()
+        : (
+            await getCachedValue({
+              key: `meta-pulse-os-status-v1:${businessId}:${providerAccountId}`,
+              ttlMs: 30_000,
+              staleWhileRevalidateMs: 120_000,
+              loader: loadStatus,
+            })
+          ).value;
+    return NextResponse.json(
+      {
+        businessId,
+        window,
+        statusFilter,
+        startDate,
+        endDate,
+        engineLastRun: engineMetadata.engineLastRun,
+        engineVersion: engineMetadata.engineVersion,
+        snapshotHealth: engineMetadata.snapshotHealth,
+        trackingHealth,
+        trackingAnomalyActive:
+          trackingHealth.status === "blocked" ||
+          trackingHealth.status === "degraded",
+        lastSyncAt: latest?.last_sync_at ?? null,
+        currency: latest?.account_currency ?? null,
+        dataReadiness: {
+          status: "ok",
+          isPartial: latest === null,
+          notReadyReason: latest
+            ? null
+            : "Campaign warehouse data is unavailable for this Meta account.",
+          evidenceSource: latest ? "warehouse" : "unknown",
+        },
+      },
+      { headers: { "Cache-Control": "private, max-age=0" } },
+    );
+  }
   const earliestRollupStart = [
     previousStart,
     monthStart,
     addDaysToISO(endDate, -27),
   ].sort()[0]!;
+  const loadFastWarehouse = () =>
+    readDecisionWorkspaceWarehousePulse({
+      businessId,
+      providerAccountId: providerAccountId!,
+      selectedStart: startDate,
+      selectedEnd: endDate,
+      earliestStart: earliestRollupStart,
+    });
   const fastWarehousePromise = decisionWorkspaceFastPath
-    ? readDecisionWorkspaceWarehousePulse({
-        businessId,
-        providerAccountId: providerAccountId!,
-        selectedStart: startDate,
-        selectedEnd: endDate,
-        earliestStart: earliestRollupStart,
-      })
+    ? process.env.VITEST === "true" || process.env.NODE_ENV === "test"
+      ? loadFastWarehouse()
+      : getCachedValue({
+          key: `meta-pulse-fast-v2:${businessId}:${providerAccountId}:${startDate}:${endDate}:${earliestRollupStart}`,
+          ttlMs: 60_000,
+          staleWhileRevalidateMs: 180_000,
+          loader: loadFastWarehouse,
+        }).then((result) => result.value)
     : Promise.resolve(null);
   const [current, previous, today, d7, d14, d28, engineMetadata, trackingHealth, roasBenchmark, targetAnchor, roasHistory, monthToDate, warehouseLastSyncAt] =
     await Promise.all([
@@ -641,15 +741,22 @@ export async function GET(request: NextRequest) {
   const d7Rows = (d7.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d14Rows = (d14.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
   const d28Rows = (d28.rows ?? []).filter((row) => isInBriefing(row, statusFilter));
-  const labelCoverage = await readCampaignLabelCoverage({
-    businessId,
-    rows: currentRows as Array<{ id: string; status?: unknown; effective_status?: unknown; effectiveStatus?: unknown }>,
-  }).catch(() => ({
-    activeCampaigns: 0,
-    labeledCampaigns: 0,
-    unlabeledCampaigns: 0,
-    latestUpdatedAt: null,
-  }));
+  const labelCoverage = compactOsWorkspace
+    ? null
+    : await readCampaignLabelCoverage({
+        businessId,
+        rows: currentRows as Array<{
+          id: string;
+          status?: unknown;
+          effective_status?: unknown;
+          effectiveStatus?: unknown;
+        }>,
+      }).catch(() => ({
+        activeCampaigns: 0,
+        labeledCampaigns: 0,
+        unlabeledCampaigns: 0,
+        latestUpdatedAt: null,
+      }));
 
   const fastWarehouse = await fastWarehousePromise;
   const currentTotals = fastWarehouse
@@ -738,6 +845,7 @@ export async function GET(request: NextRequest) {
       seasonalRegime,
       engineLastRun: engineMetadata.engineLastRun,
       engineVersion: engineMetadata.engineVersion,
+      campaignContextMode: resolveCampaignContextMode(),
       snapshotHealth: engineMetadata.snapshotHealth,
       labelCoverage,
       targetAnchor,

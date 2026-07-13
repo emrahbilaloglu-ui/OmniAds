@@ -13,7 +13,10 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-12-safety-dominant-hysteresis";
+export const ENGINE_VERSION = "v3-2026-07-12-breakeven-cut-ceiling";
+/** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
+export const NATIVE_AD_ENGINE_VERSION =
+  "v3-ad-2026-07-12-d047-authority-v2-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -58,10 +61,7 @@ export type SpendUnitSource =
 export type SpendUnitConfidence = "high" | "medium" | "low" | "insufficient";
 
 export type MetaAovQuality =
-  | "unavailable"
-  | "unstable"
-  | "low_sample"
-  | "ready";
+  "unavailable" | "unstable" | "low_sample" | "ready";
 
 export type CommercialTargetFreshness = "fresh" | "stale" | "unknown";
 
@@ -70,8 +70,7 @@ export type ThresholdQuality = "ready" | "degraded" | "insufficient";
 export type DecisionProfileScopeType = "account" | "campaign";
 
 export type DecisionProfileScopeFallbackReason =
-  | "campaign_calibration_missing"
-  | "campaign_sample_below_threshold";
+  "campaign_calibration_missing" | "campaign_sample_below_threshold";
 
 export interface DecisionProfileScope {
   type: DecisionProfileScopeType;
@@ -148,24 +147,13 @@ export type LifecyclePosition =
   | "insufficient_history";
 
 export type SpendTrajectory =
-  | "rising"
-  | "flat"
-  | "falling"
-  | "volatile"
-  | "unknown";
+  "rising" | "flat" | "falling" | "volatile" | "unknown";
 
 export type CreativeFormat =
-  | "image"
-  | "video"
-  | "carousel"
-  | "catalog"
-  | "other";
+  "image" | "video" | "carousel" | "catalog" | "other";
 
 export type MetaRanking =
-  | "above_average"
-  | "average"
-  | "below_average"
-  | "unknown";
+  "above_average" | "average" | "below_average" | "unknown";
 
 export type FunnelStage =
   | "upper_funnel"
@@ -246,6 +234,18 @@ export interface CreativeInput {
   creativeName: string | null;
   businessId: string;
   campaignId: string | null;
+  /**
+   * Native execution identity. Optional here so legacy resolver fixtures and
+   * creative-grain read surfaces remain source-compatible. Production ad
+   * hydration exposes these as required fields through `AdDecisionInput`.
+   */
+  decisionEntityType?: "ad";
+  decisionEntityId?: string;
+  adId?: string;
+  providerAccountId?: string;
+  adsetId?: string | null;
+  optimizationGoal?: string | null;
+  customEventType?: string | null;
   /**
    * Server-resolved Main/Test/Mixed campaign label. Routes/jobs populate this
    * before calling decideCreative; UI must not derive it.
@@ -331,6 +331,89 @@ export interface CreativeInput {
   engagementRateRanking: MetaRanking | null;
   conversionRateRanking: MetaRanking | null;
   creativeFormat: CreativeFormat | null;
+}
+
+export type AdDecisionStatusSource =
+  | "entity_state_history"
+  | "entity_tombstone"
+  | "current_dimension"
+  | "missing";
+
+export interface AdDecisionStatusEvidence {
+  source: AdDecisionStatusSource;
+  sourceRecordId: string | null;
+  observedAt: string | null;
+  capturedAt: string | null;
+}
+
+/**
+ * Creative-owned context may explain an ad, but never identifies or aggregates
+ * the ad. In particular, no creative-wide spend/ROAS field belongs here.
+ */
+export interface AdCreativeEvidenceOverlay {
+  sourceLifecycleRowId: string | null;
+  sourceAsOfDate: string | null;
+  sourceComputedAt: string | null;
+  sourceMaxUpdatedAt: string | null;
+  lifecyclePosition: LifecyclePosition | null;
+  daysSincePeak: number | null;
+  peakRoas30d: number | null;
+  peakConfidence: number | null;
+  spendTrajectory30d: SpendTrajectory | null;
+  spendSlope7d: number | null;
+  spendSlope30d: number | null;
+  roasSlope7d: number | null;
+  roasSlope30d: number | null;
+  fatigueStatus: CreativeInput["fatigueStatus"];
+  qualityRanking: MetaRanking | null;
+  engagementRateRanking: MetaRanking | null;
+  conversionRateRanking: MetaRanking | null;
+  creativeFormat: CreativeFormat | null;
+}
+
+export interface AdDecisionMetricEvidence {
+  /** Number of finalized, validated native ad-day rows in the 28d window. */
+  sourceRowCount: number;
+  /** False for a present-day dimension/state ad that has no insights row yet. */
+  performanceMetricsObserved: boolean;
+  /**
+   * Meta action/event fields are optional in payload_json. False means null is
+   * unknown, not a measured zero.
+   */
+  eventMetricsObserved: boolean;
+}
+
+/**
+ * Native Meta Ads decision input. Identity is business/account/ad; creativeId
+ * is nullable portfolio grouping only and must never own provider execution.
+ */
+export interface AdDecisionInput extends Omit<
+  CreativeInput,
+  | "creativeId"
+  | "decisionEntityType"
+  | "decisionEntityId"
+  | "adId"
+  | "providerAccountId"
+  | "adsetId"
+  | "optimizationGoal"
+  | "customEventType"
+> {
+  decisionEntityType: "ad";
+  decisionEntityId: string;
+  adId: string;
+  providerAccountId: string;
+  /** Physical provider-account identity used by native persistence FKs. */
+  providerAccountRefId: string;
+  /** Cutoff-safe native account identity used to select calibration authority. */
+  accountTimezone: string | null;
+  accountCurrency: string | null;
+  adsetId: string | null;
+  creativeId: string | null;
+  optimizationGoal: string | null;
+  customEventType: string | null;
+  metricEvidence: AdDecisionMetricEvidence;
+  statusEvidence: AdDecisionStatusEvidence;
+  creativeEvidence: AdCreativeEvidenceOverlay;
 }
 
 /** Per-business runtime configuration (Tier 2). */
@@ -499,8 +582,10 @@ export interface DecisionBadge {
     | "campaign_context_unresolved"
     | "campaign_context_low_confidence"
     | "campaign_context_conflict"
+    | "native_calibration_unavailable"
+    | "ad_metrics_unavailable"
     | "pending_transition"
-  | "stale_hard_ceiling_advisory"
+    | "stale_hard_ceiling_advisory"
     | "resume_candidate"
     | "confirm_kill"
     | "stop_loss_review";
@@ -559,6 +644,14 @@ export const DECISION_BADGE_DISPLAY: Record<
   },
   campaign_context_conflict: {
     label: "Campaign context conflict",
+    severity: "warning",
+  },
+  native_calibration_unavailable: {
+    label: "Native calibration unavailable - hard actions blocked",
+    severity: "warning",
+  },
+  ad_metrics_unavailable: {
+    label: "Ad performance data unavailable",
     severity: "warning",
   },
   pending_transition: {
@@ -660,15 +753,10 @@ export const DECISION_BADGE_DISPLAY: Record<
 };
 
 export type CreativeCampaignLabelStatus =
-  | "labeled"
-  | "unlabeled"
-  | "no_campaign";
+  "labeled" | "unlabeled" | "no_campaign";
 
 export type DecisionKindSource =
-  | "kind_main"
-  | "kind_test"
-  | "kind_mixed"
-  | "all_fallback";
+  "kind_main" | "kind_test" | "kind_mixed" | "all_fallback";
 
 export type DecisionLabelTransform = "test_cohort_refresh_to_cut";
 
@@ -716,6 +804,18 @@ export interface DecisionOutput {
   labelTransform?: DecisionLabelTransform | null;
   engineVersion: string;
   generatedAt: string;
+}
+
+/**
+ * Native Meta ad decision. creativeId remains nullable grouping metadata; the
+ * required business/account/ad fields are the only execution identity.
+ */
+export interface AdDecisionOutput extends Omit<DecisionOutput, "creativeId"> {
+  decisionEntityType: "ad";
+  decisionEntityId: string;
+  adId: string;
+  providerAccountId: string;
+  creativeId: string | null;
 }
 
 /**
@@ -794,8 +894,7 @@ export interface DecisionDisabledResponse {
 }
 
 export type DecisionEngineV3Response =
-  | DecisionResponse
-  | DecisionDisabledResponse;
+  DecisionResponse | DecisionDisabledResponse;
 
 export interface DecisionEvidenceResponse {
   businessId: string;

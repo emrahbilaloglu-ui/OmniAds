@@ -10,7 +10,8 @@
 // - CORRELATIONAL, not causal: it measures whether the scope's KPI moved
 //   after the engine said "act", regardless of whether the operator acted.
 //   The operator's response is recorded alongside (operatorActed) so
-//   downstream analysis can stratify.
+//   downstream analysis can stratify. These rows are review-only and cannot
+//   satisfy the controlled-causal automation gate.
 // - Windows: 7 full days before (snapshot_date-6 .. snapshot_date) vs
 //   7 full days after (snapshot_date+1 .. snapshot_date+7), so accrual for
 //   a snapshot runs only after day +7 has fully closed (snapshot_date+8).
@@ -21,6 +22,7 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { appendMetaDecisionActionOutcomeLog } from "@/lib/meta/decision-outcomes";
+import { META_OBSERVATIONAL_EVIDENCE_CLASS } from "@/lib/meta/empirical-outcomes";
 import { META_RECOMMENDATION_ENGINE_VERSION } from "@/lib/meta/recommendations";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 
@@ -256,6 +258,9 @@ export async function runMetaOutcomeAccrualForBusiness(
       summary: `auto_kpi_7d: ${outcomeStatus} (ROAS ${roasBefore?.toFixed(2) ?? "n/a"} -> ${roasAfter?.toFixed(2) ?? "n/a"}, operator ${operatorActed ? "acted" : "did not act"})`,
       payloadJson: {
         rule: META_OUTCOME_ACCRUAL_RULE,
+        evidenceClass: META_OBSERVATIONAL_EVIDENCE_CLASS,
+        causalDesign: null,
+        treatmentReceipt: null,
         snapshotDate: candidate.snapshot_date,
         scopeType: candidate.scope_type,
         scopeId: candidate.scope_id,

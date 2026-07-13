@@ -54,6 +54,22 @@ describe("projectMetaDecisionSemantics", () => {
     ).toMatchObject({ decisionState: "monitor", buyerAction: "scale" });
   });
 
+  it("keeps unresolved automatic context system-owned instead of requesting a label", () => {
+    const projection = projectMetaDecisionSemantics({
+      legacyBuyerAction: "diagnose_data",
+      sourceLabel: "diagnose",
+      lifecycleRole: "label_needed",
+      badgeCodes: ["campaign_context_unresolved"],
+    });
+
+    expect(projection.resolution).toMatchObject({
+      code: "resolve_campaign_role",
+      owner: "system",
+      label: "Automatic Classification Pending",
+    });
+    expect(projection.resolution?.nextStep).toContain("No label is required");
+  });
+
   it("keeps a stale cut verdict in provenance but blocks its buyer action", () => {
     expect(
       projectMetaDecisionSemantics({

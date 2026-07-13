@@ -9,6 +9,7 @@ import {
   type DecisionLabel,
   type CreativeDecisionRealizedOutcome,
 } from "@/lib/creative-decision-engine";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   configureOperationalScriptRuntime,
   withOperationalStartupLogsSilenced,
@@ -146,13 +147,6 @@ function toNullableNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-}
-
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
 }
 
 function dateToMs(date: string) {
@@ -332,7 +326,7 @@ async function readDecisionOutcomeRows(args: ParsedArgs) {
     const businessId = toText(row.business_id);
     const businessName = toText(row.business_name);
     const creativeId = toText(row.creative_id);
-    const asOfDate = toDateOnly(row.as_of_date);
+    const asOfDate = normalizePostgresDate(row.as_of_date);
     const label = toText(row.label) as DecisionLabel | null;
     const sourceMode = toText(row.source_mode) as SourceMode | null;
     const windowDays = toNumber(row.outcome_window_days) as OutcomeWindowDays;

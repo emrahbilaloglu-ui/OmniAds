@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  completeDecisionOriginMetaAdsActionLog,
   completeMetaAdsActionLog,
+  createDecisionOriginMetaAdsActionLog,
   createMetaAdsActionLog,
   hasRecentPendingMetaAdsAction,
   readLaunchpadCreatedAdIds,
+  resolveExactMetaAdActionTarget,
   resolveMetaAdActionTarget,
   type MetaAdsActionStatus,
 } from "@/lib/meta/ads-action-log";
+import {
+  DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+  validateDecisionOriginAdExecutionRequest,
+  type DecisionOriginAdExecutionRequest,
+} from "@/lib/creative-decision-engine/execution-safety";
 import {
   pauseAd,
   resumeAd,
@@ -32,11 +40,21 @@ import {
 type BulkAdStatusAction = "pause" | "resume";
 
 type BulkAdStatusBody = {
+  contractVersion?: string;
   businessId?: string;
   providerAccountId?: string;
   action?: BulkAdStatusAction;
   ads?: Array<{
+    contractVersion?: string;
     adId?: string | null;
+    providerAccountId?: string | null;
+    snapshotId?: string | null;
+    evaluationId?: string | null;
+    engineVersion?: string | null;
+    decisionHash?: string | null;
+    action?: string | null;
+    idempotencyKey?: string | null;
+    dryRun?: boolean;
     candidateAdIds?: Array<string | null | undefined> | null;
     creativeId?: string | null;
     name?: string | null;
@@ -69,8 +87,9 @@ async function completeFailure(input: {
   logId: string;
   startedAt: number;
   result: MetaAdsWriteFailure;
+  decisionOrigin: boolean;
 }) {
-  return completeMetaAdsActionLog({
+  const completion = {
     id: input.logId,
     status: getFailureLogStatus(input.result),
     payloadResponse: ensureRecord(input.result.responsePayload),
@@ -78,11 +97,16 @@ async function completeFailure(input: {
     errorMessage: input.result.error.message,
     resultingAdId: input.result.resultingAdId ?? null,
     durationMs: Date.now() - input.startedAt,
-    verifiedAt: input.result.verificationPayload
-      ? new Date().toISOString()
-      : null,
     verificationPayload: ensureRecord(input.result.verificationPayload),
-  });
+  };
+  return input.decisionOrigin
+    ? completeDecisionOriginMetaAdsActionLog(completion)
+    : completeMetaAdsActionLog({
+        ...completion,
+        verifiedAt: input.result.verificationPayload
+          ? new Date().toISOString()
+          : null,
+      });
 }
 
 function normalizeAds(body: BulkAdStatusBody | null) {
@@ -93,6 +117,8 @@ function normalizeAds(body: BulkAdStatusBody | null) {
       candidateAdIds: string[];
       creativeId: string | null;
       name: string | null;
+      decisionOriginRequest: DecisionOriginAdExecutionRequest | null;
+      decisionOriginPayload: NonNullable<BulkAdStatusBody["ads"]>[number];
     }
   >();
   (body?.ads ?? []).forEach((ad) => {
@@ -107,15 +133,128 @@ function normalizeAds(body: BulkAdStatusBody | null) {
       candidateAdIds,
       creativeId: ad.creativeId?.trim() || null,
       name: ad.name?.trim() || null,
+      decisionOriginRequest: null,
+      decisionOriginPayload: ad,
     });
   });
   return Array.from(byAdId.values());
 }
 
+function bindDecisionOriginRequests(input: {
+  body: BulkAdStatusBody | null;
+  businessId: string;
+  action: BulkAdStatusAction;
+  ads: ReturnType<typeof normalizeAds>;
+}):
+  | { ok: true; decisionOrigin: boolean }
+  | { ok: false; blockers: Array<Record<string, unknown>> } {
+  const decisionOrigin = Boolean(
+    input.body?.contractVersion ||
+      input.ads.some((ad) => {
+        const payload = ad.decisionOriginPayload;
+        return Boolean(
+          payload.contractVersion ||
+            payload.snapshotId ||
+            payload.evaluationId ||
+            payload.engineVersion ||
+            payload.decisionHash ||
+            payload.idempotencyKey,
+        );
+      }),
+  );
+  if (!decisionOrigin) return { ok: true, decisionOrigin: false };
+  const blockers: Array<Record<string, unknown>> = [];
+  if (
+    input.body?.contractVersion !==
+    DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION
+  ) {
+    blockers.push({ code: "invalid_bulk_contract_version" });
+  }
+  const seen = new Map<string, string>();
+  input.ads.forEach((ad) => {
+    const payload = ad.decisionOriginPayload;
+    const request: DecisionOriginAdExecutionRequest = {
+      contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+      businessId: input.businessId,
+      providerAccountId:
+        payload.providerAccountId?.trim() ||
+        input.body?.providerAccountId?.trim() ||
+        "",
+      adId: payload.adId?.trim() || "",
+      snapshotId: payload.snapshotId?.trim() || "",
+      evaluationId: payload.evaluationId?.trim() || "",
+      engineVersion: payload.engineVersion?.trim() || "",
+      decisionHash: payload.decisionHash?.trim() || "",
+      action: payload.action?.trim() || "",
+      idempotencyKey: payload.idempotencyKey?.trim() || "",
+      creativeId: payload.creativeId?.trim() || null,
+      ...(payload.dryRun === true ? { dryRun: true } : {}),
+    };
+    const requestBlockers = validateDecisionOriginAdExecutionRequest(request);
+    if (
+      payload.contractVersion !==
+      DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION
+    ) {
+      requestBlockers.push("unsupported_action");
+    }
+    if (request.action !== input.action) {
+      requestBlockers.push("unsupported_action");
+    }
+    if (
+      ad.candidateAdIds.length !== 1 ||
+      ad.candidateAdIds[0] !== request.adId
+    ) {
+      blockers.push({
+        adId: ad.adId,
+        code: "decision_origin_candidate_fallback_forbidden",
+      });
+    }
+    const priorKey = seen.get(request.adId);
+    if (priorKey && priorKey !== request.idempotencyKey) {
+      blockers.push({
+        adId: request.adId,
+        code: "conflicting_decision_lineage",
+      });
+    }
+    seen.set(request.adId, request.idempotencyKey);
+    if (requestBlockers.length > 0) {
+      blockers.push({
+        adId: ad.adId,
+        code: "invalid_decision_origin_lineage",
+        blockers: Array.from(new Set(requestBlockers)),
+      });
+      return;
+    }
+    ad.decisionOriginRequest = request;
+  });
+  return blockers.length > 0
+    ? { ok: false, blockers }
+    : { ok: true, decisionOrigin: true };
+}
+
 async function resolveBulkAdActionTarget(input: {
   businessId: string;
   candidateAdIds: string[];
+  decisionOriginRequest?: DecisionOriginAdExecutionRequest | null;
 }) {
+  if (input.decisionOriginRequest) {
+    const targetResult = await resolveExactMetaAdActionTarget({
+      businessId: input.businessId,
+      providerAccountId: input.decisionOriginRequest.providerAccountId,
+      adId: input.decisionOriginRequest.adId,
+    });
+    return targetResult.ok
+      ? {
+          ok: true as const,
+          inputAdId: input.decisionOriginRequest.adId,
+          attemptedIds: [input.decisionOriginRequest.adId],
+          target: targetResult.target,
+        }
+      : {
+          ok: false as const,
+          attemptedIds: [input.decisionOriginRequest.adId],
+        };
+  }
   const attemptedIds: string[] = [];
   for (const adId of input.candidateAdIds) {
     attemptedIds.push(adId);
@@ -164,6 +303,20 @@ export async function POST(request: NextRequest) {
       `At most ${MAX_BULK_ADS} ads can be changed in one request.`,
     );
   }
+  const decisionOriginBinding = bindDecisionOriginRequests({
+    body,
+    businessId: access.businessId,
+    action,
+    ads,
+  });
+  if (!decisionOriginBinding.ok) {
+    return jsonError(
+      400,
+      "invalid_decision_origin_batch",
+      "Every decision-origin ad must carry one exact native lineage.",
+      { blockers: decisionOriginBinding.blockers },
+    );
+  }
 
   const account = await resolveAssignedMetaLaunchAccount({
     businessId: access.businessId,
@@ -177,6 +330,19 @@ export async function POST(request: NextRequest) {
     );
   }
   const providerAccountId = account.providerAccountId;
+  if (
+    decisionOriginBinding.decisionOrigin &&
+    ads.some(
+      (ad) =>
+        ad.decisionOriginRequest?.providerAccountId !== providerAccountId,
+    )
+  ) {
+    return jsonError(
+      400,
+      "provider_account_mismatch",
+      "Decision-origin batch lineage does not match the selected Meta account.",
+    );
+  }
   const ctxResult = await resolveMetaLaunchWriteContext(
     access.businessId,
     providerAccountId,
@@ -203,6 +369,7 @@ export async function POST(request: NextRequest) {
         result: await resolveBulkAdActionTarget({
           businessId: access.businessId,
           candidateAdIds: ad.candidateAdIds,
+          decisionOriginRequest: ad.decisionOriginRequest,
         }),
       })),
     );
@@ -295,6 +462,7 @@ export async function POST(request: NextRequest) {
           : await resolveBulkAdActionTarget({
               businessId: access.businessId,
               candidateAdIds: ad.candidateAdIds,
+              decisionOriginRequest: ad.decisionOriginRequest,
             });
       if (!targetResult.ok) {
         const error = {
@@ -379,13 +547,7 @@ export async function POST(request: NextRequest) {
       }
 
       const ctx = ctxResult.ctx;
-      const log = await createMetaAdsActionLog({
-        businessId: access.businessId,
-        adId: resolvedAdId,
-        creativeId: targetResult.target.creativeId ?? ad.creativeId,
-        action,
-        requestedBy: access.userId,
-        payloadRequest: {
+      const payloadRequest = {
           idempotency_key: idempotencyKey,
           method: "POST",
           endpoint: `/${resolvedAdId}`,
@@ -393,17 +555,39 @@ export async function POST(request: NextRequest) {
           input_ad_id: ad.adId,
           resolved_from_input_id: targetResult.inputAdId,
           candidate_ad_ids: ad.candidateAdIds,
-        },
-      });
+        };
+      const log = ad.decisionOriginRequest
+        ? await createDecisionOriginMetaAdsActionLog({
+            request: ad.decisionOriginRequest,
+            requestedBy: access.userId,
+            payloadRequest,
+          })
+        : await createMetaAdsActionLog({
+            businessId: access.businessId,
+            adId: resolvedAdId,
+            creativeId: targetResult.target.creativeId ?? ad.creativeId,
+            action,
+            requestedBy: access.userId,
+            payloadRequest,
+          });
 
       const startedAt = Date.now();
       const result =
         action === "pause"
-          ? await pauseAd(ctx, resolvedAdId)
-          : await resumeAd(ctx, resolvedAdId);
+          ? ad.decisionOriginRequest?.dryRun === true
+            ? await pauseAd(ctx, resolvedAdId, { dryRun: true })
+            : await pauseAd(ctx, resolvedAdId)
+          : ad.decisionOriginRequest?.dryRun === true
+            ? await resumeAd(ctx, resolvedAdId, { dryRun: true })
+            : await resumeAd(ctx, resolvedAdId);
 
       if (!result.ok) {
-        await completeFailure({ logId: log.id, startedAt, result });
+        await completeFailure({
+          logId: log.id,
+          startedAt,
+          result,
+          decisionOrigin: Boolean(ad.decisionOriginRequest),
+        });
         const status = getFailureLogStatus(result);
         results.push({
           inputAdId: ad.adId,
@@ -429,14 +613,21 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      await completeMetaAdsActionLog({
+      const successCompletion = {
         id: log.id,
-        status: "success",
+        status: "success" as const,
         payloadResponse: ensureRecord(result.responsePayload),
         durationMs: Date.now() - startedAt,
-        verifiedAt: new Date().toISOString(),
         verificationPayload: ensureRecord(result.verificationPayload),
-      });
+      };
+      if (ad.decisionOriginRequest) {
+        await completeDecisionOriginMetaAdsActionLog(successCompletion);
+      } else {
+        await completeMetaAdsActionLog({
+          ...successCompletion,
+          verifiedAt: new Date().toISOString(),
+        });
+      }
       results.push({
         inputAdId: ad.adId,
         adId: resolvedAdId,

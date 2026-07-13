@@ -9,6 +9,12 @@ const profileMocks = vi.hoisted(() => ({
   resolveAccountDecisionProfile: vi.fn(),
 }));
 
+const nativeSchemaMocks = vi.hoisted(() => ({
+  inspectProducer: vi.fn(),
+  inspectOutcomes: vi.fn(),
+  inspectControlled: vi.fn(),
+}));
+
 vi.mock("@/lib/admin-auth", () => ({
   requireAdmin: vi.fn(),
 }));
@@ -19,6 +25,19 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/creative-decision-engine/account-decision-profile", () => ({
   resolveAccountDecisionProfile: profileMocks.resolveAccountDecisionProfile,
+}));
+
+vi.mock("@/lib/creative-decision-engine/jobs/native-ad-scheduled", () => ({
+  inspectNativeAdShadowSchemaReadiness: nativeSchemaMocks.inspectProducer,
+}));
+
+vi.mock("@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job", () => ({
+  AD_DECISION_OUTCOMES_JOB_NAME: "engine_v3_ad_decision_outcomes_job",
+  inspectAdDecisionOutcomeSchemaCapability: nativeSchemaMocks.inspectOutcomes,
+}));
+
+vi.mock("@/lib/meta/controlled-experiment-registry", () => ({
+  inspectControlledRegistryCapabilities: nativeSchemaMocks.inspectControlled,
 }));
 
 const adminAuth = await import("@/lib/admin-auth");
@@ -33,11 +52,21 @@ const CALIBRATION_JOB_NAME = "engine_v3_calibration_job";
 const LIFECYCLE_JOB_NAME = "engine_v3_lifecycle_job";
 const DECISIONS_JOB_NAME = "engine_v3_decisions_job";
 const OPERATOR_RESPONSE_JOB_NAME = "engine_v3_operator_response_job";
+const NATIVE_CALIBRATION_JOB_NAME =
+  "engine_v3_native_ad_calibration_shadow_job";
+const NATIVE_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
+const NATIVE_OPERATOR_RESPONSE_JOB_NAME =
+  "engine_v3_native_ad_operator_response_shadow_job";
+const NATIVE_OUTCOMES_JOB_NAME = "engine_v3_ad_decision_outcomes_job";
 const JOB_NAMES = [
   CALIBRATION_JOB_NAME,
   LIFECYCLE_JOB_NAME,
   DECISIONS_JOB_NAME,
   OPERATOR_RESPONSE_JOB_NAME,
+  NATIVE_CALIBRATION_JOB_NAME,
+  NATIVE_DECISIONS_JOB_NAME,
+  NATIVE_OPERATOR_RESPONSE_JOB_NAME,
+  NATIVE_OUTCOMES_JOB_NAME,
 ];
 
 interface FixtureJob {
@@ -56,6 +85,7 @@ interface FixtureState {
   } | null;
   metaLatestAt: string | null;
   decisionsLatestAt: string | null;
+  nativeDecisionsLatestAt: string | null;
   jobs: Record<string, FixtureJob>;
   matureCount: number;
   decisionsSummary: {
@@ -74,6 +104,8 @@ const previousEnv = {
   DECISION_ENGINE_V3_SURFACE_VISIBLE:
     process.env.DECISION_ENGINE_V3_SURFACE_VISIBLE,
   DECISION_ENGINE_V3_SHADOW_ONLY: process.env.DECISION_ENGINE_V3_SHADOW_ONLY,
+  DECISION_ENGINE_V3_JOBS_DISABLED:
+    process.env.DECISION_ENGINE_V3_JOBS_DISABLED,
 };
 
 let fixture: FixtureState;
@@ -108,6 +140,7 @@ function makeFixture(): FixtureState {
     flagOverride: null,
     metaLatestAt: hoursAgo(2),
     decisionsLatestAt: hoursAgo(2),
+    nativeDecisionsLatestAt: hoursAgo(2),
     jobs: Object.fromEntries(
       JOB_NAMES.map((jobName) => [jobName, makeJob()]),
     ) as Record<string, FixtureJob>,
@@ -183,6 +216,13 @@ async function handleQuery(queryText: string, values?: unknown[]) {
     return [{ latest_at: fixture.decisionsLatestAt }];
   }
 
+  if (
+    normalized.includes("FROM engine_v3_ad_decision_snapshots_daily") &&
+    normalized.includes("MAX(computed_at)")
+  ) {
+    return [{ latest_at: fixture.nativeDecisionsLatestAt }];
+  }
+
   if (normalized.includes("FROM engine_v3_job_runs")) {
     const jobName = String(values?.[0] ?? "");
     return [
@@ -245,12 +285,30 @@ describe("GET /api/admin/engine-v3/readiness", () => {
     process.env.DECISION_ENGINE_V3_ENABLED = "true";
     process.env.DECISION_ENGINE_V3_SURFACE_VISIBLE = "true";
     process.env.DECISION_ENGINE_V3_SHADOW_ONLY = "false";
+    delete process.env.DECISION_ENGINE_V3_JOBS_DISABLED;
     fixture = makeFixture();
     mockAdmin();
     dbMocks.query.mockImplementation(handleQuery);
     vi.mocked(
       accountDecisionProfile.resolveAccountDecisionProfile,
     ).mockResolvedValue(makeProfile() as never);
+    nativeSchemaMocks.inspectProducer.mockResolvedValue({
+      ready: true,
+      issues: [],
+      components: {
+        calibration: { ready: true, issues: [] },
+        decisions: { ready: true, issues: [] },
+        operatorResponse: { ready: true, issues: [] },
+      },
+    });
+    nativeSchemaMocks.inspectOutcomes.mockResolvedValue({
+      ready: true,
+      missing: [],
+    });
+    nativeSchemaMocks.inspectControlled.mockResolvedValue({
+      ready: true,
+      issues: [],
+    });
   });
 
   afterEach(() => {
@@ -370,7 +428,54 @@ describe("GET /api/admin/engine-v3/readiness", () => {
           canEvaluate: true,
           reasons: [],
         },
+        nativeAd: expect.objectContaining({
+          shadowOnly: true,
+          jobsDisabled: false,
+          schema: expect.objectContaining({ allReady: true }),
+          evidence: expect.objectContaining({
+            latestSnapshotAt: expect.any(String),
+            isStale: false,
+          }),
+          gating: expect.objectContaining({
+            canRunShadow: true,
+            hasCurrentEvidence: true,
+            canMeasureOutcomes: true,
+            canUseControlledEvidence: true,
+            reasons: [],
+          }),
+        }),
       }),
+    );
+  });
+
+  it("reports native readiness separately and never marks missing schema ready", async () => {
+    nativeSchemaMocks.inspectProducer.mockResolvedValueOnce({
+      ready: false,
+      issues: ["decisions:missing_table"],
+      components: {
+        calibration: { ready: true, issues: [] },
+        decisions: { ready: false, issues: ["missing_table"] },
+        operatorResponse: { ready: true, issues: [] },
+      },
+    });
+    nativeSchemaMocks.inspectOutcomes.mockResolvedValueOnce({
+      ready: false,
+      missing: ["outcomes.missing_table"],
+    });
+
+    const response = await GET(readinessRequest());
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.gating.canEvaluate).toBe(true);
+    expect(payload.nativeAd.schema.allReady).toBe(false);
+    expect(payload.nativeAd.gating.canRunShadow).toBe(false);
+    expect(payload.nativeAd.gating.canMeasureOutcomes).toBe(false);
+    expect(payload.nativeAd.gating.reasons).toEqual(
+      expect.arrayContaining([
+        "native_producer_schema_not_ready",
+        "native_outcome_schema_not_ready",
+      ]),
     );
   });
 

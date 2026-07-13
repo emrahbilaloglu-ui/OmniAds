@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopSidebar } from "@/components/layout/sidebar";
 import { SidebarContent } from "@/components/layout/sidebar-content";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   pathname: "/platforms/meta/creatives",
   plan: "growth",
   selectedBusinessId: "biz_1",
+  search: "",
   businesses: [
     {
       id: "biz_1",
@@ -31,7 +32,7 @@ const state = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
   useRouter: () => ({ push: state.push, replace: vi.fn(), refresh: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 
 vi.mock("next/image", () => ({
@@ -68,6 +69,14 @@ vi.mock("@/lib/pricing/usePlan", () => ({
 }));
 
 describe("phase shell redesign", () => {
+  beforeEach(() => {
+    state.pathname = "/platforms/meta/creatives";
+    state.plan = "growth";
+    state.selectedBusinessId = "biz_1";
+    state.search = "";
+    state.push.mockReset();
+  });
+
   it("renders the 3-layer sidebar with Meta platform context", () => {
     state.pathname = "/platforms/meta/creatives";
     state.selectedBusinessId = "biz_1";
@@ -109,6 +118,20 @@ describe("phase shell redesign", () => {
     expect(html).toContain("Manage");
     expect(html).toContain('data-l2="pulse"');
     expect(html).toContain("h-[15px] w-[15px]");
+  });
+
+  it("preserves the selected Meta business and ad account across menu transitions", () => {
+    state.pathname = "/platforms/meta";
+    state.search = "providerAccountId=act_1";
+
+    const html = renderToStaticMarkup(<SidebarContent variant="console" />);
+
+    expect(html).toContain(
+      "/platforms/meta/creatives?businessId=biz_1&amp;providerAccountId=act_1",
+    );
+    expect(html).toContain(
+      "/platforms/meta/automation?businessId=biz_1&amp;providerAccountId=act_1",
+    );
   });
 
   it("keeps the sidebar desktop-only so mobile Meta pages retain usable width", () => {

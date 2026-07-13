@@ -59,3 +59,12 @@ certificates
 /merchant-test.js
 /pmax-others-*.js
 /verify-removed.js
+
+# Read-only replay row data can contain customer identifiers and exceed GitHub's
+# file limit. Keep the reproducible scripts and sanitized Markdown summaries.
+/docs/creative-decision-center/generated/exact-pit-confirmatory-replay-*.json
+/docs/creative-decision-center/generated/native-ad-grain-paired-replay-*.json
+/docs/creative-decision-center/generated/native-structure-grain-paired-replay-*.json
+/docs/creative-decision-center/generated/h1-country-parent-challenger-*.json
+/docs/creative-decision-center/generated/h11-campaign-context-challenger-*.json
+/docs/creative-decision-center/generated/h12-decision-hysteresis-challenger-*.json

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Lock } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { usePlan } from "@/lib/pricing/usePlan";
@@ -13,6 +13,7 @@ import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { cn } from "@/lib/utils";
 import { usePlatformContext } from "@/lib/navigation/platform-context";
+import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { PlatformLogo } from "./PlatformSwitcher";
 import {
   getLayer1Items,
@@ -154,6 +155,7 @@ function L1NavItem({
 
 function L2NavItem({
   item,
+  href,
   active,
   dimmed,
   locked,
@@ -163,6 +165,7 @@ function L2NavItem({
   onNavigate,
 }: {
   item: ShellNavItem;
+  href?: string;
   active: boolean;
   dimmed: boolean;
   locked: boolean;
@@ -230,7 +233,7 @@ function L2NavItem({
 
   return (
     <Link
-      href={item.href}
+      href={href ?? item.href}
       className={className}
       onClick={onNavigate}
       data-l2={item.id}
@@ -282,6 +285,7 @@ export function SidebarContent({
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const language = usePreferencesStore((state) => state.language);
   const currentPlan = usePlan();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -298,6 +302,15 @@ export function SidebarContent({
   const activeLayer = activeLayer1 ? "L1" : activeLayer3 ? "L3" : "L2";
   const dimLayer2 = activeLayer === "L1";
   const isConsole = variant === "console";
+  const currentProviderAccountId =
+    searchParams.get("providerAccountId")?.trim() || null;
+  const scopedLayer2Href = (item: ShellNavItem) =>
+    activePlatformId === "meta" && item.href.startsWith("/platforms/meta")
+      ? buildMetaScopedHref(item.href, {
+          businessId: selectedBusinessId,
+          providerAccountId: currentProviderAccountId,
+        })
+      : item.href;
 
   return (
     <div
@@ -392,6 +405,7 @@ export function SidebarContent({
                 <L2NavItem
                   key={item.id}
                   item={item}
+                  href={scopedLayer2Href(item)}
                   active={!dimLayer2 && activeLayer === "L2" && isItemActive(item, pathname)}
                   dimmed={dimLayer2}
                   locked={isLocked(item, currentPlan, isDemo)}

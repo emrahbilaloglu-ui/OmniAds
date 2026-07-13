@@ -19,6 +19,44 @@ describe("MetaDrillDrawer", () => {
     expect(html).toContain("Launchpad bridge");
   });
 
+  it("converts provider minor units exactly once for bid history", () => {
+    const html = renderToStaticMarkup(
+      <MetaDrillDrawer
+        item={{
+          mode: "decision",
+          rec: metaRec({
+            entityConfiguration: {
+              source: "account_scoped_campaign_row",
+              budgetOwner: "campaign",
+              budgetMode: "campaign_budget",
+              controlOwner: "adset",
+              status: "ACTIVE",
+              optimizationGoal: "OFFSITE_CONVERSIONS",
+              bidStrategyType: "cost_cap",
+              bidStrategyLabel: "Cost Cap",
+              bidValue: 2500,
+              bidValueFormat: "currency",
+              previousBidValue: 2000,
+              previousBidValueFormat: "currency",
+              previousBidValueCapturedAt: "2026-07-10T04:00:00.000Z",
+              dailyBudget: 10_000,
+              lifetimeBudget: null,
+              budgetUtilization: 0.72,
+            },
+          }),
+        }}
+        window="28d"
+        moneyCurrency="USD"
+        onWindowChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("$25.00");
+    expect(html).toContain("$20.00 · 2026-07-10");
+    expect(html).not.toContain("$2,500.00");
+  });
+
   it("hides the Launchpad bridge when no launch handler is available", () => {
     const html = renderToStaticMarkup(
       <MetaDrillDrawer item={{ mode: "decision", rec: metaRec() }} window="28d" onWindowChange={vi.fn()} onClose={vi.fn()} />,
@@ -170,6 +208,28 @@ describe("MetaDrillDrawer precedent + timeline", () => {
         negativeRate: 0.18,
         confidenceBand: "medium",
         minSampleSize: 10,
+        controlledCausal: {
+          contractVersion: "meta-controlled-causal-outcome-summary.v1",
+          claimedSampleSize: 10,
+          sampleSize: 10,
+          judgedSampleSize: 10,
+          positiveCount: 10,
+          negativeCount: 0,
+          neutralCount: 0,
+          unknownCount: 0,
+          precision: 1,
+          negativeRate: 0,
+          confidenceBand: "high",
+          validTreatmentReceiptCount: 10,
+          invalidTreatmentReceiptCount: 0,
+          validatedAssignmentCount: 10,
+          invalidAssignmentCount: 0,
+          validatedEstimateCount: 10,
+          invalidEstimateCount: 0,
+          duplicateAssignmentCount: 0,
+          reusedTreatmentReceiptCount: 0,
+          reusedEstimateCount: 0,
+        },
         autoEligible: true,
       },
     });
@@ -202,6 +262,28 @@ describe("MetaDrillDrawer precedent + timeline", () => {
         negativeRate: null,
         confidenceBand: "insufficient_sample",
         minSampleSize: 10,
+        controlledCausal: {
+          contractVersion: "meta-controlled-causal-outcome-summary.v1",
+          claimedSampleSize: 0,
+          sampleSize: 0,
+          judgedSampleSize: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          neutralCount: 0,
+          unknownCount: 0,
+          precision: null,
+          negativeRate: null,
+          confidenceBand: "insufficient_sample",
+          validTreatmentReceiptCount: 0,
+          invalidTreatmentReceiptCount: 0,
+          validatedAssignmentCount: 0,
+          invalidAssignmentCount: 0,
+          validatedEstimateCount: 0,
+          invalidEstimateCount: 0,
+          duplicateAssignmentCount: 0,
+          reusedTreatmentReceiptCount: 0,
+          reusedEstimateCount: 0,
+        },
         autoEligible: false,
       },
     });

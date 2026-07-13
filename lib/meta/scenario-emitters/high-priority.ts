@@ -176,13 +176,16 @@ function historyAgeDays(window: CampaignScenarioWindow) {
 }
 
 function budgetAmount(row: MetaCampaignRow) {
-  return row.dailyBudget ?? (row.lifetimeBudget ? row.lifetimeBudget / 30 : null);
+  const providerMinorAmount =
+    row.dailyBudget ?? (row.lifetimeBudget ? row.lifetimeBudget / 30 : null);
+  return providerMinorAmount == null ? null : providerMinorAmount / 100;
 }
 
-function budgetUtilization(row: MetaCampaignRow) {
+function budgetUtilization(row: MetaCampaignRow | undefined, windowDays: number) {
+  if (!row || !Number.isInteger(windowDays) || windowDays <= 0) return null;
   const budget = budgetAmount(row);
   if (!budget || budget <= 0) return null;
-  return (row.spend / 28) / budget;
+  return row.spend / windowDays / budget;
 }
 
 function isConstrainedBidStrategy(row: MetaCampaignRow) {
@@ -541,6 +544,7 @@ export function maybeC1ControlledScale(input: CampaignScenarioInput): MetaRecomm
 
 export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecommendation | null {
   const row = input.window.selected;
+  const deliveryWindow = input.window.last30;
   const roas = metric(input.context, "roas_28d");
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d")) return null;
@@ -549,9 +553,9 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
   const budget = budgetAmount(row);
   const bid = row.bidValue ?? row.manualBidAmount;
   const threshold = Math.max(roas.p50, scaleFloor);
-  if (!budget || !bid || row.roas < threshold) return null;
-  const dailySpend = row.spend / 28;
-  if (dailySpend / budget >= 0.95) return null;
+  if (!budget || !bid || row.roas < threshold || !deliveryWindow) return null;
+  const utilization = budgetUtilization(deliveryWindow, 30);
+  if (utilization == null || utilization >= 0.95) return null;
   const conf = confidence({ level: "campaign", context: input.context, metricValue: row.roas, threshold });
   return baseCampaignRec({
     row,
@@ -566,9 +570,13 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
     recommendedAction: "Increase the bid cap 10% and re-check delivery before any budget increase.",
     expectedImpact: "Unlock delivery without forcing budget into an auction cap.",
     evidence: [
-      { label: "Budget utilization", value: `${r2((dailySpend / budget) * 100)}%`, tone: "warning" },
+      { label: "Budget utilization", value: `${r2(utilization * 100)}%`, tone: "warning" },
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
-      { label: "Current bid", value: fmtCurrency(bid, row.currency), tone: "neutral" },
+      {
+        label: "Current bid",
+        value: fmtCurrency(bid / 100, row.currency),
+        tone: "neutral",
+      },
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     targetValue: { bid: targetBand(bid, 0.1) },
@@ -586,7 +594,7 @@ export function maybeB4MinRoasLoosen(input: CampaignScenarioInput): MetaRecommen
   const roas = metric(input.context, "roas_28d");
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
-  const utilization = budgetUtilization(row);
+  const utilization = budgetUtilization(input.window.last30, 30);
   if (utilization == null || utilization >= 0.8) return null;
   const configuredTarget = row.bidValueFormat === "roas" && row.bidValue ? row.bidValue : null;
   if (!configuredTarget) return null;
@@ -637,7 +645,7 @@ export function maybeB6ProfitFirstBidCapKeep(input: CampaignScenarioInput): Meta
   const roas = metric(input.context, "roas_28d");
   const scaleFloor = metaScaleRoasFloor(input.commercialTargets);
   if (!roas || !sampleReady(input.context, "roas_28d") || !scaleFloor) return null;
-  const utilization = budgetUtilization(row);
+  const utilization = budgetUtilization(input.window.last30, 30);
   if (utilization == null || utilization >= 0.95) return null;
   if (row.purchases < 8 || row.roas < Math.max(roas.p75, scaleFloor)) return null;
   const conf = confidence({

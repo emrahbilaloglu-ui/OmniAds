@@ -10,6 +10,19 @@ export const META_CAMPAIGN_LABEL_GUARD_REASON = "unlabeled_campaign_soft_only";
 export const META_CAMPAIGN_LABEL_CONFIDENCE_CAP = 0.45;
 export const META_TEST_REFRESH_TO_CUT_REASON = "test_refresh_to_cut";
 export const META_TEST_SCALE_TO_PROMOTE_REASON = "test_scale_to_promote_main";
+export const META_AUTOMATIC_CONTEXT_REVIEW_REASON =
+  "automatic_campaign_context_review_only";
+
+export interface MetaCampaignContextGuardEntry {
+  kind: MetaCampaignKind | null;
+  contextTrust: "override" | "high" | "medium" | "low" | "unknown" | "conflict";
+  source: "legacy_label" | "user_override" | "system_inferred" | "unknown";
+}
+
+export type MetaCampaignContextGuardMap = ReadonlyMap<
+  string,
+  MetaCampaignContextGuardEntry
+>;
 
 export type MetaCampaignLabelKindMap = ReadonlyMap<string, MetaCampaignKind>;
 
@@ -165,6 +178,24 @@ function appendGuardEvidence(rec: MetaRecommendation): MetaRecommendation["evide
     ...(hasBlockedAction
       ? []
       : [{ label: "Blocked action", value: rec.type, tone: "warning" as const }]),
+  ];
+}
+
+function automaticContextEvidence(
+  rec: MetaRecommendation,
+  entry: MetaCampaignContextGuardEntry | null,
+): MetaRecommendation["evidence"] {
+  if (rec.evidence.some((item) => item.label === "Campaign context")) {
+    return rec.evidence;
+  }
+  const kind = entry?.kind ? ` · ${entry.kind}` : "";
+  return [
+    ...rec.evidence,
+    {
+      label: "Campaign context",
+      value: `Automatic ${entry?.contextTrust ?? "unknown"}${kind} · review-only`,
+      tone: "warning" as const,
+    },
   ];
 }
 
@@ -325,36 +356,122 @@ function downgradeToSoftOnly(rec: MetaRecommendation): MetaRecommendation {
   };
 }
 
+function restrictAutomaticContextToReview(
+  rec: MetaRecommendation,
+  entry: MetaCampaignContextGuardEntry | null,
+): MetaRecommendation {
+  const cappedScore = Math.min(
+    confidenceScore(rec),
+    META_CAMPAIGN_LABEL_CONFIDENCE_CAP,
+  );
+  return {
+    ...rec,
+    decisionLabel: explicitOrInferredDecisionLabel(rec) ?? rec.decisionLabel,
+    decisionState: "watch",
+    confidence: "low",
+    confidenceScore: cappedScore,
+    confidenceReason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+    priority: rec.priority === "high" ? "medium" : rec.priority,
+    why: `${rec.why} Automatic Main/Test/Mixed context is ${entry?.contextTrust ?? "unknown"}; the decision remains explicit but provider execution is review-only.`,
+    evidence: automaticContextEvidence(rec, entry),
+    campaignContext: {
+      kind: entry?.kind ?? null,
+      source: entry?.source ?? "unknown",
+      confidence: entry?.contextTrust ?? "unknown",
+      trustedForAction: false,
+    },
+    signalQuality: {
+      ...(rec.signalQuality ?? {}),
+      campaign_context_status: entry?.contextTrust ?? "unknown",
+      campaign_context_source: entry?.source ?? "unknown",
+      campaign_context_kind: entry?.kind ?? null,
+      campaign_context_action_authority: "review_only",
+    },
+    calibrationScope: {
+      ...(rec.calibrationScope ?? {}),
+      campaign_context_reason: META_AUTOMATIC_CONTEXT_REVIEW_REASON,
+    },
+  };
+}
+
+function campaignContextEntryForRec(
+  rec: MetaRecommendation,
+  activeCampaignIds: readonly string[],
+  contextById: MetaCampaignContextGuardMap,
+) {
+  const campaignIds = campaignIdsForRec(rec, activeCampaignIds);
+  if (campaignIds.length !== 1) return null;
+  return contextById.get(campaignIds[0]!) ?? null;
+}
+
 export function applyMetaCampaignLabelGuard(input: {
   recommendations: MetaRecommendation[];
   campaignLabelsById: MetaCampaignLabelKindMap | null | undefined;
+  campaignContextById?: MetaCampaignContextGuardMap | null;
+  automaticContextEnabled?: boolean;
   activeCampaignIds?: readonly string[];
 }): MetaCampaignLabelGuardResult {
-  const labelMap = input.campaignLabelsById ?? new Map<string, MetaCampaignKind>();
+  const labelMap = new Map(
+    input.campaignLabelsById ?? new Map<string, MetaCampaignKind>(),
+  );
+  const contextById =
+    input.campaignContextById ?? new Map<string, MetaCampaignContextGuardEntry>();
+  for (const [campaignId, entry] of contextById) {
+    if (
+      entry.kind &&
+      (entry.contextTrust === "override" || entry.contextTrust === "high")
+    ) {
+      labelMap.set(campaignId, entry.kind);
+    }
+  }
   const activeCampaignIds = Array.from(new Set(input.activeCampaignIds ?? []));
   const unlabeledCampaignIds = new Set<string>();
   let downgradedCount = 0;
   let accountLevelDowngraded = false;
 
   const recommendations = input.recommendations.map((candidate) => {
+    const contextEntry = campaignContextEntryForRec(
+      candidate,
+      activeCampaignIds,
+      contextById,
+    );
     const rec = applyTestCampaignSemantics(
       attachCampaignKind(candidate, labelMap, activeCampaignIds),
       labelMap,
     );
-    if (isAlreadyGuarded(rec) || !isHardAction(rec)) return rec;
+    const contextAnnotatedRec = contextEntry
+      ? {
+          ...rec,
+          campaignContext: {
+            kind: contextEntry.kind,
+            source: contextEntry.source,
+            confidence: contextEntry.contextTrust,
+            trustedForAction:
+              contextEntry.contextTrust === "override" ||
+              contextEntry.contextTrust === "high",
+          },
+        }
+      : rec;
+    if (isAlreadyGuarded(rec) || !isHardAction(rec)) {
+      return contextAnnotatedRec;
+    }
 
     const campaignIds = campaignIdsForRec(rec, activeCampaignIds);
     const isUnlabeled =
       campaignIds.length === 0 ||
       campaignIds.some((campaignId) => !hasMetaCampaignLabel(campaignId, labelMap));
-    if (!isUnlabeled) return rec;
+    if (!isUnlabeled) {
+      return contextAnnotatedRec;
+    }
 
     downgradedCount += 1;
     if (rec.level === "account") accountLevelDowngraded = true;
     for (const campaignId of campaignIds) {
       if (!hasMetaCampaignLabel(campaignId, labelMap)) unlabeledCampaignIds.add(campaignId);
     }
-    return downgradeToSoftOnly(rec);
+    return input.automaticContextEnabled
+      ? restrictAutomaticContextToReview(rec, contextEntry)
+      : downgradeToSoftOnly(rec);
   }).map(withMetaAutomationReadiness);
 
   return {

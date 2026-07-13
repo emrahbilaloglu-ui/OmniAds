@@ -104,6 +104,47 @@ These rules are hard gates for V2.1.
   be multiplied into a synthetic growth target. Economic cut requires a fresh
   explicit break-even ROAS; target ROAS alone must not be multiplied into a
   synthetic loss boundary.
+- Account-relative curve grading must never cut an ad at or above fresh explicit
+  break-even. Break-even may narrow account P25; it must never widen the account
+  cut zone toward break-even.
+- A campaign-kind classifier that failed its own locked segmentation gate must
+  not define downstream account calibration cells. Shadow context is not
+  calibration authority.
+- A controlled-causal payload must not grant automation authority by naming an
+  experiment or assignment. The assignment, control estimate, and unique
+  treatment receipt must each reconcile to durable server-side records; absent
+  registries mean a zero eligible causal sample.
+- Annual/month seasonality must not be estimated from less than one complete
+  annual cycle. Weekday sensitivity may be tested separately on dated facts.
+- A multi-country ad must remain a spend-share vector. It must not be assigned
+  to a single majority country, and sparse country cells must fall back to the
+  account-goal parent without increasing confidence or action authority.
+- A historical country mix may use only the latest generation observed by that
+  decision's producer cutoff. Retained `fetched_at` and `created_at` must both
+  be at or before the cutoff; an incomplete or invalid latest generation fails
+  closed and may not fall back to an older generation.
+- Native ad decisions must use parallel `engine_v3_ad_decision_*` authority
+  tables and a distinct job/engine epoch. A version predicate on a shared
+  creative table is not rollback isolation.
+- Native ad identity is `(business, provider account, entity type, ad ID,
+  scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
+  must never own hysteresis, pruning, snapshot uniqueness, or change events.
+- A native snapshot must have an immutable evaluation whose tenant, account,
+  entity, date, scope, input hash, and decision hash all match. Missing schema
+  capability or any broken link rolls back all native authority writes.
+- Native calibration readiness is isolated per account/cell. Missing or
+  evidence-unready cells persist explicit `diagnose` snapshots with
+  `native_calibration_unavailable`, zero hard-action eligibility, and null
+  calibration lineage; they must not abort or prune unrelated ready ads.
+- A ready native snapshot must reference its exact native calibration UUID.
+  Legacy creative calibration and lifecycle rows may not substitute for
+  missing native calibration authority. Invalid batch/replacement lineage is
+  transaction-fatal rather than a soft fallback.
+- Present-day assigned ads without insights may be emitted only with explicit
+  unobserved-metric provenance and a non-hard fail-close result. Historical
+  `asOf` hydration must never import a dimension-only ad from current state.
+- Optional Meta event metrics remain null when no source payload key was
+  observed. Source absence must not be converted to a measured zero.
 - Creative/Ads `scale` and `cut` hard eligibility follow the same action-specific
   ROAS anchors. A fresh target CPA may size evidence but cannot authorize either
   ROAS action by itself.
@@ -142,8 +183,31 @@ These rules are hard gates for V2.1.
   a mixed per-gate blend.
 - Kind-aware selection must fall back to canonical baselines when required
   kind calibration fields are null or the kind mature pool is too small.
-- Unlabeled creatives must use canonical baselines; the campaign-label guard
-  still converts hard actions to diagnostic output.
+- Automatic-context uncertainty must use canonical baselines and preserve the
+  mathematical Scale/Cut/Refresh verdict as review-only. It must not require a
+  manual label or authorize a provider write. Explicit user overrides retain
+  priority; inferred kind semantics require the separate authority gate.
+- A provisional automatic campaign role derived from persisted resolver scores
+  is presentation-only. It must not replace a null resolver kind in evaluation
+  inputs, select a kind-specific calibration cell, trigger Test semantics,
+  increase confidence, or authorize a provider write.
+- A current campaign missing from the daily context source still receives a
+  presentation-only automatic role from shared resolver name tokens, then a
+  provisional Main fallback. It remains Unknown-confidence, cannot enter
+  evaluation inputs, and cannot authorize a provider write.
+- Structure inventory may contain every account-scoped campaign and ad set,
+  with optional delivery-status and decision filters, but action authority is
+  limited to hierarchy rows whose current served status is exactly `ACTIVE`.
+  `WITH_ISSUES`, closed, or unknown rows have zero provider-write authority. An
+  active ad set under a non-active campaign is also non-actionable. Historical
+  range status cannot establish action authority; an unavailable current-status
+  reconciliation fails closed as `UNKNOWN`. Inventory visibility must never be
+  treated as recommendation or execution eligibility.
+- Budget utilization must use the actual evidence-window day count. A selected
+  or 30-day spend total must not be divided by a hard-coded 28-day constant.
+- Meta budget and currency-formatted bid values are provider minor units.
+  Utilization math and UI display must convert them to major units; provider
+  write payloads retain the original integer minor-unit contract.
 - Sparse Mixed campaign buckets fall back to canonical `all`; they must not be
   inferred from Main or Test buckets.
 - Test-cohort `refresh` to `cut` transformation must execute inside
@@ -172,6 +236,7 @@ These rules are hard gates for V2.1.
 | commercial target timestamp missing | same authority reduction as stale, never fresh-by-default                              |
 | only break-even ROAS becomes known  | portfolio comparison may improve; campaign budget scale stays blocked                  |
 | only target ROAS becomes known      | target-relative context appears; economic cut stays blocked without break-even          |
+| fresh break-even falls below account P25 | cut boundary narrows to break-even; known working-zone behavior below P25 is not widened |
 | creative reused in second ad set    | aggregate action authority falls to out-of-scope; confidence must not increase          |
 | nested 30d window is added          | independent Structure evidence count does not increase                                  |
 | frequency 3.0, account P75 3.5      | frequency does not establish fatigue pressure                                           |

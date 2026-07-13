@@ -1,6 +1,15 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+export const MULTI_WINDOW_CONTRACT_VERSION =
+  "adsecute.multi-window-robustness-summary.v1" as const;
+export const MULTI_WINDOW_CONTRACT_REVISION = 2 as const;
+const SWEEP_CONTRACT_VERSION = "adsecute.f1-f2-cut-threshold-sweep.v1";
+const MIN_SUPPORTED_SWEEP_REVISION = 3;
 
 type WindowSummary = {
   knownEpisodes: number;
@@ -30,10 +39,13 @@ type BusinessReview = {
   variants: VariantSummary[];
 };
 
-type SweepReport = {
+export type SweepReport = {
+  contractVersion: string;
+  revision: number;
   title: string;
   asOf: string;
   generatedAt: string;
+  engineVersion: string;
   reviews: BusinessReview[];
   recommendation?: { status: string; text: string };
 };
@@ -43,7 +55,7 @@ type InputWindow = {
   path: string;
 };
 
-type Row = {
+export type Row = {
   windowId: string;
   business: string;
   variantId: string;
@@ -121,8 +133,41 @@ function parseArgs() {
   return parsed;
 }
 
-function loadReport(input: InputWindow): SweepReport {
-  return JSON.parse(readFileSync(input.path, "utf8")) as SweepReport;
+function loadReport(input: InputWindow) {
+  const raw = readFileSync(input.path, "utf8");
+  return {
+    report: JSON.parse(raw) as SweepReport,
+    hash: sha256Text(raw),
+  };
+}
+
+export function sha256Text(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function validateCompatibleReports(reports: SweepReport[]) {
+  if (reports.length === 0) throw new Error("At least one sweep report is required.");
+  const expectedRevision = reports[0]?.revision;
+  const expectedEngineVersion = reports[0]?.engineVersion;
+  for (const [index, report] of reports.entries()) {
+    if (report.contractVersion !== SWEEP_CONTRACT_VERSION) {
+      throw new Error(`Input ${index + 1} has incompatible contract ${report.contractVersion}.`);
+    }
+    if (!Number.isInteger(report.revision) || report.revision < MIN_SUPPORTED_SWEEP_REVISION) {
+      throw new Error(`Input ${index + 1} has unsupported revision ${report.revision}.`);
+    }
+    if (report.revision !== expectedRevision) {
+      throw new Error(
+        `Input revisions are incompatible: expected ${expectedRevision}, received ${report.revision}.`,
+      );
+    }
+    if (!report.engineVersion || report.engineVersion !== expectedEngineVersion) {
+      throw new Error(
+        `Input engine versions are incompatible: expected ${expectedEngineVersion}, received ${report.engineVersion || "missing"}.`,
+      );
+    }
+  }
+  return { inputRevision: expectedRevision as number, engineVersion: expectedEngineVersion as string };
 }
 
 function rate(numerator: number, denominator: number) {
@@ -232,7 +277,7 @@ function buildRows(inputs: InputWindow[], reports: SweepReport[]) {
   return rows;
 }
 
-function aggregateRows(rows: Row[]) {
+export function aggregateRows(rows: Row[]) {
   const groups = new Map<string, Row[]>();
   for (const row of rows) {
     const key = `${row.business}::${row.variantId}`;
@@ -249,17 +294,20 @@ function aggregateRows(rows: Row[]) {
         (sum, row) => sum + row.baselineRecovered14,
         0,
       );
-      const savedUnitsRows = groupRows.filter((row) => Number.isFinite(row.savedUnits14));
-      const baselineSavedRows = groupRows.filter((row) =>
-        Number.isFinite(row.baselineSavedUnits14),
+      const pairwiseCompleteSavedRows = groupRows.filter(
+        (row) =>
+          Number.isFinite(row.savedUnits14) && Number.isFinite(row.baselineSavedUnits14),
       );
       const savedUnits14 =
-        savedUnitsRows.length > 0
-          ? savedUnitsRows.reduce((sum, row) => sum + (row.savedUnits14 as number), 0)
+        pairwiseCompleteSavedRows.length > 0
+          ? pairwiseCompleteSavedRows.reduce(
+              (sum, row) => sum + (row.savedUnits14 as number),
+              0,
+            )
           : null;
       const baselineSavedUnits14 =
-        baselineSavedRows.length > 0
-          ? baselineSavedRows.reduce(
+        pairwiseCompleteSavedRows.length > 0
+          ? pairwiseCompleteSavedRows.reduce(
               (sum, row) => sum + (row.baselineSavedUnits14 as number),
               0,
             )
@@ -380,6 +428,13 @@ function renderMarkdown(
   reports: SweepReport[],
   rows: Row[],
   aggregates: ReturnType<typeof aggregateRows>,
+  lineage: {
+    gitSha: string;
+    scriptContractRevision: number;
+    inputRevision: number;
+    engineVersion: string;
+    inputHashes: Array<{ id: string; path: string; sha256: string | null }>;
+  },
 ) {
   const generatedAt = new Date().toISOString();
   const inputLines = inputs
@@ -395,6 +450,15 @@ function renderMarkdown(
   return `# Multi-Window Robustness Summary - 2026-07-06
 
 Generated at: ${generatedAt}
+
+Git SHA: ${lineage.gitSha}
+
+Script contract revision: ${lineage.scriptContractRevision}
+
+Input sweep revision: ${lineage.inputRevision}; engine version: ${lineage.engineVersion}
+
+Input SHA-256:
+${lineage.inputHashes.map((input) => `- ${input.id}: ${input.sha256 ?? "unavailable"} (${input.path})`).join("\n")}
 
 Read-only: yes. This summary only aggregates prior shadow replay outputs; it does not query providers, mutate DB rows, change resolver code, or post cron endpoints.
 
@@ -444,15 +508,31 @@ ${renderWindowRows(rows)}
 
 function main() {
   const args = parseArgs();
-  const reports = args.inputs.map(loadReport);
+  const loaded = args.inputs.map(loadReport);
+  const reports = loaded.map((input) => input.report);
+  const compatibility = validateCompatibleReports(reports);
   const rows = buildRows(args.inputs, reports);
   const aggregates = aggregateRows(rows);
+  const lineage = {
+    gitSha: currentGitSha(),
+    scriptContractRevision: MULTI_WINDOW_CONTRACT_REVISION,
+    inputContractVersion: SWEEP_CONTRACT_VERSION,
+    inputRevision: compatibility.inputRevision,
+    engineVersion: compatibility.engineVersion,
+    inputHashes: args.inputs.map((input, index) => ({
+      id: input.id,
+      path: input.path,
+      sha256: loaded[index]?.hash ?? null,
+    })),
+  };
   const summary = {
-    contractVersion: "adsecute.multi-window-robustness-summary.v1",
+    contractVersion: MULTI_WINDOW_CONTRACT_VERSION,
+    revision: MULTI_WINDOW_CONTRACT_REVISION,
     generatedAt: new Date().toISOString(),
     readOnly: true,
     mutatesData: false,
     inputs: args.inputs,
+    lineage,
     variantsOfInterest: VARIANTS_OF_INTEREST,
     rows,
     aggregates,
@@ -461,7 +541,7 @@ function main() {
   mkdirSync(dirname(args.jsonOut), { recursive: true });
   mkdirSync(dirname(args.mdOut), { recursive: true });
   writeFileSync(args.jsonOut, `${JSON.stringify(summary, null, 2)}\n`);
-  writeFileSync(args.mdOut, renderMarkdown(args.inputs, reports, rows, aggregates));
+  writeFileSync(args.mdOut, renderMarkdown(args.inputs, reports, rows, aggregates, lineage));
 
   console.log(
     JSON.stringify(
@@ -478,4 +558,19 @@ function main() {
   );
 }
 
-main();
+function currentGitSha() {
+  const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  if (!/^[a-f0-9]{40}$/.test(sha)) {
+    throw new Error("Unable to derive a valid current git SHA for artifact lineage.");
+  }
+  return sha;
+}
+
+const isMain =
+  Boolean(process.argv[1]) &&
+  pathToFileURL(resolve(process.argv[1] as string)).href === import.meta.url;
+
+if (isMain) main();

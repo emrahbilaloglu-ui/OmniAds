@@ -20,6 +20,25 @@ The page should not ask the buyer to reverse-engineer metrics. It should present
 - Use a deterministic buyer-facing adapter.
 - Keep `brief_variation` page/family aggregate only.
 
+### 2026-07-12 historical-simulation closure (`HISTORICAL_SEARCH_EXHAUSTED_REVIEW_ONLY`)
+
+Read [HISTORICAL_SIMULATION_CLOSURE_REPORT_2026-07-12.md](./HISTORICAL_SIMULATION_CLOSURE_REPORT_2026-07-12.md)
+before proposing another threshold, confidence, structure, context, or
+hysteresis variant. All bounded H1-H12 families, native/structure replays,
+3d/7d/14d outcomes, H10 calibration, and expanded H11/H12 policies have run.
+No challenger passed its locked promotion gate. D049 is implemented locally
+under `v3-2026-07-12-breakeven-cut-ceiling`; it is retained as a monotonic
+safety invariant, not as proven historical lift. It has not been pushed or
+deployed.
+
+The strict replay found 17,233 restated native rows but zero cutoff-safe
+status/format/lifecycle/ranking rows, so hard actions correctly fail closed.
+The exact replay found 87 generation-safe 7d windows, 77 generation-safe 28d
+windows, and 362 exact branch-terminal resolutions, but no full canonical
+resolver input chain. The remaining limits are facts that were not retained,
+insufficient hard-known calibration samples, or causal counterfactuals without
+controlled treatment. They must not be restated as an untried replay task.
+
 ## Canonical read order
 
 1. [CONTEXT_SNAPSHOT.md](./CONTEXT_SNAPSHOT.md)
@@ -51,6 +70,8 @@ Before implementing resolver changes, read `DECISION_LOG.md`, `DATA_READINESS.md
 - [09-tests-backtest-confidence.md](./09-tests-backtest-confidence.md)
 - [10-observability-overrides-security-meta-db.md](./10-observability-overrides-security-meta-db.md)
 - [11-ui-copy-pr-sunset-go-no-go.md](./11-ui-copy-pr-sunset-go-no-go.md)
+- [HISTORICAL_SIMULATION_CLOSURE_REPORT_2026-07-12.md](./HISTORICAL_SIMULATION_CLOSURE_REPORT_2026-07-12.md)
+- [H1_COUNTRY_PARENT_CHALLENGER_2025-12-01_TO_2026-07-05.md](./H1_COUNTRY_PARENT_CHALLENGER_2025-12-01_TO_2026-07-05.md)
 
 ## Generated artifacts
 
@@ -93,5 +114,11 @@ Generated artifacts are planning and shadow-validation context. They are not pro
 
 ## Next recommended action
 
-- Finish audit/mapping review and use the spike tools branch for fixture-backed shadow validation.
-- Do not start production resolver changes yet.
+- Do not reopen a bounded H1-H12 alternative without a new retained evidence
+  source and an explicit ADR.
+- Keep inferred campaign-context hard-action authority and auto-execution
+  closed. Automatic context consumption is the default presentation path;
+  unresolved context preserves explicit review-only verdicts and never creates
+  a required manual-label queue.
+- Treat deployment of the local D049 engine epoch as a separate release task
+  with the standard migration/test/rollback gates.

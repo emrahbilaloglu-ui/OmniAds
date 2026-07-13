@@ -108,6 +108,15 @@ describe("Meta decision outcome storage", () => {
     expect(query).toContain("FROM meta_decision_action_outcome_logs");
     expect(query).toContain("action_type = 'outcome'");
     expect(query).toContain("rec_type = ANY(");
+    expect(query).toContain("FROM meta_ads_action_log action_log");
+    expect(query).toContain("AS treatment_receipt_validated");
+    expect(query).toContain("FALSE AS causal_assignment_validated");
+    expect(query).toContain("FALSE AS causal_estimate_validated");
+    expect(query).toContain("action_log.status = 'success'");
+    expect(query).toContain("action_log.verified_at IS NOT NULL");
+    expect(query).toContain(
+      "COALESCE(action_log.payload_request->>'dry_run', 'false') = 'false'",
+    );
     expect(sql.mock.calls.at(-1)?.at(-2)).toEqual(["adset_scale_budget", "adset_cut_spend"]);
     expect(sql.mock.calls.at(-1)?.at(-1)).toBe(50);
   });

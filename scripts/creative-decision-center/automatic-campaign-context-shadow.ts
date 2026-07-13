@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { getDb, resetDbClientCache } from "@/lib/db";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   configureOperationalScriptRuntime,
   withOperationalStartupLogsSilenced,
@@ -129,13 +130,6 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
-}
-
 function dateToMs(date: string) {
   return Date.parse(`${date}T00:00:00.000Z`);
 }
@@ -248,7 +242,7 @@ async function readGuardImpact(
     `,
     [businessId, engineVersion],
   );
-  const asOfDate = rows.length > 0 ? toDateOnly(rows[0].as_of_date) : null;
+  const asOfDate = rows.length > 0 ? normalizePostgresDate(rows[0].as_of_date) : null;
   return {
     asOfDate,
     rows: rows.map((row) => ({

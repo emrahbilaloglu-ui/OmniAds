@@ -81,7 +81,7 @@ function labelTone(kind: MetaCampaignKind | null) {
 }
 
 function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
-  const text = label ? labelKindDisplay(label.kind) : "Unlabeled";
+  const text = label ? labelKindDisplay(label.kind) : "Automatic";
   const suffix =
     label?.kind === "test" ? testDimensionDisplay(label.testDimension) : null;
   return (
@@ -90,7 +90,7 @@ function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
         "inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium",
         labelTone(label?.kind ?? null),
       )}
-      data-campaign-kind={label?.kind ?? "unlabeled"}
+      data-campaign-kind={label?.kind ?? "automatic"}
     >
       <Tags className="inline-block shrink-0" size={10} aria-hidden="true" />
       <span>{text}</span>
@@ -133,8 +133,8 @@ export function MetaCampaignLabelsSection({
   const campaignScopeText = campaignsQuery.isLoading
     ? "Loading campaign list."
     : activeCount > 0
-      ? "Active campaigns need Main, Test, or Mixed context."
-      : "No active campaigns were returned; showing recent non-archived campaigns so labels can still be managed.";
+      ? "Active campaigns receive automatic context; this table stores exceptions only."
+      : "No active campaigns were returned; showing recent non-archived campaigns so existing exceptions can be reviewed.";
 
   const campaignIds = useMemo(
     () => labelableCampaigns.map((row) => row.id).filter(Boolean),
@@ -166,7 +166,7 @@ export function MetaCampaignLabelsSection({
     return next;
   }, [labelsQuery.data?.labels]);
 
-  const unlabeledCampaigns = useMemo(
+  const campaignsWithoutOverride = useMemo(
     () => labelableCampaigns.filter((row) => !labelMap.has(row.id)),
     [labelableCampaigns, labelMap],
   );
@@ -283,13 +283,13 @@ export function MetaCampaignLabelsSection({
               Context corrections
             </h2>
             {!loading && !error ? (
-              unlabeledCampaigns.length > 0 ? (
-                <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
-                  {unlabeledCampaigns.length} unresolved
+              campaignsWithoutOverride.length > 0 ? (
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+                  {campaignsWithoutOverride.length} automatic
                 </span>
               ) : (
                 <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700">
-                  All shown campaigns have context
+                  All shown campaigns use overrides
                 </span>
               )
             ) : null}
@@ -303,8 +303,9 @@ export function MetaCampaignLabelsSection({
             ) : null}
           </div>
           <p className="mt-1 text-[12px] leading-snug text-slate-500">
-            Automatic Main, Test, and Mixed context remains authoritative unless
-            you explicitly correct a row. {campaignScopeText}
+            Automatic Main, Test, and Mixed context is the default. Inferred
+            roles remain review-only until the authority gate is validated; an
+            override is needed only when the inferred role is wrong. {campaignScopeText}
           </p>
         </div>
       </div>

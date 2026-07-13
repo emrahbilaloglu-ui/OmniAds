@@ -8,6 +8,7 @@ import {
   type CreativeDecisionBacktestRow,
   type DecisionBacktestSegmentSummary,
 } from "@/lib/creative-decision-engine/backtest";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   configureOperationalScriptRuntime,
   withOperationalStartupLogsSilenced,
@@ -198,13 +199,6 @@ function toText(value: unknown): string | null {
   return String(value);
 }
 
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
-}
-
 function toIso(value: unknown): string | null {
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     return value.toISOString();
@@ -356,7 +350,7 @@ async function readSnapshotTotals(input: {
   const rowCount = toNumber(row?.row_count);
   const staleOrUnknownRows = toNumber(row?.stale_or_unknown_rows);
   return {
-    latestAsOfDate: toDateOnly(row?.latest_as_of_date),
+    latestAsOfDate: normalizePostgresDate(row?.latest_as_of_date),
     snapshotDayCount: toNumber(row?.snapshot_day_count),
     rowCount,
     totalSpend: rounded(toNumber(row?.total_spend), 2) ?? 0,
@@ -485,8 +479,8 @@ async function readOutcomeSummaries(input: {
       neutral: toNumber(row.neutral),
       unknown: toNumber(row.unknown),
       coverage: ratio(outcomeRows, eligibleSnapshots),
-      firstEligibleDecisionDate: toDateOnly(row.first_eligible_decision_date),
-      latestEligibleDecisionDate: toDateOnly(row.latest_eligible_decision_date),
+      firstEligibleDecisionDate: normalizePostgresDate(row.first_eligible_decision_date),
+      latestEligibleDecisionDate: normalizePostgresDate(row.latest_eligible_decision_date),
     };
   });
 }
@@ -612,7 +606,7 @@ function toDecisionBacktestRow(row: Row): CreativeDecisionBacktestRow | null {
   const severity = toText(row.severity);
   return {
     creativeId: toText(row.creative_id) ?? "",
-    asOfDate: toDateOnly(row.decision_as_of_date) ?? "",
+    asOfDate: normalizePostgresDate(row.decision_as_of_date) ?? "",
     label,
     confidence: toNumber(row.confidence),
     realizedOutcome,
@@ -700,7 +694,7 @@ async function readRecentJobRuns(input: {
   );
   return rows.map((row) => ({
     jobName: toText(row.job_name) ?? "unknown",
-    asOfDate: toDateOnly(row.as_of_date),
+    asOfDate: normalizePostgresDate(row.as_of_date),
     status: toText(row.status) ?? "unknown",
     rowCount: toNullableNumber(row.row_count),
     startedAt: toIso(row.started_at),
@@ -738,7 +732,7 @@ function readReplayBaselines(path: string): Map<string, ReplayBusinessBaseline> 
     baselines.set(id, {
       business: { id, name },
       status: toText(review.status) ?? "unknown",
-      simulationAsOf: toDateOnly(review.simulationAsOf),
+      simulationAsOf: normalizePostgresDate(review.simulationAsOf),
       freshnessMode: toText(review.freshnessMode),
       rowCount,
       labels: distributions?.label ?? {},

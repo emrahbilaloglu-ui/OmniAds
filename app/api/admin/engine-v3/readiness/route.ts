@@ -13,7 +13,26 @@ import { JOB_NAME as CALIBRATION_JOB_NAME } from "@/lib/creative-decision-engine
 import { JOB_NAME as DECISIONS_JOB_NAME } from "@/lib/creative-decision-engine/jobs/decisions-job";
 import { JOB_NAME as LIFECYCLE_JOB_NAME } from "@/lib/creative-decision-engine/jobs/lifecycle-job";
 import { JOB_NAME as OPERATOR_RESPONSE_JOB_NAME } from "@/lib/creative-decision-engine/jobs/operator-response-job";
-import type { AccountDecisionProfile } from "@/lib/creative-decision-engine/types";
+import {
+  AD_CALIBRATION_JOB_NAME as NATIVE_AD_CALIBRATION_JOB_NAME,
+} from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
+import {
+  AD_DECISION_OUTCOMES_JOB_NAME as NATIVE_AD_OUTCOMES_JOB_NAME,
+  inspectAdDecisionOutcomeSchemaCapability,
+} from "@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job";
+import {
+  AD_DECISIONS_JOB_NAME as NATIVE_AD_DECISIONS_JOB_NAME,
+} from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
+import {
+  AD_OPERATOR_RESPONSE_JOB_NAME as NATIVE_AD_OPERATOR_RESPONSE_JOB_NAME,
+} from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
+import { engineV3JobsDisabled } from "@/lib/creative-decision-engine/jobs/job-switch";
+import { inspectNativeAdShadowSchemaReadiness } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
+import {
+  NATIVE_AD_ENGINE_VERSION,
+  type AccountDecisionProfile,
+} from "@/lib/creative-decision-engine/types";
+import { inspectControlledRegistryCapabilities } from "@/lib/meta/controlled-experiment-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +99,38 @@ interface JobsSnapshot {
   lifecycle: JobStatus;
   decisions: JobStatus;
   operatorResponse: JobStatus;
+}
+
+interface NativeAdJobsSnapshot {
+  calibration: JobStatus;
+  decisions: JobStatus;
+  operatorResponse: JobStatus;
+  outcomes: JobStatus;
+}
+
+interface NativeAdReadiness {
+  engineVersion: typeof NATIVE_AD_ENGINE_VERSION;
+  shadowOnly: true;
+  jobsDisabled: boolean;
+  schema: {
+    producer: Awaited<ReturnType<typeof inspectNativeAdShadowSchemaReadiness>>;
+    outcomes: { ready: boolean; issues: string[] };
+    controlledRegistry: { ready: boolean; issues: string[] };
+    allReady: boolean;
+  };
+  jobs: NativeAdJobsSnapshot;
+  evidence: {
+    latestSnapshotAt: string | null;
+    ageHours: number | null;
+    isStale: boolean;
+  };
+  gating: {
+    canRunShadow: boolean;
+    hasCurrentEvidence: boolean;
+    canMeasureOutcomes: boolean;
+    canUseControlledEvidence: boolean;
+    reasons: string[];
+  };
 }
 
 interface BusinessRow {
@@ -249,6 +300,7 @@ async function readJobStatus(
   businessId: string,
   jobName: string,
   nowMs: number,
+  engineVersion?: string,
 ): Promise<JobStatus> {
   const [row] = await db.query<JobStatusRow>(
     `
@@ -261,6 +313,7 @@ async function readJobStatus(
         FROM engine_v3_job_runs
         WHERE job_name = $1
           AND (business_ref_id::text = $2 OR business_id = $2)
+          AND ($3::text IS NULL OR engine_version = $3)
           AND status IN ('failed', 'failure')
         ORDER BY finished_at DESC NULLS LAST, started_at DESC
         LIMIT 1
@@ -268,8 +321,9 @@ async function readJobStatus(
     FROM engine_v3_job_runs
     WHERE job_name = $1
       AND (business_ref_id::text = $2 OR business_id = $2)
+      AND ($3::text IS NULL OR engine_version = $3)
     `,
-    [jobName, businessId],
+    [jobName, businessId, engineVersion ?? null],
   );
 
   const lastSuccessAt = toIsoTimestampOrNull(row?.last_success_at);
@@ -282,6 +336,140 @@ async function readJobStatus(
     ageHours,
     isStale: ageHours !== null && ageHours > 24,
     lastError: truncateText(row?.last_error, 500),
+  };
+}
+
+async function readNativeAdReadiness(
+  db: DbClient,
+  businessId: string,
+  nowMs: number,
+): Promise<NativeAdReadiness> {
+  const [producer, outcomesCapability, controlledCapability, jobs, snapshotRows] =
+    await Promise.all([
+      inspectNativeAdShadowSchemaReadiness(),
+      inspectAdDecisionOutcomeSchemaCapability(db).catch((error) => ({
+        ready: false,
+        missing: [
+          `inspection_failed:${error instanceof Error ? error.message : String(error)}`,
+        ],
+      })),
+      inspectControlledRegistryCapabilities().catch((error) => ({
+        ready: false,
+        issues: [
+          `inspection_failed:${error instanceof Error ? error.message : String(error)}`,
+        ],
+      })),
+      Promise.all([
+        readJobStatus(
+          db,
+          businessId,
+          NATIVE_AD_CALIBRATION_JOB_NAME,
+          nowMs,
+          NATIVE_AD_ENGINE_VERSION,
+        ),
+        readJobStatus(
+          db,
+          businessId,
+          NATIVE_AD_DECISIONS_JOB_NAME,
+          nowMs,
+          NATIVE_AD_ENGINE_VERSION,
+        ),
+        readJobStatus(
+          db,
+          businessId,
+          NATIVE_AD_OPERATOR_RESPONSE_JOB_NAME,
+          nowMs,
+          NATIVE_AD_ENGINE_VERSION,
+        ),
+        readJobStatus(
+          db,
+          businessId,
+          NATIVE_AD_OUTCOMES_JOB_NAME,
+          nowMs,
+          NATIVE_AD_ENGINE_VERSION,
+        ),
+      ]),
+      db.query<FreshnessRow>(
+        `
+        SELECT MAX(computed_at) AS latest_at
+        FROM engine_v3_ad_decision_snapshots_daily
+        WHERE business_ref_id::text = $1
+          AND engine_version = $2
+        `,
+        [businessId, NATIVE_AD_ENGINE_VERSION],
+      ).catch(() => []),
+    ]);
+
+  const nativeJobs: NativeAdJobsSnapshot = {
+    calibration: jobs[0],
+    decisions: jobs[1],
+    operatorResponse: jobs[2],
+    outcomes: jobs[3],
+  };
+  const latestSnapshotAt = toIsoTimestampOrNull(snapshotRows[0]?.latest_at);
+  const snapshotAgeHours = ageHoursSince(latestSnapshotAt, nowMs);
+  const snapshotStale = snapshotAgeHours !== null && snapshotAgeHours > 24;
+  const jobsDisabled = engineV3JobsDisabled();
+  const outcomes = {
+    ready: outcomesCapability.ready,
+    issues: [...outcomesCapability.missing],
+  };
+  const controlledRegistry = {
+    ready: controlledCapability.ready,
+    issues: [...controlledCapability.issues],
+  };
+  const reasons: string[] = [];
+  if (jobsDisabled) reasons.push("native_jobs_disabled");
+  if (!producer.ready) reasons.push("native_producer_schema_not_ready");
+  if (!outcomes.ready) reasons.push("native_outcome_schema_not_ready");
+  if (!controlledRegistry.ready) {
+    reasons.push("controlled_registry_schema_not_ready");
+  }
+  addJobGateReasons(reasons, "native_calibration", nativeJobs.calibration);
+  addJobGateReasons(reasons, "native_decisions", nativeJobs.decisions);
+  addJobGateReasons(
+    reasons,
+    "native_operator_response",
+    nativeJobs.operatorResponse,
+  );
+  if (latestSnapshotAt === null) reasons.push("native_snapshot_missing");
+  if (snapshotStale) reasons.push("native_snapshot_stale");
+
+  const canRunShadow = !jobsDisabled && producer.ready;
+  const hasCurrentEvidence =
+    canRunShadow &&
+    latestSnapshotAt !== null &&
+    !snapshotStale &&
+    nativeJobs.calibration.lastSuccessAt !== null &&
+    !nativeJobs.calibration.isStale &&
+    nativeJobs.decisions.lastSuccessAt !== null &&
+    !nativeJobs.decisions.isStale &&
+    nativeJobs.operatorResponse.lastSuccessAt !== null &&
+    !nativeJobs.operatorResponse.isStale;
+
+  return {
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    shadowOnly: true,
+    jobsDisabled,
+    schema: {
+      producer,
+      outcomes,
+      controlledRegistry,
+      allReady: producer.ready && outcomes.ready && controlledRegistry.ready,
+    },
+    jobs: nativeJobs,
+    evidence: {
+      latestSnapshotAt,
+      ageHours: snapshotAgeHours,
+      isStale: snapshotStale,
+    },
+    gating: {
+      canRunShadow,
+      hasCurrentEvidence,
+      canMeasureOutcomes: hasCurrentEvidence && outcomes.ready,
+      canUseControlledEvidence: hasCurrentEvidence && controlledRegistry.ready,
+      reasons,
+    },
   };
 }
 
@@ -526,13 +714,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       dataSource,
       flags: resolverFlags,
     };
-    const [dataHealth, jobs, profile, matureCount, decisionsSummary] =
+    const [
+      dataHealth,
+      jobs,
+      profile,
+      matureCount,
+      decisionsSummary,
+      nativeAd,
+    ] =
       await Promise.all([
         readDataHealth(db, business.id, nowMs),
         readJobs(db, business.id, nowMs),
         resolveAccountDecisionProfile(profileInput),
         readMatureCount(db, business.id),
         readDecisionsSummary(db, business.id),
+        readNativeAdReadiness(db, business.id, nowMs),
       ]);
 
     const accountProfile = mapAccountProfile(profile, matureCount);
@@ -554,6 +750,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       accountProfile,
       decisionsSummary,
       gating,
+      nativeAd,
     });
   } catch (error) {
     console.error("[admin/engine-v3/readiness GET]", error);

@@ -110,9 +110,9 @@ describe("MetaCampaignLabelsSection", () => {
     expect(html).toContain("Creative Test");
     expect(html).not.toContain("Paused Campaign");
     expect(html).toContain("Context corrections");
-    expect(html).toContain("1 unresolved");
+    expect(html).toContain("1 automatic");
     expect(html).toContain('data-campaign-kind="main"');
-    expect(html).toContain('data-campaign-kind="unlabeled"');
+    expect(html).toContain('data-campaign-kind="automatic"');
     expect(state.queryKeys).toContainEqual([
       "meta-campaigns-for-labels",
       "biz_1",

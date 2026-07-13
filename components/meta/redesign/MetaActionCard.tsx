@@ -175,6 +175,51 @@ function evidenceAgeLabel(rec: MetaRecommendation) {
   return `evidence ${Math.round(ageDays)}d`;
 }
 
+function configuredBidValue(
+  value: number | null | undefined,
+  format: "currency" | "roas" | null | undefined,
+  currency: string | null | undefined,
+) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return format === "roas"
+    ? `${value.toFixed(2)}×`
+    : formatMoney(value / 100, currency);
+}
+
+function bidConfigurationSummary(
+  rec: MetaRecommendation,
+  currency: string | null | undefined,
+) {
+  const config = rec.entityConfiguration;
+  if (!config?.bidStrategyType && !config?.bidStrategyLabel) return null;
+  const label =
+    config.bidStrategyLabel?.trim() ||
+    compactLabel(config.bidStrategyType ?? "Bid strategy");
+  const current = configuredBidValue(
+    config.bidValue,
+    config.bidValueFormat,
+    currency,
+  );
+  const previous = configuredBidValue(
+    config.previousBidValue,
+    config.previousBidValueFormat,
+    currency,
+  );
+  const changedAt = config.previousBidValueCapturedAt?.slice(0, 10) ?? null;
+  const utilization =
+    config.budgetUtilization == null ||
+    !Number.isFinite(config.budgetUtilization)
+      ? null
+      : `${Math.round(config.budgetUtilization * 100)}% budget used`;
+  return [
+    current ? `${label} ${current}` : label,
+    previous ? `previous ${previous}${changedAt ? ` · ${changedAt}` : ""}` : null,
+    utilization,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+}
+
 function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
   if (rec.type === "adset_cut_spend")
     return (
@@ -451,6 +496,7 @@ export function MetaActionCard({
       ? { kind: "review", label: "Review · read-only" }
       : actionAuthority;
   const evidenceAge = evidenceAgeLabel(rec);
+  const bidSummary = bidConfigurationSummary(rec, moneyCurrency);
 
   const chips: Array<{
     key: string;
@@ -460,7 +506,20 @@ export function MetaActionCard({
   }> = [];
   if (rec.campaignRole)
     chips.push({ key: "role", text: compactLabel(rec.campaignRole) });
-  if (rec.bidRegime)
+  if (rec.campaignContext) {
+    const kind = rec.campaignContext.kind
+      ? compactLabel(rec.campaignContext.kind)
+      : "Role pending";
+    chips.push({
+      key: "campaign-context",
+      text:
+        rec.campaignContext.source === "user_override"
+          ? `${kind} · override`
+          : `${kind} · auto ${rec.campaignContext.confidence}`,
+      tone: rec.campaignContext.trustedForAction ? "info" : "warn",
+    });
+  }
+  if (rec.bidRegime && !rec.entityConfiguration?.bidStrategyType)
     chips.push({ key: "bid", text: compactLabel(rec.bidRegime), tone: "warn" });
   if (rec.cohort && rec.cohort !== "purchase") {
     chips.push({
@@ -632,6 +691,15 @@ export function MetaActionCard({
           ) : null}
           {evidenceAge ? (
             <span className="meta-row__evidence-age">{evidenceAge}</span>
+          ) : null}
+          {bidSummary ? (
+            <span
+              className="meta-row__evidence-age"
+              data-bid-configuration
+              title={bidSummary}
+            >
+              {bidSummary}
+            </span>
           ) : null}
           <span className="meta-row__evidence-link">Read evidence →</span>
           {deferred ? (

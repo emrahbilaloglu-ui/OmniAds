@@ -168,7 +168,11 @@ function guardHardDecisionWithContext(
   return withCampaignContext(
     {
       ...decision,
-      label: "diagnose",
+      // Automatic context uncertainty must not erase the mathematical verdict.
+      // Keep the explicit label and carry the blockedActionType/badge so every
+      // serving surface can present it as review-only without inventing a new
+      // decision client-side.
+      label: originalLabel,
       confidence: Math.min(
         decision.confidence,
         CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,

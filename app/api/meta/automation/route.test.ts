@@ -14,6 +14,7 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   releaseMetaAutomationKillSwitch: vi.fn(),
   setMetaAutomationDecisionTypeMode: vi.fn(),
   getMetaAutomationControlPlane: vi.fn(),
+  getMetaWriteBlockState: vi.fn(),
   META_AUTOMATION_DECISION_TYPES: ["pause", "bid", "budget", "creative"],
 }));
 
@@ -80,6 +81,11 @@ describe("GET /api/meta/automation", () => {
       activityLedger: [],
       decisionTypeModes: [],
     });
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: true,
+      reason: "business_kill_switch",
+      message: "Owner paused automation.",
+    });
     vi.mocked(controlPlane.engageMetaAutomationKillSwitch).mockResolvedValue({
       businessId: BUSINESS_ID,
       killSwitchEngaged: true,
@@ -142,6 +148,29 @@ describe("GET /api/meta/automation", () => {
       businessId: BUSINESS_ID,
       providerAccountId: "act_1",
     });
+  });
+
+  it("serves the lightweight Studio write-authority summary", async () => {
+    const response = await GET(
+      request(
+        `http://localhost/api/meta/automation?businessId=${BUSINESS_ID}&providerAccountId=act_1&summary=1`,
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      ok: true,
+      system: {
+        killSwitchEngaged: true,
+        writeEndpointsBlocked: true,
+        blockReason: "business_kill_switch",
+      },
+    });
+    expect(controlPlane.getMetaWriteBlockState).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+    });
+    expect(controlPlane.getMetaAutomationControlPlane).not.toHaveBeenCalled();
   });
 
   it("requires a business id", async () => {

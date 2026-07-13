@@ -148,6 +148,9 @@ describe("runMetaOutcomeAccrualForBusiness", () => {
     );
     expect(appended.payloadJson).toMatchObject({
       rule: "auto_kpi_7d.v1",
+      evidenceClass: "observational_pre_post",
+      causalDesign: null,
+      treatmentReceipt: null,
       operatorActed: true,
       confidenceScore: 0.82,
     });

@@ -94,6 +94,16 @@ describe("GET /api/meta/lane-classify", () => {
           purchases: 9,
           roas: 2.8,
           cpa: 31,
+          optimizationGoal: "Purchase",
+          bidStrategyType: "cost_cap",
+          bidStrategyLabel: "Cost Cap",
+          bidValue: 1500,
+          bidValueFormat: "currency",
+          previousBidValue: 1200,
+          previousBidValueFormat: "currency",
+          previousBidValueCapturedAt: "2026-05-01T00:00:00.000Z",
+          dailyBudget: 100,
+          lifetimeBudget: null,
         },
         {
           id: "cmp_healthy",
@@ -155,6 +165,15 @@ describe("GET /api/meta/lane-classify", () => {
 
     expect(response.status).toBe(200);
     expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_action"]);
+    expect(payload.actionNow[0].entityConfiguration).toMatchObject({
+      bidStrategyType: "cost_cap",
+      bidStrategyLabel: "Cost Cap",
+      bidValue: 1500,
+      previousBidValue: 1200,
+      previousBidValueCapturedAt: "2026-05-01T00:00:00.000Z",
+      dailyBudget: 100,
+      budgetUtilization: expect.any(Number),
+    });
     expect(payload.watching.map((rec: { id: string }) => rec.id)).toEqual(["rec_deferred", "rec_watch"]);
     expect(payload.healthy[0].name).toBe("Healthy ASC");
     expect(payload.healthy[0]).toMatchObject({
@@ -183,6 +202,47 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.counts.nonSales).toBe(0);
     expect(payload.counts.archive).toBe(0);
     expect(payload.statusFilter).toBe("active");
+    expect(payload.structureInventory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "cmp_1",
+          level: "campaign",
+          status: "ACTIVE",
+          metrics: expect.objectContaining({ spend: 800, roas: 2.8 }),
+        }),
+        expect.objectContaining({
+          id: "adset_healthy",
+          level: "adset",
+          campaignId: "cmp_healthy",
+        }),
+      ]),
+    );
+    expect(campaigns.getMetaCampaignsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({ includePrev: true, includePrevBudget: true }),
+    );
+    expect(adsets.getMetaAdSetsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({ includePrev: true, includePrevBudget: true }),
+    );
+  });
+
+  it("keeps complete Structure inventory but removes previous-history work from the compact OS path", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d&status_filter=all&decision_workspace=1&workspace_surface=os",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.statusFilter).toBe("all");
+    expect(payload.structureInventory).toHaveLength(3);
+    expect(payload.healthy).toEqual([]);
+    expect(campaigns.getMetaCampaignsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({ includePrev: false, includePrevBudget: false }),
+    );
+    expect(adsets.getMetaAdSetsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({ includePrev: false, includePrevBudget: false }),
+    );
   });
 
   it("serves the true snapshot as-of, not the requested range end", async () => {
@@ -519,7 +579,11 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.actionNow[0]).not.toHaveProperty("operatorResponseSubtype");
     expect(console.warn).toHaveBeenCalledWith(
       "[meta-lane-classify] live status probe request failed",
-      expect.objectContaining({ businessId: "biz_1", entityCount: 1, error: "graph unavailable" }),
+      expect.objectContaining({
+        businessId: "biz_1",
+        entityCount: 2,
+        error: "graph unavailable",
+      }),
     );
   });
 
@@ -717,11 +781,6 @@ describe("GET /api/meta/lane-classify", () => {
           cpa: null,
         },
       ] as never,
-      evidenceSource: "live",
-    });
-    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
-      status: "ok",
-      rows: [] as never,
       evidenceSource: "live",
     });
 
@@ -1112,7 +1171,7 @@ describe("GET /api/meta/lane-classify", () => {
     expect(payload.nonSales).toHaveLength(0);
   });
 
-  it("routes archived non-purchase campaign rows into nonSales instead of archive", async () => {
+  it("keeps paused non-purchase campaigns out of Structure and exposes them in archive", async () => {
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
       status: "ok",
       businessId: "biz_1",
@@ -1153,13 +1212,84 @@ describe("GET /api/meta/lane-classify", () => {
     const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
     const payload = await response.json();
 
-    expect(payload.archive.map((row: { id: string }) => row.id)).not.toContain("cmp_archived_video");
-    expect(payload.nonSales[0]).toMatchObject({
-      campaignId: "cmp_archived_video",
-      campaignName: "Archived Video Views",
-      cohort: "upper_funnel",
+    expect(payload.nonSales).toHaveLength(0);
+    expect(payload.archive).toEqual([
+      expect.objectContaining({
+        id: "cmp_archived_video",
+        name: "Archived Video Views",
+        status: "PAUSED",
+      }),
+    ]);
+    expect(payload.counts.archive).toBe(payload.archive.length);
+  });
+
+  it("keeps active non-sales ad sets out of Structure when their parent campaign is paused", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 0,
+      },
+      recommendations: [],
     });
-    expect(payload.counts.nonSales).toBe(payload.nonSales.length);
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_paused_upper",
+          name: "Paused Video Views",
+          status: "PAUSED",
+          spend: 250,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "adset_active_child",
+          name: "Configured Active Child",
+          campaignId: "cmp_paused_upper",
+          status: "ACTIVE",
+          spend: 100,
+          purchases: 0,
+          roas: 0,
+          cpa: null,
+          optimizationGoal: "THRUPLAY",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.nonSales).toHaveLength(0);
+    expect(payload.archive).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "cmp_paused_upper", status: "PAUSED" }),
+        expect.objectContaining({
+          id: "adset_active_child",
+          status: "CAMPAIGN_PAUSED",
+        }),
+      ]),
+    );
   });
 
   it("filters closed-entity recommendations by default and exposes them in archive", async () => {
@@ -1207,16 +1337,262 @@ describe("GET /api/meta/lane-classify", () => {
       ] as never,
       evidenceSource: "live",
     });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
 
     const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
     const payload = await response.json();
 
     expect(payload.actionNow.map((rec: { id: string }) => rec.id)).toEqual(["rec_active"]);
     expect(payload.archive).toHaveLength(1);
-    expect(payload.archive[0]).toMatchObject({ id: "cmp_paused", status: "PAUSED", name: "Paused ASC" });
+    expect(payload.archive[0]).toMatchObject({
+      id: "cmp_paused",
+      status: "PAUSED",
+      name: "Paused ASC",
+      advisory: {
+        primaryActionLabel: expect.any(String),
+        why: expect.any(String),
+        confidence: "high",
+      },
+    });
   });
 
-  it("keeps WITH_ISSUES recommendations visible in Watching instead of Action Now", async () => {
+  it("reconciles a historical ACTIVE row with the current provider status before serving Structure", async () => {
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+      accountProfiles: {},
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const requestUrl = new URL(String(url));
+        expect(requestUrl.searchParams.get("ids")).toContain("cmp_now_paused");
+        return new Response(
+          JSON.stringify({
+            cmp_now_paused: {
+              id: "cmp_now_paused",
+              status: "PAUSED",
+              effective_status: "PAUSED",
+              updated_time: "2026-07-13T07:00:00.000Z",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-07-06",
+      endDate: "2026-07-12",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_now_paused",
+          campaignId: "cmp_now_paused",
+          campaignName: "Paused after snapshot",
+          confidenceScore: 0.9,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_now_paused",
+          name: "Paused after snapshot",
+          status: "ACTIVE",
+          spend: 500,
+          purchases: 5,
+          roas: 2,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
+      ] as never,
+      evidenceSource: "snapshot",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "snapshot",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=7d&startDate=2026-07-06&endDate=2026-07-12",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.actionNow).toHaveLength(0);
+    expect(payload.watching).toHaveLength(0);
+    expect(payload.archive).toEqual([
+      expect.objectContaining({
+        id: "cmp_now_paused",
+        status: "PAUSED",
+        advisory: expect.objectContaining({ confidence: "high" }),
+      }),
+    ]);
+  });
+
+  it("fails closed when a historical Structure candidate cannot be reconciled to current provider status", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-07-06",
+      endDate: "2026-07-12",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_status_unverified",
+          campaignId: "cmp_status_unverified",
+          campaignName: "Status cannot be verified",
+          confidenceScore: 0.9,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_status_unverified",
+          name: "Status cannot be verified",
+          status: "ACTIVE",
+          spend: 500,
+          purchases: 5,
+          roas: 2,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
+      ] as never,
+      evidenceSource: "snapshot",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "snapshot",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=7d&startDate=2026-07-06&endDate=2026-07-12",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.actionNow).toHaveLength(0);
+    expect(payload.watching).toHaveLength(0);
+    expect(payload.archive).toEqual([
+      expect.objectContaining({
+        id: "cmp_status_unverified",
+        status: "UNKNOWN",
+        diagnosticNote: expect.stringContaining("Status truth is incomplete"),
+      }),
+    ]);
+  });
+
+  it("withholds an active ad set when its parent campaign is paused", async () => {
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-04-10",
+      endDate: "2026-05-07",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_child",
+          level: "adset",
+          campaignId: undefined,
+          campaignName: "Paused parent",
+          adsetId: "adset_child_active",
+          adsetName: "Configured active child",
+          confidenceScore: 0.9,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_parent_paused",
+          name: "Paused parent",
+          status: "PAUSED",
+          spend: 400,
+          purchases: 4,
+          roas: 1.8,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "adset_child_active",
+          name: "Configured active child",
+          campaignId: "cmp_parent_paused",
+          status: "ACTIVE",
+          spend: 200,
+          purchases: 2,
+          roas: 1.7,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
+      ] as never,
+      evidenceSource: "live",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.actionNow).toHaveLength(0);
+    expect(payload.archive).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "adset_child_active",
+          status: "CAMPAIGN_PAUSED",
+          statusLabel: "Campaign paused",
+          advisory: expect.objectContaining({ confidence: "high" }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps WITH_ISSUES recommendations out of Structure and exposes them in archive", async () => {
     vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
       status: "ok",
       businessId: "biz_1",
@@ -1241,13 +1617,24 @@ describe("GET /api/meta/lane-classify", () => {
       ] as never,
       evidenceSource: "live",
     });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "live",
+    });
 
     const response = await GET(new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"));
     const payload = await response.json();
 
     expect(payload.actionNow).toHaveLength(0);
-    expect(payload.watching.map((rec: { id: string }) => rec.id)).toContain("rec_issue");
-    expect(payload.archive).toHaveLength(0);
+    expect(payload.watching).toHaveLength(0);
+    expect(payload.archive).toEqual([
+      expect.objectContaining({
+        id: "cmp_issue",
+        status: "WITH_ISSUES",
+        advisory: expect.objectContaining({ confidence: "high" }),
+      }),
+    ]);
   });
 
   it("routes the [0.55, 0.7) act-state confidence band into Watching as mid_confidence instead of dropping it", async () => {

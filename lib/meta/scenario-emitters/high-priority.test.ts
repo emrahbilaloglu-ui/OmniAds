@@ -171,7 +171,7 @@ function campaign(overrides: Partial<MetaCampaignRow> = {}): MetaCampaignRow {
     previousBidValue: null,
     previousBidValueFormat: null,
     previousBidValueCapturedAt: null,
-    dailyBudget: 100,
+    dailyBudget: 10_000,
     lifetimeBudget: null,
     previousDailyBudget: null,
     previousLifetimeBudget: null,
@@ -253,7 +253,7 @@ function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
     clicks: 100,
     frequency: 3,
     currency: "USD",
-    dailyBudget: 50,
+    dailyBudget: 5_000,
     lifetimeBudget: null,
     optimizationGoal: "Purchase",
     bidStrategyType: "lowest_cost",
@@ -292,6 +292,44 @@ function signal(
 }
 
 describe("high priority Meta scenario emitters", () => {
+  it("uses the complete 30-day delivery window while preserving raw provider bid units", () => {
+    const rec = maybeB1CappedBidRaise({
+      window: windowFor(
+        campaign({
+          bidStrategyType: "cost_cap",
+          bidValue: 5000,
+          bidValueFormat: "currency",
+          roas: 2.4,
+          dailyBudget: 50_000,
+          spend: 1000,
+        }),
+        {
+          last30: campaign({
+            bidStrategyType: "cost_cap",
+            bidValue: 5000,
+            bidValueFormat: "currency",
+            roas: 2.4,
+            dailyBudget: 50_000,
+            spend: 7500,
+          }),
+        },
+      ),
+      context,
+      cohort: purchaseCohort,
+      commercialTargets,
+    });
+
+    expect(rec?.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Budget utilization", value: "50%" }),
+        expect.objectContaining({ label: "Current bid", value: "$50.00" }),
+      ]),
+    );
+    expect(rec?.targetValue).toMatchObject({
+      bid: { current: 5000, proposed: 5500 },
+    });
+  });
+
   it.each([
     [
       "C1",
@@ -312,7 +350,7 @@ describe("high priority Meta scenario emitters", () => {
               bidStrategyType: "cost_cap",
               bidValue: 5000,
               roas: 2.4,
-              dailyBudget: 500,
+              dailyBudget: 50_000,
               spend: 1000,
             }),
           ),
@@ -333,7 +371,7 @@ describe("high priority Meta scenario emitters", () => {
               bidValueFormat: "roas",
               roas: 3.4,
               purchases: 12,
-              dailyBudget: 500,
+              dailyBudget: 50_000,
               spend: 1000,
             }),
           ),
@@ -353,7 +391,7 @@ describe("high priority Meta scenario emitters", () => {
               bidValue: 5000,
               roas: 3.4,
               purchases: 20,
-              dailyBudget: 500,
+              dailyBudget: 50_000,
               spend: 12000,
             }),
           ),
@@ -459,7 +497,7 @@ describe("high priority Meta scenario emitters", () => {
       "A1",
       () =>
         maybeA1MathFloor({
-          window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })),
+          window: windowFor(campaign({ dailyBudget: 10_000, roas: 1.5 })),
           context,
           cohort: purchaseCohort,
           signals: signal({ learningState: "LEARNING" }),
@@ -829,7 +867,7 @@ describe("high priority Meta scenario emitters", () => {
 
   it("does not fire math floor when learning state signal is missing", () => {
     const rec = maybeA1MathFloor({
-      window: windowFor(campaign({ dailyBudget: 100, roas: 1.5 })),
+      window: windowFor(campaign({ dailyBudget: 10_000, roas: 1.5 })),
       context,
       cohort: purchaseCohort,
       signals: signal({ learningState: null }),
@@ -1243,7 +1281,7 @@ describe("high priority Meta scenario emitters", () => {
           bidValueFormat: "roas",
           roas: 3.4,
           purchases: 12,
-          dailyBudget: 500,
+          dailyBudget: 50_000,
           spend: 1000,
         }),
       ),
@@ -1267,7 +1305,7 @@ describe("high priority Meta scenario emitters", () => {
           bidValueFormat: null,
           roas: 3.4,
           purchases: 12,
-          dailyBudget: 500,
+          dailyBudget: 50_000,
           spend: 1000,
         }),
       ),
@@ -1288,7 +1326,7 @@ describe("high priority Meta scenario emitters", () => {
           bidValue: 5000,
           roas: 3.4,
           purchases: 20,
-          dailyBudget: 500,
+          dailyBudget: 50_000,
           spend: 12000,
         }),
       ),
@@ -1312,8 +1350,8 @@ describe("high priority Meta scenario emitters", () => {
           bidValue: 5000,
           roas: 3.4,
           purchases: 20,
-          dailyBudget: 500,
-          spend: 14_000,
+          dailyBudget: 50_000,
+          spend: 15_000,
         }),
       ),
       context,

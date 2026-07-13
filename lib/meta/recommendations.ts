@@ -260,6 +260,18 @@ export interface MetaRecommendation {
   engineVersion?: string;
   evidenceTrail?: MetaEvidenceTrail;
   campaignKind?: MetaCampaignKind | null;
+  campaignContext?: {
+    kind: MetaCampaignKind | null;
+    source: "legacy_label" | "user_override" | "system_inferred" | "unknown";
+    confidence:
+      | "override"
+      | "high"
+      | "medium"
+      | "low"
+      | "unknown"
+      | "conflict";
+    trustedForAction: boolean;
+  };
   campaignRole?: MetaCampaignRole;
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;
@@ -286,6 +298,15 @@ export interface MetaRecommendation {
     status: string | null;
     optimizationGoal: string | null;
     bidStrategyType: string | null;
+    bidStrategyLabel?: string | null;
+    bidValue?: number | null;
+    bidValueFormat?: "currency" | "roas" | null;
+    previousBidValue?: number | null;
+    previousBidValueFormat?: "currency" | "roas" | null;
+    previousBidValueCapturedAt?: string | null;
+    dailyBudget?: number | null;
+    lifetimeBudget?: number | null;
+    budgetUtilization?: number | null;
   };
   /** Structured numeric metrics for compare/bulk math; display strings in
    * evidence[] are presentation-only and must never be parsed back. */

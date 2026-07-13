@@ -23,6 +23,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { getDb, resetDbClientCache } from "@/lib/db";
 import { RESPONSE_WINDOW_DAYS } from "@/lib/creative-decision-engine/config-values";
+import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import {
   configureOperationalScriptRuntime,
   withOperationalStartupLogsSilenced,
@@ -98,13 +99,6 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
-}
-
-function toDateOnly(value: unknown): string | null {
-  if (value instanceof Date && Number.isFinite(value.getTime())) {
-    return value.toISOString().slice(0, 10);
-  }
-  return toText(value)?.slice(0, 10) ?? null;
 }
 
 function dateToMs(date: string) {
@@ -269,7 +263,7 @@ async function readDecisionCohort(startDate: string, endDate: string) {
     const label = toLabel(row.label);
     const businessRefId = toText(row.business_ref_id);
     const creativeId = toText(row.creative_id);
-    const decisionDate = toDateOnly(row.decision_date);
+    const decisionDate = normalizePostgresDate(row.decision_date);
     if (!label || !businessRefId || !creativeId || !decisionDate) return;
     const key = `${businessRefId}|${creativeId}|${label}`;
     const existing = byKey.get(key);
@@ -318,7 +312,7 @@ async function readBusinessCeilings(businessRefIds: string[]) {
   const ceilings = new Map<string, string>();
   for (const row of rows) {
     const key = toText(row.business_key);
-    const maxDate = toDateOnly(row.max_date);
+    const maxDate = normalizePostgresDate(row.max_date);
     if (key && maxDate) ceilings.set(key, maxDate);
   }
   return ceilings;
@@ -396,7 +390,7 @@ async function measureDecision(
   ]);
   const byDate = new Map<string, DailyPoint>();
   for (const row of rows) {
-    const date = toDateOnly(row.date);
+    const date = normalizePostgresDate(row.date);
     if (!date) continue;
     byDate.set(date, {
       date,

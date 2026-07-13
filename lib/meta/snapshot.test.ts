@@ -149,6 +149,8 @@ function campaign(overrides: Partial<MetaCampaignRow> = {}) {
 
 describe("meta snapshot job", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("CAMPAIGN_CONTEXT_MODE", "legacy_labels");
     vi.clearAllMocks();
     vi.mocked(commercialTargets.readMetaCommercialTargets).mockResolvedValue({
       source: "configured_targets",

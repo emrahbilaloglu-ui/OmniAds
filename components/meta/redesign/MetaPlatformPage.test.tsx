@@ -221,10 +221,13 @@ function emptyCanonicalDecisionReadModel(): any {
     unavailable: null,
     source: {
       status: "available",
+      authority: "legacy_creative",
       table: "engine_v3_decision_snapshots_daily",
       snapshotAsOf: "2026-05-07",
       computedAt: "2026-05-07T06:00:00.000Z",
       engineVersion: "v3-test",
+      fallbackReason: "native_generation_unavailable",
+      generation: null,
     },
     queue: {
       deduplicationGrain: "creative",
@@ -475,6 +478,115 @@ describe("MetaPlatformPage", () => {
     );
   });
 
+  it("renders native decisions Ad-first when creative grouping is unavailable", () => {
+    const model = emptyCanonicalDecisionReadModel();
+    model.source = {
+      ...model.source,
+      authority: "native_ad",
+      table: "engine_v3_ad_decision_snapshots_daily",
+      engineVersion: "v3-ad-test",
+      fallbackReason: null,
+      generation: {
+        jobRunId: "run_1",
+        providerAccountRefId: "account_ref_1",
+        manifestHash: "a".repeat(64),
+        expectedAdCount: 1,
+      },
+    };
+    model.queue.deduplicationGrain = "ad";
+    model.queue.sections.creative_rotation = {
+      ...emptyCanonicalSection("creative_rotation"),
+      preCapCount: 1,
+      selectedCount: 1,
+      rankablePreCapCount: 1,
+      items: [
+        {
+          decisionId: "native_ad_decision_1",
+          episodeId: "native_episode_1",
+          episodeStartedAt: "2026-07-12",
+          providerAccountId: "act_1",
+          identityGrain: "ad",
+          sourceSnapshotId: "native_snapshot_1",
+          sourceAuthority: {
+            status: "native_exact",
+            actionEligible: true,
+            realAdId: "120000000000000001",
+            authorizedAction: "cut",
+          },
+          sourceDecision: {
+            label: "cut",
+            rawLabel: "cut",
+            reason: "Exact Ad evidence is below target.",
+            confidence: 91,
+            confidenceBand: "high",
+            truthSource: "commercial_truth",
+            engineVersion: "v3-ad-test",
+            snapshotAsOf: "2026-07-12",
+            computedAt: "2026-07-12T05:00:00.000Z",
+            badges: [],
+            provenance: {},
+          },
+          parentChain: {
+            account: { id: "act_1", name: "Main Meta" },
+            campaign: { id: "cmp_1", name: "Prospecting" },
+            adset: { id: "adset_1", name: "Broad" },
+            ad: { id: "120000000000000001", name: "UGC Winner Ad" },
+            creative: null,
+            provenance: {},
+          },
+          media: {
+            state: "unavailable",
+            missingMedia: null,
+            thumbnail: { state: "unavailable", url: null },
+            provenance: {},
+          },
+          classification: {
+            overlayVersion: "meta-decisions-classification-overlay.v2",
+            queueSection: "creative_rotation",
+            lifecycleRole: { value: "main" },
+            assessment: { value: "below_target" },
+            buyerAction: "cut",
+            buyerLabel: "Cut",
+            executionAction: null,
+            blockers: [],
+            provenance: {},
+          },
+          riskTier: null,
+          confirmationCeremony: "highest",
+          riskTierProvenance: {},
+          promotionBasis: {},
+          metrics: {
+            spend: 125,
+            purchases: 1,
+            roas: 0.8,
+            recent7dRoas: 0.7,
+            effectiveTargetRoas: 2,
+            ratioToTarget: 0.4,
+            currency: "USD",
+            attribution: "meta_attributed",
+            provenance: {},
+          },
+          exposure: null,
+          exposureUnavailableReason: null,
+          history: {
+            responses: { status: "unavailable", reason: "not_accrued" },
+            providerWrites: { status: "unavailable", reason: "not_observed" },
+          },
+        },
+      ],
+    };
+    state.decisionReadModel = model;
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+    expect(html).toContain("Ad decisions");
+    expect(html).toContain("Exact Ad decisions · optional creative grouping");
+    expect(html).toContain("UGC Winner Ad");
+    expect(html).toContain("Creative grouping unavailable");
+    expect(html).toContain('data-ad-id="120000000000000001"');
+  });
+
   it("withholds Decisions until a provider account is explicit when multiple are assigned", () => {
     state.providerAccounts = [
       { id: "act_1", name: "US", currency: "USD", timezone: "UTC" },
@@ -691,7 +803,7 @@ describe("MetaPlatformPage", () => {
     expect(html).not.toContain("data-meta-label-management-modal");
     expect(html).not.toContain("Main ASC");
     expect(html).not.toContain("Creative Test");
-    expect(html).toContain("campaign context 1/2");
+    expect(html).toContain("automatic context · 1 overrides");
     expect(state.queryKeys.map((key) => key[0])).not.toContain(
       "meta-campaigns-for-labels",
     );
@@ -785,7 +897,7 @@ describe("MetaPlatformPage", () => {
     expect(html).toContain("Resume adset");
   });
 
-  it("threads the selected status filter into the Decisions workspace query", () => {
+  it("pins Decisions to active status even when a legacy URL requests all", () => {
     state.search = "window=28d&status_filter=all";
 
     const html = renderToStaticMarkup(
@@ -796,13 +908,13 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain('data-status-filter-option="all"');
+    expect(html).not.toContain('data-status-filter-option="all"');
     expect(state.queryKeys).toContainEqual([
       "meta-decisions-workspace",
       "biz_1",
       "act_1",
       "28d",
-      "all",
+      "active",
       expect.any(String),
       expect.any(String),
     ]);
@@ -931,10 +1043,10 @@ describe("MetaPlatformPage", () => {
       />,
     );
 
-    expect(html).toContain("Closed structures now live in History.");
-    expect(html).toContain('href="/platforms/meta/history?kind=structures"');
-    expect(html).not.toContain("data-meta-archive");
-    expect(html).not.toContain('data-quiet-row="archive"');
+    expect(html).toContain("Inactive assets");
+    expect(html).toContain('data-quiet-row="inactive-structure"');
+    expect(html).toContain("Paused ASC");
+    expect(html).toContain("Archived Adset");
   });
 
   it("renders the Out of Sales Scope lane when nonSales entries are present", () => {

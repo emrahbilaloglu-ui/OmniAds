@@ -113,7 +113,17 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
           reviewStatus: currentAd.reviewStatus,
           observedAt: currentAd.observedAt,
         }
-      : unavailableEvidence(null).currentAd,
+      : {
+          found: true,
+          businessId: input.ctx.businessId,
+          providerAccountId: input.ctx.providerAccountId,
+          adId: currentAd.adId ?? input.request.adId,
+          configuredStatus: null,
+          effectiveStatus: null,
+          policyEligible: null,
+          reviewStatus: null,
+          observedAt: null,
+        },
     sourceDecision,
     idempotencyReceipt: null,
   };

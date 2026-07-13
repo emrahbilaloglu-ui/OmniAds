@@ -51,6 +51,7 @@ export type MetaAdExecutionStateRead =
     }
   | {
       ok: false;
+      adId: string | null;
       error: MetaAdsWriteError;
     };
 
@@ -595,6 +596,7 @@ export async function readMetaAdExecutionState(
   ) {
     return {
       ok: false,
+      adId,
       error:
         result.error ??
         getMetaError(result.payload, {
@@ -607,6 +609,7 @@ export async function readMetaAdExecutionState(
   if (!resolvedAdId || resolvedAdId !== adId) {
     return {
       ok: false,
+      adId: resolvedAdId,
       error: {
         code: "ad_identity_mismatch",
         message: "Meta current ad state resolved to a different ad.",

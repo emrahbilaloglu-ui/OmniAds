@@ -248,7 +248,9 @@ function decisionOriginReplayResponse(input: {
 function decisionOriginPreflightStatus(errorCode: string | null) {
   if (
     errorCode === "kill_switch_engaged" ||
-    errorCode === "kill_switch_state_unavailable"
+    errorCode === "kill_switch_state_unavailable" ||
+    errorCode === "current_ad_state_unverified" ||
+    errorCode === "current_ad_state_stale"
   ) {
     return 503;
   }

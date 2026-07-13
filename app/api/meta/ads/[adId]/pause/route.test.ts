@@ -338,6 +338,43 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("returns a retryable error when current Meta state is unavailable", async () => {
+    vi.mocked(
+      decisionPreflight.runServerDecisionOriginAdActionPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: ["current_ad_state_unverified"],
+      errorCode: "current_ad_state_unverified",
+      duplicateReceipt: null,
+      decisionAgeHours: 1,
+      currentAdStateAgeMinutes: null,
+    });
+
+    const response = await POST(
+      request({
+        contractVersion: "meta-decision-origin-ad-execution.v1",
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        adId: "ad_1",
+        snapshotId: "00000000-0000-4000-8000-000000000011",
+        evaluationId: "00000000-0000-4000-8000-000000000012",
+        engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+        decisionHash: "d".repeat(64),
+        action: "pause",
+        idempotencyKey: "decision-pause-state-unavailable",
+      }),
+      params(),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("current_ad_state_unverified");
+    expect(actionLog.createDecisionOriginMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("logs silent_failure when Meta success verifies unchanged", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(jsonResponse({ success: true }))

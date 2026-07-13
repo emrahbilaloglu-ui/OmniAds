@@ -161,6 +161,32 @@ describe("server decision-origin action preflight", () => {
     );
   });
 
+  it("preserves a transient Meta read failure as unverified state", async () => {
+    vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
+      ok: false,
+      adId: "ad_1",
+      error: {
+        code: "network_error",
+        message: "Meta current ad state could not be read.",
+      },
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.errorCode).toBe("current_ad_state_unverified");
+    expect(result.blockers).toContain("current_ad_state_unverified");
+    expect(result.blockers).not.toContain("ad_not_found");
+  });
+
   it("returns an existing receipt without another provider state read", async () => {
     vi.mocked(
       actionLog.findDecisionOriginActionByIdempotency,

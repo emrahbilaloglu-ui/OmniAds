@@ -9,6 +9,8 @@ import {
   buildBriefingDecisionOriginAdActionRequest,
   getBriefingAdActionInputId,
   getCreativeScopeId,
+  getManualBriefingAdActionCandidateIds,
+  hasNativeDecisionOriginLineage,
   isCutPrimaryAction,
   type DecisionOriginBriefingCard,
 } from "@/components/creatives/briefing/action-handlers";
@@ -88,6 +90,69 @@ export function buildBulkPauseRequestBody(input: {
   cards: DecisionOriginBriefingCard[];
   idempotencyKey?: string;
 }) {
+  input.cards.forEach((card) => {
+    if (!isCutPrimaryAction(card)) {
+      throw new Error("Every bulk card must carry a server-authorized cut action.");
+    }
+  });
+  const nativeLineageCount = input.cards.filter(
+    hasNativeDecisionOriginLineage,
+  ).length;
+  if (nativeLineageCount > 0 && nativeLineageCount < input.cards.length) {
+    throw new Error(
+      "Bulk cut cannot mix native decision lineage with legacy briefing cards.",
+    );
+  }
+
+  if (nativeLineageCount === 0) {
+    const adsById = new Map<
+      string,
+      {
+        adId: string;
+        candidateAdIds: string[];
+        creativeId: string;
+        name: string | null;
+      }
+    >();
+    input.cards.forEach((card) => {
+      const candidateAdIds = getManualBriefingAdActionCandidateIds(card);
+      const adId = candidateAdIds[0] ?? "";
+      if (!adId) {
+        throw new Error(
+          "Every legacy bulk card requires at least one Meta ad candidate.",
+        );
+      }
+      adsById.set(adId, {
+        adId,
+        candidateAdIds,
+        creativeId: getCreativeScopeId(card),
+        name: cardName(card),
+      });
+    });
+    const ads = Array.from(adsById.values());
+    const providerAccountIds = new Set(
+      input.cards
+        .map((card) => card.providerAccountId?.trim())
+        .filter((value): value is string => Boolean(value)),
+    );
+    if (providerAccountIds.size > 1) {
+      throw new Error(
+        "Bulk legacy execution requires exactly one provider account.",
+      );
+    }
+    const stableBulkKey = `manual-legacy-bulk-pause:${input.businessId}:${ads
+      .map((ad) => ad.adId)
+      .sort()
+      .join("|")}`;
+    return {
+      businessId: input.businessId,
+      providerAccountId: Array.from(providerAccountIds)[0],
+      action: "pause" as const,
+      idempotencyKey: input.idempotencyKey?.trim() || stableBulkKey,
+      ads,
+    };
+  }
+
   const adsById = new Map<
     string,
     ReturnType<typeof buildBriefingDecisionOriginAdActionRequest> & {
@@ -95,9 +160,6 @@ export function buildBulkPauseRequestBody(input: {
     }
   >();
   input.cards.forEach((card) => {
-    if (!isCutPrimaryAction(card)) {
-      throw new Error("Every bulk card must carry a server-authorized cut action.");
-    }
     const request = buildBriefingDecisionOriginAdActionRequest({
       businessId: input.businessId,
       card,

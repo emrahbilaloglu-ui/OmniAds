@@ -8,6 +8,7 @@ import {
   getBriefingAdActionInputId,
   getCreativeScopeId,
   getManualBriefingAdActionCandidateIds,
+  hasNativeDecisionOriginLineage,
   isCutPrimaryAction,
   metaAdActionFailureMessage,
   pauseBriefingCard,
@@ -105,6 +106,18 @@ describe("briefing action handlers", () => {
         }),
       ),
     ).toEqual(["1200", "1201", "row_ad", "creative_1", "creative_synth_1"]);
+  });
+
+  it("distinguishes native lineage from creative snapshot-only briefing cards", () => {
+    expect(hasNativeDecisionOriginLineage(card())).toBe(true);
+    expect(
+      hasNativeDecisionOriginLineage(
+        card({
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("keeps server-owned cut classification behavior", () => {
@@ -224,6 +237,54 @@ describe("briefing action handlers", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("uses the explicit manual legacy contract when briefing omitted native lineage", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        adId: "ad_1",
+        status: "PAUSED",
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await pauseBriefingCard({
+      businessId: "biz_1",
+      card: card({
+        sourceDecisionEvaluationId: null,
+        sourceDecisionHash: null,
+      }),
+      fetchImpl,
+    });
+
+    expect(result).toMatchObject({ ok: true, attemptedIds: ["ad_1"] });
+    const body = JSON.parse(
+      String((vi.mocked(fetchImpl).mock.calls[0]?.[1] as RequestInit)?.body),
+    );
+    expect(body).toEqual({
+      businessId: "biz_1",
+      resolutionMode: "manual_legacy",
+      recIdOrigin: "creative_1",
+    });
+  });
+
+  it("never turns a lineage-free dry run into a live legacy write", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      pauseBriefingCard({
+        businessId: "biz_1",
+        card: card({
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+        }),
+        dryRun: true,
+        fetchImpl,
+      }),
+    ).rejects.toThrow("Dry run requires exact native decision lineage");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("runs exact preflight before the provider mutation", async () => {
     const request = buildBriefingDecisionOriginAdActionRequest({
       businessId: "biz_1",
@@ -250,7 +311,7 @@ describe("briefing action handlers", () => {
     expect(mutateProvider).not.toHaveBeenCalled();
   });
 
-  it("retains candidate fallback only in the explicit manual legacy handler", async () => {
+  it("retains candidate fallback in the explicit manual legacy handler", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce({

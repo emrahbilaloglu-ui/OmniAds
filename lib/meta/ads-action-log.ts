@@ -30,6 +30,14 @@ export type MetaAdsActionStatus =
   | "failure"
   | "silent_failure";
 
+export function providerActionForNativeAuthorization(
+  value: unknown,
+): DecisionOriginAdAction | null {
+  if (value === "cut") return "pause";
+  if (value === "scale") return "resume";
+  return null;
+}
+
 export interface MetaAdsActionLogRow {
   id: string;
   businessId: string;
@@ -464,10 +472,7 @@ export async function readDecisionOriginSourceDecision(input: {
       snapshot.decision_hash::text AS decision_hash,
       snapshot.label AS decision_label,
       snapshot.blocked_action_type,
-      COALESCE(
-        NULLIF(evaluation.decision_output_json->>'authorizedAdAction', ''),
-        NULLIF(evaluation.decision_output_json->>'authorized_ad_action', '')
-      ) AS explicit_authorized_action,
+      snapshot.authorized_action AS native_authorized_action,
       snapshot.computed_at::text AS computed_at
     FROM engine_v3_ad_decision_snapshots_daily snapshot
     INNER JOIN engine_v3_ad_decision_evaluations evaluation
@@ -498,7 +503,7 @@ export async function readDecisionOriginSourceDecision(input: {
     decision_hash: string | null;
     decision_label: string | null;
     blocked_action_type: string | null;
-    explicit_authorized_action: string | null;
+    native_authorized_action: string | null;
     computed_at: string | null;
   }>;
   const row = rows[0];
@@ -521,11 +526,9 @@ export async function readDecisionOriginSourceDecision(input: {
       computedAt: null,
     };
   }
-  const explicitAuthorizedAction =
-    row.explicit_authorized_action === "pause" ||
-    row.explicit_authorized_action === "resume"
-      ? row.explicit_authorized_action
-      : null;
+  const explicitAuthorizedAction = providerActionForNativeAuthorization(
+    row.native_authorized_action,
+  );
   return {
     found: true,
     businessId: row.business_id,
@@ -774,10 +777,11 @@ WITH source_lineage AS (
     AND episode.engine_version = '${NATIVE_AD_ENGINE_VERSION}'
     AND episode.decision_hash = $7
     AND snapshot.blocked_action_type IS NULL
-    AND COALESCE(
-      NULLIF(evaluation.decision_output_json->>'authorizedAdAction', ''),
-      NULLIF(evaluation.decision_output_json->>'authorized_ad_action', '')
-    ) = $8
+    AND snapshot.authorized_action = CASE $8
+      WHEN 'pause' THEN 'cut'
+      WHEN 'resume' THEN 'scale'
+      ELSE NULL
+    END
 )
 INSERT INTO meta_ads_action_log (
   business_id, ad_id, creative_id, action, source, requested_by,

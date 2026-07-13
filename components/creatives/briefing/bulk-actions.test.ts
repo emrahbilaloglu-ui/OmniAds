@@ -87,6 +87,64 @@ describe("bulk briefing actions", () => {
     expect(body.ads[1]).not.toHaveProperty("candidateAdIds");
   });
 
+  it("builds a manual legacy batch when briefing cards omit native lineage", () => {
+    const body = buildBulkPauseRequestBody({
+      businessId: "biz_1",
+      cards: [
+        card({
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+          metaAdId: "alternate_ad_1",
+        }),
+        card({
+          id: "row_2",
+          creativeId: "creative_2",
+          realAdId: "ad_2",
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+        }),
+      ],
+    });
+
+    expect(body).toMatchObject({
+      businessId: "biz_1",
+      providerAccountId: "act_123",
+      action: "pause",
+    });
+    expect(body).not.toHaveProperty("contractVersion");
+    expect(body.ads).toEqual([
+      expect.objectContaining({
+        adId: "ad_1",
+        candidateAdIds: expect.arrayContaining([
+          "ad_1",
+          "alternate_ad_1",
+          "creative_1",
+        ]),
+      }),
+      expect.objectContaining({
+        adId: "ad_2",
+        candidateAdIds: expect.arrayContaining(["ad_2", "creative_2"]),
+      }),
+    ]);
+  });
+
+  it("rejects mixed native and legacy bulk authority instead of downgrading it", () => {
+    expect(() =>
+      buildBulkPauseRequestBody({
+        businessId: "biz_1",
+        cards: [
+          card(),
+          card({
+            id: "row_2",
+            realAdId: "ad_2",
+            sourceDecisionEvaluationId: null,
+            sourceDecisionHash: null,
+          }),
+        ],
+      }),
+    ).toThrow("cannot mix native decision lineage");
+  });
+
   it("rejects synthetic/alternate ids before calling the route", async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     await expect(
@@ -171,6 +229,40 @@ describe("bulk briefing actions", () => {
         expect.objectContaining({ adId: "ad_2", snapshotId: "snapshot_2" }),
       ]),
     );
+  });
+
+  it("posts lineage-free briefing cards through the route's manual mode", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        successCount: 1,
+        failedCount: 0,
+        results: [
+          { inputAdId: "ad_1", adId: "ad_1", ok: true, status: "PAUSED" },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    await pauseBriefingCardsBulk({
+      businessId: "biz_1",
+      cards: [
+        card({
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+        }),
+      ],
+      fetchImpl,
+    });
+
+    const requestBody = JSON.parse(
+      String((vi.mocked(fetchImpl).mock.calls[0]?.[1] as RequestInit)?.body),
+    );
+    expect(requestBody).not.toHaveProperty("contractVersion");
+    expect(requestBody.ads[0]).toMatchObject({
+      adId: "ad_1",
+      candidateAdIds: expect.arrayContaining(["ad_1", "creative_1"]),
+    });
   });
 
   it("throws on endpoint errors so callers can rollback optimistic bulk state", async () => {

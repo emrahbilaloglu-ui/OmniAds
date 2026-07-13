@@ -55,6 +55,15 @@ function nonEmptyId(value: string | null | undefined) {
   return id ? id : null;
 }
 
+export function hasNativeDecisionOriginLineage(
+  card: DecisionOriginBriefingCard,
+) {
+  return Boolean(
+    nonEmptyId(card.sourceDecisionEvaluationId) ||
+      nonEmptyId(card.sourceDecisionHash),
+  );
+}
+
 function uniqueIds(ids: Array<string | null | undefined>) {
   const seen = new Set<string>();
   return ids.flatMap((id) => {
@@ -237,6 +246,18 @@ export async function pauseBriefingCard(input: {
   if (!isCutPrimaryAction(input.card)) {
     throw new Error("This card does not carry a server-authorized cut action.");
   }
+  if (!hasNativeDecisionOriginLineage(input.card)) {
+    if (input.dryRun === true) {
+      throw new Error(
+        "Dry run requires exact native decision lineage for this ad.",
+      );
+    }
+    return pauseBriefingCardManualLegacy({
+      businessId: input.businessId,
+      card: input.card,
+      fetchImpl: input.fetchImpl,
+    });
+  }
   const request = buildBriefingDecisionOriginAdActionRequest({
     businessId: input.businessId,
     card: input.card,
@@ -272,6 +293,9 @@ export async function pauseBriefingCardManualLegacy(input: {
   card: BriefingCreativeCard;
   fetchImpl?: FetchLike;
 }): Promise<PauseBriefingCardResult> {
+  if (!isCutPrimaryAction(input.card)) {
+    throw new Error("This card does not carry a server-authorized cut action.");
+  }
   const candidateIds = getManualBriefingAdActionCandidateIds(input.card);
   if (candidateIds.length === 0) {
     throw new Error("No actionable Meta ad id was available for this creative.");

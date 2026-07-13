@@ -19,6 +19,7 @@ const {
   createMetaAdsActionLog,
   findDecisionOriginActionByIdempotency,
   findRecentDuplicateActionResult,
+  providerActionForNativeAuthorization,
   readDecisionOriginSourceDecision,
   readLaunchpadCreatedAdIds,
   resolveExactMetaAdActionTarget,
@@ -382,7 +383,7 @@ describe("resolveMetaAdActionTarget", () => {
         decision_hash: DECISION_HASH,
         decision_label: "cut",
         blocked_action_type: null,
-        explicit_authorized_action: "pause",
+        native_authorized_action: "cut",
         computed_at: "2026-07-12T09:30:00.000Z",
       },
     ]);
@@ -404,14 +405,26 @@ describe("resolveMetaAdActionTarget", () => {
       evaluationId: "evaluation_1",
       decisionHash: DECISION_HASH,
       decisionLabel: "cut",
+      explicitAuthorizedAction: "pause",
     });
     const querySql = String(sql.mock.calls[0]?.[0]?.join(""));
     expect(querySql).toContain("engine_v3_ad_decision_snapshots_daily");
     expect(querySql).toContain("engine_v3_ad_decision_evaluations");
     expect(querySql).toContain("evaluation.id = snapshot.evaluation_id");
     expect(querySql).toContain("evaluation.decision_hash = snapshot.decision_hash");
+    expect(querySql).toContain(
+      "snapshot.authorized_action AS native_authorized_action",
+    );
+    expect(querySql).not.toContain("authorizedAdAction");
     expect(querySql).toContain("snapshot.id =");
     expect(querySql).toContain("evaluation.id =");
+  });
+
+  it("maps native decision authorization to provider status actions explicitly", () => {
+    expect(providerActionForNativeAuthorization("cut")).toBe("pause");
+    expect(providerActionForNativeAuthorization("scale")).toBe("resume");
+    expect(providerActionForNativeAuthorization("refresh")).toBeNull();
+    expect(providerActionForNativeAuthorization("pause")).toBeNull();
   });
 
   it("persists exact decision lineage and idempotency in the action payload", async () => {
@@ -452,6 +465,18 @@ describe("resolveMetaAdActionTarget", () => {
     expect(query).toHaveBeenCalledWith(
       CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY,
       expect.any(Array),
+    );
+    expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).toContain(
+      "snapshot.authorized_action = CASE $8",
+    );
+    expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).toContain(
+      "WHEN 'pause' THEN 'cut'",
+    );
+    expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).toContain(
+      "WHEN 'resume' THEN 'scale'",
+    );
+    expect(CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY).not.toContain(
+      "authorizedAdAction",
     );
     const params = query.mock.calls[0]?.[1] as unknown[];
     const payloadJson = params[9];

@@ -311,7 +311,7 @@ describe("bulk briefing actions", () => {
     expect(summarizeBulkPauseFailure(result)).toBe("Ad was not found for this business.");
   });
 
-  it("does not accept a success that resolved to another ad", () => {
+  it("does not accept an exact-lineage success that resolved to another ad", () => {
     const cards = [card({ id: "row_1", realAdId: "ad_1" })];
     expect(
       successfulBulkPauseCardIds(cards, {
@@ -322,10 +322,65 @@ describe("bulk briefing actions", () => {
             adId: "ad_2",
             ok: true,
             status: "PAUSED",
+            attemptedIds: ["ad_1"],
           },
         ],
       }),
     ).toEqual([]);
+  });
+
+  it("keeps a legacy bulk success resolved through a later candidate", () => {
+    const cards = [
+      card({
+        id: "row_1",
+        realAdId: "stale_ad",
+        metaAdId: "current_ad",
+        sourceDecisionEvaluationId: null,
+        sourceDecisionHash: null,
+      }),
+    ];
+
+    expect(
+      successfulBulkPauseCardIds(cards, {
+        ok: true,
+        results: [
+          {
+            inputAdId: "stale_ad",
+            adId: "current_ad",
+            ok: true,
+            status: "PAUSED",
+            attemptedIds: ["stale_ad", "current_ad"],
+          },
+        ],
+      }),
+    ).toEqual(["row_1"]);
+  });
+
+  it("keeps a resolved success when a card candidate was the attempted lookup", () => {
+    const cards = [
+      card({
+        id: "row_1",
+        realAdId: "stale_ad",
+        creativeId: "creative_lookup",
+        sourceDecisionEvaluationId: null,
+        sourceDecisionHash: null,
+      }),
+    ];
+
+    expect(
+      successfulBulkPauseCardIds(cards, {
+        ok: true,
+        results: [
+          {
+            inputAdId: "stale_ad",
+            adId: "resolved_ad",
+            ok: true,
+            status: "PAUSED",
+            attemptedIds: ["stale_ad", "creative_lookup"],
+          },
+        ],
+      }),
+    ).toEqual(["row_1"]);
   });
 
   it("builds bulk Launchpad URLs for 1, 3, and 5 selected creatives", () => {

@@ -67,21 +67,26 @@ export function successfulBulkPauseCardIds(
   cards: BriefingCreativeCard[],
   result: BulkPauseResult,
 ) {
-  const successfulIds = new Set(
-    (result.results ?? [])
-      .filter(
-        (item) => item.ok && (!item.adId || item.adId === item.inputAdId),
-      )
-      .flatMap((item) => [item.inputAdId])
-      .flatMap((id) => {
-        const normalized = id?.trim();
-        return normalized ? [normalized] : [];
-      }),
-  );
-  if (successfulIds.size === 0) return [];
+  const successfulResults = (result.results ?? []).filter((item) => item.ok);
+  if (successfulResults.length === 0) return [];
   return cards.flatMap((card) => {
-    const adId = getBriefingAdActionInputId(card);
-    return adId && successfulIds.has(adId) ? [cardId(card)] : [];
+    const candidateIds = getManualBriefingAdActionCandidateIds(card);
+    const candidateIdSet = new Set(candidateIds);
+    const inputAdId = getBriefingAdActionInputId(card) || candidateIds[0];
+    if (!inputAdId) return [];
+
+    const matched = successfulResults.some((item) => {
+      if (item.inputAdId?.trim() !== inputAdId) return false;
+      const resolvedAdId = item.adId?.trim();
+      if (!resolvedAdId || resolvedAdId === inputAdId) return true;
+      if (hasNativeDecisionOriginLineage(card)) return false;
+      if (candidateIdSet.has(resolvedAdId)) return true;
+      const resolvedFromCandidate = item.attemptedIds?.at(-1)?.trim();
+      return Boolean(
+        resolvedFromCandidate && candidateIdSet.has(resolvedFromCandidate),
+      );
+    });
+    return matched ? [cardId(card)] : [];
   });
 }
 

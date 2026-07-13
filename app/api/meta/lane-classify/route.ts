@@ -1606,22 +1606,8 @@ export async function GET(request: NextRequest) {
       return false;
     },
   );
-  const rawCampaignsById = new Map(
-    (campaigns.rows ?? []).map((row) => [row.id, row]),
-  );
-  const rawAdsetsById = new Map((adsets.rows ?? []).map((row) => [row.id, row]));
-  const statusProbeRecommendations = compactWorkspace
-    ? snapshotRecommendations.filter((rec) =>
-        isRecommendationInScope({
-          rec,
-          statusFilter: "active",
-          campaignsById: rawCampaignsById,
-          adsetsById: rawAdsetsById,
-        }),
-      )
-    : snapshotRecommendations;
   const requiredCurrentStatusIds = collectStructureStatusProbeIds({
-    recommendations: statusProbeRecommendations,
+    recommendations: snapshotRecommendations,
     campaigns: compactWorkspace
       ? (campaigns.rows ?? []).filter((row) =>
           isVisibleForStatusLane(row, "active"),

@@ -1,4 +1,5 @@
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
+import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
 export interface MetaAdsWriteContext {
   businessId: string;
@@ -14,6 +15,15 @@ export interface MetaAdsWriteError {
   code: string;
   message: string;
 }
+
+export type MetaAdExecutionStateReadBlocker = Extract<
+  DecisionOriginAdExecutionBlocker,
+  | "ad_not_found"
+  | "ad_identity_mismatch"
+  | "current_ad_state_unverified"
+  | "current_ad_state_rejected"
+  | "meta_account_unresolved"
+>;
 
 export interface MetaAdsWouldHaveWritten {
   method: MetaFetchMethod;
@@ -53,6 +63,8 @@ export type MetaAdExecutionStateRead =
       ok: false;
       adId: string | null;
       error: MetaAdsWriteError;
+      httpStatus: number | null;
+      preflightBlocker: MetaAdExecutionStateReadBlocker;
     };
 
 export type MetaAdsetBidWriteSuccess = {
@@ -209,6 +221,46 @@ function getMetaError(
         : String(rawCode || fallback.code),
     message: sanitizeMetaMessage(String(rawMessage || fallback.message)),
   };
+}
+
+const RETRYABLE_META_READ_ERROR_CODES = new Set([
+  "network_error",
+  "rate_limited",
+  "4",
+  "17",
+  "32",
+  "613",
+]);
+
+function classifyMetaAdExecutionReadFailure(input: {
+  httpStatus: number | null;
+  error: MetaAdsWriteError;
+}): MetaAdExecutionStateReadBlocker {
+  const code = input.error.code.trim().toLowerCase();
+  const status = input.httpStatus;
+  if (
+    RETRYABLE_META_READ_ERROR_CODES.has(code) ||
+    status === 429 ||
+    (status != null && status >= 500)
+  ) {
+    return "current_ad_state_unverified";
+  }
+  if (status === 404 || code === "100" || code === "ad_not_found") {
+    return "ad_not_found";
+  }
+  if (
+    status === 401 ||
+    status === 403 ||
+    code === "102" ||
+    code === "190" ||
+    code === "200"
+  ) {
+    return "meta_account_unresolved";
+  }
+  if (status != null && status >= 400 && status < 500) {
+    return "current_ad_state_rejected";
+  }
+  return "current_ad_state_unverified";
 }
 
 function isRateLimitPayload(payload: Record<string, unknown> | null | undefined) {
@@ -594,15 +646,22 @@ export async function readMetaAdExecutionState(
     !result.response?.ok ||
     isFailureBody(result.payload)
   ) {
+    const error =
+      result.error ??
+      getMetaError(result.payload, {
+        code: "current_ad_state_unverified",
+        message: "Meta current ad state could not be verified.",
+      });
+    const httpStatus = result.response?.status ?? null;
     return {
       ok: false,
       adId,
-      error:
-        result.error ??
-        getMetaError(result.payload, {
-          code: "current_ad_state_unverified",
-          message: "Meta current ad state could not be verified.",
-        }),
+      error,
+      httpStatus,
+      preflightBlocker: classifyMetaAdExecutionReadFailure({
+        httpStatus,
+        error,
+      }),
     };
   }
   const resolvedAdId = readStringField(result.payload, "id");
@@ -614,6 +673,8 @@ export async function readMetaAdExecutionState(
         code: "ad_identity_mismatch",
         message: "Meta current ad state resolved to a different ad.",
       },
+      httpStatus: result.response.status,
+      preflightBlocker: "ad_identity_mismatch",
     };
   }
   const configuredStatus = readStringField(result.payload, "status");

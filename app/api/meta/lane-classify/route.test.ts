@@ -245,6 +245,93 @@ describe("GET /api/meta/lane-classify", () => {
     );
   });
 
+  it("rechecks compact workspace recommendations before filtering stale warehouse status", async () => {
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accessToken: "token",
+      accountIds: ["act_1"],
+      accountProfiles: {},
+    } as never);
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = new URL(String(url));
+      expect(requestUrl.searchParams.get("ids")).toContain("cmp_reactivated");
+      return new Response(
+        JSON.stringify({
+          cmp_reactivated: {
+            id: "cmp_reactivated",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+            updated_time: "2026-07-13T10:00:00.000Z",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(snapshot.readMetaDecisionSnapshotForRange).mockResolvedValue({
+      status: "ok",
+      businessId: "biz_1",
+      startDate: "2026-07-06",
+      endDate: "2026-07-12",
+      sourceModel: "snapshot_persistent",
+      summary: {
+        title: "Snapshot",
+        summary: "Snapshot",
+        primaryLens: "structure",
+        confidence: "high",
+        recommendationCount: 1,
+      },
+      recommendations: [
+        metaRec({
+          id: "rec_reactivated",
+          campaignId: "cmp_reactivated",
+          campaignName: "Reactivated after warehouse snapshot",
+          confidenceScore: 0.9,
+          decisionState: "act",
+        }),
+      ],
+    });
+    vi.mocked(campaigns.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          id: "cmp_reactivated",
+          name: "Reactivated after warehouse snapshot",
+          status: "PAUSED",
+          spend: 500,
+          purchases: 5,
+          roas: 2,
+          cpa: 100,
+          optimizationGoal: "PURCHASE",
+        },
+      ] as never,
+      evidenceSource: "snapshot",
+    });
+    vi.mocked(adsets.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [] as never,
+      evidenceSource: "snapshot",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/lane-classify?businessId=biz_1&window=7d&status_filter=all&decision_workspace=1&workspace_surface=os",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(payload.actionNow).toEqual([
+      expect.objectContaining({
+        id: "rec_reactivated",
+        campaignId: "cmp_reactivated",
+      }),
+    ]);
+    expect(payload.structureInventory).toEqual([
+      expect.objectContaining({ id: "cmp_reactivated", status: "ACTIVE" }),
+    ]);
+  });
+
   it("serves the true snapshot as-of, not the requested range end", async () => {
     const response = await GET(
       new NextRequest("http://localhost/api/meta/lane-classify?businessId=biz_1&window=28d"),

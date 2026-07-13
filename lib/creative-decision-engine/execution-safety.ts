@@ -98,6 +98,7 @@ export type DecisionOriginAdExecutionBlocker =
   | "ad_not_found"
   | "ad_identity_mismatch"
   | "current_ad_state_unverified"
+  | "current_ad_state_rejected"
   | "current_ad_state_stale"
   | "source_decision_not_found"
   | "source_decision_lineage_mismatch"
@@ -149,6 +150,14 @@ export interface DecisionOriginCurrentAdEvidence {
   policyEligible: boolean | null;
   reviewStatus: string | null;
   observedAt: string | null;
+  readBlocker?: Extract<
+    DecisionOriginAdExecutionBlocker,
+    | "ad_not_found"
+    | "ad_identity_mismatch"
+    | "current_ad_state_unverified"
+    | "current_ad_state_rejected"
+    | "meta_account_unresolved"
+  > | null;
 }
 
 export interface DecisionOriginSourceDecisionEvidence {
@@ -478,30 +487,37 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
   }
 
   const currentAd = input.evidence.currentAd;
-  if (!currentAd.found) {
-    blockers.push("ad_not_found");
+  const currentAdReadBlocker = currentAd.readBlocker ?? null;
+  if (currentAdReadBlocker) {
+    blockers.push(currentAdReadBlocker);
   } else {
-    if (currentAd.businessId !== request.businessId) {
-      blockers.push("ad_identity_mismatch");
-    }
-    if (currentAd.providerAccountId !== request.providerAccountId) {
-      blockers.push("provider_account_mismatch");
-    }
-    if (currentAd.adId !== request.adId) {
-      blockers.push("ad_identity_mismatch");
+    if (!currentAd.found) {
+      blockers.push("ad_not_found");
+    } else {
+      if (currentAd.businessId !== request.businessId) {
+        blockers.push("ad_identity_mismatch");
+      }
+      if (currentAd.providerAccountId !== request.providerAccountId) {
+        blockers.push("provider_account_mismatch");
+      }
+      if (currentAd.adId !== request.adId) {
+        blockers.push("ad_identity_mismatch");
+      }
     }
   }
 
-  const currentAdStateAgeMinutes = currentAd.observedAt
+  const currentAdStateAgeMinutes = !currentAdReadBlocker && currentAd.observedAt
     ? ageMinutes(currentAd.observedAt, now)
     : null;
-  if (currentAdStateAgeMinutes === null) {
-    blockers.push("current_ad_state_unverified");
-  } else if (
-    currentAdStateAgeMinutes < -1 ||
-    currentAdStateAgeMinutes > maxCurrentAdStateAgeMinutes
-  ) {
-    blockers.push("current_ad_state_stale");
+  if (!currentAdReadBlocker) {
+    if (currentAdStateAgeMinutes === null) {
+      blockers.push("current_ad_state_unverified");
+    } else if (
+      currentAdStateAgeMinutes < -1 ||
+      currentAdStateAgeMinutes > maxCurrentAdStateAgeMinutes
+    ) {
+      blockers.push("current_ad_state_stale");
+    }
   }
 
   const source = input.evidence.sourceDecision;
@@ -556,21 +572,23 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     }
   }
 
-  if (currentAd.policyEligible === null) {
-    blockers.push("policy_state_unverified");
-  } else if (!currentAd.policyEligible) {
-    blockers.push("policy_blocked");
-  }
+  if (!currentAdReadBlocker) {
+    if (currentAd.policyEligible === null) {
+      blockers.push("policy_state_unverified");
+    } else if (!currentAd.policyEligible) {
+      blockers.push("policy_blocked");
+    }
 
-  const configuredStatus = upper(currentAd.configuredStatus);
-  const effectiveStatus = upper(currentAd.effectiveStatus);
-  if (
-    (request.action === "pause" &&
-      (configuredStatus !== "ACTIVE" || effectiveStatus !== "ACTIVE")) ||
-    (request.action === "resume" &&
-      (configuredStatus !== "PAUSED" || effectiveStatus !== "PAUSED"))
-  ) {
-    blockers.push("ad_status_incompatible");
+    const configuredStatus = upper(currentAd.configuredStatus);
+    const effectiveStatus = upper(currentAd.effectiveStatus);
+    if (
+      (request.action === "pause" &&
+        (configuredStatus !== "ACTIVE" || effectiveStatus !== "ACTIVE")) ||
+      (request.action === "resume" &&
+        (configuredStatus !== "PAUSED" || effectiveStatus !== "PAUSED"))
+    ) {
+      blockers.push("ad_status_incompatible");
+    }
   }
 
   if (blockers.length > 0) {

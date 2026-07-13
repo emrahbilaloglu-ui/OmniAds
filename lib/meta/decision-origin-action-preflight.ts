@@ -114,7 +114,9 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
           observedAt: currentAd.observedAt,
         }
       : {
-          found: true,
+          found:
+            currentAd.preflightBlocker !== "ad_not_found" &&
+            currentAd.preflightBlocker !== "meta_account_unresolved",
           businessId: input.ctx.businessId,
           providerAccountId: input.ctx.providerAccountId,
           adId: currentAd.adId ?? input.request.adId,
@@ -123,6 +125,7 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
           policyEligible: null,
           reviewStatus: null,
           observedAt: null,
+          readBlocker: currentAd.preflightBlocker,
         },
     sourceDecision,
     idempotencyReceipt: null,

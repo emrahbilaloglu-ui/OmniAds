@@ -17,6 +17,7 @@ import {
   hasReusableNativeCalibration,
   isZeroRowNativeDecisionSuccess,
   READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
+  readSuccessfulNativeJobs,
   runNativeAdShadowChainForActiveBusinessesIfDue,
   type NativeAdShadowScheduleOptions,
   type NativeAdShadowSchemaReadiness,
@@ -94,6 +95,44 @@ function options(
     runDecisions: async () => decisionsResult(),
     runOperatorResponse: async () => operatorResult(),
     ...overrides,
+  };
+}
+
+function nativeJobHistoryDb(rows: Record<string, unknown>[]) {
+  return {
+    query: vi.fn(async (query: string) => {
+      if (query.includes("SELECT DISTINCT ON (business_ref_id, job_name)")) {
+        return rows;
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL) {
+        return [{ reusable: true }];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    }),
+  };
+}
+
+function nativeJobRow(input: {
+  id: string;
+  jobName:
+    | typeof AD_CALIBRATION_JOB_NAME
+    | typeof AD_DECISIONS_JOB_NAME
+    | typeof AD_OPERATOR_RESPONSE_JOB_NAME;
+  status: "running" | "success" | "failed" | "skipped";
+  startedAt: string;
+  finishedAt?: string | null;
+  dependencyRunId?: string | null;
+  rowCount?: number;
+}) {
+  return {
+    id: input.id,
+    business_ref_id: BUSINESSES[0].id,
+    job_name: input.jobName,
+    status: input.status,
+    dependency_run_id: input.dependencyRunId ?? null,
+    started_at: input.startedAt,
+    finished_at: input.finishedAt ?? input.startedAt,
+    row_count: input.rowCount ?? 1,
   };
 }
 
@@ -325,6 +364,149 @@ describe("native ad shadow scheduled chain", () => {
     expect(isZeroRowNativeDecisionSuccess("0")).toBe(true);
     expect(isZeroRowNativeDecisionSuccess(1)).toBe(false);
     expect(isZeroRowNativeDecisionSuccess(null)).toBe(false);
+  });
+
+  it("does not let an older success hide the latest failed decision run", async () => {
+    const calibrationId = "00000000-0000-4000-8000-000000000201";
+    const db = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000202",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "failed",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:21:00.000Z",
+        rowCount: 0,
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000203",
+        jobName: AD_OPERATOR_RESPONSE_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:19:00.000Z",
+      }),
+    ]);
+
+    const jobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      db as never,
+    );
+
+    expect(Array.from(jobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+    ]);
+    const historyQuery = db.query.mock.calls[0]?.[0] as string;
+    expect(historyQuery).not.toContain("AND status = 'success'");
+    expect(historyQuery).toContain("started_at <= $5::timestamptz");
+  });
+
+  it("requires decision calibration lineage and downstream operator chronology", async () => {
+    const calibrationId = "00000000-0000-4000-8000-000000000211";
+    const staleDecisionDb = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000212",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: "00000000-0000-4000-8000-000000000210",
+        startedAt: "2026-07-13T03:21:00.000Z",
+      }),
+    ]);
+    const staleDecisionJobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      staleDecisionDb as never,
+    );
+    expect(Array.from(staleDecisionJobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+    ]);
+
+    const staleOperatorDb = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000213",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:21:00.000Z",
+        finishedAt: "2026-07-13T03:21:30.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000214",
+        jobName: AD_OPERATOR_RESPONSE_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:21:00.000Z",
+      }),
+    ]);
+    const staleOperatorJobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      staleOperatorDb as never,
+    );
+    expect(Array.from(staleOperatorJobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+      AD_DECISIONS_JOB_NAME,
+    ]);
+
+    const currentChainDb = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000215",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:21:00.000Z",
+        finishedAt: "2026-07-13T03:21:30.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000216",
+        jobName: AD_OPERATOR_RESPONSE_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:22:00.000Z",
+      }),
+    ]);
+    const currentChainJobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      currentChainDb as never,
+    );
+    expect(Array.from(currentChainJobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+      AD_DECISIONS_JOB_NAME,
+      AD_OPERATOR_RESPONSE_JOB_NAME,
+    ]);
   });
 
   it("reports already_ran only when every native step succeeded for every business", async () => {

@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, type DbClient } from "@/lib/db";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import { READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY } from "../data-source";
 import { inspectEvaluationStoreSchemaCapability } from "../evaluation-store";
@@ -87,8 +87,13 @@ interface ScheduledBusiness {
 }
 
 interface SuccessfulJobRow extends Record<string, unknown> {
+  id: unknown;
   business_ref_id: unknown;
   job_name: unknown;
+  status: unknown;
+  dependency_run_id: unknown;
+  started_at: unknown;
+  finished_at: unknown;
   row_count: unknown;
 }
 
@@ -285,62 +290,114 @@ async function defaultListActiveBusinesses(): Promise<ScheduledBusiness[]> {
   }));
 }
 
-async function readSuccessfulNativeJobs(input: {
-  businessIds: readonly string[];
-  asOf: string;
-  decisionCutoff: string;
-}) {
+export async function readSuccessfulNativeJobs(
+  input: {
+    businessIds: readonly string[];
+    asOf: string;
+    decisionCutoff: string;
+  },
+  db: DbClient = getDb(),
+) {
   if (input.businessIds.length === 0) {
     return new Map<string, Set<NativeAdShadowJobName>>();
   }
-  const rows = await getDb().query<SuccessfulJobRow>(
+  const rows = await db.query<SuccessfulJobRow>(
     `
     SELECT DISTINCT ON (business_ref_id, job_name)
-      business_ref_id::text AS business_ref_id, job_name, row_count
+      id::text AS id,
+      business_ref_id::text AS business_ref_id,
+      job_name,
+      status,
+      dependency_run_id::text AS dependency_run_id,
+      started_at,
+      finished_at,
+      row_count
     FROM engine_v3_job_runs
     WHERE business_ref_id::text = ANY($1::text[])
       AND as_of_date = $2::date
       AND engine_version = $3
       AND job_name = ANY($4::text[])
-      AND status = 'success'
-    ORDER BY business_ref_id, job_name, finished_at DESC NULLS LAST,
-      started_at DESC, id DESC
+      AND started_at <= $5::timestamptz
+    ORDER BY business_ref_id, job_name, started_at DESC, id DESC
     `,
     [
       input.businessIds,
       input.asOf,
       NATIVE_AD_ENGINE_VERSION,
       NATIVE_AD_SHADOW_JOB_NAMES,
+      input.decisionCutoff,
     ],
   );
   const result = new Map<string, Set<NativeAdShadowJobName>>();
+  const rowsByBusiness = new Map<
+    string,
+    Map<NativeAdShadowJobName, SuccessfulJobRow>
+  >();
   for (const row of rows) {
     const businessId = String(row.business_ref_id ?? "");
     const jobName = String(row.job_name ?? "") as NativeAdShadowJobName;
     if (!businessId || !NATIVE_AD_SHADOW_JOB_NAMES.includes(jobName)) continue;
+    const businessRows = rowsByBusiness.get(businessId) ?? new Map();
+    businessRows.set(jobName, row);
+    rowsByBusiness.set(businessId, businessRows);
+  }
+
+  for (const [businessId, businessRows] of rowsByBusiness) {
+    const jobs = new Set<NativeAdShadowJobName>();
+    const calibration = businessRows.get(AD_CALIBRATION_JOB_NAME);
+    const calibrationId = jobRunId(calibration);
     if (
-      jobName === AD_CALIBRATION_JOB_NAME &&
-      !(await hasReusableNativeCalibration({
-        businessId,
-        asOf: input.asOf,
-        decisionCutoff: input.decisionCutoff,
-      }))
+      calibration?.status !== "success" ||
+      calibrationId === null ||
+      !(await hasReusableNativeCalibration(
+        {
+          businessId,
+          asOf: input.asOf,
+          decisionCutoff: input.decisionCutoff,
+        },
+        db,
+      ))
     ) {
+      result.set(businessId, jobs);
+      continue;
+    }
+    jobs.add(AD_CALIBRATION_JOB_NAME);
+
+    const decisions = businessRows.get(AD_DECISIONS_JOB_NAME);
+    if (
+      decisions?.status !== "success" ||
+      jobRunId(decisions) === null ||
+      String(decisions.dependency_run_id ?? "") !== calibrationId
+    ) {
+      result.set(businessId, jobs);
       continue;
     }
     if (
-      jobName === AD_DECISIONS_JOB_NAME &&
-      isZeroRowNativeDecisionSuccess(row.row_count) &&
-      (await hasCurrentNonEmptyAdManifest({
-        businessId,
-        asOf: input.asOf,
-        decisionCutoff: input.decisionCutoff,
-      }))
+      isZeroRowNativeDecisionSuccess(decisions.row_count) &&
+      (await hasCurrentNonEmptyAdManifest(
+        {
+          businessId,
+          asOf: input.asOf,
+          decisionCutoff: input.decisionCutoff,
+        },
+        db,
+      ))
     ) {
+      result.set(businessId, jobs);
       continue;
     }
-    const jobs = result.get(businessId) ?? new Set<NativeAdShadowJobName>();
-    jobs.add(jobName);
+    jobs.add(AD_DECISIONS_JOB_NAME);
+
+    const operatorResponse = businessRows.get(AD_OPERATOR_RESPONSE_JOB_NAME);
+    if (
+      operatorResponse?.status !== "success" ||
+      jobRunId(operatorResponse) === null ||
+      !ranAfterDependency(operatorResponse, decisions)
+    ) {
+      result.set(businessId, jobs);
+      continue;
+    }
+    jobs.add(AD_OPERATOR_RESPONSE_JOB_NAME);
     result.set(businessId, jobs);
   }
   return closeNativeJobDependencies(result);
@@ -391,18 +448,45 @@ export function isZeroRowNativeDecisionSuccess(rowCount: unknown) {
   return exactNonNegativeInteger(rowCount) === 0;
 }
 
-async function hasCurrentNonEmptyAdManifest(input: {
-  businessId: string;
-  asOf: string;
-  decisionCutoff: string;
-}) {
-  const rows = await getDb().query<CurrentHydrationReceiptRow>(
+async function hasCurrentNonEmptyAdManifest(
+  input: {
+    businessId: string;
+    asOf: string;
+    decisionCutoff: string;
+  },
+  db: DbClient = getDb(),
+) {
+  const rows = await db.query<CurrentHydrationReceiptRow>(
     READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
     [input.businessId, input.asOf, input.decisionCutoff, [], false],
   );
   return rows.some(
     (row) =>
       Array.isArray(row.expected_ad_ids) && row.expected_ad_ids.length > 0,
+  );
+}
+
+function jobRunId(row: SuccessfulJobRow | undefined) {
+  const value = String(row?.id ?? "").trim();
+  return value || null;
+}
+
+function timestampMs(value: unknown) {
+  const parsed =
+    value instanceof Date ? value.getTime() : Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function ranAfterDependency(
+  downstream: SuccessfulJobRow,
+  upstream: SuccessfulJobRow,
+) {
+  const downstreamStartedAt = timestampMs(downstream.started_at);
+  const upstreamFinishedAt = timestampMs(upstream.finished_at);
+  return (
+    downstreamStartedAt !== null &&
+    upstreamFinishedAt !== null &&
+    downstreamStartedAt >= upstreamFinishedAt
   );
 }
 

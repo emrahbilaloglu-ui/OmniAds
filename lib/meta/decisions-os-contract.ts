@@ -69,6 +69,9 @@ export interface MetaOsStructureNode {
   campaignName: string | null;
   name: string;
   lifecycleRole: "test" | "main" | "mixed" | "label_needed" | "unknown";
+  campaignRoleSource?: MetaOsAdDecision["campaignRoleSource"];
+  campaignRoleConfidence?: MetaOsAdDecision["campaignRoleConfidence"];
+  campaignRoleTrustedForAction?: boolean;
   budgetOwner: "campaign" | "adset" | "mixed" | "unknown";
   budgetMode: "campaign_budget" | "adset_budget" | "mixed" | "unknown";
   controlOwner: "campaign" | "adset" | "mixed" | "unknown";

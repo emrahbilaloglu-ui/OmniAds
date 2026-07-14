@@ -792,6 +792,17 @@ describe.runIf(postgresAvailable)(
           inspectNativeAdCalibrationSchemaCapability(db),
         ).resolves.toEqual({ ready: true, missing: [], mismatched: [] });
 
+        const providerBindings = await pool.query(
+          LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL,
+          [BUSINESS_ID],
+        );
+        expect(providerBindings.rows).toEqual([
+          {
+            provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+            provider_account_id: PROVIDER_ACCOUNT_ID,
+          },
+        ]);
+
         const empty = await inRepeatableRead(pool, async (client, receipt) => {
           const batch = computeForReceipt([], receipt, null);
           const result = await replaceNativeAdCalibrationBatch(

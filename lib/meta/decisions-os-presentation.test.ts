@@ -487,6 +487,11 @@ describe("buildMetaOsDecisionsPresentation", () => {
       /scale/i,
     );
     expect(result.structure.groups[0]!.campaign.lifecycleRole).toBe("test");
+    expect(result.structure.groups[0]!.campaign).toMatchObject({
+      campaignRoleSource: "automatic",
+      campaignRoleConfidence: "unknown",
+      campaignRoleTrustedForAction: false,
+    });
     expect(
       result.structure.groups[0]!.campaign.suppressedAlternativeCount,
     ).toBe(1);

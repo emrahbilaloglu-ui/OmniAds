@@ -1033,7 +1033,7 @@ JOIN provider_accounts account
  AND account.external_account_id = binding.provider_account_id
 WHERE binding.business_id = $1
   AND binding.provider = 'meta'
-ORDER BY binding.provider_account_ref_id, binding.provider_account_id
+ORDER BY provider_account_ref_id, provider_account_id
 `;
 
 export const ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL = `

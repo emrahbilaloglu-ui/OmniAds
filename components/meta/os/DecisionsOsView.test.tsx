@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   DecisionsOsView,
+  isCampaignRoleCorrectionTarget,
   nextAdCandidateLimit,
   preserveDecisionWorkspacePlaceholder,
   resolveAvailableDecisionLane,
@@ -240,6 +241,27 @@ describe("DecisionsOsView", () => {
         "act_2",
       ),
     ).toBeUndefined();
+  });
+
+  it("allows campaign-role correction only from a campaign inspector", () => {
+    expect(
+      isCampaignRoleCorrectionTarget({
+        kind: "structure",
+        value: { level: "campaign", campaignId: "cmp_1" },
+      }),
+    ).toBe(true);
+    expect(
+      isCampaignRoleCorrectionTarget({
+        kind: "structure",
+        value: { level: "adset", campaignId: "cmp_1" },
+      }),
+    ).toBe(false);
+    expect(
+      isCampaignRoleCorrectionTarget({
+        kind: "ad",
+        value: { campaignId: "cmp_1" },
+      }),
+    ).toBe(false);
   });
 
   it("keeps prior rows only while the same scoped workspace refreshes", () => {

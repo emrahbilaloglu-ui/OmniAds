@@ -497,6 +497,42 @@ describe("buildMetaOsDecisionsPresentation", () => {
     ).toBe(1);
   });
 
+  it("preserves a saved campaign-role override in Structure provenance", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [
+        recommendation({
+          id: "campaign-override",
+          level: "campaign",
+          campaignId: "cmp_override",
+          campaignName: "Winner campaign",
+          campaignKind: "main",
+        }),
+      ],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currentAdCampaignContexts: [
+        {
+          campaignId: "cmp_override",
+          kind: "main",
+          suggestedKind: "main",
+          source: "persisted_label",
+          confidenceClass: "high",
+          sourceUpdatedAt: "2026-07-13T04:00:00.000Z",
+          resolverVersion: "campaign-context-resolver.v1",
+        },
+      ],
+      currency: "EUR",
+    });
+
+    expect(result.structure.groups[0]!.campaign).toMatchObject({
+      lifecycleRole: "main",
+      campaignRoleSource: "user_override",
+      campaignRoleConfidence: "high",
+      campaignRoleTrustedForAction: true,
+    });
+  });
+
   it("uses server-composed provider configuration for budget and bid ownership", () => {
     const cboAdset = recommendation({
       id: "cbo-adset",

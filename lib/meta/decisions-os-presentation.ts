@@ -753,21 +753,41 @@ function presentedCampaignRole(input: {
   confidence: MetaOsAdDecision["campaignRoleConfidence"];
   trustedForAction: boolean;
 } {
+  const context = input.campaignId
+    ? input.contexts.get(input.campaignId) ?? null
+    : null;
+  const contextValue = context?.kind ?? context?.suggestedKind ?? null;
+  const contextSource =
+    context?.source === "persisted_label"
+      ? ("user_override" as const)
+      : context?.source === "system_inferred"
+        ? ("automatic" as const)
+        : ("unknown" as const);
   if (
     input.currentValue &&
     input.currentValue !== "label_needed" &&
     input.currentValue !== "unknown"
   ) {
+    const contextMatchesCurrentValue = contextValue === input.currentValue;
     return {
       value: input.currentValue,
-      source: input.currentSource ?? ("unknown" as const),
-      confidence: input.currentConfidence ?? ("unknown" as const),
-      trustedForAction: input.currentTrustedForAction ?? false,
+      source:
+        input.currentSource ??
+        (contextMatchesCurrentValue ? contextSource : ("unknown" as const)),
+      confidence:
+        input.currentConfidence ??
+        (contextMatchesCurrentValue
+          ? (context?.confidenceClass ?? ("unknown" as const))
+          : ("unknown" as const)),
+      trustedForAction:
+        input.currentTrustedForAction ??
+        Boolean(
+          contextMatchesCurrentValue &&
+            context?.kind &&
+            context.source === "persisted_label",
+        ),
     };
   }
-  const context = input.campaignId
-    ? input.contexts.get(input.campaignId) ?? null
-    : null;
   const hasCampaignIdentity = Boolean(input.campaignId?.trim());
   const value =
     context?.kind ??
@@ -782,13 +802,11 @@ function presentedCampaignRole(input: {
   return {
     value,
     source:
-      context?.source === "persisted_label"
-        ? ("user_override" as const)
-        : context?.source === "system_inferred"
+      contextSource !== "unknown"
+        ? contextSource
+        : hasCampaignIdentity
           ? ("automatic" as const)
-          : hasCampaignIdentity
-            ? ("automatic" as const)
-            : ("unknown" as const),
+          : ("unknown" as const),
     confidence: context?.confidenceClass ?? ("unknown" as const),
     trustedForAction: Boolean(
       context?.kind && context.source === "persisted_label",

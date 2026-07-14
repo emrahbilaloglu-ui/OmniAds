@@ -194,7 +194,9 @@ describe("GET /api/creatives/decision-engine-v3", () => {
     expect(payload.decisions[0]).toMatchObject({
       campaignLabelStatus: "unlabeled",
       campaignKind: null,
-      blockedActionType: null,
+      preAuthorityLabel: "scale",
+      authorityBlocker: "profile_hard_action_ineligible",
+      blockedActionType: "scale",
     });
     expect(payload.decisions[0]?.badges.map((badge) => badge.type)).toContain(
       "unlabeled_campaign_context",

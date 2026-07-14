@@ -88,6 +88,7 @@ function primaryActionForDecision(decision: DecisionOutput): {
 
 function hardActionAuthorityBlocked(decision: DecisionOutput) {
   return (
+    decision.authorityBlocker !== null ||
     decision.truthSource === "commercial_truth_stale" ||
     decision.badges.some(
       (badge) =>
@@ -101,7 +102,14 @@ function blockedHardActionReview(decision: DecisionOutput) {
   if (decision.badges.some((badge) => badge.type === "pending_transition")) {
     return { kind: "review", label: "Review pending signal" };
   }
-  return { kind: "review", label: "Refresh evidence" };
+  if (
+    decision.authorityBlocker === "source_freshness" ||
+    decision.truthSource === "commercial_truth_stale" ||
+    decision.badges.some((badge) => badge.type === "stale_evidence")
+  ) {
+    return { kind: "review", label: "Refresh evidence" };
+  }
+  return { kind: "review", label: "Open evidence" };
 }
 
 function primaryActionForDecisionCenterRow(
@@ -561,6 +569,8 @@ export function cardForDecision(input: {
     label,
     watchingSubBucket: deriveWatchingSubBucket(decision),
     truthSource: decision.truthSource,
+    preAuthorityLabel: decision.preAuthorityLabel,
+    authorityBlocker: decision.authorityBlocker,
     // Hysteresis surface: rawLabel is today's engine signal; when it differs
     // from the published label the decision is a held pending transition.
     rawLabel: input.hysteresis?.rawLabel ?? null,

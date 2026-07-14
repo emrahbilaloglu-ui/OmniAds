@@ -32,6 +32,9 @@ function makeV3Decision(
     creativeId: "creative_1",
     creativeName: "Creative 1",
     label: "diagnose",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "diagnose",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "Diagnostic evidence is required.",
     confidence: 42,
     truthSource: "account_baseline",

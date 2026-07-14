@@ -26,10 +26,10 @@ Read [HISTORICAL_SIMULATION_CLOSURE_REPORT_2026-07-12.md](./HISTORICAL_SIMULATIO
 before proposing another threshold, confidence, structure, context, or
 hysteresis variant. All bounded H1-H12 families, native/structure replays,
 3d/7d/14d outcomes, H10 calibration, and expanded H11/H12 policies have run.
-No challenger passed its locked promotion gate. D049 is implemented locally
-under `v3-2026-07-12-breakeven-cut-ceiling`; it is retained as a monotonic
-safety invariant, not as proven historical lift. It has not been pushed or
-deployed.
+No challenger passed its locked promotion gate. D049 remains a monotonic
+safety invariant, not proven historical lift. The current release candidate is
+versioned under `v3-2026-07-14-decision-health-provenance`; deployment state
+must be verified from `/api/build-info`, not inferred from this document.
 
 The strict replay found 17,233 restated native rows but zero cutoff-safe
 status/format/lifecycle/ranking rows, so hard actions correctly fail closed.
@@ -120,5 +120,5 @@ Generated artifacts are planning and shadow-validation context. They are not pro
   closed. Automatic context consumption is the default presentation path;
   unresolved context preserves explicit review-only verdicts and never creates
   a required manual-label queue.
-- Treat deployment of the local D049 engine epoch as a separate release task
-  with the standard migration/test/rollback gates.
+- Treat every new engine epoch as a separate release task with the standard
+  migration, replay, test, review, and rollback gates.

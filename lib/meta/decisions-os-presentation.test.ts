@@ -70,6 +70,9 @@ function canonicalDecision(input: {
     sourceDecision: {
       label:
         input.buyerAction === "diagnose_data" ? "diagnose" : input.buyerAction,
+      preAuthorityLabel:
+        input.buyerAction === "diagnose_data" ? "diagnose" : input.buyerAction,
+      authorityBlocker: null,
       rawLabel: input.buyerAction,
       reason: "Persisted server decision.",
       confidence: 0.8,
@@ -268,7 +271,7 @@ function readModel(
     },
   });
   return {
-    contractVersion: "meta-decisions-workspace.read.v1",
+    contractVersion: "meta-decisions-workspace.read.v2",
     status: "available",
     generatedAt: "2026-07-10T04:00:00.000Z",
     scope: {
@@ -328,10 +331,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       actionKind: "execute_pause",
       primaryActionLabel: "Pause Ad Set",
     });
-    const configuration = (
-      level: "campaign" | "adset",
-      status: string,
-    ) => ({
+    const configuration = (level: "campaign" | "adset", status: string) => ({
       source:
         level === "campaign"
           ? ("account_scoped_campaign_row" as const)
@@ -836,6 +836,59 @@ describe("buildMetaOsDecisionsPresentation", () => {
     });
   });
 
+  it("withholds only hard Scale/Cut actions when current target authority is unavailable", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([
+        canonicalDecision({
+          id: "target-blocked-scale",
+          adId: "120000000000000011",
+          buyerAction: "scale",
+          role: "test",
+        }),
+        canonicalDecision({
+          id: "target-blocked-cut",
+          adId: "120000000000000012",
+          buyerAction: "cut",
+        }),
+        canonicalDecision({
+          id: "target-independent-refresh",
+          adId: "120000000000000013",
+          buyerAction: "refresh",
+        }),
+      ]),
+      currency: "EUR",
+      targetHardActionsEligible: false,
+    });
+
+    const scale = result.ads.items.find(
+      (item) => item.decisionId === "target-blocked-scale",
+    );
+    const cut = result.ads.items.find(
+      (item) => item.decisionId === "target-blocked-cut",
+    );
+    const refresh = result.ads.items.find(
+      (item) => item.decisionId === "target-independent-refresh",
+    );
+    for (const item of [scale, cut]) {
+      expect(item).toMatchObject({
+        lane: "blocked",
+        action: {
+          code: "review_commercial_truth",
+          label: "Review Commercial Truth",
+          intent: "review",
+          providerMutation: null,
+        },
+      });
+    }
+    expect(refresh).toMatchObject({
+      lane: "act",
+      action: { code: "refresh_creative", intent: "brief" },
+    });
+  });
+
   it("enables an exact Ad pause only when native lineage authorizes the served Cut", () => {
     const exact = canonicalDecision({
       id: "native-cut",
@@ -860,6 +913,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
     const model = readModel([exact]);
     model.source.authority = "native_ad";
     model.source.table = "engine_v3_ad_decision_snapshots_daily";
+    model.source.fallbackReason = null;
 
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [],
@@ -880,7 +934,45 @@ describe("buildMetaOsDecisionsPresentation", () => {
       },
     });
     expect(result.source.adsSource).toBe("native_ad_decision");
+    expect(result.source).toMatchObject({
+      health: "healthy",
+      fallbackReason: null,
+    });
     expect(result.limitations).toEqual([]);
+  });
+
+  it("exposes legacy fallback as degraded with the exact read-model reason", () => {
+    const model = readModel([
+      canonicalDecision({
+        id: "legacy-review-only",
+        adId: "120000000000000098",
+        buyerAction: "cut",
+      }),
+    ]);
+    model.source.fallbackReason = "native_schema_or_generation_read_failed";
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.source).toMatchObject({
+      adsSource: "legacy_creative_review_only",
+      health: "degraded",
+      fallbackReason: "native_schema_or_generation_read_failed",
+    });
+    expect(result.ads.items[0]!.action).toMatchObject({
+      intent: "review",
+      providerMutation: null,
+    });
+    expect(result.limitations).toContainEqual({
+      code: "legacy_creative_review_only",
+      message:
+        "Legacy creative-grain decisions remain visible for continuity but cannot authorize Ad writes.",
+    });
   });
 
   it("serves exact Ads from the independent candidate envelope even when section top-N omits them", () => {
@@ -1095,5 +1187,90 @@ describe("buildMetaOsDecisionsPresentation", () => {
       action: { providerMutation: null },
     });
     expect(JSON.stringify(result)).not.toMatch(/label_needed|Label needed/i);
+  });
+
+  it("presents first-blocker provenance without authorizing a hard pre-authority verdict", () => {
+    const decision = canonicalDecision({
+      id: "authority-held",
+      adId: "120000000000000088",
+      buyerAction: "protect",
+    });
+    decision.identityGrain = "ad";
+    decision.sourceDecision.label = "keep";
+    decision.sourceDecision.rawLabel = "keep";
+    decision.sourceDecision.preAuthorityLabel = "cut";
+    decision.sourceDecision.authorityBlocker = "source_freshness";
+    decision.classification.heldAction = "cut";
+    decision.sourceAuthority = {
+      status: "native_exact",
+      actionEligible: true,
+      reviewOnlyReason: null,
+      snapshotId: decision.sourceSnapshotId,
+      evaluationId: "10000000-0000-4000-8000-000000000088",
+      inputHash: "a".repeat(64),
+      decisionHash: "b".repeat(64),
+      providerAccountRefId: "30000000-0000-4000-8000-000000000001",
+      engineVersion: "v3-ad-test",
+      realAdId: "120000000000000088",
+      authorizedAction: "cut",
+      jobRunId: "20000000-0000-4000-8000-000000000001",
+    };
+    const model = readModel([decision]);
+    model.source.authority = "native_ad";
+    model.source.table = "engine_v3_ad_decision_snapshots_daily";
+    model.source.fallbackReason = null;
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: model,
+      currency: "EUR",
+    });
+
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v3");
+    expect(result.ads.items[0]).toMatchObject({
+      action: {
+        code: "keep_running",
+        intent: "none",
+        providerMutation: null,
+      },
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "keep",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "source_freshness",
+          label: "Source evidence is not fresh enough",
+        },
+      },
+    });
+  });
+
+  it("marks historical authority provenance unavailable instead of reconstructing it", () => {
+    const decision = canonicalDecision({
+      id: "historical",
+      adId: "120000000000000089",
+      buyerAction: "test_more",
+    });
+    decision.sourceDecision.preAuthorityLabel = null;
+    decision.sourceDecision.authorityBlocker = null;
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([decision]),
+      currency: "EUR",
+    });
+
+    expect(result.ads.items[0]?.authorityProvenance).toEqual({
+      availability: "historical_unavailable",
+      preAuthorityLabel: null,
+      postAuthorityRawLabel: "test_more",
+      publishedLabel: "test_more",
+      firstBlocker: null,
+    });
   });
 });

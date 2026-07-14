@@ -4,7 +4,11 @@ import {
   runDbTransaction,
   type DbClient,
 } from "@/lib/db";
-import { NATIVE_AD_DECISION_SCHEMA_SQL } from "@/lib/creative-decision-engine/ad-evaluation-schema";
+import {
+  ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
+  ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
+  NATIVE_AD_DECISION_SCHEMA_SQL,
+} from "@/lib/creative-decision-engine/ad-evaluation-schema";
 import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
 import {
   NATIVE_AD_CALIBRATION_MIGRATION_SQL,
@@ -16,6 +20,7 @@ import {
 } from "@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job";
 import {
   AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL,
+  AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL,
   AD_OPERATOR_RESPONSE_SCHEMA_SQL,
   inspectAdOperatorResponseSchemaCapability,
 } from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
@@ -32,6 +37,59 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+
+function authorityProvenanceSchemaSql(
+  table: string,
+  constraintPrefix: string,
+  alterIfExists = false,
+) {
+  assertMigrationIdentifier(table);
+  assertMigrationIdentifier(constraintPrefix);
+  return `
+ALTER TABLE ${alterIfExists ? "IF EXISTS " : ""}${table}
+  ADD COLUMN IF NOT EXISTS pre_authority_label TEXT,
+  ADD COLUMN IF NOT EXISTS authority_blocker TEXT;
+DO $$
+BEGIN
+  IF to_regclass('${table}') IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('${table}')
+        AND conname = '${constraintPrefix}_pre_authority_label_check') THEN
+      ALTER TABLE ${table}
+        ADD CONSTRAINT ${constraintPrefix}_pre_authority_label_check
+        CHECK (pre_authority_label IS NULL OR pre_authority_label IN (
+          'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+        ));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('${table}')
+        AND conname = '${constraintPrefix}_authority_blocker_check') THEN
+      ALTER TABLE ${table}
+        ADD CONSTRAINT ${constraintPrefix}_authority_blocker_check
+        CHECK (authority_blocker IS NULL OR authority_blocker IN (
+          'profile_hard_action_ineligible', 'source_freshness',
+          'campaign_context', 'native_metrics_unavailable',
+          'native_profile_unavailable'
+        ));
+    END IF;
+  END IF;
+END
+$$`;
+}
+
+const LEGACY_DECISION_SNAPSHOT_PROVENANCE_SQL = authorityProvenanceSchemaSql(
+  "engine_v3_decision_snapshots_daily",
+  "engine_v3_decision_snapshots",
+);
+const LEGACY_DECISION_OUTCOME_PROVENANCE_SQL = authorityProvenanceSchemaSql(
+  "engine_v3_decision_outcomes_daily",
+  "engine_v3_decision_outcomes",
+);
+const NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL = authorityProvenanceSchemaSql(
+  "engine_v3_ad_decision_outcomes_daily",
+  "engine_v3_ad_outcomes",
+  true,
+);
 
 type NativeSchemaCapability = {
   ready: boolean;
@@ -90,7 +148,9 @@ async function hasPartialNonIdempotentNativeSchema(
     `,
     [input.tables, JSON.stringify(input.columns ?? [])],
   );
-  return Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0;
+  return (
+    Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0
+  );
 }
 
 async function runNativeAdSchemaMigrations(
@@ -112,22 +172,24 @@ async function runNativeAdSchemaMigrations(
         }
         await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
+        await db.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
         await db.query(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL);
+        await db.query(NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL);
         await db.query(CONTROLLED_REGISTRY_SCHEMA_SQL);
         return;
       }
 
-      let calibration = await inspectNativeAdCalibrationSchemaCapability(
-        inspectorDb,
-      );
+      let calibration =
+        await inspectNativeAdCalibrationSchemaCapability(inspectorDb);
       if (!calibration.ready) {
         await db.query(NATIVE_AD_CALIBRATION_MIGRATION_SQL);
-        calibration = await inspectNativeAdCalibrationSchemaCapability(
-          inspectorDb,
-        );
+        calibration =
+          await inspectNativeAdCalibrationSchemaCapability(inspectorDb);
       }
       assertNativeSchemaCapability("native calibration migration", calibration);
 
+      await db.query(ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL);
+      await db.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
       let decisions = await inspectEvaluationStoreSchemaCapability(inspectorDb);
       if (!decisions.ready) {
         const partial = await hasPartialNonIdempotentNativeSchema(db, {
@@ -150,6 +212,7 @@ async function runNativeAdSchemaMigrations(
       }
       assertNativeSchemaCapability("native decision migration", decisions);
 
+      await db.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
       let operatorResponse =
         await inspectAdOperatorResponseSchemaCapability(inspectorDb);
       if (!operatorResponse.ready) {
@@ -161,7 +224,10 @@ async function runNativeAdSchemaMigrations(
             "engine_v3_ad_operator_responses",
           ],
           columns: [
-            { table: "meta_ads_action_log", column: "decision_contract_version" },
+            {
+              table: "meta_ads_action_log",
+              column: "decision_contract_version",
+            },
             { table: "meta_ads_action_log", column: "decision_episode_key" },
             { table: "meta_ads_action_log", column: "terminal_finalized_at" },
           ],
@@ -194,6 +260,7 @@ async function runNativeAdSchemaMigrations(
         `);
         await db.query(AD_OPERATOR_RESPONSE_ACTION_LOG_SCHEMA_SQL);
         await db.query(AD_OPERATOR_RESPONSE_SCHEMA_SQL);
+        await db.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
         operatorResponse =
           await inspectAdOperatorResponseSchemaCapability(inspectorDb);
       }
@@ -213,9 +280,12 @@ async function runNativeAdSchemaMigrations(
         ON engine_v3_ad_decision_snapshots_daily (idempotency_key)
       `);
 
-      let outcomes = await inspectAdDecisionOutcomeSchemaCapability(inspectorDb);
+      await db.query(NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL);
+      let outcomes =
+        await inspectAdDecisionOutcomeSchemaCapability(inspectorDb);
       if (!outcomes.ready) {
         await db.query(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL);
+        await db.query(NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL);
         outcomes = await inspectAdDecisionOutcomeSchemaCapability(inspectorDb);
       }
       assertNativeSchemaCapability("native outcome migration", outcomes);
@@ -236,7 +306,10 @@ function createMigrationDb(sql: ReturnType<typeof getDb>) {
 
   const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
     const next = queue.then(operation, operation);
-    queue = next.then(() => undefined, () => undefined);
+    queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   };
 
@@ -283,7 +356,8 @@ function isLockTimeoutError(error: unknown) {
 }
 
 function getMigrationErrorCode(error: unknown) {
-  if (typeof error !== "object" || error == null || !("code" in error)) return null;
+  if (typeof error !== "object" || error == null || !("code" in error))
+    return null;
   const code = (error as { code?: unknown }).code;
   return code == null ? null : String(code);
 }
@@ -414,17 +488,26 @@ function getMigrationTimeoutMs() {
   const raw = process.env.MIGRATION_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_MIGRATION_TIMEOUT_MS;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MIGRATION_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MIGRATION_TIMEOUT_MS;
 }
 
-function withMigrationTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withMigrationTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error(`Database migrations timed out after ${timeoutMs}ms.`));
+        reject(
+          new Error(`Database migrations timed out after ${timeoutMs}ms.`),
+        );
       }, timeoutMs);
-      promise.finally(() => clearTimeout(timer)).catch(() => clearTimeout(timer));
+      promise
+        .finally(() => clearTimeout(timer))
+        .catch(() => clearTimeout(timer));
     }),
   ]);
 }
@@ -731,7 +814,10 @@ export async function runMigrations(options?: {
   if (!force && !runtimeMigrationsEnabled()) {
     if (!loggedMigrationSkip) {
       loggedMigrationSkip = true;
-      logStartupEvent("migrations_skipped_runtime_disabled", { reason, nodeEnv: process.env.NODE_ENV });
+      logStartupEvent("migrations_skipped_runtime_disabled", {
+        reason,
+        nodeEnv: process.env.NODE_ENV,
+      });
     }
     return;
   }
@@ -748,22 +834,30 @@ export async function runMigrations(options?: {
   migrationsPromise = withMigrationTimeout(
     (async () => {
       const sql = createMigrationDb(
-        options?.timeoutMs != null ? getDbWithTimeout(options.timeoutMs) : getDb()
+        options?.timeoutMs != null
+          ? getDbWithTimeout(options.timeoutMs)
+          : getDb(),
       );
 
       await sql.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
       const legacyCompatEnabled =
         legacyCoreCompatTablesEnabled() && !legacyCoreTableDropEnabled();
       const legacyCoreDropEnabled = legacyCoreTableDropEnabled();
-      const [legacyIntegrationsExists, legacyAssignmentsExists, legacySnapshotsExists] =
-        await Promise.all([
-          doesTableExist(sql, "integrations"),
-          doesTableExist(sql, "provider_account_assignments"),
-          doesTableExist(sql, "provider_account_snapshots"),
-        ]);
-      const legacyIntegrationsAvailable = legacyCompatEnabled || legacyIntegrationsExists;
-      const legacyAssignmentsAvailable = legacyCompatEnabled || legacyAssignmentsExists;
-      const legacySnapshotsAvailable = legacyCompatEnabled || legacySnapshotsExists;
+      const [
+        legacyIntegrationsExists,
+        legacyAssignmentsExists,
+        legacySnapshotsExists,
+      ] = await Promise.all([
+        doesTableExist(sql, "integrations"),
+        doesTableExist(sql, "provider_account_assignments"),
+        doesTableExist(sql, "provider_account_snapshots"),
+      ]);
+      const legacyIntegrationsAvailable =
+        legacyCompatEnabled || legacyIntegrationsExists;
+      const legacyAssignmentsAvailable =
+        legacyCompatEnabled || legacyAssignmentsExists;
+      const legacySnapshotsAvailable =
+        legacyCompatEnabled || legacySnapshotsExists;
 
       // ── PHASE 1: Tables with no FK dependencies (ordered batch) ───────────
       await runMigrationBatchSequentially([
@@ -777,7 +871,8 @@ export async function runMigrations(options?: {
           created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
         ...(legacyCompatEnabled
-          ? [sql`CREATE TABLE IF NOT EXISTS integrations (
+          ? [
+              sql`CREATE TABLE IF NOT EXISTS integrations (
           id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id           TEXT NOT NULL,
           provider              TEXT NOT NULL,
@@ -793,20 +888,24 @@ export async function runMigrations(options?: {
           disconnected_at       TIMESTAMPTZ,
           created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`]
+        )`,
+            ]
           : []),
         ...(legacyCompatEnabled
-          ? [sql`CREATE TABLE IF NOT EXISTS provider_account_assignments (
+          ? [
+              sql`CREATE TABLE IF NOT EXISTS provider_account_assignments (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
           provider    TEXT NOT NULL,
           account_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
           created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`]
+        )`,
+            ]
           : []),
         ...(legacyCompatEnabled
-          ? [sql`CREATE TABLE IF NOT EXISTS provider_account_snapshots (
+          ? [
+              sql`CREATE TABLE IF NOT EXISTS provider_account_snapshots (
           id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id      TEXT NOT NULL,
           provider         TEXT NOT NULL,
@@ -822,7 +921,8 @@ export async function runMigrations(options?: {
           source_reason     TEXT,
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`]
+        )`,
+            ]
           : []),
         sql`CREATE TABLE IF NOT EXISTS provider_accounts (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -979,9 +1079,13 @@ export async function runMigrations(options?: {
           updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_business
-          ON provider_account_rollover_state (business_id, provider, updated_at DESC)`.catch(() => {}),
+          ON provider_account_rollover_state (business_id, provider, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_target
-          ON provider_account_rollover_state (provider, current_d1_target_date DESC, updated_at DESC)`.catch(() => {}),
+          ON provider_account_rollover_state (provider, current_d1_target_date DESC, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS custom_reports (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
@@ -1195,35 +1299,73 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_override TEXT`,
-        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP NOT NULL`.catch(() => {}),
-        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP DEFAULT`.catch(() => {}),
-        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS timezone_source TEXT`.catch(() => {}),
+        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP NOT NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP DEFAULT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS timezone_source TEXT`.catch(
+          () => {},
+        ),
         ...(legacyIntegrationsAvailable
           ? [
               sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`,
-              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(() => {}),
-              sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(() => {}),
+              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(
+                () => {},
+              ),
+              sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(
+                () => {},
+              ),
             ]
           : []),
         ...(legacyAssignmentsAvailable
-          ? [sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider ON provider_account_assignments (business_id, provider)`.catch(() => {})]
+          ? [
+              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider ON provider_account_assignments (business_id, provider)`.catch(
+                () => {},
+              ),
+            ]
           : []),
         ...(legacySnapshotsAvailable
           ? [
-              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(() => {}),
-              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
-              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
+              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(
+                () => {},
+              ),
+              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(
+                () => {},
+              ),
+              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(
+                () => {},
+              ),
             ]
           : []),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_provider_external ON provider_accounts (provider, external_account_id)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_connections_business_provider ON provider_connections (business_id, provider)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_credentials_connection ON integration_credentials (provider_connection_id)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider_account ON business_provider_accounts (business_id, provider, provider_account_ref_id)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_runs_business_provider ON provider_account_snapshot_runs (business_id, provider)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_account ON provider_account_snapshot_items (snapshot_run_id, provider_account_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider ON business_provider_accounts (business_id, provider, updated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_position ON provider_account_snapshot_items (snapshot_run_id, position ASC)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_provider_external ON provider_accounts (provider, external_account_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_connections_business_provider ON provider_connections (business_id, provider)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_credentials_connection ON integration_credentials (provider_connection_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider_account ON business_provider_accounts (business_id, provider, provider_account_ref_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_runs_business_provider ON provider_account_snapshot_runs (business_id, provider)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_account ON provider_account_snapshot_items (snapshot_run_id, provider_account_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider ON business_provider_accounts (business_id, provider, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_position ON provider_account_snapshot_items (snapshot_run_id, position ASC)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(
+          () => {},
+        ),
         sql`
           UPDATE businesses AS business
           SET
@@ -1278,8 +1420,12 @@ export async function runMigrations(options?: {
               OR business.timezone_source IS DISTINCT FROM derived.timezone_source
             )
         `.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_latest_guard
           ON meta_config_snapshots (business_id, account_id, entity_level, entity_id, captured_at DESC)`.catch(
           () => {},
@@ -1324,39 +1470,105 @@ export async function runMigrations(options?: {
             COALESCE(benchmark_scope_id, ''),
             generated_at DESC
           )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_custom_reports_business ON custom_reports (business_id, updated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token ON custom_report_share_snapshots (token)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz ON creative_media_cache (creative_id, business_id, provider)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status ON creative_media_cache (status)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key ON creative_media_cache (storage_key)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires ON creative_media_cache (expires_at)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business ON meta_creatives_snapshots (business_id, last_synced_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh ON meta_creatives_snapshots (refresh_started_at)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id ON shopify_subscriptions (shop_id)`.catch(() => {}),
-        sql`ALTER TABLE ai_daily_insights ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'en'`.catch(() => {}),
-        sql`ALTER TABLE ai_creative_decisions_cache ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'en'`.catch(() => {}),
-        sql`ALTER TABLE ai_creative_decisions_cache DROP CONSTRAINT IF EXISTS ai_creative_decisions_cache_source_check`.catch(() => {}),
-        sql`UPDATE ai_creative_decisions_cache SET source = 'deterministic' WHERE source = 'ai'`.catch(() => {}),
-        sql`ALTER TABLE ai_creative_decisions_cache ALTER COLUMN source SET DEFAULT 'deterministic'`.catch(() => {}),
-        sql`ALTER TABLE ai_creative_decisions_cache ADD CONSTRAINT ai_creative_decisions_cache_source_check CHECK (source IN ('deterministic', 'fallback'))`.catch(() => {}),
-        sql`DROP INDEX IF EXISTS idx_ai_daily_insights_biz_date`.catch(() => {}),
-        sql`DROP INDEX IF EXISTS idx_ai_creative_decisions_cache_business_analysis`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date_locale ON ai_daily_insights (business_id, insight_date, locale)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business ON ai_daily_insights (business_id, insight_date DESC)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_analysis_locale ON ai_creative_decisions_cache (business_id, analysis_key, locale)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_updated ON ai_creative_decisions_cache (business_id, updated_at DESC)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_month ON seo_ai_monthly_analyses (business_id, analysis_month)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_updated ON seo_ai_monthly_analyses (business_id, updated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_scope ON google_ads_advisor_memory (business_id, account_id, last_seen_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_suppress_until ON google_ads_advisor_memory (suppress_until)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_status ON google_ads_advisor_memory (current_status, updated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_outcome_check ON google_ads_advisor_memory (outcome_check_at)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_scope ON google_ads_advisor_execution_logs (business_id, account_id, created_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_created_at ON google_ads_advisor_execution_logs (created_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_scope ON google_ads_advisor_snapshots (business_id, account_id, generated_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_status ON google_ads_advisor_snapshots (status, updated_at DESC)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_custom_reports_business ON custom_reports (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_custom_report_share_snapshots_token ON custom_report_share_snapshots (token)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_media_cache_creative_biz ON creative_media_cache (creative_id, business_id, provider)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_status ON creative_media_cache (status)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_storage_key ON creative_media_cache (storage_key)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_creative_media_cache_expires ON creative_media_cache (expires_at)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_business ON meta_creatives_snapshots (business_id, last_synced_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creatives_snapshots_refresh ON meta_creatives_snapshots (refresh_started_at)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_subscriptions_shop_id ON shopify_subscriptions (shop_id)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE ai_daily_insights ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'en'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE ai_creative_decisions_cache ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'en'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE ai_creative_decisions_cache DROP CONSTRAINT IF EXISTS ai_creative_decisions_cache_source_check`.catch(
+          () => {},
+        ),
+        sql`UPDATE ai_creative_decisions_cache SET source = 'deterministic' WHERE source = 'ai'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE ai_creative_decisions_cache ALTER COLUMN source SET DEFAULT 'deterministic'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE ai_creative_decisions_cache ADD CONSTRAINT ai_creative_decisions_cache_source_check CHECK (source IN ('deterministic', 'fallback'))`.catch(
+          () => {},
+        ),
+        sql`DROP INDEX IF EXISTS idx_ai_daily_insights_biz_date`.catch(
+          () => {},
+        ),
+        sql`DROP INDEX IF EXISTS idx_ai_creative_decisions_cache_business_analysis`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_daily_insights_biz_date_locale ON ai_daily_insights (business_id, insight_date, locale)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_ai_daily_insights_business ON ai_daily_insights (business_id, insight_date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_analysis_locale ON ai_creative_decisions_cache (business_id, analysis_key, locale)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_ai_creative_decisions_cache_business_updated ON ai_creative_decisions_cache (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_month ON seo_ai_monthly_analyses (business_id, analysis_month)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_seo_ai_monthly_analyses_business_updated ON seo_ai_monthly_analyses (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_scope ON google_ads_advisor_memory (business_id, account_id, last_seen_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_suppress_until ON google_ads_advisor_memory (suppress_until)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_status ON google_ads_advisor_memory (current_status, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_outcome_check ON google_ads_advisor_memory (outcome_check_at)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_scope ON google_ads_advisor_execution_logs (business_id, account_id, created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_created_at ON google_ads_advisor_execution_logs (created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_scope ON google_ads_advisor_snapshots (business_id, account_id, generated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_status ON google_ads_advisor_snapshots (status, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`.catch(
+          () => {},
+        ),
       ]);
 
       // ── PHASE 2.5: Backfill canonical provider-account backbone ─────────
@@ -1413,7 +1625,8 @@ export async function runMigrations(options?: {
       }
       await runMigrationBatchSequentially([
         ...(providerAccountLegacySeedSources.length > 0
-          ? [sql.query(`
+          ? [
+              sql.query(`
           INSERT INTO provider_accounts (
             provider,
             external_account_id,
@@ -1450,10 +1663,12 @@ export async function runMigrations(options?: {
               ELSE provider_accounts.metadata || EXCLUDED.metadata
             END,
             updated_at = now()
-        `)]
+        `),
+            ]
           : []),
         ...(legacyIntegrationsAvailable
-          ? [sql`
+          ? [
+              sql`
           INSERT INTO provider_connections (
             business_id,
             provider,
@@ -1489,10 +1704,12 @@ export async function runMigrations(options?: {
             connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
             disconnected_at = COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at),
             updated_at = EXCLUDED.updated_at
-        `]
+        `,
+            ]
           : []),
         ...(legacyIntegrationsAvailable
-          ? [sql`
+          ? [
+              sql`
           INSERT INTO integration_credentials (
             provider_connection_id,
             access_token,
@@ -1529,10 +1746,12 @@ export async function runMigrations(options?: {
               ELSE integration_credentials.metadata || EXCLUDED.metadata
             END,
             updated_at = EXCLUDED.updated_at
-        `]
+        `,
+            ]
           : []),
         ...(legacyAssignmentsAvailable
-          ? [sql`
+          ? [
+              sql`
           INSERT INTO business_provider_accounts (
             business_id,
             provider,
@@ -1559,10 +1778,12 @@ export async function runMigrations(options?: {
             provider_account_id = EXCLUDED.provider_account_id,
             position = EXCLUDED.position,
             updated_at = EXCLUDED.updated_at
-        `]
+        `,
+            ]
           : []),
         ...(legacySnapshotsAvailable
-          ? [sql`
+          ? [
+              sql`
           INSERT INTO provider_account_snapshot_runs (
             business_id,
             provider,
@@ -1610,10 +1831,12 @@ export async function runMigrations(options?: {
             last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
             refresh_failure_streak = EXCLUDED.refresh_failure_streak,
             updated_at = EXCLUDED.updated_at
-        `]
+        `,
+            ]
           : []),
         ...(legacySnapshotsAvailable
-          ? [sql`
+          ? [
+              sql`
           INSERT INTO provider_account_snapshot_items (
             snapshot_run_id,
             provider_account_ref_id,
@@ -1660,7 +1883,8 @@ export async function runMigrations(options?: {
             position = EXCLUDED.position,
             raw_payload = EXCLUDED.raw_payload,
             updated_at = EXCLUDED.updated_at
-        `]
+        `,
+            ]
           : []),
       ]);
 
@@ -1892,7 +2116,9 @@ export async function runMigrations(options?: {
           updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_business_recent
-          ON meta_ads_action_log (business_id, requested_at DESC)`.catch(() => {}),
+          ON meta_ads_action_log (business_id, requested_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ads_action_log_ad
           ON meta_ads_action_log (ad_id, requested_at DESC)`.catch(() => {}),
         sql`ALTER TABLE meta_ads_action_log
@@ -1923,7 +2149,9 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_launch_templates_business
-          ON meta_launch_templates (business_id, source, updated_at DESC)`.catch(() => {}),
+          ON meta_launch_templates (business_id, source, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_automation_business_controls (
           business_id UUID PRIMARY KEY REFERENCES businesses(id) ON DELETE CASCADE,
           kill_switch_engaged BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1965,7 +2193,9 @@ export async function runMigrations(options?: {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_promotion_records_business
-          ON meta_automation_promotion_records (business_id, created_at DESC)`.catch(() => {}),
+          ON meta_automation_promotion_records (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_automation_activity_ledger (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -1978,7 +2208,9 @@ export async function runMigrations(options?: {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_automation_activity_ledger_business
-          ON meta_automation_activity_ledger (business_id, created_at DESC)`.catch(() => {}),
+          ON meta_automation_activity_ledger (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_automation_decision_type_modes (
           business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
           decision_type TEXT NOT NULL
@@ -2071,27 +2303,69 @@ export async function runMigrations(options?: {
           : []),
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_check_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_check_window_days INTEGER`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_verdict TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_metric TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_delta NUMERIC(18, 4)`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_verdict_fail_reason TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_confidence TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_status TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_error TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS rollback_available BOOLEAN`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS rollback_executed_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completion_mode TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completed_step_count INTEGER`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS total_step_count INTEGER`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completed_step_ids JSONB`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS skipped_step_ids JSONB`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS core_step_ids JSONB`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_metadata JSONB`.catch(() => {}),
-        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS applied_snapshot JSONB`.catch(() => {}),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_check_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_check_window_days INTEGER`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_verdict TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_metric TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_delta NUMERIC(18, 4)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_verdict_fail_reason TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS outcome_confidence TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_status TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_error TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS rollback_available BOOLEAN`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS rollback_executed_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completion_mode TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completed_step_count INTEGER`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS total_step_count INTEGER`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS completed_step_ids JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS skipped_step_ids JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS core_step_ids JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS execution_metadata JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS applied_snapshot JSONB`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_advisor_execution_logs (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
@@ -2126,9 +2400,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, action_fingerprint)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_state_business_status
-          ON command_center_action_state (business_id, workflow_status, updated_at DESC)`.catch(() => {}),
+          ON command_center_action_state (business_id, workflow_status, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_state_business_assignee
-          ON command_center_action_state (business_id, assignee_user_id, updated_at DESC)`.catch(() => {}),
+          ON command_center_action_state (business_id, assignee_user_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_journal (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2147,9 +2425,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, client_mutation_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_journal_business_action
-          ON command_center_action_journal (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
+          ON command_center_action_journal (business_id, action_fingerprint, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_journal_business_created
-          ON command_center_action_journal (business_id, created_at DESC)`.catch(() => {}),
+          ON command_center_action_journal (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_mutation_receipts (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2160,7 +2442,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, client_mutation_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_mutation_receipts_business_created
-          ON command_center_mutation_receipts (business_id, created_at DESC)`.catch(() => {}),
+          ON command_center_mutation_receipts (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_saved_views (
           id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2172,7 +2456,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, view_key)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_saved_views_business
-          ON command_center_saved_views (business_id, updated_at DESC)`.catch(() => {}),
+          ON command_center_saved_views (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_handoffs (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2189,7 +2475,9 @@ export async function runMigrations(options?: {
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_handoffs_business_shift
-          ON command_center_handoffs (business_id, shift, updated_at DESC)`.catch(() => {}),
+          ON command_center_handoffs (business_id, shift, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_feedback (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2214,16 +2502,26 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`ALTER TABLE command_center_feedback
           ADD COLUMN IF NOT EXISTS outcome TEXT NOT NULL DEFAULT 'operator_note'
-            CHECK (outcome IN ('calibration_candidate', 'workflow_gap', 'operator_note'))`.catch(() => {}),
+            CHECK (outcome IN ('calibration_candidate', 'workflow_gap', 'operator_note'))`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_feedback
           ADD COLUMN IF NOT EXISTS workload_class TEXT
-            CHECK (workload_class IN ('budget_shift', 'scale_promotion', 'recovery', 'creative_refresh', 'test_backlog', 'geo_review', 'risk_triage', 'policy_guardrail', 'protected_watch', 'archive_context'))`.catch(() => {}),
+            CHECK (workload_class IN ('budget_shift', 'scale_promotion', 'recovery', 'creative_refresh', 'test_backlog', 'geo_review', 'risk_triage', 'policy_guardrail', 'protected_watch', 'archive_context'))`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_feedback
-          ADD COLUMN IF NOT EXISTS calibration_hint_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS calibration_hint_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_created
-          ON command_center_feedback (business_id, created_at DESC)`.catch(() => {}),
+          ON command_center_feedback (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_action
-          ON command_center_feedback (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
+          ON command_center_feedback (business_id, action_fingerprint, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_state (
           id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2267,13 +2565,21 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE command_center_action_execution_state
           ADD COLUMN IF NOT EXISTS capability_key TEXT`.catch(() => {}),
         sql`ALTER TABLE command_center_action_execution_state
-          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_action_execution_state
-          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_action_execution_state
-          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_state_business_status
-          ON command_center_action_execution_state (business_id, execution_status, updated_at DESC)`.catch(() => {}),
+          ON command_center_action_execution_state (business_id, execution_status, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_audit (
           id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -2311,13 +2617,21 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE command_center_action_execution_audit
           ADD COLUMN IF NOT EXISTS capability_key TEXT`.catch(() => {}),
         sql`ALTER TABLE command_center_action_execution_audit
-          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_action_execution_audit
-          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE command_center_action_execution_audit
-          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_audit_business_action
-          ON command_center_action_execution_audit (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
+          ON command_center_action_execution_audit (business_id, action_fingerprint, created_at DESC)`.catch(
+          () => {},
+        ),
       ]);
 
       // ── PHASE 4: Tables with deeper deps + all remaining indexes ──────────
@@ -2483,8 +2797,12 @@ export async function runMigrations(options?: {
 
       // Phase 4b: discount_redemptions indexes (after table created above)
       await runMigrationBatchSequentially([
-        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_code ON discount_redemptions (code_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_user ON discount_redemptions (user_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_code ON discount_redemptions (code_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_discount_redemptions_user ON discount_redemptions (user_id)`.catch(
+          () => {},
+        ),
         sql`UPDATE business_cost_models SET fixed_monthly_cost = fixed_cost WHERE fixed_monthly_cost = 0 AND fixed_cost <> 0`,
         sql`UPDATE business_cost_models SET fixed_cost = fixed_monthly_cost WHERE fixed_cost = 0 AND fixed_monthly_cost <> 0`,
         sql`CREATE TABLE IF NOT EXISTS seo_results_cache (
@@ -2496,8 +2814,12 @@ export async function runMigrations(options?: {
           payload      JSONB NOT NULL,
           generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_results_cache_lookup ON seo_results_cache (business_id, cache_type, start_date, end_date)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_seo_results_cache_business ON seo_results_cache (business_id, generated_at DESC)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_results_cache_lookup ON seo_results_cache (business_id, cache_type, start_date, end_date)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_seo_results_cache_business ON seo_results_cache (business_id, generated_at DESC)`.catch(
+          () => {},
+        ),
         // ── Google integration: quota & sync tables ──────────────────────────
         sql`CREATE TABLE IF NOT EXISTS provider_cooldown_state (
           id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2511,8 +2833,12 @@ export async function runMigrations(options?: {
           cooldown_until TIMESTAMPTZ NOT NULL,
           updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_cooldown_state_key ON provider_cooldown_state (business_id, provider, request_type)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_cooldown_state_until ON provider_cooldown_state (cooldown_until)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_cooldown_state_key ON provider_cooldown_state (business_id, provider, request_type)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_cooldown_state_until ON provider_cooldown_state (cooldown_until)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS provider_sync_jobs (
           id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id    TEXT NOT NULL,
@@ -2527,11 +2853,21 @@ export async function runMigrations(options?: {
           completed_at   TIMESTAMPTZ,
           error_message  TEXT
         )`.catch(() => {}),
-        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_owner TEXT`.catch(() => {}),
-        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_expires_at TIMESTAMPTZ`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_sync_jobs_key ON provider_sync_jobs (business_id, provider, report_type, date_range_key)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_status ON provider_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_lock_expiry ON provider_sync_jobs (lock_expires_at)`.catch(() => {}),
+        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_owner TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS lock_expires_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_sync_jobs_key ON provider_sync_jobs (business_id, provider, report_type, date_range_key)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_status ON provider_sync_jobs (status, triggered_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_lock_expiry ON provider_sync_jobs (lock_expires_at)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS provider_quota_usage (
           id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id    TEXT NOT NULL,
@@ -2541,7 +2877,9 @@ export async function runMigrations(options?: {
           error_count    INT NOT NULL DEFAULT 0,
           last_called_at TIMESTAMPTZ
         )`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_quota_usage_key ON provider_quota_usage (business_id, provider, quota_date)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_quota_usage_key ON provider_quota_usage (business_id, provider, quota_date)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS provider_request_audit_daily (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -2572,7 +2910,9 @@ export async function runMigrations(options?: {
             audit_path
           )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_request_audit_daily_provider
-          ON provider_request_audit_daily (provider, audit_date, updated_at DESC)`.catch(() => {}),
+          ON provider_request_audit_daily (provider, audit_date, updated_at DESC)`.catch(
+          () => {},
+        ),
         // ── Meta warehouse-first pilot tables ───────────────────────────────
         sql`CREATE TABLE IF NOT EXISTS meta_sync_jobs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2594,9 +2934,15 @@ export async function runMigrations(options?: {
           finished_at         TIMESTAMPTZ,
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_business ON meta_sync_jobs (business_id, triggered_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_account ON meta_sync_jobs (provider_account_id, triggered_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_status ON meta_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_business ON meta_sync_jobs (business_id, triggered_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_account ON meta_sync_jobs (provider_account_id, triggered_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_jobs_status ON meta_sync_jobs (status, triggered_at DESC)`.catch(
+          () => {},
+        ),
         sql`
           WITH ranked AS (
             SELECT
@@ -2652,10 +2998,16 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_queue
-          ON meta_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
+          ON meta_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_lease
-          ON meta_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE meta_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
+          ON meta_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_runs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id        UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
@@ -2677,8 +3029,12 @@ export async function runMigrations(options?: {
           created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_partition ON meta_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_business ON meta_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_partition ON meta_sync_runs (partition_id, created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_runs_business ON meta_sync_runs (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_sync_runs_one_running_per_partition
           ON meta_sync_runs (partition_id)
           WHERE status = 'running'`.catch(() => {}),
@@ -2711,15 +3067,27 @@ export async function runMigrations(options?: {
           UNIQUE (partition_id, checkpoint_scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition
-          ON meta_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_checkpoints (partition_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_scope
-          ON meta_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(() => {}),
-        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(() => {}),
+          ON meta_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_epoch
-          ON meta_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_run
-          ON meta_sync_checkpoints (partition_id, checkpoint_scope, run_id, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_checkpoints (partition_id, checkpoint_scope, run_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_phase_timings (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id        UUID NOT NULL REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
@@ -2744,9 +3112,13 @@ export async function runMigrations(options?: {
           UNIQUE (partition_id, timing_scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_phase_timings_partition
-          ON meta_sync_phase_timings (partition_id, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_phase_timings (partition_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_phase_timings_business
-          ON meta_sync_phase_timings (business_id, provider_account_id, phase, status, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_phase_timings (business_id, provider_account_id, phase, status, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_worker_heartbeats (
           worker_id          TEXT PRIMARY KEY,
           instance_type      TEXT NOT NULL,
@@ -2761,7 +3133,9 @@ export async function runMigrations(options?: {
           updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_status
-          ON sync_worker_heartbeats (status, last_heartbeat_at DESC)`.catch(() => {}),
+          ON sync_worker_heartbeats (status, last_heartbeat_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_last_heartbeat
           ON sync_worker_heartbeats (last_heartbeat_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_reclaim_events (
@@ -2777,10 +3151,16 @@ export async function runMigrations(options?: {
           detail            TEXT,
           created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS disposition TEXT`.catch(() => {}),
-        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS reason_code TEXT`.catch(() => {}),
+        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS disposition TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE sync_reclaim_events ADD COLUMN IF NOT EXISTS reason_code TEXT`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_reclaim_events_provider
-          ON sync_reclaim_events (provider_scope, business_id, created_at DESC)`.catch(() => {}),
+          ON sync_reclaim_events (provider_scope, business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_runner_leases (
           business_id        TEXT NOT NULL,
           provider_scope     TEXT NOT NULL,
@@ -2791,7 +3171,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_runner_leases_expiry
-          ON sync_runner_leases (provider_scope, lease_expires_at, updated_at DESC)`.catch(() => {}),
+          ON sync_runner_leases (provider_scope, lease_expires_at, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_runtime_instances (
           instance_id         TEXT PRIMARY KEY,
           service             TEXT NOT NULL
@@ -2811,9 +3193,13 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_runtime_instances_service_seen
-          ON sync_runtime_instances (service, last_seen_at DESC)`.catch(() => {}),
+          ON sync_runtime_instances (service, last_seen_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_runtime_instances_build
-          ON sync_runtime_instances (build_id, service, last_seen_at DESC)`.catch(() => {}),
+          ON sync_runtime_instances (build_id, service, last_seen_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_release_gates (
           id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id          TEXT NOT NULL,
@@ -2838,11 +3224,17 @@ export async function runMigrations(options?: {
           UNIQUE (build_id, environment, gate_kind)
         )`.catch(() => {}),
         sql`ALTER TABLE sync_release_gates
-          DROP CONSTRAINT IF EXISTS sync_release_gates_build_id_environment_gate_kind_key`.catch(() => {}),
+          DROP CONSTRAINT IF EXISTS sync_release_gates_build_id_environment_gate_kind_key`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_release_gates
-          ADD COLUMN IF NOT EXISTS gate_scope TEXT NOT NULL DEFAULT 'release_readiness'`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS gate_scope TEXT NOT NULL DEFAULT 'release_readiness'`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_build
-          ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(() => {}),
+          ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_emitted
           ON sync_release_gates (emitted_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
@@ -2863,11 +3255,17 @@ export async function runMigrations(options?: {
           UNIQUE (build_id, environment, provider_scope, plan_mode)
         )`.catch(() => {}),
         sql`ALTER TABLE sync_repair_plans
-          DROP CONSTRAINT IF EXISTS sync_repair_plans_build_id_environment_provider_scope_plan_mode_key`.catch(() => {}),
+          DROP CONSTRAINT IF EXISTS sync_repair_plans_build_id_environment_provider_scope_plan_mode_key`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
-          ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(() => {}),
+          ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_provider_latest
-          ON sync_repair_plans (provider_scope, emitted_at DESC)`.catch(() => {}),
+          ON sync_repair_plans (provider_scope, emitted_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_executions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id                TEXT NOT NULL,
@@ -2909,27 +3307,45 @@ export async function runMigrations(options?: {
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`ALTER TABLE sync_repair_executions
-          ADD COLUMN IF NOT EXISTS post_run_release_gate_id UUID`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS post_run_release_gate_id UUID`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_repair_executions
-          ADD COLUMN IF NOT EXISTS post_run_repair_plan_id UUID`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS post_run_repair_plan_id UUID`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_repair_executions
           ADD COLUMN IF NOT EXISTS execution_signature TEXT`.catch(() => {}),
         sql`ALTER TABLE sync_repair_plans
-          DROP CONSTRAINT IF EXISTS sync_repair_plans_plan_mode_check`.catch(() => {}),
+          DROP CONSTRAINT IF EXISTS sync_repair_plans_plan_mode_check`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_repair_plans
           ADD CONSTRAINT sync_repair_plans_plan_mode_check
-          CHECK (plan_mode IN ('dry_run', 'auto_execute', 'escalated_manual'))`.catch(() => {}),
+          CHECK (plan_mode IN ('dry_run', 'auto_execute', 'escalated_manual'))`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_repair_executions
-          DROP CONSTRAINT IF EXISTS sync_repair_executions_status_check`.catch(() => {}),
+          DROP CONSTRAINT IF EXISTS sync_repair_executions_status_check`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE sync_repair_executions
           ADD CONSTRAINT sync_repair_executions_status_check
-          CHECK (status IN ('queued', 'running', 'succeeded', 'completed', 'failed', 'exhausted', 'locked'))`.catch(() => {}),
+          CHECK (status IN ('queued', 'running', 'succeeded', 'completed', 'failed', 'exhausted', 'locked'))`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_build
-          ON sync_repair_executions (build_id, environment, provider_scope, started_at DESC)`.catch(() => {}),
+          ON sync_repair_executions (build_id, environment, provider_scope, started_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_business
-          ON sync_repair_executions (business_id, provider_scope, started_at DESC)`.catch(() => {}),
+          ON sync_repair_executions (business_id, provider_scope, started_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_signature
-          ON sync_repair_executions (provider_scope, business_id, execution_signature, started_at DESC)`.catch(() => {}),
+          ON sync_repair_executions (provider_scope, business_id, execution_signature, started_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_incidents (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id             TEXT NOT NULL,
@@ -2974,9 +3390,13 @@ export async function runMigrations(options?: {
           UNIQUE (provider_scope, business_id, resource_scope, fault_class, fault_signature)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_incidents_active
-          ON sync_incidents (build_id, environment, provider_scope, business_id, status, last_seen_at DESC)`.catch(() => {}),
+          ON sync_incidents (build_id, environment, provider_scope, business_id, status, last_seen_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_incidents_fault
-          ON sync_incidents (provider_scope, business_id, resource_scope, fault_class, fault_signature, last_seen_at DESC)`.catch(() => {}),
+          ON sync_incidents (provider_scope, business_id, resource_scope, fault_class, fault_signature, last_seen_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,
@@ -2995,7 +3415,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_account_id, scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_state_business
-          ON meta_sync_state (business_id, scope, updated_at DESC)`.catch(() => {}),
+          ON meta_sync_state (business_id, scope, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -3046,24 +3468,52 @@ export async function runMigrations(options?: {
                 CHECK (status IN ('fetched', 'partial', 'failed', 'superseded'));
             END IF;
           END $$`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_business ON meta_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_account ON meta_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_window ON meta_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_endpoint ON meta_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_business ON meta_raw_snapshots (business_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_account ON meta_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_window ON meta_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_endpoint ON meta_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_raw_snapshots_retention
-          ON meta_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
+          ON meta_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_endpoint
-          ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
+          ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_system_capacity_snapshots_source_sampled
-          ON system_capacity_snapshots (source, sampled_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+          ON system_capacity_snapshots (source, sampled_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_run_endpoint
-          ON meta_raw_snapshots (partition_id, run_id, endpoint_name, page_index)`.catch(() => {}),
+          ON meta_raw_snapshots (partition_id, run_id, endpoint_name, page_index)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_account_daily (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -3089,16 +3539,34 @@ export async function runMigrations(options?: {
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, date)
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_business_date ON meta_account_daily (business_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_account_date ON meta_account_daily (provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_business_date ON meta_account_daily (business_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_account_date ON meta_account_daily (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_business_account_date
-          ON meta_account_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+          ON meta_account_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_daily (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -3142,32 +3610,80 @@ export async function runMigrations(options?: {
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, date, campaign_id)
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_date ON meta_campaign_daily (business_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_account_date ON meta_campaign_daily (provider_account_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_campaign ON meta_campaign_daily (campaign_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_date ON meta_campaign_daily (business_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_account_date ON meta_campaign_daily (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_campaign ON meta_campaign_daily (campaign_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_account_date
-          ON meta_campaign_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON meta_campaign_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_date_campaign
-          ON meta_campaign_daily (business_id, date DESC, campaign_id)`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_value DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_value_format TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS daily_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS lifetime_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_budget_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_config_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_custom_event_type_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_bid_strategy_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_bid_value_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+          ON meta_campaign_daily (business_id, date DESC, campaign_id)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_value DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_value_format TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS daily_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS lifetime_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_budget_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_config_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_custom_event_type_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_bid_strategy_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS is_bid_value_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_adset_daily (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -3212,13 +3728,23 @@ export async function runMigrations(options?: {
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, date, adset_id)
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date ON meta_adset_daily (business_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_account_date ON meta_adset_daily (provider_account_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_adset ON meta_adset_daily (adset_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date ON meta_adset_daily (business_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_account_date ON meta_adset_daily (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_adset ON meta_adset_daily (adset_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_account_date
-          ON meta_adset_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON meta_adset_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date_adset
-          ON meta_adset_daily (business_id, date DESC, adset_id)`.catch(() => {}),
+          ON meta_adset_daily (business_id, date DESC, adset_id)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_snapshots_daily (
           scope_type          TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign', 'adset')),
           scope_id            TEXT NOT NULL,
@@ -3240,21 +3766,29 @@ export async function runMigrations(options?: {
           PRIMARY KEY (scope_type, scope_id, snapshot_date, rec_type)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_snapshots_daily_business_date
-          ON meta_decision_snapshots_daily (business_id, snapshot_date)`.catch(() => {}),
+          ON meta_decision_snapshots_daily (business_id, snapshot_date)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'recommendation'
           CHECK (kind IN ('recommendation', 'anomaly'))`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS severity TEXT
-          CHECK (severity IS NULL OR severity IN ('high', 'medium', 'low'))`.catch(() => {}),
+          CHECK (severity IS NULL OR severity IN ('high', 'medium', 'low'))`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS detected_at TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS evidence_trail JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS evidence_trail JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS campaign_role TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
@@ -3264,7 +3798,9 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS state_reason TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_decision_snapshots_daily
-          ADD COLUMN IF NOT EXISTS calibration_scope JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS calibration_scope JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_snapshots_daily
           ADD COLUMN IF NOT EXISTS signal_quality JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
           () => {},
@@ -3309,15 +3845,25 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, scope_type, scope_id, as_of_date)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_business_date
-          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC)`.catch(() => {}),
+          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_scope_date
-          ON meta_entity_decision_signals_daily (scope_type, scope_id, as_of_date DESC)`.catch(() => {}),
+          ON meta_entity_decision_signals_daily (scope_type, scope_id, as_of_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_decision_signals_quality
-          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC, quality_status)`.catch(() => {}),
+          ON meta_entity_decision_signals_daily (business_id, as_of_date DESC, quality_status)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_entity_decision_signals_daily
-          ADD COLUMN IF NOT EXISTS creative_age_days_max INTEGER`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS creative_age_days_max INTEGER`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_entity_decision_signals_daily
-          ADD COLUMN IF NOT EXISTS days_since_significant_edit INTEGER`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS days_since_significant_edit INTEGER`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_calibration_daily (
           business_id   TEXT NOT NULL,
           scope_type    TEXT NOT NULL CHECK (scope_type IN ('account', 'campaign')),
@@ -3336,9 +3882,13 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, scope_type, scope_id, snapshot_date, metric_name, cohort, campaign_kind)
         )`.catch(() => {}),
         sql`ALTER TABLE meta_decision_calibration_daily
-          ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS cohort TEXT NOT NULL DEFAULT 'purchase'`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE meta_decision_calibration_daily
-          ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'`.catch(
+          () => {},
+        ),
         sql`UPDATE meta_decision_calibration_daily
           SET cohort = 'purchase'
           WHERE cohort IS NULL`.catch(() => {}),
@@ -3347,7 +3897,9 @@ export async function runMigrations(options?: {
           WHERE campaign_kind IS NULL`.catch(() => {}),
         sql`ALTER TABLE meta_decision_calibration_daily
           ADD CONSTRAINT meta_decision_calibration_daily_campaign_kind_check
-          CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed'))`.catch(() => {}),
+          CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed'))`.catch(
+          () => {},
+        ),
         sql`DO $$
           DECLARE
             current_pk_name TEXT;
@@ -3391,7 +3943,9 @@ export async function runMigrations(options?: {
           END
           $$`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_calibration_cohort_scope
-          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort, campaign_kind)`.catch(() => {}),
+          ON meta_decision_calibration_daily (business_id, scope_type, scope_id, snapshot_date, cohort, campaign_kind)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_responses (
           rec_id         TEXT NOT NULL,
           business_id    TEXT NOT NULL,
@@ -3424,11 +3978,17 @@ export async function runMigrations(options?: {
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_business
-          ON meta_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(() => {}),
+          ON meta_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_recommendation
-          ON meta_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(() => {}),
+          ON meta_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_action_outcome_logs_rec
-          ON meta_decision_action_outcome_logs (business_id, rec_id, occurred_at DESC)`.catch(() => {}),
+          ON meta_decision_action_outcome_logs (business_id, rec_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_labels (
           business_id         TEXT NOT NULL,
           campaign_id         TEXT NOT NULL,
@@ -3450,9 +4010,13 @@ export async function runMigrations(options?: {
           CHECK (campaign_kind = 'test' OR test_dimension IS NULL)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_labels_business_kind
-          ON meta_campaign_labels (business_id, campaign_kind, updated_at DESC)`.catch(() => {}),
+          ON meta_campaign_labels (business_id, campaign_kind, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_labels_account
-          ON meta_campaign_labels (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON meta_campaign_labels (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_id_external
           ON provider_accounts (id, external_account_id)`,
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_provider_accounts_binding
@@ -4039,27 +4603,69 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_lineage_target_asof
           ON meta_creative_lineage_edges
           (business_id, provider_account_id, target_creative_id, observed_at DESC)`,
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_value DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_value_format TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS daily_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS lifetime_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_budget_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_config_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_bid_strategy_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_bid_value_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_value DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_value_format TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS daily_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS lifetime_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_budget_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_config_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_bid_strategy_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS is_bid_value_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_breakdown_daily (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -4092,9 +4698,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, date, breakdown_type, breakdown_key)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_breakdown_daily_business_date
-          ON meta_breakdown_daily (business_id, date DESC, breakdown_type)`.catch(() => {}),
+          ON meta_breakdown_daily (business_id, date DESC, breakdown_type)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_breakdown_daily_account_date
-          ON meta_breakdown_daily (provider_account_id, date DESC, breakdown_type)`.catch(() => {}),
+          ON meta_breakdown_daily (provider_account_id, date DESC, breakdown_type)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_ad_daily (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -4138,26 +4748,64 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, date, ad_id)
         )`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS payload_json JSONB`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS link_clicks BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_raw TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_source TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_confidence TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS cta_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS object_story_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS effective_object_story_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date ON meta_ad_daily (business_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_account_date ON meta_ad_daily (provider_account_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_ad ON meta_ad_daily (ad_id, date DESC)`.catch(() => {}),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS payload_json JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS link_clicks BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_raw TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_source TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS destination_url_confidence TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS cta_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS object_story_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS effective_object_story_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date ON meta_ad_daily (business_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_account_date ON meta_ad_daily (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_ad ON meta_ad_daily (ad_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_account_date
-          ON meta_ad_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON meta_ad_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date_ad
           ON meta_ad_daily (business_id, date DESC, ad_id)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_daily (
@@ -4199,50 +4847,134 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, date, creative_id)
         )`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS payload_json JSONB`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_raw TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_source TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_confidence TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS cta_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS object_story_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS effective_object_story_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS reach BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS frequency DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS cpa DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS link_clicks BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS outbound_clicks BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS description_text TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS launch_date DATE`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS first_spend_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS effective_status TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS objective TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS attribution_setting TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS quality_ranking TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS engagement_rate_ranking TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS conversion_rate_ranking TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS bid_strategy TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS campaign_daily_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS adset_daily_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS campaign_lifetime_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS adset_lifetime_budget DOUBLE PRECISION`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_delivery_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_visual_format TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_primary_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_secondary_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS image_hash TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_date ON meta_creative_daily (business_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_account_date ON meta_creative_daily (provider_account_id, date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_creative ON meta_creative_daily (creative_id, date DESC)`.catch(() => {}),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS payload_json JSONB`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_raw TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_source TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS destination_url_confidence TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS cta_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS object_story_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS effective_object_story_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS reach BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS frequency DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS cpa DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS link_clicks BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS outbound_clicks BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS description_text TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS launch_date DATE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS first_spend_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS effective_status TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS objective TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS attribution_setting TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS quality_ranking TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS engagement_rate_ranking TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS conversion_rate_ranking TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS bid_strategy TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS campaign_daily_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS adset_daily_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS campaign_lifetime_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS adset_lifetime_budget DOUBLE PRECISION`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_delivery_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_visual_format TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_primary_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS creative_secondary_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS image_hash TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_creative_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_date ON meta_creative_daily (business_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_account_date ON meta_creative_daily (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_creative ON meta_creative_daily (creative_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date
-          ON meta_creative_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON meta_creative_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date_creative
-          ON meta_creative_daily (business_id, provider_account_id, date DESC, creative_id)`.catch(() => {}),
+          ON meta_creative_daily (business_id, provider_account_id, date DESC, creative_id)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_image_hash
           ON meta_creative_daily (business_id, provider_account_id, image_hash)
           WHERE image_hash IS NOT NULL`.catch(() => {}),
@@ -4273,7 +5005,9 @@ export async function runMigrations(options?: {
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`ALTER TABLE meta_creative_media
-          DROP CONSTRAINT IF EXISTS meta_creative_media_business_id_provider_account_id_date_creative_id_key`.catch(() => {}),
+          DROP CONSTRAINT IF EXISTS meta_creative_media_business_id_provider_account_id_date_creative_id_key`.catch(
+          () => {},
+        ),
         sql`DO $migration$
           DECLARE old_constraint_name TEXT;
           BEGIN
@@ -4289,11 +5023,15 @@ export async function runMigrations(options?: {
           END
         $migration$`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_meta_creative_media_ad_grain
-          ON meta_creative_media (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, '')))`.catch(() => {}),
+          ON meta_creative_media (business_id, provider_account_id, date, creative_id, (COALESCE(ad_id, '')))`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_business_date
           ON meta_creative_media (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_account_date
-          ON meta_creative_media (provider_account_id, date DESC)`.catch(() => {}),
+          ON meta_creative_media (provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_creative
           ON meta_creative_media (creative_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_media_image_hash
@@ -4318,9 +5056,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, campaign_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_dimensions_business_account
-          ON google_ads_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_dimensions_campaign
-          ON google_ads_campaign_dimensions (campaign_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_campaign_dimensions (campaign_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_campaign_state_history (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4342,7 +5084,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_state_history_lookup
-          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4362,9 +5106,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, ad_group_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_dimensions_business_account
-          ON google_ads_ad_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_ad_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_dimensions_ad_group
-          ON google_ads_ad_group_dimensions (ad_group_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_ad_group_dimensions (ad_group_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_state_history (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4386,7 +5134,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_state_history_lookup
-          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(() => {}),
+          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_ad_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4407,7 +5157,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, ad_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_dimensions_business_account
-          ON google_ads_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_dimensions_ad
           ON google_ads_ad_dimensions (ad_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS google_ads_keyword_dimensions (
@@ -4430,9 +5182,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, keyword_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_keyword_dimensions_business_account
-          ON google_ads_keyword_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_keyword_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_keyword_dimensions_keyword
-          ON google_ads_keyword_dimensions (keyword_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_keyword_dimensions (keyword_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_asset_group_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4452,9 +5208,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, asset_group_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_asset_group_dimensions_business_account
-          ON google_ads_asset_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_asset_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_asset_group_dimensions_asset_group
-          ON google_ads_asset_group_dimensions (asset_group_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_asset_group_dimensions (asset_group_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_product_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4474,9 +5234,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, product_key)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_product_dimensions_business_account
-          ON google_ads_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_product_dimensions_product
-          ON google_ads_product_dimensions (product_key, updated_at DESC)`.catch(() => {}),
+          ON google_ads_product_dimensions (product_key, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4494,9 +5258,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, campaign_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_dimensions_business_account
-          ON meta_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON meta_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_dimensions_campaign
-          ON meta_campaign_dimensions (campaign_id, updated_at DESC)`.catch(() => {}),
+          ON meta_campaign_dimensions (campaign_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_config_history (
           id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id               TEXT NOT NULL,
@@ -4526,7 +5294,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_lookup
-          ON meta_campaign_config_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+          ON meta_campaign_config_history (business_id, campaign_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_latest_guard
           ON meta_campaign_config_history (business_id, provider_account_id, campaign_id, captured_at DESC)
           INCLUDE (config_fingerprint)`.catch(() => {}),
@@ -4547,7 +5317,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, adset_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_dimensions_business_account
-          ON meta_adset_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON meta_adset_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_dimensions_adset
           ON meta_adset_dimensions (adset_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_adset_config_history (
@@ -4581,25 +5353,71 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, adset_id, config_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_lookup
-          ON meta_adset_config_history (business_id, adset_id, captured_at DESC)`.catch(() => {}),
+          ON meta_adset_config_history (business_id, adset_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_latest_guard
           ON meta_adset_config_history (business_id, provider_account_id, adset_id, captured_at DESC)
           INCLUDE (config_fingerprint)`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS is_custom_event_type_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(() => {}),
-        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(() => {}),
+        sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_campaign_config_history ADD COLUMN IF NOT EXISTS is_custom_event_type_mixed BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_event_type TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS pixel_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS custom_conversion_id TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(
+          () => {},
+        ),
         sql.query(buildMetaConfigGrowthGuardSql()).catch(() => {}),
-        dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "bid_strategy_label"),
-        dropColumnIfExistsWithShortLock(sql, "meta_campaign_daily", "manual_bid_amount"),
-        dropColumnIfExistsWithShortLock(sql, "meta_adset_daily", "bid_strategy_label"),
-        dropColumnIfExistsWithShortLock(sql, "meta_adset_daily", "manual_bid_amount"),
-        dropColumnIfExistsWithShortLock(sql, "meta_campaign_config_history", "bid_strategy_label"),
-        dropColumnIfExistsWithShortLock(sql, "meta_campaign_config_history", "manual_bid_amount"),
-        dropColumnIfExistsWithShortLock(sql, "meta_adset_config_history", "bid_strategy_label"),
-        dropColumnIfExistsWithShortLock(sql, "meta_adset_config_history", "manual_bid_amount"),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_campaign_daily",
+          "bid_strategy_label",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_campaign_daily",
+          "manual_bid_amount",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_adset_daily",
+          "bid_strategy_label",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_adset_daily",
+          "manual_bid_amount",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_campaign_config_history",
+          "bid_strategy_label",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_campaign_config_history",
+          "manual_bid_amount",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_adset_config_history",
+          "bid_strategy_label",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "meta_adset_config_history",
+          "manual_bid_amount",
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_ad_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4620,7 +5438,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, ad_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_dimensions_business_account
-          ON meta_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON meta_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_dimensions_ad
           ON meta_ad_dimensions (ad_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_dimensions (
@@ -4646,9 +5466,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, creative_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_dimensions_business_account
-          ON meta_creative_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON meta_creative_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_dimensions_creative
-          ON meta_creative_dimensions (creative_id, updated_at DESC)`.catch(() => {}),
+          ON meta_creative_dimensions (creative_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_score_snapshots (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -4676,8 +5500,12 @@ export async function runMigrations(options?: {
             rule_version
           )
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_lookup ON meta_creative_score_snapshots (business_id, selected_start_date, selected_end_date, as_of_date DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_creative ON meta_creative_score_snapshots (creative_id, as_of_date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_lookup ON meta_creative_score_snapshots (business_id, selected_start_date, selected_end_date, as_of_date DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_score_snapshots_creative ON meta_creative_score_snapshots (creative_id, as_of_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_authoritative_source_manifests (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4701,9 +5529,13 @@ export async function runMigrations(options?: {
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_source_manifests_lookup
-          ON meta_authoritative_source_manifests (business_id, provider_account_id, day DESC, surface, created_at DESC)`.catch(() => {}),
+          ON meta_authoritative_source_manifests (business_id, provider_account_id, day DESC, surface, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_source_manifests_run
-          ON meta_authoritative_source_manifests (run_id, created_at DESC)`.catch(() => {}),
+          ON meta_authoritative_source_manifests (run_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_authoritative_slice_versions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4730,11 +5562,17 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, day, surface, candidate_version)
         )`.catch(() => {}),
         sql`ALTER TABLE IF EXISTS meta_authoritative_slice_versions
-          ADD COLUMN IF NOT EXISTS publish_started_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS publish_started_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_slice_versions_lookup
-          ON meta_authoritative_slice_versions (business_id, provider_account_id, day DESC, surface, candidate_version DESC)`.catch(() => {}),
+          ON meta_authoritative_slice_versions (business_id, provider_account_id, day DESC, surface, candidate_version DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_slice_versions_manifest
-          ON meta_authoritative_slice_versions (manifest_id, created_at DESC)`.catch(() => {}),
+          ON meta_authoritative_slice_versions (manifest_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_authoritative_publication_pointers (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4750,7 +5588,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, day, surface)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_publication_pointers_slice
-          ON meta_authoritative_publication_pointers (active_slice_version_id, published_at DESC)`.catch(() => {}),
+          ON meta_authoritative_publication_pointers (active_slice_version_id, published_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_authoritative_reconciliation_events (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -4770,7 +5610,9 @@ export async function runMigrations(options?: {
           created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_reconciliation_events_lookup
-          ON meta_authoritative_reconciliation_events (business_id, provider_account_id, day DESC, surface, created_at DESC)`.catch(() => {}),
+          ON meta_authoritative_reconciliation_events (business_id, provider_account_id, day DESC, surface, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_authoritative_day_state (
           business_id                TEXT NOT NULL,
           provider_account_id        TEXT NOT NULL,
@@ -4797,9 +5639,13 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_account_id, day, surface)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_day_state_business_day
-          ON meta_authoritative_day_state (business_id, provider_account_id, day DESC, surface)`.catch(() => {}),
+          ON meta_authoritative_day_state (business_id, provider_account_id, day DESC, surface)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_day_state_status
-          ON meta_authoritative_day_state (business_id, state, day DESC, surface)`.catch(() => {}),
+          ON meta_authoritative_day_state (business_id, state, day DESC, surface)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS meta_retention_runs (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           execution_mode           TEXT NOT NULL CHECK (execution_mode IN ('dry_run', 'execute')),
@@ -4814,7 +5660,9 @@ export async function runMigrations(options?: {
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_retention_runs_finished
-          ON meta_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(() => {}),
+          ON meta_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(
+          () => {},
+        ),
         // ── Google Ads warehouse-first tables ──────────────────────────────
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_jobs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -4836,9 +5684,15 @@ export async function runMigrations(options?: {
           finished_at         TIMESTAMPTZ,
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_business ON google_ads_sync_jobs (business_id, triggered_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_account ON google_ads_sync_jobs (provider_account_id, triggered_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_status ON google_ads_sync_jobs (status, triggered_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_business ON google_ads_sync_jobs (business_id, triggered_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_account ON google_ads_sync_jobs (provider_account_id, triggered_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_jobs_status ON google_ads_sync_jobs (status, triggered_at DESC)`.catch(
+          () => {},
+        ),
         sql`
           WITH ranked AS (
             SELECT
@@ -4881,7 +5735,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, lane)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_runner_leases_expiry
-          ON google_ads_runner_leases (lease_expires_at, updated_at DESC)`.catch(() => {}),
+          ON google_ads_runner_leases (lease_expires_at, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_partitions (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -4905,10 +5761,16 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_queue
-          ON google_ads_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(() => {}),
+          ON google_ads_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_lease
-          ON google_ads_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
+          ON google_ads_sync_partitions (status, lease_expires_at, next_retry_at, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_partitions ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_runs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id        UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE,
@@ -4930,8 +5792,12 @@ export async function runMigrations(options?: {
           created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_partition ON google_ads_sync_runs (partition_id, created_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_business ON google_ads_sync_runs (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_partition ON google_ads_sync_runs (partition_id, created_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_runs_business ON google_ads_sync_runs (business_id, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_checkpoints (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           partition_id               UUID NOT NULL REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE,
@@ -4961,19 +5827,41 @@ export async function runMigrations(options?: {
           UNIQUE (partition_id, checkpoint_scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_partition
-          ON google_ads_sync_checkpoints (partition_id, updated_at DESC)`.catch(() => {}),
+          ON google_ads_sync_checkpoints (partition_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_scope
-          ON google_ads_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(() => {}),
+          ON google_ads_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_checkpoints_partition_epoch
-          ON google_ads_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS is_paginated BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS raw_snapshot_ids JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS progress_heartbeat_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poisoned_at TIMESTAMPTZ`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poison_reason TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_reason_code TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_detail TEXT`.catch(() => {}),
+          ON google_ads_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS is_paginated BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS raw_snapshot_ids JSONB NOT NULL DEFAULT '[]'::jsonb`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS progress_heartbeat_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poisoned_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS poison_reason TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_reason_code TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_sync_checkpoints ADD COLUMN IF NOT EXISTS replay_detail TEXT`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_state (
           business_id                  TEXT NOT NULL,
           provider_account_id          TEXT NOT NULL,
@@ -4992,7 +5880,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_account_id, scope)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_state_business
-          ON google_ads_sync_state (business_id, scope, updated_at DESC)`.catch(() => {}),
+          ON google_ads_sync_state (business_id, scope, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5013,10 +5903,18 @@ export async function runMigrations(options?: {
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_business ON google_ads_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_business ON google_ads_raw_snapshots (business_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_account ON google_ads_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_window ON google_ads_raw_snapshots (business_id, provider_account_id, start_date, end_date)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_endpoint ON google_ads_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(
+          () => {},
+        ),
         // From-zero convergence: the two state-history tables above declare
         // an FK to google_ads_raw_snapshots but are created earlier in this
         // file; on a fresh database their first CREATE fails (silently, via
@@ -5045,7 +5943,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_state_history_lookup
-          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_state_history (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -5067,45 +5967,121 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_state_history_lookup
-          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(() => {}),
+          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
-          ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(() => {}),
+          ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint
-          ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES google_ads_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(() => {}),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_account_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_campaign_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_group_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_keyword_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_search_term_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_asset_group_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_asset_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_audience_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_geo_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_device_daily")).catch(() => {}),
-        sql.query(buildGoogleAdsWarehouseTableQuery("google_ads_product_daily")).catch(() => {}),
-        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS query_hash TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS normalized_query TEXT`.catch(() => {}),
-        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS cluster_key TEXT`.catch(() => {}),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_account_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_campaign_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_group_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_keyword_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_search_term_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_asset_group_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_asset_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_audience_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_geo_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_device_daily").map((query) => sql.query(query).catch(() => {})),
-        ...buildGoogleAdsWarehouseIndexQueries("google_ads_product_daily").map((query) => sql.query(query).catch(() => {})),
+          ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES google_ads_sync_checkpoints(id) ON DELETE SET NULL`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+          () => {},
+        ),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_account_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_campaign_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_group_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_ad_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_keyword_daily"))
+          .catch(() => {}),
+        sql
+          .query(
+            buildGoogleAdsWarehouseTableQuery("google_ads_search_term_daily"),
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            buildGoogleAdsWarehouseTableQuery("google_ads_asset_group_daily"),
+          )
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_asset_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_audience_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_geo_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_device_daily"))
+          .catch(() => {}),
+        sql
+          .query(buildGoogleAdsWarehouseTableQuery("google_ads_product_daily"))
+          .catch(() => {}),
+        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS query_hash TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS normalized_query TEXT`.catch(
+          () => {},
+        ),
+        sql`ALTER TABLE google_ads_search_term_daily ADD COLUMN IF NOT EXISTS cluster_key TEXT`.catch(
+          () => {},
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_account_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_campaign_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_group_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_ad_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_keyword_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries(
+          "google_ads_search_term_daily",
+        ).map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries(
+          "google_ads_asset_group_daily",
+        ).map((query) => sql.query(query).catch(() => {})),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_asset_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_audience_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_geo_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_device_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
+        ...buildGoogleAdsWarehouseIndexQueries("google_ads_product_daily").map(
+          (query) => sql.query(query).catch(() => {}),
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_search_term_daily_query_hash
-          ON google_ads_search_term_daily (business_id, date DESC, query_hash)`.catch(() => {}),
+          ON google_ads_search_term_daily (business_id, date DESC, query_hash)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_query_dictionary (
           query_hash       TEXT PRIMARY KEY,
           normalized_query TEXT NOT NULL,
@@ -5146,9 +6122,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, date, query_hash, campaign_id, ad_group_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_search_query_hot_daily_business_date
-          ON google_ads_search_query_hot_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON google_ads_search_query_hot_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_search_query_hot_daily_query
-          ON google_ads_search_query_hot_daily (query_hash, date DESC)`.catch(() => {}),
+          ON google_ads_search_query_hot_daily (query_hash, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_top_query_weekly (
           id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id        TEXT NOT NULL,
@@ -5167,7 +6147,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, week_start, query_hash)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_top_query_weekly_business
-          ON google_ads_top_query_weekly (business_id, provider_account_id, week_start DESC)`.catch(() => {}),
+          ON google_ads_top_query_weekly (business_id, provider_account_id, week_start DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_search_cluster_daily (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -5189,7 +6171,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, date, cluster_key)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_search_cluster_daily_business
-          ON google_ads_search_cluster_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON google_ads_search_cluster_daily (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_decision_action_outcome_logs (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,
@@ -5205,9 +6189,13 @@ export async function runMigrations(options?: {
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_decision_action_outcome_logs_business
-          ON google_ads_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(() => {}),
+          ON google_ads_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_decision_action_outcome_logs_recommendation
-          ON google_ads_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(() => {}),
+          ON google_ads_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS google_ads_retention_runs (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           execution_mode             TEXT NOT NULL
@@ -5223,7 +6211,9 @@ export async function runMigrations(options?: {
           updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_retention_runs_finished
-          ON google_ads_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(() => {}),
+          ON google_ads_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5244,11 +6234,17 @@ export async function runMigrations(options?: {
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_business
-          ON shopify_raw_snapshots (business_id, fetched_at DESC)`.catch(() => {}),
+          ON shopify_raw_snapshots (business_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_account
-          ON shopify_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
+          ON shopify_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_endpoint
-          ON shopify_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+          ON shopify_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_entity_payload_archives (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -5268,9 +6264,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, entity_type, entity_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_entity_payload_archives_business_account
-          ON shopify_entity_payload_archives (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_entity_payload_archives (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_entity_payload_archives_entity
-          ON shopify_entity_payload_archives (entity_type, entity_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_entity_payload_archives (entity_type, entity_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_shop_dimensions (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -5290,9 +6290,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_shop_dimensions_business_account
-          ON shopify_shop_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_shop_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_shop_dimensions_shop
-          ON shopify_shop_dimensions (shop_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_shop_dimensions (shop_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_customer_dimensions (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -5311,9 +6315,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, customer_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_dimensions_business_account
-          ON shopify_customer_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_customer_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_dimensions_customer
-          ON shopify_customer_dimensions (customer_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_customer_dimensions (customer_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_product_dimensions (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -5332,9 +6340,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, product_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_product_dimensions_business_account
-          ON shopify_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_product_dimensions_product
-          ON shopify_product_dimensions (product_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_product_dimensions (product_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_variant_dimensions (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -5356,9 +6368,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, variant_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_dimensions_business_account
-          ON shopify_variant_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_variant_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_dimensions_variant
-          ON shopify_variant_dimensions (variant_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_variant_dimensions (variant_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_orders (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,
@@ -5393,26 +6409,42 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, order_id)
         )`.catch(() => {}),
         sql`ALTER TABLE shopify_orders
-          ADD COLUMN IF NOT EXISTS order_created_date_local DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS order_created_date_local DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_orders
-          ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_orders
-          ADD COLUMN IF NOT EXISTS order_updated_date_local DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS order_updated_date_local DATE`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_account_created_local
-          ON shopify_orders (business_id, provider_account_id, order_created_date_local DESC)`.catch(() => {}),
+          ON shopify_orders (business_id, provider_account_id, order_created_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_account_created_fallback
           ON shopify_orders (business_id, provider_account_id, (order_created_at::date) DESC)
           WHERE order_created_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created
-          ON shopify_orders (business_id, order_created_at DESC)`.catch(() => {}),
+          ON shopify_orders (business_id, order_created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created_local
-          ON shopify_orders (business_id, order_created_date_local DESC)`.catch(() => {}),
+          ON shopify_orders (business_id, order_created_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_updated
-          ON shopify_orders (business_id, order_updated_at DESC)`.catch(() => {}),
+          ON shopify_orders (business_id, order_updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_shop_created
           ON shopify_orders (shop_id, order_created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_customer
-          ON shopify_orders (business_id, customer_id, order_created_at DESC)`.catch(() => {}),
+          ON shopify_orders (business_id, customer_id, order_created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_order_lines (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5435,7 +6467,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, order_id, line_item_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_order_lines_business_product
-          ON shopify_order_lines (business_id, product_id, variant_id)`.catch(() => {}),
+          ON shopify_order_lines (business_id, product_id, variant_id)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_refunds (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5459,12 +6493,16 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE shopify_refunds
           ADD COLUMN IF NOT EXISTS refunded_date_local DATE`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_account_refunded_local
-          ON shopify_refunds (business_id, provider_account_id, refunded_date_local DESC)`.catch(() => {}),
+          ON shopify_refunds (business_id, provider_account_id, refunded_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_account_refunded_fallback
           ON shopify_refunds (business_id, provider_account_id, (refunded_at::date) DESC)
           WHERE refunded_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded_local
-          ON shopify_refunds (business_id, refunded_date_local DESC)`.catch(() => {}),
+          ON shopify_refunds (business_id, refunded_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_order_transactions (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5484,7 +6522,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, transaction_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_order_transactions_business_processed
-          ON shopify_order_transactions (business_id, processed_at DESC)`.catch(() => {}),
+          ON shopify_order_transactions (business_id, processed_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_returns (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5503,18 +6543,24 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, return_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created
-          ON shopify_returns (business_id, created_at_provider DESC)`.catch(() => {}),
+          ON shopify_returns (business_id, created_at_provider DESC)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_returns
           ADD COLUMN IF NOT EXISTS created_date_local DATE`.catch(() => {}),
         sql`ALTER TABLE shopify_returns
           ADD COLUMN IF NOT EXISTS updated_date_local DATE`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_account_created_local
-          ON shopify_returns (business_id, provider_account_id, created_date_local DESC)`.catch(() => {}),
+          ON shopify_returns (business_id, provider_account_id, created_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_account_created_fallback
           ON shopify_returns (business_id, provider_account_id, (created_at_provider::date) DESC)
           WHERE created_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created_local
-          ON shopify_returns (business_id, created_date_local DESC)`.catch(() => {}),
+          ON shopify_returns (business_id, created_date_local DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_customer_events (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5533,9 +6579,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, event_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_business_occurred
-          ON shopify_customer_events (business_id, occurred_at DESC)`.catch(() => {}),
+          ON shopify_customer_events (business_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_events_session
-          ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(() => {}),
+          ON shopify_customer_events (business_id, session_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_sales_events (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5559,9 +6609,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, shop_id, event_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_business_date
-          ON shopify_sales_events (business_id, occurred_date_local DESC, occurred_at DESC)`.catch(() => {}),
+          ON shopify_sales_events (business_id, occurred_date_local DESC, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sales_events_order
-          ON shopify_sales_events (business_id, order_id, occurred_at DESC)`.catch(() => {}),
+          ON shopify_sales_events (business_id, order_id, occurred_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_overrides (
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,
@@ -5576,7 +6630,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_account_id, override_key)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_overrides_business_range
-          ON shopify_serving_overrides (business_id, start_date DESC, end_date DESC, updated_at DESC)`.catch(() => {}),
+          ON shopify_serving_overrides (business_id, start_date DESC, end_date DESC, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_webhook_deliveries (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT,
@@ -5594,7 +6650,9 @@ export async function runMigrations(options?: {
           UNIQUE (shop_domain, topic, payload_hash)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_webhook_deliveries_business
-          ON shopify_webhook_deliveries (business_id, received_at DESC)`.catch(() => {}),
+          ON shopify_webhook_deliveries (business_id, received_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_reconciliation_runs (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5620,23 +6678,39 @@ export async function runMigrations(options?: {
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_reconciliation_runs_business_recorded
-          ON shopify_reconciliation_runs (business_id, recorded_at DESC)`.catch(() => {}),
+          ON shopify_reconciliation_runs (business_id, recorded_at DESC)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS selected_revenue_truth_basis TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS selected_revenue_truth_basis TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
           ADD COLUMN IF NOT EXISTS basis_selection_reason TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS transaction_coverage_order_rate DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS transaction_coverage_order_rate DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS transaction_coverage_amount_rate DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS transaction_coverage_amount_rate DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS order_revenue_truth_delta DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS order_revenue_truth_delta DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS transaction_revenue_delta DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS transaction_revenue_delta DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS explained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS explained_adjustment_revenue DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_reconciliation_runs
-          ADD COLUMN IF NOT EXISTS unexplained_adjustment_revenue DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS unexplained_adjustment_revenue DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_state (
           business_id          TEXT NOT NULL,
           provider_account_id  TEXT NOT NULL,
@@ -5662,29 +6736,53 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE shopify_serving_state
           ADD COLUMN IF NOT EXISTS time_zone_basis TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
           ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state
@@ -5694,19 +6792,33 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE shopify_serving_state
           ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state
-          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_updated
-          ON shopify_serving_state (business_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_serving_state (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_business_range
-          ON shopify_serving_state (business_id, start_date DESC, end_date DESC)`.catch(() => {}),
+          ON shopify_serving_state (business_id, start_date DESC, end_date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_serving_state_history (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -5738,33 +6850,61 @@ export async function runMigrations(options?: {
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_assessed
-          ON shopify_serving_state_history (business_id, assessed_at DESC, created_at DESC)`.catch(() => {}),
+          ON shopify_serving_state_history (business_id, assessed_at DESC, created_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_serving_state_history_business_range
-          ON shopify_serving_state_history (business_id, start_date DESC, end_date DESC, assessed_at DESC)`.catch(() => {}),
+          ON shopify_serving_state_history (business_id, start_date DESC, end_date DESC, assessed_at DESC)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_timestamp TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_recent_cursor_value TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_timestamp TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_recent_cursor_value TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_ready_through_date DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS orders_historical_target_end DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_synced_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_ready_through_date DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS returns_historical_target_end DATE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
           ADD COLUMN IF NOT EXISTS production_mode TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state_history
@@ -5774,15 +6914,25 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE shopify_serving_state_history
           ADD COLUMN IF NOT EXISTS coverage_status TEXT`.catch(() => {}),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_started_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_last_topic TEXT`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS pending_repair_last_received_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_serving_state_history
-          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS consecutive_clean_validations INTEGER NOT NULL DEFAULT 0`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_repair_intents (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
@@ -5802,7 +6952,9 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_repair_intents_business_updated
-          ON shopify_repair_intents (business_id, updated_at DESC)`.catch(() => {}),
+          ON shopify_repair_intents (business_id, updated_at DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_sync_state (
           business_id              TEXT NOT NULL,
           provider_account_id      TEXT NOT NULL,
@@ -5822,7 +6974,9 @@ export async function runMigrations(options?: {
           PRIMARY KEY (business_id, provider_account_id, sync_target)
         )`.catch(() => {}),
         sql`ALTER TABLE shopify_sync_state
-          ADD COLUMN IF NOT EXISTS cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS cursor_timestamp TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE shopify_sync_state
           ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
@@ -5844,9 +6998,13 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider, provider_account_id, date)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_daily_summary_business_provider_date
-          ON platform_overview_daily_summary (business_id, provider, date DESC)`.catch(() => {}),
+          ON platform_overview_daily_summary (business_id, provider, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_daily_summary_business_account_date
-          ON platform_overview_daily_summary (business_id, provider_account_id, date DESC)`.catch(() => {}),
+          ON platform_overview_daily_summary (business_id, provider_account_id, date DESC)`.catch(
+          () => {},
+        ),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_summary_ranges (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
@@ -5867,17 +7025,25 @@ export async function runMigrations(options?: {
           UNIQUE (business_id, provider, provider_account_ids_hash, start_date, end_date)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_ranges_business_provider
-          ON platform_overview_summary_ranges (business_id, provider, hydrated_at DESC)`.catch(() => {}),
+          ON platform_overview_summary_ranges (business_id, provider, hydrated_at DESC)`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE platform_overview_summary_ranges
           ADD COLUMN IF NOT EXISTS expected_row_count INTEGER`.catch(() => {}),
         sql`ALTER TABLE platform_overview_summary_ranges
-          ADD COLUMN IF NOT EXISTS coverage_complete BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS coverage_complete BOOLEAN NOT NULL DEFAULT FALSE`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE platform_overview_summary_ranges
-          ADD COLUMN IF NOT EXISTS max_source_updated_at TIMESTAMPTZ`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS max_source_updated_at TIMESTAMPTZ`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE platform_overview_summary_ranges
           ADD COLUMN IF NOT EXISTS truth_state TEXT`.catch(() => {}),
         sql`ALTER TABLE platform_overview_summary_ranges
-          ADD COLUMN IF NOT EXISTS projection_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS projection_version INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE platform_overview_summary_ranges
           ADD COLUMN IF NOT EXISTS invalidation_reason TEXT`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_summary_range_accounts (
@@ -5890,9 +7056,13 @@ export async function runMigrations(options?: {
           PRIMARY KEY (summary_range_id, provider_account_id)
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_range_accounts_range
-          ON platform_overview_summary_range_accounts (summary_range_id, position ASC)`.catch(() => {}),
+          ON platform_overview_summary_range_accounts (summary_range_id, position ASC)`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_range_accounts_provider_account_ref
-          ON platform_overview_summary_range_accounts (provider_account_ref_id)`.catch(() => {}),
+          ON platform_overview_summary_range_accounts (provider_account_ref_id)`.catch(
+          () => {},
+        ),
       ]);
 
       // ── Engine v3 pre-computed analytics tables (schema only) ─────────────
@@ -5995,7 +7165,9 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS roas_ratio_p10 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS roas_ratio_p25 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS roas_ratio_p50 DOUBLE PRECISION,
-          ADD COLUMN IF NOT EXISTS roas_ratio_p75 DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS roas_ratio_p75 DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`ALTER TABLE engine_v3_account_calibration_daily
           ADD COLUMN IF NOT EXISTS creative_format TEXT NOT NULL DEFAULT 'overall',
           ADD COLUMN IF NOT EXISTS campaign_kind TEXT NOT NULL DEFAULT 'all'
@@ -6020,7 +7192,9 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS click_to_purchase_p50 DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS funnel_sample_count INTEGER NOT NULL DEFAULT 0,
           ADD COLUMN IF NOT EXISTS funnel_quality_status TEXT
-            CHECK (funnel_quality_status IN ('ready', 'low_sample', 'insufficient'))`.catch(() => {}),
+            CHECK (funnel_quality_status IN ('ready', 'low_sample', 'insufficient'))`.catch(
+          () => {},
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind
           ON engine_v3_account_calibration_daily
           (business_ref_id, scope_type, scope_id, campaign_kind, as_of_date DESC, creative_format)`,
@@ -6193,7 +7367,9 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS creative_responsibility_score DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS site_responsibility_score DOUBLE PRECISION,
           ADD COLUMN IF NOT EXISTS checkout_responsibility_score DOUBLE PRECISION,
-          ADD COLUMN IF NOT EXISTS tracking_anomaly_score DOUBLE PRECISION`.catch(() => {}),
+          ADD COLUMN IF NOT EXISTS tracking_anomaly_score DOUBLE PRECISION`.catch(
+          () => {},
+        ),
         sql`DO $$
           DECLARE
             old_constraint_name TEXT;
@@ -6366,6 +7542,8 @@ export async function runMigrations(options?: {
           label                      TEXT NOT NULL CHECK (label IN (
             'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
           )),
+          pre_authority_label        TEXT,
+          authority_blocker          TEXT,
           confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
           truth_source               TEXT NOT NULL CHECK (truth_source IN (
             'commercial_truth', 'commercial_truth_stale', 'account_baseline',
@@ -6398,9 +7576,7 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut')),
           ADD COLUMN IF NOT EXISTS blocked_action_type TEXT CHECK (blocked_action_type IN ('scale', 'cut', 'refresh')),
           ADD COLUMN IF NOT EXISTS evaluation_id UUID,
-          ADD COLUMN IF NOT EXISTS decision_hash CHAR(64)`.catch(
-          () => {},
-        ),
+          ADD COLUMN IF NOT EXISTS decision_hash CHAR(64)`.catch(() => {}),
         sql`DO $$
           BEGIN
             IF NOT EXISTS (
@@ -6591,6 +7767,8 @@ export async function runMigrations(options?: {
           label                      TEXT NOT NULL CHECK (label IN (
             'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
           )),
+          pre_authority_label        TEXT,
+          authority_blocker          TEXT,
           confidence                 INTEGER NOT NULL CHECK (confidence >= 0 AND confidence <= 100),
           effective_target_roas      DOUBLE PRECISION NOT NULL,
           baseline_spend             DOUBLE PRECISION,
@@ -6623,6 +7801,8 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_engine_v3_outcomes_snapshot
           ON engine_v3_decision_outcomes_daily
           (decision_snapshot_id, outcome_window_days)`,
+        sql.query(LEGACY_DECISION_SNAPSHOT_PROVENANCE_SQL),
+        sql.query(LEGACY_DECISION_OUTCOME_PROVENANCE_SQL),
       ]);
 
       // ── Decision-label hysteresis: persist the raw (pre-hysteresis) label ─
@@ -6818,19 +7998,25 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE business_engine_v3_flags
           ADD COLUMN IF NOT EXISTS preset_override TEXT NULL
             CHECK (preset_override IS NULL
-              OR preset_override IN ('aggressive', 'balanced', 'conservative'))`.catch(() => {}),
+              OR preset_override IN ('aggressive', 'balanced', 'conservative'))`.catch(
+          () => {},
+        ),
       ]);
 
       await runMigrationBatchSequentially([
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
-          sql.query(
-            `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
-          ).catch(() => {}),
+          sql
+            .query(
+              `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
+            )
+            .catch(() => {}),
         ),
         ...CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL`,
-          ).catch(() => {}),
+          sql
+            .query(
+              `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL`,
+            )
+            .catch(() => {}),
         ),
       ]);
 
@@ -6845,27 +8031,37 @@ export async function runMigrations(options?: {
       ]);
 
       if (metaProviderAccountsSeeded) {
-        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
-          provider: "meta",
-        });
+        logStartupEvent(
+          "migration_provider_account_seed_skipped_existing_rows",
+          {
+            provider: "meta",
+          },
+        );
       }
       if (googleProviderAccountsSeeded) {
-        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
-          provider: "google",
-        });
+        logStartupEvent(
+          "migration_provider_account_seed_skipped_existing_rows",
+          {
+            provider: "google",
+          },
+        );
       }
       if (shopifyProviderAccountsSeeded) {
-        logStartupEvent("migration_provider_account_seed_skipped_existing_rows", {
-          provider: "shopify",
-        });
+        logStartupEvent(
+          "migration_provider_account_seed_skipped_existing_rows",
+          {
+            provider: "shopify",
+          },
+        );
       }
 
       await runMigrationBatchSequentially([
         ...(metaProviderAccountsSeeded
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -6886,13 +8082,15 @@ export async function runMigrations(options?: {
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
                 `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
         ...(googleProviderAccountsSeeded
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -6913,13 +8111,15 @@ export async function runMigrations(options?: {
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
                 `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
         ...(shopifyProviderAccountsSeeded
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             INSERT INTO provider_accounts (
               provider,
               external_account_id,
@@ -6938,22 +8138,26 @@ export async function runMigrations(options?: {
             ON CONFLICT (provider, external_account_id) DO UPDATE SET
               updated_at = EXCLUDED.updated_at
                 `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET business_ref_id = business.id
               FROM businesses AS business
               WHERE target.business_ref_id IS NULL
                 AND business.id::text = target.business_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...META_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -6961,11 +8165,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'meta'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -6973,11 +8179,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'google'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...SHOPIFY_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -6985,11 +8193,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'shopify'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...META_AUTHORITATIVE_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -6997,11 +8207,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'meta'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...META_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -7009,11 +8221,14 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'meta'
                 AND provider_account.external_account_id = target.account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
-        ...GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+        ...GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES.map(
+          (tableName) =>
+            sql
+              .query(
+                `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -7021,11 +8236,14 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'google'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+              )
+              .catch(() => {}),
         ),
-        ...GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+        ...GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES.map(
+          (tableName) =>
+            sql
+              .query(
+                `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -7033,11 +8251,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'google'
                 AND provider_account.external_account_id = target.account_id
             `,
-          ).catch(() => {}),
+              )
+              .catch(() => {}),
         ),
         ...SHOPIFY_CONTROL_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -7045,11 +8265,13 @@ export async function runMigrations(options?: {
                 AND provider_account.provider = 'shopify'
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
         ...GENERIC_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `
+          sql
+            .query(
+              `
               UPDATE ${tableName} AS target
               SET provider_account_ref_id = provider_account.id
               FROM provider_accounts AS provider_account
@@ -7060,10 +8282,12 @@ export async function runMigrations(options?: {
                 END
                 AND provider_account.external_account_id = target.provider_account_id
             `,
-          ).catch(() => {}),
+            )
+            .catch(() => {}),
         ),
-        sql.query(
-          `
+        sql
+          .query(
+            `
             UPDATE platform_overview_daily_summary AS target
             SET provider_account_ref_id = provider_account.id
             FROM provider_accounts AS provider_account
@@ -7071,12 +8295,14 @@ export async function runMigrations(options?: {
               AND provider_account.provider = target.provider
               AND provider_account.external_account_id = target.provider_account_id
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
       ]);
 
       await runMigrationBatchSequentially([
-        sql.query(
-          `
+        sql
+          .query(
+            `
             WITH source_rows AS (
               SELECT
                 business_id,
@@ -7230,26 +8456,60 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
       ]);
 
       await runMigrationBatchSequentially([
         dropColumnIfExistsWithShortLock(sql, "shopify_orders", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_order_lines", "payload_json"),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_order_lines",
+          "payload_json",
+        ),
         dropColumnIfExistsWithShortLock(sql, "shopify_refunds", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_order_transactions", "payload_json"),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_order_transactions",
+          "payload_json",
+        ),
         dropColumnIfExistsWithShortLock(sql, "shopify_returns", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_sales_events", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_customer_events", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_webhook_deliveries", "payload_json"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_webhook_deliveries", "result_summary"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_repair_intents", "last_sync_result"),
-        dropColumnIfExistsWithShortLock(sql, "shopify_sync_state", "last_result_summary"),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_sales_events",
+          "payload_json",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_customer_events",
+          "payload_json",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_webhook_deliveries",
+          "payload_json",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_webhook_deliveries",
+          "result_summary",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_repair_intents",
+          "last_sync_result",
+        ),
+        dropColumnIfExistsWithShortLock(
+          sql,
+          "shopify_sync_state",
+          "last_result_summary",
+        ),
       ]);
 
       await runMigrationBatchSequentially([
-        sql.query(
-          `
+        sql
+          .query(
+            `
             WITH source_rows AS (
               SELECT
                 business_id,
@@ -7351,31 +8611,37 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
       ]);
 
-      const [
-        campaignConfigHistoryHasRows,
-        adsetConfigHistoryHasRows,
-      ] = await Promise.all([
-        doesTableHaveRows(sql, "meta_campaign_config_history"),
-        doesTableHaveRows(sql, "meta_adset_config_history"),
-      ]);
+      const [campaignConfigHistoryHasRows, adsetConfigHistoryHasRows] =
+        await Promise.all([
+          doesTableHaveRows(sql, "meta_campaign_config_history"),
+          doesTableHaveRows(sql, "meta_adset_config_history"),
+        ]);
 
       if (campaignConfigHistoryHasRows) {
-        logStartupEvent("migration_config_history_backfill_skipped_existing_rows", {
-          tableName: "meta_campaign_config_history",
-        });
+        logStartupEvent(
+          "migration_config_history_backfill_skipped_existing_rows",
+          {
+            tableName: "meta_campaign_config_history",
+          },
+        );
       }
       if (adsetConfigHistoryHasRows) {
-        logStartupEvent("migration_config_history_backfill_skipped_existing_rows", {
-          tableName: "meta_adset_config_history",
-        });
+        logStartupEvent(
+          "migration_config_history_backfill_skipped_existing_rows",
+          {
+            tableName: "meta_adset_config_history",
+          },
+        );
       }
 
       await runMigrationBatchSequentially([
-        sql.query(
-          `
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -7457,9 +8723,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_shop_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -7539,9 +8807,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_customer_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH source_rows AS (
               SELECT
                 line.business_id,
@@ -7645,9 +8915,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH source_rows AS (
               SELECT
                 line.business_id,
@@ -7759,7 +9031,8 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(shopify_variant_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
       ]);
 
       const googleAdsProductDimensionsHasRows = await doesTableHaveRows(
@@ -7805,8 +9078,9 @@ export async function runMigrations(options?: {
       }
 
       await runMigrationBatchSequentially([
-        sql.query(
-          `
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -7880,9 +9154,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -7956,9 +9232,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_ad_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -8036,9 +9314,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -8120,9 +9400,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_keyword_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -8196,12 +9478,14 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_asset_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
         ...(googleAdsProductDimensionsHasRows
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             WITH bounds AS (
               SELECT
                 business_id,
@@ -8279,10 +9563,12 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(google_ads_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
                 `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
-        sql.query(
-          `
+        sql
+          .query(
+            `
             INSERT INTO google_ads_campaign_state_history (
               business_id,
               business_ref_id,
@@ -8339,9 +9625,11 @@ export async function runMigrations(options?: {
               COALESCE(payload_json, '{}'::jsonb)
             ON CONFLICT (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at) DO NOTHING
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             INSERT INTO google_ads_ad_group_state_history (
               business_id,
               business_ref_id,
@@ -8397,9 +9685,11 @@ export async function runMigrations(options?: {
               COALESCE(payload_json, '{}'::jsonb)
             ON CONFLICT (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at) DO NOTHING
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH should_backfill AS (
               SELECT NOT EXISTS (SELECT 1 FROM meta_campaign_dimensions LIMIT 1) AS enabled
             ),
@@ -8478,9 +9768,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(meta_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH should_backfill AS (
               SELECT NOT EXISTS (SELECT 1 FROM meta_adset_dimensions LIMIT 1) AS enabled
             ),
@@ -8559,9 +9851,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(meta_adset_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH should_backfill AS (
               SELECT NOT EXISTS (SELECT 1 FROM meta_ad_dimensions LIMIT 1) AS enabled
             ),
@@ -8651,9 +9945,11 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(meta_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
-        sql.query(
-          `
+          )
+          .catch(() => {}),
+        sql
+          .query(
+            `
             WITH should_backfill AS (
               SELECT NOT EXISTS (SELECT 1 FROM meta_creative_dimensions LIMIT 1) AS enabled
             ),
@@ -8756,12 +10052,14 @@ export async function runMigrations(options?: {
               source_updated_at = GREATEST(COALESCE(meta_creative_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
               updated_at = now()
           `,
-        ).catch(() => {}),
+          )
+          .catch(() => {}),
         ...(campaignConfigHistoryHasRows
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             INSERT INTO meta_campaign_config_history (
               business_id,
               business_ref_id,
@@ -8909,13 +10207,15 @@ export async function runMigrations(options?: {
             WHERE source.campaign_id IS NOT NULL
             ON CONFLICT (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at) DO NOTHING
           `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
         ...(adsetConfigHistoryHasRows
           ? []
           : [
-              sql.query(
-                `
+              sql
+                .query(
+                  `
             INSERT INTO meta_adset_config_history (
               business_id,
               business_ref_id,
@@ -9073,20 +10373,25 @@ export async function runMigrations(options?: {
             WHERE source.adset_id IS NOT NULL
             ON CONFLICT (business_id, provider_account_id, adset_id, config_fingerprint, captured_at) DO NOTHING
           `,
-              ).catch(() => {}),
+                )
+                .catch(() => {}),
             ]),
       ]);
 
       await runMigrationBatchSequentially([
         ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
-          sql.query(
-            `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_ref ON ${tableName} (business_ref_id)`,
-          ).catch(() => {}),
+          sql
+            .query(
+              `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_ref ON ${tableName} (business_ref_id)`,
+            )
+            .catch(() => {}),
         ),
         ...CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
-          sql.query(
-            `CREATE INDEX IF NOT EXISTS idx_${tableName}_provider_account_ref ON ${tableName} (provider_account_ref_id)`,
-          ).catch(() => {}),
+          sql
+            .query(
+              `CREATE INDEX IF NOT EXISTS idx_${tableName}_provider_account_ref ON ${tableName} (provider_account_ref_id)`,
+            )
+            .catch(() => {}),
         ),
       ]);
 
@@ -9102,7 +10407,9 @@ export async function runMigrations(options?: {
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([
           sql`DROP TABLE IF EXISTS provider_account_snapshots`.catch(() => {}),
-          sql`DROP TABLE IF EXISTS provider_account_assignments`.catch(() => {}),
+          sql`DROP TABLE IF EXISTS provider_account_assignments`.catch(
+            () => {},
+          ),
           sql`DROP TABLE IF EXISTS integrations`.catch(() => {}),
         ]);
       }

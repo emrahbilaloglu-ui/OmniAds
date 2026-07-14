@@ -64,7 +64,7 @@ describe("maturityGate", () => {
 
     expect(output.label).toBe("test_more");
     expect(output.reason).toBe(
-      "Below commercial maturity (28d spend $150 < $200 loss-budget floor, 10 purchases, age 21d) — let the creative accumulate signal.",
+      "Below commercial maturity (28d spend 150 < 200 loss-budget floor, 10 purchases, age 21d) — let the creative accumulate signal.",
     );
   });
 
@@ -95,7 +95,7 @@ describe("maturityGate", () => {
     );
 
     expect(output.reason).toBe(
-      "Below commercial maturity (28d spend $150 < $200 loss-budget floor, 10 purchases) — let the creative accumulate signal.",
+      "Below commercial maturity (28d spend 150 < 200 loss-budget floor, 10 purchases) — let the creative accumulate signal.",
     );
   });
 

@@ -351,8 +351,16 @@ function hardScaleDecision(input: { creativeId: string }): DecisionOutput {
     truthSource: "commercial_truth",
     effectiveTargetRoas: 2,
     ratioToTarget: 1.5,
-    badges: [],
+    badges: [
+      {
+        type: "pending_transition",
+        label: "Hard action pending.",
+        severity: "info",
+      },
+    ],
     metrics: { spend: 100, purchases: 4, roas: 3, recent7dRoas: 3 },
+    preAuthorityLabel: "scale",
+    authorityBlocker: null,
     engineVersion: "legacy-resolver-epoch",
     generatedAt: `${AS_OF}T03:00:00.000Z`,
   };
@@ -441,6 +449,8 @@ describe("native ad decision computation", () => {
     });
     expect(decisions[0]?.decision).toMatchObject({
       label: "out_of_scope",
+      preAuthorityLabel: "out_of_scope",
+      authorityBlocker: null,
       confidence: 40,
       blockedActionType: null,
       blockers: [
@@ -527,6 +537,7 @@ describe("native ad decision computation", () => {
       resolveDecision: (resolverInput) => ({
         ...hardScaleDecision({ creativeId: resolverInput.creativeId }),
         label: "keep",
+        preAuthorityLabel: "keep",
         confidence: 60,
       }),
     });
@@ -548,6 +559,7 @@ describe("native ad decision computation", () => {
       resolveDecision: (resolverInput) => ({
         ...hardScaleDecision({ creativeId: resolverInput.creativeId }),
         label: "diagnose",
+        preAuthorityLabel: "diagnose",
         reason: "Landing page issue: Link-to-LPV collapsed.",
         badges: [
           {
@@ -560,6 +572,8 @@ describe("native ad decision computation", () => {
     });
     expect(siteIssueDecisions[0]?.decision).toMatchObject({
       label: "keep",
+      preAuthorityLabel: "keep",
+      authorityBlocker: null,
       reason:
         "[Keep Ad; fix landing page] Landing page issue: Link-to-LPV collapsed.",
     });
@@ -576,6 +590,8 @@ describe("native ad decision computation", () => {
     expect(softDecisions).toHaveLength(1);
     expect(softDecisions[0]?.decision).toMatchObject({
       label: "diagnose",
+      preAuthorityLabel: "diagnose",
+      authorityBlocker: "native_profile_unavailable",
       confidence: 0,
       blockedActionType: null,
       blockers: [
@@ -631,6 +647,18 @@ describe("native ad decision computation", () => {
       NATIVE_CALIBRATION_ROW_ID,
       null,
     ]);
+    expect(snapshotRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          pre_authority_label: "keep",
+          authority_blocker: null,
+        }),
+        expect.objectContaining({
+          pre_authority_label: "diagnose",
+          authority_blocker: "native_profile_unavailable",
+        }),
+      ]),
+    );
     const persisted = await upsertNativeAdDecisionSnapshots(
       snapshotRows,
       fakeDb([
@@ -749,12 +777,148 @@ describe("native ad decision computation", () => {
       decisionEntityId: "ad-no-creative",
       creativeId: null,
       label: "diagnose",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "native_metrics_unavailable",
       blockedActionType: "scale",
       engineVersion: NATIVE_AD_ENGINE_VERSION,
     });
     expect(result?.decision.badges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "ad_metrics_unavailable" }),
+      ]),
+    );
+  });
+
+  it("preserves the first campaign authority blocker when metrics are also unavailable", () => {
+    const profile = makeAccountDecisionProfile({ asOfDate: AS_OF });
+    const [result] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [
+        adInput({
+          adId: "ad-multi-blocked",
+          campaignId: "campaign-unclassified",
+          metricsObserved: false,
+        }),
+      ],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: new Map(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) =>
+        hardScaleDecision({ creativeId: resolverInput.creativeId }),
+    });
+
+    expect(result?.decision).toMatchObject({
+      label: "diagnose",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "campaign_context",
+      blockedActionType: "scale",
+    });
+  });
+
+  it("does not turn a hard pre-authority label into executable authority", () => {
+    const profile = makeAccountDecisionProfile({ asOfDate: AS_OF });
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [
+        adInput({
+          adId: "ad-review-only",
+          campaignId: "campaign-unclassified",
+        }),
+      ],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: new Map(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) =>
+        hardScaleDecision({ creativeId: resolverInput.creativeId }),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+    const heldHardComputation = {
+      ...computation,
+      rawLabel: "scale" as const,
+      decision: {
+        ...computation.decision,
+        label: "diagnose" as const,
+        preAuthorityLabel: "scale" as const,
+        authorityBlocker: "campaign_context" as const,
+        blockedActionType: "scale" as const,
+      },
+    };
+
+    const payload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000741",
+      scope: profile.scope,
+      computation: heldHardComputation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000742",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: "ad-review-only",
+        inputHash: "1".repeat(64),
+        decisionHash: "2".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+
+    expect(payload).toMatchObject({
+      pre_authority_label: "scale",
+      authority_blocker: "campaign_context",
+      raw_label: "scale",
+      authorized_action: null,
+    });
+  });
+
+  it("does not authorize a hard raw label while hysteresis publishes keep", () => {
+    const profile = makeAccountDecisionProfile({ asOfDate: AS_OF });
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [adInput({ adId: "ad-pending", campaignId: "campaign-a" })],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) =>
+        hardScaleDecision({ creativeId: resolverInput.creativeId }),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+
+    const payload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000751",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000752",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: "ad-pending",
+        inputHash: "3".repeat(64),
+        decisionHash: "4".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+
+    expect(payload).toMatchObject({
+      label: "keep",
+      raw_label: "scale",
+      authority_blocker: null,
+      blocked_action_type: "scale",
+      authorized_action: null,
+    });
+    expect(payload.badges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "pending_transition" }),
       ]),
     );
   });
@@ -879,6 +1043,8 @@ function snapshotPayload(): NativeSnapshotPayloadRow {
     scope_id: "act-1",
     label: "keep",
     raw_label: "scale",
+    pre_authority_label: "scale",
+    authority_blocker: null,
     confidence: 70,
     truth_source: "commercial_truth",
     effective_target_roas: 2,
@@ -891,7 +1057,7 @@ function snapshotPayload(): NativeSnapshotPayloadRow {
     recent7d_roas: 3,
     label_transform: null,
     blocked_action_type: "scale",
-    authorized_action: "scale",
+    authorized_action: null,
     job_run_id: "00000000-0000-4000-8000-000000000002",
     creative_evidence_lifecycle_row_id: null,
     calibration_row_id: "00000000-0000-4000-8000-000000000004",
@@ -1049,6 +1215,35 @@ describe("native ad producer persistence contract", () => {
     expect(db.query).toHaveBeenCalledTimes(2);
   });
 
+  it("round-trips authority provenance through the native snapshot payload", async () => {
+    const row = snapshotPayload();
+    row.authority_blocker = "campaign_context";
+    row.authorized_action = null;
+    row.raw_label = "diagnose";
+    const db = fakeDb([
+      {
+        id: "snapshot-a",
+        provider_account_id: "act-1",
+        decision_entity_type: "ad",
+        decision_entity_id: "ad-a",
+        label: "keep",
+        confidence: 70,
+      },
+    ]);
+
+    await upsertNativeAdDecisionSnapshots([row], db);
+
+    const [, params] = vi.mocked(db.query).mock.calls[0]!;
+    expect(JSON.parse(String(params?.[0]))).toEqual([
+      expect.objectContaining({
+        pre_authority_label: "scale",
+        authority_blocker: "campaign_context",
+        raw_label: "diagnose",
+        authorized_action: null,
+      }),
+    ]);
+  });
+
   it("uses only parallel native tables and validates full evaluation lineage", () => {
     for (const sql of [
       UPSERT_NATIVE_AD_DECISION_SNAPSHOTS_QUERY,
@@ -1072,6 +1267,12 @@ describe("native ad producer persistence contract", () => {
     );
     expect(UPSERT_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
       "evaluation.decision_hash = payload.decision_hash",
+    );
+    expect(UPSERT_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
+      "pre_authority_label",
+    );
+    expect(UPSERT_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
+      "authority_blocker",
     );
     expect(PRUNE_STALE_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).not.toContain(
       "creative_id = ANY",
@@ -1100,7 +1301,7 @@ describe("native ad producer persistence contract", () => {
     expect(native).not.toContain("dataSource.getDataHealth");
   });
 
-  it("checks native schema before job-row writes and rolls authority failures to the savepoint", () => {
+  it("persists the attempt before native preflight and rolls work failures to the savepoint", () => {
     const native = readFileSync(
       "lib/creative-decision-engine/jobs/ad-decisions-job.ts",
       "utf8",
@@ -1112,6 +1313,7 @@ describe("native ad producer persistence contract", () => {
       "inspectNativeAdProfileSchemaCapability(db)",
     );
     const jobInsert = native.indexOf("const jobRunId = await insertAdJobRun");
+    const transaction = native.indexOf("return await runDbTransaction");
     const savepoint = native.indexOf(
       "SAVEPOINT engine_v3_ad_decisions_job_work",
     );
@@ -1123,9 +1325,11 @@ describe("native ad producer persistence contract", () => {
 
     expect(capability).toBeGreaterThan(-1);
     expect(profileCapability).toBeGreaterThan(-1);
-    expect(capability).toBeLessThan(jobInsert);
-    expect(profileCapability).toBeLessThan(jobInsert);
-    expect(jobInsert).toBeLessThan(savepoint);
+    expect(jobInsert).toBeLessThan(transaction);
+    expect(transaction).toBeLessThan(capability);
+    expect(transaction).toBeLessThan(profileCapability);
+    expect(capability).toBeLessThan(savepoint);
+    expect(profileCapability).toBeLessThan(savepoint);
     expect(savepoint).toBeLessThan(evaluationWrite);
     expect(evaluationWrite).toBeLessThan(snapshotWrite);
     expect(snapshotWrite).toBeLessThan(rollback);

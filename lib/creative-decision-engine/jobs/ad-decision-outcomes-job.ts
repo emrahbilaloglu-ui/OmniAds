@@ -15,7 +15,12 @@ import {
 } from "../ad-operator-response-detection";
 import { canonicalSha256 } from "../canonical-evaluation";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../execution-safety";
-import { NATIVE_AD_ENGINE_VERSION, type DecisionLabel } from "../types";
+import {
+  DECISION_AUTHORITY_BLOCKERS,
+  NATIVE_AD_ENGINE_VERSION,
+  type DecisionAuthorityBlocker,
+  type DecisionLabel,
+} from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { engineV3JobsDisabled } from "./job-switch";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
@@ -29,7 +34,7 @@ export const AD_DECISION_OUTCOME_RUNS_TABLE =
 export const AD_DECISION_OUTCOME_PUBLICATIONS_TABLE =
   "engine_v3_ad_decision_outcome_publications";
 export const AD_DECISION_OUTCOME_CONTRACT_VERSION =
-  "engine-v3-ad-decision-outcome.v1";
+  "engine-v3-ad-decision-outcome.v2";
 export const AD_DECISION_OUTCOME_CLASSIFIER_VERSION =
   "engine-v3-ad-outcome-classifier.v1";
 export const AD_DECISION_CONTROLLED_LINEAGE_VERSION =
@@ -83,6 +88,8 @@ export const AD_DECISION_OUTCOME_SCHEMA_REQUIREMENTS = {
     "scope_id",
     "label",
     "raw_label",
+    "pre_authority_label",
+    "authority_blocker",
     "confidence",
     "effective_target_roas",
     "target_roas",
@@ -136,6 +143,8 @@ export const AD_DECISION_OUTCOME_SCHEMA_REQUIREMENTS = {
     "engine_v3_ad_outcomes_native_identity_check",
     "engine_v3_ad_outcomes_business_identity_check",
     "engine_v3_ad_outcomes_account_scope_check",
+    "engine_v3_ad_outcomes_pre_authority_label_check",
+    "engine_v3_ad_outcomes_authority_blocker_check",
     "engine_v3_ad_outcomes_account_binding_fk",
     "engine_v3_ad_outcomes_window_check",
     "engine_v3_ad_outcomes_completeness_check",
@@ -256,6 +265,8 @@ export const AD_DECISION_OUTCOME_SOURCE_SCHEMA_REQUIREMENTS = {
     "scope_id",
     "label",
     "raw_label",
+    "pre_authority_label",
+    "authority_blocker",
     "confidence",
     "effective_target_roas",
     "spend",
@@ -1098,6 +1109,8 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_outcomes_daily (
   scope_id TEXT NOT NULL,
   label TEXT NOT NULL,
   raw_label TEXT NOT NULL,
+  pre_authority_label TEXT,
+  authority_blocker TEXT,
   confidence INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100),
   effective_target_roas DOUBLE PRECISION NOT NULL,
   target_roas DOUBLE PRECISION,
@@ -1167,6 +1180,18 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_outcomes_daily (
   ),
   CONSTRAINT engine_v3_ad_outcomes_account_scope_check CHECK (
     scope_type = 'account' AND scope_id = provider_account_id
+  ),
+  CONSTRAINT engine_v3_ad_outcomes_pre_authority_label_check CHECK (
+    pre_authority_label IS NULL OR pre_authority_label IN (
+      'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+    )
+  ),
+  CONSTRAINT engine_v3_ad_outcomes_authority_blocker_check CHECK (
+    authority_blocker IS NULL OR authority_blocker IN (
+      'profile_hard_action_ineligible', 'source_freshness',
+      'campaign_context', 'native_metrics_unavailable',
+      'native_profile_unavailable'
+    )
   ),
   CONSTRAINT engine_v3_ad_outcomes_account_binding_fk FOREIGN KEY (
     business_id, provider_account_ref_id, provider_account_id
@@ -1322,6 +1347,8 @@ WITH windows AS (
     snapshot.scope_id,
     snapshot.label,
     snapshot.raw_label,
+    snapshot.pre_authority_label,
+    snapshot.authority_blocker,
     snapshot.confidence,
     snapshot.effective_target_roas,
     snapshot.spend AS baseline_spend,
@@ -1767,6 +1794,8 @@ WITH payload AS (
     scope_id text,
     label text,
     raw_label text,
+    pre_authority_label text,
+    authority_blocker text,
     confidence integer,
     effective_target_roas double precision,
     target_roas double precision,
@@ -1849,6 +1878,8 @@ WITH payload AS (
    AND snapshot.engine_version = payload.engine_version
    AND snapshot.scope_type = payload.scope_type
    AND snapshot.scope_id = payload.scope_id
+   AND snapshot.pre_authority_label IS NOT DISTINCT FROM payload.pre_authority_label
+   AND snapshot.authority_blocker IS NOT DISTINCT FROM payload.authority_blocker
    AND snapshot.input_hash = payload.source_input_hash
    AND snapshot.decision_hash = payload.source_decision_hash
   INNER JOIN engine_v3_ad_decision_evaluations evaluation
@@ -1875,7 +1906,8 @@ WITH payload AS (
     decision_entity_type, decision_entity_id, ad_id, creative_id,
     decision_as_of_date, evaluation_date, source_cutoff_at,
     outcome_window_days, outcome_window_start, outcome_window_end, engine_version,
-    scope_type, scope_id, label, raw_label, confidence, effective_target_roas,
+    scope_type, scope_id, label, raw_label, pre_authority_label,
+    authority_blocker, confidence, effective_target_roas,
     target_roas, break_even_roas, account_currency, currency_status,
     effective_cohort, objective, optimization_goal, custom_event_type,
     commercial_context_json, cohort_context_json, baseline_spend,
@@ -1897,7 +1929,8 @@ WITH payload AS (
     decision_entity_type, decision_entity_id, ad_id, creative_id,
     decision_as_of_date, evaluation_date, source_cutoff_at,
     outcome_window_days, outcome_window_start, outcome_window_end, engine_version,
-    scope_type, scope_id, label, raw_label, confidence, effective_target_roas,
+    scope_type, scope_id, label, raw_label, pre_authority_label,
+    authority_blocker, confidence, effective_target_roas,
     target_roas, break_even_roas, account_currency, currency_status,
     effective_cohort, objective, optimization_goal, custom_event_type,
     commercial_context_json, cohort_context_json, baseline_spend,
@@ -2048,6 +2081,8 @@ export interface AdDecisionOutcomeSourceRow extends Record<string, unknown> {
   scope_id: unknown;
   label: unknown;
   raw_label: unknown;
+  pre_authority_label: unknown;
+  authority_blocker: unknown;
   confidence: unknown;
   effective_target_roas: unknown;
   target_roas: unknown;
@@ -2219,6 +2254,8 @@ interface AdDecisionOutcomeDraft {
   scopeId: string;
   label: DecisionLabel;
   rawLabel: DecisionLabel;
+  preAuthorityLabel: DecisionLabel | null;
+  authorityBlocker: DecisionAuthorityBlocker | null;
   confidence: number;
   effectiveTargetRoas: number;
   targetRoas: number | null;
@@ -2285,6 +2322,8 @@ export interface AdDecisionOutcomePayloadRow {
   scope_id: string;
   label: DecisionLabel;
   raw_label: DecisionLabel;
+  pre_authority_label: DecisionLabel | null;
+  authority_blocker: DecisionAuthorityBlocker | null;
   confidence: number;
   effective_target_roas: number;
   target_roas: number | null;
@@ -3811,6 +3850,8 @@ function buildAdDecisionOutcomeDraft(
     scopeId,
     label,
     rawLabel: toDecisionLabel(row.raw_label),
+    preAuthorityLabel: toOptionalDecisionLabel(row.pre_authority_label),
+    authorityBlocker: toOptionalAuthorityBlocker(row.authority_blocker),
     confidence: boundedInteger(row.confidence, 0, 100, "confidence"),
     effectiveTargetRoas: requiredFiniteNumber(
       row.effective_target_roas,
@@ -3950,6 +3991,8 @@ function buildAdDecisionOutcomePayload(input: {
       engineVersion: draft.engineVersion,
       scopeType: draft.scopeType,
       scopeId: draft.scopeId,
+      preAuthorityLabel: draft.preAuthorityLabel,
+      authorityBlocker: draft.authorityBlocker,
       inputHash: draft.sourceInputHash,
       decisionHash: draft.sourceDecisionHash,
       evaluationContractVersion: draft.evaluationContractVersion,
@@ -4027,6 +4070,8 @@ function buildAdDecisionOutcomePayload(input: {
     scope_id: draft.scopeId,
     label: draft.label,
     raw_label: draft.rawLabel,
+    pre_authority_label: draft.preAuthorityLabel,
+    authority_blocker: draft.authorityBlocker,
     confidence: draft.confidence,
     effective_target_roas: draft.effectiveTargetRoas,
     target_roas: draft.targetRoas,
@@ -5085,6 +5130,27 @@ function toDecisionLabel(value: unknown): DecisionLabel {
     return label;
   }
   throw new Error(`Unexpected native decision label: ${label}`);
+}
+
+function toOptionalDecisionLabel(value: unknown): DecisionLabel | null {
+  return value === null || value === undefined
+    ? null
+    : toDecisionLabel(value);
+}
+
+function toOptionalAuthorityBlocker(
+  value: unknown,
+): DecisionAuthorityBlocker | null {
+  const blocker = textOrNull(value);
+  if (blocker === null) return null;
+  if (
+    DECISION_AUTHORITY_BLOCKERS.includes(
+      blocker as DecisionAuthorityBlocker,
+    )
+  ) {
+    return blocker as DecisionAuthorityBlocker;
+  }
+  throw new Error(`Unexpected native authority blocker: ${blocker}`);
 }
 
 function toOutcomeWindowDays(value: unknown): AdDecisionOutcomeWindowDays {

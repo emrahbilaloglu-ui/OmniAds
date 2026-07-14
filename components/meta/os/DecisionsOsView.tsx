@@ -22,15 +22,18 @@ import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
   MetaOsDecisionLane,
+  MetaOsDecisionsPresentation,
   MetaOsInactiveAsset,
   MetaOsStructureBidConfiguration,
   MetaOsStructureGroup,
   MetaOsStructureNode,
+  MetaOsWorkspaceBanner,
 } from "@/lib/meta/decisions-os-contract";
 import {
   META_DECISIONS_AD_CANDIDATE_LIMIT,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
 } from "@/lib/meta/decisions-workspace-contract";
+import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
 import type {
   MetaDecisionsOsWorkspacePayload,
   MetaWindowKey,
@@ -51,15 +54,41 @@ interface DecisionsOsViewProps {
   currency?: string | null;
 }
 
+export function AdDecisionAuthorityTrail({ ad }: { ad: MetaOsAdDecision }) {
+  const evidence = ad.authorityProvenance;
+  const unavailable = evidence?.availability !== "available";
+  return (
+    <dl data-testid="ad-decision-authority-trail">
+      <dt>Mathematical / semantic verdict</dt>
+      <dd>
+        {unavailable
+          ? "Historical provenance unavailable"
+          : titleCase(evidence.preAuthorityLabel)}
+      </dd>
+      <dt>Post-authority raw label</dt>
+      <dd>{evidence?.postAuthorityRawLabel ?? "Unavailable"}</dd>
+      <dt>Published label</dt>
+      <dd>{evidence?.publishedLabel ?? ad.publishedLabel}</dd>
+      <dt>First authority blocker</dt>
+      <dd>
+        {evidence?.firstBlocker
+          ? `${evidence.firstBlocker.label}. ${evidence.firstBlocker.explanation}`
+          : unavailable
+            ? "Historical provenance unavailable"
+            : "None"}
+      </dd>
+      <dt>Engine version</dt>
+      <dd>{ad.engineVersion}</dd>
+      <dt>Engine score</dt>
+      <dd>{ad.confidenceScore.toFixed(2)}</dd>
+    </dl>
+  );
+}
+
 type DecisionLayer = "structure" | "ads";
 type Layer = DecisionLayer | "inactive";
 type StructureDecisionFilter = "all" | MetaOsDecisionLane;
-type StructureStatusFilter =
-  | "all"
-  | "active"
-  | "paused"
-  | "issues"
-  | "unknown";
+type StructureStatusFilter = "all" | "active" | "paused" | "issues" | "unknown";
 type SelectedDecision =
   | { kind: "structure"; value: MetaOsStructureNode }
   | { kind: "ad"; value: MetaOsAdDecision };
@@ -272,6 +301,32 @@ export function nextAdCandidateLimit(current: number) {
   return Math.min(
     current + META_DECISIONS_AD_CANDIDATE_LIMIT,
     META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
+  );
+}
+
+export function resolveGlobalBlockingBanner(
+  banners: readonly MetaOsWorkspaceBanner[] | null | undefined,
+) {
+  return (
+    banners?.find(
+      (banner) =>
+        banner.blocking && (banner.scope ?? "workspace") === "workspace",
+    ) ?? null
+  );
+}
+
+export function isExactAdExecutionSourceBlocked(
+  source: MetaOsDecisionsPresentation["source"] | null | undefined,
+  selected:
+    | { kind: "structure" }
+    | { kind: "ad"; value: { action: { intent: string } } }
+    | null
+    | undefined,
+) {
+  return (
+    source?.adsSource === "legacy_creative_review_only" &&
+    selected?.kind === "ad" &&
+    selected.value.action.intent === "execute"
   );
 }
 
@@ -525,8 +580,21 @@ export function DecisionsOsView({
       : layer === "ads"
         ? adsCount
         : inactiveItems.length;
-  const blockingBanner =
-    workspace?.banners.find((banner) => banner.blocking) ?? null;
+  const workspaceBanners: MetaOsWorkspaceBanner[] = workspace?.banners ?? [];
+  const targetAuthorityBanner =
+    workspaceBanners.find((banner) => banner.scope === "target_hard_actions") ??
+    null;
+  const blockingBanner = resolveGlobalBlockingBanner(workspaceBanners);
+  const degradedAdSource =
+    presentation?.source.adsSource === "legacy_creative_review_only";
+  const exactAdSourceBlocked = isExactAdExecutionSourceBlocked(
+    presentation?.source,
+    selected,
+  );
+  const sourceFallbackReason =
+    presentation?.source.fallbackReason ?? "native_fallback_unspecified";
+  const sourceFallbackDetail =
+    metaDecisionSourceFallbackDetail(sourceFallbackReason);
   const integrityCount =
     (anomaliesQuery.data?.count ?? 0) + (blockingBanner ? 1 : 0);
   const freshAt =
@@ -732,6 +800,42 @@ export function DecisionsOsView({
         </Link>
       </header>
 
+      {degradedAdSource ? (
+        <div
+          className={styles.blockerBand}
+          role="alert"
+          data-testid="meta-decision-source-health"
+          data-source-health="degraded"
+          data-scope="account_ad_source"
+          data-fallback-reason={sourceFallbackReason}
+          data-blocking="true"
+        >
+          <AlertTriangle size={14} aria-hidden="true" />
+          <strong>Native Ad decisions are degraded.</strong>
+          <span>
+            {sourceFallbackDetail} Legacy rows remain review-only; exact Ad
+            actions are withheld. Source: {sourceFallbackReason}.
+          </span>
+        </div>
+      ) : null}
+
+      {targetAuthorityBanner ? (
+        <div
+          className={styles.blockerBand}
+          role="status"
+          data-scope="target_hard_actions"
+        >
+          <AlertTriangle size={14} aria-hidden="true" />
+          <strong>{targetAuthorityBanner.title}</strong>
+          <span>{targetAuthorityBanner.detail}</span>
+          <Link
+            href={targetAuthorityBanner.action?.href ?? "/commercial-truth"}
+          >
+            {targetAuthorityBanner.action?.label ?? "Review commercial truth"}
+          </Link>
+        </div>
+      ) : null}
+
       {blockingBanner ? (
         <div className={styles.blockerBand} role="alert">
           <AlertTriangle size={14} aria-hidden="true" />
@@ -770,12 +874,12 @@ export function DecisionsOsView({
                 ? inactiveItems.length
                 : value === "structure"
                   ? structureGroups.length
-                : DECISION_LANES.reduce(
-                    (sum, candidate) =>
-                      sum +
-                      presentationLaneCount(presentation, value, candidate),
-                    0,
-                  );
+                  : DECISION_LANES.reduce(
+                      (sum, candidate) =>
+                        sum +
+                        presentationLaneCount(presentation, value, candidate),
+                      0,
+                    );
             return (
               <button
                 type="button"
@@ -1046,9 +1150,16 @@ export function DecisionsOsView({
               businessId={businessId}
               providerAccountId={providerAccountId}
               currency={currency}
-              blocked={Boolean(blockingBanner || workspace?.viewer?.readOnly)}
+              blocked={Boolean(
+                blockingBanner ||
+                (selected.kind === "ad" && exactAdSourceBlocked) ||
+                workspace?.viewer?.readOnly,
+              )}
               blockReason={
                 blockingBanner?.title ??
+                (selected.kind === "ad" && exactAdSourceBlocked
+                  ? "Exact Ad actions are withheld while the native decision source is degraded."
+                  : null) ??
                 workspace?.viewer?.readOnlyReason ??
                 null
               }
@@ -1178,9 +1289,7 @@ function StructureRow({
     label: "No alert",
     reason: null,
   };
-  const presentedUrgency = child
-    ? nodeUrgency
-    : (groupUrgency ?? nodeUrgency);
+  const presentedUrgency = child ? nodeUrgency : (groupUrgency ?? nodeUrgency);
   const urgencyLabel =
     !child && nodeUrgency.level === "none" && urgentAdsetCount > 0
       ? `${urgentAdsetCount} urgent ad set${urgentAdsetCount === 1 ? "" : "s"}`
@@ -1687,7 +1796,9 @@ function DecisionInspector({
           <section className={styles.inspectorSection}>
             <h3>Campaign role</h3>
             <div className={styles.roleSummary}>
-              <strong>{lifecycleLabel(campaignRoleTarget.lifecycleRole)}</strong>
+              <strong>
+                {lifecycleLabel(campaignRoleTarget.lifecycleRole)}
+              </strong>
               <span>
                 {campaignRoleTarget.campaignRoleSource === "user_override"
                   ? "User override"
@@ -1861,16 +1972,16 @@ function DecisionInspector({
             <span>raw · versioned</span>
           </button>
           {howOpen ? (
-            <dl>
-              <dt>Raw engine label</dt>
-              <dd>{ad ? (ad.rawLabel ?? "—") : "See source recommendation"}</dd>
-              <dt>Published label</dt>
-              <dd>{ad ? ad.publishedLabel : action.code}</dd>
-              <dt>Engine version</dt>
-              <dd>{ad ? ad.engineVersion : structure!.priority.version}</dd>
-              <dt>Engine score</dt>
-              <dd>{ad ? ad.confidenceScore.toFixed(2) : "—"}</dd>
-            </dl>
+            ad ? (
+              <AdDecisionAuthorityTrail ad={ad} />
+            ) : (
+              <dl>
+                <dt>Source recommendation</dt>
+                <dd>{action.code}</dd>
+                <dt>Recommendation version</dt>
+                <dd>{structure!.priority.version}</dd>
+              </dl>
+            )
           ) : null}
         </section>
       </div>

@@ -9,13 +9,16 @@ import {
 } from "@/lib/creative-decision-center/v3-bridge";
 import {
   DECISION_BADGE_DISPLAY,
+  DECISION_AUTHORITY_BLOCKERS,
   NATIVE_AD_ENGINE_VERSION,
+  type DecisionAuthorityBlocker,
   type DecisionBadge,
   type DecisionLabel,
   type DecisionOutput,
   type TruthSource,
 } from "@/lib/creative-decision-engine/types";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
+import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "@/lib/creative-decision-engine/jobs/job-runtime";
 import { getDb } from "@/lib/db";
 import {
   isCampaignContextHardAuthorityEnabled,
@@ -53,6 +56,8 @@ import {
 const META_DECISION_HISTORY_EVENT_LIMIT = 10;
 const META_DECISION_HISTORY_EVENT_READ_LIMIT = 50;
 const NATIVE_AD_DECISIONS_JOB_NAME = "engine_v3_native_ad_decisions_shadow_job";
+export const NATIVE_DECISION_RUNNING_GRACE_MS =
+  ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS * 4;
 
 const SECTION_LABELS: Record<MetaDecisionQueueSectionKey, string> = {
   integrity_fires: "Integrity Fires",
@@ -77,6 +82,24 @@ const DECISION_LABELS = new Set<DecisionLabel>([
   "diagnose",
   "out_of_scope",
 ]);
+
+const AUTHORITY_BLOCKERS = new Set<DecisionAuthorityBlocker>(
+  DECISION_AUTHORITY_BLOCKERS,
+);
+
+function persistedDecisionLabel(value: unknown): DecisionLabel | null {
+  return DECISION_LABELS.has(value as DecisionLabel)
+    ? (value as DecisionLabel)
+    : null;
+}
+
+function persistedAuthorityBlocker(
+  value: unknown,
+): DecisionAuthorityBlocker | null {
+  return AUTHORITY_BLOCKERS.has(value as DecisionAuthorityBlocker)
+    ? (value as DecisionAuthorityBlocker)
+    : null;
+}
 
 const BLOCKER_LABELS: Record<string, string> = {
   campaign_context_unresolved: "Campaign context is unresolved",
@@ -107,6 +130,8 @@ export interface MetaDecisionSnapshotSourceRow {
   scope_type: string;
   scope_id: string;
   label: string;
+  pre_authority_label: string | null;
+  authority_blocker: string | null;
   raw_label: string | null;
   confidence: unknown;
   truth_source: string;
@@ -137,6 +162,8 @@ export interface MetaNativeDecisionSnapshotSourceRow {
   scope_type: string;
   scope_id: string;
   label: string;
+  pre_authority_label: string | null;
+  authority_blocker: string | null;
   raw_label: string | null;
   confidence: unknown;
   truth_source: string;
@@ -174,6 +201,7 @@ export interface MetaNativeDecisionSnapshotSourceRow {
 }
 
 export interface MetaNativeDecisionGenerationSourceRow {
+  job_status: string;
   job_run_id: string;
   as_of_date: string;
   engine_version: string;
@@ -1054,6 +1082,9 @@ function toDecisionOutput(input: {
     return null;
   const confidence = finiteNumber(input.snapshot.confidence);
   if (confidence === null) return null;
+  const persistedPreAuthorityLabel = persistedDecisionLabel(
+    input.snapshot.pre_authority_label,
+  );
   const trustedKind =
     input.role.trustedForAction && input.role.value !== "label_needed"
       ? input.role.value
@@ -1081,6 +1112,15 @@ function toDecisionOutput(input: {
         : "unlabeled"
       : "no_campaign",
     campaignKind: trustedKind,
+    // The adapter does not consume authority provenance. Historical rows still
+    // need an adapter-compatible DecisionOutput, while the canonical contract
+    // below preserves their persisted null as unavailable rather than inferring
+    // provenance from reason, badges, or the published label.
+    preAuthorityLabel:
+      persistedPreAuthorityLabel ?? (input.snapshot.label as DecisionLabel),
+    authorityBlocker: persistedAuthorityBlocker(
+      input.snapshot.authority_blocker,
+    ),
     labelTransform:
       input.snapshot.label_transform === "test_cohort_refresh_to_cut"
         ? "test_cohort_refresh_to_cut"
@@ -1182,7 +1222,8 @@ function buildCanonicalDecision(input: {
   ]);
   const sourceProvenance = provenance({
     source: "engine_v3_decision_snapshots_daily",
-    field: "label,confidence,reason,badges",
+    field:
+      "label,pre_authority_label,authority_blocker,raw_label,confidence,reason,badges",
     recordId: input.snapshot.snapshot_id,
     asOf: input.snapshot.as_of_date,
     version: input.snapshot.engine_version,
@@ -1216,6 +1257,12 @@ function buildCanonicalDecision(input: {
       },
       sourceDecision: {
         label: input.snapshot.label,
+        preAuthorityLabel: persistedDecisionLabel(
+          input.snapshot.pre_authority_label,
+        ),
+        authorityBlocker: persistedAuthorityBlocker(
+          input.snapshot.authority_blocker,
+        ),
         rawLabel: input.snapshot.raw_label,
         reason: input.snapshot.reason,
         confidence: finiteNumber(input.snapshot.confidence) ?? 0,
@@ -1893,6 +1940,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
       scope_type: row.scope_type,
       scope_id: row.scope_id,
       label: row.label,
+      pre_authority_label: row.pre_authority_label,
+      authority_blocker: row.authority_blocker,
       raw_label: row.raw_label,
       confidence: row.confidence,
       truth_source: row.truth_source,
@@ -2087,7 +2136,8 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     };
     decision.sourceDecision.provenance = provenance({
       source: "engine_v3_ad_decision_snapshots_daily",
-      field: "label,raw_label,confidence,reason,badges,authorized_action",
+      field:
+        "label,pre_authority_label,authority_blocker,raw_label,confidence,reason,badges,authorized_action",
       recordId: row.snapshot_id,
       asOf: row.as_of_date,
       version: row.engine_version,
@@ -2143,29 +2193,58 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   return model;
 }
 
-async function readNativeGeneration(input: {
-  businessId: string;
-  providerAccountId: string;
-}): Promise<{
-  generation:
-    BuildNativeMetaDecisionsWorkspaceReadModelInput["generation"] | null;
-  fallbackReason: string;
-}> {
-  const rows = await getDb().query<MetaNativeDecisionGenerationSourceRow>(
-    `
-    WITH latest_job AS (
-      SELECT run.*
+export const READ_NATIVE_DECISION_GENERATION_QUERY = `
+    WITH candidate_runs AS (
+      SELECT
+        run.*,
+        CASE
+          WHEN run.status = 'running'
+            AND run.started_at < statement_timestamp()
+              - make_interval(secs => $5::double precision / 1000.0)
+          THEN 'failed'
+          WHEN run.status = 'running' THEN 'running'
+          WHEN run.finished_at IS NULL
+            OR run.finished_at > statement_timestamp()
+          THEN 'failed'
+          ELSE run.status
+        END AS effective_status
       FROM engine_v3_job_runs run
       WHERE run.job_name = $3
         AND run.business_ref_id = $1::uuid
         AND run.business_id = $1::text
-        AND run.engine_version = $4
-        AND run.status = 'success'
-      ORDER BY run.as_of_date DESC, run.finished_at DESC NULLS LAST,
-        run.started_at DESC, run.id DESC
+        AND run.as_of_date <= COALESCE(
+          $4::date,
+          (statement_timestamp() AT TIME ZONE 'UTC')::date
+        )
+        AND run.started_at <= statement_timestamp()
+    ), effective_runs AS (
+      SELECT run.*
+      FROM candidate_runs run
+      WHERE NOT (
+        run.status = 'skipped'
+        AND COALESCE(run.error_message, '') ILIKE 'Advisory lock not acquired%'
+        AND EXISTS (
+          SELECT 1
+          FROM candidate_runs holder
+          WHERE holder.business_ref_id = run.business_ref_id
+            AND holder.job_name = run.job_name
+            AND holder.as_of_date = run.as_of_date
+            AND holder.id <> run.id
+            AND holder.status IN ('success', 'failed')
+            AND holder.started_at <= COALESCE(run.finished_at, run.started_at)
+            AND holder.finished_at >= run.started_at
+            AND holder.finished_at <= statement_timestamp()
+        )
+      )
+    ), latest_effective_terminal_job AS (
+      SELECT run.*
+      FROM effective_runs run
+      WHERE run.effective_status <> 'running'
+      ORDER BY run.as_of_date DESC, run.started_at DESC, run.id DESC
       LIMIT 1
     )
     SELECT
+      job.effective_status AS job_status,
       job.id::text AS job_run_id,
       job.as_of_date::text AS as_of_date,
       job.engine_version,
@@ -2176,24 +2255,54 @@ async function readNativeGeneration(input: {
       receipt->>'hydrated_ad_count' AS hydrated_ad_count,
       receipt->>'hydrated_manifest_hash' AS hydrated_manifest_hash,
       receipt->>'authoritative_for_prune' AS authoritative_for_prune
-    FROM latest_job job
+    FROM latest_effective_terminal_job job
     LEFT JOIN LATERAL jsonb_array_elements(
       COALESCE(
         job.error_json->'metadata'->'hydration_receipts',
         '[]'::jsonb
       )
     ) receipt ON receipt->>'provider_account_id' = $2
-    `,
+`;
+
+async function readNativeGeneration(input: {
+  businessId: string;
+  providerAccountId: string;
+  asOfDate?: string;
+}): Promise<{
+  generation:
+    BuildNativeMetaDecisionsWorkspaceReadModelInput["generation"] | null;
+  fallbackReason: string;
+}> {
+  const rows = await getDb().query<MetaNativeDecisionGenerationSourceRow>(
+    READ_NATIVE_DECISION_GENERATION_QUERY,
     [
       input.businessId,
       input.providerAccountId,
       NATIVE_AD_DECISIONS_JOB_NAME,
-      NATIVE_AD_ENGINE_VERSION,
+      input.asOfDate ?? null,
+      NATIVE_DECISION_RUNNING_GRACE_MS,
     ],
   );
   const row = rows[0];
   if (!row)
     return { generation: null, fallbackReason: "native_job_unavailable" };
+  if (row.job_status !== "success") {
+    return {
+      generation: null,
+      fallbackReason:
+        row.job_status === "failed"
+          ? "native_latest_job_failed"
+          : row.job_status === "skipped"
+            ? "native_latest_job_skipped"
+            : "native_job_unavailable",
+    };
+  }
+  if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+    return {
+      generation: null,
+      fallbackReason: "native_latest_job_engine_mismatch",
+    };
+  }
   const expectedAdCount = exactNonNegativeInteger(row.expected_ad_count);
   const hydratedAdCount = exactNonNegativeInteger(row.hydrated_ad_count);
   const authoritative =
@@ -2206,8 +2315,7 @@ async function readNativeGeneration(input: {
     hydratedAdCount !== expectedAdCount ||
     !isSha256(row.expected_manifest_hash) ||
     row.hydrated_manifest_hash !== row.expected_manifest_hash ||
-    !authoritative ||
-    row.engine_version !== NATIVE_AD_ENGINE_VERSION
+    !authoritative
   ) {
     return {
       generation: null,
@@ -2246,6 +2354,8 @@ async function readNativeSnapshotRows(input: {
       snapshot.scope_type,
       snapshot.scope_id,
       snapshot.label,
+      snapshot.pre_authority_label,
+      snapshot.authority_blocker,
       snapshot.raw_label,
       snapshot.confidence,
       snapshot.truth_source,
@@ -2651,6 +2761,7 @@ async function readNativeResponseRows(input: {
 async function readSnapshotRows(input: {
   businessId: string;
   providerAccountId: string;
+  asOfDate?: string;
 }) {
   return getDb().query<MetaDecisionSnapshotSourceRow>(
     `
@@ -2673,6 +2784,10 @@ async function readSnapshotRows(input: {
       WHERE (snapshot.business_id = $1 OR snapshot.business_ref_id::text = $1)
         AND snapshot.scope_type = 'account'
         AND snapshot.scope_id = '*'
+        AND snapshot.as_of_date <= COALESCE(
+          $3::date,
+          (statement_timestamp() AT TIME ZONE 'UTC')::date
+        )
     ),
     canonical_daily AS (
       SELECT DISTINCT ON (creative_id, as_of_date, scope_type, scope_id)
@@ -2723,6 +2838,8 @@ async function readSnapshotRows(input: {
       scope_type,
       scope_id,
       label,
+      pre_authority_label,
+      authority_blocker,
       raw_label,
       confidence,
       truth_source,
@@ -2742,7 +2859,7 @@ async function readSnapshotRows(input: {
     WHERE as_of_date = latest_as_of_date
     ORDER BY confidence DESC, spend DESC NULLS LAST, creative_id
     `,
-    [input.businessId, input.providerAccountId],
+    [input.businessId, input.providerAccountId, input.asOfDate ?? null],
   );
 }
 
@@ -3302,6 +3419,7 @@ async function readOutcomeRows(snapshotIds: string[]) {
 export async function readMetaDecisionsWorkspaceReadModel(input: {
   businessId: string;
   providerAccountId: string;
+  asOfDate?: string;
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdSourceComplete?: boolean;
   generatedAt?: string;

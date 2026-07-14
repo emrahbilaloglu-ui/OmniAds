@@ -36,6 +36,8 @@ import type {
   MetaCanonicalDecision,
   MetaDecisionQueueSection,
 } from "@/lib/meta/decisions-workspace-contract";
+import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
+import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
 import { cn } from "@/lib/utils";
 import { MetaActionCard } from "@/components/meta/redesign/MetaActionCard";
 import { MetaCampaignLabelsSection } from "@/components/meta/redesign/MetaCampaignLabelsSection";
@@ -2117,6 +2119,40 @@ function workspaceBannerDetail(banner: MetaWorkspaceBanner) {
   return banner.detail;
 }
 
+function MetaDecisionSourceHealthBanner({
+  source,
+}: {
+  source: MetaOsDecisionsPresentation["source"] | null | undefined;
+}) {
+  if (source?.adsSource !== "legacy_creative_review_only") {
+    return null;
+  }
+  const fallbackReason = source.fallbackReason ?? "native_fallback_unspecified";
+  const detail = metaDecisionSourceFallbackDetail(fallbackReason);
+
+  return (
+    <div
+      className="banner warn"
+      data-testid="meta-decision-source-health"
+      data-source-health="degraded"
+      data-fallback-reason={fallbackReason}
+      data-blocking="true"
+      role="alert"
+    >
+      <div className="icon">
+        <AlertTriangle size={15} aria-hidden="true" />
+      </div>
+      <div className="msg">
+        <b>Native Ad decisions are degraded.</b>
+        <span className="sub">
+          {detail} Legacy decisions remain visible for review only; exact Ad
+          actions are blocked. Source: {fallbackReason}.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function MetaWorkspacePostureBanners({
   banners,
   trackingDismissed,
@@ -3659,6 +3695,10 @@ export function MetaPlatformPage({
             </div>
           </div>
         ) : null}
+
+        <MetaDecisionSourceHealthBanner
+          source={workspaceQuery.data?.os?.source}
+        />
 
         <MetaWorkspacePostureBanners
           banners={workspaceBanners}

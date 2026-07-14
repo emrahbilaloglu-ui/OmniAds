@@ -40,10 +40,11 @@ const flags: EngineV3Flags = {
 };
 
 function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
+  const label = overrides.label ?? "keep";
   return {
     creativeId: "creative-1",
     creativeName: "Test Creative",
-    label: "keep",
+    label,
     reason: "Evidence remains inside the keep band.",
     confidence: 72,
     truthSource: "commercial_truth",
@@ -66,6 +67,8 @@ function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
     engineVersion: "v3-test",
     generatedAt: "2026-07-12T03:00:00.000Z",
     ...overrides,
+    preAuthorityLabel: overrides.preAuthorityLabel ?? label,
+    authorityBlocker: overrides.authorityBlocker ?? null,
   };
 }
 
@@ -172,6 +175,10 @@ describe("buildCanonicalEvaluationProvenance", () => {
     expect(result.decisionPayload.inputHash).toBe(result.inputHash);
     expect(result.inputPayload.creativeInput.firstSeenAt).toBeNull();
     expect(result.contextPayload.scope.fallbackReason).toBeNull();
+    expect(result.decisionPayload.decision).toMatchObject({
+      preAuthorityLabel: "keep",
+      authorityBlocker: null,
+    });
   });
 
   it("changes the input and downstream decision hashes for one input field", () => {
@@ -257,6 +264,27 @@ describe("buildCanonicalEvaluationProvenance", () => {
     expect(rawChanged.decisionHash).not.toBe(baseline.decisionHash);
     expect(suppressionChanged.decisionHash).not.toBe(baseline.decisionHash);
     expect(publishedChanged.decisionHash).not.toBe(baseline.decisionHash);
+  });
+
+  it("binds authority provenance into the decision hash", () => {
+    const baseline = buildCanonicalEvaluationProvenance(makeEvaluation());
+    const changed = buildCanonicalEvaluationProvenance(
+      makeEvaluation({
+        decision: makeDecision({
+          label: "keep",
+          preAuthorityLabel: "scale",
+          authorityBlocker: "source_freshness",
+          blockedActionType: "scale",
+        }),
+      }),
+    );
+
+    expect(changed.decisionHash).not.toBe(baseline.decisionHash);
+    expect(changed.decisionPayload.decision).toMatchObject({
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+      blockedActionType: "scale",
+    });
   });
 
   it("rejects invalid numbers inside typed decision inputs", () => {

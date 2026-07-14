@@ -5,6 +5,7 @@ import type {
 } from "@/lib/meta/campaign-label-types";
 import type {
   CreativeInput,
+  DecisionAuthorityBlocker,
   DecisionBadge,
   DecisionLabel,
   DecisionOutput,
@@ -100,6 +101,7 @@ function withCampaignContext(
     status: DecisionOutput["campaignLabelStatus"];
     kind?: MetaCampaignKind | null;
     testDimension?: MetaCampaignTestDimension | null;
+    authorityBlocker?: DecisionAuthorityBlocker | null;
     blockedActionType?: DecisionLabel | null;
     badges?: DecisionBadge[];
   },
@@ -109,10 +111,10 @@ function withCampaignContext(
     campaignLabelStatus: context.status,
     campaignKind: context.kind ?? null,
     campaignTestDimension: context.testDimension ?? null,
+    authorityBlocker:
+      decision.authorityBlocker ?? context.authorityBlocker ?? null,
     blockedActionType:
-      context.blockedActionType === undefined
-        ? (decision.blockedActionType ?? null)
-        : context.blockedActionType,
+      decision.blockedActionType ?? context.blockedActionType ?? null,
     badges: context.badges ?? decision.badges,
   };
 }
@@ -184,6 +186,7 @@ function guardHardDecisionWithContext(
       status: options.status,
       kind: null,
       testDimension: null,
+      authorityBlocker: "campaign_context",
       blockedActionType: originalLabel,
       badges: guardedBadges,
     },
@@ -218,6 +221,7 @@ function guardHardDecisionWithoutCampaignLabel(
       status,
       kind: null,
       testDimension: null,
+      authorityBlocker: "campaign_context",
       blockedActionType: originalLabel,
       badges: guardedBadges,
     },

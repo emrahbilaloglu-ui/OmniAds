@@ -13,10 +13,10 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-12-breakeven-cut-ceiling";
+export const ENGINE_VERSION = "v3-2026-07-14-decision-health-provenance";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-07-12-d047-authority-v2-shadow";
+  "v3-ad-2026-07-14-decision-health-provenance-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -760,6 +760,17 @@ export type DecisionKindSource =
 
 export type DecisionLabelTransform = "test_cohort_refresh_to_cut";
 
+export const DECISION_AUTHORITY_BLOCKERS = [
+  "profile_hard_action_ineligible",
+  "source_freshness",
+  "campaign_context",
+  "native_metrics_unavailable",
+  "native_profile_unavailable",
+] as const;
+
+export type DecisionAuthorityBlocker =
+  (typeof DECISION_AUTHORITY_BLOCKERS)[number];
+
 export interface DecisionPredicateBlocker {
   predicate: string;
   observed: string | number | null;
@@ -790,6 +801,13 @@ export interface DecisionOutput {
   campaignLabelStatus?: CreativeCampaignLabelStatus;
   campaignKind?: MetaCampaignKind | null;
   campaignTestDimension?: MetaCampaignTestDimension | null;
+  /**
+   * Decision after semantic transforms and before the first authority
+   * restriction. This field is evidence only and never authorizes execution.
+   */
+  preAuthorityLabel: DecisionLabel;
+  /** First effective authority restriction; later restrictions must preserve it. */
+  authorityBlocker: DecisionAuthorityBlocker | null;
   blockedActionType?: DecisionLabel | null;
   /**
    * Read-only diagnostic: tells audit/API consumers whether the decision used

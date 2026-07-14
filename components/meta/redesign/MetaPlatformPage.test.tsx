@@ -44,6 +44,7 @@ const state = vi.hoisted(() => ({
     },
   ] as any[],
   decisionReadModel: null as any,
+  osSource: null as any,
   selectBusiness: vi.fn(),
   queryOverrides: {} as Record<
     string,
@@ -176,6 +177,7 @@ function workspacePayload() {
     },
     decisionReadModel:
       state.decisionReadModel ?? emptyCanonicalDecisionReadModel(),
+    os: state.osSource ? { source: state.osSource } : undefined,
   };
 }
 
@@ -313,6 +315,7 @@ describe("MetaPlatformPage", () => {
       },
     ];
     state.decisionReadModel = null;
+    state.osSource = null;
     state.queryOverrides = {};
     state.selectBusiness.mockClear();
     state.routerPush.mockClear();
@@ -377,6 +380,78 @@ describe("MetaPlatformPage", () => {
       "meta-account-pulse",
     );
     expect(state.queryKeys.map((key) => key[0])).not.toContain("meta-lanes");
+  });
+
+  it.each([
+    ["native_latest_job_failed", "latest native Ad decision job failed"],
+    ["native_latest_job_skipped", "latest native Ad decision job was skipped"],
+    [
+      "native_latest_job_engine_mismatch",
+      "belongs to a different engine version",
+    ],
+    [
+      "native_schema_or_generation_read_failed",
+      "native Ad decision source could not be read",
+    ],
+  ])(
+    "blocks exact Ad actions visibly for legacy fallback %s",
+    (fallbackReason, expectedDetail) => {
+      state.osSource = {
+        snapshotAsOf: "2026-07-14",
+        engineVersion: "v3-test",
+        structureSource: "meta_recommendations",
+        adsSource: "legacy_creative_review_only",
+        health: "degraded",
+        fallbackReason,
+      };
+
+      const html = renderToStaticMarkup(
+        <MetaPlatformPage businessId="biz_1" businessName="IwaStore" />,
+      );
+
+      expect(html).toContain('data-testid="meta-decision-source-health"');
+      expect(html).toContain('data-source-health="degraded"');
+      expect(html).toContain(`data-fallback-reason="${fallbackReason}"`);
+      expect(html).toContain('data-blocking="true"');
+      expect(html).toContain("Native Ad decisions are degraded.");
+      expect(html).toContain(expectedDetail);
+      expect(html).toContain("Legacy decisions remain visible for review only");
+      expect(html).toContain("exact Ad actions are blocked");
+    },
+  );
+
+  it("does not show a degraded source banner for healthy native Ad decisions", () => {
+    state.osSource = {
+      snapshotAsOf: "2026-07-14",
+      engineVersion: "v3-ad-test",
+      structureSource: "meta_recommendations",
+      adsSource: "native_ad_decision",
+      health: "healthy",
+      fallbackReason: null,
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
+    );
+
+    expect(html).not.toContain('data-testid="meta-decision-source-health"');
+  });
+
+  it("fails closed for a legacy v2 source payload without an explicit health field", () => {
+    state.osSource = {
+      snapshotAsOf: "2026-07-14",
+      engineVersion: "v3-legacy-test",
+      structureSource: "meta_recommendations",
+      adsSource: "legacy_creative_review_only",
+      fallbackReason: "native_job_unavailable",
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="Grandmix" />,
+    );
+
+    expect(html).toContain('data-testid="meta-decision-source-health"');
+    expect(html).toContain('data-blocking="true"');
   });
 
   it("renders creative rotation only from the server-selected canonical section", () => {

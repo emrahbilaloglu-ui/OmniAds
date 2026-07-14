@@ -1,10 +1,29 @@
 import type {
+  MetaDecisionAuthorityBlocker,
   MetaDecisionConfirmationCeremony,
   MetaDecisionRiskTier,
 } from "@/lib/meta/decisions-workspace-contract";
 
 export const META_OS_DECISIONS_PRESENTATION_VERSION =
-  "meta-os-decisions.presentation.v2" as const;
+  "meta-os-decisions.presentation.v3" as const;
+
+export type MetaOsWorkspaceBannerScope =
+  | "workspace"
+  | "target_hard_actions";
+
+export interface MetaOsWorkspaceBanner {
+  id: string;
+  tone: "info" | "warning" | "danger" | "success";
+  title: string;
+  detail: string;
+  blocking: boolean;
+  /** Omitted by v1 payloads, where the banner applies to the full workspace. */
+  scope?: MetaOsWorkspaceBannerScope;
+  action?: {
+    label: string;
+    href: string;
+  };
+}
 
 export type MetaOsDecisionLane = "act" | "blocked" | "monitor";
 export type MetaOsDecisionLevel = "campaign" | "adset" | "ad";
@@ -45,6 +64,21 @@ export interface MetaOsDecisionMetrics {
   currency: string | null;
   attribution: "meta_attributed";
   grain: "campaign_or_adset" | "ad" | "creative_context";
+}
+
+export interface MetaOsDecisionAuthorityProvenance {
+  availability: "available" | "historical_unavailable";
+  /** Mathematical/semantic verdict before the first authority gate. */
+  preAuthorityLabel: string | null;
+  /** Decision after authority gates and before publication hysteresis. */
+  postAuthorityRawLabel: string | null;
+  /** Final label served to the operator. */
+  publishedLabel: string;
+  firstBlocker: {
+    code: MetaDecisionAuthorityBlocker;
+    label: string;
+    explanation: string;
+  } | null;
 }
 
 export interface MetaOsStructureBidConfiguration {
@@ -143,6 +177,9 @@ export interface MetaOsAdDecision {
   metrics: MetaOsDecisionMetrics;
   rawLabel: string | null;
   publishedLabel: string;
+  /** Optional only so previously serialized v2 payloads remain renderable. The
+   * current v3 builder always emits this evidence envelope. */
+  authorityProvenance?: MetaOsDecisionAuthorityProvenance;
   engineVersion: string;
   snapshotAsOf: string;
   sourceGrain: "ad" | "creative_context";
@@ -174,6 +211,10 @@ export interface MetaOsDecisionsPresentation {
     engineVersion: string | null;
     structureSource: "meta_recommendations";
     adsSource: "native_ad_decision" | "legacy_creative_review_only";
+    /** Always emitted by the current builder; optional only while persisted v2
+     * payloads without source health remain readable. */
+    health?: "healthy" | "degraded";
+    fallbackReason?: string | null;
   };
   structure: {
     groups: MetaOsStructureGroup[];

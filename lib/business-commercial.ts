@@ -1,4 +1,5 @@
-import { getDb } from "@/lib/db";
+import { createHash } from "node:crypto";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   assertDbSchemaReady,
   getDbSchemaReadiness,
@@ -54,6 +55,17 @@ const COMMERCIAL_TRUTH_WRITE_TABLES = [
   "business_target_pack_history",
 ];
 
+function businessCommercialAdvisoryLockKey(businessId: string) {
+  return `business-commercial:${businessId}`;
+}
+
+async function acquireBusinessCommercialAdvisoryLock(businessId: string) {
+  await getDb().query(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+    [businessCommercialAdvisoryLockKey(businessId)],
+  );
+}
+
 type MetaRow = {
   source_label: string | null;
   updated_at: string | Date | null;
@@ -86,6 +98,121 @@ type TargetPackHistoryRow = TargetPackRow & {
   effective_at: string | Date;
   recorded_at: string | Date;
 };
+
+type TargetPackReconfirmationRow = {
+  result_status:
+    | "reconfirmed"
+    | "missing"
+    | "conflict"
+    | "invalid_target_pack"
+    | "write_failed";
+  reason: string;
+  updated_at: string | Date | null;
+};
+
+export type BusinessTargetPackReconfirmationResult =
+  | {
+      status: "reconfirmed";
+      reason: "target_pack_reconfirmed";
+      updatedAt: string;
+    }
+  | {
+      status: "missing";
+      reason: "target_pack_missing";
+    }
+  | {
+      status: "conflict";
+      reason: "target_pack_changed";
+      currentUpdatedAt: string;
+    }
+  | {
+      status: "invalid_target_pack";
+      reason: string;
+      currentUpdatedAt: string;
+    };
+
+export class BusinessCommercialInputValidationError extends Error {
+  readonly code = "invalid_target_pack";
+
+  constructor(
+    readonly field: string,
+    readonly reason: string,
+    message?: string,
+  ) {
+    super(
+      message ?? `${field} must be a finite number greater than zero or null.`,
+    );
+    this.name = "BusinessCommercialInputValidationError";
+  }
+}
+
+export class BusinessCommercialSnapshotConflictError extends Error {
+  readonly code = "commercial_truth_changed";
+
+  constructor(readonly currentRevision: string) {
+    super(
+      "Commercial truth changed after this editor loaded. Refresh before saving again.",
+    );
+    this.name = "BusinessCommercialSnapshotConflictError";
+  }
+}
+
+function compareCanonicalText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalRevisionValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalRevisionValue);
+  if (!value || typeof value !== "object" || value instanceof Date)
+    return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareCanonicalText(left, right))
+      .map(([key, item]) => [key, canonicalRevisionValue(item)]),
+  );
+}
+
+export function businessCommercialSnapshotRevision(
+  snapshot: BusinessCommercialTruthSnapshot,
+) {
+  const countryEconomics = snapshot.countryEconomics
+    .slice()
+    .sort((left, right) =>
+      compareCanonicalText(left.countryCode, right.countryCode),
+    );
+  const promoCalendar = snapshot.promoCalendar
+    .slice()
+    .sort((left, right) => compareCanonicalText(left.eventId, right.eventId));
+  const calibrationProfiles = (snapshot.calibrationProfiles ?? [])
+    .slice()
+    .sort((left, right) =>
+      compareCanonicalText(
+        [
+          left.channel,
+          left.objectiveFamily,
+          left.bidRegime,
+          left.archetype,
+        ].join("\u0000"),
+        [
+          right.channel,
+          right.objectiveFamily,
+          right.bidRegime,
+          right.archetype,
+        ].join("\u0000"),
+      ),
+    );
+  const persistedState = canonicalRevisionValue({
+    businessId: snapshot.businessId,
+    targetPack: snapshot.targetPack,
+    countryEconomics,
+    promoCalendar,
+    operatingConstraints: snapshot.operatingConstraints,
+    calibrationProfiles,
+  });
+  return createHash("sha256")
+    .update(JSON.stringify(persistedState))
+    .digest("hex");
+}
 
 type CountryEconomicsRow = {
   country_code: string;
@@ -167,9 +294,7 @@ function normalizeAsOfCutoff(value: string | Date) {
 
   const normalized = value.trim();
   const dateOnly = normalizeDate(normalized);
-  const candidate = dateOnly
-    ? `${dateOnly}T03:00:00.000Z`
-    : normalized;
+  const candidate = dateOnly ? `${dateOnly}T03:00:00.000Z` : normalized;
   const parsed = new Date(candidate);
   if (!Number.isFinite(parsed.getTime())) {
     throw new Error("asOf must be a valid YYYY-MM-DD date or timestamp");
@@ -188,6 +313,37 @@ function normalizeNumber(value: unknown) {
 
 function normalizeUnitInterval(value: unknown) {
   const normalized = normalizeNumber(value);
+  if (normalized === null) return null;
+  if (normalized <= 0) return 0;
+  if (normalized >= 1) return 1;
+  return normalized;
+}
+
+function normalizeCommercialInputNumber(value: unknown, field: string) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new BusinessCommercialInputValidationError(
+      field,
+      `${field.replaceAll(".", "_")}_must_be_finite_or_null`,
+      `${field} must be a finite number or null.`,
+    );
+  }
+  return value;
+}
+
+function normalizePositiveTargetAnchor(value: unknown, field: string) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new BusinessCommercialInputValidationError(
+      field,
+      `${field.replaceAll(".", "_")}_must_be_positive_finite`,
+    );
+  }
+  return value;
+}
+
+function normalizeCommercialInputUnitInterval(value: unknown, field: string) {
+  const normalized = normalizeCommercialInputNumber(value, field);
   if (normalized === null) return null;
   if (normalized <= 0) return 0;
   if (normalized >= 1) return 1;
@@ -228,22 +384,27 @@ function dedupeStringList(values: Array<string | null | undefined>) {
   );
 }
 
-function hasTargetPackValue(targetPack: BusinessTargetPackData | null | undefined) {
+function hasTargetPackValue(
+  targetPack: BusinessTargetPackData | null | undefined,
+) {
   if (!targetPack) return false;
   const costStructure = targetPack.costStructure;
-  return targetPack.defaultRiskPosture !== "balanced" || [
-    targetPack.targetCpa,
-    targetPack.targetRoas,
-    targetPack.breakEvenCpa,
-    targetPack.breakEvenRoas,
-    targetPack.contributionMarginAssumption,
-    targetPack.aovAssumption,
-    targetPack.newCustomerWeight,
-    costStructure?.cogsPercent,
-    costStructure?.shippingPercent,
-    costStructure?.fulfillmentPercent,
-    costStructure?.paymentProcessingPercent,
-  ].some((value) => value !== null && value !== undefined);
+  return (
+    targetPack.defaultRiskPosture !== "balanced" ||
+    [
+      targetPack.targetCpa,
+      targetPack.targetRoas,
+      targetPack.breakEvenCpa,
+      targetPack.breakEvenRoas,
+      targetPack.contributionMarginAssumption,
+      targetPack.aovAssumption,
+      targetPack.newCustomerWeight,
+      costStructure?.cogsPercent,
+      costStructure?.shippingPercent,
+      costStructure?.fulfillmentPercent,
+      costStructure?.paymentProcessingPercent,
+    ].some((value) => value !== null && value !== undefined)
+  );
 }
 
 function hasOperatingConstraintValue(
@@ -387,8 +548,8 @@ function buildSectionMeta(
   section: SectionMetaKey,
   rows: Array<MetaRow | SnapshotMetaRow | null | undefined>,
 ): BusinessCommercialSectionMeta {
-  const validRows = rows.filter(
-    (row): row is MetaRow | SnapshotMetaRow => Boolean(row),
+  const validRows = rows.filter((row): row is MetaRow | SnapshotMetaRow =>
+    Boolean(row),
   );
   const rule = SECTION_META_RULES[section];
   if (validRows.length === 0) {
@@ -413,14 +574,14 @@ function buildSectionMeta(
   const latest = [...validRows].sort((left, right) =>
     String(readMetaValue(right, "updatedAt") ?? "").localeCompare(
       String(readMetaValue(left, "updatedAt") ?? ""),
-    )
+    ),
   )[0];
   const uniqueSources = Array.from(
     new Set(
       validRows
         .map((row) => readMetaValue(row, "sourceLabel"))
         .filter((value): value is string => Boolean(value)),
-    )
+    ),
   );
 
   return {
@@ -455,7 +616,9 @@ function mapTargetPackRow(
     targetRoas: normalizeNumber(row.target_roas),
     breakEvenCpa: normalizeNumber(row.break_even_cpa),
     breakEvenRoas: normalizeNumber(row.break_even_roas),
-    contributionMarginAssumption: normalizeNumber(row.contribution_margin_assumption),
+    contributionMarginAssumption: normalizeNumber(
+      row.contribution_margin_assumption,
+    ),
     aovAssumption: normalizeNumber(row.aov_assumption),
     newCustomerWeight: normalizeNumber(row.new_customer_weight),
     defaultRiskPosture: normalizeEnum(
@@ -506,9 +669,7 @@ function mapCountryEconomicsRow(
   };
 }
 
-function mapPromoRow(
-  row: PromoCalendarRow,
-): BusinessPromoCalendarEvent {
+function mapPromoRow(row: PromoCalendarRow): BusinessPromoCalendarEvent {
   return {
     eventId: String(row.event_id ?? ""),
     title: String(row.title ?? ""),
@@ -529,7 +690,11 @@ function mapConstraintsRow(
 ): BusinessOperatingConstraints | null {
   if (!row) return null;
   return {
-    siteIssueStatus: normalizeEnum(row.site_issue_status, BUSINESS_ISSUE_STATUSES, "none"),
+    siteIssueStatus: normalizeEnum(
+      row.site_issue_status,
+      BUSINESS_ISSUE_STATUSES,
+      "none",
+    ),
     checkoutIssueStatus: normalizeEnum(
       row.checkout_issue_status,
       BUSINESS_ISSUE_STATUSES,
@@ -540,7 +705,11 @@ function mapConstraintsRow(
       BUSINESS_ISSUE_STATUSES,
       "none",
     ),
-    feedIssueStatus: normalizeEnum(row.feed_issue_status, BUSINESS_ISSUE_STATUSES, "none"),
+    feedIssueStatus: normalizeEnum(
+      row.feed_issue_status,
+      BUSINESS_ISSUE_STATUSES,
+      "none",
+    ),
     stockPressureStatus: normalizeEnum(
       row.stock_pressure_status,
       BUSINESS_STOCK_PRESSURE_STATUSES,
@@ -583,10 +752,15 @@ function mapCalibrationProfileRow(
     confidenceCap: normalizeUnitInterval(row.confidence_cap),
     actionCeiling:
       normalizeString(row.action_ceiling) &&
-      ["review_hold", "review_reduce", "monitor_low_truth", "degraded_no_scale"].includes(
-        normalizeString(row.action_ceiling) ?? "",
-      )
-        ? (normalizeString(row.action_ceiling) as BusinessDecisionCalibrationProfile["actionCeiling"])
+      [
+        "review_hold",
+        "review_reduce",
+        "monitor_low_truth",
+        "degraded_no_scale",
+      ].includes(normalizeString(row.action_ceiling) ?? "")
+        ? (normalizeString(
+            row.action_ceiling,
+          ) as BusinessDecisionCalibrationProfile["actionCeiling"])
         : null,
     notes: normalizeString(row.notes),
     sourceLabel: normalizeString(row.source_label),
@@ -611,19 +785,20 @@ function mapCostModelContext(
 function buildCommercialThresholdSummary(
   snapshot: Pick<BusinessCommercialTruthSnapshot, "targetPack">,
 ): BusinessCommercialCoverageSummary["thresholds"] {
+  const targetPack = snapshot.targetPack;
   if (
-    snapshot.targetPack?.targetRoas != null ||
-    snapshot.targetPack?.breakEvenRoas != null ||
-    snapshot.targetPack?.targetCpa != null ||
-    snapshot.targetPack?.breakEvenCpa != null
+    targetPack?.targetRoas != null ||
+    targetPack?.breakEvenRoas != null ||
+    targetPack?.targetCpa != null ||
+    targetPack?.breakEvenCpa != null
   ) {
     return {
       source: "configured_targets",
-      targetRoas: snapshot.targetPack?.targetRoas ?? 2.6,
-      breakEvenRoas: snapshot.targetPack?.breakEvenRoas ?? 1.8,
-      targetCpa: snapshot.targetPack?.targetCpa ?? 42,
-      breakEvenCpa: snapshot.targetPack?.breakEvenCpa ?? 58,
-      defaultRiskPosture: snapshot.targetPack?.defaultRiskPosture ?? "balanced",
+      targetRoas: targetPack.targetRoas,
+      breakEvenRoas: targetPack.breakEvenRoas,
+      targetCpa: targetPack.targetCpa,
+      breakEvenCpa: targetPack.breakEvenCpa,
+      defaultRiskPosture: targetPack.defaultRiskPosture,
     };
   }
 
@@ -649,7 +824,9 @@ function buildCalibrationSummary(
 
   return {
     profileCount: calibrationProfiles.length,
-    channels: Array.from(new Set(calibrationProfiles.map((row) => row.channel))),
+    channels: Array.from(
+      new Set(calibrationProfiles.map((row) => row.channel)),
+    ),
     updatedAt: latestUpdatedAt,
   };
 }
@@ -678,7 +855,8 @@ function buildCalibrationFreshness(
       status: "stale",
       updatedAt: latestUpdatedAt,
       ageHours: null,
-      reason: "Calibration profiles are present, but their refresh timestamp is unavailable.",
+      reason:
+        "Calibration profiles are present, but their refresh timestamp is unavailable.",
     };
   }
 
@@ -687,7 +865,8 @@ function buildCalibrationFreshness(
       status: "stale",
       updatedAt: latestUpdatedAt,
       ageHours,
-      reason: "Calibration profiles are older than 30 days and should be reviewed.",
+      reason:
+        "Calibration profiles are older than 30 days and should be reviewed.",
     };
   }
 
@@ -707,27 +886,30 @@ function buildRequiredInputs(input: {
   sectionMeta: BusinessCommercialTruthSnapshot["sectionMeta"];
   calibrationProfiles: BusinessDecisionCalibrationProfile[];
 }): BusinessCommercialRequiredInput[] {
-  const calibrationFreshness = buildCalibrationFreshness(input.calibrationProfiles);
+  const calibrationFreshness = buildCalibrationFreshness(
+    input.calibrationProfiles,
+  );
 
   return BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS.map((section) => {
     if (section === "targetPack") {
       return {
         section,
         blocking: true,
-        freshness: input.sectionMeta.targetPack.freshness ?? buildFreshnessMeta({
-          configured: false,
-          updatedAt: null,
-          staleAfterHours: SECTION_META_RULES.targetPack.staleAfterHours,
-          missingReason: SECTION_META_RULES.targetPack.missingReason,
-          staleReason: SECTION_META_RULES.targetPack.staleReason,
-        }),
-        reason:
-          !input.targetPack
-            ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
-            : input.sectionMeta.targetPack.freshness?.status === "stale"
-              ? input.sectionMeta.targetPack.freshness.reason ??
-                "Target pack thresholds need review."
-              : "Target pack thresholds are configured.",
+        freshness:
+          input.sectionMeta.targetPack.freshness ??
+          buildFreshnessMeta({
+            configured: false,
+            updatedAt: null,
+            staleAfterHours: SECTION_META_RULES.targetPack.staleAfterHours,
+            missingReason: SECTION_META_RULES.targetPack.missingReason,
+            staleReason: SECTION_META_RULES.targetPack.staleReason,
+          }),
+        reason: !input.targetPack
+          ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
+          : input.sectionMeta.targetPack.freshness?.status === "stale"
+            ? (input.sectionMeta.targetPack.freshness.reason ??
+              "Target pack thresholds need review.")
+            : "Target pack thresholds are configured.",
         actionCeiling: !input.targetPack ? "review_hold" : null,
       } satisfies BusinessCommercialRequiredInput;
     }
@@ -736,19 +918,22 @@ function buildRequiredInputs(input: {
       return {
         section,
         blocking: false,
-        freshness: input.sectionMeta.countryEconomics.freshness ?? buildFreshnessMeta({
-          configured: false,
-          updatedAt: null,
-          staleAfterHours: SECTION_META_RULES.countryEconomics.staleAfterHours,
-          missingReason: SECTION_META_RULES.countryEconomics.missingReason,
-          staleReason: SECTION_META_RULES.countryEconomics.staleReason,
-        }),
+        freshness:
+          input.sectionMeta.countryEconomics.freshness ??
+          buildFreshnessMeta({
+            configured: false,
+            updatedAt: null,
+            staleAfterHours:
+              SECTION_META_RULES.countryEconomics.staleAfterHours,
+            missingReason: SECTION_META_RULES.countryEconomics.missingReason,
+            staleReason: SECTION_META_RULES.countryEconomics.staleReason,
+          }),
         reason:
           input.countryEconomics.length === 0
             ? "Country economics are not configured, so all locations use the global cost structure."
             : input.sectionMeta.countryEconomics.freshness?.status === "stale"
-              ? input.sectionMeta.countryEconomics.freshness.reason ??
-                "Country economics need review."
+              ? (input.sectionMeta.countryEconomics.freshness.reason ??
+                "Country economics need review.")
               : "Country economics are configured.",
         actionCeiling: null,
       } satisfies BusinessCommercialRequiredInput;
@@ -758,19 +943,21 @@ function buildRequiredInputs(input: {
       return {
         section,
         blocking: false,
-        freshness: input.sectionMeta.promoCalendar.freshness ?? buildFreshnessMeta({
-          configured: false,
-          updatedAt: null,
-          staleAfterHours: SECTION_META_RULES.promoCalendar.staleAfterHours,
-          missingReason: SECTION_META_RULES.promoCalendar.missingReason,
-          staleReason: SECTION_META_RULES.promoCalendar.staleReason,
-        }),
+        freshness:
+          input.sectionMeta.promoCalendar.freshness ??
+          buildFreshnessMeta({
+            configured: false,
+            updatedAt: null,
+            staleAfterHours: SECTION_META_RULES.promoCalendar.staleAfterHours,
+            missingReason: SECTION_META_RULES.promoCalendar.missingReason,
+            staleReason: SECTION_META_RULES.promoCalendar.staleReason,
+          }),
         reason:
           input.promoCalendar.length === 0
             ? "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured."
             : input.sectionMeta.promoCalendar.freshness?.status === "stale"
-              ? input.sectionMeta.promoCalendar.freshness.reason ??
-                "Promo calendar needs review."
+              ? (input.sectionMeta.promoCalendar.freshness.reason ??
+                "Promo calendar needs review.")
               : "Promo windows are configured.",
         actionCeiling: null,
       } satisfies BusinessCommercialRequiredInput;
@@ -780,20 +967,23 @@ function buildRequiredInputs(input: {
       return {
         section,
         blocking: true,
-        freshness: input.sectionMeta.operatingConstraints.freshness ?? buildFreshnessMeta({
-          configured: false,
-          updatedAt: null,
-          staleAfterHours: SECTION_META_RULES.operatingConstraints.staleAfterHours,
-          missingReason: SECTION_META_RULES.operatingConstraints.missingReason,
-          staleReason: SECTION_META_RULES.operatingConstraints.staleReason,
-        }),
-        reason:
-          !input.operatingConstraints
-            ? "Operating constraints are missing, so action ceilings stay conservative."
-            : input.sectionMeta.operatingConstraints.freshness?.status === "stale"
-              ? input.sectionMeta.operatingConstraints.freshness.reason ??
-                "Operating constraints need review."
-              : "Operating constraints are configured.",
+        freshness:
+          input.sectionMeta.operatingConstraints.freshness ??
+          buildFreshnessMeta({
+            configured: false,
+            updatedAt: null,
+            staleAfterHours:
+              SECTION_META_RULES.operatingConstraints.staleAfterHours,
+            missingReason:
+              SECTION_META_RULES.operatingConstraints.missingReason,
+            staleReason: SECTION_META_RULES.operatingConstraints.staleReason,
+          }),
+        reason: !input.operatingConstraints
+          ? "Operating constraints are missing, so action ceilings stay conservative."
+          : input.sectionMeta.operatingConstraints.freshness?.status === "stale"
+            ? (input.sectionMeta.operatingConstraints.freshness.reason ??
+              "Operating constraints need review.")
+            : "Operating constraints are configured.",
         actionCeiling: !input.operatingConstraints ? "degraded_no_scale" : null,
       } satisfies BusinessCommercialRequiredInput;
     }
@@ -806,7 +996,8 @@ function buildRequiredInputs(input: {
         input.calibrationProfiles.length === 0
           ? "No calibration profiles exist yet, so channel-specific confidence caps stay generic."
           : calibrationFreshness.status === "stale"
-            ? calibrationFreshness.reason ?? "Calibration profiles need review."
+            ? (calibrationFreshness.reason ??
+              "Calibration profiles need review.")
             : "Calibration profiles are configured.",
       actionCeiling:
         input.calibrationProfiles.length === 0 ? "review_hold" : null,
@@ -883,16 +1074,14 @@ function buildCommercialCoverageSummary(input: {
           status: "missing",
           updatedAt: latestUpdatedAt,
           ageHours: differenceInHours(latestUpdatedAt),
-          reason:
-            "Blocking commercial truth sections are not configured yet.",
+          reason: "Blocking commercial truth sections are not configured yet.",
         }
       : staleBlockingSections.length > 0
         ? {
             status: "stale",
             updatedAt: latestUpdatedAt,
             ageHours: differenceInHours(latestUpdatedAt),
-            reason:
-              "One or more blocking commercial truth sections are stale.",
+            reason: "One or more blocking commercial truth sections are stale.",
           }
         : {
             status: "fresh",
@@ -950,44 +1139,119 @@ export function sanitizeBusinessCommercialTruthInput(
   const costStructureInput = targetPackInput?.costStructure;
   const costStructure = costStructureInput
     ? {
-        cogsPercent: normalizeUnitInterval(costStructureInput.cogsPercent),
-        shippingPercent: normalizeUnitInterval(costStructureInput.shippingPercent),
-        fulfillmentPercent: normalizeUnitInterval(
-          costStructureInput.fulfillmentPercent,
+        cogsPercent: normalizeCommercialInputUnitInterval(
+          costStructureInput.cogsPercent,
+          "targetPack.costStructure.cogsPercent",
         ),
-        paymentProcessingPercent: normalizeUnitInterval(
+        shippingPercent: normalizeCommercialInputUnitInterval(
+          costStructureInput.shippingPercent,
+          "targetPack.costStructure.shippingPercent",
+        ),
+        fulfillmentPercent: normalizeCommercialInputUnitInterval(
+          costStructureInput.fulfillmentPercent,
+          "targetPack.costStructure.fulfillmentPercent",
+        ),
+        paymentProcessingPercent: normalizeCommercialInputUnitInterval(
           costStructureInput.paymentProcessingPercent,
+          "targetPack.costStructure.paymentProcessingPercent",
         ),
       }
     : null;
   const targetPack = targetPackInput
     ? {
         ...createEmptyTargetPack(),
-        targetCpa: normalizeNumber(targetPackInput.targetCpa),
-        targetRoas: normalizeNumber(targetPackInput.targetRoas),
-        breakEvenCpa: normalizeNumber(targetPackInput.breakEvenCpa),
-        breakEvenRoas: normalizeNumber(targetPackInput.breakEvenRoas),
-        contributionMarginAssumption: normalizeNumber(
-          targetPackInput.contributionMarginAssumption,
+        targetCpa: normalizePositiveTargetAnchor(
+          targetPackInput.targetCpa,
+          "targetPack.targetCpa",
         ),
-        aovAssumption: normalizeNumber(targetPackInput.aovAssumption),
-        newCustomerWeight: normalizeNumber(targetPackInput.newCustomerWeight),
+        targetRoas: normalizePositiveTargetAnchor(
+          targetPackInput.targetRoas,
+          "targetPack.targetRoas",
+        ),
+        breakEvenCpa: normalizePositiveTargetAnchor(
+          targetPackInput.breakEvenCpa,
+          "targetPack.breakEvenCpa",
+        ),
+        breakEvenRoas: normalizePositiveTargetAnchor(
+          targetPackInput.breakEvenRoas,
+          "targetPack.breakEvenRoas",
+        ),
+        contributionMarginAssumption: normalizeCommercialInputNumber(
+          targetPackInput.contributionMarginAssumption,
+          "targetPack.contributionMarginAssumption",
+        ),
+        aovAssumption: normalizeCommercialInputNumber(
+          targetPackInput.aovAssumption,
+          "targetPack.aovAssumption",
+        ),
+        newCustomerWeight: normalizeCommercialInputNumber(
+          targetPackInput.newCustomerWeight,
+          "targetPack.newCustomerWeight",
+        ),
         defaultRiskPosture: normalizeEnum(
           targetPackInput.defaultRiskPosture,
           BUSINESS_RISK_POSTURES,
           "balanced",
         ),
         costStructure,
-        sourceLabel: normalizeString(targetPackInput.sourceLabel) ?? "settings_manual_entry",
+        sourceLabel:
+          normalizeString(targetPackInput.sourceLabel) ??
+          "settings_manual_entry",
       }
     : null;
+
+  const targetPackHasEconomicAnchor = Boolean(
+    targetPack &&
+    [
+      targetPack.targetCpa,
+      targetPack.targetRoas,
+      targetPack.breakEvenCpa,
+      targetPack.breakEvenRoas,
+    ].some((value) => value !== null),
+  );
+  if (hasTargetPackValue(targetPack) && !targetPackHasEconomicAnchor) {
+    throw new BusinessCommercialInputValidationError(
+      "targetPack",
+      "target_pack_has_no_economic_anchors",
+      "targetPack must contain at least one CPA or ROAS economic anchor.",
+    );
+  }
+
+  if (
+    targetPack?.targetRoas != null &&
+    targetPack.breakEvenRoas != null &&
+    targetPack.targetRoas < targetPack.breakEvenRoas
+  ) {
+    throw new BusinessCommercialInputValidationError(
+      "targetPack.targetRoas",
+      "target_roas_below_break_even_roas",
+      "targetPack.targetRoas must be greater than or equal to targetPack.breakEvenRoas.",
+    );
+  }
+  if (
+    targetPack?.targetCpa != null &&
+    targetPack.breakEvenCpa != null &&
+    targetPack.targetCpa > targetPack.breakEvenCpa
+  ) {
+    throw new BusinessCommercialInputValidationError(
+      "targetPack.targetCpa",
+      "target_cpa_above_break_even_cpa",
+      "targetPack.targetCpa must be less than or equal to targetPack.breakEvenCpa.",
+    );
+  }
 
   const countryEconomics = dedupeByKey(
     (input?.countryEconomics ?? [])
       .map((row) => ({
         countryCode: normalizeString(row.countryCode)?.toUpperCase() ?? "",
-        economicsMultiplier: normalizeNumber(row.economicsMultiplier),
-        marginModifier: normalizeNumber(row.marginModifier),
+        economicsMultiplier: normalizeCommercialInputNumber(
+          row.economicsMultiplier,
+          "countryEconomics.economicsMultiplier",
+        ),
+        marginModifier: normalizeCommercialInputNumber(
+          row.marginModifier,
+          "countryEconomics.marginModifier",
+        ),
         serviceability: normalizeEnum(
           row.serviceability,
           BUSINESS_COUNTRY_SERVICEABILITY,
@@ -1004,7 +1268,8 @@ export function sanitizeBusinessCommercialTruthInput(
           "default",
         ),
         notes: normalizeString(row.notes),
-        sourceLabel: normalizeString(row.sourceLabel) ?? "settings_manual_entry",
+        sourceLabel:
+          normalizeString(row.sourceLabel) ?? "settings_manual_entry",
       }))
       .filter((row) => row.countryCode.length > 0),
     (row) => row.countryCode,
@@ -1024,12 +1289,17 @@ export function sanitizeBusinessCommercialTruthInput(
             `promo_${index + 1}_${startDate.replaceAll("-", "")}`,
           title: normalizeString(row.title) ?? "",
           promoType: normalizeEnum(row.promoType, BUSINESS_PROMO_TYPES, "sale"),
-          severity: normalizeEnum(row.severity, BUSINESS_PROMO_SEVERITIES, "medium"),
+          severity: normalizeEnum(
+            row.severity,
+            BUSINESS_PROMO_SEVERITIES,
+            "medium",
+          ),
           startDate,
           endDate,
           affectedScope: normalizeString(row.affectedScope),
           notes: normalizeString(row.notes),
-          sourceLabel: normalizeString(row.sourceLabel) ?? "settings_manual_entry",
+          sourceLabel:
+            normalizeString(row.sourceLabel) ?? "settings_manual_entry",
         };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row))
@@ -1067,13 +1337,18 @@ export function sanitizeBusinessCommercialTruthInput(
           BUSINESS_STOCK_PRESSURE_STATUSES,
           "healthy",
         ),
-        landingPageConcern: normalizeString(constraintsInput.landingPageConcern),
-        merchandisingConcern: normalizeString(constraintsInput.merchandisingConcern),
+        landingPageConcern: normalizeString(
+          constraintsInput.landingPageConcern,
+        ),
+        merchandisingConcern: normalizeString(
+          constraintsInput.merchandisingConcern,
+        ),
         manualDoNotScaleReason: normalizeString(
           constraintsInput.manualDoNotScaleReason,
         ),
         sourceLabel:
-          normalizeString(constraintsInput.sourceLabel) ?? "settings_manual_entry",
+          normalizeString(constraintsInput.sourceLabel) ??
+          "settings_manual_entry",
       }
     : null;
 
@@ -1097,21 +1372,42 @@ export function sanitizeBusinessCommercialTruthInput(
           "unknown",
         ),
         archetype: normalizeString(profile.archetype) ?? "default",
-        targetRoasMultiplier: normalizeNumber(profile.targetRoasMultiplier),
-        breakEvenRoasMultiplier: normalizeNumber(profile.breakEvenRoasMultiplier),
-        targetCpaMultiplier: normalizeNumber(profile.targetCpaMultiplier),
-        breakEvenCpaMultiplier: normalizeNumber(profile.breakEvenCpaMultiplier),
-        confidenceCap: normalizeUnitInterval(profile.confidenceCap),
+        targetRoasMultiplier: normalizeCommercialInputNumber(
+          profile.targetRoasMultiplier,
+          "calibrationProfiles.targetRoasMultiplier",
+        ),
+        breakEvenRoasMultiplier: normalizeCommercialInputNumber(
+          profile.breakEvenRoasMultiplier,
+          "calibrationProfiles.breakEvenRoasMultiplier",
+        ),
+        targetCpaMultiplier: normalizeCommercialInputNumber(
+          profile.targetCpaMultiplier,
+          "calibrationProfiles.targetCpaMultiplier",
+        ),
+        breakEvenCpaMultiplier: normalizeCommercialInputNumber(
+          profile.breakEvenCpaMultiplier,
+          "calibrationProfiles.breakEvenCpaMultiplier",
+        ),
+        confidenceCap: normalizeCommercialInputUnitInterval(
+          profile.confidenceCap,
+          "calibrationProfiles.confidenceCap",
+        ),
         actionCeiling:
           typeof profile.actionCeiling === "string"
             ? normalizeEnum(
                 profile.actionCeiling,
-                ["review_hold", "review_reduce", "monitor_low_truth", "degraded_no_scale"] as const,
+                [
+                  "review_hold",
+                  "review_reduce",
+                  "monitor_low_truth",
+                  "degraded_no_scale",
+                ] as const,
                 "review_hold",
               )
             : null,
         notes: normalizeString(profile.notes),
-        sourceLabel: normalizeString(profile.sourceLabel) ?? "settings_manual_entry",
+        sourceLabel:
+          normalizeString(profile.sourceLabel) ?? "settings_manual_entry",
       }))
       .filter((profile) => profile.archetype.length > 0),
     (profile) =>
@@ -1137,12 +1433,14 @@ export function sanitizeBusinessCommercialTruthInput(
 
 export async function getBusinessCommercialTruthSnapshot(
   businessId: string,
+  options?: { sequentialQueries?: boolean },
 ): Promise<BusinessCommercialTruthSnapshot> {
   try {
     const readiness = await getDbSchemaReadiness({
       tables: COMMERCIAL_TRUTH_TABLES,
     });
-    const emptySnapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+    const emptySnapshot =
+      createEmptyBusinessCommercialTruthSnapshot(businessId);
 
     if (!readiness.ready) {
       return {
@@ -1154,8 +1452,8 @@ export async function getBusinessCommercialTruthSnapshot(
     }
 
     const sql = getDb();
-    const [targetRows, countryRows, promoRows, constraintRows, calibrationRows] = await Promise.all([
-      sql`
+    const snapshotQueries = [
+      () => sql`
         SELECT
           target_cpa,
           target_roas,
@@ -1170,13 +1468,16 @@ export async function getBusinessCommercialTruthSnapshot(
           cost_fulfillment_percent,
           cost_payment_processing_percent,
           source_label,
-          updated_at,
+          to_char(
+            updated_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+          ) AS updated_at,
           updated_by_user_id
         FROM business_target_packs
         WHERE business_id = ${businessId}
         LIMIT 1
       `,
-      sql`
+      () => sql`
         SELECT
           country_code,
           economics_multiplier,
@@ -1192,7 +1493,7 @@ export async function getBusinessCommercialTruthSnapshot(
         WHERE business_id = ${businessId}
         ORDER BY priority_tier ASC, country_code ASC
       `,
-      sql`
+      () => sql`
         SELECT
           event_id,
           title,
@@ -1209,7 +1510,7 @@ export async function getBusinessCommercialTruthSnapshot(
         WHERE business_id = ${businessId}
         ORDER BY start_date ASC, end_date ASC, title ASC
       `,
-      sql`
+      () => sql`
         SELECT
           site_issue_status,
           checkout_issue_status,
@@ -1226,7 +1527,7 @@ export async function getBusinessCommercialTruthSnapshot(
         WHERE business_id = ${businessId}
         LIMIT 1
       `,
-      sql`
+      () => sql`
         SELECT
           channel,
           objective_family,
@@ -1246,7 +1547,24 @@ export async function getBusinessCommercialTruthSnapshot(
         WHERE business_id = ${businessId}
         ORDER BY channel ASC, objective_family ASC, bid_regime ASC, archetype ASC
       `,
-    ]);
+    ] as const;
+    const snapshotResults: unknown[][] = [];
+    if (options?.sequentialQueries) {
+      for (const query of snapshotQueries) {
+        snapshotResults.push(await query());
+      }
+    } else {
+      snapshotResults.push(
+        ...(await Promise.all(snapshotQueries.map((query) => query()))),
+      );
+    }
+    const [
+      targetRows,
+      countryRows,
+      promoRows,
+      constraintRows,
+      calibrationRows,
+    ] = snapshotResults;
 
     const targetPack = mapTargetPackRow((targetRows as TargetPackRow[])[0]);
     const countryEconomics = (countryRows as CountryEconomicsRow[]).map(
@@ -1256,15 +1574,18 @@ export async function getBusinessCommercialTruthSnapshot(
     const operatingConstraints = mapConstraintsRow(
       (constraintRows as OperatingConstraintsRow[])[0],
     );
-    const calibrationProfiles = (calibrationRows as CalibrationProfileRow[]).map(
-      mapCalibrationProfileRow,
-    );
+    const calibrationProfiles = (
+      calibrationRows as CalibrationProfileRow[]
+    ).map(mapCalibrationProfileRow);
     const costModelContext = mapCostModelContext(
       await getBusinessCostModel(businessId).catch(() => null),
     );
 
     const sectionMeta = {
-      targetPack: buildSectionMeta("targetPack", targetPack ? [targetPack] : []),
+      targetPack: buildSectionMeta(
+        "targetPack",
+        targetPack ? [targetPack] : [],
+      ),
       countryEconomics: buildSectionMeta("countryEconomics", countryEconomics),
       promoCalendar: buildSectionMeta("promoCalendar", promoCalendar),
       operatingConstraints: buildSectionMeta(
@@ -1351,23 +1672,283 @@ export async function getBusinessTargetPackHistoryAsOf(input: {
   return mapTargetPackRow(row);
 }
 
+export async function reconfirmBusinessTargetPack(input: {
+  businessId: string;
+  updatedByUserId: string;
+  expectedUpdatedAt: string;
+}): Promise<BusinessTargetPackReconfirmationResult> {
+  await assertDbSchemaReady({
+    tables: ["business_target_packs", "business_target_pack_history"],
+    context: "business_target_pack_reconfirmation",
+  });
+
+  const rows = await runDbTransaction(async () => {
+    await acquireBusinessCommercialAdvisoryLock(input.businessId);
+    const sql = getDb();
+    return sql<TargetPackReconfirmationRow>`
+    /* target-pack-reconfirmation */
+    WITH params AS (
+      SELECT
+        ${input.businessId}::uuid AS business_id,
+        ${input.expectedUpdatedAt}::timestamptz AS expected_updated_at,
+        ${input.updatedByUserId}::uuid AS updated_by_user_id
+    ), current_row AS MATERIALIZED (
+      SELECT
+        target.business_id,
+        target.business_ref_id,
+        target.target_cpa,
+        target.target_roas,
+        target.break_even_cpa,
+        target.break_even_roas,
+        target.contribution_margin_assumption,
+        target.aov_assumption,
+        target.new_customer_weight,
+        target.default_risk_posture,
+        target.cost_cogs_percent,
+        target.cost_shipping_percent,
+        target.cost_fulfillment_percent,
+        target.cost_payment_processing_percent,
+        target.source_label,
+        target.updated_by_user_id,
+        target.updated_at
+      FROM business_target_packs target
+      JOIN params ON params.business_id = target.business_id
+      FOR UPDATE OF target
+    ), assessment AS (
+      SELECT
+        current_row.*,
+        CASE
+          WHEN current_row.business_id IS NULL THEN 'target_pack_missing'
+          WHEN current_row.updated_at IS DISTINCT FROM params.expected_updated_at
+            THEN 'target_pack_changed'
+          WHEN current_row.target_cpa IS NULL
+            AND current_row.target_roas IS NULL
+            AND current_row.break_even_cpa IS NULL
+            AND current_row.break_even_roas IS NULL
+            THEN 'target_pack_has_no_economic_anchors'
+          WHEN current_row.target_cpa IS NOT NULL
+            AND NOT (
+              current_row.target_cpa > 0
+              AND current_row.target_cpa < 'Infinity'::double precision
+            ) THEN 'target_cpa_must_be_positive_finite'
+          WHEN current_row.target_roas IS NOT NULL
+            AND NOT (
+              current_row.target_roas > 0
+              AND current_row.target_roas < 'Infinity'::double precision
+            ) THEN 'target_roas_must_be_positive_finite'
+          WHEN current_row.break_even_cpa IS NOT NULL
+            AND NOT (
+              current_row.break_even_cpa > 0
+              AND current_row.break_even_cpa < 'Infinity'::double precision
+            ) THEN 'break_even_cpa_must_be_positive_finite'
+          WHEN current_row.break_even_roas IS NOT NULL
+            AND NOT (
+              current_row.break_even_roas > 0
+              AND current_row.break_even_roas < 'Infinity'::double precision
+            ) THEN 'break_even_roas_must_be_positive_finite'
+          WHEN current_row.target_roas IS NOT NULL
+            AND current_row.break_even_roas IS NOT NULL
+            AND current_row.target_roas < current_row.break_even_roas
+            THEN 'target_roas_below_break_even_roas'
+          WHEN current_row.target_cpa IS NOT NULL
+            AND current_row.break_even_cpa IS NOT NULL
+            AND current_row.target_cpa > current_row.break_even_cpa
+            THEN 'target_cpa_above_break_even_cpa'
+          ELSE 'target_pack_reconfirmed'
+        END AS reason
+      FROM params
+      LEFT JOIN current_row ON true
+    ), evaluation AS (
+      SELECT
+        assessment.*,
+        CASE
+          WHEN assessment.reason = 'target_pack_missing' THEN 'missing'
+          WHEN assessment.reason = 'target_pack_changed' THEN 'conflict'
+          WHEN assessment.reason = 'target_pack_reconfirmed' THEN 'eligible'
+          ELSE 'invalid_target_pack'
+        END AS result_status
+      FROM assessment
+    ), write_clock AS MATERIALIZED (
+      SELECT
+        GREATEST(
+          clock_timestamp(),
+          evaluation.updated_at + INTERVAL '1 microsecond'
+        ) AS effective_at
+      FROM evaluation
+      WHERE evaluation.result_status = 'eligible'
+    ), updated_row AS (
+      UPDATE business_target_packs target
+      SET
+        updated_at = write_clock.effective_at,
+        updated_by_user_id = params.updated_by_user_id
+      FROM params, evaluation, write_clock
+      WHERE evaluation.result_status = 'eligible'
+        AND target.business_id = evaluation.business_id
+        AND target.updated_at = params.expected_updated_at
+      RETURNING
+        target.business_id,
+        target.business_ref_id,
+        target.target_cpa,
+        target.target_roas,
+        target.break_even_cpa,
+        target.break_even_roas,
+        target.contribution_margin_assumption,
+        target.aov_assumption,
+        target.new_customer_weight,
+        target.default_risk_posture,
+        target.cost_cogs_percent,
+        target.cost_shipping_percent,
+        target.cost_fulfillment_percent,
+        target.cost_payment_processing_percent,
+        target.source_label,
+        target.updated_by_user_id,
+        target.updated_at
+    ), history_write AS (
+      INSERT INTO business_target_pack_history (
+        business_id,
+        business_ref_id,
+        target_cpa,
+        target_roas,
+        break_even_cpa,
+        break_even_roas,
+        contribution_margin_assumption,
+        aov_assumption,
+        new_customer_weight,
+        default_risk_posture,
+        cost_cogs_percent,
+        cost_shipping_percent,
+        cost_fulfillment_percent,
+        cost_payment_processing_percent,
+        source_label,
+        operation,
+        effective_at,
+        recorded_at,
+        updated_by_user_id
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        target_cpa,
+        target_roas,
+        break_even_cpa,
+        break_even_roas,
+        contribution_margin_assumption,
+        aov_assumption,
+        new_customer_weight,
+        default_risk_posture,
+        cost_cogs_percent,
+        cost_shipping_percent,
+        cost_fulfillment_percent,
+        cost_payment_processing_percent,
+        source_label,
+        'upsert',
+        updated_at,
+        updated_at,
+        updated_by_user_id
+      FROM updated_row
+      RETURNING business_id, effective_at AS updated_at
+    )
+    SELECT
+      CASE
+        WHEN history_write.business_id IS NOT NULL THEN 'reconfirmed'
+        WHEN evaluation.result_status = 'eligible' THEN 'write_failed'
+        ELSE evaluation.result_status
+      END AS result_status,
+      CASE
+        WHEN history_write.business_id IS NOT NULL THEN 'target_pack_reconfirmed'
+        WHEN evaluation.result_status = 'eligible'
+          THEN 'target_pack_reconfirmation_write_failed'
+        ELSE evaluation.reason
+      END AS reason,
+      to_char(
+        COALESCE(history_write.updated_at, evaluation.updated_at)
+          AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+      ) AS updated_at
+    FROM evaluation
+    LEFT JOIN history_write ON true
+    `;
+  });
+
+  const row = rows[0];
+  if (!row) {
+    throw new Error("Target pack reconfirmation did not return a result.");
+  }
+
+  if (row.result_status === "missing") {
+    return { status: "missing", reason: "target_pack_missing" };
+  }
+  if (row.result_status === "write_failed") {
+    throw new Error(
+      "Target pack reconfirmation did not persist its history row.",
+    );
+  }
+
+  const updatedAt = normalizeTimestampValue(row.updated_at);
+  if (!updatedAt) {
+    throw new Error(
+      `Target pack reconfirmation returned ${row.result_status} without updated_at.`,
+    );
+  }
+
+  if (row.result_status === "reconfirmed") {
+    return {
+      status: "reconfirmed",
+      reason: "target_pack_reconfirmed",
+      updatedAt,
+    };
+  }
+  if (row.result_status === "conflict") {
+    return {
+      status: "conflict",
+      reason: "target_pack_changed",
+      currentUpdatedAt: updatedAt,
+    };
+  }
+  return {
+    status: "invalid_target_pack",
+    reason: row.reason,
+    currentUpdatedAt: updatedAt,
+  };
+}
+
 export async function upsertBusinessCommercialTruthSnapshot(input: {
   businessId: string;
   updatedByUserId: string | null;
   snapshot: Partial<BusinessCommercialTruthSnapshot> | null | undefined;
+  expectedRevision?: string | null;
 }) {
   await assertDbSchemaReady({
     tables: COMMERCIAL_TRUTH_WRITE_TABLES,
     context: "business_commercial_truth_upsert",
   });
 
-  const sanitized = sanitizeBusinessCommercialTruthInput(input.businessId, input.snapshot);
-  const sql = getDb();
-  const businessRefIds = await resolveBusinessReferenceIds([sanitized.businessId]);
+  const sanitized = sanitizeBusinessCommercialTruthInput(
+    input.businessId,
+    input.snapshot,
+  );
+  const businessRefIds = await resolveBusinessReferenceIds([
+    sanitized.businessId,
+  ]);
   const businessRefId = businessRefIds.get(sanitized.businessId) ?? null;
 
-  if (sanitized.targetPack) {
-    await sql`
+  await runDbTransaction(async () => {
+    const sql = getDb();
+    await acquireBusinessCommercialAdvisoryLock(sanitized.businessId);
+    if (input.expectedRevision !== undefined) {
+      const currentSnapshot = await getBusinessCommercialTruthSnapshot(
+        sanitized.businessId,
+        { sequentialQueries: true },
+      );
+      const currentRevision =
+        businessCommercialSnapshotRevision(currentSnapshot);
+      if (input.expectedRevision !== currentRevision) {
+        throw new BusinessCommercialSnapshotConflictError(currentRevision);
+      }
+    }
+
+    if (sanitized.targetPack) {
+      await sql`
       WITH write_clock AS (
         SELECT now() AS effective_at
       ), current_write AS (
@@ -1521,8 +2102,8 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         updated_by_user_id
       FROM current_write
     `;
-  } else {
-    await sql`
+    } else {
+      await sql`
       WITH write_clock AS (
         SELECT now() AS effective_at
       ), current_row AS (
@@ -1596,11 +2177,11 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       USING history_write
       WHERE target.business_id = history_write.business_id
     `;
-  }
+    }
 
-  await sql`DELETE FROM business_country_economics WHERE business_id = ${sanitized.businessId}`;
-  for (const row of sanitized.countryEconomics) {
-    await sql`
+    await sql`DELETE FROM business_country_economics WHERE business_id = ${sanitized.businessId}`;
+    for (const row of sanitized.countryEconomics) {
+      await sql`
       INSERT INTO business_country_economics (
         business_id,
         business_ref_id,
@@ -1645,11 +2226,11 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         updated_by_user_id = EXCLUDED.updated_by_user_id,
         updated_at = now()
     `;
-  }
+    }
 
-  await sql`DELETE FROM business_promo_calendar_events WHERE business_id = ${sanitized.businessId}`;
-  for (const row of sanitized.promoCalendar) {
-    await sql`
+    await sql`DELETE FROM business_promo_calendar_events WHERE business_id = ${sanitized.businessId}`;
+    for (const row of sanitized.promoCalendar) {
+      await sql`
       INSERT INTO business_promo_calendar_events (
         business_id,
         business_ref_id,
@@ -1697,10 +2278,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         updated_by_user_id = EXCLUDED.updated_by_user_id,
         updated_at = now()
     `;
-  }
+    }
 
-  if (sanitized.operatingConstraints) {
-    await sql`
+    if (sanitized.operatingConstraints) {
+      await sql`
       INSERT INTO business_operating_constraints (
         business_id,
         business_ref_id,
@@ -1749,19 +2330,19 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         updated_by_user_id = EXCLUDED.updated_by_user_id,
         updated_at = now()
     `;
-  } else {
-    await sql`
+    } else {
+      await sql`
       DELETE FROM business_operating_constraints
       WHERE business_id = ${sanitized.businessId}
     `;
-  }
+    }
 
-  await sql`
+    await sql`
     DELETE FROM business_decision_calibration_profiles
     WHERE business_id = ${sanitized.businessId}
   `;
-  for (const profile of sanitized.calibrationProfiles ?? []) {
-    await sql`
+    for (const profile of sanitized.calibrationProfiles ?? []) {
+      await sql`
       INSERT INTO business_decision_calibration_profiles (
         business_id,
         business_ref_id,
@@ -1815,7 +2396,8 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         updated_by_user_id = EXCLUDED.updated_by_user_id,
         updated_at = now()
     `;
-  }
+    }
+  });
 
   return getBusinessCommercialTruthSnapshot(input.businessId);
 }

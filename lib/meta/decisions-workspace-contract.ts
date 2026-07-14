@@ -1,5 +1,5 @@
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
-  "meta-decisions-workspace.read.v1" as const;
+  "meta-decisions-workspace.read.v2" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
   "meta-decisions-classification-overlay.v2" as const;
@@ -42,6 +42,13 @@ export type MetaDecisionServedBuyerAction = Exclude<
   MetaDecisionBuyerAction,
   "diagnose_data"
 >;
+
+export type MetaDecisionAuthorityBlocker =
+  | "profile_hard_action_ineligible"
+  | "source_freshness"
+  | "campaign_context"
+  | "native_metrics_unavailable"
+  | "native_profile_unavailable";
 
 export type MetaDecisionState =
   "act" | "monitor" | "blocked" | "not_applicable";
@@ -242,6 +249,12 @@ export interface MetaCanonicalDecision {
   sourceAuthority?: MetaDecisionSourceAuthority;
   sourceDecision: {
     label: string;
+    /** Persisted mathematical/semantic verdict before the first authority gate.
+     * Null means the historical snapshot predates this provenance contract. */
+    preAuthorityLabel: string | null;
+    /** First effective authority gate only. This is evidence and never grants
+     * execution authority. */
+    authorityBlocker: MetaDecisionAuthorityBlocker | null;
     rawLabel: string | null;
     reason: string;
     confidence: number;

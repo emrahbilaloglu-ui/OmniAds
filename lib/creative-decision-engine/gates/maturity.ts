@@ -1,9 +1,6 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { LAUNCH_MONITOR_WINDOW_DAYS } from "../config-values";
-
-function formatSpend(value: number): string {
-  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
-}
+import { comparisonLabel, formatReasonNumber } from "./reason-format";
 
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -58,6 +55,7 @@ export function maturityGate(ctx: GateContext): GateResult {
   const ageDays = ctx.input.ageDays;
   const ageDaysSuffix = ageDays !== null ? `, age ${ageDays}d` : "";
   const spendThreshold = commercialMaturitySpendThreshold(ctx);
+  const comparison = comparisonLabel(ctx.truthSource);
 
   if (ctx.input.spend < spendThreshold) {
     const ratio = ctx.ratioToTarget;
@@ -79,9 +77,9 @@ export function maturityGate(ctx: GateContext): GateResult {
           "cut",
           `Severe loser at scale: ROAS ${ctx.input.roas.toFixed(2)} = ${(
             ratio * 100
-          ).toFixed(0)}% of target on $${formatSpend(
+          ).toFixed(0)}% of ${comparison} on ${formatReasonNumber(
             ctx.input.spend,
-          )} (28d) — spend exceeded hard-cut threshold $${formatSpend(
+          )} spend (28d) — spend exceeded hard-cut threshold ${formatReasonNumber(
             hardCutSpend,
           )} and ratio is below severe-loser zone (${(
             severeLoserRatio * 100
@@ -112,9 +110,9 @@ export function maturityGate(ctx: GateContext): GateResult {
           badges: [...ctx.badges, ...launchBadges],
         },
         "test_more",
-        `Below commercial maturity (28d spend $${formatSpend(
+        `Below commercial maturity (28d spend ${formatReasonNumber(
           ctx.input.spend,
-        )} < $${formatSpend(
+        )} < ${formatReasonNumber(
           spendThreshold,
         )} loss-budget floor, ${purchases} purchases${ageDaysSuffix}) — let the creative accumulate signal.`,
       ),

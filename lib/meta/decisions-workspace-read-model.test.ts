@@ -11,6 +11,7 @@ import {
   type MetaDecisionCampaignContextSourceRow,
   type MetaDecisionIdentitySourceRow,
   type MetaDecisionSnapshotSourceRow,
+  type MetaNativeDecisionGenerationSourceRow,
   type MetaNativeDecisionSnapshotSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
@@ -92,6 +93,8 @@ function snapshot(
     scope_type: "account",
     scope_id: "*",
     label: "scale",
+    pre_authority_label: null,
+    authority_blocker: null,
     raw_label: null,
     confidence: 82,
     truth_source: "commercial_truth",
@@ -176,6 +179,8 @@ function nativeSnapshot(
     scope_type: "account",
     scope_id: "act_1",
     label: "cut",
+    pre_authority_label: null,
+    authority_blocker: null,
     raw_label: "cut",
     confidence: 88,
     truth_source: "commercial_truth",
@@ -237,6 +242,54 @@ function nativeModel(rows: MetaNativeDecisionSnapshotSourceRow[]) {
     outcomeSourceAvailable: false,
     responseSourceAvailable: false,
     generatedAt: "2026-07-12T12:00:00.000Z",
+  });
+}
+
+function nativeGeneration(
+  row: MetaNativeDecisionSnapshotSourceRow,
+  overrides: Partial<MetaNativeDecisionGenerationSourceRow> = {},
+): MetaNativeDecisionGenerationSourceRow {
+  const manifestHash = hashAdDecisionIdentityManifest({
+    businessId: "biz_1",
+    providerAccountId: row.provider_account_id,
+    asOfDate: row.as_of_date,
+    adIds: [row.ad_id],
+  });
+  return {
+    job_status: "success",
+    job_run_id: row.job_run_id,
+    as_of_date: row.as_of_date,
+    engine_version: NATIVE_AD_ENGINE_VERSION,
+    provider_account_ref_id: row.provider_account_ref_id,
+    provider_account_id: row.provider_account_id,
+    expected_ad_count: 1,
+    expected_manifest_hash: manifestHash,
+    hydrated_ad_count: 1,
+    hydrated_manifest_hash: manifestHash,
+    authoritative_for_prune: true,
+    ...overrides,
+  };
+}
+
+function workspaceReadQuery(input: {
+  generationRows?: unknown[];
+  nativeRows?: MetaNativeDecisionSnapshotSourceRow[];
+  legacyRows?: MetaDecisionSnapshotSourceRow[];
+}) {
+  return vi.fn(async (sql: string, _params?: unknown[]) => {
+    if (sql.includes("WITH candidate_runs AS")) {
+      return input.generationRows ?? [];
+    }
+    if (sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot")) {
+      return input.nativeRows ?? [];
+    }
+    if (sql.includes("scoped_history")) {
+      return input.legacyRows ?? [snapshot("creative_1")];
+    }
+    if (sql.includes("COALESCE(creative_dim.provider_account_id")) {
+      return [identity("creative_1")];
+    }
+    return [];
   });
 }
 
@@ -1128,7 +1181,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       String(sql).includes("FROM meta_campaign_labels"),
     );
     expect(String(snapshotCall?.[0])).toContain("provider_account_id = $2");
-    expect(snapshotCall?.[1]).toEqual(["biz_1", "act_1"]);
+    expect(snapshotCall?.[1]).toEqual(["biz_1", "act_1", null]);
     expect(String(identityCall?.[0])).toContain("provider_account_id = $2");
     expect(identityCall?.[1]).toEqual([
       "biz_1",
@@ -1151,7 +1204,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       { code: "42P01" },
     );
     const query = vi.fn(async (sql: string) => {
-      if (sql.includes("WITH latest_job AS")) return [];
+      if (sql.includes("WITH candidate_runs AS")) return [];
       if (sql.includes("scoped_history")) return [snapshot("creative_1")];
       if (sql.includes("FROM meta_entity_state_history state")) {
         throw undefinedRelation;
@@ -1205,7 +1258,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       ),
     ).toBe(true);
     const generationCall = query.mock.calls.find(([sql]) =>
-      String(sql).includes("WITH latest_job AS"),
+      String(sql).includes("WITH candidate_runs AS"),
     );
     expect(String(generationCall?.[0])).toContain(
       "run.business_id = $1::text",
@@ -1214,9 +1267,10 @@ describe("Meta Decisions workspace canonical read model", () => {
 
   it("falls back to visible legacy rows when the latest native account manifest is incomplete", async () => {
     const query = vi.fn(async (sql: string) => {
-      if (sql.includes("WITH latest_job AS")) {
+      if (sql.includes("WITH candidate_runs AS")) {
         return [
           {
+            job_status: "success",
             job_run_id: "native-run",
             as_of_date: "2026-07-12",
             engine_version: NATIVE_AD_ENGINE_VERSION,
@@ -1255,6 +1309,222 @@ describe("Meta Decisions workspace canonical read model", () => {
     ).toBe(false);
   });
 
+  it.each([
+    ["failed", "native_latest_job_failed"],
+    ["skipped", "native_latest_job_skipped"],
+  ] as const)(
+    "fails closed when the newest effective terminal native run is %s",
+    async (jobStatus, fallbackReason) => {
+      const row = nativeSnapshot("120000000000000021");
+      const query = workspaceReadQuery({
+        generationRows: [
+          nativeGeneration(row, {
+            job_status: jobStatus,
+            job_run_id: `newer-${jobStatus}`,
+          }),
+        ],
+      });
+      vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+      const model = await readMetaDecisionsWorkspaceReadModel({
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+      });
+      const generationCall = query.mock.calls.find(([sql]) =>
+        sql.includes("WITH candidate_runs AS"),
+      );
+
+      expect(model.source).toMatchObject({
+        authority: "legacy_creative",
+        fallbackReason,
+      });
+      expect(
+        query.mock.calls.some(([sql]) =>
+          sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot"),
+        ),
+      ).toBe(false);
+      expect(String(generationCall?.[0])).toContain(
+        "WHERE run.effective_status <> 'running'",
+      );
+      expect(String(generationCall?.[0])).not.toContain(
+        "AND run.status = 'success'",
+      );
+    },
+  );
+
+  it("fails closed when the newest successful generation belongs to another engine epoch", async () => {
+    const row = nativeSnapshot("120000000000000023");
+    const query = workspaceReadQuery({
+      generationRows: [
+        nativeGeneration(row, {
+          engine_version: "v3-prior-native-epoch",
+        }),
+      ],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const generationCall = query.mock.calls.find(([sql]) =>
+      sql.includes("WITH candidate_runs AS"),
+    );
+
+    expect(model.source).toMatchObject({
+      authority: "legacy_creative",
+      fallbackReason: "native_latest_job_engine_mismatch",
+    });
+    expect(String(generationCall?.[0])).not.toContain(
+      "run.engine_version =",
+    );
+    expect(generationCall?.[1]).toEqual([
+      "biz_1",
+      "act_1",
+      expect.any(String),
+      null,
+      expect.any(Number),
+    ]);
+    expect(
+      query.mock.calls.some(([sql]) =>
+        sql.includes("FROM engine_v3_ad_decision_snapshots_daily snapshot"),
+      ),
+    ).toBe(false);
+  });
+
+  it("serves a later recovery success after a failed native generation", async () => {
+    const row = nativeSnapshot("120000000000000022", {
+      job_run_id: "20000000-0000-4000-8000-000000000022",
+    });
+    const query = workspaceReadQuery({
+      generationRows: [nativeGeneration(row)],
+      nativeRows: [row],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+
+    expect(model.source).toMatchObject({
+      authority: "native_ad",
+      generation: { jobRunId: row.job_run_id },
+    });
+    expect(model.queue.adCandidates?.items[0]?.sourceAuthority).toMatchObject({
+      status: "native_exact",
+      jobRunId: row.job_run_id,
+    });
+  });
+
+  it("enforces the requested as-of bound on native and legacy reads", async () => {
+    const query = workspaceReadQuery({ generationRows: [] });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      asOfDate: "2026-07-10",
+    });
+    const generationCall = query.mock.calls.find(([sql]) =>
+      sql.includes("WITH candidate_runs AS"),
+    );
+    const legacyCall = query.mock.calls.find(([sql]) =>
+      sql.includes("scoped_history"),
+    );
+
+    expect(String(generationCall?.[0])).toContain(
+      "run.as_of_date <= COALESCE(\n          $4::date",
+    );
+    expect(generationCall?.[1]).toEqual([
+      "biz_1",
+      "act_1",
+      "engine_v3_native_ad_decisions_shadow_job",
+      "2026-07-10",
+      120_000,
+    ]);
+    expect(String(legacyCall?.[0])).toContain(
+      "snapshot.as_of_date <= COALESCE(\n          $3::date",
+    );
+    expect(legacyCall?.[1]).toEqual(["biz_1", "act_1", "2026-07-10"]);
+  });
+
+  it("ignores an advisory-lock skip only with the scheduler overlap proof", async () => {
+    const row = nativeSnapshot("120000000000000023", {
+      job_run_id: "20000000-0000-4000-8000-000000000023",
+    });
+    const query = workspaceReadQuery({
+      generationRows: [nativeGeneration(row)],
+      nativeRows: [row],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const generationSql = String(
+      query.mock.calls.find(([sql]) =>
+        sql.includes("WITH candidate_runs AS"),
+      )?.[0],
+    );
+
+    expect(model.source.authority).toBe("native_ad");
+    expect(generationSql).toContain("run.status = 'skipped'");
+    expect(generationSql).toContain(
+      "COALESCE(run.error_message, '') ILIKE 'Advisory lock not acquired%'",
+    );
+    expect(generationSql).toContain("holder.as_of_date = run.as_of_date");
+    expect(generationSql).toContain(
+      "holder.started_at <= COALESCE(run.finished_at, run.started_at)",
+    );
+    expect(generationSql).toContain("holder.finished_at >= run.started_at");
+    expect(generationSql).toContain(
+      "holder.finished_at <= statement_timestamp()",
+    );
+  });
+
+  it("keeps the last valid success visible during a fresh running attempt", async () => {
+    const row = nativeSnapshot("120000000000000024", {
+      job_run_id: "20000000-0000-4000-8000-000000000024",
+    });
+    const query = workspaceReadQuery({
+      generationRows: [nativeGeneration(row)],
+      nativeRows: [row],
+    });
+    vi.mocked(db.getDb).mockReturnValue({ query } as never);
+
+    const model = await readMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+    });
+    const generationSql = String(
+      query.mock.calls.find(([sql]) =>
+        sql.includes("WITH candidate_runs AS"),
+      )?.[0],
+    );
+
+    expect(model.source).toMatchObject({
+      authority: "native_ad",
+      generation: { jobRunId: row.job_run_id },
+    });
+    expect(generationSql).toContain(
+      "WHEN run.status = 'running'",
+    );
+    expect(generationSql).toContain(
+      "make_interval(secs => $5::double precision / 1000.0)",
+    );
+    expect(generationSql).toContain(
+      "THEN 'failed'",
+    );
+    expect(generationSql).toContain(
+      "WHEN run.finished_at IS NULL\n            OR run.finished_at > statement_timestamp()\n          THEN 'failed'",
+    );
+    expect(generationSql).toContain(
+      "WHERE run.effective_status <> 'running'",
+    );
+  });
+
   it("reads native identity by exact Ad id without choosing a representative Ad", async () => {
     const row = nativeSnapshot("120000000000000006");
     const manifestHash = hashAdDecisionIdentityManifest({
@@ -1264,9 +1534,10 @@ describe("Meta Decisions workspace canonical read model", () => {
       adIds: [row.ad_id],
     });
     const query = vi.fn(async (sql: string) => {
-      if (sql.includes("WITH latest_job AS")) {
+      if (sql.includes("WITH candidate_runs AS")) {
         return [
           {
+            job_status: "success",
             job_run_id: row.job_run_id,
             as_of_date: row.as_of_date,
             engine_version: NATIVE_AD_ENGINE_VERSION,
@@ -1305,8 +1576,73 @@ describe("Meta Decisions workspace canonical read model", () => {
     expect(String(nativeSnapshotCall?.[0])).toContain(
       "dimension.ad_id = snapshot.ad_id",
     );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "snapshot.pre_authority_label",
+    );
+    expect(String(nativeSnapshotCall?.[0])).toContain(
+      "snapshot.authority_blocker",
+    );
     expect(String(nativeSnapshotCall?.[0])).not.toContain(
       "creative_id = requested.creative_id",
     );
+  });
+
+  it("maps persisted authority provenance from legacy and native snapshots without inferring historical nulls", () => {
+    const legacy = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [
+        snapshot("creative_legacy", {
+          label: "keep",
+          raw_label: "keep",
+          pre_authority_label: "scale",
+          authority_blocker: "source_freshness",
+        }),
+      ],
+      identityRows: [identity("creative_legacy")],
+      campaignContextRows: [context()],
+    });
+    const legacyDecision =
+      legacy.queue.sections.creative_rotation.items[0] ??
+      legacy.queue.adCandidates?.items[0];
+
+    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v2");
+    expect(legacyDecision?.sourceDecision).toMatchObject({
+      label: "keep",
+      rawLabel: "keep",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+    });
+
+    const native = nativeModel([
+      nativeSnapshot("120000000000000077", {
+        label: "keep",
+        raw_label: "keep",
+        pre_authority_label: "cut",
+        authority_blocker: "profile_hard_action_ineligible",
+        blocked_action_type: "cut",
+        authorized_action: null,
+      }),
+    ]);
+    expect(native.queue.adCandidates?.items[0]?.sourceDecision).toMatchObject({
+      label: "keep",
+      rawLabel: "keep",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "profile_hard_action_ineligible",
+    });
+
+    const historical = buildMetaDecisionsWorkspaceReadModel({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      snapshotRows: [snapshot("creative_historical")],
+      identityRows: [identity("creative_historical")],
+      campaignContextRows: [context()],
+    });
+    expect(
+      historical.queue.sections.creative_rotation.items[0]?.sourceDecision,
+    ).toMatchObject({
+      preAuthorityLabel: null,
+      authorityBlocker: null,
+    });
   });
 });

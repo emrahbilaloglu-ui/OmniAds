@@ -3,6 +3,7 @@ import {
   type AccountDecisionProfile,
   type CreativeInput,
   type DataHealth,
+  type DecisionAuthorityBlocker,
   type DecisionBadge,
   type DecisionLabel,
   type DecisionLabelTransform,
@@ -44,6 +45,8 @@ interface BuildDecisionOutputInput {
   ratioToTarget?: number | null;
   badges?: DecisionBadge[];
   blockers?: DecisionPredicateBlocker[];
+  preAuthorityLabel?: DecisionLabel;
+  authorityBlocker?: DecisionAuthorityBlocker | null;
   blockedActionType?: DecisionLabel | null;
   labelTransform?: DecisionLabelTransform | null;
 }
@@ -403,6 +406,8 @@ export function buildDecisionOutput(
       roas: ctx.input.roas,
       recent7dRoas: ctx.input.recent7dRoas,
     },
+    preAuthorityLabel: output.preAuthorityLabel ?? output.label,
+    authorityBlocker: output.authorityBlocker ?? null,
     labelTransform: output.labelTransform ?? null,
     blockedActionType: output.blockedActionType ?? null,
     engineVersion: ENGINE_VERSION,
@@ -426,6 +431,10 @@ export function finalizeDecision(
     badges: ctx.badges,
     profile: ctx.profile,
   });
+  const preAuthorityLabel = transformed.label;
+  const profileBlocksHardAuthority =
+    isHardActionLabel(preAuthorityLabel) &&
+    softOnly.label !== preAuthorityLabel;
   const hardLabel = isHardActionLabel(softOnly.label)
     ? softOnly.label
     : null;
@@ -498,7 +507,17 @@ export function finalizeDecision(
       confidenceCapForBadges(finalBadges),
     ),
     badges: finalBadges,
-    blockedActionType: freshnessBlocksHardAuthority ? hardLabel : null,
+    preAuthorityLabel,
+    authorityBlocker: profileBlocksHardAuthority
+      ? "profile_hard_action_ineligible"
+      : freshnessBlocksHardAuthority
+        ? "source_freshness"
+        : null,
+    blockedActionType: profileBlocksHardAuthority
+      ? preAuthorityLabel
+      : freshnessBlocksHardAuthority
+        ? hardLabel
+        : null,
     labelTransform: transformed.labelTransform,
   });
 }
@@ -519,6 +538,9 @@ export function enforceHardActionEligibility(
         decision.badges,
         SCALE_READINESS_BLOCKED_BADGE,
       ),
+      authorityBlocker:
+        decision.authorityBlocker ?? "profile_hard_action_ineligible",
+      blockedActionType: decision.blockedActionType ?? "scale",
     };
   }
   if (decision.label === "cut" && !profile.hardActionEligibility.cut) {
@@ -534,6 +556,9 @@ export function enforceHardActionEligibility(
         label: "Soft-cut candidate",
         severity: "warning",
       }),
+      authorityBlocker:
+        decision.authorityBlocker ?? "profile_hard_action_ineligible",
+      blockedActionType: decision.blockedActionType ?? "cut",
     };
   }
   if (decision.label === "refresh" && !profile.hardActionEligibility.refresh) {
@@ -544,6 +569,9 @@ export function enforceHardActionEligibility(
       ...decision,
       label: "keep",
       reason: `[soft-only - refresh blocked] ${decision.reason} (${reason})`,
+      authorityBlocker:
+        decision.authorityBlocker ?? "profile_hard_action_ineligible",
+      blockedActionType: decision.blockedActionType ?? "refresh",
     };
   }
   return decision;

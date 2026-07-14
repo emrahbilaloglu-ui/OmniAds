@@ -18,5 +18,8 @@ describe("backtest store SQL contracts", () => {
     expect(source).toContain(
       "GROUP BY creative_id, as_of_date, engine_version, scope_type, scope_id",
     );
+    expect(source).toContain("pre_authority_label");
+    expect(source).toContain("authority_blocker");
+    expect(source).toContain("label: toDecisionLabel(row.label)");
   });
 });

@@ -1,4 +1,4 @@
-import type { DecisionLabel } from "./types";
+import type { DecisionAuthorityBlocker, DecisionLabel } from "./types";
 
 export type BacktestAction = Extract<DecisionLabel, "scale" | "cut" | "refresh">;
 
@@ -15,6 +15,8 @@ export interface CreativeDecisionBacktestRow {
    */
   realizedOutcome: "positive" | "negative" | "neutral" | "unknown";
   severity?: "critical" | "high" | "medium" | "low";
+  preAuthorityLabel?: DecisionLabel | null;
+  authorityBlocker?: DecisionAuthorityBlocker | null;
 }
 
 export interface DecisionCoverageInput {
@@ -48,6 +50,10 @@ export interface DecisionBacktestSummary {
     positive: number;
     observedRate: number;
   }>;
+  /** Published-label metrics stay unchanged; these counts expose held authority. */
+  preAuthorityLabelCounts?: Partial<Record<DecisionLabel, number>>;
+  authorityBlockerCounts?: Partial<Record<DecisionAuthorityBlocker, number>>;
+  authorityHeldHardRows?: number;
 }
 
 export interface DecisionBacktestSegmentSummary
@@ -201,7 +207,30 @@ export function summarizeDecisionBacktest(input: {
     // outcomes, not total rows.
     hardActionKnownSampleSize: judgedHardRows.length,
     hardConfidenceBuckets: computeHardConfidenceBuckets(hardRows),
+    preAuthorityLabelCounts: countDefinedValues(
+      input.rows.map((row) => row.preAuthorityLabel),
+    ),
+    authorityBlockerCounts: countDefinedValues(
+      input.rows.map((row) => row.authorityBlocker),
+    ),
+    authorityHeldHardRows: input.rows.filter(
+      (row) =>
+        row.authorityBlocker != null &&
+        row.preAuthorityLabel != null &&
+        isHardAction(row.preAuthorityLabel),
+    ).length,
   };
+}
+
+function countDefinedValues<Value extends string>(
+  values: readonly (Value | null | undefined)[],
+): Partial<Record<Value, number>> {
+  const counts: Partial<Record<Value, number>> = {};
+  for (const value of values) {
+    if (value == null) continue;
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function computeHardConfidenceBuckets(

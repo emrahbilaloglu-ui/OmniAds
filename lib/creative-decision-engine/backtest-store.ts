@@ -4,6 +4,10 @@ import {
   type CreativeDecisionBacktestRow,
   type DecisionBacktestSummary,
 } from "./backtest";
+import {
+  DECISION_AUTHORITY_BLOCKERS,
+  type DecisionAuthorityBlocker,
+} from "./evaluation-store";
 import { ENGINE_VERSION, type DecisionLabel } from "./types";
 
 export interface ReadCreativeDecisionBacktestSummaryInput {
@@ -19,10 +23,18 @@ type OutcomeRow = Record<string, unknown> & {
   creative_id: unknown;
   decision_as_of_date: unknown;
   label: unknown;
+  pre_authority_label: unknown;
+  authority_blocker: unknown;
   confidence: unknown;
   realized_outcome: unknown;
   severity: unknown;
 };
+
+export type CreativeDecisionBacktestRowWithProvenance =
+  CreativeDecisionBacktestRow & {
+    preAuthorityLabel: DecisionLabel | null;
+    authorityBlocker: DecisionAuthorityBlocker | null;
+  };
 
 type CoverageRow = Record<string, unknown> & {
   snapshot_row_count: unknown;
@@ -43,6 +55,8 @@ export async function readCreativeDecisionBacktestSummary(
         creative_id,
         decision_as_of_date,
         label,
+        pre_authority_label,
+        authority_blocker,
         confidence,
         realized_outcome,
         severity
@@ -114,15 +128,35 @@ export async function readCreativeDecisionBacktestSummary(
   });
 }
 
-function toBacktestRow(row: OutcomeRow): CreativeDecisionBacktestRow {
+function toBacktestRow(row: OutcomeRow): CreativeDecisionBacktestRowWithProvenance {
   return {
     creativeId: toString(row.creative_id),
     asOfDate: toDateOnly(row.decision_as_of_date),
     label: toDecisionLabel(row.label),
+    preAuthorityLabel: toOptionalDecisionLabel(row.pre_authority_label),
+    authorityBlocker: toAuthorityBlocker(row.authority_blocker),
     confidence: toInteger(row.confidence),
     realizedOutcome: toRealizedOutcome(row.realized_outcome),
     severity: toSeverity(row.severity),
   };
+}
+
+function toOptionalDecisionLabel(value: unknown): DecisionLabel | null {
+  if (value === null || value === undefined) return null;
+  const label = toString(value);
+  if (
+    label === "scale" || label === "keep" || label === "refresh" ||
+    label === "cut" || label === "test_more" || label === "diagnose" ||
+    label === "out_of_scope"
+  ) return label;
+  throw new Error(`Unexpected decision authority label: ${label}`);
+}
+
+function toAuthorityBlocker(value: unknown): DecisionAuthorityBlocker | null {
+  if (value === null || value === undefined) return null;
+  const blocker = toString(value) as DecisionAuthorityBlocker;
+  if (DECISION_AUTHORITY_BLOCKERS.includes(blocker)) return blocker;
+  throw new Error(`Unexpected decision authority blocker: ${blocker}`);
 }
 
 function toString(value: unknown) {

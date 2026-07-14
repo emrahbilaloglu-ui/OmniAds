@@ -227,6 +227,8 @@ function makeDecision(): DecisionOutput {
     creativeId: "creative-1",
     creativeName: "Creative One",
     label: "scale",
+    preAuthorityLabel: "scale",
+    authorityBlocker: null,
     reason: "Strong winner against target.",
     confidence: 82,
     truthSource: "commercial_truth",

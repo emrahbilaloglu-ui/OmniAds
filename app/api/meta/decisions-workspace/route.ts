@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type {
   MetaDecisionsOsWorkspacePayload,
-  MetaDecisionsWorkspaceBanner,
   MetaDecisionsWorkspacePayload,
   MetaLanePayload,
   MetaPulsePayload,
@@ -26,6 +25,12 @@ import {
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import type { MetaOsWorkspaceBanner } from "@/lib/meta/decisions-os-contract";
+import {
+  hasMetaHardActionAnchor,
+  readMetaCommercialTargets,
+  type MetaCommercialTargets,
+} from "@/lib/meta/commercial-targets";
 import {
   metaDecisionCampaignContextScopeKey,
   normalizeMetaDecisionCampaignContextIds,
@@ -171,9 +176,8 @@ function forwardedHeaders(request: NextRequest) {
 }
 
 function useInProcessUpstreams() {
-  const override = process.env.META_DECISIONS_UPSTREAM_TRANSPORT
-    ?.trim()
-    .toLowerCase();
+  const override =
+    process.env.META_DECISIONS_UPSTREAM_TRANSPORT?.trim().toLowerCase();
   if (override === "http") return false;
   if (override === "in_process") return true;
   return process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
@@ -198,14 +202,12 @@ async function invokeWorkspaceUpstream(input: {
     signal: input.signal,
   });
   if (input.source === "account-pulse") {
-    const { GET: getAccountPulse } = await import(
-      "@/app/api/meta/account-pulse/route"
-    );
+    const { GET: getAccountPulse } =
+      await import("@/app/api/meta/account-pulse/route");
     return getAccountPulse(upstreamRequest);
   }
-  const { GET: getLaneClassification } = await import(
-    "@/app/api/meta/lane-classify/route"
-  );
+  const { GET: getLaneClassification } =
+    await import("@/app/api/meta/lane-classify/route");
   return getLaneClassification(upstreamRequest);
 }
 
@@ -246,11 +248,26 @@ async function resolveWorkspaceEndDate(input: {
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
+        WITH candidate_dates AS (
+          SELECT MAX(as_of_date) AS as_of_date
+          FROM engine_v3_ad_decision_snapshots_daily
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1
+            AND provider_account_id = $2
+          UNION ALL
+          SELECT MAX(as_of_date) AS as_of_date
+          FROM engine_v3_decision_snapshots_daily
+          WHERE business_id::text = $1
+            AND provider_account_id = $2
+          UNION ALL
+          SELECT MAX(as_of_date) AS as_of_date
+          FROM engine_v3_job_runs
+          WHERE business_ref_id = $1::uuid
+            AND business_id = $1
+            AND job_name = 'engine_v3_native_ad_decisions_shadow_job'
+        )
         SELECT MAX(as_of_date)::text AS latest_as_of
-        FROM engine_v3_ad_decision_snapshots_daily
-        WHERE business_ref_id = $1::uuid
-          AND business_id = $1
-          AND provider_account_id = $2
+        FROM candidate_dates
       `,
       [input.businessId, input.providerAccountId],
     );
@@ -282,6 +299,7 @@ async function canonicalDecisionReadModel(input: {
   businessId: string;
   providerAccountId: string | null;
   adCandidateLimit: number;
+  asOfDate: string;
   currentAds: CurrentMetaAdsResult;
 }): Promise<
   | { ok: true; model: MetaDecisionsWorkspaceReadModel }
@@ -336,6 +354,7 @@ async function canonicalDecisionReadModel(input: {
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         adCandidateLimit: input.adCandidateLimit,
+        asOfDate: input.asOfDate,
         currentAds: input.currentAds.rows,
         currentAdSourceComplete: input.currentAds.complete,
       }),
@@ -802,8 +821,10 @@ function workspaceBanners(input: {
   trackingBlocked: boolean;
   killSwitchEngaged: boolean;
   viewer: MetaDecisionsWorkspacePayload["viewer"];
-}): MetaDecisionsWorkspaceBanner[] {
-  const banners: MetaDecisionsWorkspaceBanner[] = [];
+  commercialTargets: MetaCommercialTargets | null;
+  commercialTargetsReadFailed: boolean;
+}): MetaOsWorkspaceBanner[] {
+  const banners: MetaOsWorkspaceBanner[] = [];
   if (input.viewer?.readOnly && input.viewer.readOnlyReason) {
     banners.push({
       id: input.viewer.isReviewer
@@ -827,6 +848,56 @@ function workspaceBanners(input: {
         readiness.notReadyReason ??
         "The selected range is partially verified; numbers may be incomplete.",
       blocking: false,
+    });
+  }
+  if (input.commercialTargetsReadFailed) {
+    banners.push({
+      id: "commercial_target_authority_unavailable",
+      tone: "warning",
+      title: "Commercial target authority could not be verified.",
+      detail:
+        "Target economics could not be read. Hard Scale/Cut authority remains withheld until the source is available.",
+      blocking: false,
+      scope: "target_hard_actions",
+      action: {
+        label: "Review commercial truth",
+        href: "/commercial-truth",
+      },
+    });
+  } else if (input.commercialTargets?.source === "none") {
+    banners.push({
+      id: "commercial_target_authority_missing",
+      tone: "warning",
+      title: "Commercial targets are not configured.",
+      detail:
+        "Set at least one valid economic anchor before hard Scale/Cut authority can be evaluated.",
+      blocking: false,
+      scope: "target_hard_actions",
+      action: {
+        label: "Set commercial truth",
+        href: "/commercial-truth",
+      },
+    });
+  } else if (
+    input.commercialTargets?.source === "configured_targets" &&
+    input.commercialTargets.freshness !== "fresh"
+  ) {
+    const freshnessUnknown = input.commercialTargets.freshness === "unknown";
+    banners.push({
+      id: "stale_commercial_target_authority",
+      tone: "warning",
+      title: freshnessUnknown
+        ? "Commercial target freshness is unknown."
+        : "Commercial targets need reconfirmation.",
+      detail: freshnessUnknown
+        ? "Configured targets have no trustworthy confirmation time. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed."
+        : "Configured targets are stale. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed.",
+      blocking: false,
+      scope: "target_hard_actions",
+      action: {
+        label: "Review commercial truth",
+        href: "/commercial-truth",
+      },
     });
   }
   if (input.trackingBlocked) {
@@ -904,7 +975,7 @@ export async function GET(request: NextRequest) {
       ? await loadResolvedEndDate()
       : (
           await getCachedValue({
-            key: `meta-decisions-end-date-v1:${businessId}:${providerAccountId ?? "none"}`,
+            key: `meta-decisions-end-date-v2:${businessId}:${providerAccountId ?? "none"}`,
             ttlMs: 5 * 60_000,
             staleWhileRevalidateMs: 60 * 60_000,
             loader: loadResolvedEndDate,
@@ -912,6 +983,13 @@ export async function GET(request: NextRequest) {
         ).value;
   const endDateResolvedAt = performance.now();
   const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
+  const commercialTargetsPromise = (
+    explicitEndDate?.trim()
+      ? readMetaCommercialTargets(businessId, { asOf: resolvedEndDate })
+      : readMetaCommercialTargets(businessId)
+  )
+    .then((targets) => ({ targets, readFailed: false as const }))
+    .catch(() => ({ targets: null, readFailed: true as const }));
   let currentAdsCompletedAt = endDateResolvedAt;
   const currentAdsPromise = readCurrentMetaAds({
     businessId,
@@ -970,6 +1048,7 @@ export async function GET(request: NextRequest) {
             businessId,
             providerAccountId,
             adCandidateLimit,
+            asOfDate: resolvedEndDate,
             currentAds,
           }),
           readCurrentCampaignContexts({
@@ -993,7 +1072,7 @@ export async function GET(request: NextRequest) {
         })
       ).value;
     });
-    const [decisionBundle, digest] = await Promise.all([
+    const [decisionBundle, digest, commercialTargetRead] = await Promise.all([
       decisionReadPromise,
       compactOsSurface
         ? Promise.resolve(null)
@@ -1015,9 +1094,11 @@ export async function GET(request: NextRequest) {
             snapshotDate: lanes.snapshotDate,
             endDate: lanes.endDate ?? pulse.endDate,
           }),
+      commercialTargetsPromise,
     ]);
     const decisionBundleCompletedAt = performance.now();
-    const { currentAds, decisionRead, currentAdCampaignContexts } = decisionBundle;
+    const { currentAds, decisionRead, currentAdCampaignContexts } =
+      decisionBundle;
     if (!decisionRead.ok) {
       return NextResponse.json(decisionRead.payload, {
         status: decisionRead.status,
@@ -1057,6 +1138,8 @@ export async function GET(request: NextRequest) {
         trackingBlocked,
         killSwitchEngaged,
         viewer,
+        commercialTargets: commercialTargetRead.targets,
+        commercialTargetsReadFailed: commercialTargetRead.readFailed,
       }),
       digest: digest ?? {
         snapshotDate: lanes.snapshotDate,
@@ -1077,6 +1160,9 @@ export async function GET(request: NextRequest) {
         currentAds: currentAds.complete ? currentAds.rows : [],
         currentAdCampaignContexts,
         currency: pulse.currency ?? null,
+        targetHardActionsEligible:
+          !commercialTargetRead.readFailed &&
+          hasMetaHardActionAnchor(commercialTargetRead.targets),
       }),
     };
     if (compactOsSurface) {

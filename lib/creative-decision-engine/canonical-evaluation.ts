@@ -24,7 +24,7 @@ import type {
 } from "./types";
 
 export const CANONICAL_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-evaluation.v1" as const;
+  "engine-v3-canonical-evaluation.v2" as const;
 
 export type CanonicalJsonPrimitive = string | number | boolean | null;
 export type CanonicalJsonValue =
@@ -718,6 +718,8 @@ function normalizeDecision(
     campaignLabelStatus: decision.campaignLabelStatus ?? null,
     campaignKind: decision.campaignKind ?? null,
     campaignTestDimension: decision.campaignTestDimension ?? null,
+    preAuthorityLabel: decision.preAuthorityLabel,
+    authorityBlocker: decision.authorityBlocker,
     blockedActionType: decision.blockedActionType ?? null,
     decisionKindSource: decision.decisionKindSource ?? null,
     labelTransform: decision.labelTransform ?? null,

@@ -896,6 +896,8 @@ function snapshotPayload(input: {
     scope_id: ACCOUNT_ID,
     label: input.label,
     raw_label: input.label,
+    pre_authority_label: input.label,
+    authority_blocker: soft ? "native_profile_unavailable" : null,
     confidence: soft ? 0 : hard ? 80 : 60,
     truth_source: soft ? "global_default" : "commercial_truth",
     effective_target_roas: 2,
@@ -1165,6 +1167,98 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     "23514",
     "null-calibration hard authority check",
   );
+
+  const reviewOnly = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000931",
+    adId: "ad-review-only-cut",
+    marker: "f",
+  });
+  const reviewOnlyHard = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000931",
+    adId: "ad-review-only-cut",
+    label: "cut",
+    ...reviewOnly,
+  });
+  reviewOnlyHard.authority_blocker = "source_freshness";
+  reviewOnlyHard.blocked_action_type = "cut";
+  reviewOnlyHard.authorized_action = null;
+  await upsertNativeAdDecisionSnapshots([reviewOnlyHard], db);
+  const persistedReviewOnly = await client.query<{
+    authority_blocker: string | null;
+    authorized_action: string | null;
+  }>(
+    `SELECT authority_blocker, authorized_action
+     FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-review-only-cut'`,
+  );
+  assert(
+    persistedReviewOnly.rows[0]?.authority_blocker === "source_freshness" &&
+      persistedReviewOnly.rows[0]?.authorized_action === null,
+    "Review-only hard label did not persist with authority cleared.",
+  );
+
+  const pending = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000933",
+    adId: "ad-pending-cut",
+    marker: "1",
+  });
+  const pendingHard = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000933",
+    adId: "ad-pending-cut",
+    label: "cut",
+    ...pending,
+  });
+  pendingHard.label = "keep";
+  pendingHard.blocked_action_type = "cut";
+  pendingHard.authorized_action = null;
+  pendingHard.badges = [
+    {
+      type: "pending_transition",
+      label: "Hard action pending.",
+      severity: "info",
+    },
+  ];
+  await upsertNativeAdDecisionSnapshots([pendingHard], db);
+
+  const pendingWithoutProof = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000934",
+    adId: "ad-invalid-pending-cut",
+    marker: "2",
+  });
+  const invalidPendingHard = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000934",
+    adId: "ad-invalid-pending-cut",
+    label: "cut",
+    ...pendingWithoutProof,
+  });
+  invalidPendingHard.label = "keep";
+  invalidPendingHard.blocked_action_type = "cut";
+  invalidPendingHard.authorized_action = null;
+  await expectPostgresError(
+    () => upsertNativeAdDecisionSnapshots([invalidPendingHard], db),
+    "23514",
+    "pending hard action requires explicit hysteresis proof",
+  );
+
+  const blockedButAuthorized = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000932",
+    adId: "ad-invalid-blocked-authority",
+    marker: "0",
+  });
+  const invalidBlockedAuthority = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000932",
+    adId: "ad-invalid-blocked-authority",
+    label: "cut",
+    ...blockedButAuthorized,
+  });
+  invalidBlockedAuthority.authority_blocker = "source_freshness";
+  invalidBlockedAuthority.blocked_action_type = "cut";
+  await expectPostgresError(
+    () => upsertNativeAdDecisionSnapshots([invalidBlockedAuthority], db),
+    "23514",
+    "authority blocker clears native action authority",
+  );
+
   await expectPostgresError(
     () =>
       client.query(

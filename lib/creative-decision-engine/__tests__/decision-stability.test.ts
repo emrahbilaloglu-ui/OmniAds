@@ -135,6 +135,8 @@ describe("stabilizeDecisionLabel", () => {
     ratioToTarget: 0.7,
     badges: [],
     metrics: { spend: 1000, purchases: 5, roas: 1.5, recent7dRoas: 2.4 },
+    preAuthorityLabel: "keep",
+    authorityBlocker: null,
     engineVersion: "v3-test",
     generatedAt: "2026-07-06T00:00:00.000Z",
   };
@@ -143,6 +145,7 @@ describe("stabilizeDecisionLabel", () => {
     const scaleDecision: DecisionOutput = {
       ...baseDecision,
       label: "scale",
+      preAuthorityLabel: "scale",
       reason: "Winner evidence supports promotion.",
     };
     const { decision, rawLabel, suppressed } = stabilizeDecisionLabel(scaleDecision, {
@@ -157,6 +160,31 @@ describe("stabilizeDecisionLabel", () => {
     expect(
       decision.badges.some((badge) => badge.type === "pending_transition"),
     ).toBe(true);
+  });
+
+  it("treats post-authority label as raw hysteresis input without losing provenance", () => {
+    const staleScaleDecision: DecisionOutput = {
+      ...baseDecision,
+      label: "keep",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+      blockedActionType: "scale",
+      reason: "Scale verdict held until evidence is fresh.",
+    };
+
+    const result = stabilizeDecisionLabel(staleScaleDecision, {
+      publishedLabel: "keep",
+      rawLabel: "keep",
+    });
+
+    expect(result.rawLabel).toBe("keep");
+    expect(result.suppressed).toBe(false);
+    expect(result.decision).toMatchObject({
+      label: "keep",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+      blockedActionType: "scale",
+    });
   });
 
   it("returns the complete current safety decision without hysteresis suppression", () => {

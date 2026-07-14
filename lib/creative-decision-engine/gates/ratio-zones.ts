@@ -19,6 +19,7 @@ import {
 import { computeFunnelDiagnosis, hasUpperFunnelStrength } from "../funnel";
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { commercialMaturitySpendThreshold } from "./maturity";
+import { comparisonLabel, formatReasonNumber } from "./reason-format";
 
 const FATIGUE_WATCH_BADGE: DecisionBadge = {
   type: "fatigue_watch",
@@ -64,10 +65,6 @@ function formatRoas(value: number): string {
   return value.toFixed(2);
 }
 
-function formatSpend(value: number): string {
-  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
-}
-
 function formatRatioPercent(value: number): string {
   return (value * 100).toFixed(0);
 }
@@ -101,6 +98,7 @@ function buildNearScaleReadiness(input: {
   purchasesThreshold: number;
   recent7dRoas: number | null;
   targetRoas: number;
+  comparisonLabel: string;
   scaleBenchmarkBlockers?: readonly string[];
   scaleFreshnessBlockers?: readonly string[];
 }): NearScaleReadiness {
@@ -123,7 +121,7 @@ function buildNearScaleReadiness(input: {
     input.spend < input.spendThreshold ||
     input.purchases < input.purchasesThreshold
   ) {
-    const reason = `spend $${formatSpend(input.spend)} / purchases ${input.purchases} below scale floor (need ≥$${formatSpend(
+    const reason = `spend ${formatReasonNumber(input.spend)} / purchases ${input.purchases} below scale floor (need spend ≥${formatReasonNumber(
       input.spendThreshold,
     )}, ≥${input.purchasesThreshold})`;
     reasons.push(reason);
@@ -162,7 +160,7 @@ function buildNearScaleReadiness(input: {
       }),
     );
   } else if (input.recent7dRoas < input.targetRoas) {
-    const reason = `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below target ${formatRoas(
+    const reason = `recent 7d ROAS ${formatRoas(input.recent7dRoas)} below ${input.comparisonLabel} ${formatRoas(
       input.targetRoas,
     )}`;
     reasons.push(reason);
@@ -294,10 +292,6 @@ function hasRecentRecovery(ctx: GateContext): boolean {
 function appendReasonSuffix(reason: string, suffix: string): string {
   const stem = reason.endsWith(".") ? reason.slice(0, -1) : reason;
   return `${stem}${suffix}`;
-}
-
-function formatScaleSpendNeed(value: number | null): string {
-  return value === null ? "account-relative" : `$${formatSpend(value)}+`;
 }
 
 function withLifecycleHint(
@@ -506,6 +500,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const purchases = input.purchases ?? 0;
   const cutBoundary = resolveCutBoundary(ctx);
   const workingZoneMinRatio = cutBoundary.ratio;
+  const comparison = comparisonLabel(ctx.truthSource);
 
   if (ratio === null || roas === null) {
     return terminal(
@@ -540,7 +535,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "scale",
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target ${formatRoas(
+        )}% of ${comparison} ${formatRoas(
           ctx.effectiveTargetRoas,
         )} with ${purchases} purchases (28d) and recent 7d holding at ${formatRoas(
           recent7dRoas,
@@ -556,6 +551,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       purchasesThreshold: scalePurchasesThreshold,
       recent7dRoas,
       targetRoas: ctx.effectiveTargetRoas,
+      comparisonLabel: comparison,
       scaleBenchmarkBlockers: benchmarkBlockers,
       scaleFreshnessBlockers: freshnessBlockers,
     });
@@ -563,7 +559,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     return terminal(
       ctx,
       "keep",
-      `[near scale] ROAS ${formatRoas(roas)} (28d) above target (${formatRatioPercent(
+      `[near scale] ROAS ${formatRoas(roas)} (28d) above ${comparison} (${formatRatioPercent(
         ratio,
       )}%) — ${readiness.reasons.join("; ")}; observe.`,
       [...fatigueBadges, ...scaleReadinessBadges(benchmarkBlockers)],
@@ -608,20 +604,20 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
             roas,
           )} (28d) just above breakeven (${formatRatioPercent(
             ratio,
-          )}% of target) — keep observing; consider tightening if recent 7d weakens`
+          )}% of ${comparison}) — keep observing; consider tightening if recent 7d weakens`
         : ratio < AT_TARGET_MAX_RATIO
           ? `[at target] ROAS ${formatRoas(
               roas,
-            )} (28d) at/around target ${formatRoas(
+            )} (28d) at/around ${comparison} ${formatRoas(
               ctx.effectiveTargetRoas,
             )} (${formatRatioPercent(ratio)}%) — stable, let it run`
           : `[near scale] ROAS ${formatRoas(
               roas,
             )} (28d) approaching scale threshold (${formatRatioPercent(
               ratio,
-            )}%) — needs ${formatScaleSpendNeed(
-              scaleSpendThreshold,
-            )} spend or ${scalePurchasesThreshold}+ purchases for full scale`;
+            )}% of ${comparison}) — performance ratio remains below the ${formatRatioPercent(
+              scaleRatioThreshold(profile),
+            )}% scale zone; keep running`;
 
     return terminal(
       ctx,
@@ -643,9 +639,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "keep",
         `[recovery hold] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target, but recent 7d ROAS ${formatRoas(
+        )}% of ${comparison}, but recent 7d ROAS ${formatRoas(
           input.recent7dRoas ?? 0,
-        )} is above target on $${formatSpend(
+        )} is above ${comparison} on ${formatReasonNumber(
           input.recent7dSpend ?? 0,
         )} recent spend — do not hard cut while recovery is holding.`,
         [WEAK_PERFORMANCE_BADGE],
@@ -658,7 +654,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "cut",
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target after $${formatSpend(
+        )}% of ${comparison} after ${formatReasonNumber(
           input.spend,
         )} spend (28d) — clear loser at scale.`,
       );
@@ -675,7 +671,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "cut",
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target after $${formatSpend(input.spend)} spend (28d) — sustained loser.`,
+        )}% of ${comparison} after ${formatReasonNumber(input.spend)} spend (28d) — sustained loser.`,
       );
     }
 
@@ -685,9 +681,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "cut",
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target after $${formatSpend(
+        )}% of ${comparison} after ${formatReasonNumber(
           input.spend,
-        )} spend (28d) — loss-budget maturity reached at $${formatSpend(
+        )} spend (28d) — loss-budget maturity reached at ${formatReasonNumber(
           commercialMaturitySpend,
         )}; cut underperforming creative.`,
       );
@@ -699,7 +695,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         "refresh",
         `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
           ratio,
-        )}% of target and fatigued — replace with fresh iteration.`,
+        )}% of ${comparison} and fatigued — replace with fresh iteration.`,
       );
     }
 
@@ -708,7 +704,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       "test_more",
       `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
         ratio,
-      )}% of target after $${formatSpend(
+      )}% of ${comparison} after ${formatReasonNumber(
         input.spend,
       )} spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.`,
     );
@@ -721,7 +717,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       "refresh",
       `ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
         ratio,
-      )}% of target and fatigued with recent 7d ROAS ${formatRoas(
+      )}% of ${comparison} and fatigued with recent 7d ROAS ${formatRoas(
         recent7dRoas,
       )} decaying — iterate.`,
     );
@@ -754,9 +750,9 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       "keep",
       `[demote candidate] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
         ratio,
-      )}% of target — above ${boundaryExplanation} but below breakeven (${formatRoas(
+      )}% of ${comparison} — above ${boundaryExplanation} but below breakeven (${formatRoas(
         breakevenRoas ?? 0,
-      )} = ${formatRatioPercent(breakevenRatio)}% of target) at $${formatSpend(
+      )} = ${formatRatioPercent(breakevenRatio)}% of ${comparison}) at ${formatReasonNumber(
         input.spend,
       )} mature spend — consider demote to test placement or refresh creative concept.`,
       [BELOW_BREAKEVEN_BADGE, WEAK_PERFORMANCE_BADGE, ...fatigueBadges],
@@ -768,7 +764,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     "keep",
     `[weak zone] ROAS ${formatRoas(roas)} (28d) = ${formatRatioPercent(
       ratio,
-    )}% of target — below target but in working zone, no aggressive action; revisit if ROAS drifts further.`,
+    )}% of ${comparison} — below the comparison benchmark but in the working zone; no aggressive action, revisit if ROAS drifts further.`,
     [WEAK_PERFORMANCE_BADGE, ...fatigueBadges],
   );
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { finalizeDecision, type GateContext } from "../../gates/types";
+import {
+  enforceHardActionEligibility,
+  finalizeDecision,
+  type GateContext,
+} from "../../gates/types";
 import {
   TEST_COHORT_REFRESH_TO_CUT_LABEL_TRANSFORM,
   TEST_COHORT_REFRESH_TO_CUT_REASON_PREFIX,
@@ -13,12 +17,17 @@ import {
 
 function contextFor(input: {
   campaignKind?: "main" | "test" | "mixed" | null;
+  dataFreshnessHours?: number | null;
   hardActionEligibility?: HardActionEligibility;
   gate?: Partial<Omit<GateContext, "input" | "profile">>;
 }) {
   return makeGateContext({
     input: makeCreativeInput({
       campaignKind: input.campaignKind,
+      dataFreshnessHours:
+        input.dataFreshnessHours === undefined
+          ? 6
+          : input.dataFreshnessHours,
       fatigueStatus: "fatigued",
       recent7dRoas: 1,
       recent7dSpend: 80,
@@ -44,6 +53,9 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     );
 
     expect(output.label).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.blockedActionType).toBeNull();
     expect(output.labelTransform).toBe(
       TEST_COHORT_REFRESH_TO_CUT_LABEL_TRANSFORM,
     );
@@ -69,6 +81,11 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     );
 
     expect(output.label).toBe("test_more");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.authorityBlocker).toBe(
+      "profile_hard_action_ineligible",
+    );
+    expect(output.blockedActionType).toBe("cut");
     expect(output.labelTransform).toBe(
       TEST_COHORT_REFRESH_TO_CUT_LABEL_TRANSFORM,
     );
@@ -112,5 +129,71 @@ describe("finalizeDecision - test cohort semantic transform", () => {
     expect(output.label).toBe("refresh");
     expect(output.labelTransform ?? null).toBeNull();
     expect(output.reason).toBe("fatigued creative needs iteration");
+  });
+
+  it("keeps an eligible hard decision unblocked", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main" }),
+      "scale",
+      "winner evidence supports promotion",
+    );
+
+    expect(output.label).toBe("scale");
+    expect(output.preAuthorityLabel).toBe("scale");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.blockedActionType).toBeNull();
+  });
+
+  it("demotes stale scale while preserving the mathematical verdict", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main", dataFreshnessHours: 80 }),
+      "scale",
+      "winner evidence supports promotion",
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("scale");
+    expect(output.authorityBlocker).toBe("source_freshness");
+    expect(output.blockedActionType).toBe("scale");
+  });
+
+  it("keeps stale cut visible but marks it review-only", () => {
+    const output = finalizeDecision(
+      contextFor({ campaignKind: "main", dataFreshnessHours: 80 }),
+      "cut",
+      "stop-loss evidence supports pausing",
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.authorityBlocker).toBe("source_freshness");
+    expect(output.blockedActionType).toBe("cut");
+  });
+
+  it("enforces profile authority idempotently and preserves the first blocker", () => {
+    const eligible = finalizeDecision(
+      contextFor({ campaignKind: "main" }),
+      "scale",
+      "winner evidence supports promotion",
+    );
+    const profile = makeAccountDecisionProfile({
+      hardActionEligibility: {
+        scale: false,
+        cut: true,
+        refresh: true,
+        reason: "scale authority unavailable",
+      },
+    });
+
+    const once = enforceHardActionEligibility(eligible, profile);
+    const twice = enforceHardActionEligibility(once, profile);
+
+    expect(once).toMatchObject({
+      label: "keep",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "profile_hard_action_ineligible",
+      blockedActionType: "scale",
+    });
+    expect(twice).toBe(once);
   });
 });

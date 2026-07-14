@@ -511,6 +511,8 @@ describe("native ad calibration producer and SQL contract", () => {
       "d.provider_account_id = $4",
       "d.updated_at <= $5::timestamptz",
       "binding.provider_account_ref_id = d.provider_account_ref_id",
+      "NULLIF(BTRIM(account.timezone), '')",
+      "NULLIF(BTRIM(account.currency), '')",
     ]) {
       expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toContain(fragment);
     }
@@ -1197,7 +1199,9 @@ async function createEphemeralSchema(pool: Pool) {
     CREATE TABLE provider_accounts (
       id UUID PRIMARY KEY,
       provider TEXT NOT NULL,
-      external_account_id TEXT NOT NULL
+      external_account_id TEXT NOT NULL,
+      timezone TEXT,
+      currency TEXT
     );
     CREATE TABLE business_provider_accounts (
       business_id TEXT NOT NULL,
@@ -1290,8 +1294,12 @@ async function createEphemeralSchema(pool: Pool) {
       updated_at TIMESTAMPTZ NOT NULL
     );
     INSERT INTO businesses (id, name) VALUES ('${BUSINESS_ID}', 'Test');
-    INSERT INTO provider_accounts (id, provider, external_account_id)
-      VALUES ('${PROVIDER_ACCOUNT_REF_ID}', 'meta', '${PROVIDER_ACCOUNT_ID}');
+    INSERT INTO provider_accounts (
+      id, provider, external_account_id, timezone, currency
+    ) VALUES (
+      '${PROVIDER_ACCOUNT_REF_ID}', 'meta', '${PROVIDER_ACCOUNT_ID}',
+      'Europe/Istanbul', 'USD'
+    );
     INSERT INTO business_provider_accounts (
       business_id, provider, provider_account_ref_id, provider_account_id
     ) VALUES (

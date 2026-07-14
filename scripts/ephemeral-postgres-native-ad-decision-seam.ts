@@ -159,10 +159,7 @@ async function createBaseSchema(client: Client) {
       engine_version TEXT NOT NULL
     );
   `);
-  await client.query(
-    `INSERT INTO businesses (id) VALUES ($1)`,
-    [BUSINESS_ID],
-  );
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [BUSINESS_ID]);
   await client.query(
     `INSERT INTO provider_accounts (
        id, provider, external_account_id, timezone, currency
@@ -346,7 +343,10 @@ async function verifyHydrationReceiptCaptureAxis(client: Client) {
     [],
     false,
   ]);
-  assert(receipt.rows.length === 1, "Hydration receipt account row is missing.");
+  assert(
+    receipt.rows.length === 1,
+    "Hydration receipt account row is missing.",
+  );
   assert(
     receipt.rows[0]?.source_run_id === sourceRunId &&
       receipt.rows[0]?.source_expected_row_count === 2 &&
@@ -445,6 +445,93 @@ async function verifyTombstoneAndHistoricalCutoff(client: Client) {
       historical.rows[0]?.current_ad_status === null &&
       historical.rows[0]?.lifecycle_row_id === null,
     "Historical hydration leaked current dimension/creative/lifecycle state.",
+  );
+}
+
+async function verifyCurrentIdentityAndConfigFallback(client: Client) {
+  const adId = "ad-current-context";
+  const campaignId = "campaign-current-context";
+  const adsetId = "adset-current-context";
+  await client.query(
+    `INSERT INTO meta_ad_daily (
+       business_id, provider_account_id, date, ad_id, ad_name_current,
+       campaign_id, adset_id, account_timezone, account_currency,
+       truth_state, validation_status, spend, conversions, revenue,
+       impressions, link_clicks, clicks, reach, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, 'Current context ad', $5, $6, 'UTC', 'USD',
+       'finalized', 'passed', 100, 2, 250, 1000, 20, 25, 800,
+       '2026-07-12T01:00:00Z', '2026-07-12T02:00:00Z')`,
+    [BUSINESS_ID, ACCOUNT_ID, AS_OF, adId, campaignId, adsetId],
+  );
+  await client.query(
+    `INSERT INTO meta_campaign_config_history (
+       business_id, provider_account_id, campaign_id, objective,
+       optimization_goal, custom_event_type, captured_at, created_at
+     ) VALUES
+       ($1, $2, $3, 'OUTCOME_SALES', 'OFFSITE_CONVERSIONS', 'PURCHASE',
+        '2026-07-12T02:30:00Z', '2026-07-12T02:30:00Z'),
+       ($1, $2, $3, 'OUTCOME_ENGAGEMENT', 'THRUPLAY', 'VIDEO_VIEW',
+        '2026-07-12T04:00:00Z', '2026-07-12T04:00:00Z')`,
+    [BUSINESS_ID, ACCOUNT_ID, campaignId],
+  );
+  await client.query(
+    `INSERT INTO meta_adset_config_history (
+       business_id, provider_account_id, adset_id, optimization_goal,
+       custom_event_type, captured_at, created_at
+     ) VALUES
+       ($1, $2, $3, 'OFFSITE_CONVERSIONS', 'PURCHASE',
+        '2026-07-12T02:30:00Z', '2026-07-12T02:30:00Z'),
+       ($1, $2, $3, 'THRUPLAY', 'VIDEO_VIEW',
+        '2026-07-12T04:00:00Z', '2026-07-12T04:00:00Z')`,
+    [BUSINESS_ID, ACCOUNT_ID, adsetId],
+  );
+
+  const params = [
+    BUSINESS_ID,
+    AS_OF,
+    [],
+    false,
+    [adId],
+    true,
+    2,
+    1.5,
+    CUTOFF,
+    "legacy-creative-engine",
+    CUTOFF,
+  ];
+  const current = await client.query<{
+    account_timezone: string | null;
+    objective: string | null;
+    optimization_goal: string | null;
+    custom_event_type: string | null;
+    context_identity_unknown: boolean;
+  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [...params, true, "[]"]);
+  assert(current.rows.length === 1, "Current config fallback ad disappeared.");
+  assert(
+    current.rows[0]?.account_timezone === "Europe/Istanbul",
+    "Current hydration did not prefer canonical provider timezone.",
+  );
+  assert(
+    current.rows[0]?.objective === "OUTCOME_SALES" &&
+      current.rows[0]?.optimization_goal === "OFFSITE_CONVERSIONS" &&
+      current.rows[0]?.custom_event_type === "PURCHASE" &&
+      current.rows[0]?.context_identity_unknown === false,
+    "Current hydration did not recover cutoff-safe hierarchy config.",
+  );
+
+  const historical = await client.query<{
+    account_timezone: string | null;
+    objective: string | null;
+    optimization_goal: string | null;
+    context_identity_unknown: boolean;
+  }>(HYDRATE_AD_DECISION_INPUTS_QUERY, [...params, false, "[]"]);
+  assert(historical.rows.length === 1, "Historical fallback ad disappeared.");
+  assert(
+    historical.rows[0]?.account_timezone === "UTC" &&
+      historical.rows[0]?.objective === null &&
+      historical.rows[0]?.optimization_goal === null &&
+      historical.rows[0]?.context_identity_unknown === true,
+    "Historical hydration leaked present-day provider/config state.",
   );
 }
 
@@ -671,7 +758,10 @@ function snapshotPayload(input: {
   };
 }
 
-function receipt(adIds: string[], authoritative: boolean): AdDecisionHydrationReceipt {
+function receipt(
+  adIds: string[],
+  authoritative: boolean,
+): AdDecisionHydrationReceipt {
   const ids = [...adIds].sort();
   const hash = hashAdDecisionIdentityManifest({
     businessId: BUSINESS_ID,
@@ -744,8 +834,7 @@ function eventPayload(input: {
     current_label: input.current,
     previous_confidence: input.previousConfidence,
     current_confidence: input.currentConfidence,
-    previous_decision_snapshot_id:
-      "00000000-0000-4000-8000-000000000998",
+    previous_decision_snapshot_id: "00000000-0000-4000-8000-000000000998",
     decision_snapshot_id: input.snapshotId,
     job_run_id: input.jobRunId,
   };
@@ -886,8 +975,7 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     events.rows.length === 1 &&
       events.rows[0]?.previous_label === "keep" &&
       events.rows[0]?.current_label === "cut" &&
-      events.rows[0]?.job_run_id ===
-        "00000000-0000-4000-8000-000000000921",
+      events.rows[0]?.job_run_id === "00000000-0000-4000-8000-000000000921",
     "Same-day retry left contradictory change events.",
   );
 
@@ -935,6 +1023,7 @@ async function runSeam(client: Client) {
   );
   await verifyHydrationReceiptCaptureAxis(client);
   await verifyTombstoneAndHistoricalCutoff(client);
+  await verifyCurrentIdentityAndConfigFallback(client);
   await verifyFirstWriteEvaluationLinkage(client);
   await verifyPruneRetryAndConstraints(client, db);
 }
@@ -972,7 +1061,15 @@ async function main() {
     started = true;
     run(
       path.join(pgBinDir, "createdb"),
-      ["-h", "127.0.0.1", "-p", String(port), "-U", "postgres", "native_ad_seam"],
+      [
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(port),
+        "-U",
+        "postgres",
+        "native_ad_seam",
+      ],
       "createdb",
     );
     const client = new Client({

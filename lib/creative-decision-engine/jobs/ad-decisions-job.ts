@@ -1,5 +1,6 @@
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import {
+  NATIVE_AD_ACCOUNT_FALLBACK_CELL,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
 } from "../ad-account-decision-profile";
@@ -45,10 +46,7 @@ import {
   persistAdDecisionEvaluations,
   type StoredAdDecisionEvaluation,
 } from "../evaluation-store";
-import {
-  resolveEngineV3Flags,
-  type EngineV3Flags,
-} from "../feature-flags";
+import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
 import {
   NATIVE_AD_ENGINE_VERSION,
   type AccountDecisionProfile,
@@ -130,8 +128,7 @@ interface NativeAdProfileRequestContext {
   cohort: NonNullable<AdDecisionInput["effectiveCohort"]>;
 }
 
-export interface NativeAdProfileRuntimeDataSource
-  extends NativeAdAccountProfileDataSource {
+export interface NativeAdProfileRuntimeDataSource extends NativeAdAccountProfileDataSource {
   getNativeCalibrationRowId(cell: NativeAdCalibrationCell): Promise<string>;
 }
 
@@ -573,7 +570,8 @@ export async function runAdDecisionsJob(
       }
 
       const capability = await inspectEvaluationStoreSchemaCapability(db);
-      const profileCapability = await inspectNativeAdProfileSchemaCapability(db);
+      const profileCapability =
+        await inspectNativeAdProfileSchemaCapability(db);
       const missingSchema = [
         ...capability.missing,
         ...profileCapability.missing,
@@ -626,7 +624,9 @@ export async function runAdDecisionsJob(
           mode: campaignContextMode,
         });
         const previousLabels = new Map<string, PreviousAdPublishedLabel>();
-        for (const scopeGroup of groupNativeProfileInputsByScope(profileGroups)) {
+        for (const scopeGroup of groupNativeProfileInputsByScope(
+          profileGroups,
+        )) {
           const groupPrevious = await readPreviousPublishedAdLabels({
             ...input,
             identities: scopeGroup.adInputs.map((ad) => ({
@@ -676,16 +676,12 @@ export async function runAdDecisionsJob(
             decisions,
           };
         });
-        const storedEvaluations = new Map<
-          string,
-          StoredAdDecisionEvaluation
-        >();
+        const storedEvaluations = new Map<string, StoredAdDecisionEvaluation>();
         for (const group of decisionGroups) {
           const canonicalEvaluations = group.decisions.map((computation) =>
             buildAdCanonicalEvaluationProvenance({
               identity: {
-                providerAccountRefId:
-                  computation.input.providerAccountRefId,
+                providerAccountRefId: computation.input.providerAccountRefId,
                 providerAccountId: computation.input.providerAccountId,
                 decisionEntityType: "ad",
                 decisionEntityId: computation.input.decisionEntityId,
@@ -723,11 +719,7 @@ export async function runAdDecisionsJob(
             },
             db,
           );
-          mergeUniqueMap(
-            storedEvaluations,
-            storedGroup,
-            "stored evaluation",
-          );
+          mergeUniqueMap(storedEvaluations, storedGroup, "stored evaluation");
         }
         const snapshotRows = decisionGroups.flatMap((group) =>
           group.decisions.map((computation) => {
@@ -791,10 +783,7 @@ export async function runAdDecisionsJob(
           snapshotRows,
           db,
         );
-        const previousSnapshots = new Map<
-          string,
-          ComparableNativeAdSnapshot
-        >();
+        const previousSnapshots = new Map<string, ComparableNativeAdSnapshot>();
         for (const scopeGroup of scopeGroups) {
           const groupPrevious = await findPreviousNativeAdSnapshots(
             {
@@ -804,11 +793,7 @@ export async function runAdDecisionsJob(
             },
             db,
           );
-          mergeUniqueMap(
-            previousSnapshots,
-            groupPrevious,
-            "previous snapshot",
-          );
+          mergeUniqueMap(previousSnapshots, groupPrevious, "previous snapshot");
         }
         let changeEventsWritten = 0;
         for (const scopeGroup of scopeGroups) {
@@ -932,6 +917,20 @@ export async function resolveNativeAdDecisionProfileGroups(input: {
         nativeAdProfileRequestKey(right.context),
       ),
   )) {
+    if (context.cohort !== "purchase") {
+      groups.push(
+        buildSoftOnlyNativeAdProfileGroup({
+          businessId: input.businessId,
+          asOf: input.asOf,
+          blocker:
+            "native_ad_profile_unready:native_non_purchase_roas_unsupported",
+          adInputs,
+          calibrationSource: null,
+          calibrationCell: null,
+        }),
+      );
+      continue;
+    }
     const resolved = await resolveNativeAdAccountDecisionProfile({
       businessId: input.businessId,
       providerAccountId: context.providerAccountId,
@@ -944,6 +943,7 @@ export async function resolveNativeAdDecisionProfileGroups(input: {
       asOf: input.asOf,
       dataSource: input.dataSource,
       flags: input.flags,
+      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
     });
     if (resolved.status !== "ready") {
       const reason = resolved.reason ?? "unknown_native_profile_failure";
@@ -1123,14 +1123,11 @@ export function buildNativeAdDataHealth(input: {
       sourceMaxUpdatedAt: null,
       now,
       fallbackMode: "insufficient",
-      note:
-        "Native ad lifecycle authority is unavailable; creative lifecycle remains explanation-only evidence.",
+      note: "Native ad lifecycle authority is unavailable; creative lifecycle remains explanation-only evidence.",
     }),
     decisions: buildDataLayerHealth({
       asOfDate: latestText(previousRows.map((row) => row.sourceAsOfDate)),
-      computedAt: latestText(
-        previousRows.map((row) => row.sourceComputedAt),
-      ),
+      computedAt: latestText(previousRows.map((row) => row.sourceComputedAt)),
       sourceMaxUpdatedAt: latestText(
         previousRows.map((row) => row.sourceComputedAt),
       ),
@@ -1146,9 +1143,7 @@ export function buildNativeAdDataHealth(input: {
 
 function nativeAdProfileRequestContext(
   ad: AdDecisionInput,
-):
-  | { context: NativeAdProfileRequestContext }
-  | { blocker: string } {
+): { context: NativeAdProfileRequestContext } | { blocker: string } {
   const requiredFields = [
     ["account_timezone", ad.accountTimezone],
     ["account_currency", ad.accountCurrency],
@@ -1197,7 +1192,11 @@ function nativeAdProfileRequestKey(context: NativeAdProfileRequestContext) {
 }
 
 function normalizeOptionalProfileToken(value: string | null | undefined) {
-  const normalized = value?.trim().replace(/[\s-]+/g, "_").toUpperCase() ?? "";
+  const normalized =
+    value
+      ?.trim()
+      .replace(/[\s-]+/g, "_")
+      .toUpperCase() ?? "";
   return normalized || null;
 }
 
@@ -1212,7 +1211,11 @@ function groupNativeProfileInputsByScope(
     const key = decisionScopeKey(group.profile.scope);
     const existing = scopes.get(key);
     if (existing) existing.adInputs.push(...group.adInputs);
-    else scopes.set(key, { scope: group.profile.scope, adInputs: [...group.adInputs] });
+    else
+      scopes.set(key, {
+        scope: group.profile.scope,
+        adInputs: [...group.adInputs],
+      });
   }
   return Array.from(scopes.values()).sort((left, right) =>
     decisionScopeKey(left.scope).localeCompare(decisionScopeKey(right.scope)),
@@ -1309,6 +1312,9 @@ export function computeSoftOnlyNativeAdDecisions(input: {
       "soft-only decision group received a ready account profile",
     );
   }
+  const optimizationOutOfScope =
+    input.blocker ===
+    "native_ad_profile_unready:native_non_purchase_roas_unsupported";
   return input.adInputs
     .map((adInput) => {
       const withCampaign = withCreativeCampaignLabelContext(
@@ -1333,27 +1339,37 @@ export function computeSoftOnlyNativeAdDecisions(input: {
           providerAccountId: withCampaign.providerAccountId,
           creativeId: withCampaign.creativeId,
           creativeName: withCampaign.creativeName,
-          label: "diagnose",
-          confidence: 0,
-          reason: `[Native calibration unavailable - hard actions blocked] ${input.blocker}`,
+          label: optimizationOutOfScope ? "out_of_scope" : "diagnose",
+          confidence: optimizationOutOfScope ? 40 : 0,
+          reason: optimizationOutOfScope
+            ? "[Purchase ROAS decision not applicable] This Ad optimizes for a non-purchase outcome, so purchase-ROAS scale/cut/refresh actions do not apply."
+            : `[Native calibration unavailable - hard actions blocked] ${input.blocker}`,
           truthSource: "global_default",
           effectiveTargetRoas: 0,
           ratioToTarget: null,
           badges: [
             {
               type: "native_calibration_unavailable",
-              label: `Native calibration unavailable (${input.blocker}); scale, cut and refresh are blocked.`,
+              label: optimizationOutOfScope
+                ? "Purchase-ROAS calibration does not apply to this optimization outcome; scale, cut and refresh are blocked."
+                : `Native calibration unavailable (${input.blocker}); scale, cut and refresh are blocked.`,
               severity: "warning",
             },
           ],
           blockers: [
             {
-              predicate: "native_ad_profile_ready",
-              observed: input.blocker,
-              threshold: "ready",
+              predicate: optimizationOutOfScope
+                ? "native_ad_purchase_roas_scope"
+                : "native_ad_profile_ready",
+              observed: optimizationOutOfScope
+                ? "non_purchase_optimization"
+                : input.blocker,
+              threshold: optimizationOutOfScope ? "purchase" : "ready",
               status: "missing",
               severity: "warning",
-              reason: "Native calibration/profile authority is unavailable.",
+              reason: optimizationOutOfScope
+                ? "The purchase-ROAS decision motor is intentionally not used for this optimization outcome."
+                : "Native calibration/profile authority is unavailable.",
             },
           ],
           metrics: {
@@ -1513,8 +1529,19 @@ function toNativeAdDecisionOutput(
   decision: DecisionOutput,
   input: AdDecisionInput,
 ): AdDecisionOutput {
+  const siteOwnedIssue =
+    decision.label === "diagnose" &&
+    decision.badges.find(
+      (badge) =>
+        badge.type === "landing_page_issue" ||
+        badge.type === "checkout_breakdown",
+    );
   return {
     ...decision,
+    label: siteOwnedIssue ? "keep" : decision.label,
+    reason: siteOwnedIssue
+      ? `[Keep Ad; fix ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
+      : decision.reason,
     decisionEntityType: "ad",
     decisionEntityId: input.decisionEntityId,
     adId: input.adId,
@@ -1793,7 +1820,9 @@ export async function pruneStaleNativeAdSnapshots(
     currentManifestHash !== input.receipt.expectedManifestHash ||
     currentManifestHash !== input.receipt.hydratedManifestHash
   ) {
-    throw new Error("Native ad prune receipt manifest does not match hydration.");
+    throw new Error(
+      "Native ad prune receipt manifest does not match hydration.",
+    );
   }
   const identities = input.receipt.expectedAdIds.map((adId) => ({
     provider_account_ref_id: input.receipt.providerAccountRefId,

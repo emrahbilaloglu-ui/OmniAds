@@ -1819,3 +1819,47 @@ choose when to narrow it, while execution safety requires a much smaller exact
 active set. Conflating visibility with authority either hides useful structure
 or resurrects closed assets. Keeping the two contracts separate provides full
 inventory without weakening D051's write boundary.
+
+## D053 - Native Ad Context Repair And Soft Relative Ranking
+
+Decision: current native-Ad hydration treats the bound `provider_accounts`
+timezone and currency as canonical physical-account identity. Warehouse daily
+identity remains the historical replay source. For a current run only, missing
+daily campaign/ad-set objective or optimization fields may be filled from the
+latest config-history row whose `captured_at` and `created_at` both precede the
+decision cutoff. Existing non-null daily context is never overwritten, and
+historical hydration never consumes current config or SCD0 dimensions.
+
+An existing `business_target_packs` row with no history is bootstrapped once
+into `business_target_pack_history`. Its original `updated_at` is the effective
+time and migration time is the recorded time, so the migration restores
+bitemporal provenance without pretending that an old target was reconfirmed.
+A target-history record newer than the completed calibration batch invalidates
+calibration reuse and therefore invalidates downstream Decisions and operator
+response reuse on the next natural scheduled chain.
+
+For purchase-ROAS decisions, an exact optimization cell with fewer than ten
+mature Ads may use the same account/objective/purchase pooled cell only when
+commercial authority is not fresh, the pooled cell has at least ten mature Ads,
+and pooled P60 exists. Pooled cells are soft-only by contract: they cannot
+authorize scale, cut, refresh, or provider writes. Within that physical
+native-Ad account scope, when a stale commercial target sits above the eligible
+account baseline, P75 is used at 30+ mature Ads or P60 at 10-29 mature Ads for
+relative ranking; both stale-target and account-baseline provenance remain
+visible. Legacy Creative decisions and fresh commercial truth are never changed
+by this fallback.
+
+Non-purchase optimizations are served as `out_of_scope`, not `diagnose`, because
+purchase-ROAS actions do not apply. A native Ad whose terminal diagnosis
+confidently assigns the weak step to landing page or checkout is served as
+`keep` with an explicit site-fix instruction; the Ad is not blamed for a
+downstream-owned failure. Missing or contradictory evidence still fails closed
+as `diagnose`.
+
+Reason: IwaStore proved that all required data could exist while the native path
+joined the wrong timezone, suppressed config fallback, and lacked target
+history provenance. That produced 985 syntactically valid but commercially
+empty `diagnose` rows. The repaired contract preserves cutoff safety and hard
+action authority while allowing the existing engine to issue differentiated,
+review-safe decisions instead of converting every uncertainty class into one
+operator question.

@@ -1180,14 +1180,21 @@ metric_context_days AS (
     d.updated_at AS source_updated_at,
     NULLIF(BTRIM(d.campaign_id), '') AS campaign_id,
     NULLIF(BTRIM(d.adset_id), '') AS adset_id,
-    NULLIF(BTRIM(c.objective), '') AS objective,
+    COALESCE(
+      NULLIF(BTRIM(c.objective), ''),
+      NULLIF(BTRIM(current_campaign_config.objective), '')
+    ) AS objective,
     COALESCE(
       NULLIF(BTRIM(a.optimization_goal), ''),
-      NULLIF(BTRIM(c.optimization_goal), '')
+      NULLIF(BTRIM(c.optimization_goal), ''),
+      NULLIF(BTRIM(current_adset_config.optimization_goal), ''),
+      NULLIF(BTRIM(current_campaign_config.optimization_goal), '')
     ) AS optimization_goal,
     COALESCE(
       NULLIF(BTRIM(a.custom_event_type), ''),
-      NULLIF(BTRIM(c.custom_event_type), '')
+      NULLIF(BTRIM(c.custom_event_type), ''),
+      NULLIF(BTRIM(current_adset_config.custom_event_type), ''),
+      NULLIF(BTRIM(current_campaign_config.custom_event_type), '')
     ) AS custom_event_type
   FROM selected_ad_days d
   LEFT JOIN meta_adset_daily a
@@ -1208,6 +1215,28 @@ metric_context_days AS (
    AND c.validation_status = 'passed'
    AND c.created_at <= $11::timestamptz
    AND c.updated_at <= $11::timestamptz
+  LEFT JOIN LATERAL (
+    SELECT config.optimization_goal, config.custom_event_type
+    FROM meta_adset_config_history config
+    WHERE config.business_id = d.business_id
+      AND config.provider_account_id = d.provider_account_id
+      AND config.adset_id = d.adset_id
+      AND config.captured_at <= $11::timestamptz
+      AND config.created_at <= $11::timestamptz
+    ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
+    LIMIT 1
+  ) current_adset_config ON $12::boolean
+  LEFT JOIN LATERAL (
+    SELECT config.objective, config.optimization_goal, config.custom_event_type
+    FROM meta_campaign_config_history config
+    WHERE config.business_id = d.business_id
+      AND config.provider_account_id = d.provider_account_id
+      AND config.campaign_id = d.campaign_id
+      AND config.captured_at <= $11::timestamptz
+      AND config.created_at <= $11::timestamptz
+    ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
+    LIMIT 1
+  ) current_campaign_config ON $12::boolean
 ),
 dimension_only_context AS (
   SELECT
@@ -1252,6 +1281,7 @@ dimension_only_context AS (
         NULLIF(BTRIM(dimensions.adset_id), '')
       )
       AND config.captured_at <= $11::timestamptz
+      AND config.created_at <= $11::timestamptz
     ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
     LIMIT 1
   ) adset_config ON true
@@ -1265,6 +1295,7 @@ dimension_only_context AS (
         NULLIF(BTRIM(dimensions.campaign_id), '')
       )
       AND config.captured_at <= $11::timestamptz
+      AND config.created_at <= $11::timestamptz
     ORDER BY config.captured_at DESC, config.created_at DESC, config.id DESC
     LIMIT 1
   ) campaign_config ON true
@@ -1463,12 +1494,12 @@ SELECT
   assignment.provider_account_ref_id,
   cumulative.provider_account_id,
   COALESCE(
-    account_identity.account_timezone,
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,
+    account_identity.account_timezone
   ) AS account_timezone,
   COALESCE(
-    account_identity.account_currency,
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,
+    account_identity.account_currency
   ) AS account_currency,
   cumulative.ad_id,
   COALESCE(cumulative.ad_name, dimensions.ad_name_current) AS ad_name,
@@ -3300,7 +3331,10 @@ function toStringArray(value: unknown): string[] {
 }
 
 function normalizedIdentityList(values: readonly string[]): string[] {
-  return values.map((value) => value.trim()).filter(Boolean).sort();
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort();
 }
 
 function hasDuplicateIdentity(values: readonly string[]): boolean {
@@ -3509,7 +3543,7 @@ function finalizeAdHydrationReceipts(input: {
           ? null
           : input.adIdentityFilterApplied
             ? "ad_identity_filter_applied"
-            : receipt.reason ?? "hydrated_manifest_mismatch",
+            : (receipt.reason ?? "hydrated_manifest_mismatch"),
       };
     })
     .sort((left, right) =>
@@ -3718,8 +3752,7 @@ function mapAdDecisionHydrationRow(input: {
       creativeName:
         (allowCurrentDimensions
           ? toStringOrNull(input.row.creative_name)
-          : null) ??
-        toStringOrNull(input.row.ad_name),
+          : null) ?? toStringOrNull(input.row.ad_name),
       businessId: input.businessId,
       campaignId: contextIdentityUnknown
         ? null
@@ -4454,16 +4487,16 @@ export class WarehouseDataSource
     if (allowCurrentDimensionFallback) {
       try {
         presentAdStateSeeds = await getDb().query<PresentAdStateSeedRow>(
-            READ_PRESENT_AD_STATE_SEEDS_QUERY,
-            [
-              input.businessId,
-              decisionCutoff,
-              providerAccountIds ?? [],
-              providerAccountIds !== undefined,
-              adIds ?? [],
-              adIds !== undefined,
-            ],
-          );
+          READ_PRESENT_AD_STATE_SEEDS_QUERY,
+          [
+            input.businessId,
+            decisionCutoff,
+            providerAccountIds ?? [],
+            providerAccountIds !== undefined,
+            adIds ?? [],
+            adIds !== undefined,
+          ],
+        );
       } catch (error) {
         if (!isUndefinedTableError(error)) throw error;
       }

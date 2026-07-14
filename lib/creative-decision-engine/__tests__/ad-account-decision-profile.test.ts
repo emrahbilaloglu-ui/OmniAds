@@ -32,6 +32,11 @@ const FRESH_TARGET: NativeAdTargetAuthorityInput = {
   effectiveAt: "2026-07-01T00:00:00.000Z",
   recordedAt: "2026-07-01T00:00:01.000Z",
 };
+const STALE_TARGET: NativeAdTargetAuthorityInput = {
+  ...FRESH_TARGET,
+  effectiveAt: "2026-05-01T00:00:00.000Z",
+  recordedAt: "2026-05-01T00:00:01.000Z",
+};
 
 function makeFlags(): EngineV3Flags {
   return {
@@ -343,6 +348,40 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     });
     expect(dataSource.targetCalls).toBe(1);
     expect(dataSource.calibrationCalls).toHaveLength(1);
+  });
+
+  it("uses a pooled account cell for relative soft ranking when stale exact context is thin", async () => {
+    const cells = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native",
+      asOf: AS_OF,
+      computationCutoff: "2026-07-12T03:05:00.000Z",
+      sourceRows: Array.from({ length: 20 }, (_, index) =>
+        makeSourceRow(index + 1, {
+          optimizationGoal: index < 5 ? "PURCHASE" : "VALUE",
+          customEventType: index < 5 ? "PURCHASE" : "VALUE",
+        }),
+      ),
+      targetAuthority: STALE_TARGET,
+    }).cells.map((cell) => ({
+      ...cell,
+      batchId: BATCH_ID,
+      batchCompleteness: "complete" as const,
+    }));
+    const dataSource = new NativeOnlyProfileDataSource(cells, STALE_TARGET);
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      calibrationSource: "account_objective_cohort",
+      hardActionEligibility: { scale: false, cut: false, refresh: false },
+    });
+    expect(result.selectedCell?.matureAdCount).toBe(20);
+    expect(dataSource.calibrationCalls).toHaveLength(2);
   });
 
   it("intersects retained authority with the exact cell per action instead of collapsing the whole profile", async () => {

@@ -2390,6 +2390,53 @@ export async function runMigrations(options?: {
           ON business_target_pack_history (business_id, effective_at DESC, recorded_at DESC, id DESC)`.catch(
           () => {},
         ),
+        sql`INSERT INTO business_target_pack_history (
+          business_id,
+          business_ref_id,
+          target_cpa,
+          target_roas,
+          break_even_cpa,
+          break_even_roas,
+          contribution_margin_assumption,
+          aov_assumption,
+          new_customer_weight,
+          default_risk_posture,
+          cost_cogs_percent,
+          cost_shipping_percent,
+          cost_fulfillment_percent,
+          cost_payment_processing_percent,
+          source_label,
+          operation,
+          effective_at,
+          recorded_at,
+          updated_by_user_id
+        )
+        SELECT
+          target.business_id,
+          target.business_id,
+          target.target_cpa,
+          target.target_roas,
+          target.break_even_cpa,
+          target.break_even_roas,
+          target.contribution_margin_assumption,
+          target.aov_assumption,
+          target.new_customer_weight,
+          target.default_risk_posture,
+          target.cost_cogs_percent,
+          target.cost_shipping_percent,
+          target.cost_fulfillment_percent,
+          target.cost_payment_processing_percent,
+          target.source_label,
+          'upsert',
+          target.updated_at,
+          GREATEST(transaction_timestamp(), target.updated_at),
+          target.updated_by_user_id
+        FROM business_target_packs target
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM business_target_pack_history history
+          WHERE history.business_id = target.business_id
+        )`,
         sql`CREATE INDEX IF NOT EXISTS idx_business_country_economics_business_country ON business_country_economics (business_id, country_code)`.catch(
           () => {},
         ),

@@ -1989,11 +1989,11 @@ WITH locked_run AS (
     active_job_run_id, active_outcome_run_id, source_set_hash, published_at
   )
   SELECT
-    run.business_ref_id, run.business_id, run.evaluation_date, window.days,
+    run.business_ref_id, run.business_id, run.evaluation_date, outcome_window.days,
     run.engine_version, run.contract_version, run.classifier_version,
     run.job_run_id, run.id, run.source_set_hash, clock_timestamp()
   FROM accepted_run run
-  CROSS JOIN unnest(run.windows_days) AS window(days)
+  CROSS JOIN unnest(run.windows_days) AS outcome_window(days)
   ON CONFLICT ON CONSTRAINT engine_v3_ad_outcome_publications_identity_unique
   DO UPDATE SET
     business_id = EXCLUDED.business_id,

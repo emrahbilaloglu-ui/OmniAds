@@ -27,6 +27,7 @@ import {
   type NativeDecisionChangeEventPayloadRow,
   type NativeSnapshotPayloadRow,
 } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
+import { hasReusableNativeCalibration } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
@@ -158,6 +159,21 @@ async function createBaseSchema(client: Client) {
       as_of_date DATE NOT NULL,
       engine_version TEXT NOT NULL
     );
+    CREATE TABLE engine_v3_ad_account_calibration_batches (
+      business_ref_id UUID NOT NULL,
+      business_id TEXT NOT NULL,
+      provider_account_ref_id UUID NOT NULL,
+      as_of_date DATE NOT NULL,
+      as_of_cutoff TIMESTAMPTZ NOT NULL,
+      engine_version TEXT NOT NULL,
+      completeness_status TEXT NOT NULL
+    );
+    CREATE TABLE business_target_pack_history (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id UUID NOT NULL,
+      effective_at TIMESTAMPTZ NOT NULL,
+      recorded_at TIMESTAMPTZ NOT NULL
+    );
   `);
   await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [BUSINESS_ID]);
   await client.query(
@@ -185,6 +201,66 @@ async function createBaseSchema(client: Client) {
       AS_OF,
       NATIVE_AD_ENGINE_VERSION,
     ],
+  );
+}
+
+async function verifyCalibrationReuseAccountIdentity(
+  client: Client,
+  db: DbClient,
+) {
+  const businessId = "00000000-0000-4000-8000-000000000980";
+  const calibratedAccountRefId = "00000000-0000-4000-8000-000000000981";
+  const replacementAccountRefId = "00000000-0000-4000-8000-000000000982";
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES
+       ($1, 'meta', 'act_calibrated', 'UTC', 'USD'),
+       ($2, 'meta', 'act_replacement', 'UTC', 'USD')`,
+    [calibratedAccountRefId, replacementAccountRefId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id
+     ) VALUES ($1::text, 'meta', $2, 'act_calibrated')`,
+    [businessId, calibratedAccountRefId],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_ad_account_calibration_batches (
+       business_ref_id, business_id, provider_account_ref_id, as_of_date,
+       as_of_cutoff, engine_version, completeness_status
+     ) VALUES (
+       $1::uuid, $1::text, $2::uuid, $3::date, $4::timestamptz, $5, 'complete'
+     )`,
+    [
+      businessId,
+      calibratedAccountRefId,
+      AS_OF,
+      CUTOFF,
+      NATIVE_AD_ENGINE_VERSION,
+    ],
+  );
+
+  const input = {
+    businessId,
+    asOf: AS_OF,
+    decisionCutoff: CUTOFF,
+  };
+  assert(
+    await hasReusableNativeCalibration(input, db),
+    "Matching calibrated and assigned account identities were not reusable.",
+  );
+
+  await client.query(
+    `UPDATE business_provider_accounts
+     SET provider_account_ref_id = $2, provider_account_id = 'act_replacement'
+     WHERE business_id = $1::text AND provider = 'meta'`,
+    [businessId, replacementAccountRefId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "Same-count account replacement incorrectly reused the previous account calibration.",
   );
 }
 
@@ -1026,6 +1102,7 @@ async function runSeam(client: Client) {
   await verifyCurrentIdentityAndConfigFallback(client);
   await verifyFirstWriteEvaluationLinkage(client);
   await verifyPruneRetryAndConstraints(client, db);
+  await verifyCalibrationReuseAccountIdentity(client, db);
 }
 
 async function main() {
@@ -1082,7 +1159,7 @@ async function main() {
       await client.end();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, FK and soft-only checks",
     );
   } finally {
     if (started) {

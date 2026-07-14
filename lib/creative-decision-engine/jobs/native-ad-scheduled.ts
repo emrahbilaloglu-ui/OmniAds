@@ -112,7 +112,13 @@ WITH latest_target_history AS (
 ), calibration_batches AS (
   SELECT
     MIN(batch.as_of_cutoff) AS earliest_batch_cutoff,
-    COUNT(DISTINCT batch.provider_account_ref_id)::integer AS account_count
+    COALESCE(
+      ARRAY_AGG(
+        DISTINCT batch.provider_account_ref_id
+        ORDER BY batch.provider_account_ref_id
+      ),
+      ARRAY[]::uuid[]
+    ) AS account_ids
   FROM engine_v3_ad_account_calibration_batches batch
   WHERE batch.business_ref_id = $1::uuid
     AND batch.business_id = $1::text
@@ -120,13 +126,19 @@ WITH latest_target_history AS (
     AND batch.engine_version = $4
     AND batch.completeness_status = 'complete'
 ), assigned_accounts AS (
-  SELECT COUNT(DISTINCT binding.provider_account_ref_id)::integer AS account_count
+  SELECT COALESCE(
+    ARRAY_AGG(
+      DISTINCT binding.provider_account_ref_id
+      ORDER BY binding.provider_account_ref_id
+    ),
+    ARRAY[]::uuid[]
+  ) AS account_ids
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
 )
 SELECT CASE
-  WHEN calibration_batches.account_count <> assigned_accounts.account_count THEN FALSE
+  WHEN calibration_batches.account_ids IS DISTINCT FROM assigned_accounts.account_ids THEN FALSE
   WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN FALSE
   WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN TRUE
   ELSE (

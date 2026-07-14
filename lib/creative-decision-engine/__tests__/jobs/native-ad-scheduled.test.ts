@@ -293,12 +293,15 @@ describe("native ad shadow scheduled chain", () => {
     );
     expect(
       READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
-        "WHEN calibration_batches.account_count",
+        "WHEN calibration_batches.account_ids IS DISTINCT FROM assigned_accounts.account_ids",
       ),
     ).toBeLessThan(
       READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
         "WHEN NOT EXISTS (SELECT 1 FROM latest_target_history)",
       ),
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).not.toContain(
+      "COUNT(DISTINCT batch.provider_account_ref_id)",
     );
   });
 

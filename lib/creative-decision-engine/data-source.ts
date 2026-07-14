@@ -1856,7 +1856,8 @@ WITH assigned_accounts AS (
    AND state.entity_type = 'ad'
    AND state.presence = 'present'
    AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
-   AND state.observed_at >= run.source_observed_at
+   -- Entity observed_at is provider updated_time; capture time defines manifest membership.
+   AND state.captured_at >= run.source_captured_at
    AND state.observed_at <= $3::timestamptz
    AND state.captured_at <= $3::timestamptz
 
@@ -1879,7 +1880,7 @@ WITH assigned_accounts AS (
    AND tombstone.provider_account_id = run.provider_account_id
    AND tombstone.entity_type = 'ad'
    AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
-   AND tombstone.observed_at >= run.source_observed_at
+   AND tombstone.captured_at >= run.source_captured_at
    AND tombstone.observed_at <= $3::timestamptz
    AND tombstone.captured_at <= $3::timestamptz
 ), latest_truth AS (

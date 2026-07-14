@@ -135,17 +135,21 @@ async function readCurrentMetaAds(input: {
   ).value;
 }
 
-async function readCurrentAdCampaignContexts(input: {
+async function readCurrentCampaignContexts(input: {
   businessId: string;
   providerAccountId: string | null;
   snapshotAsOf: string;
   currentAds: CurrentMetaAdsResult;
+  structureCampaignIds: readonly (string | null | undefined)[];
 }): Promise<MetaDecisionCampaignContextSourceRow[]> {
-  if (!input.providerAccountId || !input.currentAds.complete) return [];
+  if (!input.providerAccountId) return [];
   const campaignIds = [
     ...new Set(
-      input.currentAds.rows
-        .map((row) => row.campaignId?.trim() ?? "")
+      [
+        ...input.currentAds.rows.map((row) => row.campaignId),
+        ...input.structureCampaignIds,
+      ]
+        .map((campaignId) => campaignId?.trim() ?? "")
         .filter(Boolean),
     ),
   ];
@@ -158,9 +162,8 @@ async function readCurrentAdCampaignContexts(input: {
       snapshotAsOf: input.snapshotAsOf,
     });
   } catch {
-    // The active inventory remains visible even when automatic context is
-    // temporarily unavailable. Presentation assigns an untrusted provisional
-    // role and keeps decision authority unchanged.
+    // The workspace inventory remains visible when context is unavailable.
+    // Presentation keeps provisional roles untrusted for decision authority.
     return [];
   }
 }
@@ -969,11 +972,17 @@ export async function GET(request: NextRequest) {
             adCandidateLimit,
             currentAds,
           }),
-          readCurrentAdCampaignContexts({
+          readCurrentCampaignContexts({
             businessId,
             providerAccountId,
             snapshotAsOf: resolvedEndDate,
             currentAds,
+            structureCampaignIds: [
+              ...scopedRecommendations.map((rec) => rec.campaignId),
+              ...(lanes.structureInventory ?? []).map(
+                (row) => row.campaignId,
+              ),
+            ],
           }),
         ]);
         return { currentAds, decisionRead, currentAdCampaignContexts };
@@ -983,7 +992,7 @@ export async function GET(request: NextRequest) {
       }
       return (
         await getCachedValue({
-          key: `meta-decisions-bundle-v2:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}`,
+          key: `meta-decisions-bundle-v3:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadDecisionBundle,

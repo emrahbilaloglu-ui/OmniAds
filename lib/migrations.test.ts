@@ -160,6 +160,12 @@ describe("runMigrations", () => {
     });
 
     const joinedQueries = queries.join("\n");
+    expect(joinedQueries).toContain(
+      "INSERT INTO business_target_pack_history",
+    );
+    expect(joinedQueries).toContain(
+      "WHERE history.business_id = target.business_id",
+    );
     expect(joinedQueries).toContain("DROP TABLE IF EXISTS provider_account_snapshots");
     expect(joinedQueries).toContain("DROP TABLE IF EXISTS provider_account_assignments");
     expect(joinedQueries).toContain("DROP TABLE IF EXISTS integrations");

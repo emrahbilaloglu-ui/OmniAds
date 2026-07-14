@@ -36,20 +36,56 @@ function truthBadge(
   }
 }
 
+function staleRelativeBaseline(
+  profile: GateContext["profile"],
+  staleTargetRoas: number,
+): {
+  target: number;
+  truthSource: "account_baseline" | "account_baseline_thin";
+} | null {
+  if (profile.scope.type !== "account" || profile.scope.id === "*") {
+    return null;
+  }
+  const calibration = profile.accountBaselines;
+  if (calibration.matureCreativeCount >= 30) {
+    return isFinitePositive(calibration.roasP75) &&
+      calibration.roasP75 < staleTargetRoas
+      ? { target: calibration.roasP75, truthSource: "account_baseline" }
+      : null;
+  }
+  if (calibration.matureCreativeCount >= 10) {
+    return isFinitePositive(calibration.roasP60) &&
+      calibration.roasP60 < staleTargetRoas
+      ? { target: calibration.roasP60, truthSource: "account_baseline_thin" }
+      : null;
+  }
+  return null;
+}
+
 export function targetResolutionGate(ctx: GateContext): GateResult {
   const calibration = ctx.profile.accountBaselines;
   let effectiveTargetRoas: number;
   let truthSource: TruthSource;
-  let badge: DecisionBadge | null = null;
+  let badges: DecisionBadge[] = [];
   let confidenceDelta: number | null = null;
 
   if (isFinitePositive(ctx.input.targetRoas)) {
-    effectiveTargetRoas = ctx.input.targetRoas;
+    const relativeBaseline = staleRelativeBaseline(
+      ctx.profile,
+      ctx.input.targetRoas,
+    );
     if (ctx.input.commercialTargetFreshness === "fresh") {
+      effectiveTargetRoas = ctx.input.targetRoas;
       truthSource = "commercial_truth";
+    } else if (relativeBaseline !== null) {
+      effectiveTargetRoas = relativeBaseline.target;
+      truthSource = relativeBaseline.truthSource;
+      badges = [truthBadge("commercial_truth_stale"), truthBadge(truthSource)];
+      confidenceDelta = -15;
     } else {
+      effectiveTargetRoas = ctx.input.targetRoas;
       truthSource = "commercial_truth_stale";
-      badge = truthBadge(truthSource);
+      badges = [truthBadge(truthSource)];
       confidenceDelta = -15;
     }
   } else if (
@@ -58,7 +94,7 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
   ) {
     effectiveTargetRoas = calibration.roasP75;
     truthSource = "account_baseline";
-    badge = truthBadge(truthSource);
+    badges = [truthBadge(truthSource)];
     confidenceDelta = -5;
   } else if (
     calibration.matureCreativeCount >= 10 &&
@@ -66,12 +102,12 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
   ) {
     effectiveTargetRoas = calibration.roasP60;
     truthSource = "account_baseline_thin";
-    badge = truthBadge(truthSource);
+    badges = [truthBadge(truthSource)];
     confidenceDelta = -15;
   } else {
     effectiveTargetRoas = 0;
     truthSource = "global_default";
-    badge = truthBadge(truthSource);
+    badges = [truthBadge(truthSource)];
     confidenceDelta = -25;
   }
 
@@ -87,7 +123,7 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
       effectiveTargetRoas,
       truthSource,
       ratioToTarget,
-      badges: badge === null ? ctx.badges : [...ctx.badges, badge],
+      badges: [...ctx.badges, ...badges],
       confidenceDeltas:
         confidenceDelta === null
           ? ctx.confidenceDeltas

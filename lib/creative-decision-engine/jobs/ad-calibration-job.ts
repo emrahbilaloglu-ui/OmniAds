@@ -405,8 +405,14 @@ SELECT
   d.campaign_id,
   d.adset_id,
   d.ad_id,
-  d.account_timezone,
-  d.account_currency,
+  COALESCE(
+    NULLIF(BTRIM(account.timezone), ''),
+    NULLIF(BTRIM(d.account_timezone), '')
+  ) AS account_timezone,
+  COALESCE(
+    NULLIF(BTRIM(account.currency), ''),
+    NULLIF(BTRIM(d.account_currency), '')
+  ) AS account_currency,
   campaign.objective,
   COALESCE(adset.optimization_goal, campaign.optimization_goal) AS optimization_goal,
   COALESCE(adset.custom_event_type, campaign.custom_event_type) AS custom_event_type,

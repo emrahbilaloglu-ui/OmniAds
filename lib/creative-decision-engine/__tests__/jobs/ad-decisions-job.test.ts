@@ -48,10 +48,8 @@ import {
 
 const BUSINESS_ID = "biz-1";
 const AS_OF = "2026-07-12";
-const NATIVE_CALIBRATION_ROW_ID =
-  "00000000-0000-4000-8000-000000000744";
-const PROVIDER_ACCOUNT_REF_ID =
-  "00000000-0000-4000-8000-000000000740";
+const NATIVE_CALIBRATION_ROW_ID = "00000000-0000-4000-8000-000000000744";
+const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000740";
 const TARGET_AUTHORITY: NativeAdTargetAuthorityInput = {
   sourceRowId: "00000000-0000-4000-8000-000000000745",
   operation: "upsert",
@@ -105,8 +103,10 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
     cellScope: "objective_cohort_context" as const,
     objective: "OUTCOME_SALES",
     cohort: "purchase" as const,
-    optimizationContext:
-      buildNativeAdOptimizationContext("PURCHASE", "PURCHASE")!,
+    optimizationContext: buildNativeAdOptimizationContext(
+      "PURCHASE",
+      "PURCHASE",
+    )!,
   };
   const metricSampleCounts = {
     roas: 50,
@@ -199,6 +199,8 @@ function adInput(input: {
   campaignId: string;
   creativeId?: string | null;
   metricsObserved?: boolean;
+  objective?: AdDecisionInput["objective"];
+  effectiveCohort?: AdDecisionInput["effectiveCohort"];
   optimizationGoal?: string | null;
   customEventType?: string | null;
 }): AdDecisionInput {
@@ -207,8 +209,8 @@ function adInput(input: {
     creativeId:
       input.creativeId === null ? "resolver-placeholder" : "shared-creative",
     campaignId: input.campaignId,
-    objective: "OUTCOME_SALES",
-    effectiveCohort: "purchase",
+    objective: input.objective ?? "OUTCOME_SALES",
+    effectiveCohort: input.effectiveCohort ?? "purchase",
     contextGrain: {
       providerAccountCount: 1,
       campaignCount: 1,
@@ -231,7 +233,9 @@ function adInput(input: {
     creativeId:
       input.creativeId === undefined ? "shared-creative" : input.creativeId,
     optimizationGoal:
-      input.optimizationGoal === undefined ? "PURCHASE" : input.optimizationGoal,
+      input.optimizationGoal === undefined
+        ? "PURCHASE"
+        : input.optimizationGoal,
     customEventType:
       input.customEventType === undefined ? "PURCHASE" : input.customEventType,
     metricEvidence: {
@@ -391,13 +395,65 @@ describe("native ad decision computation", () => {
     });
   });
 
+  it("classifies non-purchase optimization as out of scope without a calibration lookup", async () => {
+    const getNativeAdCalibrationCell = vi.fn(async () => null);
+    const groups = await resolveNativeAdDecisionProfileGroups({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      adInputs: [
+        adInput({
+          adId: "ad-traffic",
+          campaignId: "campaign-traffic",
+          objective: "OUTCOME_TRAFFIC",
+          optimizationGoal: "LINK_CLICKS",
+          customEventType: null,
+          effectiveCohort: "traffic",
+        }),
+      ],
+      flags: nativeFlags(),
+      dataSource: {
+        getNativeAdCalibrationCell,
+        async getNativeTargetAuthorityAsOf() {
+          throw new Error("Target lookup must not run outside purchase scope.");
+        },
+        async getNativeCalibrationRowId() {
+          throw new Error(
+            "Lineage lookup must not run outside purchase scope.",
+          );
+        },
+      },
+    });
+    expect(getNativeAdCalibrationCell).not.toHaveBeenCalled();
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    expect(group.blocker).toBe(
+      "native_ad_profile_unready:native_non_purchase_roas_unsupported",
+    );
+    const decisions = computeSoftOnlyNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      blocker: group.blocker!,
+      profile: group.profile,
+      adInputs: group.adInputs,
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      evaluatedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+    expect(decisions[0]?.decision).toMatchObject({
+      label: "out_of_scope",
+      confidence: 40,
+      blockedActionType: null,
+      blockers: [
+        expect.objectContaining({ predicate: "native_ad_purchase_roas_scope" }),
+      ],
+    });
+  });
+
   it("persists ready groups while emitting an explicit non-hard row for an unready dimension-only group", async () => {
     const readyCell = readyNativeCalibrationCell();
     const calibrationCalls: string[] = [];
     const profileDataSource = {
-      async getNativeAdCalibrationCell(query: {
-        optimizationContext: string;
-      }) {
+      async getNativeAdCalibrationCell(query: { optimizationContext: string }) {
         calibrationCalls.push(query.optimizationContext);
         return query.optimizationContext === readyCell?.key.optimizationContext
           ? readyCell
@@ -473,6 +529,39 @@ describe("native ad decision computation", () => {
         label: "keep",
         confidence: 60,
       }),
+    });
+    const siteIssueDecisions = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile: readyGroup.profile,
+      dataHealth: buildNativeAdDataHealth({
+        calibrationCell: readyGroup.calibrationCell,
+        blocker: readyGroup.blocker,
+        adInputs: readyGroup.adInputs,
+        previousLabels,
+        scope: readyGroup.profile.scope,
+        evaluatedAt: `${AS_OF}T03:10:00.000Z`,
+      }),
+      adInputs: readyGroup.adInputs,
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels,
+      resolveDecision: (resolverInput) => ({
+        ...hardScaleDecision({ creativeId: resolverInput.creativeId }),
+        label: "diagnose",
+        reason: "Landing page issue: Link-to-LPV collapsed.",
+        badges: [
+          {
+            type: "landing_page_issue",
+            label: "Landing page issue",
+            severity: "warning",
+          },
+        ],
+      }),
+    });
+    expect(siteIssueDecisions[0]?.decision).toMatchObject({
+      label: "keep",
+      reason:
+        "[Keep Ad; fix landing page] Landing page issue: Link-to-LPV collapsed.",
     });
     const softDecisions = computeSoftOnlyNativeAdDecisions({
       businessId: BUSINESS_ID,
@@ -707,7 +796,9 @@ describe("native ad decision computation", () => {
     });
 
     expect(resolveDecision).toHaveBeenCalledOnce();
-    expect(dataHealth.lifecycle).toMatchObject({ fallbackMode: "insufficient" });
+    expect(dataHealth.lifecycle).toMatchObject({
+      fallbackMode: "insufficient",
+    });
     expect(dataHealth.lifecycle.note).toContain("explanation-only");
   });
 

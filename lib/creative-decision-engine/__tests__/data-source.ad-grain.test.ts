@@ -180,8 +180,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         {
           event_kind: "state",
           id: "00000000-0000-4000-8000-000000000991",
-          provider_account_ref_id:
-            "00000000-0000-4000-8000-000000000711",
+          provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
           entity_id: "ad-a-purchase",
           creative_id: "creative-shared",
@@ -193,8 +192,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         {
           event_kind: "state",
           id: "00000000-0000-4000-8000-000000000992",
-          provider_account_ref_id:
-            "00000000-0000-4000-8000-000000000711",
+          provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
           entity_id: "ad-z-lead",
           creative_id: "creative-shared",
@@ -277,8 +275,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         {
           id: "00000000-0000-4000-8000-000000000999",
           event_kind: "state",
-          provider_account_ref_id:
-            "00000000-0000-4000-8000-000000000711",
+          provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
           entity_id: "ad-1",
           configured_status: "ACTIVE",
@@ -334,8 +331,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
         {
           event_kind: "tombstone",
           id: "00000000-0000-4000-8000-000000000998",
-          provider_account_ref_id:
-            "00000000-0000-4000-8000-000000000711",
+          provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
           provider_account_id: "act_account_1",
           entity_id: "ad-1",
           tombstone_reason: "explicit_not_found",
@@ -655,6 +651,30 @@ describe("native ad hydration SQL contract", () => {
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).not.toContain(
       "a.creative_id = d.creative_id",
+    );
+  });
+
+  it("fills missing current hierarchy context from cutoff-safe config history", () => {
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "current_adset_config ON $12::boolean",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "current_campaign_config ON $12::boolean",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "config.captured_at <= $11::timestamptz",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "config.created_at <= $11::timestamptz",
+    );
+  });
+
+  it("prefers canonical provider identity only for current hydration", () => {
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,\n    account_identity.account_timezone",
+    );
+    expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
+      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,\n    account_identity.account_currency",
     );
   });
 

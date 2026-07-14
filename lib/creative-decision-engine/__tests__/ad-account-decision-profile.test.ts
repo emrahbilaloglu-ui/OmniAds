@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+  NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
   READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
@@ -31,6 +32,11 @@ const FRESH_TARGET: NativeAdTargetAuthorityInput = {
   defaultRiskPosture: "balanced",
   effectiveAt: "2026-07-01T00:00:00.000Z",
   recordedAt: "2026-07-01T00:00:01.000Z",
+};
+const STALE_TARGET: NativeAdTargetAuthorityInput = {
+  ...FRESH_TARGET,
+  effectiveAt: "2026-05-01T00:00:00.000Z",
+  recordedAt: "2026-05-01T00:00:01.000Z",
 };
 
 function makeFlags(): EngineV3Flags {
@@ -319,11 +325,30 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     });
   });
 
+  it("keeps a missing exact cell fail-closed under the thin-exact policy", async () => {
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildMixedOptimizationCells().filter(
+        (cell) => cell.key.cellScope === "account_objective_cohort",
+      ),
+    );
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_missing",
+      calibrationSource: null,
+    });
+    expect(dataSource.calibrationCalls).toHaveLength(1);
+  });
+
   it("keeps a low-sample exact cell usable for soft decisions while each hard action fails closed", async () => {
     const dataSource = new NativeOnlyProfileDataSource(buildCells(10));
 
     const result = await resolveWith(dataSource, {
-      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
     });
 
     expect(result).toMatchObject({
@@ -343,6 +368,40 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     });
     expect(dataSource.targetCalls).toBe(1);
     expect(dataSource.calibrationCalls).toHaveLength(1);
+  });
+
+  it("uses a pooled account cell for relative soft ranking when stale exact context is thin", async () => {
+    const cells = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native",
+      asOf: AS_OF,
+      computationCutoff: "2026-07-12T03:05:00.000Z",
+      sourceRows: Array.from({ length: 20 }, (_, index) =>
+        makeSourceRow(index + 1, {
+          optimizationGoal: index < 5 ? "PURCHASE" : "VALUE",
+          customEventType: index < 5 ? "PURCHASE" : "VALUE",
+        }),
+      ),
+      targetAuthority: STALE_TARGET,
+    }).cells.map((cell) => ({
+      ...cell,
+      batchId: BATCH_ID,
+      batchCompleteness: "complete" as const,
+    }));
+    const dataSource = new NativeOnlyProfileDataSource(cells, STALE_TARGET);
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      calibrationSource: "account_objective_cohort",
+      hardActionEligibility: { scale: false, cut: false, refresh: false },
+    });
+    expect(result.selectedCell?.matureAdCount).toBe(20);
+    expect(dataSource.calibrationCalls).toHaveLength(2);
   });
 
   it("intersects retained authority with the exact cell per action instead of collapsing the whole profile", async () => {

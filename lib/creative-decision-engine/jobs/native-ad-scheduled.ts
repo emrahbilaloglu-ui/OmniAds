@@ -96,6 +96,107 @@ interface CurrentHydrationReceiptRow extends Record<string, unknown> {
   expected_ad_ids: unknown;
 }
 
+interface CalibrationReuseReceiptRow extends Record<string, unknown> {
+  reusable: unknown;
+}
+
+export const READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL = `
+WITH latest_target_history AS (
+  SELECT history.recorded_at
+  FROM business_target_pack_history history
+  WHERE history.business_id = $1::uuid
+    AND history.effective_at <= $3::timestamptz
+    AND history.recorded_at <= $3::timestamptz
+  ORDER BY history.effective_at DESC, history.recorded_at DESC, history.id DESC
+  LIMIT 1
+), latest_successful_calibration AS (
+  SELECT run.error_json
+  FROM engine_v3_job_runs run
+  WHERE run.business_ref_id = $1::uuid
+    AND run.business_id = $1::text
+    AND run.as_of_date = $2::date
+    AND run.engine_version = $4
+    AND run.job_name = $5
+    AND run.status = 'success'
+    AND run.finished_at <= $3::timestamptz
+  ORDER BY run.finished_at DESC NULLS LAST, run.started_at DESC, run.id DESC
+  LIMIT 1
+), receipt_batches AS (
+  SELECT
+    receipt.value->>'batch_id' AS batch_id,
+    receipt.value->>'provider_account_ref_id' AS provider_account_ref_id,
+    receipt.value->>'provider_account_id' AS provider_account_id
+  FROM latest_successful_calibration run
+  CROSS JOIN LATERAL JSONB_ARRAY_ELEMENTS(
+    CASE
+      WHEN JSONB_TYPEOF(run.error_json #> '{metadata,batches}') = 'array'
+        THEN run.error_json #> '{metadata,batches}'
+      ELSE '[]'::jsonb
+    END
+  ) receipt(value)
+), calibration_receipt AS (
+  SELECT COUNT(*)::integer AS batch_count
+  FROM receipt_batches
+), calibration_batches AS (
+  SELECT
+    MIN(batch.as_of_cutoff) AS earliest_batch_cutoff,
+    COUNT(*)::integer AS batch_count,
+    COALESCE(
+      JSONB_AGG(
+        DISTINCT JSONB_BUILD_ARRAY(
+          batch.provider_account_ref_id::text,
+          batch.provider_account_id
+        )
+        ORDER BY JSONB_BUILD_ARRAY(
+          batch.provider_account_ref_id::text,
+          batch.provider_account_id
+        )
+      ),
+      '[]'::jsonb
+    ) AS account_identities
+  FROM engine_v3_ad_account_calibration_batches batch
+  JOIN receipt_batches receipt
+    ON receipt.batch_id = batch.id::text
+   AND receipt.provider_account_ref_id = batch.provider_account_ref_id::text
+   AND receipt.provider_account_id = batch.provider_account_id
+  WHERE batch.business_ref_id = $1::uuid
+    AND batch.business_id = $1::text
+    AND batch.as_of_date = $2::date
+    AND batch.engine_version = $4
+    AND batch.completeness_status = 'complete'
+), assigned_accounts AS (
+  SELECT COALESCE(
+    JSONB_AGG(
+      DISTINCT JSONB_BUILD_ARRAY(
+        binding.provider_account_ref_id::text,
+        binding.provider_account_id
+      )
+      ORDER BY JSONB_BUILD_ARRAY(
+        binding.provider_account_ref_id::text,
+        binding.provider_account_id
+      )
+    ),
+    '[]'::jsonb
+  ) AS account_identities
+  FROM business_provider_accounts binding
+  WHERE binding.business_id = $1::text
+    AND binding.provider = 'meta'
+)
+SELECT CASE
+  WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN FALSE
+  WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities THEN FALSE
+  WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN FALSE
+  WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN TRUE
+  ELSE (
+    SELECT recorded_at <= calibration_batches.earliest_batch_cutoff
+    FROM latest_target_history
+  )
+END AS reusable
+FROM calibration_batches
+CROSS JOIN calibration_receipt
+CROSS JOIN assigned_accounts
+`;
+
 export interface NativeAdShadowScheduleOptions {
   jobsDisabled?: () => boolean;
   inspectSchema?: () => Promise<NativeAdShadowSchemaReadiness>;
@@ -115,9 +216,7 @@ export interface NativeAdShadowScheduleOptions {
   runCalibration?: (
     input: AdCalibrationJobInput,
   ) => Promise<AdCalibrationJobResult>;
-  runDecisions?: (
-    input: AdDecisionsJobInput,
-  ) => Promise<AdDecisionsJobResult>;
+  runDecisions?: (input: AdDecisionsJobInput) => Promise<AdDecisionsJobResult>;
   runOperatorResponse?: (
     input: AdOperatorResponseJobInput,
   ) => Promise<AdOperatorResponseJobResult>;
@@ -127,10 +226,7 @@ function capabilityIssues(capability: {
   missing?: readonly string[];
   mismatched?: readonly string[];
 }) {
-  return [
-    ...(capability.missing ?? []),
-    ...(capability.mismatched ?? []),
-  ];
+  return [...(capability.missing ?? []), ...(capability.mismatched ?? [])];
 }
 
 export async function inspectNativeAdShadowSchemaReadiness(): Promise<NativeAdShadowSchemaReadiness> {
@@ -151,14 +247,13 @@ export async function inspectNativeAdShadowSchemaReadiness(): Promise<NativeAdSh
       ],
     }),
   );
-  const operatorResponse = await inspectAdOperatorResponseSchemaCapability().catch(
-    (error) => ({
+  const operatorResponse =
+    await inspectAdOperatorResponseSchemaCapability().catch((error) => ({
       ready: false,
       missing: [
         `inspection_failed:${error instanceof Error ? error.message : String(error)}`,
       ],
-    }),
-  );
+    }));
   const components = {
     calibration: {
       ready: calibration.ready,
@@ -211,13 +306,28 @@ async function readSuccessfulNativeJobs(input: {
     ORDER BY business_ref_id, job_name, finished_at DESC NULLS LAST,
       started_at DESC, id DESC
     `,
-    [input.businessIds, input.asOf, NATIVE_AD_ENGINE_VERSION, NATIVE_AD_SHADOW_JOB_NAMES],
+    [
+      input.businessIds,
+      input.asOf,
+      NATIVE_AD_ENGINE_VERSION,
+      NATIVE_AD_SHADOW_JOB_NAMES,
+    ],
   );
   const result = new Map<string, Set<NativeAdShadowJobName>>();
   for (const row of rows) {
     const businessId = String(row.business_ref_id ?? "");
     const jobName = String(row.job_name ?? "") as NativeAdShadowJobName;
     if (!businessId || !NATIVE_AD_SHADOW_JOB_NAMES.includes(jobName)) continue;
+    if (
+      jobName === AD_CALIBRATION_JOB_NAME &&
+      !(await hasReusableNativeCalibration({
+        businessId,
+        asOf: input.asOf,
+        decisionCutoff: input.decisionCutoff,
+      }))
+    ) {
+      continue;
+    }
     if (
       jobName === AD_DECISIONS_JOB_NAME &&
       isZeroRowNativeDecisionSuccess(row.row_count) &&
@@ -234,6 +344,23 @@ async function readSuccessfulNativeJobs(input: {
     result.set(businessId, jobs);
   }
   return closeNativeJobDependencies(result);
+}
+
+export async function hasReusableNativeCalibration(
+  input: { businessId: string; asOf: string; decisionCutoff: string },
+  db = getDb(),
+) {
+  const [row] = await db.query<CalibrationReuseReceiptRow>(
+    READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
+    [
+      input.businessId,
+      input.asOf,
+      input.decisionCutoff,
+      NATIVE_AD_ENGINE_VERSION,
+      AD_CALIBRATION_JOB_NAME,
+    ],
+  );
+  return row?.reusable === true;
 }
 
 async function hasSuccessfulNativeJob(input: {
@@ -285,6 +412,10 @@ function closeNativeJobDependencies(
   const result = new Map<string, Set<NativeAdShadowJobName>>();
   for (const [businessId, sourceJobs] of source) {
     const jobs = new Set(sourceJobs);
+    if (!jobs.has(AD_CALIBRATION_JOB_NAME)) {
+      jobs.delete(AD_DECISIONS_JOB_NAME);
+      jobs.delete(AD_OPERATOR_RESPONSE_JOB_NAME);
+    }
     if (!jobs.has(AD_DECISIONS_JOB_NAME)) {
       jobs.delete(AD_OPERATOR_RESPONSE_JOB_NAME);
     }
@@ -315,11 +446,13 @@ function dependencyBlockedStep<TResult>(
   };
 }
 
-function ranStep<TResult extends {
-  status: "success" | "failed" | "skipped";
-  reason?: string;
-  errorMessage?: string;
-}>(result: TResult): NativeAdScheduledStep<TResult> {
+function ranStep<
+  TResult extends {
+    status: "success" | "failed" | "skipped";
+    reason?: string;
+    errorMessage?: string;
+  },
+>(result: TResult): NativeAdScheduledStep<TResult> {
   return {
     status: result.status,
     source: "ran",
@@ -378,7 +511,10 @@ async function runBusinessChain(input: {
     : await (input.options.runCalibration ?? runAdCalibrationJob)({
         businessId: input.business.id,
         asOf: input.asOf,
-      }).then(ranStep<AdCalibrationJobResult>, failedStep<AdCalibrationJobResult>);
+      }).then(
+        ranStep<AdCalibrationJobResult>,
+        failedStep<AdCalibrationJobResult>,
+      );
 
   const calibrationSatisfied = await dependencySatisfied({
     step: calibration,
@@ -397,7 +533,10 @@ async function runBusinessChain(input: {
       : await (input.options.runDecisions ?? runAdDecisionsJob)({
           businessId: input.business.id,
           asOf: input.asOf,
-        }).then(ranStep<AdDecisionsJobResult>, failedStep<AdDecisionsJobResult>);
+        }).then(
+          ranStep<AdDecisionsJobResult>,
+          failedStep<AdDecisionsJobResult>,
+        );
 
   const decisionsSatisfied = await dependencySatisfied({
     step: decisions,

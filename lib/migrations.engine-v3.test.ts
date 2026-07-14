@@ -322,7 +322,7 @@ describe("Engine v3 precomputed table migrations", () => {
 });
 
 describe("business target pack history migrations", () => {
-  it("creates an append-only temporal table without inventing historical rows", async () => {
+  it("creates append-only history and bootstraps only a real current target row once", async () => {
     const queries = await collectMigrationQueries();
     const createStatement = normalizeSql(
       findCreateTableStatement(queries, "business_target_pack_history"),
@@ -351,7 +351,21 @@ describe("business target pack history migrations", () => {
         "CREATE INDEX IF NOT EXISTS idx_business_target_pack_history_business_effective ON business_target_pack_history (business_id, effective_at DESC, recorded_at DESC, id DESC)",
       ),
     );
-    expect(joined).not.toContain("INSERT INTO business_target_pack_history");
+    const backfills = queries
+      .map(normalizeSql)
+      .filter((query) =>
+        query.startsWith("INSERT INTO business_target_pack_history"),
+      );
+    expect(backfills).toHaveLength(1);
+    expect(backfills[0]).toContain("FROM business_target_packs target");
+    expect(backfills[0]).toContain("target.updated_at");
+    expect(backfills[0]).toContain(
+      "GREATEST(transaction_timestamp(), target.updated_at)",
+    );
+    expect(backfills[0]).toContain(
+      "WHERE NOT EXISTS ( SELECT 1 FROM business_target_pack_history history WHERE history.business_id = target.business_id )",
+    );
+    expect(backfills[0]).toContain("'upsert'");
     expect(joined).not.toContain("operation = 'bootstrap'");
   });
 });

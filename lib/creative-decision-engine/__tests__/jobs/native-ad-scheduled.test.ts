@@ -14,7 +14,9 @@ import {
   type AdOperatorResponseJobResult,
 } from "../../jobs/ad-operator-response-job";
 import {
+  hasReusableNativeCalibration,
   isZeroRowNativeDecisionSuccess,
+  READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
   runNativeAdShadowChainForActiveBusinessesIfDue,
   type NativeAdShadowScheduleOptions,
   type NativeAdShadowSchemaReadiness,
@@ -222,6 +224,100 @@ describe("native ad shadow scheduled chain", () => {
     expect(result.results?.[0]?.operatorResponse.status).toBe("success");
     expect(runDecisions).toHaveBeenCalledTimes(1);
     expect(runOperatorResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("reruns the full chain when a calibration success is no longer reusable", async () => {
+    const previous = new Map<
+      string,
+      Set<
+        | typeof AD_CALIBRATION_JOB_NAME
+        | typeof AD_DECISIONS_JOB_NAME
+        | typeof AD_OPERATOR_RESPONSE_JOB_NAME
+      >
+    >([
+      [
+        BUSINESSES[0].id,
+        new Set([AD_DECISIONS_JOB_NAME, AD_OPERATOR_RESPONSE_JOB_NAME]),
+      ],
+    ]);
+    const runCalibration = vi.fn(async () => calibrationResult());
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      [BUSINESSES[0]],
+      options({
+        readSuccessfulJobs: async () => previous,
+        runCalibration,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+    expect(result.results?.[0]?.calibration.status).toBe("success");
+    expect(result.results?.[0]?.decisions.status).toBe("success");
+    expect(result.results?.[0]?.operatorResponse.status).toBe("success");
+    expect(runCalibration).toHaveBeenCalledTimes(1);
+    expect(runDecisions).toHaveBeenCalledTimes(1);
+    expect(runOperatorResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates calibration reuse when target history is newer than its batch", async () => {
+    const db = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([{ reusable: false }])
+        .mockResolvedValueOnce([{ reusable: true }]),
+    };
+    await expect(
+      hasReusableNativeCalibration(
+        {
+          businessId: BUSINESSES[0].id,
+          asOf: "2026-07-13",
+          decisionCutoff: NOW.toISOString(),
+        },
+        db as never,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      hasReusableNativeCalibration(
+        {
+          businessId: BUSINESSES[0].id,
+          asOf: "2026-07-13",
+          decisionCutoff: NOW.toISOString(),
+        },
+        db as never,
+      ),
+    ).resolves.toBe(true);
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "recorded_at <= calibration_batches.earliest_batch_cutoff",
+    );
+    expect(
+      READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
+        "WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities",
+      ),
+    ).toBeLessThan(
+      READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
+        "WHEN NOT EXISTS (SELECT 1 FROM latest_target_history)",
+      ),
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).not.toContain(
+      "COUNT(DISTINCT batch.provider_account_ref_id)",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "batch.provider_account_id",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "binding.provider_account_id",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "latest_successful_calibration",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "run.error_json #> '{metadata,batches}'",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "run.finished_at <= $3::timestamptz",
+    );
   });
 
   it("recognizes only exact zero-row decision successes as repair candidates", () => {

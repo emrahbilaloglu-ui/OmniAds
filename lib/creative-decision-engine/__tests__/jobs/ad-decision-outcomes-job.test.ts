@@ -37,6 +37,13 @@ const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 const HASH_C = "c".repeat(64);
 
+it("does not use PostgreSQL's reserved WINDOW keyword as a finalize alias", () => {
+  expect(FINALIZE_AD_DECISION_OUTCOME_RUN_SQL).toContain(
+    "AS outcome_window(days)",
+  );
+  expect(FINALIZE_AD_DECISION_OUTCOME_RUN_SQL).not.toContain("AS window(days)");
+});
+
 function accountReceipt(date: string) {
   const published = new Date(`${date}T00:00:00.000Z`);
   published.setUTCDate(published.getUTCDate() + 1);

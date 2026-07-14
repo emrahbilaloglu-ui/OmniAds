@@ -845,6 +845,128 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
   }
 }
 
+type TargetHistoryBackfillCases = {
+  missingHistoryBusinessId: string;
+  existingHistoryBusinessId: string;
+};
+
+async function seedTargetHistoryBackfillCases(
+  databaseUrl: string,
+): Promise<TargetHistoryBackfillCases> {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const ownerResult = await client.query<{ id: string }>(
+      `INSERT INTO users (name, email, password_hash)
+       VALUES ('Target history migration check', 'target-history-migration-check@example.invalid', 'unused')
+       RETURNING id`,
+    );
+    const ownerId = ownerResult.rows[0]?.id;
+    if (!ownerId) throw new Error("Could not create target-history migration owner.");
+
+    const businessResult = await client.query<{ id: string; name: string }>(
+      `INSERT INTO businesses (name, owner_id)
+       VALUES ('Target history missing', $1), ('Target history existing', $1)
+       RETURNING id, name`,
+      [ownerId],
+    );
+    const missingHistoryBusinessId = businessResult.rows.find(
+      (row) => row.name === "Target history missing",
+    )?.id;
+    const existingHistoryBusinessId = businessResult.rows.find(
+      (row) => row.name === "Target history existing",
+    )?.id;
+    if (!missingHistoryBusinessId || !existingHistoryBusinessId) {
+      throw new Error("Could not create both target-history migration businesses.");
+    }
+
+    await client.query(
+      `INSERT INTO business_target_packs (
+         business_id, target_roas, break_even_roas, default_risk_posture,
+         source_label, updated_by_user_id, created_at, updated_at
+       ) VALUES
+         ($1, 3.5, 2.7, 'balanced', 'settings_manual_entry', $3,
+          TIMESTAMPTZ '2026-04-29 12:34:56+00', TIMESTAMPTZ '2026-04-29 12:34:56+00'),
+         ($2, 4.0, 3.0, 'balanced', 'settings_manual_entry', $3,
+          TIMESTAMPTZ '2026-04-29 12:34:56+00', TIMESTAMPTZ '2026-04-29 12:34:56+00')`,
+      [missingHistoryBusinessId, existingHistoryBusinessId, ownerId],
+    );
+    await client.query(
+      `INSERT INTO business_target_pack_history (
+         business_id, business_ref_id, target_roas, break_even_roas,
+         default_risk_posture, source_label, operation, effective_at, recorded_at,
+         updated_by_user_id
+       ) VALUES (
+         $1, $1, 9.9, 8.8, 'balanced', 'preexisting_history', 'upsert',
+         TIMESTAMPTZ '2026-01-01 00:00:00+00', TIMESTAMPTZ '2026-01-01 00:00:00+00', $2
+       )`,
+      [existingHistoryBusinessId, ownerId],
+    );
+
+    log("target-history backfill fixtures seeded.");
+    return { missingHistoryBusinessId, existingHistoryBusinessId };
+  } finally {
+    await client.end();
+  }
+}
+
+async function assertTargetHistoryBackfillCases(
+  databaseUrl: string,
+  cases: TargetHistoryBackfillCases,
+): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const result = await client.query<{
+      business_id: string;
+      target_roas: number;
+      break_even_roas: number;
+      source_label: string;
+      operation: string;
+      effective_at: Date;
+      recorded_at: Date;
+    }>(
+      `SELECT business_id, target_roas, break_even_roas, source_label, operation,
+              effective_at, recorded_at
+       FROM business_target_pack_history
+       WHERE business_id = ANY($1::uuid[])
+       ORDER BY business_id, recorded_at, id`,
+      [[cases.missingHistoryBusinessId, cases.existingHistoryBusinessId]],
+    );
+    const missingRows = result.rows.filter(
+      (row) => row.business_id === cases.missingHistoryBusinessId,
+    );
+    const existingRows = result.rows.filter(
+      (row) => row.business_id === cases.existingHistoryBusinessId,
+    );
+    const backfilled = missingRows[0];
+    const preexisting = existingRows[0];
+    if (
+      missingRows.length !== 1 ||
+      Number(backfilled?.target_roas) !== 3.5 ||
+      Number(backfilled?.break_even_roas) !== 2.7 ||
+      backfilled?.source_label !== "settings_manual_entry" ||
+      backfilled?.operation !== "upsert" ||
+      backfilled?.effective_at.toISOString() !== "2026-04-29T12:34:56.000Z" ||
+      backfilled.recorded_at.getTime() < backfilled.effective_at.getTime()
+    ) {
+      throw new Error("Missing target history was not backfilled exactly once with preserved values.");
+    }
+    if (
+      existingRows.length !== 1 ||
+      Number(preexisting?.target_roas) !== 9.9 ||
+      Number(preexisting?.break_even_roas) !== 8.8 ||
+      preexisting?.source_label !== "preexisting_history"
+    ) {
+      throw new Error("Existing target history was duplicated or overwritten by the backfill.");
+    }
+
+    log("target-history backfill ok: missing history filled, existing history unchanged.");
+  } finally {
+    await client.end();
+  }
+}
+
 async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1099,9 +1221,11 @@ async function main() {
     // prove nothing about idempotency.
     await runMigrationsChild(repoRoot, databaseUrl, "run 1: from zero");
     const run1Tables = await assertSchema(databaseUrl);
-    await runMigrationsChild(repoRoot, databaseUrl, "run 2: idempotency");
+    const targetHistoryCases = await seedTargetHistoryBackfillCases(databaseUrl);
+    await runMigrationsChild(repoRoot, databaseUrl, "run 2: idempotency + target backfill");
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
+    await assertTargetHistoryBackfillCases(databaseUrl, targetHistoryCases);
     await assertDecisionEvaluationProvenance(databaseUrl);
 
     await runChildScript(

@@ -39,6 +39,14 @@ These rules are hard gates for V2.1.
 - A configured commercial target older than 30 days must remain visible but
   must resolve as `commercial_truth_stale`, reduce confidence, and block
   target-derived hard actions until reconfirmed.
+- Within a physical native-Ad account scope, a stale or unknown commercial
+  target may use a cutoff-safe account P75/P60 baseline for soft relative
+  ranking only when the stale target would collapse the account opportunity
+  set. This must not restore hard-action or provider-write authority, change
+  legacy Creative decisions, or replace fresh commercial truth.
+- A thin exact native-Ad optimization cell may borrow a same-account pooled
+  purchase cell only for soft ranking, with at least 10 mature Ads and a finite
+  P60. Pooled calibration can never authorize `scale`, `cut`, or `refresh`.
 - A configured commercial target with unknown update time is stale-equivalent;
   unknown recency must never be interpreted as fresh commercial truth.
 - UI surfaces must consume server-provided commercial-target freshness and

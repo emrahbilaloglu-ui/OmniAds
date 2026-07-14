@@ -26,11 +26,19 @@ import {
 } from "./jobs/ad-calibration-job";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
+function positiveFinite(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 export const NATIVE_AD_ACCOUNT_FALLBACK_CELL =
   "provider_account_currency_objective_cohort_all_optimization_contexts" as const;
+export const NATIVE_AD_THIN_EXACT_FALLBACK_CELL =
+  "thin_exact_provider_account_currency_objective_cohort_all_optimization_contexts" as const;
 
 export type NativeAdAccountProfileFallbackPolicy =
-  "fail_closed" | typeof NATIVE_AD_ACCOUNT_FALLBACK_CELL;
+  | "fail_closed"
+  | typeof NATIVE_AD_ACCOUNT_FALLBACK_CELL
+  | typeof NATIVE_AD_THIN_EXACT_FALLBACK_CELL;
 
 export type NativeAdAccountProfileFailureReason =
   | "native_calibration_missing"
@@ -239,8 +247,37 @@ export async function resolveNativeAdAccountDecisionProfile(
   let calibrationSource: NativeAdCalibrationCellScope | null =
     exactCell === null ? null : "objective_cohort_context";
 
+  if (
+    exactCell !== null &&
+    (fallbackPolicy === NATIVE_AD_ACCOUNT_FALLBACK_CELL ||
+      fallbackPolicy === NATIVE_AD_THIN_EXACT_FALLBACK_CELL) &&
+    exactCell.targetAuthority.status !== "fresh" &&
+    exactCell.matureAdCount < 10
+  ) {
+    const fallbackQuery = buildQuery({
+      ...requestedCell,
+      cellScope: "account_objective_cohort",
+      optimizationContext: NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
+    });
+    const fallbackCell =
+      await input.dataSource.getNativeAdCalibrationCell(fallbackQuery);
+    const fallbackValidation = validateCell(fallbackCell, fallbackQuery);
+    if (
+      fallbackValidation === "valid" &&
+      fallbackCell !== null &&
+      fallbackCell.matureAdCount >= 10 &&
+      positiveFinite(fallbackCell.accountCalibration.roasP60)
+    ) {
+      selectedCell = fallbackCell;
+      calibrationSource = "account_objective_cohort";
+    }
+  }
+
   if (exactCell === null) {
-    if (fallbackPolicy === "fail_closed") {
+    if (
+      fallbackPolicy === "fail_closed" ||
+      fallbackPolicy === NATIVE_AD_THIN_EXACT_FALLBACK_CELL
+    ) {
       return failClosed({
         reason: "native_calibration_missing",
         fallbackPolicy,

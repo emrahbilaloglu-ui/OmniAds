@@ -11,6 +11,7 @@ import { NATIVE_AD_DECISION_SCHEMA_SQL } from "@/lib/creative-decision-engine/ad
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
+  READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
   hashAdDecisionIdentityManifest,
   type AdDecisionHydrationReceipt,
@@ -240,6 +241,16 @@ async function createHydrationSourceSchema(client: Client) {
       objective TEXT, optimization_goal TEXT, custom_event_type TEXT,
       captured_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL
     );
+    CREATE TABLE meta_entity_observation_runs (
+      id UUID PRIMARY KEY, business_ref_id UUID NOT NULL,
+      business_id TEXT NOT NULL, provider_account_ref_id UUID NOT NULL,
+      provider_account_id TEXT NOT NULL, entity_type TEXT NOT NULL,
+      endpoint TEXT NOT NULL, observed_at TIMESTAMPTZ NOT NULL,
+      captured_at TIMESTAMPTZ NOT NULL, completeness TEXT NOT NULL,
+      page_count INTEGER NOT NULL, row_count INTEGER NOT NULL,
+      source_snapshot_id TEXT, payload_hash CHAR(64), run_hash CHAR(64) NOT NULL,
+      error_json JSONB, created_at TIMESTAMPTZ NOT NULL
+    );
     CREATE TABLE engine_v3_creative_lifecycle_daily (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(), business_ref_id UUID NOT NULL,
       creative_id TEXT NOT NULL, as_of_date DATE NOT NULL, engine_version TEXT NOT NULL,
@@ -271,6 +282,79 @@ async function createHydrationSourceSchema(client: Client) {
       created_at TIMESTAMPTZ NOT NULL
     );
   `);
+}
+
+async function verifyHydrationReceiptCaptureAxis(client: Client) {
+  const sourceRunId = "00000000-0000-4000-8000-000000000904";
+  const sourceObservedAt = `${AS_OF}T03:00:00.000Z`;
+  const sourceCapturedAt = `${AS_OF}T03:00:05.000Z`;
+  await client.query(
+    `INSERT INTO meta_entity_observation_runs (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, endpoint, observed_at, captured_at,
+       completeness, page_count, row_count, payload_hash, run_hash, created_at
+     ) VALUES ($1, $2::uuid, $2::text, $3, $4, 'ad', 'ad_configs', $5, $6,
+       'complete', 1, 2, $7, $8, $6)`,
+    [
+      sourceRunId,
+      BUSINESS_ID,
+      ACCOUNT_REF_ID,
+      ACCOUNT_ID,
+      sourceObservedAt,
+      sourceCapturedAt,
+      "b".repeat(64),
+      "a".repeat(64),
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_state_history (
+       run_id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, entity_id, creative_id,
+       effective_status, observed_at, captured_at, created_at,
+       run_completeness, presence
+     ) VALUES
+       ($1, $2::uuid, $2::text, $3, $4, 'ad', 'ad-old-provider-update',
+        'creative-old', 'ACTIVE', '2026-06-01T00:00:00Z', $5, $5,
+        'complete', 'present'),
+       ($1, $2::uuid, $2::text, $3, $4, 'ad', 'ad-later-tombstone',
+        'creative-tombstone', 'ACTIVE', '2026-06-02T00:00:00Z', $5, $5,
+        'complete', 'present')`,
+    [sourceRunId, BUSINESS_ID, ACCOUNT_REF_ID, ACCOUNT_ID, sourceCapturedAt],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_tombstones (
+       business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, entity_id, reason,
+       observed_at, captured_at, created_at
+     ) VALUES ($1::uuid, $1::text, $2, $3, 'ad', 'ad-later-tombstone',
+       'explicit_not_found', $4, $4, $4)`,
+    [BUSINESS_ID, ACCOUNT_REF_ID, ACCOUNT_ID, `${AS_OF}T03:05:00.000Z`],
+  );
+
+  const receipt = await client.query<{
+    source_run_id: string;
+    source_expected_row_count: number;
+    source_persisted_row_count: number;
+    expected_ad_ids: string[];
+  }>(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY, [
+    BUSINESS_ID,
+    AS_OF,
+    CUTOFF,
+    [],
+    false,
+  ]);
+  assert(receipt.rows.length === 1, "Hydration receipt account row is missing.");
+  assert(
+    receipt.rows[0]?.source_run_id === sourceRunId &&
+      receipt.rows[0]?.source_expected_row_count === 2 &&
+      receipt.rows[0]?.source_persisted_row_count === 2,
+    "Hydration receipt lost complete-run lineage.",
+  );
+  assert(
+    JSON.stringify(receipt.rows[0]?.expected_ad_ids) ===
+      JSON.stringify(["ad-old-provider-update"]),
+    "Hydration receipt dropped an old provider update or ignored a later tombstone.",
+  );
 }
 
 async function verifyTombstoneAndHistoricalCutoff(client: Client) {
@@ -741,6 +825,7 @@ async function runSeam(client: Client) {
     capability.ready,
     `Exact native schema capability failed: ${capability.missing.join(", ")}`,
   );
+  await verifyHydrationReceiptCaptureAxis(client);
   await verifyTombstoneAndHistoricalCutoff(client);
   await verifyPruneRetryAndConstraints(client, db);
 }
@@ -791,7 +876,7 @@ async function main() {
       await client.end();
     }
     console.log(
-      "[native-ad-seam] PASS tombstone, historical cutoff, receipt prune, retry, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, receipt prune, retry, FK and soft-only checks",
     );
   } finally {
     if (started) {

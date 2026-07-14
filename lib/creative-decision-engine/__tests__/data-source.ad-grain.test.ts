@@ -730,6 +730,21 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
+  it("uses capture time rather than provider update time for receipt membership", () => {
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "state.captured_at >= run.source_captured_at",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "tombstone.captured_at >= run.source_captured_at",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).not.toContain(
+      "state.observed_at >= run.source_observed_at",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).not.toContain(
+      "tombstone.observed_at >= run.source_observed_at",
+    );
+  });
+
   it("keeps absent event payload metrics null instead of coercing them to zero", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
       "FILTER (WHERE payload_json ? 'outbound_clicks')",

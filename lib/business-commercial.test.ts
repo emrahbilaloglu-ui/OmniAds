@@ -93,6 +93,105 @@ vi.mock("@/lib/db", () => {
         return [];
       }
 
+      if (text.includes("/* target-pack-reconfirmation */")) {
+        const [businessId, expectedUpdatedAt, updatedByUserId] = values;
+        if (
+          !currentTargetPack ||
+          currentTargetPack.business_id !== businessId
+        ) {
+          return [
+            {
+              result_status: "missing",
+              reason: "target_pack_missing",
+              updated_at: null,
+            },
+          ];
+        }
+
+        if (
+          Date.parse(String(currentTargetPack.updated_at)) !==
+          Date.parse(String(expectedUpdatedAt))
+        ) {
+          return [
+            {
+              result_status: "conflict",
+              reason: "target_pack_changed",
+              updated_at: currentTargetPack.updated_at,
+            },
+          ];
+        }
+
+        const anchors = {
+          target_cpa: currentTargetPack.target_cpa,
+          target_roas: currentTargetPack.target_roas,
+          break_even_cpa: currentTargetPack.break_even_cpa,
+          break_even_roas: currentTargetPack.break_even_roas,
+        };
+        const invalidAnchor = Object.entries(anchors).find(([, value]) => {
+          return (
+            value !== null &&
+            value !== undefined &&
+            (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+          );
+        });
+        let invalidReason = invalidAnchor
+          ? `${invalidAnchor[0]}_must_be_positive_finite`
+          : null;
+        if (Object.values(anchors).every((value) => value == null)) {
+          invalidReason = "target_pack_has_no_economic_anchors";
+        } else if (
+          !invalidReason &&
+          typeof anchors.target_roas === "number" &&
+          typeof anchors.break_even_roas === "number" &&
+          anchors.target_roas < anchors.break_even_roas
+        ) {
+          invalidReason = "target_roas_below_break_even_roas";
+        } else if (
+          !invalidReason &&
+          typeof anchors.target_cpa === "number" &&
+          typeof anchors.break_even_cpa === "number" &&
+          anchors.target_cpa > anchors.break_even_cpa
+        ) {
+          invalidReason = "target_cpa_above_break_even_cpa";
+        }
+
+        if (invalidReason) {
+          return [
+            {
+              result_status: "invalid_target_pack",
+              reason: invalidReason,
+              updated_at: currentTargetPack.updated_at,
+            },
+          ];
+        }
+
+        const currentUpdatedAtMs = Date.parse(
+          String(currentTargetPack.updated_at),
+        );
+        const effectiveAt = new Date(
+          Math.max(Date.now(), currentUpdatedAtMs + 1),
+        ).toISOString();
+        currentTargetPack = {
+          ...currentTargetPack,
+          updated_by_user_id: updatedByUserId,
+          updated_at: effectiveAt,
+        };
+        tableResponses.targetHistory.push({
+          ...currentTargetPack,
+          id: `history-${++targetHistorySequence}`,
+          operation: "upsert",
+          effective_at: effectiveAt,
+          recorded_at: effectiveAt,
+        });
+        return [
+          {
+            result_status: "reconfirmed",
+            reason: "target_pack_reconfirmed",
+            updated_at: effectiveAt,
+          },
+        ];
+      }
+
       if (text.includes("FROM business_target_pack_history")) {
         const businessId = values[0];
         const cutoff = Date.parse(String(values[1]));
@@ -138,6 +237,9 @@ vi.mock("@/lib/db", () => {
 
   return {
     getDb: vi.fn(() => sql),
+    runDbTransaction: vi.fn(async (callback: () => Promise<unknown>) =>
+      callback(),
+    ),
   };
 });
 
@@ -162,12 +264,15 @@ vi.mock("@/lib/business-cost-model", () => ({
 vi.mock("@/lib/provider-account-reference-store", () => ({
   resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
     return new Map(
-      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+      businessIds.map(
+        (businessId) => [businessId, `business-ref-${businessId}`] as const,
+      ),
     );
   }),
 }));
 
 const businessCommercial = await import("@/lib/business-commercial");
+const db = await import("@/lib/db");
 
 describe("commercial target freshness", () => {
   it("uses the shared 30-day rule and fails unknown timestamps closed", () => {
@@ -227,6 +332,65 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     currentTargetPack = null;
     targetHistorySequence = 0;
     vi.clearAllMocks();
+  });
+
+  it.each([
+    ["boolean", true],
+    ["numeric array", [40]],
+    ["numeric string", "2.5"],
+  ])(
+    "rejects a type-confused %s economic anchor before writing",
+    async (_label, value) => {
+      await expect(
+        businessCommercial.upsertBusinessCommercialTruthSnapshot({
+          businessId: "11111111-1111-4111-8111-111111111111",
+          updatedByUserId: "22222222-2222-4222-8222-222222222222",
+          snapshot: {
+            targetPack: {
+              targetRoas: value,
+            } as never,
+          },
+        }),
+      ).rejects.toMatchObject({
+        name: "BusinessCommercialInputValidationError",
+        field: "targetPack.targetRoas",
+      });
+      expect(queryLog).toEqual([]);
+    },
+  );
+
+  it("produces a stable revision and changes it with persisted state", () => {
+    const snapshot = {
+      businessId: "11111111-1111-4111-8111-111111111111",
+      targetPack: null,
+      countryEconomics: [],
+      promoCalendar: [],
+      operatingConstraints: null,
+      costModelContext: null,
+      calibrationProfiles: [],
+      sectionMeta: {
+        targetPack: {} as never,
+        countryEconomics: {} as never,
+        promoCalendar: {} as never,
+        operatingConstraints: {} as never,
+      },
+    } as Parameters<
+      typeof businessCommercial.businessCommercialSnapshotRevision
+    >[0];
+    const revision =
+      businessCommercial.businessCommercialSnapshotRevision(snapshot);
+    const changed = businessCommercial.businessCommercialSnapshotRevision({
+      ...snapshot,
+      targetPack: { targetRoas: 2.5 },
+    } as Parameters<
+      typeof businessCommercial.businessCommercialSnapshotRevision
+    >[0]);
+
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(
+      businessCommercial.businessCommercialSnapshotRevision(snapshot),
+    ).toBe(revision);
+    expect(changed).not.toBe(revision);
   });
 
   it("uses idempotent keyed upserts for country economics and promo events", async () => {
@@ -305,14 +469,26 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     expect(
       queryLog.some(
         (query) =>
-          query.includes("INSERT INTO business_decision_calibration_profiles") &&
+          query.includes(
+            "INSERT INTO business_decision_calibration_profiles",
+          ) &&
           query.includes(
             "ON CONFLICT (business_id, channel, objective_family, bid_regime, archetype)",
           ) &&
           query.includes("DO UPDATE SET"),
       ),
     ).toBe(true);
-    expect(queryLog.some((query) => query.includes("business_ref_id"))).toBe(true);
+    expect(queryLog.some((query) => query.includes("business_ref_id"))).toBe(
+      true,
+    );
+    expect(db.runDbTransaction).toHaveBeenCalledTimes(1);
+    const sql = db.getDb() as ReturnType<typeof db.getDb> & {
+      query: ReturnType<typeof vi.fn>;
+    };
+    expect(sql.query).toHaveBeenCalledWith(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+      ["business-commercial:11111111-1111-4111-8111-111111111111"],
+    );
   });
 
   it("persists cost structure on the target pack without changing the target ROAS path", async () => {
@@ -446,6 +622,338 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reconfirms server-owned values, writes one identical history version, and rejects a retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const businessId = "11111111-1111-4111-8111-111111111111";
+      vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+      await businessCommercial.upsertBusinessCommercialTruthSnapshot({
+        businessId,
+        updatedByUserId: "22222222-2222-4222-8222-222222222222",
+        snapshot: {
+          targetPack: {
+            targetCpa: 40,
+            targetRoas: 2.8,
+            breakEvenCpa: 55,
+            breakEvenRoas: 1.9,
+            contributionMarginAssumption: 0.4,
+            aovAssumption: 100,
+            newCustomerWeight: 0.25,
+            defaultRiskPosture: "balanced",
+            costStructure: {
+              cogsPercent: 0.3,
+              shippingPercent: 0.08,
+              fulfillmentPercent: 0.05,
+              paymentProcessingPercent: 0.03,
+            },
+            sourceLabel: "settings_manual_entry",
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        },
+      });
+      const expectedUpdatedAt = String(currentTargetPack?.updated_at);
+      const economicValuesBefore = {
+        target_cpa: currentTargetPack?.target_cpa,
+        target_roas: currentTargetPack?.target_roas,
+        break_even_cpa: currentTargetPack?.break_even_cpa,
+        break_even_roas: currentTargetPack?.break_even_roas,
+        contribution_margin_assumption:
+          currentTargetPack?.contribution_margin_assumption,
+        aov_assumption: currentTargetPack?.aov_assumption,
+        new_customer_weight: currentTargetPack?.new_customer_weight,
+        default_risk_posture: currentTargetPack?.default_risk_posture,
+        cost_cogs_percent: currentTargetPack?.cost_cogs_percent,
+        cost_shipping_percent: currentTargetPack?.cost_shipping_percent,
+        cost_fulfillment_percent: currentTargetPack?.cost_fulfillment_percent,
+        cost_payment_processing_percent:
+          currentTargetPack?.cost_payment_processing_percent,
+        source_label: currentTargetPack?.source_label,
+      };
+
+      vi.setSystemTime(new Date("2026-07-02T11:00:00.000Z"));
+      const result = await businessCommercial.reconfirmBusinessTargetPack({
+        businessId,
+        updatedByUserId: "33333333-3333-4333-8333-333333333333",
+        expectedUpdatedAt,
+      });
+
+      expect(result).toEqual({
+        status: "reconfirmed",
+        reason: "target_pack_reconfirmed",
+        updatedAt: "2026-07-02T11:00:00.000Z",
+      });
+      expect(currentTargetPack).toMatchObject({
+        ...economicValuesBefore,
+        updated_by_user_id: "33333333-3333-4333-8333-333333333333",
+        updated_at: "2026-07-02T11:00:00.000Z",
+      });
+      expect(tableResponses.targetHistory).toHaveLength(2);
+      expect(tableResponses.targetHistory[1]).toMatchObject({
+        ...economicValuesBefore,
+        operation: "upsert",
+        effective_at: "2026-07-02T11:00:00.000Z",
+        recorded_at: "2026-07-02T11:00:00.000Z",
+        updated_by_user_id: "33333333-3333-4333-8333-333333333333",
+      });
+
+      await expect(
+        businessCommercial.reconfirmBusinessTargetPack({
+          businessId,
+          updatedByUserId: "33333333-3333-4333-8333-333333333333",
+          expectedUpdatedAt,
+        }),
+      ).resolves.toEqual({
+        status: "conflict",
+        reason: "target_pack_changed",
+        currentUpdatedAt: "2026-07-02T11:00:00.000Z",
+      });
+      expect(tableResponses.targetHistory).toHaveLength(2);
+
+      const reconfirmQuery = queryCalls.find((call) =>
+        call.text.includes("/* target-pack-reconfirmation */"),
+      );
+      expect(reconfirmQuery?.text).toContain("FOR UPDATE OF target");
+      expect(reconfirmQuery?.text).toContain(
+        "target.updated_at = params.expected_updated_at",
+      );
+      expect(reconfirmQuery?.text).toContain(
+        "updated_at = write_clock.effective_at",
+      );
+      expect(reconfirmQuery?.text).toContain(
+        "updated_by_user_id = params.updated_by_user_id",
+      );
+      expect(reconfirmQuery?.text).toContain("THEN 'write_failed'");
+      const sql = db.getDb() as ReturnType<typeof db.getDb> & {
+        query: ReturnType<typeof vi.fn>;
+      };
+      expect(sql.query).toHaveBeenCalledWith(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+        ["business-commercial:11111111-1111-4111-8111-111111111111"],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns missing without history when no target pack exists", async () => {
+    await expect(
+      businessCommercial.reconfirmBusinessTargetPack({
+        businessId: "11111111-1111-4111-8111-111111111111",
+        updatedByUserId: "33333333-3333-4333-8333-333333333333",
+        expectedUpdatedAt: "2026-07-01T10:00:00.000Z",
+      }),
+    ).resolves.toEqual({
+      status: "missing",
+      reason: "target_pack_missing",
+    });
+    expect(tableResponses.targetHistory).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      overrides: { target_roas: 1.5, break_even_roas: 1.8 },
+      reason: "target_roas_below_break_even_roas",
+    },
+    {
+      overrides: { target_cpa: 60, break_even_cpa: 55 },
+      reason: "target_cpa_above_break_even_cpa",
+    },
+    {
+      overrides: { target_roas: 0 },
+      reason: "target_roas_must_be_positive_finite",
+    },
+  ])(
+    "does not reconfirm invalid stored economics: $reason",
+    async ({ overrides, reason }) => {
+      currentTargetPack = {
+        business_id: "11111111-1111-4111-8111-111111111111",
+        business_ref_id: "business-ref-1",
+        target_cpa: 40,
+        target_roas: 2.8,
+        break_even_cpa: 55,
+        break_even_roas: 1.9,
+        contribution_margin_assumption: 0.4,
+        aov_assumption: 100,
+        new_customer_weight: 0.25,
+        default_risk_posture: "balanced",
+        cost_cogs_percent: 0.3,
+        cost_shipping_percent: 0.08,
+        cost_fulfillment_percent: 0.05,
+        cost_payment_processing_percent: 0.03,
+        source_label: "legacy",
+        updated_by_user_id: null,
+        updated_at: "2026-07-01T10:00:00.000Z",
+        ...overrides,
+      };
+
+      await expect(
+        businessCommercial.reconfirmBusinessTargetPack({
+          businessId: "11111111-1111-4111-8111-111111111111",
+          updatedByUserId: "33333333-3333-4333-8333-333333333333",
+          expectedUpdatedAt: "2026-07-01T10:00:00.000Z",
+        }),
+      ).resolves.toEqual({
+        status: "invalid_target_pack",
+        reason,
+        currentUpdatedAt: "2026-07-01T10:00:00.000Z",
+      });
+      expect(tableResponses.targetHistory).toHaveLength(0);
+    },
+  );
+
+  it("rejects non-positive PUT anchors while preserving explicit nulls", () => {
+    const businessId = "11111111-1111-4111-8111-111111111111";
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: { targetRoas: 0 } as never,
+      }),
+    ).toThrowError(
+      "targetPack.targetRoas must be a finite number greater than zero or null.",
+    );
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: { targetCpa: -1 } as never,
+      }),
+    ).toThrowError(
+      "targetPack.targetCpa must be a finite number greater than zero or null.",
+    );
+
+    const sanitized = businessCommercial.sanitizeBusinessCommercialTruthInput(
+      businessId,
+      {
+        targetPack: {
+          targetCpa: null,
+          targetRoas: 2.5,
+          breakEvenCpa: null,
+          breakEvenRoas: 1.8,
+        } as never,
+      },
+    );
+    expect(sanitized.targetPack).toMatchObject({
+      targetCpa: null,
+      targetRoas: 2.5,
+      breakEvenCpa: null,
+      breakEvenRoas: 1.8,
+    });
+  });
+
+  it("rejects target-pack metadata without an economic anchor", () => {
+    const businessId = "11111111-1111-4111-8111-111111111111";
+
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: {
+          aovAssumption: 100,
+          defaultRiskPosture: "balanced",
+        } as never,
+      }),
+    ).toThrowError(
+      "targetPack must contain at least one CPA or ROAS economic anchor.",
+    );
+
+    expect(
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: {} as never,
+      }).targetPack,
+    ).toBeNull();
+  });
+
+  it.each([
+    [
+      "targetPack.aovAssumption",
+      { targetPack: { targetRoas: 2.5, aovAssumption: true } },
+    ],
+    [
+      "targetPack.costStructure.cogsPercent",
+      {
+        targetPack: { targetRoas: 2.5, costStructure: { cogsPercent: [0.3] } },
+      },
+    ],
+    [
+      "countryEconomics.economicsMultiplier",
+      { countryEconomics: [{ countryCode: "US", economicsMultiplier: "1.2" }] },
+    ],
+    [
+      "calibrationProfiles.targetRoasMultiplier",
+      { calibrationProfiles: [{ targetRoasMultiplier: false }] },
+    ],
+  ])("rejects type-confused secondary numeric field %s", (field, snapshot) => {
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(
+        "11111111-1111-4111-8111-111111111111",
+        snapshot as never,
+      ),
+    ).toThrowError(
+      expect.objectContaining({
+        name: "BusinessCommercialInputValidationError",
+        field,
+      }),
+    );
+  });
+
+  it("rejects economically inverted ROAS and CPA target pairs", () => {
+    const businessId = "11111111-1111-4111-8111-111111111111";
+
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: {
+          targetRoas: 1.7,
+          breakEvenRoas: 1.8,
+        } as never,
+      }),
+    ).toThrowError(
+      "targetPack.targetRoas must be greater than or equal to targetPack.breakEvenRoas.",
+    );
+
+    expect(() =>
+      businessCommercial.sanitizeBusinessCommercialTruthInput(businessId, {
+        targetPack: {
+          targetCpa: 56,
+          breakEvenCpa: 55,
+        } as never,
+      }),
+    ).toThrowError(
+      "targetPack.targetCpa must be less than or equal to targetPack.breakEvenCpa.",
+    );
+  });
+
+  it("does not fabricate missing configured anchor values in coverage", async () => {
+    tableResponses.targetPack = [
+      {
+        target_cpa: null,
+        target_roas: 2.8,
+        break_even_cpa: null,
+        break_even_roas: 1.9,
+        contribution_margin_assumption: null,
+        aov_assumption: null,
+        new_customer_weight: null,
+        default_risk_posture: "balanced",
+        cost_cogs_percent: null,
+        cost_shipping_percent: null,
+        cost_fulfillment_percent: null,
+        cost_payment_processing_percent: null,
+        source_label: "settings_manual_entry",
+        updated_at: "2026-07-01T10:00:00.123456Z",
+        updated_by_user_id: null,
+      },
+    ];
+
+    const snapshot =
+      await businessCommercial.getBusinessCommercialTruthSnapshot(
+        "11111111-1111-4111-8111-111111111111",
+      );
+
+    expect(snapshot.coverage?.thresholds).toEqual({
+      source: "configured_targets",
+      targetRoas: 2.8,
+      breakEvenRoas: 1.9,
+      targetCpa: null,
+      breakEvenCpa: null,
+      defaultRiskPosture: "balanced",
+    });
   });
 
   it("excludes future versions and treats a delete snapshot as a tombstone", async () => {
@@ -694,13 +1202,20 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
       },
     ];
 
-    const snapshot = await businessCommercial.getBusinessCommercialTruthSnapshot(
-      "11111111-1111-4111-8111-111111111111",
-    );
+    const snapshot =
+      await businessCommercial.getBusinessCommercialTruthSnapshot(
+        "11111111-1111-4111-8111-111111111111",
+      );
 
-    expect(snapshot?.sectionMeta.targetPack.updatedAt).toBe(updatedAt.toISOString());
-    expect(snapshot?.coverage?.freshness.updatedAt).toBe(updatedAt.toISOString());
-    expect(snapshot?.coverage?.calibration.updatedAt).toBe(updatedAt.toISOString());
+    expect(snapshot?.sectionMeta.targetPack.updatedAt).toBe(
+      updatedAt.toISOString(),
+    );
+    expect(snapshot?.coverage?.freshness.updatedAt).toBe(
+      updatedAt.toISOString(),
+    );
+    expect(snapshot?.coverage?.calibration.updatedAt).toBe(
+      updatedAt.toISOString(),
+    );
     expect(snapshot?.targetPack?.costStructure).toEqual({
       cogsPercent: 0.31,
       shippingPercent: 0.09,
@@ -747,9 +1262,10 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
       },
     ];
 
-    const snapshot = await businessCommercial.getBusinessCommercialTruthSnapshot(
-      "11111111-1111-4111-8111-111111111111",
-    );
+    const snapshot =
+      await businessCommercial.getBusinessCommercialTruthSnapshot(
+        "11111111-1111-4111-8111-111111111111",
+      );
 
     const countryRequirement = snapshot.coverage?.requiredInputs.find(
       (input) => input.section === "countryEconomics",
@@ -762,6 +1278,8 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
     expect(snapshot.coverage?.nonBlockingReasons.join(" ")).toContain(
       "global cost structure",
     );
-    expect(snapshot.coverage?.actionCeilings).not.toContain("monitor_low_truth");
+    expect(snapshot.coverage?.actionCeilings).not.toContain(
+      "monitor_low_truth",
+    );
   });
 });

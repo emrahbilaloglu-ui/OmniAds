@@ -5,7 +5,12 @@ import {
   classifyCreativeDecisionOutcome,
   CREATIVE_OUTCOME_CLASSIFIER_VERSION,
 } from "../outcome-classifier";
-import { ENGINE_VERSION, type DecisionLabel } from "../types";
+import {
+  DECISION_AUTHORITY_BLOCKERS,
+  ENGINE_VERSION,
+  type DecisionAuthorityBlocker,
+  type DecisionLabel,
+} from "../types";
 import { hashAdvisoryLock } from "./calibration-job";
 import { engineV3JobsDisabled } from "./job-switch";
 import { ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS } from "./job-runtime";
@@ -16,6 +21,9 @@ export const DECISION_OUTCOME_LOOKBACK_DAYS = 120;
 export const DECISION_OUTCOME_BATCH_LIMIT = 5_000;
 // Runs after the daily decision jobs are expected to finish; realized outcomes still fill on 7d/14d lag.
 export const DECISION_OUTCOME_DAILY_UTC_HOUR = 4;
+// The legacy outcome path has no manifest/hash contract of its own. Provenance
+// is copied as nullable evidence, while outcome classification remains keyed to
+// the published label, so there is no local contract version to bump here.
 
 type JobStatus = "success" | "failed" | "skipped";
 
@@ -70,6 +78,8 @@ type OutcomeSourceRow = Record<string, unknown> & {
   outcome_window_days: unknown;
   engine_version: unknown;
   label: unknown;
+  pre_authority_label: unknown;
+  authority_blocker: unknown;
   confidence: unknown;
   effective_target_roas: unknown;
   baseline_spend: unknown;
@@ -91,6 +101,8 @@ interface OutcomePayloadRow {
   outcome_window_days: number;
   engine_version: string;
   label: DecisionLabel;
+  pre_authority_label: DecisionLabel | null;
+  authority_blocker: DecisionAuthorityBlocker | null;
   confidence: number;
   effective_target_roas: number;
   baseline_spend: number | null;
@@ -131,6 +143,8 @@ candidate_windows AS (
     w.outcome_window_days,
     s.engine_version,
     s.label,
+    s.pre_authority_label,
+    s.authority_blocker,
     s.confidence,
     s.effective_target_roas,
     s.spend AS baseline_spend,
@@ -158,6 +172,8 @@ SELECT
   c.outcome_window_days,
   c.engine_version,
   c.label,
+  c.pre_authority_label,
+  c.authority_blocker,
   c.confidence,
   c.effective_target_roas,
   c.baseline_spend,
@@ -186,6 +202,8 @@ GROUP BY
   c.outcome_window_days,
   c.engine_version,
   c.label,
+  c.pre_authority_label,
+  c.authority_blocker,
   c.confidence,
   c.effective_target_roas,
   c.baseline_spend,
@@ -208,6 +226,8 @@ WITH payload AS (
     outcome_window_days integer,
     engine_version text,
     label text,
+    pre_authority_label text,
+    authority_blocker text,
     confidence integer,
     effective_target_roas double precision,
     baseline_spend double precision,
@@ -235,6 +255,8 @@ INSERT INTO engine_v3_decision_outcomes_daily (
   outcome_window_days,
   engine_version,
   label,
+  pre_authority_label,
+  authority_blocker,
   confidence,
   effective_target_roas,
   baseline_spend,
@@ -261,6 +283,8 @@ SELECT
   outcome_window_days,
   engine_version,
   label,
+  pre_authority_label,
+  authority_blocker,
   confidence,
   effective_target_roas,
   baseline_spend,
@@ -280,6 +304,8 @@ FROM payload
 ON CONFLICT (decision_snapshot_id, outcome_window_days)
 DO UPDATE SET
   evaluation_date = EXCLUDED.evaluation_date,
+  pre_authority_label = EXCLUDED.pre_authority_label,
+  authority_blocker = EXCLUDED.authority_blocker,
   outcome_spend = EXCLUDED.outcome_spend,
   outcome_purchases = EXCLUDED.outcome_purchases,
   outcome_revenue = EXCLUDED.outcome_revenue,
@@ -603,6 +629,10 @@ function toOutcomePayloadRow(input: {
     outcome_window_days: outcomeWindowDays,
     engine_version: requiredString(input.row.engine_version, "engine_version"),
     label,
+    pre_authority_label: toOptionalDecisionLabel(
+      input.row.pre_authority_label,
+    ),
+    authority_blocker: toAuthorityBlocker(input.row.authority_blocker),
     confidence,
     effective_target_roas: effectiveTargetRoas,
     baseline_spend: baselineSpend,
@@ -682,6 +712,20 @@ function toDecisionLabel(value: unknown): DecisionLabel {
     return text;
   }
   throw new Error(`Unexpected decision label in outcome source: ${text}`);
+}
+
+function toOptionalDecisionLabel(value: unknown): DecisionLabel | null {
+  if (value === null || value === undefined) return null;
+  return toDecisionLabel(value);
+}
+
+function toAuthorityBlocker(value: unknown): DecisionAuthorityBlocker | null {
+  if (value === null || value === undefined) return null;
+  const text = requiredString(value, "authority_blocker");
+  if (DECISION_AUTHORITY_BLOCKERS.includes(text as DecisionAuthorityBlocker)) {
+    return text as DecisionAuthorityBlocker;
+  }
+  throw new Error(`Unexpected authority blocker in outcome source: ${text}`);
 }
 
 function errorToJson(error: unknown) {

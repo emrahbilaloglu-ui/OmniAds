@@ -39,6 +39,8 @@ function backtestRow(overrides: Record<string, unknown> = {}) {
     scope_id: "account-1",
     label: "cut",
     raw_label: "cut",
+    pre_authority_label: null,
+    authority_blocker: null,
     confidence: 80,
     account_currency: "USD",
     currency_status: "known",
@@ -187,7 +189,7 @@ describe("native ad backtest store", () => {
     });
   });
 
-  it("rejects incomplete causal flags and non-current epochs", () => {
+  it("rejects incomplete causal flags and unexpected epochs", () => {
     expect(() =>
       buildAdDecisionBacktestReport([
         backtestRow({
@@ -201,12 +203,43 @@ describe("native ad backtest store", () => {
       buildAdDecisionBacktestReport([
         backtestRow({ engine_version: "stale-native-epoch" }),
       ]),
-    ).toThrow("non-current engine epoch");
+    ).toThrow("unexpected engine epoch");
     expect(() =>
       buildAdDecisionBacktestReport([
         backtestRow({ source_cutoff_at: "2026-07-16T23:59:00.000Z" }),
       ]),
     ).toThrow("source cutoff policy drifted");
+  });
+
+  it("reads an explicitly selected historical engine epoch", async () => {
+    const historicalEpoch = "v3-2026-07-06-decision-stability";
+    const query = async <
+      Row extends Record<string, unknown>,
+    >(
+      _sql: string,
+      params?: readonly unknown[],
+    ): Promise<Row[]> => {
+      expect(params).toEqual([
+        "business-1",
+        ["outcome-ad-1"],
+        historicalEpoch,
+      ]);
+      return [
+        backtestRow({ engine_version: historicalEpoch }),
+      ] as unknown as Row[];
+    };
+
+    const report = await readAdDecisionBacktest(
+      {
+        businessId: "business-1",
+        outcomeIds: ["outcome-ad-1"],
+        engineVersion: historicalEpoch,
+      },
+      query,
+    );
+
+    expect(report.rows[0]?.engineEpoch).toBe(historicalEpoch);
+    expect(report.strata[0]?.key.engineEpoch).toBe(historicalEpoch);
   });
 
   it("preserves exact account, ad, epoch, snapshot, evaluation, and outcome IDs", () => {
@@ -242,6 +275,33 @@ describe("native ad backtest store", () => {
       evaluationIds: ["evaluation-exact"],
       adIds: ["ad-exact"],
     });
+  });
+
+  it("keeps authority provenance separate from published-label metrics", () => {
+    const report = buildAdDecisionBacktestReport([
+      backtestRow({
+        pre_authority_label: "scale",
+        authority_blocker: "source_freshness",
+      }),
+      backtestRow({ ad_id: "ad-2", decision_entity_id: "ad-2" }),
+    ]);
+    expect(report.rows[0]).toMatchObject({
+      label: "cut",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+    });
+    expect(report.rows[1]).toMatchObject({
+      preAuthorityLabel: null,
+      authorityBlocker: null,
+    });
+    expect(report.strata).toHaveLength(1);
+    expect(report.strata[0]?.key.decisionLabel).toBe("cut");
+  });
+
+  it("rejects unknown authority blockers", () => {
+    expect(() => buildAdDecisionBacktestReport([
+      backtestRow({ authority_blocker: "future_unreviewed_blocker" }),
+    ])).toThrow("Unexpected native authority blocker");
   });
 
   it("does not pool reused external account IDs across physical account bindings", () => {

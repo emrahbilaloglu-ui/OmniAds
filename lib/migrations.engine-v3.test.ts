@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const ENGINE_V3_TABLES = [
@@ -34,9 +35,9 @@ const ENGINE_V3_COLUMN_COUNTS = {
   engine_v3_job_runs: 22,
   engine_v3_account_calibration_daily: 42,
   engine_v3_creative_lifecycle_daily: 62,
-  engine_v3_decision_snapshots_daily: 30,
+  engine_v3_decision_snapshots_daily: 32,
   engine_v3_decision_events: 17,
-  engine_v3_decision_outcomes_daily: 27,
+  engine_v3_decision_outcomes_daily: 29,
 } satisfies Record<(typeof ENGINE_V3_TABLES)[number], number>;
 
 function normalizeSql(statement: string) {
@@ -98,7 +99,9 @@ async function collectMigrationQueries() {
 
 function findCreateTableStatement(queries: string[], tableName: string) {
   return (
-    queries.find((query) => query.includes(`CREATE TABLE IF NOT EXISTS ${tableName} (`)) ?? ""
+    queries.find((query) =>
+      query.includes(`CREATE TABLE IF NOT EXISTS ${tableName} (`),
+    ) ?? ""
   );
 }
 
@@ -182,7 +185,9 @@ describe("Engine v3 precomputed table migrations", () => {
     for (const tableName of ENGINE_V3_TABLES) {
       const statement = findCreateTableStatement(queries, tableName);
       expect(statement).toContain(`CREATE TABLE IF NOT EXISTS ${tableName}`);
-      expect(countColumnDefinitions(statement)).toBe(ENGINE_V3_COLUMN_COUNTS[tableName]);
+      expect(countColumnDefinitions(statement)).toBe(
+        ENGINE_V3_COLUMN_COUNTS[tableName],
+      );
     }
 
     expect(joined).toContain(
@@ -190,20 +195,56 @@ describe("Engine v3 precomputed table migrations", () => {
         "UNIQUE (business_ref_id, scope_type, scope_id, campaign_kind, creative_format, as_of_date, engine_version)",
       ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
-      normalizeSql("meta_aov_quality TEXT CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready'))"),
+    expect(
+      normalizeSql(
+        findCreateTableStatement(
+          queries,
+          "engine_v3_account_calibration_daily",
+        ),
+      ),
+    ).toContain(
+      normalizeSql(
+        "meta_aov_quality TEXT CHECK (meta_aov_quality IN ('unavailable', 'unstable', 'low_sample', 'ready'))",
+      ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_account_calibration_daily"))).toContain(
-      normalizeSql("campaign_kind TEXT NOT NULL DEFAULT 'all' CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed'))"),
+    expect(
+      normalizeSql(
+        findCreateTableStatement(
+          queries,
+          "engine_v3_account_calibration_daily",
+        ),
+      ),
+    ).toContain(
+      normalizeSql(
+        "campaign_kind TEXT NOT NULL DEFAULT 'all' CHECK (campaign_kind IN ('all', 'main', 'test', 'mixed'))",
+      ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_creative_lifecycle_daily"))).toContain(
-      normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)"),
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_creative_lifecycle_daily"),
+      ),
+    ).toContain(
+      normalizeSql(
+        "UNIQUE (business_ref_id, creative_id, as_of_date, engine_version)",
+      ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"))).toContain(
-      normalizeSql("UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)"),
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"),
+      ),
+    ).toContain(
+      normalizeSql(
+        "UNIQUE (business_ref_id, creative_id, as_of_date, engine_version, scope_type, scope_id)",
+      ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"))).toContain(
-      normalizeSql("label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))"),
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_decision_snapshots_daily"),
+      ),
+    ).toContain(
+      normalizeSql(
+        "label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))",
+      ),
     );
     expect(
       normalizeSql(
@@ -224,7 +265,9 @@ describe("Engine v3 precomputed table migrations", () => {
       ),
     );
     expect(joined).toContain(
-      normalizeSql("ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))"),
+      normalizeSql(
+        "ADD COLUMN IF NOT EXISTS label_transform TEXT CHECK (label_transform IN ('test_cohort_refresh_to_cut'))",
+      ),
     );
     expect(joined).toContain(
       normalizeSql(
@@ -247,7 +290,9 @@ describe("Engine v3 precomputed table migrations", () => {
       ),
     );
     expect(joined).toContain(
-      normalizeSql("job_run_id UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL"),
+      normalizeSql(
+        "job_run_id UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL",
+      ),
     );
     expect(joined).toContain(
       normalizeSql(
@@ -269,7 +314,11 @@ describe("Engine v3 precomputed table migrations", () => {
         "decision_snapshot_id UUID NOT NULL REFERENCES engine_v3_decision_snapshots_daily(id) ON DELETE CASCADE",
       ),
     );
-    expect(normalizeSql(findCreateTableStatement(queries, "engine_v3_decision_outcomes_daily"))).toContain(
+    expect(
+      normalizeSql(
+        findCreateTableStatement(queries, "engine_v3_decision_outcomes_daily"),
+      ),
+    ).toContain(
       normalizeSql("UNIQUE (decision_snapshot_id, outcome_window_days)"),
     );
     expect(joined).toContain(
@@ -287,8 +336,12 @@ describe("Engine v3 precomputed table migrations", () => {
   });
 
   it("emits idempotent schema-only SQL for engine_v3 tables", async () => {
-    const firstRun = engineStatements(await collectMigrationQueries()).map(normalizeSql);
-    const secondRun = engineStatements(await collectMigrationQueries()).map(normalizeSql);
+    const firstRun = engineStatements(await collectMigrationQueries()).map(
+      normalizeSql,
+    );
+    const secondRun = engineStatements(await collectMigrationQueries()).map(
+      normalizeSql,
+    );
 
     expect(secondRun).toEqual(firstRun);
 
@@ -303,6 +356,51 @@ describe("Engine v3 precomputed table migrations", () => {
     );
   });
 
+  it("emits four nullable authority-provenance contracts", async () => {
+    const joined = normalizeSql((await collectMigrationQueries()).join("\n"));
+    for (const table of [
+      "engine_v3_decision_snapshots_daily",
+      "engine_v3_decision_outcomes_daily",
+      "engine_v3_ad_decision_snapshots_daily",
+      "engine_v3_ad_decision_outcomes_daily",
+    ]) {
+      expect(joined).toContain(table);
+    }
+    expect(joined).toContain(
+      "ADD COLUMN IF NOT EXISTS pre_authority_label TEXT",
+    );
+    expect(joined).toContain("ADD COLUMN IF NOT EXISTS authority_blocker TEXT");
+    for (const blocker of [
+      "profile_hard_action_ineligible",
+      "source_freshness",
+      "campaign_context",
+      "native_metrics_unavailable",
+      "native_profile_unavailable",
+    ])
+      expect(joined).toContain(blocker);
+  });
+
+  it("extends partial native tables before capability inspection", () => {
+    const source = readFileSync("lib/migrations.ts", "utf8").replace(
+      /\s+/g,
+      " ",
+    );
+    expect(
+      source.indexOf("await db.query(ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL)"),
+    ).toBeLessThan(
+      source.indexOf(
+        "let decisions = await inspectEvaluationStoreSchemaCapability",
+      ),
+    );
+    expect(
+      source.indexOf("await db.query(NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL)"),
+    ).toBeLessThan(
+      source.indexOf(
+        "let outcomes = await inspectAdDecisionOutcomeSchemaCapability",
+      ),
+    );
+  });
+
   it("adds kind calibration columns before indexing them", async () => {
     const queries = await collectMigrationQueries();
     const normalizedQueries = queries.map(normalizeSql);
@@ -313,7 +411,9 @@ describe("Engine v3 precomputed table migrations", () => {
         query.includes("ADD COLUMN IF NOT EXISTS campaign_kind"),
     );
     const byKindIndexIndex = normalizedQueries.findIndex((query) =>
-      query.includes("CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind"),
+      query.includes(
+        "CREATE INDEX IF NOT EXISTS idx_engine_v3_calibration_latest_by_kind",
+      ),
     );
 
     expect(addKindColumnsIndex).toBeGreaterThanOrEqual(0);

@@ -285,7 +285,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("keep");
     expect(out.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (136%) — spend $500 / purchases 8 below scale floor (need ≥$200, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above commercial target (136%) — spend 500 / purchases 8 below scale floor (need spend ≥200, ≥10); observe.",
     );
     expect(out.truthSource).toBe("commercial_truth");
     expect(out.effectiveTargetRoas).toBe(2.2);
@@ -845,7 +845,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("refresh");
     expect(out.reason).toBe(
-      "ROAS 1.65 (28d) = 75% of target and fatigued with recent 7d ROAS 1.00 decaying — iterate.",
+      "ROAS 1.65 (28d) = 75% of commercial target and fatigued with recent 7d ROAS 1.00 decaying — iterate.",
     );
   });
 
@@ -874,7 +874,7 @@ describe("creative-decision-engine v3", () => {
 
     expect(out.label).toBe("cut");
     expect(out.reason).toBe(
-      "0 purchases on $300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold $200.",
+      "0 purchases on 300 spend (28d cumulative, age 14d) — sustained zero-conversion burn past CPA-anchored maturity threshold 200.",
     );
   });
 

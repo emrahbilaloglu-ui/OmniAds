@@ -114,6 +114,8 @@ function sourceRow(
     scope_id: "account-1",
     label: "cut",
     raw_label: "cut",
+    pre_authority_label: "cut",
+    authority_blocker: null,
     confidence: 80,
     effective_target_roas: 2,
     target_roas: 2,
@@ -228,6 +230,71 @@ function build(row: AdDecisionOutcomeSourceRow) {
 }
 
 describe("native ad decision outcome contract", () => {
+  it("uses v2 provenance and preserves it in the immutable source manifest", () => {
+    const outcome = build(
+      sourceRow({
+        pre_authority_label: "scale",
+        authority_blocker: "campaign_context",
+      }),
+    );
+
+    expect(AD_DECISION_OUTCOME_CONTRACT_VERSION).toBe(
+      "engine-v3-ad-decision-outcome.v2",
+    );
+    expect(outcome).toMatchObject({
+      pre_authority_label: "scale",
+      authority_blocker: "campaign_context",
+      label: "cut",
+    });
+    expect(outcome.evidence_json).toMatchObject({
+      sourceManifest: {
+        snapshot: {
+          preAuthorityLabel: "scale",
+          authorityBlocker: "campaign_context",
+        },
+      },
+    });
+  });
+
+  it("preserves unavailable historical provenance as null without inference", () => {
+    const outcome = build(
+      sourceRow({
+        pre_authority_label: null,
+        authority_blocker: null,
+      }),
+    );
+
+    expect(outcome.pre_authority_label).toBeNull();
+    expect(outcome.authority_blocker).toBeNull();
+    expect(outcome.evidence_json).toMatchObject({
+      sourceManifest: {
+        snapshot: {
+          preAuthorityLabel: null,
+          authorityBlocker: null,
+        },
+      },
+    });
+  });
+
+  it("classifies outcomes from the published label, not provenance labels", () => {
+    const blocked = build(
+      sourceRow({
+        pre_authority_label: "scale",
+        authority_blocker: "campaign_context",
+      }),
+    );
+    const unblocked = build(
+      sourceRow({
+        pre_authority_label: "cut",
+        authority_blocker: null,
+      }),
+    );
+
+    expect(blocked.label).toBe("cut");
+    expect(blocked.realized_outcome).toBe(unblocked.realized_outcome);
+    expect(blocked.measurement_status).toBe(unblocked.measurement_status);
+  });
+
   it("uses only native snapshots/evaluations and finalized exact-ad facts", () => {
     const sql = READ_AD_DECISION_OUTCOME_SOURCE_ROWS_SQL.toLowerCase();
     expect(sql).toContain(
@@ -248,6 +315,8 @@ describe("native ad decision outcome contract", () => {
     );
     expect(sql).toContain("evaluation.job_run_id = snapshot.job_run_id");
     expect(sql).toContain("snapshot.scope_id = snapshot.provider_account_id");
+    expect(sql).toContain("snapshot.pre_authority_label");
+    expect(sql).toContain("snapshot.authority_blocker");
     expect(sql).toContain(
       "snapshot.as_of_date + windows.outcome_window_days = ($2::date - 1)",
     );
@@ -827,8 +896,23 @@ describe("native ad decision outcome contract", () => {
     expect(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL).toContain(
       "source_decision_job_run_id",
     );
+    expect(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL).toContain(
+      "pre_authority_label TEXT",
+    );
+    expect(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL).toContain(
+      "authority_blocker TEXT",
+    );
+    expect(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL).toContain(
+      "engine_v3_ad_outcomes_authority_blocker_check",
+    );
     expect(INSERT_AD_DECISION_OUTCOMES_SQL).toContain(
       "account_binding.provider_account_ref_id = payload.provider_account_ref_id",
+    );
+    expect(INSERT_AD_DECISION_OUTCOMES_SQL).toContain(
+      "snapshot.pre_authority_label IS NOT DISTINCT FROM payload.pre_authority_label",
+    );
+    expect(INSERT_AD_DECISION_OUTCOMES_SQL).toContain(
+      "snapshot.authority_blocker IS NOT DISTINCT FROM payload.authority_blocker",
     );
     expect(CREATE_AD_DECISION_OUTCOMES_TABLE_SQL).toContain(
       "BEFORE UPDATE OR DELETE",

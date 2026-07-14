@@ -1,13 +1,21 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  AdDecisionAuthorityTrail,
   DecisionsOsView,
+  isExactAdExecutionSourceBlocked,
   isCampaignRoleCorrectionTarget,
   nextAdCandidateLimit,
   preserveDecisionWorkspacePlaceholder,
+  resolveGlobalBlockingBanner,
   resolveAvailableDecisionLane,
 } from "@/components/meta/os/DecisionsOsView";
+import type {
+  MetaOsAdDecision,
+  MetaOsDecisionsPresentation,
+  MetaOsWorkspaceBanner,
+} from "@/lib/meta/decisions-os-contract";
 
 const state = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -30,7 +38,7 @@ const action = {
 const priority = {
   band: "high",
   rank: 330,
-  version: "meta-os-decisions.presentation.v2",
+  version: "meta-os-decisions.presentation.v3",
 };
 
 const urgency = {
@@ -64,16 +72,16 @@ const workspace = {
   },
   pulse: { lastSyncAt: "2026-07-10T04:00:00.000Z" },
   viewer: { readOnly: false, readOnlyReason: null },
-  banners: [],
+  banners: [] as MetaOsWorkspaceBanner[],
   os: {
-    contractVersion: "meta-os-decisions.presentation.v2",
+    contractVersion: "meta-os-decisions.presentation.v3",
     generatedAt: "2026-07-10T04:00:00.000Z",
     source: {
       snapshotAsOf: "2026-07-10",
       engineVersion: "v3-test",
       structureSource: "meta_recommendations",
-      adsSource: "creative_decision_with_verified_ad_identity",
-    },
+      adsSource: "native_ad_decision",
+    } as MetaOsDecisionsPresentation["source"],
     structure: {
       actCount: 1,
       blockedCount: 0,
@@ -131,6 +139,8 @@ const workspace = {
   },
 };
 
+let workspaceForQuery = workspace;
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
     const key = String(queryKey[0]);
@@ -146,7 +156,7 @@ vi.mock("@tanstack/react-query", () => ({
     }
     if (key === "meta-decisions-os-v2") {
       return {
-        data: workspace,
+        data: workspaceForQuery,
         status: "success",
         fetchStatus: "idle",
         isLoading: false,
@@ -166,9 +176,17 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 describe("DecisionsOsView", () => {
+  beforeEach(() => {
+    workspaceForQuery = workspace;
+  });
+
   it("renders the Structure and Ads information architecture from the server presentation", () => {
     const html = renderToStaticMarkup(
-      <DecisionsOsView businessId="biz_1" businessName="Atelier Nord" currency="EUR" />,
+      <DecisionsOsView
+        businessId="biz_1"
+        businessName="Atelier Nord"
+        currency="EUR"
+      />,
     );
 
     expect(html).toContain("Structure");
@@ -189,12 +207,128 @@ describe("DecisionsOsView", () => {
 
   it("does not render simulated preflight or success receipts", () => {
     const html = renderToStaticMarkup(
-      <DecisionsOsView businessId="biz_1" businessName="Atelier Nord" currency="EUR" />,
+      <DecisionsOsView
+        businessId="biz_1"
+        businessName="Atelier Nord"
+        currency="EUR"
+      />,
     );
 
     expect(html).not.toContain("Run preflight");
     expect(html).not.toContain("Applying · verification pending");
     expect(html).not.toContain("Verified — provider confirmed");
+  });
+
+  it("renders stale-target authority as a scoped warning without a global action lock", () => {
+    const targetAuthorityBanner = {
+      id: "stale_commercial_target_authority",
+      tone: "warning" as const,
+      title: "Commercial targets need reconfirmation.",
+      detail:
+        "Configured targets are stale. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed.",
+      blocking: false,
+      scope: "target_hard_actions" as const,
+      action: {
+        label: "Review commercial truth",
+        href: "/commercial-truth",
+      },
+    };
+    workspaceForQuery = {
+      ...workspace,
+      banners: [targetAuthorityBanner],
+    };
+
+    const html = renderToStaticMarkup(
+      <DecisionsOsView
+        businessId="biz_1"
+        businessName="Atelier Nord"
+        currency="EUR"
+      />,
+    );
+
+    expect(html).toContain('data-scope="target_hard_actions"');
+    expect(html).toContain("Hard Scale/Cut authority is suppressed");
+    expect(html).toContain('href="/commercial-truth"');
+    expect(html).toContain("Review commercial truth");
+    expect(resolveGlobalBlockingBanner([targetAuthorityBanner])).toBeNull();
+    expect(
+      resolveGlobalBlockingBanner([
+        { ...targetAuthorityBanner, blocking: true },
+      ]),
+    ).toBeNull();
+  });
+
+  it("blocks exact Ad actions visibly when the active source falls back to legacy review-only rows", () => {
+    const degradedSource: MetaOsDecisionsPresentation["source"] = {
+      ...workspace.os.source,
+      adsSource: "legacy_creative_review_only" as const,
+      health: "degraded" as const,
+      fallbackReason: "native_latest_job_failed",
+    };
+    workspaceForQuery = {
+      ...workspace,
+      os: {
+        ...workspace.os,
+        source: degradedSource,
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <DecisionsOsView
+        businessId="biz_1"
+        businessName="IwaStore"
+        currency="USD"
+      />,
+    );
+
+    expect(html).toContain('data-testid="meta-decision-source-health"');
+    expect(html).toContain('data-source-health="degraded"');
+    expect(html).toContain('data-scope="account_ad_source"');
+    expect(html).toContain('data-fallback-reason="native_latest_job_failed"');
+    expect(html).toContain('data-blocking="true"');
+    expect(html).toContain("Native Ad decisions are degraded.");
+    expect(html).toContain("latest native Ad decision job failed");
+    expect(html).toContain("Legacy rows remain review-only");
+    expect(html).toContain("exact Ad actions are withheld");
+    const executeSelection = {
+      kind: "ad" as const,
+      value: { action: { intent: "execute" } },
+    };
+    expect(
+      isExactAdExecutionSourceBlocked(degradedSource, executeSelection),
+    ).toBe(true);
+    expect(
+      isExactAdExecutionSourceBlocked(
+        {
+          ...degradedSource,
+          health: undefined,
+        },
+        executeSelection,
+      ),
+    ).toBe(true);
+    expect(
+      isExactAdExecutionSourceBlocked(
+        {
+          ...degradedSource,
+          adsSource: "native_ad_decision",
+          health: "healthy",
+          fallbackReason: null,
+        },
+        executeSelection,
+      ),
+    ).toBe(false);
+    expect(
+      isExactAdExecutionSourceBlocked(degradedSource, {
+        kind: "ad",
+        value: { action: { intent: "review" } },
+      }),
+    ).toBe(false);
+    expect(
+      isExactAdExecutionSourceBlocked(degradedSource, {
+        kind: "ad",
+        value: { action: { intent: "brief" } },
+      }),
+    ).toBe(false);
   });
 
   it("selects a non-empty Ads lane without changing the Structure lane", () => {
@@ -211,9 +345,9 @@ describe("DecisionsOsView", () => {
     expect(resolveAvailableDecisionLane(presentation, "ads", "act")).toBe(
       "blocked",
     );
-    expect(
-      resolveAvailableDecisionLane(presentation, "structure", "act"),
-    ).toBe("act");
+    expect(resolveAvailableDecisionLane(presentation, "structure", "act")).toBe(
+      "act",
+    );
   });
 
   it("expands Ads decisions in bounded server pages", () => {
@@ -275,5 +409,54 @@ describe("DecisionsOsView", () => {
         "act_1",
       ),
     ).toBe(previous);
+  });
+
+  it("renders all three decision stages and the first authority blocker", () => {
+    const ad = {
+      publishedLabel: "keep",
+      engineVersion: "v3-ad-test",
+      confidenceScore: 0.82,
+      authorityProvenance: {
+        availability: "available",
+        preAuthorityLabel: "cut",
+        postAuthorityRawLabel: "keep",
+        publishedLabel: "keep",
+        firstBlocker: {
+          code: "source_freshness",
+          label: "Source evidence is not fresh enough",
+          explanation:
+            "The mathematical verdict was held until the required source evidence is fresh.",
+        },
+      },
+    } as MetaOsAdDecision;
+
+    const html = renderToStaticMarkup(<AdDecisionAuthorityTrail ad={ad} />);
+
+    expect(html).toContain("Mathematical / semantic verdict");
+    expect(html).toContain("Post-authority raw label");
+    expect(html).toContain("Published label");
+    expect(html).toContain("First authority blocker");
+    expect(html).toContain("Source evidence is not fresh enough");
+    expect(html).toContain("required source evidence is fresh");
+  });
+
+  it("renders historical authority provenance as unavailable", () => {
+    const ad = {
+      publishedLabel: "test_more",
+      engineVersion: "v3-old",
+      confidenceScore: 0.5,
+      authorityProvenance: {
+        availability: "historical_unavailable",
+        preAuthorityLabel: null,
+        postAuthorityRawLabel: null,
+        publishedLabel: "test_more",
+        firstBlocker: null,
+      },
+    } as MetaOsAdDecision;
+
+    const html = renderToStaticMarkup(<AdDecisionAuthorityTrail ad={ad} />);
+
+    expect(html).toContain("Historical provenance unavailable");
+    expect(html).not.toContain("Source evidence is not fresh enough");
   });
 });

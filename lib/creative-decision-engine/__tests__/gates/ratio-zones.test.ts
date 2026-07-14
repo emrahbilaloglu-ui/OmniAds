@@ -102,7 +102,7 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("scale");
     expect(output.reason).toBe(
-      "ROAS 3.00 (28d) = 150% of target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
+      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
     );
   });
 
@@ -120,7 +120,7 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $600 / purchases 8 below scale floor (need ≥$200, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above commercial target (150%) — spend 600 / purchases 8 below scale floor (need spend ≥200, ≥10); observe.",
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
     expect(output.reason).toContain("purchases 8 below scale floor");
@@ -153,9 +153,9 @@ describe("ratioZonesGate - scale zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 3.00 (28d) above target (150%) — spend $150 / purchases 15 below scale floor (need ≥$200, ≥10); observe.",
+      "[near scale] ROAS 3.00 (28d) above commercial target (150%) — spend 150 / purchases 15 below scale floor (need spend ≥200, ≥10); observe.",
     );
-    expect(output.reason).toContain("spend $150");
+    expect(output.reason).toContain("spend 150");
   });
 
   it("keeps scale-zone creatives when recent 7d ROAS is missing", () => {
@@ -309,7 +309,7 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[weak target] ROAS 1.80 (28d) just above breakeven (90% of target) — keep observing; consider tightening if recent 7d weakens.",
+      "[weak target] ROAS 1.80 (28d) just above breakeven (90% of commercial target) — keep observing; consider tightening if recent 7d weakens.",
     );
     expect(output.reason.startsWith("[weak target]")).toBe(true);
   });
@@ -319,7 +319,7 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[at target] ROAS 2.00 (28d) at/around target 2.00 (100%) — stable, let it run.",
+      "[at target] ROAS 2.00 (28d) at/around commercial target 2.00 (100%) — stable, let it run.",
     );
     expect(output.reason.startsWith("[at target]")).toBe(true);
     expect(output.badges).toEqual([]);
@@ -330,9 +330,22 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[near scale] ROAS 2.40 (28d) approaching scale threshold (120%) — needs $200+ spend or 10+ purchases for full scale.",
+      "[near scale] ROAS 2.40 (28d) approaching scale threshold (120% of commercial target) — performance ratio remains below the 130% scale zone; keep running.",
     );
     expect(output.reason.startsWith("[near scale]")).toBe(true);
+  });
+
+  it("names an account fallback as a baseline instead of a commercial target", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(1.2, {
+          gate: { truthSource: "account_baseline" },
+        }),
+      ),
+    );
+
+    expect(output.reason).toContain("account P75 baseline");
+    expect(output.reason).not.toContain("commercial target");
   });
 
   it("keeps creatives at target and adds fatigue watch badge", () => {
@@ -348,7 +361,7 @@ describe("ratioZonesGate - target band", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[at target] ROAS 2.00 (28d) at/around target 2.00 (100%) — stable, let it run; fatigue watch — monitor for refresh signal.",
+      "[at target] ROAS 2.00 (28d) at/around commercial target 2.00 (100%) — stable, let it run; fatigue watch — monitor for refresh signal.",
     );
     expect(output.reason.startsWith("[at target]")).toBe(true);
     expect(output.badges).toEqual([
@@ -441,7 +454,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("cut");
     expect(output.reason).toBe(
-      "ROAS 1.00 (28d) = 50% of target after $1,500 spend (28d) — clear loser at scale.",
+      "ROAS 1.00 (28d) = 50% of commercial target after 1,500 spend (28d) — clear loser at scale.",
     );
   });
 
@@ -460,7 +473,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("cut");
     expect(output.reason).toBe(
-      "ROAS 0.60 (28d) = 30% of target after $700 spend (28d) — sustained loser.",
+      "ROAS 0.60 (28d) = 30% of commercial target after 700 spend (28d) — sustained loser.",
     );
   });
 
@@ -480,7 +493,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("cut");
     expect(output.reason).toBe(
-      "ROAS 1.00 (28d) = 50% of target after $300 spend (28d) — loss-budget maturity reached at $200; cut underperforming creative.",
+      "ROAS 1.00 (28d) = 50% of commercial target after 300 spend (28d) — loss-budget maturity reached at 200; cut underperforming creative.",
     );
   });
 
@@ -523,7 +536,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("test_more");
     expect(output.reason).toBe(
-      "ROAS 1.00 (28d) = 50% of target after $150 spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.",
+      "ROAS 1.00 (28d) = 50% of commercial target after 150 spend (28d) — underperforming but spend not yet mature for hard cut, observe or pause manually.",
     );
   });
 
@@ -542,7 +555,7 @@ describe("ratioZonesGate - cut zone", () => {
 
     expect(output.label).toBe("refresh");
     expect(output.reason).toBe(
-      "ROAS 1.00 (28d) = 50% of target and fatigued — replace with fresh iteration.",
+      "ROAS 1.00 (28d) = 50% of commercial target and fatigued — replace with fresh iteration.",
     );
   });
 
@@ -630,7 +643,7 @@ describe("ratioZonesGate - working zone", () => {
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
-      "[weak zone] ROAS 1.50 (28d) = 75% of target — below target but in working zone, no aggressive action; revisit if ROAS drifts further.",
+      "[weak zone] ROAS 1.50 (28d) = 75% of commercial target — below the comparison benchmark but in the working zone; no aggressive action, revisit if ROAS drifts further.",
     );
     expect(output.reason.startsWith("[weak zone]")).toBe(true);
     expect(output.badges).toEqual([
@@ -658,7 +671,7 @@ describe("ratioZonesGate - working zone", () => {
 
     expect(output.label).toBe("refresh");
     expect(output.reason).toBe(
-      "ROAS 1.50 (28d) = 75% of target and fatigued with recent 7d ROAS 1.05 decaying — iterate.",
+      "ROAS 1.50 (28d) = 75% of commercial target and fatigued with recent 7d ROAS 1.05 decaying — iterate.",
     );
   });
 
@@ -737,7 +750,7 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     expect(output.label).toBe("keep");
     expect(output.reason.startsWith("[demote candidate]")).toBe(true);
     expect(output.reason).toContain(
-      "above account bottom quartile (52%) but below breakeven (1.56 = 78% of target) at $9,000 mature spend",
+      "above account bottom quartile (52%) but below breakeven (1.56 = 78% of commercial target) at 9,000 mature spend",
     );
     expect(output.badges.map((badge) => badge.type)).toContain(
       "below_breakeven",
@@ -991,7 +1004,7 @@ describe("ratioZonesGate - lifecycle reason hints", () => {
 
     expect(output.label).toBe("scale");
     expect(output.reason).toBe(
-      "ROAS 3.00 (28d) = 150% of target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
+      "ROAS 3.00 (28d) = 150% of commercial target 2.00 with 15 purchases (28d) and recent 7d holding at 2.20 — scale the ad set budget.",
     );
   });
 

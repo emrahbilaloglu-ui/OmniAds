@@ -51,6 +51,42 @@ describe("summarizeDecisionBacktest", () => {
     expect(summary.conflictFreePass).toBe(false);
   });
 
+  it("reports held hard authority without changing published-label metrics", () => {
+    const summary = summarizeDecisionBacktest({
+      rows: [
+        {
+          creativeId: "held-scale",
+          asOfDate: "2026-05-03",
+          label: "diagnose",
+          preAuthorityLabel: "scale",
+          authorityBlocker: "campaign_context",
+          confidence: 40,
+          realizedOutcome: "positive",
+        },
+        {
+          creativeId: "published-cut",
+          asOfDate: "2026-05-03",
+          label: "cut",
+          preAuthorityLabel: "cut",
+          authorityBlocker: null,
+          confidence: 85,
+          realizedOutcome: "positive",
+        },
+      ],
+      coverage: {
+        activeCreativeCount: 2,
+        snapshotRowCount: 2,
+        staleSnapshotCount: 0,
+        conflictingSnapshotCount: 0,
+      },
+    });
+
+    expect(summary.hardActionPrecision).toBe(1);
+    expect(summary.authorityHeldHardRows).toBe(1);
+    expect(summary.preAuthorityLabelCounts).toEqual({ scale: 1, cut: 1 });
+    expect(summary.authorityBlockerCounts).toEqual({ campaign_context: 1 });
+  });
+
   it("does not treat safe non-hard outcomes as missed hard-action demand", () => {
     const summary = summarizeDecisionBacktest({
       rows: [

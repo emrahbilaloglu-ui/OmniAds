@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Info } from "lucide-react";
 import { DatePicker } from "@/components/date-range/DateRangePicker";
+import { ConfirmOverlay } from "@/components/settings/settings-section";
+import { useAppStore } from "@/store/app-store";
 import {
   BUSINESS_COUNTRY_PRIORITY_TIERS,
   BUSINESS_COUNTRY_SCALE_OVERRIDES,
@@ -20,8 +22,10 @@ import {
   createEmptyOperatingConstraints,
   createEmptyPromoCalendarEvent,
   createEmptyTargetPack,
+  type BusinessCommercialFreshnessMeta,
   type BusinessCommercialTruthSnapshot,
   type BusinessDecisionCalibrationProfile,
+  type BusinessTargetPackData,
 } from "@/src/types/business-commercial";
 
 // ---------------------------------------------------------------------------
@@ -30,10 +34,57 @@ import {
 
 interface CommercialTruthSettingsResponse {
   snapshot: BusinessCommercialTruthSnapshot;
+  revision: string;
   permissions: {
     canEdit: boolean;
     reason: string | null;
     role: "admin" | "collaborator" | "guest";
+  };
+}
+
+interface CommercialTruthReconfirmResponse {
+  snapshot: BusinessCommercialTruthSnapshot;
+  revision: string;
+  permissions?: CommercialTruthSettingsResponse["permissions"];
+}
+
+export async function requestTargetPackReconfirmation(input: {
+  businessId: string;
+  expectedUpdatedAt: string;
+  fetchImpl?: typeof fetch;
+}): Promise<CommercialTruthReconfirmResponse> {
+  const response = await (input.fetchImpl ?? fetch)(
+    "/api/business-commercial-settings",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        businessId: input.businessId,
+        action: "reconfirm_target_pack",
+        expectedUpdatedAt: input.expectedUpdatedAt,
+      }),
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as
+    | (Partial<CommercialTruthReconfirmResponse> & {
+        error?: string;
+        message?: string;
+      })
+    | null;
+
+  if (!response.ok || !payload?.snapshot || !payload.revision) {
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        response.statusText ||
+        "Could not reconfirm target economics.",
+    );
+  }
+
+  return {
+    snapshot: payload.snapshot,
+    revision: payload.revision,
+    permissions: payload.permissions,
   };
 }
 
@@ -66,11 +117,15 @@ function CtSection({
             </p>
           )}
           <div className="flex items-center gap-2">
-            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--adc-ink)]">{title}</h2>
+            <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--adc-ink)]">
+              {title}
+            </h2>
             {tooltip ? <CtTooltip content={tooltip} /> : null}
           </div>
           {subtitle && (
-            <p className="text-[12.5px] leading-snug text-[var(--adc-ink3)]">{subtitle}</p>
+            <p className="text-[12.5px] leading-snug text-[var(--adc-ink3)]">
+              {subtitle}
+            </p>
           )}
         </div>
         {action}
@@ -114,12 +169,16 @@ function CtField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <label className="text-[12.5px] font-semibold text-[var(--adc-ink)]">{label}</label>
+        <label className="text-[12.5px] font-semibold text-[var(--adc-ink)]">
+          {label}
+        </label>
         {tooltip ? <CtTooltip content={tooltip} /> : null}
       </div>
       {children}
       {helper && (
-        <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">{helper}</p>
+        <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
+          {helper}
+        </p>
       )}
     </div>
   );
@@ -130,6 +189,8 @@ function CtNumberInput({
   onChange,
   suffix,
   prefix,
+  min,
+  ariaLabel,
   disabled,
   testId,
 }: {
@@ -137,15 +198,21 @@ function CtNumberInput({
   onChange: (v: number | null) => void;
   suffix?: string;
   prefix?: string;
+  min?: number;
+  ariaLabel?: string;
   disabled?: boolean;
   testId?: string;
 }) {
   return (
     <div className="flex h-10 items-center gap-1.5 rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3">
-      {prefix && <span className="text-[13px] text-[var(--adc-ink3)]">{prefix}</span>}
+      {prefix && (
+        <span className="text-[13px] text-[var(--adc-ink3)]">{prefix}</span>
+      )}
       <input
         type="number"
         step="0.01"
+        min={min}
+        aria-label={ariaLabel}
         value={value ?? ""}
         disabled={disabled}
         data-testid={testId}
@@ -154,7 +221,9 @@ function CtNumberInput({
         }
         className="min-w-0 flex-1 bg-transparent text-[14px] font-medium text-[var(--adc-ink)] tabular-nums outline-none disabled:cursor-not-allowed disabled:opacity-60"
       />
-      {suffix && <span className="text-[13px] text-[var(--adc-ink3)]">{suffix}</span>}
+      {suffix && (
+        <span className="text-[13px] text-[var(--adc-ink3)]">{suffix}</span>
+      )}
     </div>
   );
 }
@@ -274,7 +343,9 @@ function CtStatCard({
       </p>
       <p
         className={`tabular-nums leading-none tracking-[-0.025em] ${
-          dominant ? "text-[38px] font-bold text-[var(--adc-s2)]" : "text-[26px] font-bold text-[var(--adc-ink)]"
+          dominant
+            ? "text-[38px] font-bold text-[var(--adc-s2)]"
+            : "text-[26px] font-bold text-[var(--adc-ink)]"
         }`}
       >
         {value}
@@ -293,11 +364,13 @@ function CtStatCard({
 function CtGhostBtn({
   onClick,
   disabled,
+  title,
   testId,
   children,
 }: {
   onClick?: () => void;
   disabled?: boolean;
+  title?: string;
   testId?: string;
   children: React.ReactNode;
 }) {
@@ -306,6 +379,7 @@ function CtGhostBtn({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       data-testid={testId}
       className="h-8 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 text-[12.5px] font-semibold text-[var(--adc-ink)] hover:bg-[var(--adc-s1)] disabled:cursor-not-allowed disabled:opacity-50"
     >
@@ -351,15 +425,66 @@ function CtEmptyState({ message }: { message: string }) {
 // ---------------------------------------------------------------------------
 
 const COVERAGE_TONE = {
-  complete: { dot: "bg-[var(--adc-pos-fg)]", ring: "shadow-[0_0_0_3px_rgb(16,185,129,0.13)]", badge: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]", label: "Complete" },
-  optional: { dot: "bg-[var(--adc-ink3)]", ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]", badge: "bg-[var(--adc-s3)] text-[var(--adc-ink2)]", label: "Optional" },
-  missing:  { dot: "bg-[var(--adc-caution-fg)]", ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]", badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]", label: "Missing" },
-  blocking: { dot: "bg-[var(--adc-danger-fg)]",  ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",  badge: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",   label: "Blocking" },
+  complete: {
+    dot: "bg-[var(--adc-pos-fg)]",
+    ring: "shadow-[0_0_0_3px_rgb(16,185,129,0.13)]",
+    badge: "bg-[var(--adc-pos-bg)] text-[var(--adc-pos-fg)]",
+    label: "Complete",
+  },
+  stale: {
+    dot: "bg-[var(--adc-caution-fg)]",
+    ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]",
+    badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+    label: "Stale",
+  },
+  optional: {
+    dot: "bg-[var(--adc-ink3)]",
+    ring: "shadow-[0_0_0_3px_rgb(148,163,184,0.13)]",
+    badge: "bg-[var(--adc-s3)] text-[var(--adc-ink2)]",
+    label: "Optional",
+  },
+  missing: {
+    dot: "bg-[var(--adc-caution-fg)]",
+    ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]",
+    badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
+    label: "Missing",
+  },
+  blocking: {
+    dot: "bg-[var(--adc-danger-fg)]",
+    ring: "shadow-[0_0_0_3px_rgb(244,63,94,0.13)]",
+    badge: "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]",
+    label: "Blocking",
+  },
 };
 type CoverageToneKey = keyof typeof COVERAGE_TONE;
 
-function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTruthSnapshot }) {
+export function DecisionCoverageSection({
+  snapshot,
+  currency,
+}: {
+  snapshot: BusinessCommercialTruthSnapshot;
+  currency?: string;
+}) {
   const coverage = snapshot.coverage;
+  const targetPackFreshness =
+    snapshot.sectionMeta.targetPack.freshness?.status ?? "missing";
+  const targetPack = snapshot.targetPack;
+  const targetParts = targetPack
+    ? [
+        targetPack.targetRoas == null
+          ? null
+          : `Target ROAS ${targetPack.targetRoas}x`,
+        targetPack.breakEvenRoas == null
+          ? null
+          : `Break-even ROAS ${targetPack.breakEvenRoas}x`,
+        targetPack.targetCpa == null
+          ? null
+          : `Target CPA ${currency ? `${currency} ` : ""}${targetPack.targetCpa}`,
+        targetPack.breakEvenCpa == null
+          ? null
+          : `Break-even CPA ${currency ? `${currency} ` : ""}${targetPack.breakEvenCpa}`,
+      ].filter((value): value is string => value !== null)
+    : [];
 
   const rows: Array<{
     id: string;
@@ -370,41 +495,60 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
     {
       id: "thresholds",
       label: "Thresholds",
-      detail: coverage?.thresholds
-        ? `Target ROAS ${coverage.thresholds.targetRoas ?? "—"}x · Break-even ROAS ${coverage.thresholds.breakEvenRoas ?? "—"}x`
-        : "Not configured",
-      status: snapshot.targetPack ? "complete" : "blocking",
+      detail: !targetPack
+        ? "Not configured"
+        : targetPackFreshness === "stale"
+          ? `${targetParts.join(" · ") || "Configured anchors"} · Hard Scale/Cut authority blocked until reconfirmed`
+          : targetParts.join(" · ") || "No decision anchors configured",
+      status: !targetPack
+        ? "blocking"
+        : targetParts.length === 0
+          ? "blocking"
+          : targetPackFreshness === "fresh"
+            ? "complete"
+            : targetPackFreshness === "stale"
+              ? "stale"
+              : "blocking",
     },
     {
       id: "actionCeil",
       label: "Action ceilings",
-      detail: (coverage?.actionCeilings?.length ?? 0) > 0
-        ? (coverage?.actionCeilings ?? []).map((a) => a.replaceAll("_", " ")).join(", ")
-        : "None active",
+      detail:
+        (coverage?.actionCeilings?.length ?? 0) > 0
+          ? (coverage?.actionCeilings ?? [])
+              .map((a) => a.replaceAll("_", " "))
+              .join(", ")
+          : "None active",
       status: "complete",
     },
     {
       id: "countryEconomics",
       label: "Country economics",
-      detail: snapshot.countryEconomics.length > 0
-        ? `${snapshot.countryEconomics.length} GEO override${snapshot.countryEconomics.length !== 1 ? "s" : ""}`
-        : "Global cost structure applies to all locations",
+      detail:
+        snapshot.countryEconomics.length > 0
+          ? `${snapshot.countryEconomics.length} GEO override${snapshot.countryEconomics.length !== 1 ? "s" : ""}`
+          : "Global cost structure applies to all locations",
       status: snapshot.countryEconomics.length > 0 ? "complete" : "optional",
     },
     {
       id: "calibration",
       label: "Calibration bootstrap",
-      detail: (snapshot.calibrationProfiles?.length ?? 0) > 0
-        ? `${snapshot.calibrationProfiles?.length ?? 0} calibration profile${(snapshot.calibrationProfiles?.length ?? 0) !== 1 ? "s" : ""}`
-        : "No calibration profiles",
-      status: (snapshot.calibrationProfiles?.length ?? 0) > 0 ? "complete" : "optional",
+      detail:
+        (snapshot.calibrationProfiles?.length ?? 0) > 0
+          ? `${snapshot.calibrationProfiles?.length ?? 0} calibration profile${(snapshot.calibrationProfiles?.length ?? 0) !== 1 ? "s" : ""}`
+          : "No calibration profiles",
+      status:
+        (snapshot.calibrationProfiles?.length ?? 0) > 0
+          ? "complete"
+          : "optional",
     },
     {
       id: "promo",
       label: "Promo calendar",
-      detail: snapshot.promoCalendar.length > 0
-        ? `${snapshot.promoCalendar.length} promo window${snapshot.promoCalendar.length !== 1 ? "s" : ""}`
-        : "No promo windows",
+      detail:
+        snapshot.promoCalendar.length > 0
+          ? `${snapshot.promoCalendar.length} promo window${snapshot.promoCalendar.length !== 1 ? "s" : ""}`
+          : "No promo windows",
       status: "optional",
     },
     {
@@ -417,7 +561,9 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
     },
   ];
 
-  const blockingRows = rows.filter((r) => r.status === "blocking");
+  const blockingRows = rows.filter(
+    (r) => r.status === "blocking" || r.status === "stale",
+  );
 
   return (
     <CtSection
@@ -428,14 +574,34 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
     >
       {blockingRows.length > 0 && (
         <div className="mb-4 flex gap-3 rounded-[10px] border-l-4 border-[var(--adc-caution-fg)] bg-[var(--adc-caution-bg)] px-4 py-3.5">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="mt-0.5 shrink-0">
-            <path d="M9 1.5l8 14H1l8-14z" fill="#fbbf24" stroke="#b45309" strokeWidth="1.2" strokeLinejoin="round"/>
-            <path d="M9 6.5v4M9 12.5v.6" stroke="#7c2d12" strokeWidth="1.6" strokeLinecap="round"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            className="mt-0.5 shrink-0"
+          >
+            <path
+              d="M9 1.5l8 14H1l8-14z"
+              fill="#fbbf24"
+              stroke="#b45309"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M9 6.5v4M9 12.5v.6"
+              stroke="#7c2d12"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
           </svg>
           <div className="flex flex-col gap-1">
-            <p className="text-[13px] font-bold text-[var(--adc-caution-fg)]">Blocking reasons</p>
+            <p className="text-[13px] font-bold text-[var(--adc-caution-fg)]">
+              Blocking reasons
+            </p>
             <p className="text-[12.5px] leading-snug text-[var(--adc-caution-fg)]">
-              {blockingRows.map((r) => r.detail).join(" · ")}. The engine stays on conservative fallbacks until these clear.
+              {blockingRows.map((r) => r.detail).join(" · ")}. The engine stays
+              on conservative fallbacks until these clear.
             </p>
           </div>
         </div>
@@ -446,7 +612,9 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
         data-testid="commercial-coverage-summary"
       >
         {rows.map((r, i) => {
-          const tone = COVERAGE_TONE[r.status as keyof typeof COVERAGE_TONE] ?? COVERAGE_TONE.optional;
+          const tone =
+            COVERAGE_TONE[r.status as keyof typeof COVERAGE_TONE] ??
+            COVERAGE_TONE.optional;
           const col = i % 2;
           const row = Math.floor(i / 2);
           return (
@@ -455,12 +623,20 @@ function DecisionCoverageSection({ snapshot }: { snapshot: BusinessCommercialTru
               className={`grid items-center gap-2.5 bg-[var(--adc-s2)] px-3.5 py-2.5 ${row > 0 ? "border-t border-[var(--adc-b1)]" : ""} ${col === 1 ? "border-l border-[var(--adc-b1)]" : ""}`}
               style={{ gridTemplateColumns: "12px 1fr auto" }}
             >
-              <div className={`h-2 w-2 shrink-0 rounded-full ${tone.dot} ${tone.ring}`} />
+              <div
+                className={`h-2 w-2 shrink-0 rounded-full ${tone.dot} ${tone.ring}`}
+              />
               <div className="flex min-w-0 flex-col gap-0.5">
-                <p className="truncate text-[12.5px] font-semibold text-[var(--adc-ink)]">{r.label}</p>
-                <p className="truncate text-[11.5px] text-[var(--adc-ink3)]">{r.detail}</p>
+                <p className="truncate text-[12.5px] font-semibold text-[var(--adc-ink)]">
+                  {r.label}
+                </p>
+                <p className="truncate text-[11.5px] text-[var(--adc-ink3)]">
+                  {r.detail}
+                </p>
               </div>
-              <span className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}>
+              <span
+                className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}
+              >
                 {tone.label}
               </span>
             </div>
@@ -497,7 +673,9 @@ function fromPctToRatio(value: number | null | undefined) {
   return value == null ? null : Math.max(0, Math.min(1, value / 100));
 }
 
-function costInputsFromSnapshot(snapshot: BusinessCommercialTruthSnapshot): CostInputs {
+function costInputsFromSnapshot(
+  snapshot: BusinessCommercialTruthSnapshot,
+): CostInputs {
   const costStructure = snapshot.targetPack?.costStructure;
   if (!costStructure) return { ...EMPTY_COST_INPUTS };
   return {
@@ -542,31 +720,58 @@ function CostStructureSection({
           helper="Average cost of goods as % of revenue, blended across your product mix."
           tooltip="Use the average product cost across the order mix. If individual SKU margins vary, enter the blended rate you want decisions to assume."
         >
-          <CtNumberInput value={costs.cogs} onChange={(v) => onChange("cogs", v)} suffix="%" disabled={disabled} testId="commercial-cost-cogs" />
+          <CtNumberInput
+            value={costs.cogs}
+            onChange={(v) => onChange("cogs", v)}
+            suffix="%"
+            disabled={disabled}
+            testId="commercial-cost-cogs"
+          />
         </CtField>
         <CtField
           label="Shipping cost"
           helper="What you pay per shipment — not what the customer pays. Free-shipping stores still pay this."
           tooltip="Enter your actual outbound shipping cost as a share of revenue. This keeps ROAS targets from treating subsidized shipping as free margin."
         >
-          <CtNumberInput value={costs.shipping} onChange={(v) => onChange("shipping", v)} suffix="%" disabled={disabled} testId="commercial-cost-shipping" />
+          <CtNumberInput
+            value={costs.shipping}
+            onChange={(v) => onChange("shipping", v)}
+            suffix="%"
+            disabled={disabled}
+            testId="commercial-cost-shipping"
+          />
         </CtField>
         <CtField
           label="Fulfillment cost"
           helper="Warehouse, 3PL, or pick-and-pack cost per order."
           tooltip="Include warehouse handling, 3PL, packaging, and pick-and-pack costs that scale with order volume."
         >
-          <CtNumberInput value={costs.fulfillment} onChange={(v) => onChange("fulfillment", v)} suffix="%" disabled={disabled} testId="commercial-cost-fulfillment" />
+          <CtNumberInput
+            value={costs.fulfillment}
+            onChange={(v) => onChange("fulfillment", v)}
+            suffix="%"
+            disabled={disabled}
+            testId="commercial-cost-fulfillment"
+          />
         </CtField>
         <CtField
           label="Payment processing"
           helper="Credit card and gateway fees."
           tooltip="Add card, gateway, marketplace, or payment provider fees. This is a variable cost, so it directly affects break-even ROAS."
         >
-          <CtNumberInput value={costs.processing} onChange={(v) => onChange("processing", v)} suffix="%" disabled={disabled} testId="commercial-cost-processing" />
+          <CtNumberInput
+            value={costs.processing}
+            onChange={(v) => onChange("processing", v)}
+            suffix="%"
+            disabled={disabled}
+            testId="commercial-cost-processing"
+          />
         </CtField>
       </div>
-      <div className="mt-5 grid gap-3" style={{ gridTemplateColumns: "1fr 1.4fr" }}>
+      <div
+        className="mt-5 grid gap-3"
+        style={{ gridTemplateColumns: "1fr 1.4fr" }}
+      >
         <CtStatCard
           label="Total variable cost"
           value={`${totalCost.toFixed(1)}%`}
@@ -592,7 +797,11 @@ const DEFAULT_SPEND_LEVELS = [10000, 20000, 30000, 50000, 100000];
 function fmtMoney(n: number) {
   if (!isFinite(n)) return "—";
   const sign = n < 0 ? "-" : "";
-  return sign + "$" + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (
+    sign +
+    "$" +
+    Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })
+  );
 }
 
 function fmtPct(n: number) {
@@ -604,31 +813,42 @@ function RoasScenarioSection({
   costPct,
   breakEven,
 }: {
-  targetRoas: number;
+  targetRoas: number | null | undefined;
   costPct: number;
   breakEven: number;
 }) {
-  const [spendLevels, setSpendLevels] = useState<number[]>(DEFAULT_SPEND_LEVELS);
-  const [columnRoas, setColumnRoas] = useState<number[]>(DEFAULT_SPEND_LEVELS.map(() => targetRoas));
+  const configuredTargetRoas = targetRoas ?? 0;
+  const [spendLevels, setSpendLevels] =
+    useState<number[]>(DEFAULT_SPEND_LEVELS);
+  const [columnRoas, setColumnRoas] = useState<number[]>(
+    DEFAULT_SPEND_LEVELS.map(() => configuredTargetRoas),
+  );
 
-  const prevRoasRef = { current: targetRoas };
+  const prevRoasRef = useRef(configuredTargetRoas);
   useEffect(() => {
-    setColumnRoas((rs) => rs.map((r) => (Math.abs(r - prevRoasRef.current) < 0.001 ? targetRoas : r)));
-  }, [targetRoas]);
+    const previousDefault = prevRoasRef.current;
+    setColumnRoas((rs) =>
+      rs.map((r) =>
+        Math.abs(r - previousDefault) < 0.001 ? configuredTargetRoas : r,
+      ),
+    );
+    prevRoasRef.current = configuredTargetRoas;
+  }, [configuredTargetRoas]);
 
   useEffect(() => {
     setColumnRoas((rs) => {
       if (rs.length === spendLevels.length) return rs;
       const next = rs.slice(0, spendLevels.length);
-      while (next.length < spendLevels.length) next.push(targetRoas);
+      while (next.length < spendLevels.length) next.push(configuredTargetRoas);
       return next;
     });
   }, [spendLevels.length]);
 
-  const resetRoas = () => setColumnRoas(spendLevels.map(() => targetRoas));
+  const resetRoas = () =>
+    setColumnRoas(spendLevels.map(() => configuredTargetRoas));
 
   const cols = spendLevels.map((spend, i) => {
-    const roas = columnRoas[i] ?? targetRoas;
+    const roas = columnRoas[i] ?? configuredTargetRoas;
     const revenue = spend * roas;
     const variable = revenue * costPct;
     const grossProfit = revenue - variable;
@@ -640,16 +860,41 @@ function RoasScenarioSection({
   let bestIdx = -1;
   let bestProfit = -Infinity;
   cols.forEach((c, i) => {
-    if (c.netProfit > bestProfit) { bestProfit = c.netProfit; bestIdx = i; }
+    if (c.netProfit > bestProfit) {
+      bestProfit = c.netProfit;
+      bestIdx = i;
+    }
   });
 
-  const rows: { label: string; values: string[]; neg?: boolean[]; highlight?: boolean; muted?: boolean }[] = [
-    { label: "Ad-attributed revenue", values: cols.map((c) => fmtMoney(c.revenue)) },
+  const rows: {
+    label: string;
+    values: string[];
+    neg?: boolean[];
+    highlight?: boolean;
+    muted?: boolean;
+  }[] = [
+    {
+      label: "Ad-attributed revenue",
+      values: cols.map((c) => fmtMoney(c.revenue)),
+    },
     { label: "Variable costs", values: cols.map((c) => fmtMoney(c.variable)) },
-    { label: "Gross profit", values: cols.map((c) => fmtMoney(c.grossProfit)), neg: cols.map((c) => c.grossProfit < 0) },
+    {
+      label: "Gross profit",
+      values: cols.map((c) => fmtMoney(c.grossProfit)),
+      neg: cols.map((c) => c.grossProfit < 0),
+    },
     { label: "Ad spend", values: cols.map((c) => fmtMoney(c.spend)) },
-    { label: "Net profit", values: cols.map((c) => fmtMoney(c.netProfit)), neg: cols.map((c) => c.netProfit < 0), highlight: true },
-    { label: "Net margin", values: cols.map((c) => fmtPct(c.margin)), neg: cols.map((c) => c.netProfit < 0) },
+    {
+      label: "Net profit",
+      values: cols.map((c) => fmtMoney(c.netProfit)),
+      neg: cols.map((c) => c.netProfit < 0),
+      highlight: true,
+    },
+    {
+      label: "Net margin",
+      values: cols.map((c) => fmtPct(c.margin)),
+      neg: cols.map((c) => c.netProfit < 0),
+    },
   ];
 
   return (
@@ -657,113 +902,136 @@ function RoasScenarioSection({
       eyebrow="Section 3"
       title="ROAS Scenario Guide"
       subtitle="Compare how spend × ROAS combinations stack up. Edit spend levels in the header and ROAS per column — the table recalculates live."
-      action={<CtGhostBtn onClick={resetRoas}>Reset ROAS to {targetRoas.toFixed(2)}x</CtGhostBtn>}
+      action={
+        targetRoas != null && targetRoas > 0 ? (
+          <CtGhostBtn onClick={resetRoas}>
+            Reset ROAS to {targetRoas.toFixed(2)}x
+          </CtGhostBtn>
+        ) : null
+      }
     >
-      <div className="overflow-hidden rounded-xl border border-[var(--adc-b1)]">
-        {/* Header row: spend inputs */}
-        <div
-          className="grid bg-[var(--adc-ink)] text-[var(--adc-s2)]"
-          style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
-        >
-          <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
-            Spend / month
-          </div>
-          {spendLevels.map((s, i) => (
-            <div
-              key={i}
-              className={`flex items-center justify-end border-l border-[var(--adc-s2)]/10 p-2 ${i === bestIdx ? "bg-[var(--adc-pos-fg)]/20" : ""}`}
-            >
-              <div className="flex h-8 items-center gap-0.5 rounded-lg bg-[var(--adc-s2)]/10 px-2.5 text-[13px] font-bold tabular-nums text-[var(--adc-s2)]">
-                <span>$</span>
-                <input
-                  type="number"
-                  step={1000}
-                  min={0}
-                  value={s}
-                  onChange={(e) => {
-                    const next = spendLevels.slice();
-                    next[i] = parseFloat(e.target.value) || 0;
-                    setSpendLevels(next);
-                  }}
-                  className="w-20 bg-transparent text-right outline-none"
-                />
-              </div>
+      {targetRoas == null || targetRoas <= 0 ? (
+        <CtEmptyState message="Set and save a Target ROAS before using the scenario guide." />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-[var(--adc-b1)]">
+          {/* Header row: spend inputs */}
+          <div
+            className="grid bg-[var(--adc-ink)] text-[var(--adc-s2)]"
+            style={{
+              gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
+            }}
+          >
+            <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
+              Spend / month
             </div>
-          ))}
-        </div>
-
-        {/* ROAS row: editable per column */}
-        <div
-          className="grid border-b border-[var(--adc-b1)] bg-[var(--adc-caution-bg)]"
-          style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
-        >
-          <div className="flex flex-col justify-center px-4 py-2.5">
-            <p className="text-[12px] font-bold text-[var(--adc-caution-fg)]">Target ROAS</p>
-            <p className="text-[10.5px] text-[var(--adc-caution-fg)]">edit per column</p>
-          </div>
-          {columnRoas.map((r, i) => {
-            const belowBE = r > 0 && r < breakEven;
-            return (
-              <div key={i} className="flex items-center justify-end border-l border-[var(--adc-caution-bd)]/60 p-2">
-                <div
-                  className={`flex h-8 items-center gap-0.5 rounded-lg px-2.5 text-[13px] font-bold tabular-nums ${
-                    i === bestIdx
-                      ? "bg-[var(--adc-pos-fg)] text-[var(--adc-s2)]"
-                      : belowBE
-                        ? "border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
-                        : "border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/60 text-[var(--adc-caution-fg)]"
-                  }`}
-                >
+            {spendLevels.map((s, i) => (
+              <div
+                key={i}
+                className={`flex items-center justify-end border-l border-[var(--adc-s2)]/10 p-2 ${i === bestIdx ? "bg-[var(--adc-pos-fg)]/20" : ""}`}
+              >
+                <div className="flex h-8 items-center gap-0.5 rounded-lg bg-[var(--adc-s2)]/10 px-2.5 text-[13px] font-bold tabular-nums text-[var(--adc-s2)]">
+                  <span>$</span>
                   <input
                     type="number"
-                    step={0.1}
+                    step={1000}
                     min={0}
-                    value={r}
+                    value={s}
                     onChange={(e) => {
-                      const next = columnRoas.slice();
+                      const next = spendLevels.slice();
                       next[i] = parseFloat(e.target.value) || 0;
-                      setColumnRoas(next);
+                      setSpendLevels(next);
                     }}
-                    className="w-14 bg-transparent text-right outline-none"
+                    className="w-20 bg-transparent text-right outline-none"
                   />
-                  <span>x</span>
                 </div>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
 
-        {/* Body rows */}
-        {rows.map((r, ri) => (
+          {/* ROAS row: editable per column */}
           <div
-            key={ri}
-            className={`grid border-t border-[var(--adc-b1)] ${r.highlight ? "bg-[var(--adc-ink)]" : ri % 2 === 0 ? "bg-[var(--adc-s2)]" : "bg-[var(--adc-s1)]/60"}`}
-            style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))` }}
+            className="grid border-b border-[var(--adc-b1)] bg-[var(--adc-caution-bg)]"
+            style={{
+              gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
+            }}
           >
-            <div
-              className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-[var(--adc-s2)]" : r.muted ? "text-[var(--adc-ink3)]" : "font-medium text-[var(--adc-ink)]"}`}
-            >
-              {r.label}
+            <div className="flex flex-col justify-center px-4 py-2.5">
+              <p className="text-[12px] font-bold text-[var(--adc-caution-fg)]">
+                Target ROAS
+              </p>
+              <p className="text-[10.5px] text-[var(--adc-caution-fg)]">
+                edit per column
+              </p>
             </div>
-            {r.values.map((v, j) => {
-              const isNeg = r.neg?.[j] ?? false;
-              const isBest = j === bestIdx;
+            {columnRoas.map((r, i) => {
+              const belowBE = r > 0 && r < breakEven;
               return (
                 <div
-                  key={j}
-                  className={`border-l px-3.5 py-3 text-right text-[13px] tabular-nums ${
-                    r.highlight
-                      ? `border-[var(--adc-s2)]/10 font-bold ${isNeg ? "text-[var(--adc-danger-fg)]" : "text-[var(--adc-s2)]"} ${isBest ? "bg-[var(--adc-pos-fg)]/18" : ""}`
-                      : `border-[var(--adc-b1)] ${isNeg ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] font-medium" : isBest && !r.muted ? "bg-[var(--adc-pos-bg)] font-semibold text-[var(--adc-ink)]" : r.muted ? "text-[var(--adc-ink3)]" : "text-[var(--adc-ink)]"}`
-                  }`}
+                  key={i}
+                  className="flex items-center justify-end border-l border-[var(--adc-caution-bd)]/60 p-2"
                 >
-                  {v}
+                  <div
+                    className={`flex h-8 items-center gap-0.5 rounded-lg px-2.5 text-[13px] font-bold tabular-nums ${
+                      i === bestIdx
+                        ? "bg-[var(--adc-pos-fg)] text-[var(--adc-s2)]"
+                        : belowBE
+                          ? "border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)]"
+                          : "border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]/60 text-[var(--adc-caution-fg)]"
+                    }`}
+                  >
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      value={r}
+                      onChange={(e) => {
+                        const next = columnRoas.slice();
+                        next[i] = parseFloat(e.target.value) || 0;
+                        setColumnRoas(next);
+                      }}
+                      className="w-14 bg-transparent text-right outline-none"
+                    />
+                    <span>x</span>
+                  </div>
                 </div>
               );
             })}
           </div>
-        ))}
-      </div>
+
+          {/* Body rows */}
+          {rows.map((r, ri) => (
+            <div
+              key={ri}
+              className={`grid border-t border-[var(--adc-b1)] ${r.highlight ? "bg-[var(--adc-ink)]" : ri % 2 === 0 ? "bg-[var(--adc-s2)]" : "bg-[var(--adc-s1)]/60"}`}
+              style={{
+                gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
+              }}
+            >
+              <div
+                className={`px-4 py-3 text-[12.5px] ${r.highlight ? "font-bold text-[var(--adc-s2)]" : r.muted ? "text-[var(--adc-ink3)]" : "font-medium text-[var(--adc-ink)]"}`}
+              >
+                {r.label}
+              </div>
+              {r.values.map((v, j) => {
+                const isNeg = r.neg?.[j] ?? false;
+                const isBest = j === bestIdx;
+                return (
+                  <div
+                    key={j}
+                    className={`border-l px-3.5 py-3 text-right text-[13px] tabular-nums ${
+                      r.highlight
+                        ? `border-[var(--adc-s2)]/10 font-bold ${isNeg ? "text-[var(--adc-danger-fg)]" : "text-[var(--adc-s2)]"} ${isBest ? "bg-[var(--adc-pos-fg)]/18" : ""}`
+                        : `border-[var(--adc-b1)] ${isNeg ? "bg-[var(--adc-danger-bg)] text-[var(--adc-danger-fg)] font-medium" : isBest && !r.muted ? "bg-[var(--adc-pos-bg)] font-semibold text-[var(--adc-ink)]" : r.muted ? "text-[var(--adc-ink3)]" : "text-[var(--adc-ink)]"}`
+                    }`}
+                  >
+                    {v}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
     </CtSection>
   );
 }
@@ -772,12 +1040,123 @@ function RoasScenarioSection({
 // Section 4: Target ROAS
 // ---------------------------------------------------------------------------
 
-function TargetRoasSection({
+const TARGET_ANCHOR_LABELS: Array<{
+  key: "targetRoas" | "breakEvenRoas" | "targetCpa" | "breakEvenCpa";
+  label: string;
+  kind: "ratio" | "currency";
+}> = [
+  { key: "targetRoas", label: "Target ROAS", kind: "ratio" },
+  { key: "breakEvenRoas", label: "Break-even ROAS", kind: "ratio" },
+  { key: "targetCpa", label: "Target CPA", kind: "currency" },
+  { key: "breakEvenCpa", label: "Break-even CPA", kind: "currency" },
+];
+
+function targetPackAnchors(targetPack: BusinessTargetPackData | null) {
+  if (!targetPack) return [];
+  return TARGET_ANCHOR_LABELS.flatMap((anchor) => {
+    const value = targetPack[anchor.key];
+    return value == null ? [] : [{ ...anchor, value }];
+  });
+}
+
+function formatCurrencyAnchor(value: number, currency: string) {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
+}
+
+export function buildTargetPackReconfirmDescription(
+  targetPack: BusinessTargetPackData | null,
+  currency: string,
+) {
+  const anchors = targetPackAnchors(targetPack).map(
+    (anchor) =>
+      `${anchor.label}: ${
+        anchor.kind === "ratio"
+          ? `${anchor.value.toFixed(2)}x`
+          : formatCurrencyAnchor(anchor.value, currency)
+      }`,
+  );
+  return `Confirm the current economics without changing values. ${anchors.join(" · ")}`;
+}
+
+export function getTargetPackReconfirmDisabledReason(input: {
+  canEdit: boolean;
+  dirty: boolean;
+  reconfirming: boolean;
+  targetPack: BusinessTargetPackData | null;
+  freshnessStatus: BusinessCommercialFreshnessMeta["status"] | null | undefined;
+}) {
+  if (!input.canEdit)
+    return "Editing permission is required to reconfirm economics.";
+  if (input.reconfirming) return "Target economics are being reconfirmed.";
+  if (input.dirty)
+    return "Save or discard local edits before reconfirming unchanged economics.";
+  if (
+    !input.targetPack?.updatedAt ||
+    targetPackAnchors(input.targetPack).length === 0
+  ) {
+    return "Save at least one decision anchor before reconfirming economics.";
+  }
+
+  for (const anchor of targetPackAnchors(input.targetPack)) {
+    if (!Number.isFinite(anchor.value) || anchor.value <= 0) {
+      return `${anchor.label} must be greater than zero before reconfirming.`;
+    }
+  }
+
+  const { targetRoas, breakEvenRoas, targetCpa, breakEvenCpa } =
+    input.targetPack;
+  if (
+    targetRoas != null &&
+    breakEvenRoas != null &&
+    targetRoas < breakEvenRoas
+  ) {
+    return "Target ROAS must be greater than or equal to break-even ROAS.";
+  }
+  if (targetCpa != null && breakEvenCpa != null && targetCpa > breakEvenCpa) {
+    return "Target CPA must be less than or equal to break-even CPA.";
+  }
+  if (input.freshnessStatus === "fresh") {
+    return "Target economics are already fresh; reconfirmation is available after they expire.";
+  }
+  if (input.freshnessStatus !== "stale") {
+    return "Target-pack freshness is unavailable; reload or save before reconfirming.";
+  }
+  return null;
+}
+
+function formatTargetPackTimestamp(value: string | null | undefined) {
+  if (!value) return "Not recorded";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
+
+export function TargetRoasSection({
   targetRoas,
   onChange,
   breakEven,
   manualBreakEven,
   onManualBreakEvenChange,
+  targetCpa,
+  onTargetCpaChange,
+  breakEvenCpa,
+  onBreakEvenCpaChange,
+  currency,
+  freshness,
+  updatedAt,
+  reconfirmDisabledReason,
+  onRequestReconfirm,
   costStructureActive,
   disabled,
 }: {
@@ -786,73 +1165,135 @@ function TargetRoasSection({
   breakEven: number;
   manualBreakEven: number | null | undefined;
   onManualBreakEvenChange: (v: number | null) => void;
+  targetCpa: number | null | undefined;
+  onTargetCpaChange: (v: number | null) => void;
+  breakEvenCpa: number | null | undefined;
+  onBreakEvenCpaChange: (v: number | null) => void;
+  currency: string;
+  freshness: BusinessCommercialFreshnessMeta | null | undefined;
+  updatedAt: string | null | undefined;
+  reconfirmDisabledReason: string | null;
+  onRequestReconfirm: () => void;
   costStructureActive: boolean;
   disabled?: boolean;
 }) {
   const val = targetRoas ?? 0;
   const ratio = isFinite(breakEven) && breakEven > 0 ? val / breakEven : 0;
 
-  let statusBg: string, statusBorder: string, statusDot: string, statusText: string, statusMsg: string;
+  let statusBg: string,
+    statusBorder: string,
+    statusDot: string,
+    statusText: string,
+    statusMsg: string;
   if (!val || val <= 0) {
-    statusBg = "bg-[var(--adc-s1)]"; statusBorder = "border-[var(--adc-b1)]"; statusDot = "bg-[var(--adc-ink3)]"; statusText = "text-[var(--adc-ink3)]";
+    statusBg = "bg-[var(--adc-s1)]";
+    statusBorder = "border-[var(--adc-b1)]";
+    statusDot = "bg-[var(--adc-ink3)]";
+    statusText = "text-[var(--adc-ink3)]";
     statusMsg = "Set a target above zero.";
   } else if (isFinite(breakEven) && val < breakEven) {
-    statusBg = "bg-[var(--adc-danger-bg)]"; statusBorder = "border-[var(--adc-danger-bd)]"; statusDot = "bg-[var(--adc-danger-fg)]"; statusText = "text-[var(--adc-danger-fg)]";
-    statusMsg = "Below break-even — this target loses money on variable costs alone.";
+    statusBg = "bg-[var(--adc-danger-bg)]";
+    statusBorder = "border-[var(--adc-danger-bd)]";
+    statusDot = "bg-[var(--adc-danger-fg)]";
+    statusText = "text-[var(--adc-danger-fg)]";
+    statusMsg =
+      "Below break-even — this target loses money on variable costs alone.";
   } else if (ratio < 1.2) {
-    statusBg = "bg-[var(--adc-caution-bg)]"; statusBorder = "border-[var(--adc-caution-bd)]"; statusDot = "bg-[var(--adc-caution-fg)]"; statusText = "text-[var(--adc-caution-fg)]";
-    statusMsg = "Close to break-even — limited buffer for volatility or returns.";
+    statusBg = "bg-[var(--adc-caution-bg)]";
+    statusBorder = "border-[var(--adc-caution-bd)]";
+    statusDot = "bg-[var(--adc-caution-fg)]";
+    statusText = "text-[var(--adc-caution-fg)]";
+    statusMsg =
+      "Close to break-even — limited buffer for volatility or returns.";
   } else {
     const above = (val - breakEven).toFixed(2);
-    statusBg = "bg-[var(--adc-pos-bg)]"; statusBorder = "border-[var(--adc-pos-bd)]"; statusDot = "bg-[var(--adc-pos-fg)]"; statusText = "text-[var(--adc-pos-fg)]";
+    statusBg = "bg-[var(--adc-pos-bg)]";
+    statusBorder = "border-[var(--adc-pos-bd)]";
+    statusDot = "bg-[var(--adc-pos-fg)]";
+    statusText = "text-[var(--adc-pos-fg)]";
     statusMsg = `${above}x above break-even — healthy margin buffer.`;
   }
 
   return (
     <CtSection
       eyebrow="Section 4"
-      title="Target ROAS"
-      subtitle="The single performance target the engine compares every campaign against."
-      tooltip="Target ROAS is persisted to the Commercial Truth target pack and is read by Creative and Meta decision engines as the primary efficiency threshold."
+      title="Target ROAS & CPA"
+      subtitle="The efficiency anchors the engine uses for revenue and acquisition objectives. Empty fields remain unconfigured."
+      tooltip="ROAS anchors are used for revenue objectives; CPA anchors are used for acquisition objectives. Values are persisted as Commercial Truth and never inferred by this screen."
+      action={
+        <CtGhostBtn
+          onClick={onRequestReconfirm}
+          disabled={disabled || reconfirmDisabledReason !== null}
+          title={
+            reconfirmDisabledReason ??
+            "Reconfirm the saved anchors without changing their values."
+          }
+          testId="commercial-target-pack-reconfirm"
+        >
+          Reconfirm unchanged economics
+        </CtGhostBtn>
+      }
     >
-      <div className="grid items-center gap-6" style={{ gridTemplateColumns: "minmax(240px, 360px) 1fr" }}>
+      <div
+        className="grid items-center gap-6"
+        style={{ gridTemplateColumns: "minmax(240px, 360px) 1fr" }}
+      >
         <div className="flex flex-col gap-3">
           <div className="flex h-14 items-center gap-1.5 rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-4">
             <input
               type="number"
               step={0.1}
-              min={0}
+              min={0.01}
               value={val || ""}
               disabled={disabled}
-              onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+              onChange={(e) =>
+                onChange(e.target.value === "" ? null : Number(e.target.value))
+              }
               data-testid="commercial-target-roas"
+              aria-label="Target ROAS"
               className="min-w-0 flex-1 bg-transparent text-[28px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)] outline-none disabled:opacity-60"
             />
             <span className="text-[18px] text-[var(--adc-ink3)]">x</span>
           </div>
-          <div className={`flex items-center gap-2 rounded-[10px] border px-3 py-2.5 ${statusBg} ${statusBorder}`}>
+          <div
+            className={`flex items-center gap-2 rounded-[10px] border px-3 py-2.5 ${statusBg} ${statusBorder}`}
+          >
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot}`} />
-            <p className={`text-[12.5px] font-semibold leading-snug ${statusText}`}>{statusMsg}</p>
+            <p
+              className={`text-[12.5px] font-semibold leading-snug ${statusText}`}
+            >
+              {statusMsg}
+            </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">Break-even ROAS</p>
-            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)]">
-              {isFinite(breakEven) && breakEven > 0 ? `${breakEven.toFixed(2)}x` : "—"}
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+              Break-even ROAS
             </p>
-            <p className="text-[11.5px] text-[var(--adc-ink3)]">Derived from your cost structure</p>
+            <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)]">
+              {isFinite(breakEven) && breakEven > 0
+                ? `${breakEven.toFixed(2)}x`
+                : "—"}
+            </p>
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+              Derived from your cost structure
+            </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
             <div className="flex items-center gap-2">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">Break-even ROAS (manual)</p>
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+                Break-even ROAS (manual)
+              </p>
               <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
             </div>
             <CtNumberInput
               value={costStructureActive ? breakEven : manualBreakEven}
               onChange={onManualBreakEvenChange}
               suffix="x"
+              min={0.01}
+              ariaLabel="Break-even ROAS"
               disabled={disabled || costStructureActive}
               testId="commercial-break-even-roas"
             />
@@ -862,6 +1303,86 @@ function TargetRoasSection({
                 : "Override if cost inputs are unavailable."}
             </p>
           </div>
+          <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+              Target CPA
+            </p>
+            <CtNumberInput
+              value={targetCpa}
+              onChange={onTargetCpaChange}
+              prefix={currency}
+              min={0.01}
+              ariaLabel={`Target CPA in ${currency}`}
+              disabled={disabled}
+              testId="commercial-target-cpa"
+            />
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+              Maximum desired acquisition cost.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+              Break-even CPA
+            </p>
+            <CtNumberInput
+              value={breakEvenCpa}
+              onChange={onBreakEvenCpaChange}
+              prefix={currency}
+              min={0.01}
+              ariaLabel={`Break-even CPA in ${currency}`}
+              disabled={disabled}
+              testId="commercial-break-even-cpa"
+            />
+            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+              Highest acquisition cost before contribution turns negative.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`mt-5 flex items-start justify-between gap-4 rounded-xl border px-4 py-3.5 ${
+          freshness?.status === "fresh"
+            ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]"
+            : freshness?.status === "stale"
+              ? "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]"
+              : "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]"
+        }`}
+        data-testid="commercial-target-pack-freshness"
+      >
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-[12.5px] font-bold text-[var(--adc-ink)]">
+            {freshness?.status === "fresh"
+              ? "Decision authority current"
+              : freshness?.status === "stale"
+                ? "Decision authority needs reconfirmation"
+                : "Decision authority unavailable"}
+          </p>
+          <p
+            className="text-[11.5px] leading-snug text-[var(--adc-ink2)]"
+            data-testid="commercial-target-pack-updated-at"
+          >
+            Last updated or confirmed:{" "}
+            {formatTargetPackTimestamp(freshness?.updatedAt ?? updatedAt)}
+          </p>
+          {freshness?.status === "stale" ? (
+            <p className="text-[12px] font-semibold leading-snug text-[var(--adc-caution-fg)]">
+              Hard Scale/Cut authority is blocked until reconfirmed.
+            </p>
+          ) : null}
+          {freshness?.reason ? (
+            <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
+              {freshness.reason}
+            </p>
+          ) : null}
+          {reconfirmDisabledReason ? (
+            <p
+              className="text-[11.5px] leading-snug text-[var(--adc-ink3)]"
+              data-testid="commercial-target-pack-reconfirm-disabled-reason"
+            >
+              {reconfirmDisabledReason}
+            </p>
+          ) : null}
         </div>
       </div>
     </CtSection>
@@ -905,7 +1426,15 @@ function CountryEconomicsSection({
       title="Country Economics"
       subtitle="Optional. Override the global cost structure for specific countries when shipping or COGS materially differ."
       tooltip="Leave this empty when every country should use the same global cost structure. Add rows only for locations with materially different costs, margins, or serviceability."
-      action={<CtGhostBtn onClick={onAdd} disabled={disabled} testId="commercial-add-country">+ Add country</CtGhostBtn>}
+      action={
+        <CtGhostBtn
+          onClick={onAdd}
+          disabled={disabled}
+          testId="commercial-add-country"
+        >
+          + Add country
+        </CtGhostBtn>
+      }
     >
       {rows.length === 0 ? (
         <CtEmptyState message="Country Economics is not filled in. Adsecute will evaluate every location with the same global cost structure." />
@@ -959,9 +1488,18 @@ function CountryEconomicsSection({
                 disabled={disabled}
                 testId={`commercial-country-notes-${i}`}
               />
-              <CtIconCircleBtn onClick={() => onRemove(i)} disabled={disabled} testId={`commercial-remove-country-${i}`}>
+              <CtIconCircleBtn
+                onClick={() => onRemove(i)}
+                disabled={disabled}
+                testId={`commercial-remove-country-${i}`}
+              >
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <path
+                    d="M2 2L9 9M9 2L2 9"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </CtIconCircleBtn>
             </div>
@@ -994,7 +1532,11 @@ function PromoCalendarSection({
       eyebrow="Section 6"
       title="Promo Calendar"
       subtitle="Optional. Tell the engine when revenue is lifted by a promotion so scaling decisions don't read promo lift as creative strength."
-      action={<CtGhostBtn onClick={onAdd} disabled={disabled}>+ Add promo window</CtGhostBtn>}
+      action={
+        <CtGhostBtn onClick={onAdd} disabled={disabled}>
+          + Add promo window
+        </CtGhostBtn>
+      }
     >
       {rows.length === 0 ? (
         <CtEmptyState message="No promo windows yet. Operating mode will still match — just without promo-aware scaling caps." />
@@ -1045,12 +1587,20 @@ function PromoCalendarSection({
               <CtSelect
                 value={r.severity}
                 onChange={(v) => onUpdate(i, "severity", v)}
-                options={BUSINESS_PROMO_SEVERITIES.map((s) => ({ value: s, label: s }))}
+                options={BUSINESS_PROMO_SEVERITIES.map((s) => ({
+                  value: s,
+                  label: s,
+                }))}
                 disabled={disabled}
               />
               <CtIconCircleBtn onClick={() => onRemove(i)} disabled={disabled}>
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <path
+                    d="M2 2L9 9M9 2L2 9"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </CtIconCircleBtn>
             </div>
@@ -1070,12 +1620,20 @@ function SiteHealthSection({
   onUpdate,
   disabled,
 }: {
-  constraints: NonNullable<BusinessCommercialTruthSnapshot["operatingConstraints"]>;
+  constraints: NonNullable<
+    BusinessCommercialTruthSnapshot["operatingConstraints"]
+  >;
   onUpdate: (field: string, value: unknown) => void;
   disabled?: boolean;
 }) {
-  const issueOpts = BUSINESS_ISSUE_STATUSES.map((s) => ({ value: s, label: s }));
-  const stockOpts = BUSINESS_STOCK_PRESSURE_STATUSES.map((s) => ({ value: s, label: s }));
+  const issueOpts = BUSINESS_ISSUE_STATUSES.map((s) => ({
+    value: s,
+    label: s,
+  }));
+  const stockOpts = BUSINESS_STOCK_PRESSURE_STATUSES.map((s) => ({
+    value: s,
+    label: s,
+  }));
 
   return (
     <CtSection
@@ -1085,19 +1643,54 @@ function SiteHealthSection({
       tooltip="These guardrails tell the decision engine when performance should not be scaled because fulfillment, tracking, checkout, feed, or inventory conditions are unreliable."
     >
       <div className="grid grid-cols-2 gap-4">
-        <CtField label="Site issue" tooltip="Use watch or critical when site speed, uptime, product pages, or landing pages could distort conversion performance.">
-          <CtSelect value={constraints.siteIssueStatus} onChange={(v) => onUpdate("siteIssueStatus", v)} options={issueOpts} disabled={disabled} />
+        <CtField
+          label="Site issue"
+          tooltip="Use watch or critical when site speed, uptime, product pages, or landing pages could distort conversion performance."
+        >
+          <CtSelect
+            value={constraints.siteIssueStatus}
+            onChange={(v) => onUpdate("siteIssueStatus", v)}
+            options={issueOpts}
+            disabled={disabled}
+          />
         </CtField>
-        <CtField label="Checkout issue" tooltip="Mark checkout issues when payment, shipping, discount, or checkout UX problems can suppress purchases independently of ad quality.">
-          <CtSelect value={constraints.checkoutIssueStatus} onChange={(v) => onUpdate("checkoutIssueStatus", v)} options={issueOpts} disabled={disabled} />
+        <CtField
+          label="Checkout issue"
+          tooltip="Mark checkout issues when payment, shipping, discount, or checkout UX problems can suppress purchases independently of ad quality."
+        >
+          <CtSelect
+            value={constraints.checkoutIssueStatus}
+            onChange={(v) => onUpdate("checkoutIssueStatus", v)}
+            options={issueOpts}
+            disabled={disabled}
+          />
         </CtField>
-        <CtField label="Conversion tracking" tooltip="Use this when pixel/CAPI/event attribution is unreliable. Bad tracking should cap decision confidence even if ads appear strong or weak.">
-          <CtSelect value={constraints.conversionTrackingIssueStatus} onChange={(v) => onUpdate("conversionTrackingIssueStatus", v)} options={issueOpts} disabled={disabled} />
+        <CtField
+          label="Conversion tracking"
+          tooltip="Use this when pixel/CAPI/event attribution is unreliable. Bad tracking should cap decision confidence even if ads appear strong or weak."
+        >
+          <CtSelect
+            value={constraints.conversionTrackingIssueStatus}
+            onChange={(v) => onUpdate("conversionTrackingIssueStatus", v)}
+            options={issueOpts}
+            disabled={disabled}
+          />
         </CtField>
-        <CtField label="Feed issue" tooltip="Use this for catalog, product availability, price, image, or feed sync issues that can affect campaign delivery and conversion quality.">
-          <CtSelect value={constraints.feedIssueStatus} onChange={(v) => onUpdate("feedIssueStatus", v)} options={issueOpts} disabled={disabled} />
+        <CtField
+          label="Feed issue"
+          tooltip="Use this for catalog, product availability, price, image, or feed sync issues that can affect campaign delivery and conversion quality."
+        >
+          <CtSelect
+            value={constraints.feedIssueStatus}
+            onChange={(v) => onUpdate("feedIssueStatus", v)}
+            options={issueOpts}
+            disabled={disabled}
+          />
         </CtField>
-        <CtField label="Stock pressure" tooltip="Set watch when inventory is tight and blocked when scale should stop until stock recovers. This prevents profitable-looking demand from creating fulfillment risk.">
+        <CtField
+          label="Stock pressure"
+          tooltip="Set watch when inventory is tight and blocked when scale should stop until stock recovers. This prevents profitable-looking demand from creating fulfillment risk."
+        >
           <CtSelect
             value={constraints.stockPressureStatus}
             onChange={(v) => onUpdate("stockPressureStatus", v)}
@@ -1106,7 +1699,10 @@ function SiteHealthSection({
             testId="commercial-stock-pressure"
           />
         </CtField>
-        <CtField label="Manual do-not-scale reason" tooltip="A human override that explains why scale actions should stay blocked even when metrics look eligible.">
+        <CtField
+          label="Manual do-not-scale reason"
+          tooltip="A human override that explains why scale actions should stay blocked even when metrics look eligible."
+        >
           <CtTextInput
             value={constraints.manualDoNotScaleReason ?? ""}
             onChange={(v) => onUpdate("manualDoNotScaleReason", v || null)}
@@ -1124,9 +1720,21 @@ function SiteHealthSection({
 // ---------------------------------------------------------------------------
 
 const CALIBRATION_CARDS = [
-  { id: "conservative" as const, title: "Conservative", desc: "Tight ceilings, hold-on-no-data. Best for new accounts or volatile periods." },
-  { id: "balanced" as const, title: "Balanced", desc: "Default. Step-ups at 20% with weekly review cadence." },
-  { id: "aggressive" as const, title: "Aggressive", desc: "Faster ceilings, larger increments. Mature accounts with stable signal only." },
+  {
+    id: "conservative" as const,
+    title: "Conservative",
+    desc: "Tight ceilings, hold-on-no-data. Best for new accounts or volatile periods.",
+  },
+  {
+    id: "balanced" as const,
+    title: "Balanced",
+    desc: "Default. Step-ups at 20% with weekly review cadence.",
+  },
+  {
+    id: "aggressive" as const,
+    title: "Aggressive",
+    desc: "Faster ceilings, larger increments. Mature accounts with stable signal only.",
+  },
 ];
 
 const ACTION_CEILING_OPTIONS = [
@@ -1186,11 +1794,19 @@ function CalibrationSection({
                 <span className="text-[14px] font-semibold">{o.title}</span>
                 {active && (
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M3 7.5l2.5 2.5L11 4" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M3 7.5l2.5 2.5L11 4"
+                      stroke="#fff"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 )}
               </div>
-              <span className={`text-[12px] leading-snug ${active ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"}`}>
+              <span
+                className={`text-[12px] leading-snug ${active ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"}`}
+              >
                 {o.desc}
               </span>
             </button>
@@ -1201,14 +1817,21 @@ function CalibrationSection({
       <div className="mt-5 flex items-center justify-between gap-4 border-t border-[var(--adc-b1)] pt-5">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2">
-            <p className="text-[13px] font-bold text-[var(--adc-ink)]">Calibration profiles</p>
+            <p className="text-[13px] font-bold text-[var(--adc-ink)]">
+              Calibration profiles
+            </p>
             <CtTooltip content="Use profiles to tune ROAS/CPA thresholds and confidence/action ceilings for a specific channel, objective family, bid regime, and decision archetype." />
           </div>
           <p className="text-[12px] text-[var(--adc-ink3)]">
-            Optional. Profiles are matched by channel + objective + bid regime + archetype.
+            Optional. Profiles are matched by channel + objective + bid regime +
+            archetype.
           </p>
         </div>
-        <CtGhostBtn onClick={onAddProfile} disabled={disabled} testId="commercial-add-calibration-profile">
+        <CtGhostBtn
+          onClick={onAddProfile}
+          disabled={disabled}
+          testId="commercial-add-calibration-profile"
+        >
           + Add profile
         </CtGhostBtn>
       </div>
@@ -1220,36 +1843,63 @@ function CalibrationSection({
       ) : (
         <div className="mt-3 flex flex-col gap-3">
           {profiles.map((profile, index) => (
-            <div key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`} className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-              <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 36px" }}>
-                <CtField label="Channel" tooltip="The decision surface this calibration applies to. Creative profiles affect creative decision hints; Meta profiles affect Meta decision hints.">
+            <div
+              key={`${profile.channel}-${profile.objectiveFamily}-${profile.bidRegime}-${profile.archetype}-${index}`}
+              className="rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4"
+            >
+              <div
+                className="grid gap-3"
+                style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 36px" }}
+              >
+                <CtField
+                  label="Channel"
+                  tooltip="The decision surface this calibration applies to. Creative profiles affect creative decision hints; Meta profiles affect Meta decision hints."
+                >
                   <CtSelect
                     value={profile.channel}
                     onChange={(v) => onUpdateProfile(index, "channel", v)}
-                    options={BUSINESS_DECISION_CALIBRATION_CHANNELS.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    options={BUSINESS_DECISION_CALIBRATION_CHANNELS.map(
+                      (value) => ({ value, label: value.replaceAll("_", " ") }),
+                    )}
                     disabled={disabled}
                     testId={`commercial-calibration-channel-${index}`}
                   />
                 </CtField>
-                <CtField label="Objective" tooltip="Match the campaign/ad set objective family so sales, lead, traffic, and awareness logic can be tuned separately.">
+                <CtField
+                  label="Objective"
+                  tooltip="Match the campaign/ad set objective family so sales, lead, traffic, and awareness logic can be tuned separately."
+                >
                   <CtSelect
                     value={profile.objectiveFamily}
-                    onChange={(v) => onUpdateProfile(index, "objectiveFamily", v)}
-                    options={BUSINESS_DECISION_OBJECTIVE_FAMILIES.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "objectiveFamily", v)
+                    }
+                    options={BUSINESS_DECISION_OBJECTIVE_FAMILIES.map(
+                      (value) => ({ value, label: value.replaceAll("_", " ") }),
+                    )}
                     disabled={disabled}
                     testId={`commercial-calibration-objective-${index}`}
                   />
                 </CtField>
-                <CtField label="Bid regime" tooltip="Match the bidding mode. ROAS-floor, cost-cap, bid-cap, and open bidding can need different threshold multipliers.">
+                <CtField
+                  label="Bid regime"
+                  tooltip="Match the bidding mode. ROAS-floor, cost-cap, bid-cap, and open bidding can need different threshold multipliers."
+                >
                   <CtSelect
                     value={profile.bidRegime}
                     onChange={(v) => onUpdateProfile(index, "bidRegime", v)}
-                    options={BUSINESS_DECISION_BID_REGIMES.map((value) => ({ value, label: value.replaceAll("_", " ") }))}
+                    options={BUSINESS_DECISION_BID_REGIMES.map((value) => ({
+                      value,
+                      label: value.replaceAll("_", " "),
+                    }))}
                     disabled={disabled}
                     testId={`commercial-calibration-bid-regime-${index}`}
                   />
                 </CtField>
-                <CtField label="Archetype" tooltip="The policy archetype or primary driver this profile matches, for example winner_scale or fatigue_refresh.">
+                <CtField
+                  label="Archetype"
+                  tooltip="The policy archetype or primary driver this profile matches, for example winner_scale or fatigue_refresh."
+                >
                   <CtTextInput
                     value={profile.archetype}
                     onChange={(v) => onUpdateProfile(index, "archetype", v)}
@@ -1258,43 +1908,111 @@ function CalibrationSection({
                   />
                 </CtField>
                 <div className="pt-7">
-                  <CtIconCircleBtn onClick={() => onRemoveProfile(index)} disabled={disabled} testId={`commercial-remove-calibration-profile-${index}`}>
+                  <CtIconCircleBtn
+                    onClick={() => onRemoveProfile(index)}
+                    disabled={disabled}
+                    testId={`commercial-remove-calibration-profile-${index}`}
+                  >
                     <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                      <path
+                        d="M2 2L9 9M9 2L2 9"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   </CtIconCircleBtn>
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-5 gap-3">
-                <CtField label="Target ROAS ×" tooltip="Multiplier applied to the target ROAS threshold for this matched profile. Values above 1 are stricter; below 1 are looser.">
-                  <CtNumberInput value={profile.targetRoasMultiplier} onChange={(v) => onUpdateProfile(index, "targetRoasMultiplier", v)} disabled={disabled} testId={`commercial-calibration-target-roas-multiplier-${index}`} />
+                <CtField
+                  label="Target ROAS ×"
+                  tooltip="Multiplier applied to the target ROAS threshold for this matched profile. Values above 1 are stricter; below 1 are looser."
+                >
+                  <CtNumberInput
+                    value={profile.targetRoasMultiplier}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "targetRoasMultiplier", v)
+                    }
+                    disabled={disabled}
+                    testId={`commercial-calibration-target-roas-multiplier-${index}`}
+                  />
                 </CtField>
-                <CtField label="Break-even ROAS ×" tooltip="Multiplier applied to break-even ROAS for this profile. Use cautiously because it changes loss-protection sensitivity.">
-                  <CtNumberInput value={profile.breakEvenRoasMultiplier} onChange={(v) => onUpdateProfile(index, "breakEvenRoasMultiplier", v)} disabled={disabled} testId={`commercial-calibration-break-even-roas-multiplier-${index}`} />
+                <CtField
+                  label="Break-even ROAS ×"
+                  tooltip="Multiplier applied to break-even ROAS for this profile. Use cautiously because it changes loss-protection sensitivity."
+                >
+                  <CtNumberInput
+                    value={profile.breakEvenRoasMultiplier}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "breakEvenRoasMultiplier", v)
+                    }
+                    disabled={disabled}
+                    testId={`commercial-calibration-break-even-roas-multiplier-${index}`}
+                  />
                 </CtField>
-                <CtField label="Target CPA ×" tooltip="Multiplier applied to target CPA. Values below 1 are stricter; above 1 are more permissive.">
-                  <CtNumberInput value={profile.targetCpaMultiplier} onChange={(v) => onUpdateProfile(index, "targetCpaMultiplier", v)} disabled={disabled} testId={`commercial-calibration-target-cpa-multiplier-${index}`} />
+                <CtField
+                  label="Target CPA ×"
+                  tooltip="Multiplier applied to target CPA. Values below 1 are stricter; above 1 are more permissive."
+                >
+                  <CtNumberInput
+                    value={profile.targetCpaMultiplier}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "targetCpaMultiplier", v)
+                    }
+                    disabled={disabled}
+                    testId={`commercial-calibration-target-cpa-multiplier-${index}`}
+                  />
                 </CtField>
-                <CtField label="Break-even CPA ×" tooltip="Multiplier applied to break-even CPA for loss-protection checks.">
-                  <CtNumberInput value={profile.breakEvenCpaMultiplier} onChange={(v) => onUpdateProfile(index, "breakEvenCpaMultiplier", v)} disabled={disabled} testId={`commercial-calibration-break-even-cpa-multiplier-${index}`} />
+                <CtField
+                  label="Break-even CPA ×"
+                  tooltip="Multiplier applied to break-even CPA for loss-protection checks."
+                >
+                  <CtNumberInput
+                    value={profile.breakEvenCpaMultiplier}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "breakEvenCpaMultiplier", v)
+                    }
+                    disabled={disabled}
+                    testId={`commercial-calibration-break-even-cpa-multiplier-${index}`}
+                  />
                 </CtField>
-                <CtField label="Confidence cap" tooltip="Optional cap from 0 to 1. Example: 0.75 means matched decisions cannot exceed 75% confidence.">
-                  <CtNumberInput value={profile.confidenceCap} onChange={(v) => onUpdateProfile(index, "confidenceCap", v)} disabled={disabled} testId={`commercial-calibration-confidence-cap-${index}`} />
+                <CtField
+                  label="Confidence cap"
+                  tooltip="Optional cap from 0 to 1. Example: 0.75 means matched decisions cannot exceed 75% confidence."
+                >
+                  <CtNumberInput
+                    value={profile.confidenceCap}
+                    onChange={(v) => onUpdateProfile(index, "confidenceCap", v)}
+                    disabled={disabled}
+                    testId={`commercial-calibration-confidence-cap-${index}`}
+                  />
                 </CtField>
               </div>
 
-              <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "220px 1fr" }}>
-                <CtField label="Action ceiling" tooltip="Optional safe-action ceiling for matched decisions. Use it when a channel/profile should stay review-only even if metrics look strong.">
+              <div
+                className="mt-3 grid gap-3"
+                style={{ gridTemplateColumns: "220px 1fr" }}
+              >
+                <CtField
+                  label="Action ceiling"
+                  tooltip="Optional safe-action ceiling for matched decisions. Use it when a channel/profile should stay review-only even if metrics look strong."
+                >
                   <CtSelect
                     value={profile.actionCeiling ?? ""}
-                    onChange={(v) => onUpdateProfile(index, "actionCeiling", v || null)}
+                    onChange={(v) =>
+                      onUpdateProfile(index, "actionCeiling", v || null)
+                    }
                     options={ACTION_CEILING_OPTIONS}
                     disabled={disabled}
                     testId={`commercial-calibration-action-ceiling-${index}`}
                   />
                 </CtField>
-                <CtField label="Notes" tooltip="Short operator note explaining why this calibration exists and when it should be revisited.">
+                <CtField
+                  label="Notes"
+                  tooltip="Short operator note explaining why this calibration exists and when it should be revisited."
+                >
                   <CtTextInput
                     value={profile.notes ?? ""}
                     onChange={(v) => onUpdateProfile(index, "notes", v || null)}
@@ -1331,7 +2049,9 @@ function StickySaveBar({
   return (
     <div className="sticky bottom-0 z-10 mt-7 flex items-center justify-between gap-4 border-t border-[var(--adc-b1)] bg-[var(--adc-s2)]/92 px-6 py-3.5 backdrop-blur-sm">
       <div className="flex items-center gap-2.5">
-        <span className={`h-2 w-2 rounded-full ${dirty ? "bg-[var(--adc-caution-fg)]" : "bg-[var(--adc-pos-fg)]"}`} />
+        <span
+          className={`h-2 w-2 rounded-full ${dirty ? "bg-[var(--adc-caution-fg)]" : "bg-[var(--adc-pos-fg)]"}`}
+        />
         <span className="text-[12.5px] text-[var(--adc-ink3)]">
           {dirty ? "Unsaved changes" : "All changes saved"}
         </span>
@@ -1363,16 +2083,30 @@ function StickySaveBar({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function CommercialTruthSettingsSection({ businessId }: { businessId: string }) {
+export function CommercialTruthSettingsSection({
+  businessId,
+}: {
+  businessId: string;
+}) {
+  const currency = useAppStore(
+    (state) =>
+      state.businesses.find((business) => business.id === businessId)
+        ?.currency ?? "USD",
+  );
   const [snapshot, setSnapshot] = useState<BusinessCommercialTruthSnapshot>(
     createEmptyBusinessCommercialTruthSnapshot(businessId),
   );
-  const [permissions, setPermissions] = useState<CommercialTruthSettingsResponse["permissions"] | null>(null);
+  const [revision, setRevision] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<
+    CommercialTruthSettingsResponse["permissions"] | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [reconfirming, setReconfirming] = useState(false);
+  const [reconfirmDialogOpen, setReconfirmDialogOpen] = useState(false);
 
   const [costs, setCostsState] = useState<CostInputs>({ ...EMPTY_COST_INPUTS });
   const setCost = (k: keyof CostInputs, v: number | null) => {
@@ -1401,18 +2135,32 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         `/api/business-commercial-settings?businessId=${encodeURIComponent(businessId)}`,
         { cache: "no-store" },
       );
-      const payload = (await response.json().catch(() => null)) as CommercialTruthSettingsResponse | null;
-      if (!response.ok || !payload?.snapshot || !payload.permissions) {
+      const payload = (await response
+        .json()
+        .catch(() => null)) as CommercialTruthSettingsResponse | null;
+      if (
+        !response.ok ||
+        !payload?.snapshot ||
+        !payload.revision ||
+        !payload.permissions
+      ) {
         throw new Error("Could not load commercial truth settings.");
       }
       setSnapshot(payload.snapshot);
+      setRevision(payload.revision);
       setCostsState(costInputsFromSnapshot(payload.snapshot));
       setPermissions(payload.permissions);
       setDirty(false);
     } catch (loadError: unknown) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load commercial truth settings.");
-      const emptySnapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load commercial truth settings.",
+      );
+      const emptySnapshot =
+        createEmptyBusinessCommercialTruthSnapshot(businessId);
       setSnapshot(emptySnapshot);
+      setRevision(null);
       setCostsState(costInputsFromSnapshot(emptySnapshot));
       setPermissions(null);
     } finally {
@@ -1421,14 +2169,22 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
   }, [businessId]);
 
   useEffect(() => {
-    const emptySnapshot = createEmptyBusinessCommercialTruthSnapshot(businessId);
+    const emptySnapshot =
+      createEmptyBusinessCommercialTruthSnapshot(businessId);
     setSnapshot(emptySnapshot);
+    setRevision(null);
     setCostsState(costInputsFromSnapshot(emptySnapshot));
     setPermissions(null);
     void loadSnapshot();
   }, [businessId, loadSnapshot]);
 
   async function handleSave() {
+    if (!revision) {
+      setError(
+        "Commercial truth changed or was not loaded. Refresh before saving.",
+      );
+      return;
+    }
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -1456,29 +2212,79 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
       const response = await fetch("/api/business-commercial-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, snapshot: snapshotToSave }),
+        body: JSON.stringify({
+          businessId,
+          snapshot: snapshotToSave,
+          expectedRevision: revision,
+        }),
       });
-      const payload = (await response.json().catch(() => null)) as CommercialTruthSettingsResponse | null;
+      const payload = (await response
+        .json()
+        .catch(() => null)) as CommercialTruthSettingsResponse | null;
       if (!response.ok || !payload?.snapshot || !payload.permissions) {
-        throw new Error((payload as { message?: string } | null)?.message ?? "Could not save commercial truth settings.");
+        throw new Error(
+          (payload as { message?: string } | null)?.message ??
+            "Could not save commercial truth settings.",
+        );
       }
       setSnapshot(payload.snapshot);
+      setRevision(payload.revision);
       setCostsState(costInputsFromSnapshot(payload.snapshot));
       setPermissions(payload.permissions);
       setNotice("Commercial truth settings updated.");
       setDirty(false);
     } catch (saveError: unknown) {
-      setError(saveError instanceof Error ? saveError.message : "Could not save commercial truth settings.");
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save commercial truth settings.",
+      );
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleReconfirmTargetPack() {
+    const expectedUpdatedAt = snapshot.targetPack?.updatedAt;
+    if (!expectedUpdatedAt) return;
+
+    setReconfirming(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const payload = await requestTargetPackReconfirmation({
+        businessId,
+        expectedUpdatedAt,
+      });
+      setSnapshot(payload.snapshot);
+      setRevision(payload.revision);
+      setCostsState(costInputsFromSnapshot(payload.snapshot));
+      if (payload.permissions) setPermissions(payload.permissions);
+      setDirty(false);
+      setNotice("Target economics reconfirmed without changing values.");
+    } catch (reconfirmError: unknown) {
+      setError(
+        reconfirmError instanceof Error
+          ? reconfirmError.message
+          : "Could not reconfirm target economics.",
+      );
+    } finally {
+      setReconfirmDialogOpen(false);
+      setReconfirming(false);
+    }
+  }
+
   const updateTargetPack = useCallback(
-    (field: keyof NonNullable<BusinessCommercialTruthSnapshot["targetPack"]>, value: unknown) => {
+    (
+      field: keyof NonNullable<BusinessCommercialTruthSnapshot["targetPack"]>,
+      value: unknown,
+    ) => {
       setSnapshot((current) => ({
         ...current,
-        targetPack: { ...(current.targetPack ?? createEmptyTargetPack()), [field]: value },
+        targetPack: {
+          ...(current.targetPack ?? createEmptyTargetPack()),
+          [field]: value,
+        },
       }));
       setDirty(true);
     },
@@ -1511,19 +2317,16 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
     [],
   );
 
-  const updateConstraints = useCallback(
-    (field: string, value: unknown) => {
-      setSnapshot((current) => ({
-        ...current,
-        operatingConstraints: {
-          ...(current.operatingConstraints ?? createEmptyOperatingConstraints()),
-          [field]: value,
-        },
-      }));
-      setDirty(true);
-    },
-    [],
-  );
+  const updateConstraints = useCallback((field: string, value: unknown) => {
+    setSnapshot((current) => ({
+      ...current,
+      operatingConstraints: {
+        ...(current.operatingConstraints ?? createEmptyOperatingConstraints()),
+        [field]: value,
+      },
+    }));
+    setDirty(true);
+  }, []);
 
   const addCalibrationProfile = useCallback(() => {
     setSnapshot((current) => ({
@@ -1544,8 +2347,9 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
     ) => {
       setSnapshot((current) => ({
         ...current,
-        calibrationProfiles: (current.calibrationProfiles ?? []).map((profile, i) =>
-          i === index ? { ...profile, [field]: value } : profile,
+        calibrationProfiles: (current.calibrationProfiles ?? []).map(
+          (profile, i) =>
+            i === index ? { ...profile, [field]: value } : profile,
         ),
       }));
       setDirty(true);
@@ -1556,23 +2360,45 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
   const removeCalibrationProfile = useCallback((index: number) => {
     setSnapshot((current) => ({
       ...current,
-      calibrationProfiles: (current.calibrationProfiles ?? []).filter((_, i) => i !== index),
+      calibrationProfiles: (current.calibrationProfiles ?? []).filter(
+        (_, i) => i !== index,
+      ),
     }));
     setDirty(true);
   }, []);
 
   const targetPack = snapshot.targetPack ?? createEmptyTargetPack();
-  const operatingConstraints = snapshot.operatingConstraints ?? createEmptyOperatingConstraints();
+  const savedTargetPack = snapshot.targetPack;
+  const operatingConstraints =
+    snapshot.operatingConstraints ?? createEmptyOperatingConstraints();
 
-  const countryRows = useMemo(() => snapshot.countryEconomics, [snapshot.countryEconomics]);
-  const promoRows = useMemo(() => snapshot.promoCalendar, [snapshot.promoCalendar]);
+  const countryRows = useMemo(
+    () => snapshot.countryEconomics,
+    [snapshot.countryEconomics],
+  );
+  const promoRows = useMemo(
+    () => snapshot.promoCalendar,
+    [snapshot.promoCalendar],
+  );
 
-  const displayBreakEven = costStructureActive && isFinite(computedBreakEven)
-    ? roundRatio(computedBreakEven)
-    : (targetPack.breakEvenRoas ?? 0);
+  const displayBreakEven =
+    costStructureActive && isFinite(computedBreakEven)
+      ? roundRatio(computedBreakEven)
+      : (targetPack.breakEvenRoas ?? 0);
+  const targetPackFreshness = snapshot.sectionMeta.targetPack.freshness;
+  const reconfirmDisabledReason = getTargetPackReconfirmDisabledReason({
+    canEdit: canEdit && !loading,
+    dirty,
+    reconfirming,
+    targetPack: savedTargetPack,
+    freshnessStatus: targetPackFreshness?.status,
+  });
 
   return (
-    <div className="flex flex-col gap-4" data-testid="commercial-truth-settings">
+    <div
+      className="flex flex-col gap-4"
+      data-testid="commercial-truth-settings"
+    >
       {/* Status banners */}
       {!loading && permissions?.reason ? (
         <div className="rounded-xl border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-4 py-3 text-sm text-[var(--adc-caution-fg)]">
@@ -1580,23 +2406,31 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         </div>
       ) : null}
       {notice ? (
-        <div className="rounded-xl border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] px-4 py-3 text-sm text-[var(--adc-pos-fg)]">
+        <div
+          role="status"
+          className="rounded-xl border border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)] px-4 py-3 text-sm text-[var(--adc-pos-fg)]"
+        >
           {notice}
         </div>
       ) : null}
       {error ? (
-        <div className="rounded-xl border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] px-4 py-3 text-sm text-[var(--adc-danger-fg)]">
+        <div
+          role="alert"
+          className="rounded-xl border border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)] px-4 py-3 text-sm text-[var(--adc-danger-fg)]"
+        >
           {error}
         </div>
       ) : null}
       {loading ? (
         <div className="flex items-center gap-3 rounded-2xl border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-6">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--adc-b2)] border-t-[var(--adc-ink2)]" />
-          <p className="text-[13px] text-[var(--adc-ink3)]">Loading commercial truth settings…</p>
+          <p className="text-[13px] text-[var(--adc-ink3)]">
+            Loading commercial truth settings…
+          </p>
         </div>
       ) : null}
 
-      <DecisionCoverageSection snapshot={snapshot} />
+      <DecisionCoverageSection snapshot={snapshot} currency={currency} />
 
       <CostStructureSection
         costs={costs}
@@ -1607,7 +2441,7 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
       />
 
       <RoasScenarioSection
-        targetRoas={targetPack.targetRoas ?? 3.5}
+        targetRoas={targetPack.targetRoas}
         costPct={totalCostPct}
         breakEven={displayBreakEven}
       />
@@ -1618,6 +2452,15 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         breakEven={displayBreakEven}
         manualBreakEven={targetPack.breakEvenRoas}
         onManualBreakEvenChange={(v) => updateTargetPack("breakEvenRoas", v)}
+        targetCpa={targetPack.targetCpa}
+        onTargetCpaChange={(v) => updateTargetPack("targetCpa", v)}
+        breakEvenCpa={targetPack.breakEvenCpa}
+        onBreakEvenCpaChange={(v) => updateTargetPack("breakEvenCpa", v)}
+        currency={currency}
+        freshness={targetPackFreshness}
+        updatedAt={savedTargetPack?.updatedAt}
+        reconfirmDisabledReason={reconfirmDisabledReason}
+        onRequestReconfirm={() => setReconfirmDialogOpen(true)}
         costStructureActive={costStructureActive}
         disabled={effectiveDisabled}
       />
@@ -1627,7 +2470,10 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         onAdd={() => {
           setSnapshot((current) => ({
             ...current,
-            countryEconomics: [...current.countryEconomics, createEmptyCountryEconomicsRow()],
+            countryEconomics: [
+              ...current.countryEconomics,
+              createEmptyCountryEconomicsRow(),
+            ],
           }));
           setDirty(true);
         }}
@@ -1635,7 +2481,9 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         onRemove={(i) => {
           setSnapshot((current) => ({
             ...current,
-            countryEconomics: current.countryEconomics.filter((_, idx) => idx !== i),
+            countryEconomics: current.countryEconomics.filter(
+              (_, idx) => idx !== i,
+            ),
           }));
           setDirty(true);
         }}
@@ -1647,7 +2495,10 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
         onAdd={() => {
           setSnapshot((current) => ({
             ...current,
-            promoCalendar: [...current.promoCalendar, createEmptyPromoCalendarEvent()],
+            promoCalendar: [
+              ...current.promoCalendar,
+              createEmptyPromoCalendarEvent(),
+            ],
           }));
           setDirty(true);
         }}
@@ -1686,6 +2537,20 @@ export function CommercialTruthSettingsSection({ businessId }: { businessId: str
           void loadSnapshot();
         }}
         disabled={effectiveDisabled || saving}
+      />
+
+      <ConfirmOverlay
+        open={reconfirmDialogOpen}
+        title="Reconfirm unchanged economics?"
+        description={buildTargetPackReconfirmDescription(
+          savedTargetPack,
+          currency,
+        )}
+        confirmLabel="Reconfirm economics"
+        confirmVariant="default"
+        onCancel={() => setReconfirmDialogOpen(false)}
+        onConfirm={() => void handleReconfirmTargetPack()}
+        busy={reconfirming}
       />
     </div>
   );

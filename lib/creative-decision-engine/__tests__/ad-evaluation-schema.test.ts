@@ -6,6 +6,8 @@ import {
   CREATE_NATIVE_AD_EVALUATIONS_SQL,
   CREATE_NATIVE_AD_EVENTS_SQL,
   CREATE_NATIVE_AD_SNAPSHOTS_SQL,
+  ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
+  ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_DECISION_SCHEMA_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
 } from "../ad-evaluation-schema";
@@ -86,5 +88,32 @@ describe("D047 native ad parallel schema SQL", () => {
     expect(sql).not.toContain("engine_v3_account_calibration_daily");
     expect(sql).not.toContain("engine_v3_creative_lifecycle_daily");
     expect(sql).not.toMatch(/engine_v3_decision_(evaluations|snapshots|events)/);
+  });
+
+  it("adds nullable authority provenance with closed constraints", () => {
+    const sql = `${CREATE_NATIVE_AD_SNAPSHOTS_SQL}\n${ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL}`;
+    expect(sql).toContain("pre_authority_label TEXT");
+    expect(sql).toContain("authority_blocker TEXT");
+    expect(sql).toContain("engine_v3_ad_snapshots_pre_authority_label_check");
+    expect(sql).toContain("engine_v3_ad_snapshots_authority_blocker_check");
+    for (const blocker of [
+      "profile_hard_action_ineligible", "source_freshness", "campaign_context",
+      "native_metrics_unavailable", "native_profile_unavailable",
+    ]) expect(sql).toContain(`'${blocker}'`);
+  });
+
+  it("normalizes legacy non-published authorization before tightening the authority check", () => {
+    const normalized = ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL.replace(
+      /\s+/g,
+      " ",
+    );
+    expect(normalized.indexOf("DROP CONSTRAINT")).toBeLessThan(
+      normalized.indexOf("SET authorized_action = NULL"),
+    );
+    expect(normalized.indexOf("SET authorized_action = NULL")).toBeLessThan(
+      normalized.indexOf("ADD CONSTRAINT"),
+    );
+    expect(normalized).toContain("raw_label = label");
+    expect(normalized).toContain("blocked_action_type IS NULL");
   });
 });

@@ -12,6 +12,7 @@ import { resolveEngineV3Flags } from "../feature-flags";
 import {
   ENGINE_VERSION,
   type DecisionProfileScope,
+  type DecisionAuthorityBlocker,
   type CreativeInput,
   type DecisionLabel,
   type DecisionOutput,
@@ -89,6 +90,8 @@ interface DecisionSnapshotPayloadRow {
   scope_id: string;
   label: DecisionLabel;
   raw_label: DecisionLabel;
+  pre_authority_label: DecisionLabel;
+  authority_blocker: DecisionAuthorityBlocker | null;
   confidence: number;
   truth_source: DecisionOutput["truthSource"];
   effective_target_roas: number;
@@ -156,6 +159,8 @@ WITH payload AS (
     scope_id text,
     label text,
     raw_label text,
+    pre_authority_label text,
+    authority_blocker text,
     confidence integer,
     truth_source text,
     effective_target_roas double precision,
@@ -184,6 +189,8 @@ INSERT INTO engine_v3_decision_snapshots_daily (
   scope_id,
   label,
   raw_label,
+  pre_authority_label,
+  authority_blocker,
   confidence,
   truth_source,
   effective_target_roas,
@@ -211,6 +218,8 @@ SELECT
   scope_id,
   label,
   raw_label,
+  pre_authority_label,
+  authority_blocker,
   confidence,
   truth_source,
   effective_target_roas,
@@ -235,6 +244,8 @@ DO UPDATE SET
   scope_id = EXCLUDED.scope_id,
   label = EXCLUDED.label,
   raw_label = EXCLUDED.raw_label,
+  pre_authority_label = EXCLUDED.pre_authority_label,
+  authority_blocker = EXCLUDED.authority_blocker,
   confidence = EXCLUDED.confidence,
   truth_source = EXCLUDED.truth_source,
   effective_target_roas = EXCLUDED.effective_target_roas,
@@ -800,6 +811,8 @@ function toSnapshotPayloadRow(input: {
     scope_id: input.scope.id,
     label: input.decision.label,
     raw_label: input.rawLabel,
+    pre_authority_label: input.decision.preAuthorityLabel,
+    authority_blocker: input.decision.authorityBlocker,
     confidence: toConfidenceInteger(input.decision.confidence),
     truth_source: input.decision.truthSource,
     effective_target_roas: input.decision.effectiveTargetRoas,

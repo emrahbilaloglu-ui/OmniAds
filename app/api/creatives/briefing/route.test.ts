@@ -244,6 +244,8 @@ describe("GET /api/creatives/briefing", () => {
       creativeId: "mock-creative-001",
       creativeName: "Mock Creative",
       label: "keep",
+      preAuthorityLabel: "keep",
+      authorityBlocker: null,
       reason: "[near scale] ROAS above target but blocked by purchase depth.",
       confidence: 80,
       truthSource: "commercial_truth",

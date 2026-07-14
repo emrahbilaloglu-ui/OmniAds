@@ -22,6 +22,9 @@ function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
     creativeId: "creative-1",
     creativeName: "Creative 1",
     label: "cut",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "cut",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "Clear loser.",
     confidence: 82,
     truthSource: "commercial_truth",

@@ -5,10 +5,18 @@ import {
   type CanonicalEvaluationProvenance,
   type CanonicalJsonObject,
 } from "./canonical-evaluation";
-import type { DecisionLabel, DecisionProfileScope } from "./types";
+import {
+  DECISION_AUTHORITY_BLOCKERS,
+  type DecisionAuthorityBlocker,
+  type DecisionLabel,
+  type DecisionProfileScope,
+} from "./types";
+
+export { DECISION_AUTHORITY_BLOCKERS };
+export type { DecisionAuthorityBlocker };
 
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-ad-evaluation.v3" as const;
+  "engine-v3-canonical-ad-evaluation.v4" as const;
 
 export interface AdDecisionEvaluationIdentity {
   decisionEntityType: "ad";
@@ -159,6 +167,8 @@ export const AD_DECISION_SCHEMA_REQUIRED_COLUMNS: Readonly<
     "scope_id",
     "label",
     "raw_label",
+    "pre_authority_label",
+    "authority_blocker",
     "confidence",
     "truth_source",
     "effective_target_roas",
@@ -221,6 +231,8 @@ const NULLABLE_COLUMNS = new Set([
   `${AD_SNAPSHOTS_TABLE}.recent7d_roas`,
   `${AD_SNAPSHOTS_TABLE}.label_transform`,
   `${AD_SNAPSHOTS_TABLE}.blocked_action_type`,
+  `${AD_SNAPSHOTS_TABLE}.pre_authority_label`,
+  `${AD_SNAPSHOTS_TABLE}.authority_blocker`,
   `${AD_SNAPSHOTS_TABLE}.authorized_action`,
   `${AD_SNAPSHOTS_TABLE}.creative_evidence_lifecycle_row_id`,
   `${AD_SNAPSHOTS_TABLE}.calibration_row_id`,
@@ -400,6 +412,21 @@ export const AD_DECISION_REQUIRED_CONSTRAINTS: readonly RequiredConstraintContra
     allOf: ["decision_entity_id", "ad_id"],
   })),
   {
+    table: AD_SNAPSHOTS_TABLE,
+    name: "engine_v3_ad_snapshots_pre_authority_label_check",
+    type: "c",
+    allOf: [
+      "pre_authority_label is null", "scale", "keep", "refresh", "cut",
+      "test_more", "diagnose", "out_of_scope",
+    ],
+  },
+  {
+    table: AD_SNAPSHOTS_TABLE,
+    name: "engine_v3_ad_snapshots_authority_blocker_check",
+    type: "c",
+    allOf: ["authority_blocker is null", ...DECISION_AUTHORITY_BLOCKERS],
+  },
+  {
     table: AD_EVALUATION_CONTEXTS_TABLE,
     name: "engine_v3_ad_eval_contexts_binding_fk",
     type: "f",
@@ -506,6 +533,8 @@ export const AD_DECISION_REQUIRED_CONSTRAINTS: readonly RequiredConstraintContra
       "calibration_row_id is null",
       "confidence <= 40",
       "authorized_action",
+      "authority_blocker",
+      "pending_transition",
       "native_calibration_unavailable",
       "raw_label",
     ],

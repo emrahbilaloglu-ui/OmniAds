@@ -1,0 +1,893 @@
+{
+  "contractVersion": "adsecute.phase0.current-engine-simulation.v1",
+  "generatedAt": "2026-07-14T15:02:05.615Z",
+  "readOnly": true,
+  "mutatesData": false,
+  "requestedAsOf": "2026-07-13",
+  "freshnessMode": "historical",
+  "engineVersion": "v3-2026-07-14-decision-health-provenance",
+  "businessesRequested": [
+    "IwaStore",
+    "EMOLOS",
+    "TheSwaf",
+    "Grandmix"
+  ],
+  "businessesFound": 4,
+  "reviews": [
+    {
+      "status": "ok",
+      "business": {
+        "id": "a7fd8563-8c9a-497a-b0d7-fd65e4248d1f",
+        "name": "EMOLOS"
+      },
+      "requestedAsOf": "2026-07-13",
+      "simulationAsOf": "2026-07-13",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-14-decision-health-provenance",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "env",
+          "shadowOnly": "env",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 57,
+        "dedupedDecisionCount": 57,
+        "uniqueCampaignIds": 5,
+        "campaignLabelsFound": 2
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": null,
+        "spendUnitSource": "insufficient",
+        "spendUnitConfidence": "insufficient",
+        "thresholds": {
+          "zeroConvBurnerSpend": null,
+          "cutCandidateSpend": null,
+          "sustainedLoserSpend": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null,
+          "recentSampleMinSpend": null,
+          "winnerMemoryMinSpend": null,
+          "scaleMinPurchases": 1,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null
+        },
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "cut": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "refresh": "threshold baseline insufficient has insufficient confidence (meta AOV ready)"
+          }
+        },
+        "quality": {
+          "commercialTruthReady": false,
+          "commercialTruthFreshness": "unknown",
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "insufficient"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 49,
+          "roasRatioP10": null,
+          "roasRatioP25": null,
+          "roasRatioP50": null,
+          "roasRatioP75": null,
+          "winnerPurchaseP50": null,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:03:23.913Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling; historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:25.015Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:25.873Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:03:23.913Z",
+          "sourceFreshnessHours": 24,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:25.015Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:25.873Z",
+          "sourceFreshnessHours": 18,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "test_more": 34,
+          "keep": 20,
+          "out_of_scope": 3
+        },
+        "hardLabel": {},
+        "blockedActionType": {
+          "null": 57
+        },
+        "campaignLabelStatus": {
+          "unlabeled": 29,
+          "labeled": 28
+        },
+        "campaignKind": {
+          "null": 29,
+          "mixed": 14,
+          "test": 14
+        },
+        "decisionKindSource": {
+          "all_fallback": 57
+        },
+        "truthSource": {
+          "global_default": 57
+        },
+        "confidenceBucket": {
+          "00_49": 37,
+          "50_59": 10,
+          "60_69": 10
+        },
+        "badgeType": {
+          "truth_global_default": 54,
+          "delivery_limited": 11,
+          "quality_only_assessment": 54,
+          "unlabeled_campaign_context": 29,
+          "missing_recent_data": 4
+        },
+        "labelTransform": {
+          "null": 57
+        },
+        "signalFamily": {
+          "delivery": 11,
+          "keep": 16,
+          "insufficient_signal": 12,
+          "campaign_label": 18
+        }
+      },
+      "risks": {
+        "hardActionRows": 0,
+        "blockedHardActionRows": 0,
+        "unlabeledOrNoCampaignRows": 29,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 57,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "raw_wall_clock_data_health_was_stale",
+        "global_default_truth_used_confidence_should_remain_capped",
+        "hard_action_eligibility_not_fully_ready_for_account"
+      ],
+      "samples": []
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "5dbc7147-f051-4681-a4d6-20617170074f",
+        "name": "Grandmix"
+      },
+      "requestedAsOf": "2026-07-13",
+      "simulationAsOf": "2026-07-13",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-14-decision-health-provenance",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "env",
+          "shadowOnly": "env",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 125,
+        "dedupedDecisionCount": 125,
+        "uniqueCampaignIds": 9,
+        "campaignLabelsFound": 4
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": null,
+        "spendUnitSource": "insufficient",
+        "spendUnitConfidence": "insufficient",
+        "thresholds": {
+          "zeroConvBurnerSpend": null,
+          "cutCandidateSpend": null,
+          "sustainedLoserSpend": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null,
+          "recentSampleMinSpend": null,
+          "winnerMemoryMinSpend": null,
+          "scaleMinPurchases": 1,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null
+        },
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "cut": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "refresh": "threshold baseline insufficient has insufficient confidence (meta AOV ready)"
+          }
+        },
+        "quality": {
+          "commercialTruthReady": false,
+          "commercialTruthFreshness": "unknown",
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "insufficient"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 83,
+          "roasRatioP10": null,
+          "roasRatioP25": null,
+          "roasRatioP50": null,
+          "roasRatioP75": null,
+          "winnerPurchaseP50": null,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:01:10.724Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling; historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:36.683Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:37.343Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:01:10.724Z",
+          "sourceFreshnessHours": 24,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:36.683Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:37.343Z",
+          "sourceFreshnessHours": 7,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "keep": 36,
+          "test_more": 72,
+          "out_of_scope": 11,
+          "diagnose": 6
+        },
+        "hardLabel": {},
+        "blockedActionType": {
+          "null": 125
+        },
+        "campaignLabelStatus": {
+          "labeled": 25,
+          "unlabeled": 100
+        },
+        "campaignKind": {
+          "main": 25,
+          "null": 100
+        },
+        "decisionKindSource": {
+          "all_fallback": 125
+        },
+        "truthSource": {
+          "global_default": 125
+        },
+        "confidenceBucket": {
+          "00_49": 93,
+          "50_59": 9,
+          "60_69": 23
+        },
+        "badgeType": {
+          "truth_global_default": 114,
+          "quality_only_assessment": 108,
+          "low_ctr": 13,
+          "unlabeled_campaign_context": 100,
+          "delivery_limited": 38,
+          "creative_quality_weak": 8,
+          "missing_recent_data": 10,
+          "landing_page_issue": 5,
+          "checkout_breakdown": 1
+        },
+        "labelTransform": {
+          "null": 125
+        },
+        "signalFamily": {
+          "keep": 10,
+          "campaign_label": 63,
+          "insufficient_signal": 8,
+          "delivery": 38,
+          "diagnose": 4,
+          "out_of_scope": 2
+        }
+      },
+      "risks": {
+        "hardActionRows": 0,
+        "blockedHardActionRows": 0,
+        "unlabeledOrNoCampaignRows": 100,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 125,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "raw_wall_clock_data_health_was_stale",
+        "global_default_truth_used_confidence_should_remain_capped",
+        "hard_action_eligibility_not_fully_ready_for_account"
+      ],
+      "samples": []
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+        "name": "IwaStore"
+      },
+      "requestedAsOf": "2026-07-13",
+      "simulationAsOf": "2026-07-13",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-14-decision-health-provenance",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "business_override",
+          "shadowOnly": "business_override",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 96,
+        "dedupedDecisionCount": 96,
+        "uniqueCampaignIds": 12,
+        "campaignLabelsFound": 8
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": null,
+        "spendUnitSource": "insufficient",
+        "spendUnitConfidence": "insufficient",
+        "thresholds": {
+          "zeroConvBurnerSpend": null,
+          "cutCandidateSpend": null,
+          "sustainedLoserSpend": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null,
+          "recentSampleMinSpend": null,
+          "winnerMemoryMinSpend": null,
+          "scaleMinPurchases": 1,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null
+        },
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "cut": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "refresh": "threshold baseline insufficient has insufficient confidence (meta AOV ready)"
+          }
+        },
+        "quality": {
+          "commercialTruthReady": false,
+          "commercialTruthFreshness": "unknown",
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "insufficient"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 67,
+          "roasRatioP10": null,
+          "roasRatioP25": null,
+          "roasRatioP50": null,
+          "roasRatioP75": null,
+          "winnerPurchaseP50": null,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:00:57.279Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling; historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:48.285Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:48.911Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:00:57.279Z",
+          "sourceFreshnessHours": 24,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:48.285Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:01:48.911Z",
+          "sourceFreshnessHours": 8,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "test_more": 40,
+          "keep": 38,
+          "diagnose": 11,
+          "out_of_scope": 7
+        },
+        "hardLabel": {},
+        "blockedActionType": {
+          "null": 96
+        },
+        "campaignLabelStatus": {
+          "unlabeled": 30,
+          "labeled": 66
+        },
+        "campaignKind": {
+          "null": 30,
+          "main": 56,
+          "test": 10
+        },
+        "decisionKindSource": {
+          "all_fallback": 96
+        },
+        "truthSource": {
+          "global_default": 96
+        },
+        "confidenceBucket": {
+          "00_49": 60,
+          "50_59": 8,
+          "60_69": 28
+        },
+        "badgeType": {
+          "truth_global_default": 89,
+          "quality_only_assessment": 84,
+          "unlabeled_campaign_context": 30,
+          "delivery_limited": 31,
+          "missing_recent_data": 16,
+          "checkout_breakdown": 4,
+          "landing_page_issue": 7,
+          "low_ctr": 12,
+          "creative_quality_weak": 3
+        },
+        "labelTransform": {
+          "null": 96
+        },
+        "signalFamily": {
+          "campaign_label": 28,
+          "insufficient_signal": 14,
+          "delivery": 31,
+          "keep": 18,
+          "diagnose": 4,
+          "out_of_scope": 1
+        }
+      },
+      "risks": {
+        "hardActionRows": 0,
+        "blockedHardActionRows": 0,
+        "unlabeledOrNoCampaignRows": 30,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 96,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "raw_wall_clock_data_health_was_stale",
+        "global_default_truth_used_confidence_should_remain_capped",
+        "hard_action_eligibility_not_fully_ready_for_account"
+      ],
+      "samples": []
+    },
+    {
+      "status": "ok",
+      "business": {
+        "id": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+        "name": "TheSwaf"
+      },
+      "requestedAsOf": "2026-07-13",
+      "simulationAsOf": "2026-07-13",
+      "freshnessMode": "historical",
+      "engineVersion": "v3-2026-07-14-decision-health-provenance",
+      "readOnly": true,
+      "mutatesData": false,
+      "flags": {
+        "enabled": true,
+        "surfaceVisible": true,
+        "shadowOnly": false,
+        "presetOverride": null,
+        "source": {
+          "enabled": "env",
+          "surfaceVisible": "business_override",
+          "shadowOnly": "business_override",
+          "presetOverride": null
+        }
+      },
+      "source": {
+        "creativeInputCount": 91,
+        "dedupedDecisionCount": 91,
+        "uniqueCampaignIds": 24,
+        "campaignLabelsFound": 7
+      },
+      "profile": {
+        "preset": "balanced",
+        "presetSource": "default",
+        "spendUnit": null,
+        "spendUnitSource": "insufficient",
+        "spendUnitConfidence": "insufficient",
+        "thresholds": {
+          "zeroConvBurnerSpend": null,
+          "cutCandidateSpend": null,
+          "sustainedLoserSpend": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null,
+          "recentSampleMinSpend": null,
+          "winnerMemoryMinSpend": null,
+          "scaleMinPurchases": 1,
+          "winnerMemoryMinPurchases": 2,
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null
+        },
+        "hardActionEligibility": {
+          "scale": false,
+          "cut": false,
+          "refresh": false,
+          "reason": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+          "reasons": {
+            "scale": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "cut": "threshold baseline insufficient has insufficient confidence (meta AOV ready)",
+            "refresh": "threshold baseline insufficient has insufficient confidence (meta AOV ready)"
+          }
+        },
+        "quality": {
+          "commercialTruthReady": false,
+          "commercialTruthFreshness": "unknown",
+          "calibrationReady": true,
+          "metaAovQuality": "ready",
+          "thresholdQuality": "insufficient"
+        },
+        "accountBaselines": {
+          "matureCreativeCount": 105,
+          "roasRatioP10": null,
+          "roasRatioP25": null,
+          "roasRatioP50": null,
+          "roasRatioP75": null,
+          "winnerPurchaseP50": null,
+          "metaAovQuality": "ready"
+        },
+        "scope": {
+          "type": "account",
+          "id": "*"
+        }
+      },
+      "dataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:02:10.010Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling; historical replay freshness normalized"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:02:00.715Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use; historical replay freshness normalized"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:02:01.339Z",
+          "sourceFreshnessHours": 0,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request; historical replay freshness normalized"
+        },
+        "worstTier": "none",
+        "degraded": false
+      },
+      "rawDataHealth": {
+        "calibration": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-13T15:02:10.010Z",
+          "sourceFreshnessHours": 24,
+          "staleTier": "none",
+          "fallbackMode": "precomputed",
+          "note": "computed by engine v3-2026-07-12-breakeven-cut-ceiling"
+        },
+        "lifecycle": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:02:00.715Z",
+          "sourceFreshnessHours": null,
+          "staleTier": "warning",
+          "fallbackMode": "runtime_sql",
+          "note": "no precomputed row available; runtime fallback in use"
+        },
+        "decisions": {
+          "asOfDate": "2026-07-13",
+          "computedAt": "2026-07-14T15:02:01.339Z",
+          "sourceFreshnessHours": 10,
+          "staleTier": "none",
+          "fallbackMode": "runtime_sql",
+          "note": "Decision snapshots are not populated until Phase 3.5; runtime decisions are computed on request"
+        },
+        "worstTier": "warning",
+        "degraded": false
+      },
+      "distributions": {
+        "label": {
+          "out_of_scope": 22,
+          "test_more": 47,
+          "keep": 22
+        },
+        "hardLabel": {},
+        "blockedActionType": {
+          "null": 91
+        },
+        "campaignLabelStatus": {
+          "unlabeled": 61,
+          "labeled": 30
+        },
+        "campaignKind": {
+          "null": 61,
+          "mixed": 30
+        },
+        "decisionKindSource": {
+          "all_fallback": 91
+        },
+        "truthSource": {
+          "global_default": 91
+        },
+        "confidenceBucket": {
+          "60_69": 28,
+          "00_49": 49,
+          "50_59": 14
+        },
+        "badgeType": {
+          "unlabeled_campaign_context": 61,
+          "truth_global_default": 69,
+          "quality_only_assessment": 69,
+          "low_ctr": 9,
+          "missing_recent_data": 13,
+          "creative_quality_weak": 7
+        },
+        "labelTransform": {
+          "null": 91
+        },
+        "signalFamily": {
+          "campaign_label": 61,
+          "insufficient_signal": 19,
+          "keep": 11
+        }
+      },
+      "risks": {
+        "hardActionRows": 0,
+        "blockedHardActionRows": 0,
+        "unlabeledOrNoCampaignRows": 61,
+        "staleEvidenceRows": 0,
+        "staleHardActionRows": 0,
+        "nullFreshnessRows": 0,
+        "globalDefaultTruthRows": 91,
+        "accountBaselineTruthRows": 0,
+        "highConfidenceHardRows": 0,
+        "highConfidenceHardWithoutCommercialTruthRows": 0,
+        "scaleReadinessBlockedRows": 0,
+        "scaleCalibrationThinRows": 0,
+        "lowCtrHardRows": 0,
+        "labelTransformRows": 0,
+        "cutBoundary": {
+          "bottomQuartileRatio": null,
+          "severeLoserRatio": null,
+          "commercialMaturitySpend": null,
+          "hardCutSpend": null
+        }
+      },
+      "riskHints": [
+        "historical_freshness_normalized_not_actual_runtime",
+        "raw_wall_clock_data_health_was_stale",
+        "global_default_truth_used_confidence_should_remain_capped",
+        "hard_action_eligibility_not_fully_ready_for_account"
+      ],
+      "samples": []
+    }
+  ],
+  "limitations": [
+    "This is a replay of the current engine pipeline; it does not change formulas or persist decisions.",
+    "The report measures output distribution and guard pressure, not outcome precision or causal correctness.",
+    "Historical rows may be marked stale because the current data-source computes freshness against wall-clock now.",
+    "Historical freshness mode is analysis-only; actual runtime still uses wall-clock freshness.",
+    "If a business has no lifecycle/meta source date, no formula conclusion should be drawn for that business."
+  ]
+}

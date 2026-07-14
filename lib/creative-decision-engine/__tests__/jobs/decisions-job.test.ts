@@ -85,6 +85,9 @@ type DecisionSnapshotFixtureRow = Record<string, unknown> & {
   scope_type: unknown;
   scope_id: unknown;
   label: unknown;
+  raw_label: unknown;
+  pre_authority_label: unknown;
+  authority_blocker: unknown;
   confidence: unknown;
   truth_source: unknown;
   effective_target_roas: unknown;
@@ -96,6 +99,7 @@ type DecisionSnapshotFixtureRow = Record<string, unknown> & {
   roas: unknown;
   recent7d_roas: unknown;
   label_transform: unknown;
+  blocked_action_type: unknown;
 };
 
 type DecisionEventRow = Record<string, unknown> & {
@@ -165,7 +169,7 @@ describe("decisions job SQL contracts", () => {
     expect(calibrationLookup).toContain("creative_format = 'overall'");
   });
 
-  it("persists label transform and held-action diagnostics in the snapshot upsert contract", () => {
+  it("persists authority provenance, raw label, and held-action diagnostics in the snapshot upsert contract", () => {
     const source = readFileSync(
       "lib/creative-decision-engine/jobs/decisions-job.ts",
       "utf8",
@@ -187,11 +191,25 @@ describe("decisions job SQL contracts", () => {
     expect(snapshotUpsert).toContain(
       "blocked_action_type = EXCLUDED.blocked_action_type",
     );
+    expect(snapshotUpsert).toContain("pre_authority_label text");
+    expect(snapshotUpsert).toContain("authority_blocker text");
+    expect(snapshotUpsert).toContain(
+      "pre_authority_label = EXCLUDED.pre_authority_label",
+    );
+    expect(snapshotUpsert).toContain(
+      "authority_blocker = EXCLUDED.authority_blocker",
+    );
     expect(mapper).toContain(
       "label_transform: input.decision.labelTransform ?? null",
     );
     expect(mapper).toContain("blocked_action_type:");
     expect(mapper).toContain("input.decision.blockedActionType");
+    expect(mapper).toContain(
+      "pre_authority_label: input.decision.preAuthorityLabel",
+    );
+    expect(mapper).toContain(
+      "authority_blocker: input.decision.authorityBlocker",
+    );
   });
 
   it("prunes only stale current-day decision materialization for the same scope", () => {
@@ -276,6 +294,8 @@ function makeDecisionOutput(
       roas: 2,
       recent7dRoas: 2,
     },
+    preAuthorityLabel: label,
+    authorityBlocker: null,
     engineVersion: ENGINE_VERSION,
     generatedAt: "2026-05-04T00:00:00.000Z",
     ...overrides,
@@ -536,6 +556,36 @@ function refreshCreativeInput(input: {
     recent7dPurchases: 1,
     recent7dRoas: 1,
     fatigueStatus: "fatigued",
+    linkClicks: 400,
+    landingPageViews: 320,
+    addToCart: 50,
+    initiateCheckout: 25,
+  };
+}
+
+function cuttingCreativeInput(input: {
+  businessId: string;
+  campaignId: string;
+}): CreativeInput {
+  return {
+    ...scalingCreativeInput(input),
+    creativeId: "persisted-authority-cut-creative",
+    creativeName: "Persisted Authority Cut Creative",
+    spend: 300,
+    purchases: 0,
+    purchaseValue: 0,
+    roas: 0,
+    cpa: null,
+    linkClicks: 0,
+    landingPageViews: 0,
+    addToCart: 0,
+    initiateCheckout: 0,
+    ctr: 0.2,
+    thumbstop: 5,
+    ageDays: 14,
+    recent7dSpend: 100,
+    recent7dPurchases: 0,
+    recent7dRoas: 0,
   };
 }
 
@@ -544,12 +594,14 @@ function mockWarehouseForSingleCreative(creativeInput: CreativeInput) {
     WarehouseDataSource.prototype,
     "getBusinessTargetPack",
   ).mockResolvedValue({
-    targetCpa: null,
+    targetCpa: 50,
     targetRoas: 2,
-    breakEvenCpa: null,
+    breakEvenCpa: 60,
     breakEvenRoas: 1,
     operatorAovAssumption: null,
     defaultRiskPosture: "balanced",
+    freshness: "fresh",
+    updatedAt: `${AS_OF}T00:00:00.000Z`,
   });
   vi.spyOn(
     WarehouseDataSource.prototype,
@@ -595,6 +647,8 @@ function mockWarehouseForNoCreatives(businessId: string) {
     breakEvenRoas: 1,
     operatorAovAssumption: null,
     defaultRiskPosture: "balanced",
+    freshness: "fresh",
+    updatedAt: `${AS_OF}T00:00:00.000Z`,
   });
   vi.spyOn(
     WarehouseDataSource.prototype,
@@ -777,6 +831,9 @@ async function fetchDecisionSnapshots(input: {
       scope_type,
       scope_id,
       label,
+      raw_label,
+      pre_authority_label,
+      authority_blocker,
       confidence,
       truth_source,
       effective_target_roas,
@@ -787,7 +844,8 @@ async function fetchDecisionSnapshots(input: {
       purchases,
       roas,
       recent7d_roas,
-      label_transform
+      label_transform,
+      blocked_action_type
     FROM engine_v3_decision_snapshots_daily
     WHERE business_ref_id = $1::uuid
       AND as_of_date = $2::date
@@ -812,6 +870,9 @@ async function fetchDecisionSnapshotByCreative(input: {
       scope_type,
       scope_id,
       label,
+      raw_label,
+      pre_authority_label,
+      authority_blocker,
       confidence,
       truth_source,
       effective_target_roas,
@@ -822,7 +883,8 @@ async function fetchDecisionSnapshotByCreative(input: {
       purchases,
       roas,
       recent7d_roas,
-      label_transform
+      label_transform,
+      blocked_action_type
     FROM engine_v3_decision_snapshots_daily
     WHERE business_ref_id = $1::uuid
       AND creative_id = $2
@@ -1049,6 +1111,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
     expect(snapshot?.scope_type).toBe("account");
     expect(snapshot?.scope_id).toBe("*");
+    expect(toDecisionLabel(snapshot?.pre_authority_label)).toBeTruthy();
   });
 
   it("is idempotent for snapshots while recording each invocation", async () => {
@@ -1280,7 +1343,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     expect(await countDecisionSnapshots(businessId)).toBe(0);
   });
 
-  it("persists the campaign-label guard output for unlabeled hard decisions", async () => {
+  it("persists unresolved automatic campaign context before hard-label hysteresis", async () => {
     const businessId = PERSISTED_GUARD_BUSINESS_ID;
     const creativeInput = scalingCreativeInput({
       businessId,
@@ -1295,14 +1358,18 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
 
     const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
     expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
-    expect(snapshot?.label).toBe("diagnose");
+    expect(snapshot?.label).toBe("keep");
+    expect(snapshot?.raw_label).toBe("scale");
+    expect(snapshot?.pre_authority_label).toBe("scale");
+    expect(snapshot?.authority_blocker).toBe("campaign_context");
+    expect(snapshot?.blocked_action_type).toBe("scale");
     expect(toNumber(snapshot?.confidence)).toBeLessThanOrEqual(50);
-    expect(snapshot?.reason).toContain(
-      "[Unlabeled campaign - label to enable action]",
-    );
+    expect(snapshot?.reason).toContain("[Pending hard action: scale]");
+    expect(snapshot?.reason).toContain("[Campaign context unresolved");
     expect(snapshot?.badges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "unlabeled_campaign_context" }),
+        expect.objectContaining({ type: "campaign_context_unresolved" }),
+        expect.objectContaining({ type: "pending_transition" }),
       ]),
     );
     expect(snapshot?.label_transform).toBeNull();
@@ -1324,6 +1391,10 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
     expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
     expect(snapshot?.label).toBe("diagnose");
+    expect(snapshot?.raw_label).toBe("diagnose");
+    expect(snapshot?.pre_authority_label).toBe("scale");
+    expect(snapshot?.authority_blocker).toBe("campaign_context");
+    expect(snapshot?.blocked_action_type).toBe("scale");
     expect(toNumber(snapshot?.confidence)).toBeLessThanOrEqual(50);
     expect(snapshot?.reason).toContain(
       "[Unlabeled campaign - label to enable action]",
@@ -1336,7 +1407,7 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
     expect(snapshot?.label_transform).toBeNull();
   });
 
-  it("persists Test cohort refresh-to-cut label transforms on snapshots", async () => {
+  it("persists Test cohort refresh-to-cut provenance before hard-label hysteresis", async () => {
     const businessId = LABEL_TRANSFORM_BUSINESS_ID;
     const campaignId = "persisted-label-transform-test-campaign";
     const creativeInput = refreshCreativeInput({ businessId, campaignId });
@@ -1354,9 +1425,36 @@ describe.skipIf(!process.env.DATABASE_URL)("decisions job", () => {
 
     const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
     expect(snapshot?.creative_id).toBe(creativeInput.creativeId);
-    expect(snapshot?.label).toBe("cut");
+    expect(snapshot?.label).toBe("keep");
+    expect(snapshot?.raw_label).toBe("cut");
+    expect(snapshot?.pre_authority_label).toBe("cut");
+    expect(snapshot?.authority_blocker).toBeNull();
+    expect(snapshot?.blocked_action_type).toBe("cut");
     expect(snapshot?.label_transform).toBe("test_cohort_refresh_to_cut");
+    expect(snapshot?.reason).toContain("[Pending hard action: cut]");
     expect(snapshot?.reason).toContain("[test_cohort: refresh->cut]");
+  });
+
+  it("does not turn pre-authority cut evidence into published pause authority", async () => {
+    const businessId = PERSISTED_GUARD_BUSINESS_ID;
+    const creativeInput = cuttingCreativeInput({
+      businessId,
+      campaignId: "persisted-authority-unlabeled-cut-campaign",
+    });
+    mockWarehouseForSingleCreative(creativeInput);
+
+    const result = await runDecisionsJob({ businessId, asOf: AS_OF });
+
+    expect(result.status).toBe("success");
+    expect(result.snapshotsWritten).toBe(1);
+
+    const [snapshot] = await fetchDecisionSnapshots({ businessId, limit: 1 });
+    expect(snapshot?.pre_authority_label).toBe("cut");
+    expect(snapshot?.authority_blocker).toBe("campaign_context");
+    expect(snapshot?.blocked_action_type).toBe("cut");
+    expect(snapshot?.raw_label).toBe("cut");
+    expect(snapshot?.label).toBe("keep");
+    expect(snapshot?.label).not.toBe("cut");
   });
 
   it("writes a change event only when the prior snapshot label differs", async () => {

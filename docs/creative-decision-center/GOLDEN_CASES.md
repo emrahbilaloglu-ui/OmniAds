@@ -243,6 +243,28 @@ GS-001..003 are the live flip creatives observed on 2026-07-04..06.
   replay evidence for oscillation reduction is the reversal-within-3 metric
   (76 -> 20 over 2026-06-01..07-05).
 
+## Authority Provenance Golden Cases (AP series)
+
+| Case   | Mathematical / semantic label | First authority blocker          | Post-authority raw | Published       | Executable action |
+| ------ | ----------------------------- | -------------------------------- | ------------------ | --------------- | ----------------- |
+| AP-001 | cut                           | profile_hard_action_ineligible   | test_more          | test_more       | none              |
+| AP-002 | scale                         | source_freshness                 | keep               | keep            | none              |
+| AP-003 | scale                         | none                             | scale              | keep (pending)  | none              |
+| AP-004 | keep (site-owned transform)   | none                             | keep               | keep            | none              |
+| AP-005 | historical unavailable        | historical unavailable           | persisted or null  | persisted label | existing guards   |
+| AP-006 | scale                         | campaign_context                  | scale (audit seam) | diagnose        | none              |
+
+- AP-001 and AP-002 prove a hard `pre_authority_label` never grants provider
+  authority after a profile or freshness restriction.
+- AP-003 proves hysteresis is distinct from authority: the raw hard verdict is
+  retained while the first published transition remains non-actionable.
+- AP-004 proves landing-page/checkout ownership is normalized semantically
+  before campaign/native authority is evaluated.
+- AP-005 forbids reconstructing missing historical provenance from mutable
+  explanation text.
+- AP-006 proves that even an anomalous or replayed hard raw label cannot mint
+  `authorized_action` while an authority blocker is present.
+
 ## Meta OS Resolution Golden Cases (MOG series)
 
 These cases lock the D035 read-time compatibility projection. They do not

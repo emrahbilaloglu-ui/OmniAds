@@ -597,6 +597,8 @@ describe("fetchCreativeDecisionEngineV3", () => {
           creativeId: "creative-1",
           creativeName: "Creative One",
           label: "test_more",
+          preAuthorityLabel: "test_more",
+          authorityBlocker: null,
           reason: "Engine v3 stub - real gate logic not yet implemented.",
           confidence: 50,
           truthSource: "commercial_truth",

@@ -128,6 +128,9 @@ function makeDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
     creativeId: "cr_degraded",
     creativeName: "Truth Gated Creative",
     label: "scale",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "scale",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "Strong relative winner.",
     confidence: 72,
     truthSource: "commercial_truth",

@@ -302,6 +302,24 @@ describe("Decision basis section", () => {
     expect(html).toContain("observed 120 - threshold 300");
   });
 
+  it("renders the server-supplied pre-authority verdict and first blocker without deriving action", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          label: "keep",
+          preAuthorityLabel: "scale",
+          authorityBlocker: "source_freshness",
+        })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).toContain("Mathematical / semantic verdict: Scale");
+    expect(html).toContain("never grants a provider action by itself");
+    expect(html).toContain("First authority blocker: Source Freshness");
+  });
+
   it("omits the section entirely when the payload has none of the fields", () => {
     const html = renderDrawer(
       <CreativeEvidenceDrawer

@@ -30,6 +30,7 @@ import {
   type AccountDecisionProfile,
   type CreativeInput,
   type DataHealth,
+  type DecisionAuthorityBlocker,
   type DecisionLabel,
   type DecisionOutput,
 } from "@/lib/creative-decision-engine/types";
@@ -114,6 +115,8 @@ interface ReplayDecisionRow {
   campaignLabelStatus: DecisionOutput["campaignLabelStatus"] | null;
   decisionKindSource: DecisionOutput["decisionKindSource"] | null;
   label: DecisionLabel;
+  preAuthorityLabel: DecisionLabel;
+  authorityBlocker: DecisionAuthorityBlocker | null;
   blockedActionType: DecisionOutput["blockedActionType"] | null;
   confidence: number;
   truthSource: DecisionOutput["truthSource"];
@@ -288,7 +291,10 @@ interface BusinessReplaySummary {
   decisionRows: number;
   uniqueCreatives: number;
   labels: CountMap;
+  preAuthorityLabels: CountMap;
+  authorityBlockers: CountMap;
   hardRows: number;
+  authorityHeldHardRows: number;
   blockedRows: number;
   sourceModeDays: CountMap;
   profileRanges: Record<string, { min: number | null; max: number | null }>;
@@ -394,6 +400,9 @@ interface ReplayReport {
     decisionRows: number;
     uniqueCreatives: number;
     labels: CountMap;
+    preAuthorityLabels: CountMap;
+    authorityBlockers: CountMap;
+    authorityHeldHardRows: number;
     sourceModeDays: CountMap;
     openWindowRows: number;
     closedDailyRows: number;
@@ -815,6 +824,8 @@ function toReplayDecisionRow(input: {
     campaignLabelStatus: input.decision.campaignLabelStatus ?? null,
     decisionKindSource: input.decision.decisionKindSource ?? null,
     label: input.decision.label,
+    preAuthorityLabel: input.decision.preAuthorityLabel,
+    authorityBlocker: input.decision.authorityBlocker,
     blockedActionType: input.decision.blockedActionType ?? null,
     confidence: input.decision.confidence,
     truthSource: input.decision.truthSource,
@@ -1619,14 +1630,26 @@ function buildBusinessSummaries(input: {
     );
     const episodes = input.episodes.filter((episode) => episode.business.id === business.id);
     const labels: CountMap = {};
+    const preAuthorityLabels: CountMap = {};
+    const authorityBlockers: CountMap = {};
     const sourceModeDays: CountMap = {};
     const uniqueCreatives = new Set<string>();
     let hardRows = 0;
+    let authorityHeldHardRows = 0;
     let blockedRows = 0;
     for (const row of decisions) {
       increment(labels, row.label);
+      increment(preAuthorityLabels, row.preAuthorityLabel);
+      if (row.authorityBlocker) increment(authorityBlockers, row.authorityBlocker);
       uniqueCreatives.add(row.creativeId);
       if (HARD_LABELS.has(row.label)) hardRows += 1;
+      if (
+        HARD_LABELS.has(row.preAuthorityLabel) &&
+        row.authorityBlocker !== null &&
+        !HARD_LABELS.has(row.label)
+      ) {
+        authorityHeldHardRows += 1;
+      }
       if (row.blockedActionType !== null) blockedRows += 1;
     }
     const profileRanges: Record<string, { min: number | null; max: number | null }> = {};
@@ -1675,7 +1698,10 @@ function buildBusinessSummaries(input: {
       decisionRows: decisions.length,
       uniqueCreatives: uniqueCreatives.size,
       labels,
+      preAuthorityLabels,
+      authorityBlockers,
       hardRows,
+      authorityHeldHardRows,
       blockedRows,
       sourceModeDays,
       profileRanges,
@@ -1719,10 +1745,24 @@ function buildGlobalSummary(input: {
   episodes: OutcomeEpisode[];
 }) {
   const labels: CountMap = {};
+  const preAuthorityLabels: CountMap = {};
+  const authorityBlockers: CountMap = {};
   const sourceModeDays: CountMap = {};
   const uniqueCreatives = new Set<string>();
+  let authorityHeldHardRows = 0;
   for (const decision of input.decisions) {
     increment(labels, decision.label);
+    increment(preAuthorityLabels, decision.preAuthorityLabel);
+    if (decision.authorityBlocker) {
+      increment(authorityBlockers, decision.authorityBlocker);
+    }
+    if (
+      HARD_LABELS.has(decision.preAuthorityLabel) &&
+      decision.authorityBlocker !== null &&
+      !HARD_LABELS.has(decision.label)
+    ) {
+      authorityHeldHardRows += 1;
+    }
     uniqueCreatives.add(`${decision.business.id}::${decision.creativeId}`);
   }
   for (const day of input.dayResults) {
@@ -1732,6 +1772,9 @@ function buildGlobalSummary(input: {
     decisionRows: input.decisions.length,
     uniqueCreatives: uniqueCreatives.size,
     labels,
+    preAuthorityLabels,
+    authorityBlockers,
+    authorityHeldHardRows,
     sourceModeDays,
     openWindowRows: input.candidates.filter((candidate) => candidate.status === "open_window").length,
     closedDailyRows: input.candidates.filter((candidate) => candidate.status !== "open_window").length,
@@ -1830,6 +1873,15 @@ function renderMarkdown(report: ReplayReport) {
   lines.push(`- Decision rows: ${report.globalSummary.decisionRows}`);
   lines.push(`- Unique business+creative pairs: ${report.globalSummary.uniqueCreatives}`);
   lines.push(`- Label mix: ${formatCountMap(report.globalSummary.labels)}`);
+  lines.push(
+    `- Pre-authority label mix: ${formatCountMap(report.globalSummary.preAuthorityLabels)}`,
+  );
+  lines.push(
+    `- First authority blockers: ${formatCountMap(report.globalSummary.authorityBlockers)}`,
+  );
+  lines.push(
+    `- Hard mathematical verdicts held by authority: ${report.globalSummary.authorityHeldHardRows}`,
+  );
   lines.push(`- Source mode days: ${formatCountMap(report.globalSummary.sourceModeDays)}`);
   lines.push(`- Open outcome windows: ${report.globalSummary.openWindowRows}`);
   lines.push(`- Closed daily outcome rows: ${report.globalSummary.closedDailyRows}`);
@@ -1840,9 +1892,9 @@ function renderMarkdown(report: ReplayReport) {
   lines.push("## Business Summary");
   lines.push("");
   lines.push(
-    "| Business | Demo | Days | Failed | Decisions | Unique creatives | Labels | Hard rows | Blocked rows | Source modes | Profile ranges | Risk hints |",
+    "| Business | Demo | Days | Failed | Decisions | Unique creatives | Labels | Authority blockers | Hard rows | Hard held | Blocked rows | Source modes | Profile ranges | Risk hints |",
   );
-  lines.push("|---|---:|---:|---:|---:|---:|---|---:|---:|---|---|---|");
+  lines.push("|---|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---|---|---|");
   for (const summary of report.businessSummaries) {
     lines.push(
       [
@@ -1853,7 +1905,9 @@ function renderMarkdown(report: ReplayReport) {
         summary.decisionRows,
         summary.uniqueCreatives,
         formatCountMap(summary.labels),
+        formatCountMap(summary.authorityBlockers),
         summary.hardRows,
+        summary.authorityHeldHardRows,
         summary.blockedRows,
         formatCountMap(summary.sourceModeDays),
         rangesText(summary.profileRanges),

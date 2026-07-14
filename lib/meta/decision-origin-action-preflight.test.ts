@@ -18,9 +18,8 @@ vi.mock("@/lib/meta/ads-write", () => ({
 const actionLog = await import("@/lib/meta/ads-action-log");
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 const adsWrite = await import("@/lib/meta/ads-write");
-const { runServerDecisionOriginAdActionPreflight } = await import(
-  "./decision-origin-action-preflight"
-);
+const { runServerDecisionOriginAdActionPreflight } =
+  await import("./decision-origin-action-preflight");
 
 const NOW = new Date("2026-07-12T10:00:00.000Z");
 const DECISION_HASH = "d".repeat(64);
@@ -132,6 +131,31 @@ describe("server decision-origin action preflight", () => {
 
     expect(result.shouldMutate).toBe(false);
     expect(result.blockers).toContain("decision_stale");
+  });
+
+  it("blocks a hysteresis-pending hard raw action even if stale data carries authorization", async () => {
+    vi.mocked(actionLog.readDecisionOriginSourceDecision).mockResolvedValue({
+      ...(await actionLog.readDecisionOriginSourceDecision({
+        snapshotId: "snapshot_1",
+        evaluationId: "evaluation_1",
+      })),
+      decisionLabel: "keep",
+      blockedActionType: "cut",
+      explicitAuthorizedAction: "pause",
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain("action_not_authorized");
   });
 
   it("fails closed when Meta reports a policy block", async () => {

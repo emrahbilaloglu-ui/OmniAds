@@ -7,6 +7,9 @@ function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
     creativeId: "creative_1",
     creativeName: "Creative 1",
     label: "keep",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "keep",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "Hold.",
     confidence: 65,
     truthSource: "commercial_truth",
@@ -27,6 +30,24 @@ function decision(overrides: Partial<DecisionOutput> = {}): DecisionOutput {
 }
 
 describe("card serialization", () => {
+  it("serializes authority provenance and never turns a blocked hard verdict into a hard CTA", () => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "scale",
+        preAuthorityLabel: "scale",
+        authorityBlocker: "source_freshness",
+        blockedActionType: "scale",
+      }),
+    });
+
+    expect(card).toMatchObject({
+      label: "scale",
+      preAuthorityLabel: "scale",
+      authorityBlocker: "source_freshness",
+      primary: { kind: "review", label: "Refresh evidence" },
+    });
+  });
+
   it("derives watching sub-buckets server-side from decision evidence", () => {
     expect(
       deriveWatchingSubBucket(

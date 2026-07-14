@@ -35,6 +35,50 @@ END
 $$
 `;
 
+export const NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION = `(
+  (
+    calibration_row_id IS NULL AND
+    label IN ('diagnose', 'out_of_scope', 'keep') AND
+    raw_label IN ('diagnose', 'out_of_scope', 'keep') AND
+    confidence <= 40 AND
+    authorized_action IS NULL AND
+    blocked_action_type IS NULL AND
+    badges @> '[{"type":"native_calibration_unavailable"}]'::jsonb
+  ) OR (
+    calibration_row_id IS NOT NULL AND
+    (
+      (
+        authority_blocker IS NOT NULL AND
+        authorized_action IS NULL AND
+        (
+          label NOT IN ('scale', 'cut', 'refresh') OR
+          label = raw_label
+        )
+      ) OR (
+        authority_blocker IS NULL AND
+        (
+          (
+            raw_label IN ('scale', 'cut', 'refresh') AND
+            (
+              (label = raw_label AND authorized_action = raw_label) OR
+              (
+                label NOT IN ('scale', 'cut', 'refresh') AND
+                authorized_action IS NULL AND
+                blocked_action_type = raw_label AND
+                badges @> '[{"type":"pending_transition"}]'::jsonb
+              )
+            )
+          ) OR (
+            raw_label NOT IN ('scale', 'cut', 'refresh') AND
+            label NOT IN ('scale', 'cut', 'refresh') AND
+            authorized_action IS NULL
+          )
+        )
+      )
+    )
+  )
+)`;
+
 export const CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL = `
 CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_evaluation_contexts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -171,6 +215,8 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
   raw_label TEXT NOT NULL CHECK (raw_label IN (
     'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
   )),
+  pre_authority_label TEXT,
+  authority_blocker TEXT,
   confidence INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100),
   truth_source TEXT NOT NULL CHECK (truth_source IN (
     'commercial_truth', 'commercial_truth_stale', 'account_baseline',
@@ -205,32 +251,25 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
   CONSTRAINT engine_v3_ad_snapshots_entity_identity_check CHECK (
     decision_entity_id = ad_id
   ),
+  CONSTRAINT engine_v3_ad_snapshots_pre_authority_label_check CHECK (
+    pre_authority_label IS NULL OR pre_authority_label IN (
+      'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+    )
+  ),
+  CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check CHECK (
+    authority_blocker IS NULL OR authority_blocker IN (
+      'profile_hard_action_ineligible', 'source_freshness',
+      'campaign_context', 'native_metrics_unavailable',
+      'native_profile_unavailable'
+    )
+  ),
   CONSTRAINT engine_v3_ad_snapshots_binding_fk FOREIGN KEY (
     business_id, provider_account_ref_id, provider_account_id
   ) REFERENCES business_provider_accounts (
     business_id, provider_account_ref_id, provider_account_id
   ) ON DELETE RESTRICT,
-  CONSTRAINT engine_v3_ad_snapshots_authority_check CHECK (
-    (
-      calibration_row_id IS NULL AND
-      label IN ('diagnose', 'out_of_scope', 'keep') AND
-      raw_label IN ('diagnose', 'out_of_scope', 'keep') AND
-      confidence <= 40 AND
-      authorized_action IS NULL AND
-      blocked_action_type IS NULL AND
-      badges @> '[{"type":"native_calibration_unavailable"}]'::jsonb
-    ) OR (
-      calibration_row_id IS NOT NULL AND
-      (
-        (raw_label IN ('scale', 'cut', 'refresh') AND authorized_action = raw_label) OR
-        (raw_label NOT IN ('scale', 'cut', 'refresh') AND authorized_action IS NULL)
-      ) AND
-      (
-        label NOT IN ('scale', 'cut', 'refresh') OR
-        (label = raw_label AND authorized_action = label)
-      )
-    )
-  ),
+  CONSTRAINT engine_v3_ad_snapshots_authority_check
+    CHECK ${NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION},
   CONSTRAINT engine_v3_ad_snapshots_ad_identity_unique UNIQUE (
     business_ref_id, provider_account_ref_id, provider_account_id,
     decision_entity_type, decision_entity_id, as_of_date, engine_version,
@@ -255,6 +294,71 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
     job_run_id
   )
 )
+`;
+
+export const ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL = `
+ALTER TABLE IF EXISTS engine_v3_ad_decision_snapshots_daily
+  ADD COLUMN IF NOT EXISTS pre_authority_label TEXT,
+  ADD COLUMN IF NOT EXISTS authority_blocker TEXT;
+DO $$
+BEGIN
+  IF to_regclass('engine_v3_ad_decision_snapshots_daily') IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'engine_v3_ad_decision_snapshots_daily'::regclass
+        AND conname = 'engine_v3_ad_snapshots_pre_authority_label_check') THEN
+      ALTER TABLE engine_v3_ad_decision_snapshots_daily
+        ADD CONSTRAINT engine_v3_ad_snapshots_pre_authority_label_check
+        CHECK (pre_authority_label IS NULL OR pre_authority_label IN (
+          'scale', 'keep', 'refresh', 'cut', 'test_more', 'diagnose', 'out_of_scope'
+        ));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'engine_v3_ad_decision_snapshots_daily'::regclass
+        AND conname = 'engine_v3_ad_snapshots_authority_blocker_check') THEN
+      ALTER TABLE engine_v3_ad_decision_snapshots_daily
+        ADD CONSTRAINT engine_v3_ad_snapshots_authority_blocker_check
+        CHECK (authority_blocker IS NULL OR authority_blocker IN (
+          'profile_hard_action_ineligible', 'source_freshness',
+          'campaign_context', 'native_metrics_unavailable',
+          'native_profile_unavailable'
+        ));
+    END IF;
+  END IF;
+END
+$$
+`;
+
+export const ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL = `
+DO $$
+BEGIN
+  IF to_regclass('engine_v3_ad_decision_snapshots_daily') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conrelid = to_regclass('engine_v3_ad_decision_snapshots_daily')
+        AND conname = 'engine_v3_ad_snapshots_authority_check'
+        AND LOWER(pg_get_constraintdef(oid, true)) LIKE '%authority_blocker%'
+        AND LOWER(pg_get_constraintdef(oid, true)) LIKE '%pending_transition%'
+    ) THEN
+    ALTER TABLE engine_v3_ad_decision_snapshots_daily
+      DROP CONSTRAINT IF EXISTS engine_v3_ad_snapshots_authority_check;
+    UPDATE engine_v3_ad_decision_snapshots_daily
+    SET authorized_action = NULL
+    WHERE authorized_action IS NOT NULL
+      AND NOT (
+        calibration_row_id IS NOT NULL AND
+        authority_blocker IS NULL AND
+        blocked_action_type IS NULL AND
+        label IN ('scale', 'cut', 'refresh') AND
+        raw_label = label AND
+        authorized_action = label
+      );
+    ALTER TABLE engine_v3_ad_decision_snapshots_daily
+      ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
+      CHECK ${NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION};
+  END IF;
+END
+$$
 `;
 
 export const CREATE_NATIVE_AD_EVENTS_SQL = `
@@ -472,7 +576,8 @@ ALTER TABLE engine_v3_ad_decision_snapshots_daily
   ADD CONSTRAINT engine_v3_ad_snapshots_entity_identity_check CHECK (decision_entity_id = ad_id),
   ADD CONSTRAINT engine_v3_ad_snapshots_binding_fk FOREIGN KEY (business_id, provider_account_ref_id, provider_account_id) REFERENCES business_provider_accounts (business_id, provider_account_ref_id, provider_account_id) ON DELETE RESTRICT,
   ADD CONSTRAINT engine_v3_ad_snapshots_calibration_lineage_fk FOREIGN KEY (calibration_row_id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, as_of_date, engine_version) REFERENCES engine_v3_ad_account_calibration_daily (id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, as_of_date, engine_version) ON DELETE RESTRICT,
-  ADD CONSTRAINT engine_v3_ad_snapshots_authority_check CHECK (((calibration_row_id IS NULL) AND (label IN ('diagnose', 'out_of_scope', 'keep')) AND (raw_label IN ('diagnose', 'out_of_scope', 'keep')) AND (confidence <= 40) AND (authorized_action IS NULL) AND (blocked_action_type IS NULL) AND (badges @> '[{"type":"native_calibration_unavailable"}]'::jsonb)) OR ((calibration_row_id IS NOT NULL) AND (((raw_label IN ('scale', 'cut', 'refresh')) AND (authorized_action = raw_label)) OR ((raw_label NOT IN ('scale', 'cut', 'refresh')) AND (authorized_action IS NULL))) AND ((label NOT IN ('scale', 'cut', 'refresh')) OR ((label = raw_label) AND (authorized_action = label))))),
+  ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
+    CHECK ${NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION},
   ADD CONSTRAINT engine_v3_ad_snapshots_ad_identity_unique UNIQUE (business_ref_id, provider_account_ref_id, provider_account_id, decision_entity_type, decision_entity_id, as_of_date, engine_version, scope_type, scope_id),
   ADD CONSTRAINT engine_v3_ad_snapshots_evaluation_unique UNIQUE (evaluation_id),
   ADD CONSTRAINT engine_v3_ad_snapshots_evaluation_lineage_fk FOREIGN KEY (evaluation_id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type, decision_entity_id, ad_id, as_of_date, engine_version, scope_type, scope_id, input_hash, decision_hash, job_run_id) REFERENCES engine_v3_ad_decision_evaluations (id, business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type, decision_entity_id, ad_id, as_of_date, engine_version, scope_type, scope_id, input_hash, decision_hash, job_run_id) ON DELETE RESTRICT,
@@ -531,6 +636,7 @@ export const NATIVE_AD_DECISION_SCHEMA_SQL = [
   CREATE_NATIVE_AD_EVALUATIONS_SQL,
   CREATE_NATIVE_AD_SNAPSHOTS_SQL,
   CREATE_NATIVE_AD_EVENTS_SQL,
+  ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_DECISION_COLUMNS_SQL,
   ALTER_NATIVE_AD_DECISION_CONSTRAINTS_SQL,
   ...CREATE_NATIVE_AD_DECISION_INDEXES_SQL,

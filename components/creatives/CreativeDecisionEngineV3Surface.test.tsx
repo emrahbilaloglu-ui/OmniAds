@@ -19,6 +19,8 @@ const decision: DecisionOutput = {
   creativeId: "mock-creative-001",
   creativeName: "WallArtCatalog",
   label: "test_more",
+  preAuthorityLabel: "test_more",
+  authorityBlocker: null,
   reason: "Engine v3 stub - real gate logic not yet implemented.",
   confidence: 50,
   truthSource: "commercial_truth",

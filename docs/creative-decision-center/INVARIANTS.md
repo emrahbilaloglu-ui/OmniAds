@@ -52,6 +52,16 @@ These rules are hard gates for V2.1.
 - UI surfaces must consume server-provided commercial-target freshness and
   authority. They must not recompute the 30-day boundary or restore a blocked
   buyer action client-side.
+- New decisions must persist the ordered authority trail:
+  `pre_authority_label` (post-semantic, pre-authority), first
+  `authority_blocker`, post-authority `raw_label`, then published `label`.
+  A hard pre-authority label is evidence only and can never grant execution.
+- The first effective authority blocker must be preserved when later gates add
+  restrictions. Historical null provenance is unknown and must not be inferred
+  from reason text, badges, raw label, or published label.
+- Any change to canonical decision provenance, reason/hash semantics, or
+  authority ordering requires a new versioned producer/evaluation contract;
+  old snapshots remain readable under their original version key.
 - Hysteresis may delay entry into `scale`, `cut`, or `refresh`, but it must
   never republish an earlier hard action after the current guarded decision has
   exited to a soft, blocked, or not-applicable state. A pending hard transition
@@ -230,6 +240,23 @@ These rules are hard gates for V2.1.
   their existing refresh semantics.
 - Resolver gate files remain responsible for resolver math only; label semantic
   transforms belong in the `finalizeDecision` pipeline orchestrator.
+- Native Ad job attempts exist outside the work transaction. A rollback or
+  process death must remain visible as failed or stale-running evidence.
+- The latest effective native attempt is ranked across engine versions. A
+  newer foreign-epoch success or failure cannot expose an older current-epoch
+  generation as authoritative.
+- `authority_blocker IS NOT NULL` always implies
+  `authorized_action IS NULL`; a hard pre-authority or raw label is audit data,
+  never execution authority.
+- A hysteresis-suppressed hard raw label has no `authorized_action`. Its soft
+  published label must carry matching `blocked_action_type` and
+  `pending_transition` provenance.
+- Full commercial-truth replacement is one transaction guarded by a
+  deterministic revision compare-and-swap and per-business transaction lock.
+  No section may commit independently.
+- Historical exact-Ad backtests are keyed to an explicitly selected engine
+  version. Current-version defaults must not make prior immutable epochs
+  unreadable or pool multiple epochs.
 
 ## Metamorphic Tests
 

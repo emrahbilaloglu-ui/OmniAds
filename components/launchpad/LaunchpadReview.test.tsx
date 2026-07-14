@@ -77,6 +77,9 @@ function makeDecision(overrides: Partial<DecisionOutput>): DecisionOutput {
     creativeId: "creative_1",
     creativeName: null,
     label: "scale",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "scale",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "reason",
     confidence: 80,
     truthSource: "commercial_truth",

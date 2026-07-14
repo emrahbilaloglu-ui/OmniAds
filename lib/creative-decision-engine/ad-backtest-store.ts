@@ -4,6 +4,10 @@ import {
   type DecisionBacktestSummary,
 } from "./backtest";
 import { NATIVE_AD_ENGINE_VERSION, type DecisionLabel } from "./types";
+import {
+  DECISION_AUTHORITY_BLOCKERS,
+  type DecisionAuthorityBlocker,
+} from "./evaluation-store";
 import { AD_DECISION_OUTCOME_CUTOFF_UTC_HOUR } from "./jobs/ad-decision-outcomes-job";
 
 export const READ_EXACT_AD_DECISION_BACKTEST_ROWS_SQL = `
@@ -32,6 +36,8 @@ SELECT
   outcome.scope_id,
   outcome.label,
   outcome.raw_label,
+  outcome.pre_authority_label,
+  outcome.authority_blocker,
   outcome.confidence,
   outcome.account_currency,
   outcome.currency_status,
@@ -159,6 +165,8 @@ export interface AdDecisionBacktestRow {
   scopeId: string;
   label: DecisionLabel;
   rawLabel: DecisionLabel;
+  preAuthorityLabel: DecisionLabel | null;
+  authorityBlocker: DecisionAuthorityBlocker | null;
   confidence: number;
   accountCurrency: string | null;
   currencyStatus: "known" | "unknown" | "conflict";
@@ -218,6 +226,9 @@ export type AdDecisionBacktestMetrics = Pick<
   | "sampleSize"
   | "hardActionKnownSampleSize"
   | "hardConfidenceBuckets"
+  | "preAuthorityLabelCounts"
+  | "authorityBlockerCounts"
+  | "authorityHeldHardRows"
 >;
 
 export interface AdDecisionBacktestStratum {
@@ -243,6 +254,8 @@ export interface AdDecisionBacktestReport {
 export interface ReadAdDecisionBacktestInput {
   businessId: string;
   outcomeIds: readonly string[];
+  /** Defaults to the active epoch; supply an exact historical epoch for replay. */
+  engineVersion?: string;
 }
 
 export type AdBacktestQuery = <
@@ -257,6 +270,10 @@ export async function readAdDecisionBacktest(
   query: AdBacktestQuery = defaultQuery,
 ): Promise<AdDecisionBacktestReport> {
   const businessId = requiredText(input.businessId, "businessId");
+  const engineVersion = requiredText(
+    input.engineVersion ?? NATIVE_AD_ENGINE_VERSION,
+    "engineVersion",
+  );
   const outcomeIds = input.outcomeIds.map((id, index) =>
     requiredText(id, `outcomeIds[${index}]`),
   );
@@ -271,9 +288,9 @@ export async function readAdDecisionBacktest(
   }
   const rows = await query<Record<string, unknown>>(
     READ_EXACT_AD_DECISION_BACKTEST_ROWS_SQL,
-    [businessId, outcomeIds, NATIVE_AD_ENGINE_VERSION],
+    [businessId, outcomeIds, engineVersion],
   );
-  const report = buildAdDecisionBacktestReport(rows);
+  const report = buildAdDecisionBacktestReport(rows, engineVersion);
   assertExactOutcomeSet(outcomeIds, report.rows);
   if (report.rows.some((row) => row.businessRefId !== businessId)) {
     throw new Error("Native backtest returned a cross-tenant outcome row.");
@@ -283,8 +300,15 @@ export async function readAdDecisionBacktest(
 
 export function buildAdDecisionBacktestReport(
   sourceRows: readonly Record<string, unknown>[],
+  expectedEngineVersion = NATIVE_AD_ENGINE_VERSION,
 ): AdDecisionBacktestReport {
-  const rows = sourceRows.map(mapAdDecisionBacktestRow).sort(compareRows);
+  const engineVersion = requiredText(
+    expectedEngineVersion,
+    "expectedEngineVersion",
+  );
+  const rows = sourceRows
+    .map((row) => mapAdDecisionBacktestRow(row, engineVersion))
+    .sort(compareRows);
   const seenOutcomes = new Set<string>();
   const seenEpisodes = new Set<string>();
   for (const row of rows) {
@@ -338,6 +362,8 @@ export function buildAdDecisionBacktestReport(
           creativeId: row.adId,
           asOfDate: row.decisionAsOfDate,
           label: row.label,
+          preAuthorityLabel: row.preAuthorityLabel,
+          authorityBlocker: row.authorityBlocker,
           confidence: row.confidence,
           realizedOutcome: row.realizedOutcome,
           severity: row.severity,
@@ -373,6 +399,7 @@ export function buildAdDecisionBacktestReport(
 
 function mapAdDecisionBacktestRow(
   row: Record<string, unknown>,
+  expectedEngineVersion: string,
 ): AdDecisionBacktestRow {
   const decisionEntityType = requiredText(
     row.decision_entity_type,
@@ -479,8 +506,8 @@ function mapAdDecisionBacktestRow(
     throw new Error("Native backtest source cutoff policy drifted.");
   }
   const engineEpoch = requiredText(row.engine_version, "engine_version");
-  if (engineEpoch !== NATIVE_AD_ENGINE_VERSION) {
-    throw new Error("Native backtest row uses a non-current engine epoch.");
+  if (engineEpoch !== expectedEngineVersion) {
+    throw new Error("Native backtest row uses an unexpected engine epoch.");
   }
   const businessRefId = requiredText(row.business_ref_id, "business_ref_id");
   const businessId = requiredText(row.business_id, "business_id");
@@ -548,6 +575,8 @@ function mapAdDecisionBacktestRow(
     scopeId,
     label: toDecisionLabel(row.label),
     rawLabel: toDecisionLabel(row.raw_label),
+    preAuthorityLabel: toOptionalDecisionLabel(row.pre_authority_label),
+    authorityBlocker: toAuthorityBlocker(row.authority_blocker),
     confidence: boundedInteger(row.confidence, 0, 100, "confidence"),
     accountCurrency,
     currencyStatus,
@@ -602,6 +631,9 @@ function pickNativeMetrics(
     sampleSize: summary.sampleSize,
     hardActionKnownSampleSize: summary.hardActionKnownSampleSize,
     hardConfidenceBuckets: summary.hardConfidenceBuckets,
+    preAuthorityLabelCounts: summary.preAuthorityLabelCounts,
+    authorityBlockerCounts: summary.authorityBlockerCounts,
+    authorityHeldHardRows: summary.authorityHeldHardRows,
   };
 }
 
@@ -764,6 +796,18 @@ function toDecisionLabel(value: unknown): DecisionLabel {
     return label;
   }
   throw new Error(`Unexpected native backtest label: ${label}`);
+}
+
+function toOptionalDecisionLabel(value: unknown): DecisionLabel | null {
+  if (value === null || value === undefined) return null;
+  return toDecisionLabel(value);
+}
+
+function toAuthorityBlocker(value: unknown): DecisionAuthorityBlocker | null {
+  if (value === null || value === undefined) return null;
+  const blocker = requiredText(value, "authority_blocker") as DecisionAuthorityBlocker;
+  if (DECISION_AUTHORITY_BLOCKERS.includes(blocker)) return blocker;
+  throw new Error(`Unexpected native authority blocker: ${blocker}`);
 }
 
 function toCurrencyStatus(value: unknown) {

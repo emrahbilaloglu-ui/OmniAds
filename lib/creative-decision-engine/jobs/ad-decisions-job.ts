@@ -54,6 +54,7 @@ import {
   type AdDecisionOutput,
   type CreativeInput,
   type DataHealth,
+  type DecisionAuthorityBlocker,
   type DecisionLabel,
   type DecisionLabelTransform,
   type DecisionOutput,
@@ -171,6 +172,8 @@ export interface NativeSnapshotPayloadRow {
   scope_id: string;
   label: DecisionLabel;
   raw_label: DecisionLabel;
+  pre_authority_label: DecisionLabel;
+  authority_blocker: DecisionAuthorityBlocker | null;
   confidence: number;
   truth_source: DecisionOutput["truthSource"];
   effective_target_roas: number;
@@ -247,6 +250,8 @@ WITH payload AS (
     scope_id text,
     label text,
     raw_label text,
+    pre_authority_label text,
+    authority_blocker text,
     confidence integer,
     truth_source text,
     effective_target_roas double precision,
@@ -305,7 +310,8 @@ WITH payload AS (
 INSERT INTO engine_v3_ad_decision_snapshots_daily (
   business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type,
   decision_entity_id, ad_id, creative_id, as_of_date, engine_version,
-  scope_type, scope_id, label, raw_label, confidence, truth_source,
+  scope_type, scope_id, label, raw_label, pre_authority_label, authority_blocker,
+  confidence, truth_source,
   effective_target_roas, ratio_to_target, badges, reason, spend, purchases,
   roas, recent7d_roas, label_transform, blocked_action_type, authorized_action, job_run_id,
   creative_evidence_lifecycle_row_id, calibration_row_id, evaluation_id, input_hash,
@@ -314,7 +320,8 @@ INSERT INTO engine_v3_ad_decision_snapshots_daily (
 SELECT
   business_ref_id, business_id, provider_account_ref_id, provider_account_id, decision_entity_type,
   decision_entity_id, ad_id, creative_id, as_of_date, engine_version,
-  scope_type, scope_id, label, raw_label, confidence, truth_source,
+  scope_type, scope_id, label, raw_label, pre_authority_label, authority_blocker,
+  confidence, truth_source,
   effective_target_roas, ratio_to_target, badges, reason, spend, purchases,
   roas, recent7d_roas, label_transform, blocked_action_type, authorized_action, job_run_id,
   creative_evidence_lifecycle_row_id, calibration_row_id, evaluation_id, input_hash,
@@ -332,6 +339,8 @@ DO UPDATE SET
   creative_id = EXCLUDED.creative_id,
   label = EXCLUDED.label,
   raw_label = EXCLUDED.raw_label,
+  pre_authority_label = EXCLUDED.pre_authority_label,
+  authority_blocker = EXCLUDED.authority_blocker,
   confidence = EXCLUDED.confidence,
   truth_source = EXCLUDED.truth_source,
   effective_target_roas = EXCLUDED.effective_target_roas,
@@ -538,325 +547,379 @@ export async function runAdDecisionsJob(
     );
   }
 
-  const flags = await resolveEngineV3Flags(input.businessId);
-  if (!flags.enabled) {
-    return {
-      jobRunId: "",
-      status: "skipped",
-      snapshotsWritten: 0,
-      changeEventsWritten: 0,
-      durationMs: Date.now() - startedAt,
-      reason: "engine_v3_disabled",
-    };
-  }
+  const jobRunId = await insertAdJobRun(
+    {
+      ...input,
+      status: "running",
+      dependencyRunId: null,
+    },
+    getDb(),
+  );
 
-  return runDbTransaction(
-    async () => {
-      const db = getDb();
-      const [lock] = await db.query<AdvisoryLockRow>(
-        "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-        [adDecisionsJobAdvisoryLockKey(input).toString()],
-      );
-      if (lock?.acquired !== true) {
-        return {
-          jobRunId: "",
-          status: "skipped" as const,
-          snapshotsWritten: 0,
-          changeEventsWritten: 0,
-          durationMs: Date.now() - startedAt,
-          errorMessage:
-            "Advisory lock not acquired (native ad job may already be running)",
-        };
-      }
-
-      const capability = await inspectEvaluationStoreSchemaCapability(db);
-      const profileCapability =
-        await inspectNativeAdProfileSchemaCapability(db);
-      const missingSchema = [
-        ...capability.missing,
-        ...profileCapability.missing,
-      ];
-      if (missingSchema.length > 0) {
-        return failedWithoutRun(
-          startedAt,
-          "schema_not_ready",
-          `Native ad decision schema is not ready: ${missingSchema.join(", ")}`,
-        );
-      }
-
-      const dependencyRunId = await findLatestSuccessfulAdCalibrationRun(
-        input,
-        db,
-      );
-      const jobRunId = await insertAdJobRun(
+  try {
+    const flags = await resolveEngineV3Flags(input.businessId);
+    if (!flags.enabled) {
+      const durationMs = Date.now() - startedAt;
+      await markAdJobSkipped(
         {
-          ...input,
-          status: "running",
-          dependencyRunId,
+          jobRunId,
+          durationMs,
+          message: "Engine v3 is disabled for this business.",
         },
-        db,
+        getDb(),
       );
-      await db.query("SAVEPOINT engine_v3_ad_decisions_job_work");
-      try {
-        await assertEvaluationStoreSchemaReady(db);
-        const evaluatedAt = new Date().toISOString();
-        const dataSource = new WarehouseDataSource();
-        const hydration = await dataSource.hydrateAdDecisionInputs({
-          businessId: input.businessId,
-          asOf: input.asOf,
-          decisionCutoff: evaluatedAt,
-        });
-        assertEmptyNativeAdHydrationIsAuthoritative(hydration);
-        const adInputs = hydration.inputs;
-        const nativeProfileDataSource =
-          new WarehouseNativeAdAccountProfileDataSource(db);
-        const profileGroups = await resolveNativeAdDecisionProfileGroups({
-          businessId: input.businessId,
-          asOf: input.asOf,
-          adInputs,
-          flags,
-          dataSource: nativeProfileDataSource,
-        });
-        const campaignContextMode = resolveCampaignContextMode();
-        const campaignContextById = await readAdCampaignContext({
-          ...input,
-          adInputs,
-          mode: campaignContextMode,
-        });
-        const previousLabels = new Map<string, PreviousAdPublishedLabel>();
-        for (const scopeGroup of groupNativeProfileInputsByScope(
-          profileGroups,
-        )) {
-          const groupPrevious = await readPreviousPublishedAdLabels({
-            ...input,
-            identities: scopeGroup.adInputs.map((ad) => ({
-              providerAccountRefId: ad.providerAccountRefId,
-              providerAccountId: ad.providerAccountId,
-              decisionEntityType: "ad" as const,
-              decisionEntityId: ad.decisionEntityId,
-            })),
-            scopeType: scopeGroup.scope.type,
-            scopeId: scopeGroup.scope.id,
-          });
-          mergeUniqueMap(previousLabels, groupPrevious, "hysteresis lineage");
+      return {
+        jobRunId,
+        status: "skipped",
+        snapshotsWritten: 0,
+        changeEventsWritten: 0,
+        durationMs,
+        reason: "engine_v3_disabled",
+      };
+    }
+
+    return await runDbTransaction(
+      async () => {
+        const db = getDb();
+        const [lock] = await db.query<AdvisoryLockRow>(
+          "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
+          [adDecisionsJobAdvisoryLockKey(input).toString()],
+        );
+        if (lock?.acquired !== true) {
+          const durationMs = Date.now() - startedAt;
+          const message =
+            "Advisory lock not acquired (native ad job may already be running)";
+          await markAdJobSkipped({ jobRunId, durationMs, message }, db);
+          return {
+            jobRunId,
+            status: "skipped" as const,
+            snapshotsWritten: 0,
+            changeEventsWritten: 0,
+            durationMs,
+            errorMessage: message,
+          };
         }
 
-        const decisionGroups = profileGroups.map((group) => {
-          const dataHealth = buildNativeAdDataHealth({
-            calibrationCell: group.calibrationCell,
-            blocker: group.blocker,
-            adInputs: group.adInputs,
-            previousLabels,
-            scope: group.profile.scope,
-            evaluatedAt,
-          });
-          const decisions =
-            group.blocker === null
-              ? computeReadyNativeAdDecisions({
-                  group,
-                  businessId: input.businessId,
-                  dataHealth,
-                  campaignContextMode,
-                  campaignContextById,
-                  previousLabels,
-                })
-              : computeSoftOnlyNativeAdDecisions({
-                  businessId: input.businessId,
-                  blocker: group.blocker,
-                  profile: group.profile,
-                  adInputs: group.adInputs,
-                  campaignContextMode,
-                  campaignContextById,
-                  previousLabels,
-                  evaluatedAt,
-                });
+        const capability = await inspectEvaluationStoreSchemaCapability(db);
+        const profileCapability =
+          await inspectNativeAdProfileSchemaCapability(db);
+        const missingSchema = [
+          ...capability.missing,
+          ...profileCapability.missing,
+        ];
+        if (missingSchema.length > 0) {
+          const durationMs = Date.now() - startedAt;
+          const message = `Native ad decision schema is not ready: ${missingSchema.join(", ")}`;
+          await markAdJobFailed(
+            { jobRunId, durationMs, error: new Error(message), message },
+            db,
+          );
           return {
-            ...group,
-            dataHealth,
-            decisions,
+            jobRunId,
+            status: "failed" as const,
+            snapshotsWritten: 0,
+            changeEventsWritten: 0,
+            durationMs,
+            reason: "schema_not_ready" as const,
+            errorMessage: message,
           };
-        });
-        const storedEvaluations = new Map<string, StoredAdDecisionEvaluation>();
-        for (const group of decisionGroups) {
-          const canonicalEvaluations = group.decisions.map((computation) =>
-            buildAdCanonicalEvaluationProvenance({
-              identity: {
+        }
+
+        const dependencyRunId = await findLatestSuccessfulAdCalibrationRun(
+          input,
+          db,
+        );
+        await setAdJobDependency(jobRunId, dependencyRunId, db);
+        await db.query("SAVEPOINT engine_v3_ad_decisions_job_work");
+        try {
+          await assertEvaluationStoreSchemaReady(db);
+          const evaluatedAt = new Date().toISOString();
+          const dataSource = new WarehouseDataSource();
+          const hydration = await dataSource.hydrateAdDecisionInputs({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            decisionCutoff: evaluatedAt,
+          });
+          assertEmptyNativeAdHydrationIsAuthoritative(hydration);
+          const adInputs = hydration.inputs;
+          const nativeProfileDataSource =
+            new WarehouseNativeAdAccountProfileDataSource(db);
+          const profileGroups = await resolveNativeAdDecisionProfileGroups({
+            businessId: input.businessId,
+            asOf: input.asOf,
+            adInputs,
+            flags,
+            dataSource: nativeProfileDataSource,
+          });
+          const campaignContextMode = resolveCampaignContextMode();
+          const campaignContextById = await readAdCampaignContext({
+            ...input,
+            adInputs,
+            mode: campaignContextMode,
+          });
+          const previousLabels = new Map<string, PreviousAdPublishedLabel>();
+          for (const scopeGroup of groupNativeProfileInputsByScope(
+            profileGroups,
+          )) {
+            const groupPrevious = await readPreviousPublishedAdLabels({
+              ...input,
+              identities: scopeGroup.adInputs.map((ad) => ({
+                providerAccountRefId: ad.providerAccountRefId,
+                providerAccountId: ad.providerAccountId,
+                decisionEntityType: "ad" as const,
+                decisionEntityId: ad.decisionEntityId,
+              })),
+              scopeType: scopeGroup.scope.type,
+              scopeId: scopeGroup.scope.id,
+            });
+            mergeUniqueMap(previousLabels, groupPrevious, "hysteresis lineage");
+          }
+
+          const decisionGroups = profileGroups.map((group) => {
+            const dataHealth = buildNativeAdDataHealth({
+              calibrationCell: group.calibrationCell,
+              blocker: group.blocker,
+              adInputs: group.adInputs,
+              previousLabels,
+              scope: group.profile.scope,
+              evaluatedAt,
+            });
+            const decisions =
+              group.blocker === null
+                ? computeReadyNativeAdDecisions({
+                    group,
+                    businessId: input.businessId,
+                    dataHealth,
+                    campaignContextMode,
+                    campaignContextById,
+                    previousLabels,
+                  })
+                : computeSoftOnlyNativeAdDecisions({
+                    businessId: input.businessId,
+                    blocker: group.blocker,
+                    profile: group.profile,
+                    adInputs: group.adInputs,
+                    campaignContextMode,
+                    campaignContextById,
+                    previousLabels,
+                    evaluatedAt,
+                  });
+            return {
+              ...group,
+              dataHealth,
+              decisions,
+            };
+          });
+          const storedEvaluations = new Map<
+            string,
+            StoredAdDecisionEvaluation
+          >();
+          for (const group of decisionGroups) {
+            const canonicalEvaluations = group.decisions.map((computation) =>
+              buildAdCanonicalEvaluationProvenance({
+                identity: {
+                  providerAccountRefId: computation.input.providerAccountRefId,
+                  providerAccountId: computation.input.providerAccountId,
+                  decisionEntityType: "ad",
+                  decisionEntityId: computation.input.decisionEntityId,
+                  adId: computation.input.adId,
+                  creativeId: computation.input.creativeId,
+                },
+                base: buildCanonicalEvaluationProvenance({
+                  engineVersion: NATIVE_AD_ENGINE_VERSION,
+                  accountProfile: group.profile,
+                  dataHealth: group.dataHealth,
+                  flags,
+                  scope: group.profile.scope,
+                  creativeInput: computation.input,
+                  campaignContext: computation.campaignContext,
+                  priorHysteresis: computation.priorHysteresis,
+                  decision: computation.decision,
+                  rawLabel: computation.rawLabel,
+                  publishedLabel: computation.decision.label,
+                  hysteresisSuppressed: computation.hysteresisSuppressed,
+                  evaluatedAt,
+                }),
+              }),
+            );
+            if (canonicalEvaluations.length === 0) continue;
+            const storedGroup = await persistAdDecisionEvaluations(
+              {
+                businessId: input.businessId,
+                businessDisplayId: input.businessId,
+                asOf: input.asOf,
+                engineVersion: NATIVE_AD_ENGINE_VERSION,
+                scope: group.profile.scope,
+                jobRunId,
+                evaluatedAt,
+                evaluations: canonicalEvaluations,
+              },
+              db,
+            );
+            mergeUniqueMap(storedEvaluations, storedGroup, "stored evaluation");
+          }
+          const snapshotRows = decisionGroups.flatMap((group) =>
+            group.decisions.map((computation) => {
+              const key = adDecisionEvaluationIdentityKey({
                 providerAccountRefId: computation.input.providerAccountRefId,
                 providerAccountId: computation.input.providerAccountId,
                 decisionEntityType: "ad",
                 decisionEntityId: computation.input.decisionEntityId,
                 adId: computation.input.adId,
                 creativeId: computation.input.creativeId,
-              },
-              base: buildCanonicalEvaluationProvenance({
-                engineVersion: NATIVE_AD_ENGINE_VERSION,
-                accountProfile: group.profile,
-                dataHealth: group.dataHealth,
-                flags,
+              });
+              const stored = storedEvaluations.get(key);
+              if (!stored) {
+                throw new Error(
+                  `Native ad evaluation link missing for ${key}.`,
+                );
+              }
+              return toNativeSnapshotPayload({
+                businessId: input.businessId,
+                asOf: input.asOf,
+                jobRunId,
                 scope: group.profile.scope,
-                creativeInput: computation.input,
-                campaignContext: computation.campaignContext,
-                priorHysteresis: computation.priorHysteresis,
-                decision: computation.decision,
-                rawLabel: computation.rawLabel,
-                publishedLabel: computation.decision.label,
-                hysteresisSuppressed: computation.hysteresisSuppressed,
-                evaluatedAt,
-              }),
+                computation,
+                stored,
+                calibrationRowId: group.calibrationRowId,
+                hardActionEligibility: group.profile.hardActionEligibility,
+                computedAt: evaluatedAt,
+              });
             }),
           );
-          if (canonicalEvaluations.length === 0) continue;
-          const storedGroup = await persistAdDecisionEvaluations(
-            {
-              businessId: input.businessId,
-              businessDisplayId: input.businessId,
-              asOf: input.asOf,
-              engineVersion: NATIVE_AD_ENGINE_VERSION,
-              scope: group.profile.scope,
-              jobRunId,
-              evaluatedAt,
-              evaluations: canonicalEvaluations,
-            },
-            db,
-          );
-          mergeUniqueMap(storedEvaluations, storedGroup, "stored evaluation");
-        }
-        const snapshotRows = decisionGroups.flatMap((group) =>
-          group.decisions.map((computation) => {
-            const key = adDecisionEvaluationIdentityKey({
-              providerAccountRefId: computation.input.providerAccountRefId,
-              providerAccountId: computation.input.providerAccountId,
-              decisionEntityType: "ad",
-              decisionEntityId: computation.input.decisionEntityId,
-              adId: computation.input.adId,
-              creativeId: computation.input.creativeId,
-            });
-            const stored = storedEvaluations.get(key);
-            if (!stored) {
-              throw new Error(`Native ad evaluation link missing for ${key}.`);
-            }
-            return toNativeSnapshotPayload({
-              businessId: input.businessId,
-              asOf: input.asOf,
-              jobRunId,
-              scope: group.profile.scope,
-              computation,
-              stored,
-              calibrationRowId: group.calibrationRowId,
-              hardActionEligibility: group.profile.hardActionEligibility,
-              computedAt: evaluatedAt,
-            });
-          }),
-        );
 
-        const scopeGroups = groupNativeDecisionGroupsByScope(decisionGroups);
-        const pruneResult: NativeSnapshotPruneResult = {
-          prunedSnapshots: 0,
-          prunedEvents: 0,
-          skippedBecauseEmptyPayload: hydration.receipts.length === 0,
-          skippedUnprovenReceiptCount: 0,
-          authoritativeReceiptCount: 0,
-        };
-        for (const receipt of hydration.receipts) {
-          const groupPrune = await pruneStaleNativeAdSnapshots(
-            {
-              ...input,
-              scope: { type: "account", id: receipt.providerAccountId },
-              currentInputs: adInputs.filter(
-                (ad) => ad.providerAccountId === receipt.providerAccountId,
-              ),
-              receipt,
-            },
+          const scopeGroups = groupNativeDecisionGroupsByScope(decisionGroups);
+          const pruneResult: NativeSnapshotPruneResult = {
+            prunedSnapshots: 0,
+            prunedEvents: 0,
+            skippedBecauseEmptyPayload: hydration.receipts.length === 0,
+            skippedUnprovenReceiptCount: 0,
+            authoritativeReceiptCount: 0,
+          };
+          for (const receipt of hydration.receipts) {
+            const groupPrune = await pruneStaleNativeAdSnapshots(
+              {
+                ...input,
+                scope: { type: "account", id: receipt.providerAccountId },
+                currentInputs: adInputs.filter(
+                  (ad) => ad.providerAccountId === receipt.providerAccountId,
+                ),
+                receipt,
+              },
+              db,
+            );
+            pruneResult.prunedSnapshots += groupPrune.prunedSnapshots;
+            pruneResult.prunedEvents += groupPrune.prunedEvents;
+            pruneResult.skippedBecauseEmptyPayload =
+              pruneResult.skippedBecauseEmptyPayload &&
+              groupPrune.skippedBecauseEmptyPayload;
+            pruneResult.skippedUnprovenReceiptCount +=
+              groupPrune.skippedUnprovenReceiptCount;
+            pruneResult.authoritativeReceiptCount +=
+              groupPrune.authoritativeReceiptCount;
+          }
+          const currentSnapshots = await upsertNativeAdDecisionSnapshots(
+            snapshotRows,
             db,
           );
-          pruneResult.prunedSnapshots += groupPrune.prunedSnapshots;
-          pruneResult.prunedEvents += groupPrune.prunedEvents;
-          pruneResult.skippedBecauseEmptyPayload =
-            pruneResult.skippedBecauseEmptyPayload &&
-            groupPrune.skippedBecauseEmptyPayload;
-          pruneResult.skippedUnprovenReceiptCount +=
-            groupPrune.skippedUnprovenReceiptCount;
-          pruneResult.authoritativeReceiptCount +=
-            groupPrune.authoritativeReceiptCount;
-        }
-        const currentSnapshots = await upsertNativeAdDecisionSnapshots(
-          snapshotRows,
-          db,
-        );
-        const previousSnapshots = new Map<string, ComparableNativeAdSnapshot>();
-        for (const scopeGroup of scopeGroups) {
-          const groupPrevious = await findPreviousNativeAdSnapshots(
-            {
+          const previousSnapshots = new Map<
+            string,
+            ComparableNativeAdSnapshot
+          >();
+          for (const scopeGroup of scopeGroups) {
+            const groupPrevious = await findPreviousNativeAdSnapshots(
+              {
+                ...input,
+                scope: scopeGroup.scope,
+                adInputs: scopeGroup.adInputs,
+              },
+              db,
+            );
+            mergeUniqueMap(
+              previousSnapshots,
+              groupPrevious,
+              "previous snapshot",
+            );
+          }
+          let changeEventsWritten = 0;
+          for (const scopeGroup of scopeGroups) {
+            const eventRows = buildNativeAdDecisionChangeEvents({
               ...input,
-              scope: scopeGroup.scope,
-              adInputs: scopeGroup.adInputs,
-            },
-            db,
-          );
-          mergeUniqueMap(previousSnapshots, groupPrevious, "previous snapshot");
-        }
-        let changeEventsWritten = 0;
-        for (const scopeGroup of scopeGroups) {
-          const eventRows = buildNativeAdDecisionChangeEvents({
-            ...input,
-            jobRunId,
-            scope: scopeGroup.scope,
-            decisions: scopeGroup.decisions,
-            previousSnapshots,
-            currentSnapshots,
-          });
-          changeEventsWritten += await reconcileNativeAdDecisionChangeEvents(
-            {
-              ...input,
+              jobRunId,
               scope: scopeGroup.scope,
               decisions: scopeGroup.decisions,
-              rows: eventRows,
+              previousSnapshots,
+              currentSnapshots,
+            });
+            changeEventsWritten += await reconcileNativeAdDecisionChangeEvents(
+              {
+                ...input,
+                scope: scopeGroup.scope,
+                decisions: scopeGroup.decisions,
+                rows: eventRows,
+              },
+              db,
+            );
+          }
+
+          const durationMs = Date.now() - startedAt;
+          await markAdJobSuccess(
+            {
+              jobRunId,
+              durationMs,
+              rowCount: currentSnapshots.size,
+              changeEventsWritten,
+              pruneResult,
+              hydrationReceipts: hydration.receipts,
             },
             db,
           );
-        }
-
-        const durationMs = Date.now() - startedAt;
-        await markAdJobSuccess(
-          {
+          return {
             jobRunId,
-            durationMs,
-            rowCount: currentSnapshots.size,
+            status: "success" as const,
+            snapshotsWritten: currentSnapshots.size,
             changeEventsWritten,
-            pruneResult,
-            hydrationReceipts: hydration.receipts,
-          },
-          db,
-        );
-        return {
-          jobRunId,
-          status: "success" as const,
-          snapshotsWritten: currentSnapshots.size,
-          changeEventsWritten,
-          durationMs,
-        };
-      } catch (error) {
-        await db
-          .query("ROLLBACK TO SAVEPOINT engine_v3_ad_decisions_job_work")
-          .catch(() => undefined);
-        const durationMs = Date.now() - startedAt;
-        const message = error instanceof Error ? error.message : String(error);
-        await markAdJobFailed(
-          { jobRunId, durationMs, error, message },
-          db,
-        ).catch(() => undefined);
-        return {
-          jobRunId,
-          status: "failed" as const,
-          snapshotsWritten: 0,
-          changeEventsWritten: 0,
-          durationMs,
-          errorMessage: message,
-        };
-      }
-    },
-    { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
-  );
+            durationMs,
+          };
+        } catch (error) {
+          await db
+            .query("ROLLBACK TO SAVEPOINT engine_v3_ad_decisions_job_work")
+            .catch(() => undefined);
+          const durationMs = Date.now() - startedAt;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          await markAdJobFailed(
+            { jobRunId, durationMs, error, message },
+            db,
+          ).catch(() => undefined);
+          return {
+            jobRunId,
+            status: "failed" as const,
+            snapshotsWritten: 0,
+            changeEventsWritten: 0,
+            durationMs,
+            errorMessage: message,
+          };
+        }
+      },
+      { timeoutMs: ENGINE_V3_JOB_TRANSACTION_TIMEOUT_MS },
+    );
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : String(error);
+    await markAdJobFailed(
+      { jobRunId, durationMs, error, message },
+      getDb(),
+    ).catch(() => undefined);
+    return {
+      jobRunId,
+      status: "failed",
+      snapshotsWritten: 0,
+      changeEventsWritten: 0,
+      durationMs,
+      errorMessage: message,
+    };
+  }
 }
 
 export async function resolveNativeAdDecisionProfileGroups(input: {
@@ -1384,6 +1447,12 @@ export function computeSoftOnlyNativeAdDecisions(input: {
               : "unlabeled"
             : "no_campaign",
           campaignKind: withCampaign.campaignKind ?? null,
+          preAuthorityLabel: optimizationOutOfScope
+            ? "out_of_scope"
+            : "diagnose",
+          authorityBlocker: optimizationOutOfScope
+            ? null
+            : "native_profile_unavailable",
           blockedActionType: null,
           engineVersion: NATIVE_AD_ENGINE_VERSION,
           generatedAt: input.evaluatedAt,
@@ -1440,12 +1509,11 @@ export function computeNativeAdDecisions(input: {
       );
       const resolverInput = toResolverInput(withCampaign);
       const resolveDecision = input.resolveDecision ?? decideCreative;
+      const semanticDecision = normalizeSiteOwnedAdDecision(
+        resolveDecision(resolverInput, input.profile, input.dataHealth),
+      );
       const guarded = applyCreativeCampaignLabelGuard({
-        decision: resolveDecision(
-          resolverInput,
-          input.profile,
-          input.dataHealth,
-        ),
+        decision: semanticDecision,
         input: withCampaign,
         campaignLabelsById: input.campaignContextById,
       });
@@ -1529,6 +1597,20 @@ function toNativeAdDecisionOutput(
   decision: DecisionOutput,
   input: AdDecisionInput,
 ): AdDecisionOutput {
+  return {
+    ...decision,
+    decisionEntityType: "ad",
+    decisionEntityId: input.decisionEntityId,
+    adId: input.adId,
+    providerAccountId: input.providerAccountId,
+    creativeId: input.creativeId,
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+  };
+}
+
+function normalizeSiteOwnedAdDecision(
+  decision: DecisionOutput,
+): DecisionOutput {
   const siteOwnedIssue =
     decision.label === "diagnose" &&
     decision.badges.find(
@@ -1539,15 +1621,10 @@ function toNativeAdDecisionOutput(
   return {
     ...decision,
     label: siteOwnedIssue ? "keep" : decision.label,
+    preAuthorityLabel: siteOwnedIssue ? "keep" : decision.preAuthorityLabel,
     reason: siteOwnedIssue
       ? `[Keep Ad; fix ${siteOwnedIssue.type === "landing_page_issue" ? "landing page" : "checkout"}] ${decision.reason}`
       : decision.reason,
-    decisionEntityType: "ad",
-    decisionEntityId: input.decisionEntityId,
-    adId: input.adId,
-    providerAccountId: input.providerAccountId,
-    creativeId: input.creativeId,
-    engineVersion: NATIVE_AD_ENGINE_VERSION,
   };
 }
 
@@ -1576,7 +1653,10 @@ function guardUnavailableAdMetrics(
     label: preserveContextFailure ? "out_of_scope" : "diagnose",
     confidence: Math.min(decision.confidence, 40),
     badges,
-    blockedActionType: hardLabel ?? decision.blockedActionType ?? null,
+    authorityBlocker:
+      decision.authorityBlocker ??
+      (hardLabel === null ? null : "native_metrics_unavailable"),
+    blockedActionType: decision.blockedActionType ?? hardLabel,
     reason: `[Ad metrics unavailable - fail closed] ${decision.reason}`,
   };
 }
@@ -1651,6 +1731,7 @@ export function toNativeSnapshotPayload(input: {
   const authorizedAction = resolveNativeSnapshotAuthorizedAction({
     rawLabel: input.computation.rawLabel,
     publishedLabel: decision.label,
+    authorityBlocker: decision.authorityBlocker,
     confidence: decision.confidence,
     calibrationRowId: input.calibrationRowId,
     hardActionEligibility: input.hardActionEligibility,
@@ -1670,6 +1751,8 @@ export function toNativeSnapshotPayload(input: {
     scope_id: input.scope.id,
     label: decision.label,
     raw_label: input.computation.rawLabel,
+    pre_authority_label: decision.preAuthorityLabel,
+    authority_blocker: decision.authorityBlocker,
     confidence: toConfidenceInteger(decision.confidence),
     truth_source: decision.truthSource,
     effective_target_roas: decision.effectiveTargetRoas,
@@ -1699,6 +1782,7 @@ export function toNativeSnapshotPayload(input: {
 function resolveNativeSnapshotAuthorizedAction(input: {
   rawLabel: DecisionLabel;
   publishedLabel: DecisionLabel;
+  authorityBlocker: DecisionAuthorityBlocker | null;
   confidence: number;
   calibrationRowId: string | null;
   hardActionEligibility: {
@@ -1707,6 +1791,7 @@ function resolveNativeSnapshotAuthorizedAction(input: {
     refresh: boolean;
   };
 }): "scale" | "cut" | "refresh" | null {
+  if (input.authorityBlocker !== null) return null;
   const hardRawLabel = isHardLabel(input.rawLabel) ? input.rawLabel : null;
   if (input.calibrationRowId === null) {
     const softOnlyLabels = new Set<DecisionLabel>([
@@ -1726,6 +1811,7 @@ function resolveNativeSnapshotAuthorizedAction(input: {
     return null;
   }
   if (hardRawLabel === null) return null;
+  if (input.publishedLabel !== hardRawLabel) return null;
   if (input.hardActionEligibility[hardRawLabel] !== true) {
     throw new NativeAdProfileProvenanceError(
       `native calibration does not authorize raw ${hardRawLabel}`,
@@ -2071,6 +2157,43 @@ async function insertAdJobRun(
   return id;
 }
 
+async function setAdJobDependency(
+  jobRunId: string,
+  dependencyRunId: string | null,
+  db: DbClient,
+) {
+  await db.query(
+    `
+    UPDATE engine_v3_job_runs
+    SET dependency_run_id = $1::uuid, updated_at = clock_timestamp()
+    WHERE id = $2::uuid
+      AND status = 'running'
+    `,
+    [dependencyRunId, jobRunId],
+  );
+}
+
+async function markAdJobSkipped(
+  input: {
+    jobRunId: string;
+    durationMs: number;
+    message: string;
+  },
+  db: DbClient,
+) {
+  await db.query(
+    `
+    UPDATE engine_v3_job_runs
+    SET status = 'skipped', finished_at = clock_timestamp(),
+      duration_ms = $1::integer, row_count = 0, error_message = $2,
+      updated_at = clock_timestamp()
+    WHERE id = $3::uuid
+      AND status = 'running'
+    `,
+    [input.durationMs, input.message, input.jobRunId],
+  );
+}
+
 async function markAdJobSuccess(
   input: {
     jobRunId: string;
@@ -2089,6 +2212,7 @@ async function markAdJobSuccess(
       row_count = $2::integer, error_json = $3::jsonb,
       updated_at = clock_timestamp()
     WHERE id = $4::uuid
+      AND status = 'running'
     `,
     [
       input.durationMs,
@@ -2143,6 +2267,7 @@ async function markAdJobFailed(
       row_count = 0, error_message = $2, error_json = $3::jsonb,
       updated_at = clock_timestamp()
     WHERE id = $4::uuid
+      AND status = 'running'
     `,
     [
       input.durationMs,

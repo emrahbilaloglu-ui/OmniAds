@@ -6,6 +6,7 @@ import type {
 import type {
   AccountDecisionProfile,
   DataHealth,
+  DecisionAuthorityBlocker,
   DecisionPredicateBlocker,
   DecisionLabelTransform,
   SpendUnitConfidence,
@@ -149,6 +150,8 @@ export interface BriefingCreativeCard {
   label?: DecisionLabel | string | null;
   watchingSubBucket?: BriefingWatchingSubBucket | null;
   truthSource?: TruthSource | string | null;
+  preAuthorityLabel?: DecisionLabel | string | null;
+  authorityBlocker?: DecisionAuthorityBlocker | string | null;
   rawLabel?: DecisionLabel | string | null;
   pendingTransition?: boolean | null;
   /** Ad-account currency for this card's money fields; null = unknown.

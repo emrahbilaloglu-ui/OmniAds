@@ -1,5 +1,6 @@
 import type {
   MetaCanonicalDecision,
+  MetaDecisionAuthorityBlocker,
   MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import {
@@ -8,11 +9,16 @@ import {
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import type { MetaStructureInventoryEntity } from "@/components/meta/redesign/types";
+import { buildMetaWatchingSegments } from "@/lib/meta/watching-segments";
+import type {
+  MetaLanePayload,
+  MetaStructureInventoryEntity,
+} from "@/components/meta/redesign/types";
 import {
   META_OS_DECISIONS_PRESENTATION_VERSION,
   type MetaOsAdDecision,
   type MetaOsCommandIntent,
+  type MetaOsDecisionAuthorityProvenance,
   type MetaOsDecisionAction,
   type MetaOsDecisionLane,
   type MetaOsDecisionPriority,
@@ -22,6 +28,58 @@ import {
   type MetaOsStructureGroup,
   type MetaOsStructureNode,
 } from "@/lib/meta/decisions-os-contract";
+
+const AUTHORITY_BLOCKER_PRESENTATION: Record<
+  MetaDecisionAuthorityBlocker,
+  { label: string; explanation: string }
+> = {
+  profile_hard_action_ineligible: {
+    label: "Profile is not eligible for a hard action",
+    explanation:
+      "The account profile did not meet the evidence requirements for a hard provider action.",
+  },
+  source_freshness: {
+    label: "Source evidence is not fresh enough",
+    explanation:
+      "The mathematical verdict was held until the required source evidence is fresh.",
+  },
+  campaign_context: {
+    label: "Campaign context withheld authority",
+    explanation:
+      "Campaign role evidence did not support publishing the hard verdict as an actionable decision.",
+  },
+  native_metrics_unavailable: {
+    label: "Native Ad metrics are unavailable",
+    explanation:
+      "Exact Ad-grain metrics were unavailable, so the hard verdict cannot authorize a provider action.",
+  },
+  native_profile_unavailable: {
+    label: "Native decision profile is unavailable",
+    explanation:
+      "The native Ad profile required to authorize the verdict was unavailable.",
+  },
+};
+
+function authorityProvenanceForDecision(
+  decision: MetaCanonicalDecision,
+): MetaOsDecisionAuthorityProvenance {
+  const blocker = decision.sourceDecision.authorityBlocker;
+  return {
+    availability:
+      decision.sourceDecision.preAuthorityLabel === null
+        ? "historical_unavailable"
+        : "available",
+    preAuthorityLabel: decision.sourceDecision.preAuthorityLabel,
+    postAuthorityRawLabel: decision.sourceDecision.rawLabel,
+    publishedLabel: decision.sourceDecision.label,
+    firstBlocker: blocker
+      ? {
+          code: blocker,
+          ...AUTHORITY_BLOCKER_PRESENTATION[blocker],
+        }
+      : null,
+  };
+}
 
 type InactiveStructureInput = {
   id: string;
@@ -46,7 +104,14 @@ type InactiveStructureInput = {
 type StructureInput = {
   rec: MetaRecommendation;
   lane: MetaOsDecisionLane;
+  targetAuthorityBlocker: MetaTargetHardAction | null;
 };
+
+export type MetaTargetHardAction = "scale" | "cut";
+
+export type MetaTargetHardActionEligibility = Readonly<
+  Record<MetaTargetHardAction, boolean>
+>;
 
 const PRIORITY_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
 const CONFIDENCE_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
@@ -59,6 +124,127 @@ const URGENCY_WEIGHT: Record<MetaOsDecisionUrgency["level"], number> = {
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function metaStructureTargetHardAction(
+  rec: MetaRecommendation,
+): MetaTargetHardAction | null {
+  if (rec.decisionLabel === "scale") return "scale";
+  if (
+    rec.decisionLabel === "cut" ||
+    rec.decisionLabel === "below_breakeven" ||
+    rec.actionKind === "execute_pause"
+  ) {
+    return "cut";
+  }
+  // A malformed legacy bid row without a decision label must still fail closed.
+  if (rec.actionKind === "execute_bid") return "scale";
+  return null;
+}
+
+function targetAuthorityBlocker(
+  rec: MetaRecommendation,
+  eligibility: MetaTargetHardActionEligibility,
+) {
+  const action = metaStructureTargetHardAction(rec);
+  return action && !eligibility[action] ? action : null;
+}
+
+function guardStructureRecommendationForCurrentTargets(
+  rec: MetaRecommendation,
+  eligibility: MetaTargetHardActionEligibility,
+) {
+  const blocker = targetAuthorityBlocker(rec, eligibility);
+  if (!blocker) return { rec, blocked: false as const };
+  const blockerLabel =
+    blocker === "scale"
+      ? "Current target ROAS authority"
+      : "Current break-even ROAS authority";
+  const automationReadiness = rec.automationReadiness
+    ? {
+        ...rec.automationReadiness,
+        tier: "manual_review" as const,
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        blockers: Array.from(
+          new Set([
+            ...rec.automationReadiness.blockers,
+            "missing_commercial_anchor" as const,
+          ]),
+        ),
+        missingEvidence: Array.from(
+          new Set([
+            ...rec.automationReadiness.missingEvidence,
+            blocker === "scale"
+              ? "current_target_roas_authority"
+              : "current_break_even_roas_authority",
+          ]),
+        ),
+        reason: `${blockerLabel} is unavailable, so the persisted hard action is review-only.`,
+      }
+    : undefined;
+
+  return {
+    blocked: true as const,
+    rec: {
+      ...rec,
+      decisionState: "watch" as const,
+      stateReason: "current_commercial_target_authority_unavailable",
+      actionKind: "review_drill" as const,
+      primaryActionLabel: "Review Commercial Truth",
+      recommendedAction: "Review Commercial Truth",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      proposedAction: undefined,
+      targetValue: undefined,
+      watchSegment: "missing_target" as const,
+      rowPresentation: {
+        ...rec.rowPresentation,
+        signal: "blocker" as const,
+        blockerLabel,
+        autoBadge: false,
+      },
+      ...(automationReadiness ? { automationReadiness } : {}),
+    },
+  };
+}
+
+export function revalidateMetaStructureLanesForCurrentTargets(
+  lanes: MetaLanePayload,
+  eligibility: MetaTargetHardActionEligibility,
+): MetaLanePayload {
+  const actionNow: MetaRecommendation[] = [];
+  const movedToWatching: MetaRecommendation[] = [];
+  for (const rec of lanes.actionNow) {
+    const guarded = guardStructureRecommendationForCurrentTargets(
+      rec,
+      eligibility,
+    );
+    if (guarded.blocked) movedToWatching.push(guarded.rec);
+    else actionNow.push(guarded.rec);
+  }
+  const watching = [
+    ...lanes.watching.map(
+      (rec) => guardStructureRecommendationForCurrentTargets(rec, eligibility).rec,
+    ),
+    ...movedToWatching,
+  ];
+  const nonSales = lanes.nonSales.map(
+    (rec) => guardStructureRecommendationForCurrentTargets(rec, eligibility).rec,
+  );
+  return {
+    ...lanes,
+    actionNow,
+    watching,
+    nonSales,
+    counts: {
+      ...lanes.counts,
+      actionNow: actionNow.length,
+      watching: watching.length,
+      nonSales: nonSales.length,
+    },
+    watchingSegments: buildMetaWatchingSegments(watching),
+  };
 }
 
 export function providerCurrencyValue(
@@ -120,7 +306,12 @@ function structureUrgency(input: StructureInput): MetaOsDecisionUrgency {
   const priority = input.rec.priority;
   let level: MetaOsDecisionUrgency["level"] = "none";
   if (input.lane === "act") {
-    level = priority === "high" ? "critical" : priority === "medium" ? "high" : "medium";
+    level =
+      priority === "high"
+        ? "critical"
+        : priority === "medium"
+          ? "high"
+          : "medium";
   } else if (input.lane === "blocked") {
     level = priority === "high" ? "high" : "medium";
   } else if (priority === "high") {
@@ -224,6 +415,7 @@ function structureBudgetOwnership(rec: MetaRecommendation) {
 function structureAction(
   rec: MetaRecommendation,
   ownership: ReturnType<typeof structureBudgetOwnership>,
+  targetAuthorityBlocker: MetaTargetHardAction | null,
 ): MetaOsDecisionAction {
   const configuredTarget =
     rec.actionKind === "execute_bid"
@@ -238,6 +430,20 @@ function structureAction(
     rec.recommendedAction?.trim() ||
     rec.decision?.trim() ||
     "Review";
+
+  if (targetAuthorityBlocker) {
+    return {
+      code: "review_commercial_truth",
+      label: "Review Commercial Truth",
+      intent: "review",
+      targetLevel,
+      providerMutation: null,
+      scopeNote:
+        targetAuthorityBlocker === "scale"
+          ? "Current target ROAS authority is unavailable; no Scale action is authorized"
+          : "Current break-even ROAS authority is unavailable; no Cut action is authorized",
+    };
+  }
 
   if (rec.decisionLabel === "diagnose") {
     return {
@@ -393,14 +599,20 @@ function structureNode(
           budgetUtilization: rec.entityConfiguration.budgetUtilization ?? null,
         }
       : undefined,
-    action: structureAction(rec, ownership),
+    action: structureAction(rec, ownership, input.targetAuthorityBlocker),
     lane: input.lane,
     priority: priorityForRecommendation(rec),
     urgency: structureUrgency(input),
     confidence: rec.confidence,
-    assessment: assessmentForRecommendation(rec),
-    whyNow: rec.why || rec.summary || "Evidence unavailable.",
-    expectedImpact: rec.expectedImpact || "Cannot calculate",
+    assessment: input.targetAuthorityBlocker
+      ? "Decision Blocked"
+      : assessmentForRecommendation(rec),
+    whyNow: input.targetAuthorityBlocker
+      ? "Current commercial target authority is unavailable; the persisted verdict remains visible but cannot authorize an action."
+      : rec.why || rec.summary || "Evidence unavailable.",
+    expectedImpact: input.targetAuthorityBlocker
+      ? "Cannot calculate until commercial truth is current"
+      : rec.expectedImpact || "Cannot calculate",
     evidence: rec.evidence ?? [],
     metrics: recommendationMetrics(rec, currency),
     suppressedAlternativeCount,
@@ -457,8 +669,7 @@ function inventoryStructureNode(
         configuration.previousBidValueFormat,
       ),
       previousValueFormat: configuration.previousBidValueFormat ?? null,
-      previousValueCapturedAt:
-        configuration.previousBidValueCapturedAt ?? null,
+      previousValueCapturedAt: configuration.previousBidValueCapturedAt ?? null,
       dailyBudget: providerBudgetValue(configuration.dailyBudget),
       lifetimeBudget: providerBudgetValue(configuration.lifetimeBudget),
       budgetUtilization: configuration.budgetUtilization ?? null,
@@ -572,7 +783,13 @@ function adAssessment(decision: MetaCanonicalDecision) {
   return "Evidence Incomplete";
 }
 
-function adAction(decision: MetaCanonicalDecision): {
+function adAction(
+  decision: MetaCanonicalDecision,
+  targetHardActionEligibility: Readonly<{
+    scale: boolean;
+    cut: boolean;
+  }>,
+): {
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
 } {
@@ -600,6 +817,23 @@ function adAction(decision: MetaCanonicalDecision): {
         scopeNote:
           resolution?.nextStep ??
           "Complete the missing server evidence before changing provider state",
+      }),
+    };
+  }
+
+  if (
+    (buyerAction === "scale" || buyerAction === "cut") &&
+    !targetHardActionEligibility[buyerAction]
+  ) {
+    return {
+      lane: "blocked",
+      action: base({
+        code: "review_commercial_truth",
+        label: "Review Commercial Truth",
+        intent: "review",
+        providerMutation: null,
+        scopeNote:
+          "Current commercial target authority is unavailable; no hard Scale/Cut action is authorized",
       }),
     };
   }
@@ -754,7 +988,7 @@ function presentedCampaignRole(input: {
   trustedForAction: boolean;
 } {
   const context = input.campaignId
-    ? input.contexts.get(input.campaignId) ?? null
+    ? (input.contexts.get(input.campaignId) ?? null)
     : null;
   const contextValue = context?.kind ?? context?.suggestedKind ?? null;
   const contextSource =
@@ -783,8 +1017,8 @@ function presentedCampaignRole(input: {
         input.currentTrustedForAction ??
         Boolean(
           contextMatchesCurrentValue &&
-            context?.kind &&
-            context.source === "persisted_label",
+          context?.kind &&
+          context.source === "persisted_label",
         ),
     };
   }
@@ -817,6 +1051,10 @@ function presentedCampaignRole(input: {
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
+  targetHardActionEligibility: Readonly<{
+    scale: boolean;
+    cut: boolean;
+  }>,
 ): MetaOsAdDecision | null {
   const ad = decision.parentChain.ad;
   if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
@@ -826,7 +1064,7 @@ function adDecision(
   ) {
     return null;
   }
-  const mapped = adAction(decision);
+  const mapped = adAction(decision, targetHardActionEligibility);
   const campaignRole = presentedCampaignRole({
     campaignId: decision.parentChain.campaign?.id ?? null,
     campaignName: decision.parentChain.campaign?.name ?? null,
@@ -893,6 +1131,7 @@ function adDecision(
     },
     rawLabel: decision.sourceDecision.rawLabel,
     publishedLabel: decision.sourceDecision.label,
+    authorityProvenance: authorityProvenanceForDecision(decision),
     engineVersion: decision.sourceDecision.engineVersion,
     snapshotAsOf: decision.sourceDecision.snapshotAsOf,
     sourceGrain: decision.identityGrain === "ad" ? "ad" : "creative_context",
@@ -984,6 +1223,13 @@ function activeInventoryAd(
     },
     rawLabel: null,
     publishedLabel: "not_evaluated",
+    authorityProvenance: {
+      availability: "historical_unavailable",
+      preAuthorityLabel: null,
+      postAuthorityRawLabel: null,
+      publishedLabel: "not_evaluated",
+      firstBlocker: null,
+    },
     engineVersion: "not_evaluated",
     snapshotAsOf: fetchedDate,
     sourceGrain: "ad",
@@ -1123,6 +1369,7 @@ export function buildMetaOsDecisionsPresentation(input: {
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
+  targetHardActionEligibility?: MetaTargetHardActionEligibility;
   generatedAt?: string;
 }): MetaOsDecisionsPresentation {
   const currentAdCampaignContexts = new Map(
@@ -1131,13 +1378,35 @@ export function buildMetaOsDecisionsPresentation(input: {
       context,
     ]),
   );
+  const targetHardActionEligibility = input.targetHardActionEligibility ?? {
+    scale: true,
+    cut: true,
+  };
   const structureInputs: StructureInput[] = [
-    ...input.actionNow.map((rec) => ({ rec, lane: "act" as const })),
-    ...input.watching.map((rec) => ({ rec, lane: "monitor" as const })),
+    ...input.actionNow.map((rec) => ({
+      rec,
+      lane: "act" as const,
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
+    })),
+    ...input.watching.map((rec) => ({
+      rec,
+      lane: "monitor" as const,
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
+    })),
     ...input.nonSales.map((rec) => ({
       rec,
       lane:
         rec.decisionState === "act" ? ("act" as const) : ("monitor" as const),
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
     })),
   ]
     .filter(
@@ -1147,7 +1416,7 @@ export function buildMetaOsDecisionsPresentation(input: {
     .map((item) => ({
       ...item,
       lane:
-        item.rec.decisionLabel === "diagnose"
+        item.rec.decisionLabel === "diagnose" || item.targetAuthorityBlocker
           ? ("blocked" as const)
           : item.lane,
     }));
@@ -1164,15 +1433,17 @@ export function buildMetaOsDecisionsPresentation(input: {
     entityBuckets.set(key, bucket);
   }
 
-  const recommendationNodes = Array.from(entityBuckets.values()).map((bucket) => {
-    const sorted = bucket.slice().sort(compareStructureInputs);
-    return structureNode(
-      sorted[0]!,
-      input.currency,
-      Math.max(0, sorted.length - 1),
-      currentAdCampaignContexts,
-    );
-  });
+  const recommendationNodes = Array.from(entityBuckets.values()).map(
+    (bucket) => {
+      const sorted = bucket.slice().sort(compareStructureInputs);
+      return structureNode(
+        sorted[0]!,
+        input.currency,
+        Math.max(0, sorted.length - 1),
+        currentAdCampaignContexts,
+      );
+    },
+  );
   const selectedNodesById = new Map<string, MetaOsStructureNode>();
   for (const row of input.structureInventory ?? []) {
     const node = inventoryStructureNode(
@@ -1248,8 +1519,7 @@ export function buildMetaOsDecisionsPresentation(input: {
       (a, b) =>
         b.highestUrgency.rank - a.highestUrgency.rank ||
         (b.highestPriority.rank ?? -1) - (a.highestPriority.rank ?? -1) ||
-        (b.campaign.metrics.spend ?? -1) -
-          (a.campaign.metrics.spend ?? -1) ||
+        (b.campaign.metrics.spend ?? -1) - (a.campaign.metrics.spend ?? -1) ||
         a.id.localeCompare(b.id),
     );
 
@@ -1266,7 +1536,11 @@ export function buildMetaOsDecisionsPresentation(input: {
   );
   const adBuckets = new Map<string, MetaOsAdDecision[]>();
   for (const decision of canonical) {
-    const item = adDecision(decision, currentAdCampaignContexts);
+    const item = adDecision(
+      decision,
+      currentAdCampaignContexts,
+      targetHardActionEligibility,
+    );
     if (!item) {
       if (
         !countsProvidedByCandidateEnvelope &&
@@ -1347,6 +1621,16 @@ export function buildMetaOsDecisionsPresentation(input: {
         input.decisionReadModel.source?.authority === "native_ad"
           ? "native_ad_decision"
           : "legacy_creative_review_only",
+      health:
+        input.decisionReadModel.source?.status === "available" &&
+        input.decisionReadModel.source.authority === "native_ad" &&
+        input.decisionReadModel.source.fallbackReason == null
+          ? "healthy"
+          : "degraded",
+      fallbackReason:
+        input.decisionReadModel.source?.fallbackReason ??
+        input.decisionReadModel.unavailable?.code ??
+        null,
     },
     structure: {
       groups,

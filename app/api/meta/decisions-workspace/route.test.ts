@@ -32,6 +32,10 @@ const upstreamRouteMock = vi.hoisted(() => ({
   accountPulseGet: vi.fn(),
   laneClassificationGet: vi.fn(),
 }));
+const commercialTargetsMock = vi.hoisted(() => ({
+  hasMetaHardActionAnchor: vi.fn(),
+  readMetaCommercialTargets: vi.fn(),
+}));
 
 vi.mock("@/app/api/meta/account-pulse/route", () => ({
   GET: upstreamRouteMock.accountPulseGet,
@@ -72,11 +76,30 @@ vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
     readModelMock.readMetaDecisionsWorkspaceReadModel,
 }));
 
+vi.mock("@/lib/meta/commercial-targets", () => ({
+  hasMetaHardActionAnchor: commercialTargetsMock.hasMetaHardActionAnchor,
+  readMetaCommercialTargets: commercialTargetsMock.readMetaCommercialTargets,
+}));
+
 function jsonResponse(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function stubWorkspaceHttpUpstreams() {
+  const pulse = metaPulse();
+  const lanes = metaLanePayload();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string | URL | Request) => {
+      const pathname = new URL(String(url)).pathname;
+      if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+      if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+      return jsonResponse({ error: "unexpected" }, 404);
+    }),
+  );
 }
 
 function mockDigestSql(input?: {
@@ -158,6 +181,28 @@ describe("GET /api/meta/decisions-workspace", () => {
       scope: { businessId: "biz_1", providerAccountId: "act_1" },
     });
     readModelMock.readMetaDecisionCampaignContextRows.mockResolvedValue([]);
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "none",
+      targetRoas: null,
+      breakEvenRoas: null,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "unknown",
+      updatedAt: null,
+    });
+    commercialTargetsMock.hasMetaHardActionAnchor.mockImplementation(
+      (
+        targets: {
+          source?: string;
+          freshness?: string;
+          updatedAt?: string | null;
+        } | null,
+      ) =>
+        targets?.source === "configured_targets" &&
+        targets.freshness === "fresh" &&
+        Boolean(targets.updatedAt),
+    );
     dbMock.getDb.mockImplementation(() => {
       throw new Error("db unavailable in this unit test");
     });
@@ -308,6 +353,7 @@ describe("GET /api/meta/decisions-workspace", () => {
       businessId: "biz_1",
       providerAccountId: "act_1",
       adCandidateLimit: 120,
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       currentAds: [],
       currentAdSourceComplete: false,
     });
@@ -433,7 +479,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     });
   });
 
-  it("aligns downstream evidence reads to the latest account-scoped decision snapshot", async () => {
+  it("aligns downstream evidence reads to the latest account snapshot or native job attempt", async () => {
     assignmentsMock.getProviderAccountAssignments.mockResolvedValue({
       id: "assignment_1",
       business_id: "biz_1",
@@ -467,7 +513,9 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(
       (sql as typeof sql & { query: ReturnType<typeof vi.fn> }).query,
     ).toHaveBeenCalledWith(
-      expect.stringContaining("engine_v3_ad_decision_snapshots_daily"),
+      expect.stringMatching(
+        /engine_v3_ad_decision_snapshots_daily[\s\S]*engine_v3_job_runs/,
+      ),
       ["biz_1", "act_1"],
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -508,7 +556,17 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("forwards query and auth context, then composes queue groups and action states", async () => {
+  it("forwards query and auth context, rechecks current commercial authority, then composes the workspace", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    });
     const pulse = metaPulse({ currency: "EUR" });
     const missingActionKind = metaRec({ id: "missing" });
     delete missingActionKind.actionKind;
@@ -608,6 +666,9 @@ describe("GET /api/meta/decisions-workspace", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      commercialTargetsMock.readMetaCommercialTargets,
+    ).toHaveBeenCalledWith("biz_1");
     expect(payload.system.currency).toBe("EUR");
     expect(payload.queue.groups).toEqual([
       { key: "action", label: "Action Now", count: 3 },
@@ -669,7 +730,9 @@ describe("GET /api/meta/decisions-workspace", () => {
       expect(requestUrl.searchParams.get("status_filter")).toBe("all");
       expect(requestUrl.searchParams.get("workspace_surface")).toBe("os");
       if (requestUrl.pathname === "/api/meta/account-pulse") {
-        return jsonResponse(metaPulse({ lastSyncAt: "2026-07-13T03:05:00.000Z" }));
+        return jsonResponse(
+          metaPulse({ lastSyncAt: "2026-07-13T03:05:00.000Z" }),
+        );
       }
       if (requestUrl.pathname === "/api/meta/lane-classify") {
         return jsonResponse(metaLanePayload());
@@ -761,6 +824,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.system.killSwitchEngaged).toBe(true);
     expect(payload.banners.map((banner: { id: string }) => banner.id)).toEqual([
       "data_readiness",
+      "commercial_target_authority_missing",
       "tracking_write_gate",
       "snapshot_health",
       "meta_write_kill_switch",
@@ -772,7 +836,183 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).toBe(0);
   });
 
+  it("scopes stale commercial targets to hard Scale/Cut authority without globally blocking the workspace", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "stale",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+    });
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+      ),
+    );
+    const payload = await response.json();
+    const banner = payload.banners.find(
+      (item: { id: string }) => item.id === "stale_commercial_target_authority",
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      commercialTargetsMock.readMetaCommercialTargets,
+    ).toHaveBeenCalledWith("biz_1");
+    expect(banner).toMatchObject({
+      scope: "target_hard_actions",
+      blocking: false,
+      action: {
+        label: "Review commercial truth",
+        href: "/commercial-truth",
+      },
+    });
+    expect(banner.detail).toContain("Hard Scale/Cut authority is suppressed");
+  });
+
+  it("does not show a target-authority warning for fresh configured targets", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    });
+    const pulse = metaPulse();
+    const lanes = metaLanePayload();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") return jsonResponse(pulse);
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(
+      payload.banners.some(
+        (item: { scope?: string }) => item.scope === "target_hard_actions",
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    {
+      name: "missing",
+      targets: {
+        source: "none",
+        targetRoas: null,
+        breakEvenRoas: null,
+        targetCpa: null,
+        breakEvenCpa: null,
+        riskPosture: "balanced",
+        freshness: "unknown",
+        updatedAt: null,
+      },
+      expectedId: "commercial_target_authority_missing",
+      expectedTitle: "Commercial targets are not configured.",
+    },
+    {
+      name: "configured with unknown freshness",
+      targets: {
+        source: "configured_targets",
+        targetRoas: 2.5,
+        breakEvenRoas: 1.8,
+        targetCpa: null,
+        breakEvenCpa: null,
+        riskPosture: "balanced",
+        freshness: "unknown",
+        updatedAt: null,
+      },
+      expectedId: "stale_commercial_target_authority",
+      expectedTitle: "Commercial target freshness is unknown.",
+    },
+  ])(
+    "surfaces $name target authority as a scoped warning",
+    async ({ targets, expectedId, expectedTitle }) => {
+      commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue(
+        targets,
+      );
+      stubWorkspaceHttpUpstreams();
+      const response = await GET(
+        new NextRequest(
+          "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+        ),
+      );
+      const payload = await response.json();
+      const banner = payload.banners.find(
+        (item: { id: string }) => item.id === expectedId,
+      );
+
+      expect(response.status).toBe(200);
+      expect(banner).toMatchObject({
+        title: expectedTitle,
+        scope: "target_hard_actions",
+        blocking: false,
+      });
+    },
+  );
+
+  it("surfaces a target read failure without globally blocking review flows", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockRejectedValue(
+      new Error("target history unavailable"),
+    );
+    stubWorkspaceHttpUpstreams();
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1&surface=os",
+      ),
+    );
+    const payload = await response.json();
+    const banner = payload.banners.find(
+      (item: { id: string }) =>
+        item.id === "commercial_target_authority_unavailable",
+    );
+
+    expect(response.status).toBe(200);
+    expect(banner).toMatchObject({
+      scope: "target_hard_actions",
+      blocking: false,
+    });
+  });
+
   it("adds reviewer read-only posture from server session state without changing queue action authority", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    });
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
         sessionId: "sess_1",
@@ -843,6 +1083,98 @@ describe("GET /api/meta/decisions-workspace", () => {
       payload.banners.map((banner: { id: string }) => banner.id),
     ).toContain("reviewer_read_only");
     expect(payload.queue.actionStates.executablePause).toBe(1);
+  });
+
+  it("downgrades stale Structure hard actions across lanes, queue states, and OS actions", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "stale",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+    });
+    const cut = metaRec({
+      id: "stale-structure-cut",
+      level: "adset",
+      campaignId: "cmp_1",
+      campaignName: "Main campaign",
+      adsetId: "set_1",
+      adsetName: "Broad",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      primaryActionLabel: "Pause Ad Set",
+      proposedAction: { kind: "pause" },
+    });
+    const lanes = metaLanePayload({
+      actionNow: [cut],
+      watching: [],
+      nonSales: [],
+      healthy: [],
+      archive: [],
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") {
+          return jsonResponse(metaPulse());
+        }
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ),
+    );
+    const payload = await response.json();
+    const structureNode = payload.os.structure.groups[0].adsets[0];
+
+    expect(response.status).toBe(200);
+    expect(payload.lanes.actionNow).toHaveLength(0);
+    expect(payload.lanes.watching[0]).toMatchObject({
+      id: "stale-structure-cut",
+      decisionLabel: "cut",
+      decisionState: "watch",
+      actionKind: "review_drill",
+      primaryActionLabel: "Review Commercial Truth",
+    });
+    expect(payload.lanes.watchingSegments).toEqual([
+      expect.objectContaining({ key: "missing_target", count: 1 }),
+    ]);
+    expect(payload.queue.groups[0]).toMatchObject({
+      key: "action",
+      count: 0,
+    });
+    expect(payload.queue.groups[1]).toMatchObject({
+      key: "watching",
+      count: 1,
+    });
+    expect(payload.queue.actionStates).toMatchObject({
+      executablePause: 0,
+      reviewOnly: 1,
+    });
+    expect(structureNode).toMatchObject({
+      lane: "blocked",
+      assessment: "Decision Blocked",
+      action: {
+        code: "review_commercial_truth",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
   });
 
   it("propagates upstream failures with source metadata", async () => {

@@ -33,14 +33,21 @@ export {
 export const AD_OPERATOR_RESPONSE_JOB_NAME =
   "engine_v3_native_ad_operator_response_shadow_job";
 
+/**
+ * The immediately preceding production image still inspects this literal in
+ * operator-response constraints. Keep it in generalized constraint text so a
+ * database migrated by this image remains readable by that rollback image.
+ */
+export const NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION =
+  "v3-ad-2026-07-12-d047-authority-v2-shadow";
+
 export const AD_RECOMMENDATION_EPISODES_TABLE =
   "engine_v3_ad_recommendation_episodes";
 export const AD_OPERATOR_ACTION_RECEIPTS_TABLE =
   "engine_v3_ad_operator_action_receipts";
 export const AD_OPERATOR_RESPONSE_EVENTS_TABLE =
   "engine_v3_ad_operator_response_events";
-export const AD_OPERATOR_RESPONSES_TABLE =
-  "engine_v3_ad_operator_responses";
+export const AD_OPERATOR_RESPONSES_TABLE = "engine_v3_ad_operator_responses";
 
 export const AD_OPERATOR_DELIVERY_FIELD_KEY =
   "operator_response_delivery_v1" as const;
@@ -88,7 +95,12 @@ ALTER TABLE meta_ads_action_log
       provider_account_ref_id IS NOT NULL AND provider_account_id IS NOT NULL AND
       decision_episode_key IS NOT NULL AND decision_snapshot_id IS NOT NULL AND
       decision_evaluation_id IS NOT NULL AND
-      decision_engine_version = '${NATIVE_AD_ENGINE_VERSION}' AND
+      decision_engine_version IS NOT NULL AND
+      length(btrim(decision_engine_version)) > 0 AND
+      (
+        decision_engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+        decision_engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+      ) AND
       decision_hash ~ '^[0-9a-f]{64}$' AND idempotency_key IS NOT NULL AND
       action IN ('pause', 'resume') AND
       ((status = 'pending' AND terminal_finalized_at IS NULL AND
@@ -104,6 +116,138 @@ ALTER TABLE meta_ads_action_log
 CREATE UNIQUE INDEX meta_ads_action_log_decision_idempotency_unique
   ON meta_ads_action_log (business_id, idempotency_key)
   WHERE source = 'decision_origin';
+`;
+
+export const AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL = `
+DO $native_operator_epoch_compatibility$
+BEGIN
+  IF to_regclass('meta_ads_action_log') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT required.column_name
+      FROM unnest(ARRAY[
+        'decision_contract_version', 'provider_account_ref_id',
+        'provider_account_id', 'decision_episode_key',
+        'decision_snapshot_id', 'decision_evaluation_id',
+        'decision_engine_version', 'decision_hash', 'idempotency_key',
+        'dry_run', 'provider_verified', 'verification_entity_id',
+        'verification_status', 'terminal_finalized_at'
+      ]::text[]) AS required(column_name)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns existing
+        WHERE existing.table_schema = current_schema()
+          AND existing.table_name = 'meta_ads_action_log'
+          AND existing.column_name = required.column_name
+      )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('meta_ads_action_log')
+        AND conname = 'meta_ads_action_log_decision_origin_typed_check'
+        AND position(
+          'length(btrim(decision_engine_version))'
+          IN replace(lower(pg_get_constraintdef(oid, true)), ' ', '')
+        ) > 0
+        AND position(
+          'decision_engine_versionisnotnull'
+          IN replace(lower(pg_get_constraintdef(oid, true)), ' ', '')
+        ) > 0
+        AND position(
+          '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+          IN lower(pg_get_constraintdef(oid, true))
+        ) > 0
+    )
+  THEN
+    ALTER TABLE meta_ads_action_log
+      DROP CONSTRAINT IF EXISTS meta_ads_action_log_decision_origin_typed_check;
+    ALTER TABLE meta_ads_action_log
+      ADD CONSTRAINT meta_ads_action_log_decision_origin_typed_check CHECK (
+        source <> 'decision_origin' OR (
+          decision_contract_version =
+            '${DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION}' AND
+          provider_account_ref_id IS NOT NULL AND
+          provider_account_id IS NOT NULL AND
+          decision_episode_key IS NOT NULL AND
+          decision_snapshot_id IS NOT NULL AND
+          decision_evaluation_id IS NOT NULL AND
+          decision_engine_version IS NOT NULL AND
+          length(btrim(decision_engine_version)) > 0 AND
+          (
+            decision_engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+            decision_engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+          ) AND
+          decision_hash ~ '^[0-9a-f]{64}$' AND
+          idempotency_key IS NOT NULL AND
+          action IN ('pause', 'resume') AND
+          ((status = 'pending' AND terminal_finalized_at IS NULL AND
+            provider_verified = false AND verified_at IS NULL) OR
+           (status <> 'pending' AND terminal_finalized_at IS NOT NULL)) AND
+          (NOT provider_verified OR (
+            status = 'success' AND NOT dry_run AND verified_at IS NOT NULL AND
+            verification_entity_id = ad_id AND
+            verification_status IS NOT NULL
+          ))
+        )
+      );
+  END IF;
+
+  IF to_regclass('engine_v3_ad_recommendation_episodes') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('engine_v3_ad_recommendation_episodes')
+        AND conname = 'engine_v3_ad_response_episode_native_epoch_check'
+        AND position(
+          'length(btrim(engine_version))'
+          IN replace(lower(pg_get_constraintdef(oid, true)), ' ', '')
+        ) > 0
+        AND position(
+          '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+          IN lower(pg_get_constraintdef(oid, true))
+        ) > 0
+    )
+  THEN
+    ALTER TABLE engine_v3_ad_recommendation_episodes
+      DROP CONSTRAINT IF EXISTS engine_v3_ad_response_episode_native_epoch_check;
+    ALTER TABLE engine_v3_ad_recommendation_episodes
+      ADD CONSTRAINT engine_v3_ad_response_episode_native_epoch_check
+      CHECK (
+        length(btrim(engine_version)) > 0 AND (
+          engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+          engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+        )
+      );
+  END IF;
+
+  IF to_regclass('engine_v3_ad_operator_action_receipts') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('engine_v3_ad_operator_action_receipts')
+        AND conname = 'engine_v3_ad_action_receipt_source_epoch_check'
+        AND position(
+          'length(btrim(source_engine_version))'
+          IN replace(lower(pg_get_constraintdef(oid, true)), ' ', '')
+        ) > 0
+        AND position(
+          '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+          IN lower(pg_get_constraintdef(oid, true))
+        ) > 0
+    )
+  THEN
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      DROP CONSTRAINT IF EXISTS engine_v3_ad_operator_action_receipts_source_engine_version_check;
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      DROP CONSTRAINT IF EXISTS engine_v3_ad_action_receipt_source_epoch_check;
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      ADD CONSTRAINT engine_v3_ad_action_receipt_source_epoch_check
+      CHECK (
+        length(btrim(source_engine_version)) > 0 AND (
+          source_engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+          source_engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+        )
+      );
+  END IF;
+END
+$native_operator_epoch_compatibility$;
 `;
 
 export const AD_OPERATOR_RESPONSE_SCHEMA_SQL = `
@@ -180,7 +324,12 @@ CREATE TABLE engine_v3_ad_recommendation_episodes (
 	  CONSTRAINT engine_v3_ad_response_episode_native_identity_check
 	    CHECK (decision_entity_id = ad_id AND length(btrim(ad_id)) > 0),
 	  CONSTRAINT engine_v3_ad_response_episode_native_epoch_check
-	    CHECK (engine_version = '${NATIVE_AD_ENGINE_VERSION}'),
+	    CHECK (
+	      length(btrim(engine_version)) > 0 AND (
+	        engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+	        engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+	      )
+	    ),
 	  CONSTRAINT engine_v3_ad_response_episode_job_run_fk
 	    FOREIGN KEY (job_run_id) REFERENCES engine_v3_job_runs(id)
 	    ON DELETE RESTRICT,
@@ -236,8 +385,7 @@ CREATE TABLE engine_v3_ad_operator_action_receipts (
   source_ad_id text NOT NULL,
   source_snapshot_id uuid NOT NULL,
   source_evaluation_id uuid NOT NULL,
-  source_engine_version text NOT NULL
-    CHECK (source_engine_version = '${NATIVE_AD_ENGINE_VERSION}'),
+  source_engine_version text NOT NULL,
   source_decision_hash char(64) NOT NULL
     CHECK (source_decision_hash ~ '^[0-9a-f]{64}$'),
   target_entity_type text NOT NULL
@@ -274,6 +422,13 @@ CREATE TABLE engine_v3_ad_operator_action_receipts (
 	    id, episode_key, business_ref_id, business_id,
 	    provider_account_ref_id, provider_account_id, source_action_log_id
 	  ),
+	  CONSTRAINT engine_v3_ad_action_receipt_source_epoch_check
+	    CHECK (
+	      length(btrim(source_engine_version)) > 0 AND (
+	        source_engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
+	        source_engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+	      )
+	    ),
 	  CONSTRAINT engine_v3_ad_action_receipt_event_identity_unique UNIQUE (
 	    id, episode_key, business_ref_id, business_id,
 	    provider_account_ref_id, provider_account_id
@@ -1298,17 +1453,19 @@ export async function inspectAdOperatorResponseSchemaCapability(
     WHERE schemaname = current_schema()
       AND tablename = ANY($1::text[])
     `,
-    [[
-      AD_RECOMMENDATION_EPISODES_TABLE,
-      AD_OPERATOR_ACTION_RECEIPTS_TABLE,
-      AD_OPERATOR_RESPONSE_EVENTS_TABLE,
-      AD_OPERATOR_RESPONSES_TABLE,
-      "meta_ads_action_log",
-      "meta_entity_state_history",
-      "meta_entity_tombstones",
-      "engine_v3_ad_decision_snapshots_daily",
-      "engine_v3_job_runs",
-    ]],
+    [
+      [
+        AD_RECOMMENDATION_EPISODES_TABLE,
+        AD_OPERATOR_ACTION_RECEIPTS_TABLE,
+        AD_OPERATOR_RESPONSE_EVENTS_TABLE,
+        AD_OPERATOR_RESPONSES_TABLE,
+        "meta_ads_action_log",
+        "meta_entity_state_history",
+        "meta_entity_tombstones",
+        "engine_v3_ad_decision_snapshots_daily",
+        "engine_v3_job_runs",
+      ],
+    ],
   );
   const constraints = await db.query<ConstraintRow>(
     `
@@ -1323,16 +1480,18 @@ export async function inspectAdOperatorResponseSchemaCapability(
     WHERE namespace_row.nspname = current_schema()
       AND relation.relname = ANY($1::text[])
     `,
-    [[
-      AD_RECOMMENDATION_EPISODES_TABLE,
-      AD_OPERATOR_ACTION_RECEIPTS_TABLE,
-      AD_OPERATOR_RESPONSE_EVENTS_TABLE,
-      AD_OPERATOR_RESPONSES_TABLE,
-      "meta_ads_action_log",
-      "meta_entity_state_history",
-      "meta_entity_tombstones",
-      "engine_v3_ad_decision_snapshots_daily",
-    ]],
+    [
+      [
+        AD_RECOMMENDATION_EPISODES_TABLE,
+        AD_OPERATOR_ACTION_RECEIPTS_TABLE,
+        AD_OPERATOR_RESPONSE_EVENTS_TABLE,
+        AD_OPERATOR_RESPONSES_TABLE,
+        "meta_ads_action_log",
+        "meta_entity_state_history",
+        "meta_entity_tombstones",
+        "engine_v3_ad_decision_snapshots_daily",
+      ],
+    ],
   );
   const triggers = await db.query<TriggerRow>(
     `
@@ -1421,11 +1580,7 @@ export async function inspectAdOperatorResponseSchemaCapability(
     }
   }
   for (const [table, columnsForIndex, name] of [
-    [
-      AD_RECOMMENDATION_EPISODES_TABLE,
-      ["episode_key"],
-      "episode_key_unique",
-    ],
+    [AD_RECOMMENDATION_EPISODES_TABLE, ["episode_key"], "episode_key_unique"],
     [
       AD_RECOMMENDATION_EPISODES_TABLE,
       [
@@ -1608,6 +1763,10 @@ export async function inspectAdOperatorResponseSchemaCapability(
     ],
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
+      "engine_v3_ad_action_receipt_source_epoch_check",
+    ],
+    [
+      AD_OPERATOR_ACTION_RECEIPTS_TABLE,
       "engine_v3_ad_action_receipt_action_log_fk",
     ],
     [
@@ -1632,10 +1791,7 @@ export async function inspectAdOperatorResponseSchemaCapability(
     ],
     [AD_OPERATOR_RESPONSES_TABLE, "engine_v3_ad_responses_episode_fk"],
     [AD_OPERATOR_RESPONSES_TABLE, "engine_v3_ad_responses_job_run_fk"],
-    [
-      AD_OPERATOR_RESPONSES_TABLE,
-      "engine_v3_ad_responses_action_receipt_fk",
-    ],
+    [AD_OPERATOR_RESPONSES_TABLE, "engine_v3_ad_responses_action_receipt_fk"],
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
       "engine_v3_ad_action_receipt_time_check",
@@ -1785,7 +1941,10 @@ export async function inspectAdOperatorResponseSchemaCapability(
       AD_OPERATOR_RESPONSE_EVENTS_TABLE,
       "engine_v3_ad_response_events_job_run_fk",
       "f",
-      ["foreign key (job_run_id)", "references engine_v3_job_runs(id) on delete restrict"],
+      [
+        "foreign key (job_run_id)",
+        "references engine_v3_job_runs(id) on delete restrict",
+      ],
     ],
     [
       AD_OPERATOR_RESPONSES_TABLE,
@@ -1809,7 +1968,10 @@ export async function inspectAdOperatorResponseSchemaCapability(
       AD_OPERATOR_RESPONSES_TABLE,
       "engine_v3_ad_responses_job_run_fk",
       "f",
-      ["foreign key (job_run_id)", "references engine_v3_job_runs(id) on delete restrict"],
+      [
+        "foreign key (job_run_id)",
+        "references engine_v3_job_runs(id) on delete restrict",
+      ],
     ],
   ] as const) {
     const row = constraintByKey.get(`${table}.${name}`);
@@ -1836,7 +1998,8 @@ export async function inspectAdOperatorResponseSchemaCapability(
         "decision_snapshot_id",
         "decision_evaluation_id",
         "decision_engine_version",
-        NATIVE_AD_ENGINE_VERSION,
+        "length",
+        "btrim",
         "decision_hash",
         "idempotency_key",
         "terminal_finalized_at",
@@ -1859,7 +2022,12 @@ export async function inspectAdOperatorResponseSchemaCapability(
     [
       AD_RECOMMENDATION_EPISODES_TABLE,
       "engine_v3_ad_response_episode_native_epoch_check",
-      ["engine_version", NATIVE_AD_ENGINE_VERSION],
+      ["engine_version", "length", "btrim"],
+    ],
+    [
+      AD_OPERATOR_ACTION_RECEIPTS_TABLE,
+      "engine_v3_ad_action_receipt_source_epoch_check",
+      ["source_engine_version", "length", "btrim"],
     ],
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
@@ -1869,12 +2037,25 @@ export async function inspectAdOperatorResponseSchemaCapability(
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
       "engine_v3_ad_action_receipt_verification_check",
-      ["provider_verified", "action_status", "success", "dry_run", "verified_at", "verification_entity_id"],
+      [
+        "provider_verified",
+        "action_status",
+        "success",
+        "dry_run",
+        "verified_at",
+        "verification_entity_id",
+      ],
     ],
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
       "engine_v3_ad_action_receipt_successor_check",
-      ["operator_action", "successor_kind", "resulting_ad_id", "target_entity_type", "target_entity_id"],
+      [
+        "operator_action",
+        "successor_kind",
+        "resulting_ad_id",
+        "target_entity_type",
+        "target_entity_id",
+      ],
     ],
     [
       AD_OPERATOR_ACTION_RECEIPTS_TABLE,
@@ -1884,7 +2065,13 @@ export async function inspectAdOperatorResponseSchemaCapability(
     [
       AD_OPERATOR_RESPONSE_EVENTS_TABLE,
       "engine_v3_ad_response_event_source_check",
-      ["evidence_kind", "action_receipt_id", "state_history_id", "tombstone_id", "evidence_source_id"],
+      [
+        "evidence_kind",
+        "action_receipt_id",
+        "state_history_id",
+        "tombstone_id",
+        "evidence_source_id",
+      ],
     ],
     [
       AD_OPERATOR_RESPONSE_EVENTS_TABLE,
@@ -1899,7 +2086,12 @@ export async function inspectAdOperatorResponseSchemaCapability(
     [
       AD_OPERATOR_RESPONSES_TABLE,
       "engine_v3_ad_response_source_completion_check",
-      ["source_complete", "window_closed", "complete_state_target_count", "required_state_target_count"],
+      [
+        "source_complete",
+        "window_closed",
+        "complete_state_target_count",
+        "required_state_target_count",
+      ],
     ],
     [
       AD_OPERATOR_RESPONSES_TABLE,
@@ -1914,7 +2106,12 @@ export async function inspectAdOperatorResponseSchemaCapability(
     [
       AD_OPERATOR_RESPONSES_TABLE,
       "engine_v3_ad_response_receipt_lineage_check",
-      ["operator_response_detected", "action_receipt_id", "action_log_id", "detected_at"],
+      [
+        "operator_response_detected",
+        "action_receipt_id",
+        "action_log_id",
+        "detected_at",
+      ],
     ],
     [
       AD_OPERATOR_RESPONSES_TABLE,
@@ -2003,8 +2200,7 @@ export async function inspectAdOperatorResponseSchemaCapability(
           "execute function enforce_meta_ads_decision_terminal_receipt()",
         ) ||
         terminalReceiptBodyFragments.some(
-          (fragment) =>
-            !functionDefinition.includes(normalizedIndex(fragment)),
+          (fragment) => !functionDefinition.includes(normalizedIndex(fragment)),
         )
       );
     })
@@ -2872,10 +3068,7 @@ function mapEpisode(row: EpisodeCandidateRow | StoredEpisodeRow) {
     engineVersion: stringValue(row.engine_version, "engine_version"),
     scopeType: stringValue(row.scope_type, "scope_type"),
     scopeId: stringValue(row.scope_id, "scope_id"),
-    snapshotId: stringValue(
-      row.decision_snapshot_id,
-      "decision_snapshot_id",
-    ),
+    snapshotId: stringValue(row.decision_snapshot_id, "decision_snapshot_id"),
     evaluationId: stringValue(row.evaluation_id, "evaluation_id"),
     inputHash: stringValue(row.input_hash, "input_hash"),
     decisionHash: stringValue(row.decision_hash, "decision_hash"),
@@ -2983,7 +3176,9 @@ export async function persistAdRecommendationEpisodes(
   if (episodes.length === 0) return 0;
   const episodeKeys = new Set(episodes.map((episode) => episode.episodeKey));
   if (episodeKeys.size !== episodes.length) {
-    throw new TypeError("Recommendation episode batch contains duplicate keys.");
+    throw new TypeError(
+      "Recommendation episode batch contains duplicate keys.",
+    );
   }
   const rows = await db.query<IdRow>(INSERT_AD_RECOMMENDATION_EPISODES_QUERY, [
     JSON.stringify(episodePersistencePayload(episodes, capturedAt, jobRunId)),
@@ -3031,7 +3226,9 @@ function mapActionLineage(row: ActionLineageRow): {
     !isActionSemantic(row.operator_action) ||
     !isTargetEntityType(row.target_entity_type)
   ) {
-    throw new TypeError("Immutable action receipt contains an invalid typed action.");
+    throw new TypeError(
+      "Immutable action receipt contains an invalid typed action.",
+    );
   }
   const contractVersion = stringValue(row.contract_version, "contract_version");
   if (
@@ -3220,8 +3417,7 @@ function mapState(row: StateRow): {
         row.budget_origin === "not_applicable"
           ? row.budget_origin
           : "not_observed",
-      presence:
-        row.presence === "present" ? "present" : "absent_unconfirmed",
+      presence: row.presence === "present" ? "present" : "absent_unconfirmed",
       observedAt: stringValue(row.observed_at, "observed_at"),
       capturedAt: stringValue(row.captured_at, "captured_at"),
       stateHash: stringValue(row.state_hash, "state_hash"),
@@ -3267,7 +3463,10 @@ function stateTargetPayload(input: {
     const window = resolveAdOperatorResponseWindow({
       recommendedAt: episode.recommendedAt,
     });
-    const add = (entityType: AdOperatorTargetEntityType, entityId: string | null) => {
+    const add = (
+      entityType: AdOperatorTargetEntityType,
+      entityId: string | null,
+    ) => {
       if (!entityId) return;
       const key = `${episode.episodeKey}\u0000${entityType}\u0000${entityId}`;
       targets.set(key, {
@@ -3315,7 +3514,9 @@ export function buildAdOperatorResponsePersistenceBatch(input: {
         ? entry.payload.targetEntityId
         : entry.payload.entityId;
     if (!isTargetEntityType(entityType) || typeof entityId !== "string") {
-      throw new TypeError("Operator-response evidence lacks exact entity identity.");
+      throw new TypeError(
+        "Operator-response evidence lacks exact entity identity.",
+      );
     }
     const evidenceJson = {
       role: entry.role,
@@ -3546,7 +3747,9 @@ export async function persistAdOperatorResponseBatches(
     eventsWritten !== eventRows.length ||
     returnedResponseProof.size !== responseRows.length
   ) {
-    throw new Error("Response replacement cardinality proof did not reconcile.");
+    throw new Error(
+      "Response replacement cardinality proof did not reconcile.",
+    );
   }
   for (const [key, response] of responseByKey) {
     if (
@@ -3557,7 +3760,10 @@ export async function persistAdOperatorResponseBatches(
     }
     const expectedEventHashes = [...(eventsByKey.get(key) ?? [])].sort();
     const actualEventHashes = [...(returnedEventProof.get(key) ?? [])].sort();
-    if (canonicalSha256(expectedEventHashes) !== canonicalSha256(actualEventHashes)) {
+    if (
+      canonicalSha256(expectedEventHashes) !==
+      canonicalSha256(actualEventHashes)
+    ) {
       throw new Error("Evidence replacement hash proof did not reconcile.");
     }
   }
@@ -3636,9 +3842,7 @@ function mapReadResponse(row: ResponseReadRow): PersistedAdOperatorResponse {
     observationStatus !== "observed_no_response" &&
     observationStatus !== "unknown_incomplete"
   ) {
-    throw new TypeError(
-      `Unsupported observation_status: ${observationStatus}`,
-    );
+    throw new TypeError(`Unsupported observation_status: ${observationStatus}`);
   }
   return {
     responseId: stringValue(row.response_id, "response_id"),
@@ -3701,7 +3905,9 @@ function mapReadResponse(row: ResponseReadRow): PersistedAdOperatorResponse {
       row.complete_state_target_count,
       "complete_state_target_count",
     ),
-    diagnostics: Array.isArray(row.diagnostics_json) ? row.diagnostics_json : [],
+    diagnostics: Array.isArray(row.diagnostics_json)
+      ? row.diagnostics_json
+      : [],
     evidenceHashes: Array.isArray(row.evidence_hashes_json)
       ? row.evidence_hashes_json.filter(
           (value): value is string => typeof value === "string",
@@ -3735,14 +3941,17 @@ export async function readAdOperatorResponses(input: {
       `Native operator responses require ${NATIVE_AD_ENGINE_VERSION}.`,
     );
   }
-  const rows = await db.query<ResponseReadRow>(READ_AD_OPERATOR_RESPONSES_QUERY, [
-    input.businessId,
-    nullableString(input.providerAccountId),
-    nullableString(input.adId),
-    engineVersion,
-    nullableString(input.cutoff),
-    limit,
-  ]);
+  const rows = await db.query<ResponseReadRow>(
+    READ_AD_OPERATOR_RESPONSES_QUERY,
+    [
+      input.businessId,
+      nullableString(input.providerAccountId),
+      nullableString(input.adId),
+      engineVersion,
+      nullableString(input.cutoff),
+      limit,
+    ],
+  );
   return rows.map(mapReadResponse);
 }
 
@@ -3804,7 +4013,9 @@ export function adOperatorResponseJobAdvisoryLockKey(
 
 class AdOperatorResponseSchemaNotReadyError extends Error {
   constructor(readonly missing: string[]) {
-    super(`Native ad operator-response schema is not ready: ${missing.join(", ")}`);
+    super(
+      `Native ad operator-response schema is not ready: ${missing.join(", ")}`,
+    );
     this.name = "AdOperatorResponseSchemaNotReadyError";
   }
 }
@@ -3969,10 +4180,11 @@ export async function executeAdOperatorResponseJob(
     };
   }
   await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
-  const [lock] = await db.query<Record<string, unknown> & { acquired: unknown }>(
-    "SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired",
-    [adOperatorResponseJobAdvisoryLockKey(normalized).toString()],
-  );
+  const [lock] = await db.query<
+    Record<string, unknown> & { acquired: unknown }
+  >("SELECT pg_try_advisory_xact_lock($1::bigint) AS acquired", [
+    adOperatorResponseJobAdvisoryLockKey(normalized).toString(),
+  ]);
   if (lock?.acquired !== true) {
     const durationMs = Date.now() - startedAt;
     const errorMessage =
@@ -4122,12 +4334,11 @@ export async function executeAdOperatorResponseJob(
       durationMs,
     };
   } catch (error) {
-    await db.query("ROLLBACK TO SAVEPOINT engine_v3_ad_operator_response_job_work");
-    const durationMs = Date.now() - startedAt;
-    await markAdOperatorResponseJobFailed(
-      { jobRunId, durationMs, error },
-      db,
+    await db.query(
+      "ROLLBACK TO SAVEPOINT engine_v3_ad_operator_response_job_work",
     );
+    const durationMs = Date.now() - startedAt;
+    await markAdOperatorResponseJobFailed({ jobRunId, durationMs, error }, db);
     return {
       jobRunId,
       status: "failed",

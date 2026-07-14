@@ -7,6 +7,8 @@ function decision(): DecisionOutput {
     creativeId: "creative-1",
     creativeName: "Creative 1",
     label: "cut",
+    preAuthorityLabel: "cut",
+    authorityBlocker: null,
     reason: "Clear loser.",
     confidence: 82,
     truthSource: "commercial_truth",

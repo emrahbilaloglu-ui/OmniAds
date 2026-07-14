@@ -32,7 +32,18 @@ import type { DbClient } from "@/lib/db";
 import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
 import { inspectNativeAdCalibrationSchemaCapability } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 import { inspectAdDecisionOutcomeSchemaCapability } from "@/lib/creative-decision-engine/jobs/ad-decision-outcomes-job";
-import { inspectAdOperatorResponseSchemaCapability } from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
+import {
+  AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL,
+  inspectAdOperatorResponseSchemaCapability,
+  NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION,
+} from "@/lib/creative-decision-engine/jobs/ad-operator-response-job";
+import { AD_DECISIONS_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
+import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "@/lib/creative-decision-engine/execution-safety";
+import {
+  NATIVE_DECISION_RUNNING_GRACE_MS,
+  READ_NATIVE_DECISION_GENERATION_QUERY,
+} from "@/lib/meta/decisions-workspace-read-model";
 import { createControlledExperimentRegistryStore } from "@/lib/meta/controlled-experiment-registry";
 
 const FORBIDDEN_PORTS = new Set([15432, 5432]);
@@ -40,6 +51,7 @@ const EPHEMERAL_DB_NAME = "adsecute_migrations_from_zero";
 const EPHEMERAL_DB_USER = "postgres";
 const REQUIRED_TABLES = [
   "engine_v3_decision_snapshots_daily",
+  "engine_v3_decision_outcomes_daily",
   "engine_v3_decision_evaluation_contexts",
   "engine_v3_decision_evaluations",
   "engine_v3_campaign_context_daily",
@@ -78,20 +90,39 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
   {
     table: "engine_v3_decision_snapshots_daily",
+    column: "pre_authority_label",
+  },
+  { table: "engine_v3_decision_snapshots_daily", column: "authority_blocker" },
+  { table: "engine_v3_decision_outcomes_daily", column: "pre_authority_label" },
+  { table: "engine_v3_decision_outcomes_daily", column: "authority_blocker" },
+  {
+    table: "engine_v3_decision_snapshots_daily",
     column: "blocked_action_type",
   },
   { table: "engine_v3_decision_snapshots_daily", column: "evaluation_id" },
   { table: "engine_v3_decision_snapshots_daily", column: "input_hash" },
   { table: "engine_v3_decision_snapshots_daily", column: "decision_hash" },
-  { table: "engine_v3_decision_evaluation_contexts", column: "business_ref_id" },
+  {
+    table: "engine_v3_decision_evaluation_contexts",
+    column: "business_ref_id",
+  },
   { table: "engine_v3_decision_evaluation_contexts", column: "as_of_date" },
   { table: "engine_v3_decision_evaluation_contexts", column: "engine_version" },
   { table: "engine_v3_decision_evaluation_contexts", column: "scope_type" },
   { table: "engine_v3_decision_evaluation_contexts", column: "scope_id" },
-  { table: "engine_v3_decision_evaluation_contexts", column: "contract_version" },
+  {
+    table: "engine_v3_decision_evaluation_contexts",
+    column: "contract_version",
+  },
   { table: "engine_v3_decision_evaluation_contexts", column: "context_json" },
-  { table: "engine_v3_decision_evaluation_contexts", column: "account_profile_json" },
-  { table: "engine_v3_decision_evaluation_contexts", column: "data_health_json" },
+  {
+    table: "engine_v3_decision_evaluation_contexts",
+    column: "account_profile_json",
+  },
+  {
+    table: "engine_v3_decision_evaluation_contexts",
+    column: "data_health_json",
+  },
   { table: "engine_v3_decision_evaluation_contexts", column: "flags_json" },
   { table: "engine_v3_decision_evaluation_contexts", column: "context_hash" },
   { table: "engine_v3_decision_evaluation_contexts", column: "job_run_id" },
@@ -171,6 +202,14 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   },
   {
     table: "engine_v3_ad_decision_snapshots_daily",
+    column: "pre_authority_label",
+  },
+  {
+    table: "engine_v3_ad_decision_snapshots_daily",
+    column: "authority_blocker",
+  },
+  {
+    table: "engine_v3_ad_decision_snapshots_daily",
     column: "idempotency_key",
   },
   { table: "meta_ads_action_log", column: "decision_episode_key" },
@@ -190,6 +229,14 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
     column: "source_manifest_hash",
   },
   {
+    table: "engine_v3_ad_decision_outcomes_daily",
+    column: "pre_authority_label",
+  },
+  {
+    table: "engine_v3_ad_decision_outcomes_daily",
+    column: "authority_blocker",
+  },
+  {
     table: "engine_v3_ad_decision_outcome_publications",
     column: "active_outcome_run_id",
   },
@@ -202,12 +249,31 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
     column: "confidence_95_lower",
   },
 ];
+const AUTHORITY_PROVENANCE_TABLES = [
+  ["engine_v3_decision_snapshots_daily", "engine_v3_decision_snapshots"],
+  ["engine_v3_decision_outcomes_daily", "engine_v3_decision_outcomes"],
+  ["engine_v3_ad_decision_snapshots_daily", "engine_v3_ad_snapshots"],
+  ["engine_v3_ad_decision_outcomes_daily", "engine_v3_ad_outcomes"],
+] as const;
+
 const REQUIRED_CONSTRAINTS: ReadonlyArray<{
   table: string;
   constraint: string;
   type: "c" | "f" | "u";
   deleteAction?: "r";
 }> = [
+  ...AUTHORITY_PROVENANCE_TABLES.flatMap(([table, prefix]) => [
+    {
+      table,
+      constraint: `${prefix}_pre_authority_label_check`,
+      type: "c" as const,
+    },
+    {
+      table,
+      constraint: `${prefix}_authority_blocker_check`,
+      type: "c" as const,
+    },
+  ]),
   {
     table: "engine_v3_decision_evaluation_contexts",
     constraint: "engine_v3_eval_contexts_business_fk",
@@ -586,7 +652,10 @@ async function findFreeSafePort(): Promise<number> {
 const PG_TOOL_ENV = { ...process.env, LC_ALL: "C" };
 
 function runSync(command: string, args: string[], label: string) {
-  const result = spawnSync(command, args, { encoding: "utf8", env: PG_TOOL_ENV });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    env: PG_TOOL_ENV,
+  });
   if (result.error) {
     throw new Error(`${label} failed to spawn: ${result.error.message}`);
   }
@@ -620,26 +689,23 @@ async function runChildScript(
   runLabel: string,
 ): Promise<void> {
   log(`running ${runLabel}...`);
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", scriptPath],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        // Pre-set so scripts/run-migrations.ts's loadEnvConfig (.env.local →
-        // prod tunnel) can never override them: @next/env skips keys that
-        // already exist in process.env.
-        DATABASE_URL: databaseUrl,
-        DATABASE_URL_UNPOOLED: databaseUrl,
-        PGHOST: "127.0.0.1",
-        PGDATABASE: EPHEMERAL_DB_NAME,
-        PGUSER: EPHEMERAL_DB_USER,
-        ENABLE_RUNTIME_MIGRATIONS: "1",
-      },
+  const child = spawn(process.execPath, ["--import", "tsx", scriptPath], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      // Pre-set so scripts/run-migrations.ts's loadEnvConfig (.env.local →
+      // prod tunnel) can never override them: @next/env skips keys that
+      // already exist in process.env.
+      DATABASE_URL: databaseUrl,
+      DATABASE_URL_UNPOOLED: databaseUrl,
+      PGHOST: "127.0.0.1",
+      PGDATABASE: EPHEMERAL_DB_NAME,
+      PGUSER: EPHEMERAL_DB_USER,
+      ENABLE_RUNTIME_MIGRATIONS: "1",
+      ADSECUTE_EPHEMERAL_DB_SEAM: "1",
     },
-  );
+  });
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.once("error", reject);
@@ -670,7 +736,9 @@ function dbAdapter(client: Client): DbClient {
   };
   return Object.assign(
     (() => {
-      throw new Error("Migration capability checks use parameterized query only.");
+      throw new Error(
+        "Migration capability checks use parameterized query only.",
+      );
     }) as unknown as DbClient,
     { query },
   );
@@ -763,7 +831,12 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
       }
     }
 
-    for (const { table, constraint, type, deleteAction } of REQUIRED_CONSTRAINTS) {
+    for (const {
+      table,
+      constraint,
+      type,
+      deleteAction,
+    } of REQUIRED_CONSTRAINTS) {
       const { rows } = await client.query<{
         constraint_type: string;
         delete_action: string;
@@ -850,6 +923,213 @@ type TargetHistoryBackfillCases = {
   existingHistoryBusinessId: string;
 };
 
+const PRIOR_NATIVE_OPERATOR_EPOCH = NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION;
+
+async function seedPriorEpochOperatorConstraints(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query(`
+      ALTER TABLE meta_ads_action_log
+        DROP CONSTRAINT meta_ads_action_log_decision_origin_typed_check;
+      ALTER TABLE meta_ads_action_log
+        ADD CONSTRAINT meta_ads_action_log_decision_origin_typed_check
+        CHECK (
+          source <> 'decision_origin' OR
+          decision_engine_version = '${PRIOR_NATIVE_OPERATOR_EPOCH}'
+        );
+      ALTER TABLE engine_v3_ad_recommendation_episodes
+        DROP CONSTRAINT engine_v3_ad_response_episode_native_epoch_check;
+      ALTER TABLE engine_v3_ad_recommendation_episodes
+        ADD CONSTRAINT engine_v3_ad_response_episode_native_epoch_check
+        CHECK (engine_version = '${PRIOR_NATIVE_OPERATOR_EPOCH}');
+      ALTER TABLE engine_v3_ad_operator_action_receipts
+        DROP CONSTRAINT engine_v3_ad_action_receipt_source_epoch_check;
+      ALTER TABLE engine_v3_ad_operator_action_receipts
+        ADD CONSTRAINT engine_v3_ad_operator_action_receipts_source_engine_version_check
+        CHECK (source_engine_version = '${PRIOR_NATIVE_OPERATOR_EPOCH}');
+    `);
+    log("prior-epoch native operator constraints seeded.");
+  } finally {
+    await client.end();
+  }
+}
+
+async function assertNativeOperatorEpochCompatibility(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{
+      oid: string;
+      table_name: string;
+      constraint_name: string;
+      definition: string;
+    }>(`
+      SELECT constraint_row.oid::text AS oid,
+        relation.relname AS table_name,
+        constraint_row.conname AS constraint_name,
+        pg_get_constraintdef(constraint_row.oid, true) AS definition
+      FROM pg_constraint constraint_row
+      JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+      WHERE (relation.relname, constraint_row.conname) IN (
+        ('meta_ads_action_log', 'meta_ads_action_log_decision_origin_typed_check'),
+        ('engine_v3_ad_recommendation_episodes', 'engine_v3_ad_response_episode_native_epoch_check'),
+        ('engine_v3_ad_operator_action_receipts', 'engine_v3_ad_action_receipt_source_epoch_check')
+      )
+    `);
+    if (rows.length !== 3) {
+      throw new Error(
+        "Native operator epoch compatibility constraints are incomplete.",
+      );
+    }
+    for (const row of rows) {
+      const definition = row.definition.toLowerCase();
+      if (
+        !definition.includes("length") ||
+        !definition.includes("btrim") ||
+        !definition.includes(PRIOR_NATIVE_OPERATOR_EPOCH.toLowerCase())
+      ) {
+        throw new Error(
+          `Native operator epoch constraint was not generalized: ${row.table_name}.${row.constraint_name}`,
+        );
+      }
+      if (
+        row.table_name === "meta_ads_action_log" &&
+        !definition
+          .replaceAll(" ", "")
+          .includes("decision_engine_versionisnotnull")
+      ) {
+        throw new Error(
+          "Decision-origin action constraint permits a null engine version.",
+        );
+      }
+    }
+
+    await client.query("BEGIN");
+    for (const [probe, table, column] of [
+      [
+        "native_episode_epoch_probe",
+        "engine_v3_ad_recommendation_episodes",
+        "engine_version",
+      ],
+      [
+        "native_receipt_epoch_probe",
+        "engine_v3_ad_operator_action_receipts",
+        "source_engine_version",
+      ],
+    ] as const) {
+      await client.query(
+        `CREATE TEMP TABLE ${probe} (LIKE ${table} INCLUDING CONSTRAINTS) ON COMMIT DROP`,
+      );
+      const required = await client.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema LIKE 'pg_temp_%' AND table_name = $1
+           AND is_nullable = 'NO'`,
+        [probe],
+      );
+      for (const row of required.rows) {
+        await client.query(
+          `ALTER TABLE ${probe} ALTER COLUMN "${row.column_name.replaceAll('"', '""')}" DROP NOT NULL`,
+        );
+      }
+      await client.query(`INSERT INTO ${probe} (${column}) VALUES ($1), ($2)`, [
+        PRIOR_NATIVE_OPERATOR_EPOCH,
+        NATIVE_AD_ENGINE_VERSION,
+      ]);
+    }
+
+    await client.query(
+      "CREATE TEMP TABLE native_action_epoch_probe (LIKE meta_ads_action_log INCLUDING CONSTRAINTS) ON COMMIT DROP",
+    );
+    const actionRequired = await client.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema LIKE 'pg_temp_%'
+         AND table_name = 'native_action_epoch_probe'
+         AND is_nullable = 'NO'`,
+    );
+    for (const row of actionRequired.rows) {
+      await client.query(
+        `ALTER TABLE native_action_epoch_probe ALTER COLUMN "${row.column_name.replaceAll('"', '""')}" DROP NOT NULL`,
+      );
+    }
+    const insertActionProbe = (engineVersion: string | null, suffix: string) =>
+      client.query(
+        `INSERT INTO native_action_epoch_probe (
+           source, decision_contract_version, provider_account_ref_id,
+           provider_account_id, decision_episode_key, decision_snapshot_id,
+           decision_evaluation_id, decision_engine_version, decision_hash,
+           idempotency_key, action, status, provider_verified, dry_run
+         ) VALUES (
+           'decision_origin', $1, '11111111-1111-4111-8111-111111111111',
+           'act_probe', $2, '22222222-2222-4222-8222-222222222222',
+           '33333333-3333-4333-8333-333333333333', $3, $4, $5,
+           'pause', 'pending', false, false
+         )`,
+        [
+          DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+          suffix.padEnd(64, "0").slice(0, 64),
+          engineVersion,
+          "a".repeat(64),
+          `probe-${suffix}`,
+        ],
+      );
+    await insertActionProbe(PRIOR_NATIVE_OPERATOR_EPOCH, "prior");
+    await insertActionProbe(NATIVE_AD_ENGINE_VERSION, "current");
+    await client.query("SAVEPOINT null_engine_probe");
+    let nullEngineRejected = false;
+    try {
+      await insertActionProbe(null, "null");
+    } catch (error) {
+      if ((error as { code?: string }).code !== "23514") throw error;
+      nullEngineRejected = true;
+      await client.query("ROLLBACK TO SAVEPOINT null_engine_probe");
+    }
+    if (!nullEngineRejected) {
+      await client.query("ROLLBACK TO SAVEPOINT null_engine_probe");
+      throw new Error("Decision-origin action accepted a null engine version.");
+    }
+    await client.query("RELEASE SAVEPOINT null_engine_probe");
+    await client.query("ROLLBACK");
+
+    const constraintOidsBefore = new Map(
+      rows.map((row) => [`${row.table_name}.${row.constraint_name}`, row.oid]),
+    );
+    await client.query(AD_OPERATOR_RESPONSE_EPOCH_COMPATIBILITY_SQL);
+    const { rows: rowsAfterNoop } = await client.query<{
+      oid: string;
+      table_name: string;
+      constraint_name: string;
+    }>(`
+      SELECT constraint_row.oid::text AS oid,
+        relation.relname AS table_name,
+        constraint_row.conname AS constraint_name
+      FROM pg_constraint constraint_row
+      JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+      WHERE (relation.relname, constraint_row.conname) IN (
+        ('meta_ads_action_log', 'meta_ads_action_log_decision_origin_typed_check'),
+        ('engine_v3_ad_recommendation_episodes', 'engine_v3_ad_response_episode_native_epoch_check'),
+        ('engine_v3_ad_operator_action_receipts', 'engine_v3_ad_action_receipt_source_epoch_check')
+      )
+    `);
+    for (const row of rowsAfterNoop) {
+      if (
+        constraintOidsBefore.get(`${row.table_name}.${row.constraint_name}`) !==
+        row.oid
+      ) {
+        throw new Error(
+          `Compatible native operator constraint was rebuilt: ${row.table_name}.${row.constraint_name}`,
+        );
+      }
+    }
+    log(
+      "native operator epoch compatibility ok: rollback/current epochs pass, null lineage fails, and compatible constraints are not rebuilt.",
+    );
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
+    await client.end();
+  }
+}
+
 async function seedTargetHistoryBackfillCases(
   databaseUrl: string,
 ): Promise<TargetHistoryBackfillCases> {
@@ -862,7 +1142,8 @@ async function seedTargetHistoryBackfillCases(
        RETURNING id`,
     );
     const ownerId = ownerResult.rows[0]?.id;
-    if (!ownerId) throw new Error("Could not create target-history migration owner.");
+    if (!ownerId)
+      throw new Error("Could not create target-history migration owner.");
 
     const businessResult = await client.query<{ id: string; name: string }>(
       `INSERT INTO businesses (name, owner_id)
@@ -877,7 +1158,9 @@ async function seedTargetHistoryBackfillCases(
       (row) => row.name === "Target history existing",
     )?.id;
     if (!missingHistoryBusinessId || !existingHistoryBusinessId) {
-      throw new Error("Could not create both target-history migration businesses.");
+      throw new Error(
+        "Could not create both target-history migration businesses.",
+      );
     }
 
     await client.query(
@@ -950,7 +1233,9 @@ async function assertTargetHistoryBackfillCases(
       backfilled?.effective_at.toISOString() !== "2026-04-29T12:34:56.000Z" ||
       backfilled.recorded_at.getTime() < backfilled.effective_at.getTime()
     ) {
-      throw new Error("Missing target history was not backfilled exactly once with preserved values.");
+      throw new Error(
+        "Missing target history was not backfilled exactly once with preserved values.",
+      );
     }
     if (
       existingRows.length !== 1 ||
@@ -958,16 +1243,22 @@ async function assertTargetHistoryBackfillCases(
       Number(preexisting?.break_even_roas) !== 8.8 ||
       preexisting?.source_label !== "preexisting_history"
     ) {
-      throw new Error("Existing target history was duplicated or overwritten by the backfill.");
+      throw new Error(
+        "Existing target history was duplicated or overwritten by the backfill.",
+      );
     }
 
-    log("target-history backfill ok: missing history filled, existing history unchanged.");
+    log(
+      "target-history backfill ok: missing history filled, existing history unchanged.",
+    );
   } finally {
     await client.end();
   }
 }
 
-async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<void> {
+async function assertDecisionEvaluationProvenance(
+  databaseUrl: string,
+): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
@@ -988,7 +1279,8 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
       [ownerId],
     );
     const businessId = businessResult.rows[0]?.id;
-    if (!businessId) throw new Error("Could not create provenance-check business.");
+    if (!businessId)
+      throw new Error("Could not create provenance-check business.");
 
     const jobResult = await client.query<{ id: string }>(
       `INSERT INTO engine_v3_job_runs (
@@ -1022,7 +1314,8 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
         [businessId, contextHash, jobRunId],
       );
       const contextId = contextResult.rows[0]?.id;
-      if (!contextId) throw new Error("Could not create provenance-check context.");
+      if (!contextId)
+        throw new Error("Could not create provenance-check context.");
       contextIds.push(contextId);
     }
 
@@ -1040,7 +1333,9 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
       [businessId, contextHash, firstJobId],
     );
     if (duplicateContext.rowCount !== 0 || contextIds.length !== 2) {
-      throw new Error("Same-day rerun uniqueness did not preserve two jobs while deduping one retry.");
+      throw new Error(
+        "Same-day rerun uniqueness did not preserve two jobs while deduping one retry.",
+      );
     }
 
     const inputHash = "b".repeat(64);
@@ -1060,10 +1355,17 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
            $3, $4, $5, now()
          )
          RETURNING id`,
-        [contextId, businessId, inputHash, decisionHash, index === 0 ? firstJobId : secondJobId],
+        [
+          contextId,
+          businessId,
+          inputHash,
+          decisionHash,
+          index === 0 ? firstJobId : secondJobId,
+        ],
       );
       const evaluationId = evaluationResult.rows[0]?.id;
-      if (!evaluationId) throw new Error("Could not create provenance-check evaluation.");
+      if (!evaluationId)
+        throw new Error("Could not create provenance-check evaluation.");
       evaluationIds.push(evaluationId);
     }
 
@@ -1081,7 +1383,9 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
          )`,
         [contextIds[0], businessId, inputHash, decisionHash, secondJobId],
       );
-      throw new Error("Composite context lineage FK accepted a mismatched job run.");
+      throw new Error(
+        "Composite context lineage FK accepted a mismatched job run.",
+      );
     } catch (error) {
       const code =
         typeof error === "object" && error != null && "code" in error
@@ -1107,10 +1411,13 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
 
     await client.query("SAVEPOINT immutable_evaluation");
     try {
-      await client.query(`DELETE FROM engine_v3_decision_evaluations WHERE id = $1`, [
-        evaluationIds[0],
-      ]);
-      throw new Error("Snapshot evaluation FK allowed authoritative provenance deletion.");
+      await client.query(
+        `DELETE FROM engine_v3_decision_evaluations WHERE id = $1`,
+        [evaluationIds[0]],
+      );
+      throw new Error(
+        "Snapshot evaluation FK allowed authoritative provenance deletion.",
+      );
     } catch (error) {
       const code =
         typeof error === "object" && error != null && "code" in error
@@ -1123,6 +1430,326 @@ async function assertDecisionEvaluationProvenance(databaseUrl: string): Promise<
 
     log(
       "provenance seam ok: same-day job reruns persist separately, retries dedupe, lineage mismatches fail, snapshot-linked evaluations are delete-restricted.",
+    );
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end();
+  }
+}
+
+async function assertDecisionAuthorityProvenance(
+  databaseUrl: string,
+): Promise<void> {
+  const labels = [
+    "scale",
+    "keep",
+    "refresh",
+    "cut",
+    "test_more",
+    "diagnose",
+    "out_of_scope",
+  ];
+  const blockers = [
+    "profile_hard_action_ineligible",
+    "source_freshness",
+    "campaign_context",
+    "native_metrics_unavailable",
+    "native_profile_unavailable",
+  ];
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    for (const [index, [table]] of AUTHORITY_PROVENANCE_TABLES.entries()) {
+      const probe = `authority_provenance_probe_${index}`;
+      await client.query(
+        `CREATE TEMP TABLE ${probe} (LIKE ${table} INCLUDING CONSTRAINTS) ON COMMIT DROP`,
+      );
+      const { rows: requiredColumns } = await client.query<{
+        column_name: string;
+      }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema LIKE 'pg_temp_%' AND table_name = $1 AND is_nullable = 'NO'`,
+        [probe],
+      );
+      for (const { column_name: column } of requiredColumns) {
+        await client.query(
+          `ALTER TABLE ${probe} ALTER COLUMN "${column.replaceAll('"', '""')}" DROP NOT NULL`,
+        );
+      }
+
+      const allowed = [
+        ...labels.map((label) => [label, null]),
+        ...blockers.map((blocker) => [null, blocker]),
+        [null, null],
+      ];
+      for (const [label, blocker] of allowed) {
+        const { rows } = await client.query<{
+          pre_authority_label: string | null;
+          authority_blocker: string | null;
+        }>(
+          `INSERT INTO ${probe} (pre_authority_label, authority_blocker)
+           VALUES ($1, $2) RETURNING pre_authority_label, authority_blocker`,
+          [label, blocker],
+        );
+        if (
+          rows[0]?.pre_authority_label !== label ||
+          rows[0]?.authority_blocker !== blocker
+        )
+          throw new Error(`Authority provenance round trip failed: ${table}`);
+      }
+
+      for (const [column, value] of [
+        ["pre_authority_label", "future_label"],
+        ["authority_blocker", "future_blocker"],
+      ]) {
+        await client.query("SAVEPOINT invalid_authority_provenance");
+        try {
+          await client.query(`INSERT INTO ${probe} (${column}) VALUES ($1)`, [
+            value,
+          ]);
+          throw new Error(
+            `Authority constraint accepted ${column}=${value}: ${table}`,
+          );
+        } catch (error) {
+          const code =
+            typeof error === "object" && error && "code" in error
+              ? String((error as { code?: unknown }).code ?? "")
+              : "";
+          if (code !== "23514") throw error;
+        } finally {
+          await client.query(
+            "ROLLBACK TO SAVEPOINT invalid_authority_provenance",
+          );
+          await client.query("RELEASE SAVEPOINT invalid_authority_provenance");
+        }
+      }
+    }
+    log(
+      "authority provenance seam ok: four nullable, closed contracts round-trip.",
+    );
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end();
+  }
+}
+
+async function assertNativeDecisionAttemptDurability(
+  databaseUrl: string,
+  businessId: string,
+): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const durableAttempt = await client.query<{ id: string }>(
+      `INSERT INTO engine_v3_job_runs (
+         job_name, business_ref_id, business_id, as_of_date, engine_version, status
+       ) VALUES ($1, $2::uuid, $2, DATE '2026-07-09', $3, 'running')
+       RETURNING id::text AS id`,
+      [AD_DECISIONS_JOB_NAME, businessId, NATIVE_AD_ENGINE_VERSION],
+    );
+    const durableAttemptId = durableAttempt.rows[0]?.id;
+    if (!durableAttemptId) {
+      throw new Error("Could not create durable native attempt fixture.");
+    }
+    const worker = new Client({ connectionString: databaseUrl });
+    await worker.connect();
+    try {
+      await worker.query("BEGIN");
+      await worker.query(
+        `UPDATE engine_v3_job_runs SET status = 'success', finished_at = now()
+         WHERE id = $1::uuid`,
+        [durableAttemptId],
+      );
+      await worker.query("ROLLBACK");
+    } finally {
+      await worker.end();
+    }
+    const durableStatus = await client.query<{ status: string }>(
+      "SELECT status FROM engine_v3_job_runs WHERE id = $1::uuid",
+      [durableAttemptId],
+    );
+    if (durableStatus.rows[0]?.status !== "running") {
+      throw new Error(
+        "Work-transaction rollback erased or finalized the durable attempt.",
+      );
+    }
+    await client.query("DELETE FROM engine_v3_job_runs WHERE id = $1::uuid", [
+      durableAttemptId,
+    ]);
+
+    await client.query("BEGIN");
+    const insertRun = async (input: {
+      asOf: string;
+      status: "running" | "success" | "failed" | "skipped";
+      startedOffsetSeconds: number;
+      finishedOffsetSeconds?: number;
+      errorMessage?: string;
+      receipt?: boolean;
+      engineVersion?: string;
+    }) => {
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO engine_v3_job_runs (
+           job_name, business_ref_id, business_id, as_of_date, engine_version,
+           status, started_at, finished_at, error_message, error_json
+         ) VALUES (
+           $1, $2::uuid, $2, $3::date, $4, $5,
+           statement_timestamp() + make_interval(secs => $6),
+           CASE WHEN $7::double precision IS NULL THEN NULL
+             ELSE statement_timestamp() + make_interval(secs => $7) END,
+           $8,
+           CASE WHEN $9::boolean THEN jsonb_build_object(
+             'metadata', jsonb_build_object(
+               'hydration_receipts', jsonb_build_array(jsonb_build_object(
+                 'provider_account_ref_id', '00000000-0000-4000-8000-000000000001',
+                 'provider_account_id', 'act_seam',
+                 'expected_ad_count', 1,
+                 'expected_manifest_hash', repeat('a', 64),
+                 'hydrated_ad_count', 1,
+                 'hydrated_manifest_hash', repeat('a', 64),
+                 'authoritative_for_prune', true
+               ))
+             )
+           ) ELSE NULL END
+         ) RETURNING id::text AS id`,
+        [
+          AD_DECISIONS_JOB_NAME,
+          businessId,
+          input.asOf,
+          input.engineVersion ?? NATIVE_AD_ENGINE_VERSION,
+          input.status,
+          input.startedOffsetSeconds,
+          input.finishedOffsetSeconds ?? null,
+          input.errorMessage ?? null,
+          input.receipt ?? false,
+        ],
+      );
+      const id = rows[0]?.id;
+      if (!id)
+        throw new Error("Could not insert native decision attempt fixture.");
+      return id;
+    };
+    const readGeneration = (asOf: string) =>
+      client.query<{
+        job_status: string;
+        job_run_id: string;
+        as_of_date: string;
+      }>(READ_NATIVE_DECISION_GENERATION_QUERY, [
+        businessId,
+        "act_seam",
+        AD_DECISIONS_JOB_NAME,
+        asOf,
+        NATIVE_DECISION_RUNNING_GRACE_MS,
+      ]);
+
+    const d1Success = await insertRun({
+      asOf: "2026-07-10",
+      status: "success",
+      startedOffsetSeconds: -60,
+      finishedOffsetSeconds: -50,
+      receipt: true,
+    });
+    const d2Failure = await insertRun({
+      asOf: "2026-07-11",
+      status: "failed",
+      startedOffsetSeconds: -40,
+      finishedOffsetSeconds: -30,
+      errorMessage: "forced seam failure",
+    });
+    const historical = await readGeneration("2026-07-10");
+    const current = await readGeneration("2026-07-11");
+    if (
+      historical.rows[0]?.job_run_id !== d1Success ||
+      historical.rows[0]?.job_status !== "success" ||
+      current.rows[0]?.job_run_id !== d2Failure ||
+      current.rows[0]?.job_status !== "failed"
+    ) {
+      throw new Error(
+        "Newer native failure did not invalidate the older success.",
+      );
+    }
+
+    const staleRunning = await insertRun({
+      asOf: "2026-07-12",
+      status: "running",
+      startedOffsetSeconds: -(NATIVE_DECISION_RUNNING_GRACE_MS / 1000 + 60),
+    });
+    const stale = await readGeneration("2026-07-12");
+    if (
+      stale.rows[0]?.job_run_id !== staleRunning ||
+      stale.rows[0]?.job_status !== "failed"
+    ) {
+      throw new Error("Stale running native attempt did not fail closed.");
+    }
+
+    const holder = await insertRun({
+      asOf: "2026-07-13",
+      status: "success",
+      startedOffsetSeconds: -20,
+      finishedOffsetSeconds: -5,
+      receipt: true,
+    });
+    await insertRun({
+      asOf: "2026-07-13",
+      status: "skipped",
+      startedOffsetSeconds: -15,
+      finishedOffsetSeconds: -14,
+      errorMessage:
+        "Advisory lock not acquired (native ad job may already be running)",
+    });
+    const overlapped = await readGeneration("2026-07-13");
+    if (
+      overlapped.rows[0]?.job_run_id !== holder ||
+      overlapped.rows[0]?.job_status !== "success"
+    ) {
+      throw new Error(
+        "Overlapped advisory skip displaced its terminal holder.",
+      );
+    }
+
+    const isolatedSkip = await insertRun({
+      asOf: "2026-07-14",
+      status: "skipped",
+      startedOffsetSeconds: -4,
+      finishedOffsetSeconds: -3,
+      errorMessage:
+        "Advisory lock not acquired (native ad job may already be running)",
+    });
+    const isolated = await readGeneration("2026-07-14");
+    if (
+      isolated.rows[0]?.job_run_id !== isolatedSkip ||
+      isolated.rows[0]?.job_status !== "skipped"
+    ) {
+      throw new Error("Unproven advisory skip did not fail authority closed.");
+    }
+
+    await insertRun({
+      asOf: "2026-07-15",
+      status: "success",
+      startedOffsetSeconds: -12,
+      finishedOffsetSeconds: -10,
+      receipt: true,
+    });
+    const crossEpochFailure = await insertRun({
+      asOf: "2026-07-15",
+      status: "failed",
+      startedOffsetSeconds: -6,
+      finishedOffsetSeconds: -5,
+      errorMessage: "forced cross-epoch failure",
+      engineVersion: "v3-prior-native-epoch",
+    });
+    const crossEpoch = await readGeneration("2026-07-15");
+    if (
+      crossEpoch.rows[0]?.job_run_id !== crossEpochFailure ||
+      crossEpoch.rows[0]?.job_status !== "failed"
+    ) {
+      throw new Error(
+        "A newer cross-epoch failure did not invalidate current authority.",
+      );
+    }
+
+    log(
+      "native decision attempt seam ok: newer/cross-epoch failure, stale running, and advisory overlap all resolve fail-closed.",
     );
   } finally {
     await client.query("ROLLBACK").catch(() => {});
@@ -1170,7 +1797,9 @@ async function main() {
   const port = await findFreeSafePort();
   assertSafePort(port);
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "adsecute-ephemeral-pg-"));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "adsecute-ephemeral-pg-"),
+  );
   const dataDir = path.join(tempDir, "data");
   const logFile = path.join(tempDir, "postgres.log");
   const databaseUrl = `postgresql://${EPHEMERAL_DB_USER}@127.0.0.1:${port}/${EPHEMERAL_DB_NAME}`;
@@ -1184,7 +1813,15 @@ async function main() {
     log("initdb: creating fresh cluster...");
     runSync(
       path.join(pgBinDir, "initdb"),
-      ["-D", dataDir, "-U", EPHEMERAL_DB_USER, "--auth=trust", "--encoding=UTF8", "--no-locale"],
+      [
+        "-D",
+        dataDir,
+        "-U",
+        EPHEMERAL_DB_USER,
+        "--auth=trust",
+        "--encoding=UTF8",
+        "--no-locale",
+      ],
       "initdb",
     );
 
@@ -1212,7 +1849,15 @@ async function main() {
     log(`createdb: ${EPHEMERAL_DB_NAME}`);
     runSync(
       path.join(pgBinDir, "createdb"),
-      ["-h", "127.0.0.1", "-p", String(port), "-U", EPHEMERAL_DB_USER, EPHEMERAL_DB_NAME],
+      [
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(port),
+        "-U",
+        EPHEMERAL_DB_USER,
+        EPHEMERAL_DB_NAME,
+      ],
       "createdb",
     );
 
@@ -1221,17 +1866,42 @@ async function main() {
     // prove nothing about idempotency.
     await runMigrationsChild(repoRoot, databaseUrl, "run 1: from zero");
     const run1Tables = await assertSchema(databaseUrl);
-    const targetHistoryCases = await seedTargetHistoryBackfillCases(databaseUrl);
-    await runMigrationsChild(repoRoot, databaseUrl, "run 2: idempotency + target backfill");
+    const targetHistoryCases =
+      await seedTargetHistoryBackfillCases(databaseUrl);
+    await seedPriorEpochOperatorConstraints(databaseUrl);
+    await runMigrationsChild(
+      repoRoot,
+      databaseUrl,
+      "run 2: idempotency + target backfill",
+    );
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
     await assertTargetHistoryBackfillCases(databaseUrl, targetHistoryCases);
+    await assertNativeOperatorEpochCompatibility(databaseUrl);
     await assertDecisionEvaluationProvenance(databaseUrl);
+    await assertDecisionAuthorityProvenance(databaseUrl);
+    await assertNativeDecisionAttemptDurability(
+      databaseUrl,
+      targetHistoryCases.missingHistoryBusinessId,
+    );
 
     await runChildScript(
       repoRoot,
       databaseUrl,
-      path.join("scripts", "ephemeral-postgres-entity-state-history-seam-child.ts"),
+      path.join(
+        "scripts",
+        "ephemeral-postgres-business-commercial-seam-child.ts",
+      ),
+      "business commercial atomic/CAS DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-entity-state-history-seam-child.ts",
+      ),
       "entity state history DB seam check",
     );
 
@@ -1265,7 +1935,11 @@ async function main() {
     log("PASS: migrations build the schema from zero and are idempotent.");
   } catch (error) {
     if (fs.existsSync(logFile)) {
-      const logTail = fs.readFileSync(logFile, "utf8").split(/\r?\n/).slice(-40).join("\n");
+      const logTail = fs
+        .readFileSync(logFile, "utf8")
+        .split(/\r?\n/)
+        .slice(-40)
+        .join("\n");
       console.error(`[migrations-from-zero] postgres log tail:\n${logTail}`);
     }
     throw error;
@@ -1292,6 +1966,8 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch((error) => {
-    console.error(error instanceof Error ? (error.stack ?? error.message) : error);
+    console.error(
+      error instanceof Error ? (error.stack ?? error.message) : error,
+    );
     process.exit(1);
   });

@@ -10,10 +10,11 @@ import type { CreativeInput, DecisionLabel, DecisionOutput } from "../types";
 function makeDecision(
   overrides: Partial<DecisionOutput> = {},
 ): DecisionOutput {
+  const label = overrides.label ?? "scale";
   return {
     creativeId: "creative-1",
     creativeName: "Creative 1",
-    label: "scale",
+    label,
     reason: "Strong winner against target.",
     confidence: 82,
     truthSource: "commercial_truth",
@@ -29,6 +30,8 @@ function makeDecision(
     engineVersion: "v3-test",
     generatedAt: "2026-05-04T12:00:00.000Z",
     ...overrides,
+    preAuthorityLabel: overrides.preAuthorityLabel ?? label,
+    authorityBlocker: overrides.authorityBlocker ?? null,
   };
 }
 
@@ -77,6 +80,7 @@ describe("applyCreativeCampaignLabelGuard", () => {
       expect(decision.confidence).toBe(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP);
       expect(decision.campaignLabelStatus).toBe("no_campaign");
       expect(decision.campaignKind).toBeNull();
+      expect(decision.authorityBlocker).toBe("campaign_context");
       expect(decision.blockedActionType).toBe(label);
       expect(decision.badges.map((badge) => badge.type)).toContain(
         "unlabeled_campaign_context",
@@ -123,6 +127,7 @@ describe("applyCreativeCampaignLabelGuard", () => {
       expect(decision.confidence).toBe(CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP);
       expect(decision.campaignLabelStatus).toBe("unlabeled");
       expect(decision.campaignKind).toBeNull();
+      expect(decision.authorityBlocker).toBe("campaign_context");
       expect(decision.blockedActionType).toBe(label);
       if (label === "cut") {
         expect(decision.reason).toContain(
@@ -267,6 +272,7 @@ describe("automatic campaign context trust classes (D033)", () => {
       campaignLabelsById: contextMap("medium"),
     });
     expect(guarded.label).toBe("scale");
+    expect(guarded.authorityBlocker).toBe("campaign_context");
     expect(guarded.blockedActionType).toBe("scale");
     expect(guarded.confidence).toBeLessThanOrEqual(
       CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
@@ -295,6 +301,7 @@ describe("automatic campaign context trust classes (D033)", () => {
       campaignLabelsById: contextMap("unknown"),
     });
     expect(guarded.label).toBe("cut");
+    expect(guarded.authorityBlocker).toBe("campaign_context");
     expect(guarded.blockedActionType).toBe("cut");
     expect(guarded.confidence).toBeLessThanOrEqual(
       CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
@@ -316,6 +323,7 @@ describe("automatic campaign context trust classes (D033)", () => {
       campaignLabelsById: contextMap("conflict"),
     });
     expect(guarded.label).toBe("refresh");
+    expect(guarded.authorityBlocker).toBe("campaign_context");
     expect(guarded.blockedActionType).toBe("refresh");
     expect(
       guarded.badges.some(
@@ -337,5 +345,41 @@ describe("automatic campaign context trust classes (D033)", () => {
         (badge) => badge.type === "campaign_context_unresolved",
       ),
     ).toBe(true);
+  });
+
+  it("preserves an earlier freshness restriction when context also blocks", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({
+        label: "cut",
+        preAuthorityLabel: "cut",
+        authorityBlocker: "source_freshness",
+        blockedActionType: "cut",
+      }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("unknown"),
+    });
+
+    expect(guarded.authorityBlocker).toBe("source_freshness");
+    expect(guarded.blockedActionType).toBe("cut");
+    expect(guarded.preAuthorityLabel).toBe("cut");
+  });
+
+  it("never clears a prior profile restriction when context becomes trusted", () => {
+    const guarded = applyCreativeCampaignLabelGuard({
+      decision: makeDecision({
+        label: "keep",
+        preAuthorityLabel: "scale",
+        authorityBlocker: "profile_hard_action_ineligible",
+        blockedActionType: "scale",
+      }),
+      input: makeInput("campaign-9"),
+      campaignLabelsById: contextMap("high"),
+    });
+
+    expect(guarded.authorityBlocker).toBe(
+      "profile_hard_action_ineligible",
+    );
+    expect(guarded.blockedActionType).toBe("scale");
+    expect(guarded.preAuthorityLabel).toBe("scale");
   });
 });

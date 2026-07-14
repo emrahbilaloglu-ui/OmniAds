@@ -1863,3 +1863,127 @@ empty `diagnose` rows. The repaired contract preserves cutoff safety and hard
 action authority while allowing the existing engine to issue differentiated,
 review-safe decisions instead of converting every uncertainty class into one
 operator question.
+
+## D054 - Native Decision Reads Follow The Latest Effective Terminal Run
+
+Decision: the Meta Decisions read model selects the latest effective terminal
+native-Ad producer run inside the requested account and as-of boundary. A newer
+failed or non-overlap-skipped run invalidates an older successful generation;
+the reader falls back to legacy creative evidence as degraded and review-only
+instead of silently serving stale native authority. A fresh `running` attempt
+does not blank the last valid terminal success. An advisory-lock skip is ignored
+only when an overlapping terminal holder for the same business, job, engine,
+and as-of date proves that another scheduler invocation owned the work.
+
+The server presentation exposes source health and the exact fallback reason.
+Every active Decisions surface must display degraded native source health as an
+account-scoped blocking warning. Legacy evidence may remain visible, but it may
+not authorize exact-Ad actions. Historical date selection bounds both native
+generation and legacy snapshot reads to the same server-resolved date.
+
+Reason: selecting only the latest successful run allowed a newer producer
+failure to be hidden indefinitely. That made an account appear healthy while
+the current native pipeline was broken and made date-filtered views consume a
+different evidence epoch from the rest of the workspace.
+
+## D055 - Stale Commercial Targets Require Explicit Reconfirmation
+
+Decision: target-pack freshness is authority, not display metadata. Stale
+commercial anchors remain visible but cannot authorize hard Scale/Cut actions.
+They are never refreshed from account performance, a background job, or an
+unchanged ordinary save. Reconfirmation is an explicit collaborator action
+that accepts no economic values, locks and copies the current server-side pack,
+uses the previously observed `updated_at` as a compare-and-swap guard, and
+writes a new identical bitemporal `upsert` history version with a fresh shared
+effective/recorded time.
+
+Every non-null anchor must be finite and positive. When both sides are present,
+`target_roas >= break_even_roas` and `target_cpa <= break_even_cpa` are required.
+Missing anchors remain missing; presentation helpers may not fabricate a
+configured CPA or ROAS value from another anchor. Stale, unknown-freshness,
+missing, or unreadable target authority is surfaced as a warning scoped to
+hard target-dependent actions and must not globally disable review-only or
+unrelated operations. Local unsaved edits cannot reconfirm the older server
+value.
+
+Reason: silently renewing old economics would turn age into false authority,
+while forcing operators to change a still-correct number destroys historical
+truth. Explicit value-preserving reconfirmation supplies a durable human
+attestation, rejects stale browser retries, and keeps the decision engine
+fail-closed without inventing account-specific thresholds.
+
+## D056 - Decision Authority Provenance Is A Versioned First-Blocker Chain
+
+Decision: every newly produced legacy Creative and native Ad decision persists
+four distinct stages. `pre_authority_label` is the mathematical/semantic label
+after explicit semantic transforms but before authority restrictions.
+`authority_blocker` is the first effective restriction in the closed blocker
+vocabulary. `raw_label` is the post-authority label before hysteresis, and
+`label` is the published label after hysteresis. `blocked_action_type` remains
+an execution/presentation hint and is not a substitute for blocker provenance.
+
+The first blocker wins. A later freshness, campaign-context, native-metric, or
+native-profile restriction may add evidence but must not overwrite the earlier
+cause. `pre_authority_label` is audit evidence only: a hard value in that field
+never authorizes a provider mutation. Execution continues to depend on the
+post-authority raw/published label, native calibration lineage, confidence,
+current state, and existing write guards. Historical rows remain nullable and
+the reader must display provenance as unavailable rather than infer it from
+reason text, badges, or the final label.
+
+The canonical evaluation contract advances to v2, native Ad evaluation to v4,
+native outcome to v2, workspace read contract to v2, and OS presentation to
+v3. Decision reason truth-source wording and canonical hashes also change, so
+the producer epochs advance to `v3-2026-07-14-decision-health-provenance` and
+`v3-ad-2026-07-14-decision-health-provenance-shadow`. Prior snapshots remain
+readable under their original version keys.
+
+Reason: a single final label cannot distinguish weak mathematics from a strong
+verdict withheld by stale evidence, profile eligibility, campaign context, or
+native data readiness. Persisting the chain makes account-wide failure classes
+measurable without weakening authority, eliminates reason-string parsing, and
+prevents a replay or UI from accidentally turning a pre-authority hard verdict
+into an executable action.
+
+## D057 - Native Authority Is Attempt-Durable And Epoch-Explicit
+
+Decision: a native Ad decision attempt is inserted and committed before the
+work transaction begins. Transaction failure updates that durable attempt to
+`failed`; process death leaves a visible `running` attempt that becomes failed
+after the reader grace period. The authority reader ranks the latest effective
+terminal attempt across all engine versions inside the requested as-of bound.
+A newer failure, skip, or successful generation from another engine version
+invalidates older current-version authority. Only an overlapping terminal
+holder may neutralize an advisory-lock skip.
+
+`authority_blocker IS NOT NULL` unconditionally implies
+`authorized_action IS NULL`, even when a hard raw label survives in audit
+provenance. The native snapshot CHECK contract must accept that review-only
+hard tuple while rejecting the same tuple if it carries a non-null authorized
+action. A hysteresis-suppressed hard raw label also has no authorized action;
+the database accepts that state only with a matching `blocked_action_type` and
+`pending_transition` badge. Database lineage constraints accept any non-empty historical engine
+version while current application writes still require the current version.
+Exact native backtests accept an explicitly requested engine version and reject
+rows from any other version; they never silently substitute the current epoch.
+Commercial-truth full replacements use one transaction, a per-business
+transaction advisory lock shared with value-preserving target reconfirmation,
+and a deterministic locale-independent snapshot revision compare-and-swap.
+Malformed, anchorless, type-confused, or stale browser payloads cannot
+partially replace targets, country economics, promotions, constraints, or
+calibration profiles.
+
+Generalized operator-response constraints retain the immediately preceding
+production epoch literal in a semantically non-restrictive expression. This
+keeps the prior image's catalog inspector rollback-compatible while accepting
+all non-empty historical epochs. Decision-origin action lineage additionally
+requires a non-null engine version. The compatibility migration runs only when
+the full lineage column set exists and only rebuilds a constraint whose
+definition is not already compatible.
+
+Reason: success-only reads hid newer failures, work-local job rows disappeared
+on rollback, and current-epoch database checks made historical evidence
+unreadable after a version bump. Those failures are systemic authority defects,
+not account-specific formula problems. Durable attempts, cross-epoch ranking,
+closed action authorization, exact replay epochs, and atomic commercial truth
+make failure visible without weakening decision thresholds.

@@ -110,6 +110,9 @@ function buildDecision(overrides: Partial<DecisionOutput> = {}): DecisionOutput 
     creativeId: "creative_1",
     creativeName: "Since I hung",
     label: "scale",
+    preAuthorityLabel:
+      overrides.preAuthorityLabel ?? overrides.label ?? "scale",
+    authorityBlocker: overrides.authorityBlocker ?? null,
     reason: "Strong internal winner",
     confidence: 82,
     truthSource: "commercial_truth",

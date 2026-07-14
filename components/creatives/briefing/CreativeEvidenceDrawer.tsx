@@ -1052,10 +1052,37 @@ function CreativeEvidenceDrawerContent({
               )}
             </section>
 
-            {card.targetRoas != null || card.truthSource || card.pendingTransition || (card.blockers?.length ?? 0) > 0 ? (
+            {card.targetRoas != null ||
+            card.truthSource ||
+            card.preAuthorityLabel ||
+            card.authorityBlocker ||
+            card.pendingTransition ||
+            (card.blockers?.length ?? 0) > 0 ? (
               <section className="creative-evidence-section">
                 <h4>Decision basis</h4>
                 <ul className="creative-evidence-list">
+                  {card.preAuthorityLabel ? (
+                    <li className="creative-evidence-list-item">
+                      <div>
+                        <b>
+                          Mathematical / semantic verdict: {decisionCenterText(String(card.preAuthorityLabel))}
+                        </b>
+                        This is evidence before authority restrictions and never grants a provider action by itself.
+                        <span className="src">/api/creatives/briefing - preAuthorityLabel</span>
+                      </div>
+                    </li>
+                  ) : null}
+                  {card.authorityBlocker ? (
+                    <li className="creative-evidence-list-item warn">
+                      <div>
+                        <b>
+                          First authority blocker: {decisionCenterText(String(card.authorityBlocker))}
+                        </b>
+                        This first effective gate held the mathematical verdict before publication.
+                        <span className="src">/api/creatives/briefing - authorityBlocker</span>
+                      </div>
+                    </li>
+                  ) : null}
                   {card.pendingTransition && card.rawLabel ? (
                     <li className="creative-evidence-list-item warn">
                       <div>

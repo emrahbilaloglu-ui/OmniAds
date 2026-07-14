@@ -11,6 +11,8 @@ import {
   AD_DECISION_REQUIRED_CONSTRAINTS,
   AD_DECISION_REQUIRED_INDEXES,
   AD_DECISION_SCHEMA_REQUIRED_COLUMNS,
+  AD_SNAPSHOTS_TABLE,
+  DECISION_AUTHORITY_BLOCKERS,
   EvaluationStoreSchemaNotReadyError,
   INSERT_AD_DECISION_EVALUATIONS_QUERY,
   adDecisionEvaluationIdentityKey,
@@ -55,6 +57,8 @@ function decision(): DecisionOutput {
     creativeId: "creative-shared",
     creativeName: "Shared Creative",
     label: "keep",
+    preAuthorityLabel: "keep",
+    authorityBlocker: null,
     reason: "Inside the keep band.",
     confidence: 72,
     truthSource: "commercial_truth",
@@ -264,6 +268,20 @@ describe("ad decision evaluation identity", () => {
 });
 
 describe("evaluation store schema gate", () => {
+  it("requires nullable authority provenance and its closed blocker enum", () => {
+    expect(expectedAdDecisionColumnContract(
+      AD_SNAPSHOTS_TABLE,
+      "pre_authority_label",
+    ).nullable).toBe(true);
+    expect(expectedAdDecisionColumnContract(
+      AD_SNAPSHOTS_TABLE,
+      "authority_blocker",
+    ).nullable).toBe(true);
+    expect(AD_DECISION_REQUIRED_CONSTRAINTS.find((constraint) =>
+      constraint.name === "engine_v3_ad_snapshots_authority_blocker_check",
+    )?.allOf).toEqual(["authority_blocker is null", ...DECISION_AUTHORITY_BLOCKERS]);
+  });
+
   it("accepts only ad-keyed uniqueness with nullable creative grouping", async () => {
     const db = fakeDb(async (query) => {
       if (query.includes("information_schema.columns")) return readyColumns();

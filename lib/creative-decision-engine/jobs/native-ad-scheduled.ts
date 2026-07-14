@@ -109,17 +109,56 @@ WITH latest_target_history AS (
     AND history.recorded_at <= $3::timestamptz
   ORDER BY history.effective_at DESC, history.recorded_at DESC, history.id DESC
   LIMIT 1
+), latest_successful_calibration AS (
+  SELECT run.error_json
+  FROM engine_v3_job_runs run
+  WHERE run.business_ref_id = $1::uuid
+    AND run.business_id = $1::text
+    AND run.as_of_date = $2::date
+    AND run.engine_version = $4
+    AND run.job_name = $5
+    AND run.status = 'success'
+    AND run.finished_at <= $3::timestamptz
+  ORDER BY run.finished_at DESC NULLS LAST, run.started_at DESC, run.id DESC
+  LIMIT 1
+), receipt_batches AS (
+  SELECT
+    receipt.value->>'batch_id' AS batch_id,
+    receipt.value->>'provider_account_ref_id' AS provider_account_ref_id,
+    receipt.value->>'provider_account_id' AS provider_account_id
+  FROM latest_successful_calibration run
+  CROSS JOIN LATERAL JSONB_ARRAY_ELEMENTS(
+    CASE
+      WHEN JSONB_TYPEOF(run.error_json #> '{metadata,batches}') = 'array'
+        THEN run.error_json #> '{metadata,batches}'
+      ELSE '[]'::jsonb
+    END
+  ) receipt(value)
+), calibration_receipt AS (
+  SELECT COUNT(*)::integer AS batch_count
+  FROM receipt_batches
 ), calibration_batches AS (
   SELECT
     MIN(batch.as_of_cutoff) AS earliest_batch_cutoff,
+    COUNT(*)::integer AS batch_count,
     COALESCE(
-      ARRAY_AGG(
-        DISTINCT batch.provider_account_ref_id
-        ORDER BY batch.provider_account_ref_id
+      JSONB_AGG(
+        DISTINCT JSONB_BUILD_ARRAY(
+          batch.provider_account_ref_id::text,
+          batch.provider_account_id
+        )
+        ORDER BY JSONB_BUILD_ARRAY(
+          batch.provider_account_ref_id::text,
+          batch.provider_account_id
+        )
       ),
-      ARRAY[]::uuid[]
-    ) AS account_ids
+      '[]'::jsonb
+    ) AS account_identities
   FROM engine_v3_ad_account_calibration_batches batch
+  JOIN receipt_batches receipt
+    ON receipt.batch_id = batch.id::text
+   AND receipt.provider_account_ref_id = batch.provider_account_ref_id::text
+   AND receipt.provider_account_id = batch.provider_account_id
   WHERE batch.business_ref_id = $1::uuid
     AND batch.business_id = $1::text
     AND batch.as_of_date = $2::date
@@ -127,18 +166,25 @@ WITH latest_target_history AS (
     AND batch.completeness_status = 'complete'
 ), assigned_accounts AS (
   SELECT COALESCE(
-    ARRAY_AGG(
-      DISTINCT binding.provider_account_ref_id
-      ORDER BY binding.provider_account_ref_id
+    JSONB_AGG(
+      DISTINCT JSONB_BUILD_ARRAY(
+        binding.provider_account_ref_id::text,
+        binding.provider_account_id
+      )
+      ORDER BY JSONB_BUILD_ARRAY(
+        binding.provider_account_ref_id::text,
+        binding.provider_account_id
+      )
     ),
-    ARRAY[]::uuid[]
-  ) AS account_ids
+    '[]'::jsonb
+  ) AS account_identities
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
 )
 SELECT CASE
-  WHEN calibration_batches.account_ids IS DISTINCT FROM assigned_accounts.account_ids THEN FALSE
+  WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN FALSE
+  WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities THEN FALSE
   WHEN calibration_batches.earliest_batch_cutoff IS NULL THEN FALSE
   WHEN NOT EXISTS (SELECT 1 FROM latest_target_history) THEN TRUE
   ELSE (
@@ -147,6 +193,7 @@ SELECT CASE
   )
 END AS reusable
 FROM calibration_batches
+CROSS JOIN calibration_receipt
 CROSS JOIN assigned_accounts
 `;
 
@@ -310,6 +357,7 @@ export async function hasReusableNativeCalibration(
       input.asOf,
       input.decisionCutoff,
       NATIVE_AD_ENGINE_VERSION,
+      AD_CALIBRATION_JOB_NAME,
     ],
   );
   return row?.reusable === true;

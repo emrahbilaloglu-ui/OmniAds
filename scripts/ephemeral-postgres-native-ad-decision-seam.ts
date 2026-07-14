@@ -20,6 +20,7 @@ import {
   INSERT_AD_DECISION_EVALUATIONS_QUERY,
   inspectEvaluationStoreSchemaCapability,
 } from "@/lib/creative-decision-engine/evaluation-store";
+import { AD_CALIBRATION_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-calibration-job";
 import {
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
@@ -148,7 +149,9 @@ async function createBaseSchema(client: Client) {
       as_of_date DATE NOT NULL,
       engine_version TEXT NOT NULL,
       status TEXT NOT NULL,
-      started_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      finished_at TIMESTAMPTZ,
+      error_json JSONB
     );
     CREATE TABLE engine_v3_ad_account_calibration_daily (
       id UUID PRIMARY KEY,
@@ -160,9 +163,11 @@ async function createBaseSchema(client: Client) {
       engine_version TEXT NOT NULL
     );
     CREATE TABLE engine_v3_ad_account_calibration_batches (
+      id UUID PRIMARY KEY,
       business_ref_id UUID NOT NULL,
       business_id TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
+      provider_account_id TEXT NOT NULL,
       as_of_date DATE NOT NULL,
       as_of_cutoff TIMESTAMPTZ NOT NULL,
       engine_version TEXT NOT NULL,
@@ -226,19 +231,96 @@ async function verifyCalibrationReuseAccountIdentity(
      ) VALUES ($1::text, 'meta', $2, 'act_calibrated')`,
     [businessId, calibratedAccountRefId],
   );
+  const batchId = "00000000-0000-4000-8000-000000000983";
   await client.query(
     `INSERT INTO engine_v3_ad_account_calibration_batches (
-       business_ref_id, business_id, provider_account_ref_id, as_of_date,
-       as_of_cutoff, engine_version, completeness_status
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, as_of_date, as_of_cutoff, engine_version,
+       completeness_status
      ) VALUES (
-       $1::uuid, $1::text, $2::uuid, $3::date, $4::timestamptz, $5, 'complete'
+       $1::uuid, $2::uuid, $2::text, $3::uuid, 'act_calibrated', $4::date,
+       $5::timestamptz, $6, 'complete'
      )`,
     [
+      batchId,
       businessId,
       calibratedAccountRefId,
       AS_OF,
       CUTOFF,
       NATIVE_AD_ENGINE_VERSION,
+    ],
+  );
+  const oldBatchId = "00000000-0000-4000-8000-000000000985";
+  await client.query(
+    `INSERT INTO engine_v3_ad_account_calibration_batches (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, as_of_date, as_of_cutoff, engine_version,
+       completeness_status
+     ) VALUES (
+       $1::uuid, $2::uuid, $2::text, $3::uuid, 'act_replacement', $4::date,
+       '2026-07-12T03:14:00.000Z', $5, 'complete'
+     )`,
+    [
+      oldBatchId,
+      businessId,
+      replacementAccountRefId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, started_at, finished_at, error_json
+     ) VALUES (
+       $1::uuid, $2, $3::uuid, $3::text, $4::date, $5, 'success',
+       '2026-07-12T03:14:00.000Z', '2026-07-12T03:14:00.000Z', $6::jsonb
+     )`,
+    [
+      "00000000-0000-4000-8000-000000000986",
+      AD_CALIBRATION_JOB_NAME,
+      businessId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      JSON.stringify({
+        metadata: {
+          batches: [
+            {
+              batch_id: oldBatchId,
+              provider_account_ref_id: replacementAccountRefId,
+              provider_account_id: "act_replacement",
+            },
+          ],
+        },
+      }),
+    ],
+  );
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status, started_at, finished_at, error_json
+     ) VALUES (
+       $1::uuid, $2, $3::uuid, $3::text, $4::date,
+       $5, 'success', $6::timestamptz, $6::timestamptz, $7::jsonb
+     )`,
+    [
+      "00000000-0000-4000-8000-000000000984",
+      AD_CALIBRATION_JOB_NAME,
+      businessId,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      CUTOFF,
+      JSON.stringify({
+        metadata: {
+          batches: [
+            {
+              batch_id: batchId,
+              provider_account_ref_id: calibratedAccountRefId,
+              provider_account_id: "act_calibrated",
+            },
+          ],
+        },
+      }),
     ],
   );
 
@@ -250,6 +332,17 @@ async function verifyCalibrationReuseAccountIdentity(
   assert(
     await hasReusableNativeCalibration(input, db),
     "Matching calibrated and assigned account identities were not reusable.",
+  );
+
+  await client.query(
+    `UPDATE business_provider_accounts
+     SET provider_account_id = 'act_corrected'
+     WHERE business_id = $1::text AND provider = 'meta'`,
+    [businessId],
+  );
+  assert(
+    !(await hasReusableNativeCalibration(input, db)),
+    "Same-ref external account correction incorrectly reused the previous calibration.",
   );
 
   await client.query(

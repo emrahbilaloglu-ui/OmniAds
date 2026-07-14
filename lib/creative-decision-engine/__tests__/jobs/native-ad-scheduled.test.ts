@@ -293,7 +293,7 @@ describe("native ad shadow scheduled chain", () => {
     );
     expect(
       READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
-        "WHEN calibration_batches.account_ids IS DISTINCT FROM assigned_accounts.account_ids",
+        "WHEN calibration_batches.account_identities IS DISTINCT FROM assigned_accounts.account_identities",
       ),
     ).toBeLessThan(
       READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL.indexOf(
@@ -302,6 +302,21 @@ describe("native ad shadow scheduled chain", () => {
     );
     expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).not.toContain(
       "COUNT(DISTINCT batch.provider_account_ref_id)",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "batch.provider_account_id",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "binding.provider_account_id",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "latest_successful_calibration",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "run.error_json #> '{metadata,batches}'",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL).toContain(
+      "run.finished_at <= $3::timestamptz",
     );
   });
 

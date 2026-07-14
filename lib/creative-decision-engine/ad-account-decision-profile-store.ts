@@ -110,7 +110,7 @@ JOIN provider_accounts account
   ON account.id = binding.provider_account_ref_id
  AND account.external_account_id = binding.provider_account_id
 WHERE calibration.business_ref_id = $1::uuid
-  AND calibration.business_id = $1
+  AND calibration.business_id = $1::text
   AND calibration.provider = 'meta'
   AND calibration.provider_account_ref_id = $2::uuid
   AND calibration.provider_account_id = $3

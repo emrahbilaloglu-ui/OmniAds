@@ -246,6 +246,9 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
     expect(READ_NATIVE_AD_CALIBRATION_ROW_ID_SQL).toContain(
       "batch.id = calibration.batch_id",
     );
+    expect(READ_NATIVE_AD_CALIBRATION_ROW_ID_SQL).toContain(
+      "calibration.business_id = $1::text",
+    );
   });
 
   it("maps bitemporal native target authority without a current-state fallback", async () => {

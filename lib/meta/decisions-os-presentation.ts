@@ -9,6 +9,7 @@ import {
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import { buildMetaWatchingSegments } from "@/lib/meta/watching-segments";
 import type {
   MetaLanePayload,
   MetaStructureInventoryEntity,
@@ -242,6 +243,7 @@ export function revalidateMetaStructureLanesForCurrentTargets(
       watching: watching.length,
       nonSales: nonSales.length,
     },
+    watchingSegments: buildMetaWatchingSegments(watching),
   };
 }
 

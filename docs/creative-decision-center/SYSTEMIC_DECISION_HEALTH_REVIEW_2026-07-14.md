@@ -188,7 +188,10 @@ its proposed provider mutation and target value, becomes review-only in the
 automation contract, and is presented as `review_commercial_truth`. Queue
 counts, action-state counts, raw lane payloads, and OS Structure nodes all use
 the same guarded lane model. Unit and route integration tests prove both the
-action-specific pass path and the stale-target fail-closed path.
+action-specific pass path and the stale-target fail-closed path. Watching
+segment metadata is rebuilt from the guarded rows through the same shared
+builder used by the lane producer, so the demotion cannot leave stale segment
+counts or copy in the served contract.
 
 ## Decision
 

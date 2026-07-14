@@ -1151,6 +1151,9 @@ describe("GET /api/meta/decisions-workspace", () => {
       actionKind: "review_drill",
       primaryActionLabel: "Review Commercial Truth",
     });
+    expect(payload.lanes.watchingSegments).toEqual([
+      expect.objectContaining({ key: "missing_target", count: 1 }),
+    ]);
     expect(payload.queue.groups[0]).toMatchObject({
       key: "action",
       count: 0,

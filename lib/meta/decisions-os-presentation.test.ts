@@ -397,6 +397,16 @@ describe("buildMetaOsDecisionsPresentation", () => {
       },
     });
     expect(lanes.watching[0]!.proposedAction).toBeUndefined();
+    expect(lanes.watchingSegments).toEqual([
+      {
+        key: "missing_target",
+        label: "Missing target",
+        count: 1,
+        description: "Commercial target or break-even anchor is missing.",
+        ctaLabel: "Set targets",
+        href: "/commercial-truth",
+      },
+    ]);
 
     const result = buildMetaOsDecisionsPresentation({
       actionNow: [scale, cut],

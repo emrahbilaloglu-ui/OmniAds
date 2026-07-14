@@ -2085,8 +2085,9 @@ async function markAdJobSuccess(
   await db.query(
     `
     UPDATE engine_v3_job_runs
-    SET status = 'success', finished_at = now(), duration_ms = $1::integer,
-      row_count = $2::integer, error_json = $3::jsonb, updated_at = now()
+    SET status = 'success', finished_at = clock_timestamp(), duration_ms = $1::integer,
+      row_count = $2::integer, error_json = $3::jsonb,
+      updated_at = clock_timestamp()
     WHERE id = $4::uuid
     `,
     [
@@ -2138,9 +2139,9 @@ async function markAdJobFailed(
   await db.query(
     `
     UPDATE engine_v3_job_runs
-    SET status = 'failed', finished_at = now(), duration_ms = $1::integer,
+    SET status = 'failed', finished_at = clock_timestamp(), duration_ms = $1::integer,
       row_count = 0, error_message = $2, error_json = $3::jsonb,
-      updated_at = now()
+      updated_at = clock_timestamp()
     WHERE id = $4::uuid
     `,
     [

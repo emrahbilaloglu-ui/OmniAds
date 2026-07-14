@@ -2566,10 +2566,10 @@ async function markAdCalibrationJobSuccess(
   const rows = await db.query<Record<string, unknown>>(
     `
     UPDATE engine_v3_job_runs
-    SET status = 'success', finished_at = now(), duration_ms = $1::integer,
+    SET status = 'success', finished_at = clock_timestamp(), duration_ms = $1::integer,
       row_count = $2::integer, source_min_date = $3::date,
       source_max_date = $4::date, source_max_updated_at = $5::timestamptz,
-      error_json = $6::jsonb, updated_at = now()
+      error_json = $6::jsonb, updated_at = clock_timestamp()
     WHERE id = $7::uuid AND status = 'running'
     RETURNING id::text AS id
     `,
@@ -2627,9 +2627,9 @@ async function markAdCalibrationJobFailed(
   const rows = await db.query<Record<string, unknown>>(
     `
     UPDATE engine_v3_job_runs
-    SET status = 'failed', finished_at = now(), duration_ms = $1::integer,
+    SET status = 'failed', finished_at = clock_timestamp(), duration_ms = $1::integer,
       row_count = 0, error_message = $2, error_json = $3::jsonb,
-      updated_at = now()
+      updated_at = clock_timestamp()
     WHERE id = $4::uuid AND status = 'running'
     RETURNING id::text AS id
     `,

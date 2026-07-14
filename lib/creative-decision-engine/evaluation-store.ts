@@ -1103,8 +1103,23 @@ WITH payload AS (
     evaluated_at
   FROM payload
   ON CONFLICT DO NOTHING
-  RETURNING id
+  RETURNING
+    id,
+    provider_account_ref_id,
+    provider_account_id,
+    decision_entity_id,
+    input_hash,
+    decision_hash
 )
+SELECT
+  inserted.id,
+  inserted.provider_account_ref_id,
+  inserted.provider_account_id,
+  inserted.decision_entity_id,
+  inserted.input_hash::text AS input_hash,
+  inserted.decision_hash::text AS decision_hash
+FROM inserted
+UNION ALL
 SELECT
   evaluation.id,
   evaluation.provider_account_ref_id,
@@ -1121,6 +1136,9 @@ JOIN payload
  AND evaluation.decision_entity_id = payload.decision_entity_id
  AND evaluation.input_hash = payload.input_hash
  AND evaluation.decision_hash = payload.decision_hash
+WHERE NOT EXISTS (
+  SELECT 1 FROM inserted WHERE inserted.id = evaluation.id
+)
 `;
 
 export interface PersistAdDecisionEvaluationBatchInput {
@@ -1423,10 +1441,17 @@ export async function persistAdDecisionEvaluations(
     job_run_id: input.jobRunId,
     evaluated_at: input.evaluatedAt,
   }));
-  const storedRows = await db.query<StoredEvaluationRow>(
+  let storedRows = await db.query<StoredEvaluationRow>(
     INSERT_AD_DECISION_EVALUATIONS_QUERY,
     [JSON.stringify(rows)],
   );
+  if (storedRows.length !== rows.length) {
+    // A concurrent conflict winner may fall outside the first statement snapshot.
+    storedRows = await db.query<StoredEvaluationRow>(
+      INSERT_AD_DECISION_EVALUATIONS_QUERY,
+      [JSON.stringify(rows)],
+    );
+  }
   const stored = new Map<string, StoredAdDecisionEvaluation>();
   for (const row of storedRows) {
     const providerAccountId = nonEmpty(

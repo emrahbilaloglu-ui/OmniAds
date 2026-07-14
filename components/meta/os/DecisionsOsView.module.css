@@ -207,6 +207,8 @@
 .factGrid > div:nth-last-child(-n + 2) { border-bottom: 0; }
 .factGrid span, .factGrid small { color: var(--ink3); font-size: 8.5px; }
 .factGrid strong { font-size: 12px; }
+.campaignRoleFact { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 7px; margin-top: 7px; color: var(--ink3); font-size: 8.5px; }
+.campaignRoleFact strong { color: var(--ink); font-size: 10.5px; }
 .truthNote { margin-top: 7px !important; color: var(--caution-fg) !important; font-size: 9.5px !important; }
 .assessmentSection { display: flex; align-items: center; gap: 12px; }
 .assessmentSection div { display: flex; flex-direction: column; }
@@ -224,6 +226,11 @@
 .roleSummary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .roleSummary strong { font-size: 11.5px; }
 .roleSummary span { color: var(--ink3); font-size: 9.5px; }
+.roleEditor { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--b1); }
+.roleEditor > summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: var(--ink2); font-size: 10px; font-weight: 600; list-style: none; }
+.roleEditor > summary::-webkit-details-marker { display: none; }
+.roleEditor > summary::after { content: "+"; color: var(--ink3); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+.roleEditor[open] > summary::after { content: "-"; }
 .roleHelp { margin-top: 5px !important; color: var(--ink3) !important; font-size: 9.5px !important; }
 .roleOptions { display: grid; overflow: hidden; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--caution-bd); border-radius: 7px; }
 .roleOptions button { min-width: 0; padding: 6px 5px; border: 0; border-right: 1px solid var(--caution-bd); background: transparent; color: var(--caution-fg); font-size: 10px; font-weight: 600; }

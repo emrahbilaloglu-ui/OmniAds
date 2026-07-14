@@ -315,6 +315,14 @@ describe("GET /api/meta/decisions-workspace", () => {
       status: "available",
       scope: { businessId: "biz_1", providerAccountId: "act_1" },
     });
+    expect(
+      readModelMock.readMetaDecisionCampaignContextRows,
+    ).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      campaignIds: ["cmp_1"],
+      snapshotAsOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
   });
 
   it("keeps every current ACTIVE Ad visible when an exact decision snapshot is pending", async () => {

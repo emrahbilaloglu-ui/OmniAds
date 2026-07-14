@@ -292,6 +292,17 @@ export function preserveDecisionWorkspacePlaceholder<T>(
   return previous;
 }
 
+export function isCampaignRoleCorrectionTarget(selected: {
+  kind: "structure" | "ad";
+  value: { level?: string; campaignId?: string | null };
+}) {
+  return (
+    selected.kind === "structure" &&
+    selected.value.level === "campaign" &&
+    Boolean(selected.value.campaignId?.trim())
+  );
+}
+
 function lifecycleLabel(
   value:
     MetaOsStructureNode["lifecycleRole"] | MetaOsAdDecision["lifecycleRole"],
@@ -1437,6 +1448,13 @@ function DecisionInspector({
   );
   const ad = selected.kind === "ad" ? selected.value : null;
   const structure = selected.kind === "structure" ? selected.value : null;
+  const campaignRoleTarget = isCampaignRoleCorrectionTarget(selected)
+    ? structure
+    : null;
+  useEffect(() => {
+    setCampaignRoleCorrection(null);
+    setCampaignRoleNotice(null);
+  }, [campaignRoleTarget?.campaignId]);
   const structureConfigurationQuery = useQuery({
     queryKey: [
       "meta-structure-configuration-v1",
@@ -1486,7 +1504,8 @@ function DecisionInspector({
     : (structure?.bidConfiguration ?? null);
 
   const saveCampaignRoleCorrection = async () => {
-    if (!ad?.campaignId || !campaignRoleCorrection || readOnly) return;
+    if (!campaignRoleTarget?.campaignId || !campaignRoleCorrection || readOnly)
+      return;
     setCampaignRoleSaving(true);
     setCampaignRoleNotice(null);
     try {
@@ -1501,9 +1520,9 @@ function DecisionInspector({
           businessId,
           labels: [
             {
-              campaignId: ad.campaignId,
+              campaignId: campaignRoleTarget.campaignId,
               providerAccountId,
-              campaignName: ad.campaignName,
+              campaignName: campaignRoleTarget.campaignName,
               kind: campaignRoleCorrection,
               testDimension: null,
               source: "user",
@@ -1664,63 +1683,68 @@ function DecisionInspector({
           </section>
         ) : null}
 
-        {ad?.campaignId ? (
+        {campaignRoleTarget ? (
           <section className={styles.inspectorSection}>
             <h3>Campaign role</h3>
             <div className={styles.roleSummary}>
-              <strong>{lifecycleLabel(ad.lifecycleRole)}</strong>
+              <strong>{lifecycleLabel(campaignRoleTarget.lifecycleRole)}</strong>
               <span>
-                {ad.campaignRoleSource === "user_override"
+                {campaignRoleTarget.campaignRoleSource === "user_override"
                   ? "User override"
-                  : ad.campaignRoleSource === "automatic"
+                  : campaignRoleTarget.campaignRoleSource === "automatic"
                     ? "Automatic"
                     : "Unresolved"}
-                {` · ${titleCase(ad.campaignRoleConfidence)} confidence`}
+                {` · ${titleCase(
+                  campaignRoleTarget.campaignRoleConfidence ?? "unknown",
+                )} confidence`}
               </span>
             </div>
-            <p className={styles.roleHelp}>
-              Classification is automatic by default. Save a correction only
-              when the inferred role is wrong; the override takes priority on
-              later decisions.
-            </p>
-            <div className={styles.roleCorrection}>
-              <div
-                className={styles.roleOptions}
-                aria-label="Correct automatic campaign role"
-              >
-                {(["main", "test", "mixed"] as const).map((role) => (
-                  <button
-                    type="button"
-                    key={role}
-                    aria-pressed={campaignRoleCorrection === role}
-                    disabled={campaignRoleSaving || readOnly}
-                    onClick={() => {
-                      setCampaignRoleCorrection(role);
-                      setCampaignRoleNotice(null);
-                    }}
-                  >
-                    {titleCase(role)}
-                  </button>
-                ))}
+            <details className={styles.roleEditor}>
+              <summary>Correct campaign role</summary>
+              <p className={styles.roleHelp}>
+                Classification is automatic. Save an override only when this
+                campaign role is wrong; it will take priority on later
+                decisions.
+              </p>
+              <div className={styles.roleCorrection}>
+                <div
+                  className={styles.roleOptions}
+                  aria-label="Correct automatic campaign role"
+                >
+                  {(["main", "test", "mixed"] as const).map((role) => (
+                    <button
+                      type="button"
+                      key={role}
+                      aria-pressed={campaignRoleCorrection === role}
+                      disabled={campaignRoleSaving || readOnly}
+                      onClick={() => {
+                        setCampaignRoleCorrection(role);
+                        setCampaignRoleNotice(null);
+                      }}
+                    >
+                      {titleCase(role)}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className={styles.saveRoleButton}
+                  disabled={
+                    campaignRoleSaving ||
+                    readOnly ||
+                    campaignRoleCorrection === null
+                  }
+                  onClick={() => void saveCampaignRoleCorrection()}
+                >
+                  {campaignRoleSaving ? "Saving" : "Save correction"}
+                </button>
+                {campaignRoleNotice ? (
+                  <span className={styles.roleNotice} aria-live="polite">
+                    {campaignRoleNotice}
+                  </span>
+                ) : null}
               </div>
-              <button
-                type="button"
-                className={styles.saveRoleButton}
-                disabled={
-                  campaignRoleSaving ||
-                  readOnly ||
-                  campaignRoleCorrection === null
-                }
-                onClick={() => void saveCampaignRoleCorrection()}
-              >
-                {campaignRoleSaving ? "Saving" : "Save correction"}
-              </button>
-              {campaignRoleNotice ? (
-                <span className={styles.roleNotice} aria-live="polite">
-                  {campaignRoleNotice}
-                </span>
-              ) : null}
-            </div>
+            </details>
           </section>
         ) : null}
 
@@ -1750,6 +1774,20 @@ function DecisionInspector({
               <small>commercial truth</small>
             </div>
           </div>
+          {ad?.campaignId ? (
+            <div className={styles.campaignRoleFact}>
+              <span>Campaign role</span>
+              <strong>{lifecycleLabel(ad.lifecycleRole)}</strong>
+              <small>
+                {ad.campaignRoleSource === "user_override"
+                  ? "User override"
+                  : ad.campaignRoleSource === "automatic"
+                    ? "Automatic"
+                    : "Unresolved"}
+                {` · ${titleCase(ad.campaignRoleConfidence)} confidence`}
+              </small>
+            </div>
+          ) : null}
           {ad?.decisionAvailability === "pending_native_evidence" ? (
             <p className={styles.truthNote}>
               Meta currently reports this Ad as ACTIVE. Exact Ad-grain decision

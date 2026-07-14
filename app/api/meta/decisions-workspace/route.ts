@@ -26,6 +26,10 @@ import {
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import {
+  metaDecisionCampaignContextScopeKey,
+  normalizeMetaDecisionCampaignContextIds,
+} from "@/lib/meta/decisions-workspace-cache-scope";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { isReviewerEmail } from "@/lib/reviewer-access";
 import { getCachedValue } from "@/lib/server-cache";
@@ -135,32 +139,24 @@ async function readCurrentMetaAds(input: {
   ).value;
 }
 
-async function readCurrentAdCampaignContexts(input: {
+async function readCurrentCampaignContexts(input: {
   businessId: string;
   providerAccountId: string | null;
   snapshotAsOf: string;
-  currentAds: CurrentMetaAdsResult;
+  campaignIds: readonly string[];
 }): Promise<MetaDecisionCampaignContextSourceRow[]> {
-  if (!input.providerAccountId || !input.currentAds.complete) return [];
-  const campaignIds = [
-    ...new Set(
-      input.currentAds.rows
-        .map((row) => row.campaignId?.trim() ?? "")
-        .filter(Boolean),
-    ),
-  ];
-  if (campaignIds.length === 0) return [];
+  if (!input.providerAccountId) return [];
+  if (input.campaignIds.length === 0) return [];
   try {
     return await readMetaDecisionCampaignContextRows({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
-      campaignIds,
+      campaignIds: [...input.campaignIds],
       snapshotAsOf: input.snapshotAsOf,
     });
   } catch {
-    // The active inventory remains visible even when automatic context is
-    // temporarily unavailable. Presentation assigns an untrusted provisional
-    // role and keeps decision authority unchanged.
+    // The workspace inventory remains visible when context is unavailable.
+    // Presentation keeps provisional roles untrusted for decision authority.
     return [];
   }
 }
@@ -961,6 +957,13 @@ export async function GET(request: NextRequest) {
       ...lanes.nonSales,
     ];
     const decisionReadPromise = currentAdsPromise.then(async (currentAds) => {
+      const campaignContextIds = normalizeMetaDecisionCampaignContextIds({
+        currentAds: currentAds.rows,
+        structureCampaignIds: [
+          ...scopedRecommendations.map((rec) => rec.campaignId),
+          ...(lanes.structureInventory ?? []).map((row) => row.campaignId),
+        ],
+      });
       const loadDecisionBundle = async () => {
         const [decisionRead, currentAdCampaignContexts] = await Promise.all([
           canonicalDecisionReadModel({
@@ -969,11 +972,11 @@ export async function GET(request: NextRequest) {
             adCandidateLimit,
             currentAds,
           }),
-          readCurrentAdCampaignContexts({
+          readCurrentCampaignContexts({
             businessId,
             providerAccountId,
             snapshotAsOf: resolvedEndDate,
-            currentAds,
+            campaignIds: campaignContextIds,
           }),
         ]);
         return { currentAds, decisionRead, currentAdCampaignContexts };
@@ -983,7 +986,7 @@ export async function GET(request: NextRequest) {
       }
       return (
         await getCachedValue({
-          key: `meta-decisions-bundle-v2:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}`,
+          key: `meta-decisions-bundle-v4:${businessId}:${providerAccountId ?? "none"}:${resolvedEndDate}:${adCandidateLimit}:${metaDecisionCampaignContextScopeKey(campaignContextIds)}`,
           ttlMs: 60_000,
           staleWhileRevalidateMs: 240_000,
           loader: loadDecisionBundle,

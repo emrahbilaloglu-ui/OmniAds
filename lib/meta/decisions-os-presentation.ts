@@ -632,7 +632,10 @@ function adAssessment(decision: MetaCanonicalDecision) {
 
 function adAction(
   decision: MetaCanonicalDecision,
-  targetHardActionsEligible: boolean,
+  targetHardActionEligibility: Readonly<{
+    scale: boolean;
+    cut: boolean;
+  }>,
 ): {
   action: MetaOsDecisionAction;
   lane: MetaOsDecisionLane;
@@ -666,8 +669,8 @@ function adAction(
   }
 
   if (
-    !targetHardActionsEligible &&
-    (buyerAction === "scale" || buyerAction === "cut")
+    (buyerAction === "scale" || buyerAction === "cut") &&
+    !targetHardActionEligibility[buyerAction]
   ) {
     return {
       lane: "blocked",
@@ -895,7 +898,10 @@ function presentedCampaignRole(input: {
 function adDecision(
   decision: MetaCanonicalDecision,
   contexts: ReadonlyMap<string, MetaDecisionCampaignContextSourceRow>,
-  targetHardActionsEligible: boolean,
+  targetHardActionEligibility: Readonly<{
+    scale: boolean;
+    cut: boolean;
+  }>,
 ): MetaOsAdDecision | null {
   const ad = decision.parentChain.ad;
   if (!ad?.id?.trim() || !/^\d+$/.test(ad.id.trim())) return null;
@@ -905,7 +911,7 @@ function adDecision(
   ) {
     return null;
   }
-  const mapped = adAction(decision, targetHardActionsEligible);
+  const mapped = adAction(decision, targetHardActionEligibility);
   const campaignRole = presentedCampaignRole({
     campaignId: decision.parentChain.campaign?.id ?? null,
     campaignName: decision.parentChain.campaign?.name ?? null,
@@ -1210,7 +1216,10 @@ export function buildMetaOsDecisionsPresentation(input: {
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
-  targetHardActionsEligible?: boolean;
+  targetHardActionEligibility?: Readonly<{
+    scale: boolean;
+    cut: boolean;
+  }>;
   generatedAt?: string;
 }): MetaOsDecisionsPresentation {
   const currentAdCampaignContexts = new Map(
@@ -1219,7 +1228,10 @@ export function buildMetaOsDecisionsPresentation(input: {
       context,
     ]),
   );
-  const targetHardActionsEligible = input.targetHardActionsEligible !== false;
+  const targetHardActionEligibility = input.targetHardActionEligibility ?? {
+    scale: true,
+    cut: true,
+  };
   const structureInputs: StructureInput[] = [
     ...input.actionNow.map((rec) => ({ rec, lane: "act" as const })),
     ...input.watching.map((rec) => ({ rec, lane: "monitor" as const })),
@@ -1359,7 +1371,7 @@ export function buildMetaOsDecisionsPresentation(input: {
     const item = adDecision(
       decision,
       currentAdCampaignContexts,
-      targetHardActionsEligible,
+      targetHardActionEligibility,
     );
     if (!item) {
       if (

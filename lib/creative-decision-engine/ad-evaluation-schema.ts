@@ -342,6 +342,17 @@ BEGIN
     ) THEN
     ALTER TABLE engine_v3_ad_decision_snapshots_daily
       DROP CONSTRAINT IF EXISTS engine_v3_ad_snapshots_authority_check;
+    UPDATE engine_v3_ad_decision_snapshots_daily
+    SET authorized_action = NULL
+    WHERE authorized_action IS NOT NULL
+      AND NOT (
+        calibration_row_id IS NOT NULL AND
+        authority_blocker IS NULL AND
+        blocked_action_type IS NULL AND
+        label IN ('scale', 'cut', 'refresh') AND
+        raw_label = label AND
+        authorized_action = label
+      );
     ALTER TABLE engine_v3_ad_decision_snapshots_daily
       ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
       CHECK ${NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION};

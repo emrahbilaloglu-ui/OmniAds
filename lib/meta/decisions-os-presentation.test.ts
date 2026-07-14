@@ -860,7 +860,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
         }),
       ]),
       currency: "EUR",
-      targetHardActionsEligible: false,
+      targetHardActionEligibility: { scale: false, cut: false },
     });
 
     const scale = result.ads.items.find(
@@ -887,6 +887,43 @@ describe("buildMetaOsDecisionsPresentation", () => {
       lane: "act",
       action: { code: "refresh_creative", intent: "brief" },
     });
+  });
+
+  it("revalidates Scale and Cut against their own current ROAS anchors", () => {
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([
+        canonicalDecision({
+          id: "scale-without-current-target-roas",
+          adId: "120000000000000021",
+          buyerAction: "scale",
+          role: "test",
+        }),
+        canonicalDecision({
+          id: "cut-with-current-break-even-roas",
+          adId: "120000000000000022",
+          buyerAction: "cut",
+        }),
+      ]),
+      currency: "EUR",
+      targetHardActionEligibility: { scale: false, cut: true },
+    });
+
+    expect(
+      result.ads.items.find(
+        (item) => item.decisionId === "scale-without-current-target-roas",
+      ),
+    ).toMatchObject({
+      lane: "blocked",
+      action: { code: "review_commercial_truth", intent: "review" },
+    });
+    expect(
+      result.ads.items.find(
+        (item) => item.decisionId === "cut-with-current-break-even-roas",
+      )?.action.code,
+    ).not.toBe("review_commercial_truth");
   });
 
   it("enables an exact Ad pause only when native lineage authorizes the served Cut", () => {

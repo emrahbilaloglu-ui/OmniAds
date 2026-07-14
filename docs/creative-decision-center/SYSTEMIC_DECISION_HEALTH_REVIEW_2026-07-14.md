@@ -158,7 +158,7 @@ an ordering defect where compatibility SQL could run before action-lineage
 columns existed; the migration now waits for the complete required column set.
 The final real PostgreSQL seam passes from zero and on the idempotency rerun.
 
-Final local gates after these fixes: 572 test files passed (4 skipped), 4,843
+Final local gates after these fixes: 572 test files passed (4 skipped), 4,845
 tests passed (61 skipped, 61 todo), TypeScript passed, ESLint passed, migration
 from zero passed, and `git diff --check` passed.
 
@@ -167,6 +167,16 @@ classified all blockers, majors, minors, and requested seam gaps as
 `VERIFIED_FIXED`, found no new blocker or major, and corrected its own initial
 hysteresis severity from provider-write exposure to snapshot-contract
 inconsistency. Its final verdict was `JOINT_REVIEW: CONTINUE`.
+
+GitHub Codex then found two deployment blockers on the published PR. Both are
+closed before merge. Dated workspace reads now use historical targets only
+through persisted snapshot provenance while revalidating served Scale/Cut
+authority against the current pack and each action's own ROAS anchor. The
+native authority migration now drops the legacy CHECK, clears authorization on
+every tuple that is not an exact currently published hard action, and only then
+installs the stricter CHECK. A real PostgreSQL seam recreates the preceding
+constraint and a legacy hysteresis-pending row, runs the production migration,
+and proves the row is normalized without weakening the new invariant.
 
 ## Decision
 

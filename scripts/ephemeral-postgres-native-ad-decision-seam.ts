@@ -7,7 +7,10 @@ import { spawnSync } from "node:child_process";
 import { Client } from "pg";
 
 import type { DbClient } from "@/lib/db";
-import { NATIVE_AD_DECISION_SCHEMA_SQL } from "@/lib/creative-decision-engine/ad-evaluation-schema";
+import {
+  ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
+  NATIVE_AD_DECISION_SCHEMA_SQL,
+} from "@/lib/creative-decision-engine/ad-evaluation-schema";
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
   HYDRATE_AD_DECISION_INPUTS_QUERY,
@@ -38,6 +41,26 @@ const ACCOUNT_ID = "act_native_seam";
 const AS_OF = "2026-07-12";
 const CUTOFF = `${AS_OF}T03:15:00.000Z`;
 const CALIBRATION_ID = "00000000-0000-4000-8000-000000000903";
+const LEGACY_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK = `(
+  (
+    calibration_row_id IS NULL AND
+    label IN ('diagnose', 'out_of_scope', 'keep') AND
+    raw_label IN ('diagnose', 'out_of_scope', 'keep') AND
+    confidence <= 40 AND
+    authorized_action IS NULL AND
+    blocked_action_type IS NULL AND
+    badges @> '[{"type":"native_calibration_unavailable"}]'::jsonb
+  ) OR (
+    calibration_row_id IS NOT NULL AND
+    (
+      (raw_label IN ('scale', 'cut', 'refresh') AND authorized_action = raw_label) OR
+      (raw_label NOT IN ('scale', 'cut', 'refresh') AND authorized_action IS NULL)
+    ) AND (
+      label NOT IN ('scale', 'cut', 'refresh') OR
+      (label = raw_label AND authorized_action = label)
+    )
+  )
+)`;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -1270,6 +1293,42 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     "23503",
     "event exact snapshot lineage FK",
   );
+
+  // Recreate the preceding image's authority contract around a real pending
+  // row, then prove the production migration clears legacy raw-label
+  // authorization before installing the stricter CHECK.
+  await client.query(
+    `DELETE FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-review-only-cut'`,
+  );
+  await client.query(
+    `ALTER TABLE engine_v3_ad_decision_snapshots_daily
+     DROP CONSTRAINT engine_v3_ad_snapshots_authority_check`,
+  );
+  await client.query(
+    `UPDATE engine_v3_ad_decision_snapshots_daily
+     SET authorized_action = 'cut'
+     WHERE decision_entity_id = 'ad-pending-cut'`,
+  );
+  await client.query(
+    `ALTER TABLE engine_v3_ad_decision_snapshots_daily
+     ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
+     CHECK ${LEGACY_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK}`,
+  );
+  await client.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
+  const upgradedPending = await client.query<{
+    authorized_action: string | null;
+    blocked_action_type: string | null;
+  }>(
+    `SELECT authorized_action, blocked_action_type
+     FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-pending-cut'`,
+  );
+  assert(
+    upgradedPending.rows[0]?.authorized_action === null &&
+      upgradedPending.rows[0]?.blocked_action_type === "cut",
+    "Legacy pending authorization was not cleared before the stricter CHECK.",
+  );
 }
 
 async function runSeam(client: Client) {
@@ -1346,7 +1405,7 @@ async function main() {
       await client.end();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
     );
   } finally {
     if (started) {

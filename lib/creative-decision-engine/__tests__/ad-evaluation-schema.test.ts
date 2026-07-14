@@ -6,6 +6,7 @@ import {
   CREATE_NATIVE_AD_EVALUATIONS_SQL,
   CREATE_NATIVE_AD_EVENTS_SQL,
   CREATE_NATIVE_AD_SNAPSHOTS_SQL,
+  ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_DECISION_SCHEMA_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
@@ -99,5 +100,20 @@ describe("D047 native ad parallel schema SQL", () => {
       "profile_hard_action_ineligible", "source_freshness", "campaign_context",
       "native_metrics_unavailable", "native_profile_unavailable",
     ]) expect(sql).toContain(`'${blocker}'`);
+  });
+
+  it("normalizes legacy non-published authorization before tightening the authority check", () => {
+    const normalized = ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL.replace(
+      /\s+/g,
+      " ",
+    );
+    expect(normalized.indexOf("DROP CONSTRAINT")).toBeLessThan(
+      normalized.indexOf("SET authorized_action = NULL"),
+    );
+    expect(normalized.indexOf("SET authorized_action = NULL")).toBeLessThan(
+      normalized.indexOf("ADD CONSTRAINT"),
+    );
+    expect(normalized).toContain("raw_label = label");
+    expect(normalized).toContain("blocked_action_type IS NULL");
   });
 });

@@ -556,7 +556,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("forwards query and auth context, then composes queue groups and action states", async () => {
+  it("forwards query and auth context, rechecks current commercial authority, then composes the workspace", async () => {
     const pulse = metaPulse({ currency: "EUR" });
     const missingActionKind = metaRec({ id: "missing" });
     delete missingActionKind.actionKind;
@@ -658,7 +658,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
       commercialTargetsMock.readMetaCommercialTargets,
-    ).toHaveBeenCalledWith("biz_1", { asOf: "2026-05-07" });
+    ).toHaveBeenCalledWith("biz_1");
     expect(payload.system.currency).toBe("EUR");
     expect(payload.queue.groups).toEqual([
       { key: "action", label: "Action Now", count: 3 },

@@ -983,11 +983,10 @@ export async function GET(request: NextRequest) {
         ).value;
   const endDateResolvedAt = performance.now();
   const params = workspaceParams(request.nextUrl.searchParams, resolvedEndDate);
-  const commercialTargetsPromise = (
-    explicitEndDate?.trim()
-      ? readMetaCommercialTargets(businessId, { asOf: resolvedEndDate })
-      : readMetaCommercialTargets(businessId)
-  )
+  // A dated view keeps the persisted snapshot's historical target provenance,
+  // but serve-time action authority must always be revalidated against current
+  // commercial truth (D045).
+  const commercialTargetsPromise = readMetaCommercialTargets(businessId)
     .then((targets) => ({ targets, readFailed: false as const }))
     .catch(() => ({ targets: null, readFailed: true as const }));
   let currentAdsCompletedAt = endDateResolvedAt;
@@ -1160,9 +1159,16 @@ export async function GET(request: NextRequest) {
         currentAds: currentAds.complete ? currentAds.rows : [],
         currentAdCampaignContexts,
         currency: pulse.currency ?? null,
-        targetHardActionsEligible:
-          !commercialTargetRead.readFailed &&
-          hasMetaHardActionAnchor(commercialTargetRead.targets),
+        targetHardActionEligibility: {
+          scale:
+            !commercialTargetRead.readFailed &&
+            hasMetaHardActionAnchor(commercialTargetRead.targets) &&
+            commercialTargetRead.targets?.targetRoas != null,
+          cut:
+            !commercialTargetRead.readFailed &&
+            hasMetaHardActionAnchor(commercialTargetRead.targets) &&
+            commercialTargetRead.targets?.breakEvenRoas != null,
+        },
       }),
     };
     if (compactOsSurface) {

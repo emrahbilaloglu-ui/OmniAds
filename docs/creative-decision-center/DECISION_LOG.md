@@ -1628,6 +1628,13 @@ are absent; they are not coerced into measured zeroes. The parallel migration
 contract is recorded in
 `D047_NATIVE_AD_PARALLEL_SCHEMA_2026-07-12.md`; the shadow producer is not yet
 scheduled and cannot activate until that capability gate passes.
+
+Runtime repair addendum (2026-07-14): entity `observed_at` may be the provider's
+old `updated_time`, so complete-run manifest membership is bounded by
+`captured_at`. A zero-row decision success is not reusable when the corrected
+current complete manifest is non-empty. In that case the scheduler retains the
+successful calibration, reruns native decisions, and invalidates the downstream
+operator-response success so the chain repairs itself on the next normal cron.
 The migration-ready CREATE/constraint/index SQL is exported from
 `lib/creative-decision-engine/ad-evaluation-schema.ts` and alters no legacy
 creative table.

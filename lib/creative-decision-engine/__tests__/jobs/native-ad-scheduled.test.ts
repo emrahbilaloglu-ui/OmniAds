@@ -14,6 +14,7 @@ import {
   type AdOperatorResponseJobResult,
 } from "../../jobs/ad-operator-response-job";
 import {
+  isZeroRowNativeDecisionSuccess,
   runNativeAdShadowChainForActiveBusinessesIfDue,
   type NativeAdShadowScheduleOptions,
   type NativeAdShadowSchemaReadiness,
@@ -189,6 +190,45 @@ describe("native ad shadow scheduled chain", () => {
     expect(result.results?.[0]?.decisions.status).toBe("success");
     expect(result.results?.[0]?.operatorResponse.status).toBe("success");
     expect(runCalibration).not.toHaveBeenCalled();
+  });
+
+  it("reruns decisions and downstream response when only calibration is reusable", async () => {
+    const previous = new Map<
+      string,
+      Set<
+        | typeof AD_CALIBRATION_JOB_NAME
+        | typeof AD_DECISIONS_JOB_NAME
+        | typeof AD_OPERATOR_RESPONSE_JOB_NAME
+      >
+    >([
+      [
+        BUSINESSES[0].id,
+        new Set([AD_CALIBRATION_JOB_NAME, AD_OPERATOR_RESPONSE_JOB_NAME]),
+      ],
+    ]);
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      [BUSINESSES[0]],
+      options({
+        readSuccessfulJobs: async () => previous,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+    expect(result.results?.[0]?.calibration.status).toBe("previous_success");
+    expect(result.results?.[0]?.decisions.status).toBe("success");
+    expect(result.results?.[0]?.operatorResponse.status).toBe("success");
+    expect(runDecisions).toHaveBeenCalledTimes(1);
+    expect(runOperatorResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it("recognizes only exact zero-row decision successes as repair candidates", () => {
+    expect(isZeroRowNativeDecisionSuccess(0)).toBe(true);
+    expect(isZeroRowNativeDecisionSuccess("0")).toBe(true);
+    expect(isZeroRowNativeDecisionSuccess(1)).toBe(false);
+    expect(isZeroRowNativeDecisionSuccess(null)).toBe(false);
   });
 
   it("reports already_ran only when every native step succeeded for every business", async () => {

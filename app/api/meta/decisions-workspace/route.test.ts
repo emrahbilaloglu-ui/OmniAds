@@ -557,6 +557,16 @@ describe("GET /api/meta/decisions-workspace", () => {
   });
 
   it("forwards query and auth context, rechecks current commercial authority, then composes the workspace", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    });
     const pulse = metaPulse({ currency: "EUR" });
     const missingActionKind = metaRec({ id: "missing" });
     delete missingActionKind.actionKind;
@@ -993,6 +1003,16 @@ describe("GET /api/meta/decisions-workspace", () => {
   });
 
   it("adds reviewer read-only posture from server session state without changing queue action authority", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "fresh",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    });
     accessMock.requireBusinessAccess.mockResolvedValue({
       session: {
         sessionId: "sess_1",
@@ -1063,6 +1083,95 @@ describe("GET /api/meta/decisions-workspace", () => {
       payload.banners.map((banner: { id: string }) => banner.id),
     ).toContain("reviewer_read_only");
     expect(payload.queue.actionStates.executablePause).toBe(1);
+  });
+
+  it("downgrades stale Structure hard actions across lanes, queue states, and OS actions", async () => {
+    commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
+      source: "configured_targets",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: null,
+      breakEvenCpa: null,
+      riskPosture: "balanced",
+      freshness: "stale",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+    });
+    const cut = metaRec({
+      id: "stale-structure-cut",
+      level: "adset",
+      campaignId: "cmp_1",
+      campaignName: "Main campaign",
+      adsetId: "set_1",
+      adsetName: "Broad",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      primaryActionLabel: "Pause Ad Set",
+      proposedAction: { kind: "pause" },
+    });
+    const lanes = metaLanePayload({
+      actionNow: [cut],
+      watching: [],
+      nonSales: [],
+      healthy: [],
+      archive: [],
+      counts: {
+        actionNow: 1,
+        watching: 0,
+        healthy: 0,
+        nonSales: 0,
+        archive: 0,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const pathname = new URL(String(url)).pathname;
+        if (pathname === "/api/meta/account-pulse") {
+          return jsonResponse(metaPulse());
+        }
+        if (pathname === "/api/meta/lane-classify") return jsonResponse(lanes);
+        return jsonResponse({ error: "unexpected" }, 404);
+      }),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decisions-workspace?businessId=biz_1",
+      ),
+    );
+    const payload = await response.json();
+    const structureNode = payload.os.structure.groups[0].adsets[0];
+
+    expect(response.status).toBe(200);
+    expect(payload.lanes.actionNow).toHaveLength(0);
+    expect(payload.lanes.watching[0]).toMatchObject({
+      id: "stale-structure-cut",
+      decisionLabel: "cut",
+      decisionState: "watch",
+      actionKind: "review_drill",
+      primaryActionLabel: "Review Commercial Truth",
+    });
+    expect(payload.queue.groups[0]).toMatchObject({
+      key: "action",
+      count: 0,
+    });
+    expect(payload.queue.groups[1]).toMatchObject({
+      key: "watching",
+      count: 1,
+    });
+    expect(payload.queue.actionStates).toMatchObject({
+      executablePause: 0,
+      reviewOnly: 1,
+    });
+    expect(structureNode).toMatchObject({
+      lane: "blocked",
+      assessment: "Decision Blocked",
+      action: {
+        code: "review_commercial_truth",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
   });
 
   it("propagates upstream failures with source metadata", async () => {

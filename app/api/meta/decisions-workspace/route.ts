@@ -24,7 +24,10 @@ import {
   type MetaCurrentAdStatusSourceRow,
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
-import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import {
+  buildMetaOsDecisionsPresentation,
+  revalidateMetaStructureLanesForCurrentTargets,
+} from "@/lib/meta/decisions-os-presentation";
 import type { MetaOsWorkspaceBanner } from "@/lib/meta/decisions-os-contract";
 import {
   hasMetaHardActionAnchor,
@@ -1103,6 +1106,20 @@ export async function GET(request: NextRequest) {
         status: decisionRead.status,
       });
     }
+    const targetHardActionEligibility = {
+      scale:
+        !commercialTargetRead.readFailed &&
+        hasMetaHardActionAnchor(commercialTargetRead.targets) &&
+        commercialTargetRead.targets?.targetRoas != null,
+      cut:
+        !commercialTargetRead.readFailed &&
+        hasMetaHardActionAnchor(commercialTargetRead.targets) &&
+        commercialTargetRead.targets?.breakEvenRoas != null,
+    };
+    const servedLanes = revalidateMetaStructureLanesForCurrentTargets(
+      lanes,
+      targetHardActionEligibility,
+    );
     const payload: MetaDecisionsWorkspacePayload & {
       decisionReadModel: MetaDecisionsWorkspaceReadModel;
     } = {
@@ -1112,17 +1129,18 @@ export async function GET(request: NextRequest) {
       startDate: pulse.startDate,
       endDate: pulse.endDate,
       pulse,
-      lanes,
+      lanes: servedLanes,
       queue: {
-        groups: queueGroups(lanes),
-        actionStates: actionStates(lanes),
+        groups: queueGroups(servedLanes),
+        actionStates: actionStates(servedLanes),
       },
       system: {
         trackingBlocked,
         dataReadiness: pulse.dataReadiness ?? null,
-        snapshotHealth: pulse.snapshotHealth ?? lanes.snapshotHealth ?? null,
-        laneSnapshotDate: lanes.snapshotDate,
-        laneSnapshotCreatedAt: lanes.snapshotCreatedAt ?? null,
+        snapshotHealth:
+          pulse.snapshotHealth ?? servedLanes.snapshotHealth ?? null,
+        laneSnapshotDate: servedLanes.snapshotDate,
+        laneSnapshotCreatedAt: servedLanes.snapshotCreatedAt ?? null,
         engineVersion: pulse.engineVersion,
         currency: pulse.currency ?? null,
         killSwitchEngaged,
@@ -1133,7 +1151,7 @@ export async function GET(request: NextRequest) {
       viewer,
       banners: workspaceBanners({
         pulse,
-        lanes,
+        lanes: servedLanes,
         trackingBlocked,
         killSwitchEngaged,
         viewer,
@@ -1141,7 +1159,7 @@ export async function GET(request: NextRequest) {
         commercialTargetsReadFailed: commercialTargetRead.readFailed,
       }),
       digest: digest ?? {
-        snapshotDate: lanes.snapshotDate,
+        snapshotDate: servedLanes.snapshotDate,
         unavailableReason: "not_requested_for_compact_surface",
         labelFlips: { count: 0, publishedCount: 0, items: [] },
         actions: { verifiedCount: 0, silentFailureCount: 0, items: [] },
@@ -1150,25 +1168,16 @@ export async function GET(request: NextRequest) {
       },
       decisionReadModel: decisionRead.model,
       os: buildMetaOsDecisionsPresentation({
-        actionNow: lanes.actionNow,
-        watching: lanes.watching,
-        nonSales: lanes.nonSales,
-        structureInventory: lanes.structureInventory,
-        inactiveStructure: lanes.archive,
+        actionNow: servedLanes.actionNow,
+        watching: servedLanes.watching,
+        nonSales: servedLanes.nonSales,
+        structureInventory: servedLanes.structureInventory,
+        inactiveStructure: servedLanes.archive,
         decisionReadModel: decisionRead.model,
         currentAds: currentAds.complete ? currentAds.rows : [],
         currentAdCampaignContexts,
         currency: pulse.currency ?? null,
-        targetHardActionEligibility: {
-          scale:
-            !commercialTargetRead.readFailed &&
-            hasMetaHardActionAnchor(commercialTargetRead.targets) &&
-            commercialTargetRead.targets?.targetRoas != null,
-          cut:
-            !commercialTargetRead.readFailed &&
-            hasMetaHardActionAnchor(commercialTargetRead.targets) &&
-            commercialTargetRead.targets?.breakEvenRoas != null,
-        },
+        targetHardActionEligibility,
       }),
     };
     if (compactOsSurface) {

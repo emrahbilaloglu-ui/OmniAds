@@ -158,7 +158,7 @@ an ordering defect where compatibility SQL could run before action-lineage
 columns existed; the migration now waits for the complete required column set.
 The final real PostgreSQL seam passes from zero and on the idempotency rerun.
 
-Final local gates after these fixes: 572 test files passed (4 skipped), 4,845
+Final local gates after these fixes: 572 test files passed (4 skipped), 4,847
 tests passed (61 skipped, 61 todo), TypeScript passed, ESLint passed, migration
 from zero passed, and `git diff --check` passed.
 
@@ -177,6 +177,18 @@ every tuple that is not an exact currently published hard action, and only then
 installs the stricter CHECK. A real PostgreSQL seam recreates the preceding
 constraint and a legacy hysteresis-pending row, runs the production migration,
 and proves the row is normalized without weakening the new invariant.
+
+Its follow-up found one additional serve-time gap: the current-target check was
+applied to canonical Ad decisions but not the persisted campaign/ad-set
+Structure lanes. That gap is also closed before merge. A shared server guard
+now revalidates every Structure Scale/Cut, pause, and bid action against the
+current action-specific target authority. An ineligible row keeps its
+historical verdict for diagnosis but moves from Action Now to Watching, clears
+its proposed provider mutation and target value, becomes review-only in the
+automation contract, and is presented as `review_commercial_truth`. Queue
+counts, action-state counts, raw lane payloads, and OS Structure nodes all use
+the same guarded lane model. Unit and route integration tests prove both the
+action-specific pass path and the stale-target fail-closed path.
 
 ## Decision
 

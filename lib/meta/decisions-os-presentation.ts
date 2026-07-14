@@ -9,7 +9,10 @@ import {
   type MetaDecisionCampaignContextSourceRow,
 } from "@/lib/meta/decisions-workspace-read-model";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import type { MetaStructureInventoryEntity } from "@/components/meta/redesign/types";
+import type {
+  MetaLanePayload,
+  MetaStructureInventoryEntity,
+} from "@/components/meta/redesign/types";
 import {
   META_OS_DECISIONS_PRESENTATION_VERSION,
   type MetaOsAdDecision,
@@ -100,7 +103,14 @@ type InactiveStructureInput = {
 type StructureInput = {
   rec: MetaRecommendation;
   lane: MetaOsDecisionLane;
+  targetAuthorityBlocker: MetaTargetHardAction | null;
 };
+
+export type MetaTargetHardAction = "scale" | "cut";
+
+export type MetaTargetHardActionEligibility = Readonly<
+  Record<MetaTargetHardAction, boolean>
+>;
 
 const PRIORITY_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
 const CONFIDENCE_WEIGHT = { high: 3, medium: 2, low: 1 } as const;
@@ -113,6 +123,126 @@ const URGENCY_WEIGHT: Record<MetaOsDecisionUrgency["level"], number> = {
 
 function finite(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function metaStructureTargetHardAction(
+  rec: MetaRecommendation,
+): MetaTargetHardAction | null {
+  if (rec.decisionLabel === "scale") return "scale";
+  if (
+    rec.decisionLabel === "cut" ||
+    rec.decisionLabel === "below_breakeven" ||
+    rec.actionKind === "execute_pause"
+  ) {
+    return "cut";
+  }
+  // A malformed legacy bid row without a decision label must still fail closed.
+  if (rec.actionKind === "execute_bid") return "scale";
+  return null;
+}
+
+function targetAuthorityBlocker(
+  rec: MetaRecommendation,
+  eligibility: MetaTargetHardActionEligibility,
+) {
+  const action = metaStructureTargetHardAction(rec);
+  return action && !eligibility[action] ? action : null;
+}
+
+function guardStructureRecommendationForCurrentTargets(
+  rec: MetaRecommendation,
+  eligibility: MetaTargetHardActionEligibility,
+) {
+  const blocker = targetAuthorityBlocker(rec, eligibility);
+  if (!blocker) return { rec, blocked: false as const };
+  const blockerLabel =
+    blocker === "scale"
+      ? "Current target ROAS authority"
+      : "Current break-even ROAS authority";
+  const automationReadiness = rec.automationReadiness
+    ? {
+        ...rec.automationReadiness,
+        tier: "manual_review" as const,
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        blockers: Array.from(
+          new Set([
+            ...rec.automationReadiness.blockers,
+            "missing_commercial_anchor" as const,
+          ]),
+        ),
+        missingEvidence: Array.from(
+          new Set([
+            ...rec.automationReadiness.missingEvidence,
+            blocker === "scale"
+              ? "current_target_roas_authority"
+              : "current_break_even_roas_authority",
+          ]),
+        ),
+        reason: `${blockerLabel} is unavailable, so the persisted hard action is review-only.`,
+      }
+    : undefined;
+
+  return {
+    blocked: true as const,
+    rec: {
+      ...rec,
+      decisionState: "watch" as const,
+      stateReason: "current_commercial_target_authority_unavailable",
+      actionKind: "review_drill" as const,
+      primaryActionLabel: "Review Commercial Truth",
+      recommendedAction: "Review Commercial Truth",
+      expectedImpact:
+        "No provider change until current commercial truth is authoritative.",
+      proposedAction: undefined,
+      targetValue: undefined,
+      watchSegment: "missing_target" as const,
+      rowPresentation: {
+        ...rec.rowPresentation,
+        signal: "blocker" as const,
+        blockerLabel,
+        autoBadge: false,
+      },
+      ...(automationReadiness ? { automationReadiness } : {}),
+    },
+  };
+}
+
+export function revalidateMetaStructureLanesForCurrentTargets(
+  lanes: MetaLanePayload,
+  eligibility: MetaTargetHardActionEligibility,
+): MetaLanePayload {
+  const actionNow: MetaRecommendation[] = [];
+  const movedToWatching: MetaRecommendation[] = [];
+  for (const rec of lanes.actionNow) {
+    const guarded = guardStructureRecommendationForCurrentTargets(
+      rec,
+      eligibility,
+    );
+    if (guarded.blocked) movedToWatching.push(guarded.rec);
+    else actionNow.push(guarded.rec);
+  }
+  const watching = [
+    ...lanes.watching.map(
+      (rec) => guardStructureRecommendationForCurrentTargets(rec, eligibility).rec,
+    ),
+    ...movedToWatching,
+  ];
+  const nonSales = lanes.nonSales.map(
+    (rec) => guardStructureRecommendationForCurrentTargets(rec, eligibility).rec,
+  );
+  return {
+    ...lanes,
+    actionNow,
+    watching,
+    nonSales,
+    counts: {
+      ...lanes.counts,
+      actionNow: actionNow.length,
+      watching: watching.length,
+      nonSales: nonSales.length,
+    },
+  };
 }
 
 export function providerCurrencyValue(
@@ -283,6 +413,7 @@ function structureBudgetOwnership(rec: MetaRecommendation) {
 function structureAction(
   rec: MetaRecommendation,
   ownership: ReturnType<typeof structureBudgetOwnership>,
+  targetAuthorityBlocker: MetaTargetHardAction | null,
 ): MetaOsDecisionAction {
   const configuredTarget =
     rec.actionKind === "execute_bid"
@@ -297,6 +428,20 @@ function structureAction(
     rec.recommendedAction?.trim() ||
     rec.decision?.trim() ||
     "Review";
+
+  if (targetAuthorityBlocker) {
+    return {
+      code: "review_commercial_truth",
+      label: "Review Commercial Truth",
+      intent: "review",
+      targetLevel,
+      providerMutation: null,
+      scopeNote:
+        targetAuthorityBlocker === "scale"
+          ? "Current target ROAS authority is unavailable; no Scale action is authorized"
+          : "Current break-even ROAS authority is unavailable; no Cut action is authorized",
+    };
+  }
 
   if (rec.decisionLabel === "diagnose") {
     return {
@@ -452,14 +597,20 @@ function structureNode(
           budgetUtilization: rec.entityConfiguration.budgetUtilization ?? null,
         }
       : undefined,
-    action: structureAction(rec, ownership),
+    action: structureAction(rec, ownership, input.targetAuthorityBlocker),
     lane: input.lane,
     priority: priorityForRecommendation(rec),
     urgency: structureUrgency(input),
     confidence: rec.confidence,
-    assessment: assessmentForRecommendation(rec),
-    whyNow: rec.why || rec.summary || "Evidence unavailable.",
-    expectedImpact: rec.expectedImpact || "Cannot calculate",
+    assessment: input.targetAuthorityBlocker
+      ? "Decision Blocked"
+      : assessmentForRecommendation(rec),
+    whyNow: input.targetAuthorityBlocker
+      ? "Current commercial target authority is unavailable; the persisted verdict remains visible but cannot authorize an action."
+      : rec.why || rec.summary || "Evidence unavailable.",
+    expectedImpact: input.targetAuthorityBlocker
+      ? "Cannot calculate until commercial truth is current"
+      : rec.expectedImpact || "Cannot calculate",
     evidence: rec.evidence ?? [],
     metrics: recommendationMetrics(rec, currency),
     suppressedAlternativeCount,
@@ -1216,10 +1367,7 @@ export function buildMetaOsDecisionsPresentation(input: {
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdCampaignContexts?: readonly MetaDecisionCampaignContextSourceRow[];
   currency: string | null;
-  targetHardActionEligibility?: Readonly<{
-    scale: boolean;
-    cut: boolean;
-  }>;
+  targetHardActionEligibility?: MetaTargetHardActionEligibility;
   generatedAt?: string;
 }): MetaOsDecisionsPresentation {
   const currentAdCampaignContexts = new Map(
@@ -1233,12 +1381,30 @@ export function buildMetaOsDecisionsPresentation(input: {
     cut: true,
   };
   const structureInputs: StructureInput[] = [
-    ...input.actionNow.map((rec) => ({ rec, lane: "act" as const })),
-    ...input.watching.map((rec) => ({ rec, lane: "monitor" as const })),
+    ...input.actionNow.map((rec) => ({
+      rec,
+      lane: "act" as const,
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
+    })),
+    ...input.watching.map((rec) => ({
+      rec,
+      lane: "monitor" as const,
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
+    })),
     ...input.nonSales.map((rec) => ({
       rec,
       lane:
         rec.decisionState === "act" ? ("act" as const) : ("monitor" as const),
+      targetAuthorityBlocker: targetAuthorityBlocker(
+        rec,
+        targetHardActionEligibility,
+      ),
     })),
   ]
     .filter(
@@ -1248,7 +1414,7 @@ export function buildMetaOsDecisionsPresentation(input: {
     .map((item) => ({
       ...item,
       lane:
-        item.rec.decisionLabel === "diagnose"
+        item.rec.decisionLabel === "diagnose" || item.targetAuthorityBlocker
           ? ("blocked" as const)
           : item.lane,
     }));

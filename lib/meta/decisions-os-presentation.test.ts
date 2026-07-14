@@ -5,7 +5,11 @@ import type {
   MetaDecisionsWorkspaceReadModel,
 } from "@/lib/meta/decisions-workspace-contract";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
-import { buildMetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-presentation";
+import {
+  buildMetaOsDecisionsPresentation,
+  revalidateMetaStructureLanesForCurrentTargets,
+} from "@/lib/meta/decisions-os-presentation";
+import { metaLanePayload } from "@/components/meta/redesign/test-fixtures";
 
 function recommendation(
   input: Partial<MetaRecommendation> & Pick<MetaRecommendation, "id" | "level">,
@@ -316,6 +320,114 @@ function readModel(
 }
 
 describe("buildMetaOsDecisionsPresentation", () => {
+  it("downgrades persisted Structure hard actions when current target authority is unavailable", () => {
+    const scale = recommendation({
+      id: "structure-scale",
+      level: "campaign",
+      campaignId: "cmp_scale",
+      campaignName: "Scale campaign",
+      decisionLabel: "scale",
+      actionKind: "execute_bid",
+      primaryActionLabel: "Increase campaign budget",
+      targetValue: { bidAmountMinor: 2500 },
+      proposedAction: { kind: "apply_bid", bidAmountMinor: 2500 },
+    });
+    const cut = recommendation({
+      id: "structure-cut",
+      level: "adset",
+      campaignId: "cmp_cut",
+      campaignName: "Cut campaign",
+      adsetId: "set_cut",
+      adsetName: "Cut ad set",
+      decisionLabel: "cut",
+      actionKind: "execute_pause",
+      primaryActionLabel: "Pause Ad Set",
+      proposedAction: { kind: "pause" },
+      automationReadiness: {
+        contractVersion: "meta-automation-readiness.v1",
+        tier: "auto_execute",
+        autoExecuteEligible: true,
+        operatorReviewRequired: false,
+        decisionLabel: "cut",
+        blockers: [],
+        missingEvidence: [],
+        requiredEvidence: [],
+        reason: "Eligible in the persisted snapshot.",
+      },
+    });
+    const lanes = revalidateMetaStructureLanesForCurrentTargets(
+      metaLanePayload({
+        actionNow: [scale, cut],
+        watching: [],
+        nonSales: [],
+        healthy: [],
+        archive: [],
+        counts: {
+          actionNow: 2,
+          watching: 0,
+          healthy: 0,
+          nonSales: 0,
+          archive: 0,
+        },
+      }),
+      { scale: true, cut: false },
+    );
+
+    expect(lanes.counts).toMatchObject({ actionNow: 1, watching: 1 });
+    expect(lanes.actionNow[0]).toMatchObject({
+      id: "structure-scale",
+      actionKind: "execute_bid",
+    });
+    expect(lanes.watching[0]).toMatchObject({
+      id: "structure-cut",
+      decisionLabel: "cut",
+      decisionState: "watch",
+      actionKind: "review_drill",
+      primaryActionLabel: "Review Commercial Truth",
+      watchSegment: "missing_target",
+      rowPresentation: {
+        signal: "blocker",
+        blockerLabel: "Current break-even ROAS authority",
+      },
+      automationReadiness: {
+        tier: "manual_review",
+        autoExecuteEligible: false,
+        operatorReviewRequired: true,
+        blockers: ["missing_commercial_anchor"],
+      },
+    });
+    expect(lanes.watching[0]!.proposedAction).toBeUndefined();
+
+    const result = buildMetaOsDecisionsPresentation({
+      actionNow: [scale, cut],
+      watching: [],
+      nonSales: [],
+      decisionReadModel: readModel([]),
+      currency: "EUR",
+      targetHardActionEligibility: { scale: true, cut: false },
+    });
+    const scaleNode = result.structure.groups.find(
+      (group) => group.campaign.campaignId === "cmp_scale",
+    )!.campaign;
+    const cutNode = result.structure.groups.find(
+      (group) => group.campaign.campaignId === "cmp_cut",
+    )!.adsets[0]!;
+    expect(scaleNode).toMatchObject({
+      lane: "act",
+      action: { code: "execute_bid", providerMutation: "apply_bid" },
+    });
+    expect(cutNode).toMatchObject({
+      lane: "blocked",
+      assessment: "Decision Blocked",
+      action: {
+        code: "review_commercial_truth",
+        label: "Review Commercial Truth",
+        intent: "review",
+        providerMutation: null,
+      },
+    });
+  });
+
   it("merges the complete Structure inventory while keeping live recommendation authority", () => {
     const activeRecommendation = recommendation({
       id: "rec_set_live",

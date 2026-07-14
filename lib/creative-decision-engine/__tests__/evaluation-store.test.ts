@@ -448,6 +448,47 @@ describe("evaluation store schema gate", () => {
     );
   });
 
+  it("re-resolves once when the first statement snapshot misses a conflict winner", async () => {
+    let evaluationAttempt = 0;
+    const db = fakeDb(async (query, params) => {
+      if (query.includes("information_schema.columns")) return readyColumns();
+      if (query.includes("FROM pg_indexes")) return readyIndexes();
+      if (query.includes("pg_constraint")) return readyConstraints();
+      if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
+        return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      evaluationAttempt += 1;
+      if (evaluationAttempt === 1) return [];
+      const payload = JSON.parse(String(params?.[0])) as Array<
+        Record<string, unknown>
+      >;
+      return payload.map((row, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 301).padStart(12, "0")}`,
+        provider_account_ref_id: row.provider_account_ref_id,
+        provider_account_id: row.provider_account_id,
+        decision_entity_id: row.decision_entity_id,
+        input_hash: row.input_hash,
+        decision_hash: row.decision_hash,
+      }));
+    });
+
+    const stored = await persistAdDecisionEvaluations(
+      {
+        businessId: "biz-1",
+        asOf: "2026-07-12",
+        engineVersion: "v3-test",
+        scope: { type: "account", id: "act-1" },
+        jobRunId: "00000000-0000-4000-8000-000000000101",
+        evaluatedAt: "2026-07-12T03:00:01.000Z",
+        evaluations: [adEvaluation("ad-1"), adEvaluation("ad-2")],
+      },
+      db,
+    );
+
+    expect(evaluationAttempt).toBe(2);
+    expect(stored.size).toBe(2);
+  });
+
   it("rejects cross-tenant and cross-scope canonical lineage before database access", async () => {
     const db = fakeDb(async () => {
       throw new Error("database must not be reached");
@@ -508,6 +549,11 @@ describe("evaluation store SQL contract", () => {
     expect(join).not.toContain("evaluation.creative_id = payload.creative_id");
     expect(INSERT_AD_DECISION_EVALUATIONS_QUERY).toContain(
       "ON CONFLICT DO NOTHING",
+    );
+    expect(INSERT_AD_DECISION_EVALUATIONS_QUERY).toContain("FROM inserted");
+    expect(INSERT_AD_DECISION_EVALUATIONS_QUERY).toContain("UNION ALL");
+    expect(INSERT_AD_DECISION_EVALUATIONS_QUERY).toContain(
+      "WHERE inserted.id = evaluation.id",
     );
   });
 

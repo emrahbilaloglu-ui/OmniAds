@@ -16,7 +16,10 @@ import {
   hashAdDecisionIdentityManifest,
   type AdDecisionHydrationReceipt,
 } from "@/lib/creative-decision-engine/data-source";
-import { inspectEvaluationStoreSchemaCapability } from "@/lib/creative-decision-engine/evaluation-store";
+import {
+  INSERT_AD_DECISION_EVALUATIONS_QUERY,
+  inspectEvaluationStoreSchemaCapability,
+} from "@/lib/creative-decision-engine/evaluation-store";
 import {
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
@@ -507,6 +510,111 @@ async function insertLineage(
   };
 }
 
+async function verifyFirstWriteEvaluationLinkage(client: Client) {
+  const jobRunId = "00000000-0000-4000-8000-000000000940";
+  await client.query(
+    `INSERT INTO engine_v3_job_runs (
+       id, job_name, business_ref_id, business_id, as_of_date,
+       engine_version, status
+     ) VALUES ($1, 'native-evaluation-linkage-seam', $2::uuid, $2::text,
+       $3, $4, 'success')`,
+    [jobRunId, BUSINESS_ID, AS_OF, NATIVE_AD_ENGINE_VERSION],
+  );
+  const context = await client.query<{ id: string }>(
+    `INSERT INTO engine_v3_ad_decision_evaluation_contexts (
+       business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, as_of_date, engine_version, scope_type, scope_id,
+       contract_version, context_json, account_profile_json, data_health_json,
+       flags_json, context_hash, job_run_id, evaluated_at
+     ) VALUES ($1::uuid, $1::text, $2, $3, $4, $5, 'account', $3,
+       'seam.v1', '{}', '{}', '{}', '{}', $6, $7, $8) RETURNING id`,
+    [
+      BUSINESS_ID,
+      ACCOUNT_REF_ID,
+      ACCOUNT_ID,
+      AS_OF,
+      NATIVE_AD_ENGINE_VERSION,
+      "9".repeat(64),
+      jobRunId,
+      CUTOFF,
+    ],
+  );
+  const payload = [
+    {
+      context_id: context.rows[0]!.id,
+      business_ref_id: BUSINESS_ID,
+      business_id: BUSINESS_ID,
+      provider_account_ref_id: ACCOUNT_REF_ID,
+      provider_account_id: ACCOUNT_ID,
+      decision_entity_type: "ad",
+      decision_entity_id: "ad-first-write-linkage",
+      ad_id: "ad-first-write-linkage",
+      creative_id: "creative-first-write-linkage",
+      as_of_date: AS_OF,
+      engine_version: NATIVE_AD_ENGINE_VERSION,
+      scope_type: "account",
+      scope_id: ACCOUNT_ID,
+      contract_version: "seam.v1",
+      creative_input_json: {},
+      campaign_context_json: {},
+      prior_hysteresis_json: {},
+      decision_output_json: {},
+      raw_label: "keep",
+      hysteresis_suppressed: false,
+      input_hash: "7".repeat(64),
+      decision_hash: "8".repeat(64),
+      job_run_id: jobRunId,
+      evaluated_at: CUTOFF,
+    },
+  ];
+  const first = await client.query<{
+    id: string;
+    decision_entity_id: string;
+  }>(INSERT_AD_DECISION_EVALUATIONS_QUERY, [JSON.stringify(payload)]);
+  assert(
+    first.rows.length === 1 && Boolean(first.rows[0]?.id),
+    "First evaluation write did not return its immutable linkage row.",
+  );
+  const retry = await client.query<{ id: string }>(
+    INSERT_AD_DECISION_EVALUATIONS_QUERY,
+    [JSON.stringify(payload)],
+  );
+  assert(
+    retry.rows.length === 1 && retry.rows[0]?.id === first.rows[0]?.id,
+    "Idempotent evaluation retry did not resolve the existing linkage row.",
+  );
+  const mixedPayload = [
+    ...payload,
+    {
+      ...payload[0]!,
+      decision_entity_id: "ad-mixed-new-linkage",
+      ad_id: "ad-mixed-new-linkage",
+      creative_id: "creative-mixed-new-linkage",
+      input_hash: "5".repeat(64),
+      decision_hash: "6".repeat(64),
+    },
+  ];
+  const mixed = await client.query<{
+    id: string;
+    decision_entity_id: string;
+  }>(INSERT_AD_DECISION_EVALUATIONS_QUERY, [JSON.stringify(mixedPayload)]);
+  assert(
+    mixed.rows.length === 2 &&
+      new Set(mixed.rows.map((row) => row.decision_entity_id)).size === 2,
+    "Mixed existing/new evaluation batch did not resolve every linkage row.",
+  );
+  const count = await client.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM engine_v3_ad_decision_evaluations
+     WHERE job_run_id = $1`,
+    [jobRunId],
+  );
+  assert(
+    count.rows[0]?.count === "2",
+    "Idempotent evaluation retry created duplicate rows.",
+  );
+}
+
 function snapshotPayload(input: {
   jobRunId: string;
   adId: string;
@@ -827,6 +935,7 @@ async function runSeam(client: Client) {
   );
   await verifyHydrationReceiptCaptureAxis(client);
   await verifyTombstoneAndHistoricalCutoff(client);
+  await verifyFirstWriteEvaluationLinkage(client);
   await verifyPruneRetryAndConstraints(client, db);
 }
 
@@ -876,7 +985,7 @@ async function main() {
       await client.end();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, receipt prune, retry, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, FK and soft-only checks",
     );
   } finally {
     if (started) {

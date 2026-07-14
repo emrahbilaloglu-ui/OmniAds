@@ -303,25 +303,50 @@ export async function readSuccessfulNativeJobs(
   }
   const rows = await db.query<SuccessfulJobRow>(
     `
+    WITH candidate_runs AS (
+      SELECT *
+      FROM engine_v3_job_runs
+      WHERE business_ref_id::text = ANY($1::text[])
+        AND as_of_date = $2::date
+        AND engine_version = $3
+        AND job_name = ANY($4::text[])
+        AND started_at <= $5::timestamptz
+    ), effective_runs AS (
+      SELECT
+        run.*,
+        CASE
+          WHEN run.status <> 'running'
+            AND (run.finished_at IS NULL OR run.finished_at > $5::timestamptz)
+          THEN 'running'
+          ELSE run.status
+        END AS effective_status
+      FROM candidate_runs run
+      WHERE NOT (
+        run.status = 'skipped'
+        AND COALESCE(run.error_message, '') ILIKE 'Advisory lock not acquired%'
+        AND EXISTS (
+          SELECT 1
+          FROM candidate_runs holder
+          WHERE holder.business_ref_id = run.business_ref_id
+            AND holder.job_name = run.job_name
+            AND holder.id <> run.id
+            AND holder.status IN ('success', 'failed')
+            AND holder.started_at <= COALESCE(run.finished_at, run.started_at)
+            AND holder.finished_at >= run.started_at
+            AND holder.finished_at <= $5::timestamptz
+        )
+      )
+    )
     SELECT DISTINCT ON (business_ref_id, job_name)
       id::text AS id,
       business_ref_id::text AS business_ref_id,
       job_name,
-      status,
+      effective_status AS status,
       dependency_run_id::text AS dependency_run_id,
       started_at,
       finished_at,
       row_count
-    FROM engine_v3_job_runs
-    WHERE business_ref_id::text = ANY($1::text[])
-      AND as_of_date = $2::date
-      AND engine_version = $3
-      AND job_name = ANY($4::text[])
-      AND started_at <= $5::timestamptz
-      AND NOT (
-        status = 'skipped'
-        AND COALESCE(error_message, '') ILIKE 'Advisory lock not acquired%'
-      )
+    FROM effective_runs
     ORDER BY business_ref_id, job_name, started_at DESC, id DESC
     `,
     [

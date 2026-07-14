@@ -24,7 +24,7 @@ import {
 } from "../../jobs/native-ad-scheduled";
 import { NATIVE_AD_ENGINE_VERSION } from "../../types";
 
-const NOW = new Date("2026-07-13T03:20:00.000Z");
+const NOW = new Date("2026-07-13T03:30:00.000Z");
 const BUSINESSES = [
   { id: "00000000-0000-4000-8000-000000000101", name: "One" },
   { id: "00000000-0000-4000-8000-000000000102", name: "Two" },
@@ -100,9 +100,40 @@ function options(
 
 function nativeJobHistoryDb(rows: Record<string, unknown>[]) {
   return {
-    query: vi.fn(async (query: string) => {
+    query: vi.fn(async (query: string, params?: unknown[]) => {
       if (query.includes("SELECT DISTINCT ON (business_ref_id, job_name)")) {
-        return rows;
+        const cutoff = new Date(
+          String(params?.[4] ?? NOW.toISOString()),
+        ).getTime();
+        const latest = new Map<string, Record<string, unknown>>();
+        for (const row of [...rows].sort((left, right) => {
+          const business = String(left.business_ref_id).localeCompare(
+            String(right.business_ref_id),
+          );
+          if (business !== 0) return business;
+          const job = String(left.job_name).localeCompare(
+            String(right.job_name),
+          );
+          if (job !== 0) return job;
+          const started =
+            new Date(String(right.started_at)).getTime() -
+            new Date(String(left.started_at)).getTime();
+          if (started !== 0) return started;
+          return String(right.id).localeCompare(String(left.id));
+        })) {
+          if (new Date(String(row.started_at)).getTime() > cutoff) continue;
+          if (
+            row.status === "skipped" &&
+            String(row.error_message ?? "")
+              .toLowerCase()
+              .startsWith("advisory lock not acquired")
+          ) {
+            continue;
+          }
+          const key = `${String(row.business_ref_id)}:${String(row.job_name)}`;
+          if (!latest.has(key)) latest.set(key, row);
+        }
+        return Array.from(latest.values());
       }
       if (query === READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL) {
         return [{ reusable: true }];
@@ -123,6 +154,7 @@ function nativeJobRow(input: {
   finishedAt?: string | null;
   dependencyRunId?: string | null;
   rowCount?: number;
+  errorMessage?: string | null;
 }) {
   return {
     id: input.id,
@@ -133,6 +165,7 @@ function nativeJobRow(input: {
     started_at: input.startedAt,
     finished_at: input.finishedAt ?? input.startedAt,
     row_count: input.rowCount ?? 1,
+    error_message: input.errorMessage ?? null,
   };
 }
 
@@ -376,6 +409,13 @@ describe("native ad shadow scheduled chain", () => {
         startedAt: "2026-07-13T03:20:00.000Z",
       }),
       nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000200",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:20:30.000Z",
+      }),
+      nativeJobRow({
         id: "00000000-0000-4000-8000-000000000202",
         jobName: AD_DECISIONS_JOB_NAME,
         status: "failed",
@@ -406,6 +446,65 @@ describe("native ad shadow scheduled chain", () => {
     const historyQuery = db.query.mock.calls[0]?.[0] as string;
     expect(historyQuery).not.toContain("AND status = 'success'");
     expect(historyQuery).toContain("started_at <= $5::timestamptz");
+  });
+
+  it("ignores advisory-lock skips that overlap a completed native chain", async () => {
+    const calibrationId = "00000000-0000-4000-8000-000000000221";
+    const db = nativeJobHistoryDb([
+      nativeJobRow({
+        id: calibrationId,
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:20:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000222",
+        jobName: AD_DECISIONS_JOB_NAME,
+        status: "success",
+        dependencyRunId: calibrationId,
+        startedAt: "2026-07-13T03:21:00.000Z",
+        finishedAt: "2026-07-13T03:21:30.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000223",
+        jobName: AD_OPERATOR_RESPONSE_JOB_NAME,
+        status: "success",
+        startedAt: "2026-07-13T03:22:00.000Z",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000224",
+        jobName: AD_CALIBRATION_JOB_NAME,
+        status: "skipped",
+        startedAt: "2026-07-13T03:23:00.000Z",
+        errorMessage:
+          "Advisory lock not acquired (native ad calibration may already be running)",
+      }),
+      nativeJobRow({
+        id: "00000000-0000-4000-8000-000000000225",
+        jobName: AD_OPERATOR_RESPONSE_JOB_NAME,
+        status: "skipped",
+        startedAt: "2026-07-13T03:24:00.000Z",
+        errorMessage:
+          "Advisory lock not acquired (native ad operator-response may already be running).",
+      }),
+    ]);
+
+    const jobs = await readSuccessfulNativeJobs(
+      {
+        businessIds: [BUSINESSES[0].id],
+        asOf: "2026-07-13",
+        decisionCutoff: NOW.toISOString(),
+      },
+      db as never,
+    );
+
+    expect(Array.from(jobs.get(BUSINESSES[0].id) ?? [])).toEqual([
+      AD_CALIBRATION_JOB_NAME,
+      AD_DECISIONS_JOB_NAME,
+      AD_OPERATOR_RESPONSE_JOB_NAME,
+    ]);
+    const historyQuery = db.query.mock.calls[0]?.[0] as string;
+    expect(historyQuery).toContain("ILIKE 'Advisory lock not acquired%'");
   });
 
   it("requires decision calibration lineage and downstream operator chronology", async () => {

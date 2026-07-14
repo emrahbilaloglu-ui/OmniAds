@@ -318,6 +318,10 @@ export async function readSuccessfulNativeJobs(
       AND engine_version = $3
       AND job_name = ANY($4::text[])
       AND started_at <= $5::timestamptz
+      AND NOT (
+        status = 'skipped'
+        AND COALESCE(error_message, '') ILIKE 'Advisory lock not acquired%'
+      )
     ORDER BY business_ref_id, job_name, started_at DESC, id DESC
     `,
     [

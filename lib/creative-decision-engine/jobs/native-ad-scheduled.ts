@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY } from "../data-source";
 import { inspectEvaluationStoreSchemaCapability } from "../evaluation-store";
 import { listEnabledBusinessIds } from "../feature-flags";
 import { NATIVE_AD_ENGINE_VERSION } from "../types";
@@ -88,6 +89,11 @@ interface ScheduledBusiness {
 interface SuccessfulJobRow extends Record<string, unknown> {
   business_ref_id: unknown;
   job_name: unknown;
+  row_count: unknown;
+}
+
+interface CurrentHydrationReceiptRow extends Record<string, unknown> {
+  expected_ad_ids: unknown;
 }
 
 export interface NativeAdShadowScheduleOptions {
@@ -98,11 +104,13 @@ export interface NativeAdShadowScheduleOptions {
   readSuccessfulJobs?: (input: {
     businessIds: readonly string[];
     asOf: string;
+    decisionCutoff: string;
   }) => Promise<Map<string, Set<NativeAdShadowJobName>>>;
   hasSuccessfulJob?: (input: {
     businessId: string;
     asOf: string;
     jobName: NativeAdShadowJobName;
+    decisionCutoff: string;
   }) => Promise<boolean>;
   runCalibration?: (
     input: AdCalibrationJobInput,
@@ -185,20 +193,23 @@ async function defaultListActiveBusinesses(): Promise<ScheduledBusiness[]> {
 async function readSuccessfulNativeJobs(input: {
   businessIds: readonly string[];
   asOf: string;
+  decisionCutoff: string;
 }) {
   if (input.businessIds.length === 0) {
     return new Map<string, Set<NativeAdShadowJobName>>();
   }
   const rows = await getDb().query<SuccessfulJobRow>(
     `
-    SELECT business_ref_id::text AS business_ref_id, job_name
+    SELECT DISTINCT ON (business_ref_id, job_name)
+      business_ref_id::text AS business_ref_id, job_name, row_count
     FROM engine_v3_job_runs
     WHERE business_ref_id::text = ANY($1::text[])
       AND as_of_date = $2::date
       AND engine_version = $3
       AND job_name = ANY($4::text[])
       AND status = 'success'
-    GROUP BY business_ref_id, job_name
+    ORDER BY business_ref_id, job_name, finished_at DESC NULLS LAST,
+      started_at DESC, id DESC
     `,
     [input.businessIds, input.asOf, NATIVE_AD_ENGINE_VERSION, NATIVE_AD_SHADOW_JOB_NAMES],
   );
@@ -207,33 +218,79 @@ async function readSuccessfulNativeJobs(input: {
     const businessId = String(row.business_ref_id ?? "");
     const jobName = String(row.job_name ?? "") as NativeAdShadowJobName;
     if (!businessId || !NATIVE_AD_SHADOW_JOB_NAMES.includes(jobName)) continue;
+    if (
+      jobName === AD_DECISIONS_JOB_NAME &&
+      isZeroRowNativeDecisionSuccess(row.row_count) &&
+      (await hasCurrentNonEmptyAdManifest({
+        businessId,
+        asOf: input.asOf,
+        decisionCutoff: input.decisionCutoff,
+      }))
+    ) {
+      continue;
+    }
     const jobs = result.get(businessId) ?? new Set<NativeAdShadowJobName>();
     jobs.add(jobName);
     result.set(businessId, jobs);
   }
-  return result;
+  return closeNativeJobDependencies(result);
 }
 
 async function hasSuccessfulNativeJob(input: {
   businessId: string;
   asOf: string;
   jobName: NativeAdShadowJobName;
+  decisionCutoff: string;
 }) {
-  const [row] = await getDb().query<{ exists: boolean }>(
-    `
-    SELECT EXISTS (
-      SELECT 1
-      FROM engine_v3_job_runs
-      WHERE business_ref_id = $1::uuid
-        AND as_of_date = $2::date
-        AND engine_version = $3
-        AND job_name = $4
-        AND status = 'success'
-    ) AS exists
-    `,
-    [input.businessId, input.asOf, NATIVE_AD_ENGINE_VERSION, input.jobName],
+  const jobs = await readSuccessfulNativeJobs({
+    businessIds: [input.businessId],
+    asOf: input.asOf,
+    decisionCutoff: input.decisionCutoff,
+  });
+  return jobs.get(input.businessId)?.has(input.jobName) === true;
+}
+
+function exactNonNegativeInteger(value: unknown) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim().length > 0
+        ? Number(value)
+        : Number.NaN;
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function isZeroRowNativeDecisionSuccess(rowCount: unknown) {
+  return exactNonNegativeInteger(rowCount) === 0;
+}
+
+async function hasCurrentNonEmptyAdManifest(input: {
+  businessId: string;
+  asOf: string;
+  decisionCutoff: string;
+}) {
+  const rows = await getDb().query<CurrentHydrationReceiptRow>(
+    READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
+    [input.businessId, input.asOf, input.decisionCutoff, [], false],
   );
-  return row?.exists === true;
+  return rows.some(
+    (row) =>
+      Array.isArray(row.expected_ad_ids) && row.expected_ad_ids.length > 0,
+  );
+}
+
+function closeNativeJobDependencies(
+  source: Map<string, Set<NativeAdShadowJobName>>,
+) {
+  const result = new Map<string, Set<NativeAdShadowJobName>>();
+  for (const [businessId, sourceJobs] of source) {
+    const jobs = new Set(sourceJobs);
+    if (!jobs.has(AD_DECISIONS_JOB_NAME)) {
+      jobs.delete(AD_OPERATOR_RESPONSE_JOB_NAME);
+    }
+    result.set(businessId, jobs);
+  }
+  return result;
 }
 
 function previousSuccessStep<TResult>(): NativeAdScheduledStep<TResult> {
@@ -287,6 +344,7 @@ async function dependencySatisfied(input: {
   step: NativeAdScheduledStep<unknown>;
   businessId: string;
   asOf: string;
+  decisionCutoff: string;
   jobName: NativeAdShadowJobName;
   hasSuccessfulJob: NonNullable<
     NativeAdShadowScheduleOptions["hasSuccessfulJob"]
@@ -302,6 +360,7 @@ async function dependencySatisfied(input: {
     businessId: input.businessId,
     asOf: input.asOf,
     jobName: input.jobName,
+    decisionCutoff: input.decisionCutoff,
   });
 }
 
@@ -325,6 +384,7 @@ async function runBusinessChain(input: {
     step: calibration,
     businessId: input.business.id,
     asOf: input.asOf,
+    decisionCutoff: input.cutoff,
     jobName: AD_CALIBRATION_JOB_NAME,
     hasSuccessfulJob,
   });
@@ -343,6 +403,7 @@ async function runBusinessChain(input: {
     step: decisions,
     businessId: input.business.id,
     asOf: input.asOf,
+    decisionCutoff: input.cutoff,
     jobName: AD_DECISIONS_JOB_NAME,
     hasSuccessfulJob,
   });
@@ -407,12 +468,13 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
     return { ...base, skipped: true, reason: "no_enabled_businesses" };
   }
 
-  const successes = await (
-    options.readSuccessfulJobs ?? readSuccessfulNativeJobs
-  )({
-    businessIds: businesses.map((business) => business.id),
-    asOf,
-  });
+  const successes = closeNativeJobDependencies(
+    await (options.readSuccessfulJobs ?? readSuccessfulNativeJobs)({
+      businessIds: businesses.map((business) => business.id),
+      asOf,
+      decisionCutoff: now.toISOString(),
+    }),
+  );
   const allComplete = businesses.every((business) => {
     const jobs = successes.get(business.id);
     return NATIVE_AD_SHADOW_JOB_NAMES.every((jobName) => jobs?.has(jobName));

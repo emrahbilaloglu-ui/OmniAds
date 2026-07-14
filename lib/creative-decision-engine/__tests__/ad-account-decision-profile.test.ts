@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+  NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
   READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
@@ -324,11 +325,30 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     });
   });
 
+  it("keeps a missing exact cell fail-closed under the thin-exact policy", async () => {
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildMixedOptimizationCells().filter(
+        (cell) => cell.key.cellScope === "account_objective_cohort",
+      ),
+    );
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_missing",
+      calibrationSource: null,
+    });
+    expect(dataSource.calibrationCalls).toHaveLength(1);
+  });
+
   it("keeps a low-sample exact cell usable for soft decisions while each hard action fails closed", async () => {
     const dataSource = new NativeOnlyProfileDataSource(buildCells(10));
 
     const result = await resolveWith(dataSource, {
-      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
     });
 
     expect(result).toMatchObject({
@@ -372,7 +392,7 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     const dataSource = new NativeOnlyProfileDataSource(cells, STALE_TARGET);
 
     const result = await resolveWith(dataSource, {
-      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
     });
 
     expect(result).toMatchObject({

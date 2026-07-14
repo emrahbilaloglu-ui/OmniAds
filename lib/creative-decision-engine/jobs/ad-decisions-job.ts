@@ -1,6 +1,6 @@
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import {
-  NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+  NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
 } from "../ad-account-decision-profile";
@@ -943,7 +943,7 @@ export async function resolveNativeAdDecisionProfileGroups(input: {
       asOf: input.asOf,
       dataSource: input.dataSource,
       flags: input.flags,
-      fallbackPolicy: NATIVE_AD_ACCOUNT_FALLBACK_CELL,
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
     });
     if (resolved.status !== "ready") {
       const reason = resolved.reason ?? "unknown_native_profile_failure";

@@ -491,7 +491,7 @@ describe("native ad decision computation", () => {
     });
     expect(softGroup).toMatchObject({
       calibrationRowId: null,
-      blocker: "native_ad_profile_unready:native_account_fallback_missing",
+      blocker: "native_ad_profile_unready:native_calibration_missing",
       profile: {
         profileType: "native_ad_soft_only",
         hardActionEligibility: {
@@ -501,7 +501,7 @@ describe("native ad decision computation", () => {
         },
       },
     });
-    expect(calibrationCalls).toHaveLength(3);
+    expect(calibrationCalls).toHaveLength(2);
     if (!readyGroup || "profileType" in readyGroup.profile || !readyCell) {
       throw new Error("Ready native profile fixture did not resolve.");
     }

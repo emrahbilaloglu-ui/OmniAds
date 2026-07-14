@@ -32,9 +32,13 @@ function positiveFinite(value: number | null | undefined): value is number {
 
 export const NATIVE_AD_ACCOUNT_FALLBACK_CELL =
   "provider_account_currency_objective_cohort_all_optimization_contexts" as const;
+export const NATIVE_AD_THIN_EXACT_FALLBACK_CELL =
+  "thin_exact_provider_account_currency_objective_cohort_all_optimization_contexts" as const;
 
 export type NativeAdAccountProfileFallbackPolicy =
-  "fail_closed" | typeof NATIVE_AD_ACCOUNT_FALLBACK_CELL;
+  | "fail_closed"
+  | typeof NATIVE_AD_ACCOUNT_FALLBACK_CELL
+  | typeof NATIVE_AD_THIN_EXACT_FALLBACK_CELL;
 
 export type NativeAdAccountProfileFailureReason =
   | "native_calibration_missing"
@@ -245,7 +249,8 @@ export async function resolveNativeAdAccountDecisionProfile(
 
   if (
     exactCell !== null &&
-    fallbackPolicy === NATIVE_AD_ACCOUNT_FALLBACK_CELL &&
+    (fallbackPolicy === NATIVE_AD_ACCOUNT_FALLBACK_CELL ||
+      fallbackPolicy === NATIVE_AD_THIN_EXACT_FALLBACK_CELL) &&
     exactCell.targetAuthority.status !== "fresh" &&
     exactCell.matureAdCount < 10
   ) {
@@ -269,7 +274,10 @@ export async function resolveNativeAdAccountDecisionProfile(
   }
 
   if (exactCell === null) {
-    if (fallbackPolicy === "fail_closed") {
+    if (
+      fallbackPolicy === "fail_closed" ||
+      fallbackPolicy === NATIVE_AD_THIN_EXACT_FALLBACK_CELL
+    ) {
       return failClosed({
         reason: "native_calibration_missing",
         fallbackPolicy,

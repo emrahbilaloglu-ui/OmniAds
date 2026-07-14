@@ -740,4 +740,27 @@ describe("native ad shadow scheduled chain", () => {
     expect(source).not.toContain("engine_v3_decision_snapshots_daily");
     expect(source).not.toContain("engine_v3_creative_lifecycle_daily");
   });
+
+  it("records native terminal job times with wall-clock timestamps", () => {
+    for (const file of [
+      "ad-calibration-job.ts",
+      "ad-decisions-job.ts",
+      "ad-operator-response-job.ts",
+    ]) {
+      const source = fs.readFileSync(
+        path.join(
+          process.cwd(),
+          "lib/creative-decision-engine/jobs",
+          file,
+        ),
+        "utf8",
+      );
+      expect(source).toMatch(
+        /SET status = 'success', finished_at = clock_timestamp\(\)/,
+      );
+      expect(source).toMatch(
+        /SET status = 'failed', finished_at = clock_timestamp\(\)/,
+      );
+    }
+  });
 });

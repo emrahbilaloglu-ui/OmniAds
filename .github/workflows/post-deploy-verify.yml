@@ -128,4 +128,5 @@ jobs:
         with:
           name: post-deploy-verify-${{ steps.expected.outputs.sha }}
           path: .artifacts
-          if-no-files-found: warn
+          if-no-files-found: error
+          include-hidden-files: true

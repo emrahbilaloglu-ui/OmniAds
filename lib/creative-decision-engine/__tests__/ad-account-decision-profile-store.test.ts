@@ -6,13 +6,17 @@ import {
   WarehouseNativeAdAccountProfileDataSource,
   inspectNativeAdProfileSchemaCapability,
 } from "../ad-account-decision-profile-store";
-import { READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL } from "../ad-account-decision-profile";
+import {
+  READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
+  resolveNativeAdAccountDecisionProfile,
+} from "../ad-account-decision-profile";
 import {
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   buildNativeAdOptimizationContext,
   resolveNativeAdCalibrationCutoff,
+  resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdTargetAuthority,
   type NativeAdTargetAuthorityInput,
 } from "../jobs/ad-calibration-job";
@@ -37,13 +41,18 @@ const TARGET: NativeAdTargetAuthorityInput = {
   recordedAt: "2026-07-01T00:00:01.000Z",
 };
 
-function nativeCellRow(): Record<string, unknown> {
+function nativeCellRow(
+  targetInput: NativeAdTargetAuthorityInput = TARGET,
+): Record<string, unknown> {
   const profile = makeAccountDecisionProfile({
     businessId: BUSINESS_ID,
     asOfDate: AS_OF,
   });
   const cutoff = resolveNativeAdCalibrationCutoff(AS_OF, CUTOFF);
-  const target = resolveNativeAdTargetAuthority(TARGET, cutoff.asOfCutoff);
+  const target = resolveNativeAdTargetAuthority(
+    targetInput,
+    cutoff.asOfCutoff,
+  );
   const metricCounts = Object.fromEntries(
     [
       "roas",
@@ -118,7 +127,7 @@ function nativeCellRow(): Record<string, unknown> {
         ready: true,
         reason: null,
         observedSampleCount: 30,
-        requiredSampleCount: 20,
+        requiredSampleCount: 30,
       },
       cut: {
         ready: true,
@@ -182,6 +191,27 @@ function fakeDb(
   return Object.assign(vi.fn(), { query }) as unknown as DbClient;
 }
 
+function readNativeCell(row: Record<string, unknown>) {
+  const store = new WarehouseNativeAdAccountProfileDataSource(
+    fakeDb((query) =>
+      query.includes("native-ad-profile-cell") ? [row] : [],
+    ),
+  );
+  return store.getNativeAdCalibrationCell({
+    businessId: BUSINESS_ID,
+    providerAccountId: "act-native",
+    accountTimezone: "Europe/Istanbul",
+    accountCurrency: "USD",
+    cellScope: "objective_cohort_context",
+    objective: "OUTCOME_SALES",
+    cohort: "purchase",
+    optimizationContext: String(row["optimization_context"]),
+    asOfDate: AS_OF,
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+  });
+}
+
 describe("WarehouseNativeAdAccountProfileDataSource", () => {
   it("round-trips one native epoch cell and resolves its exact native row id", async () => {
     const row = nativeCellRow();
@@ -218,6 +248,11 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
       },
       engineVersion: NATIVE_AD_ENGINE_VERSION,
       qualityStatus: "ready",
+      targetAuthority: {
+        status: "fresh",
+        targetRoasAuthority: true,
+        breakEvenRoasAuthority: true,
+      },
     });
     await expect(store.getNativeCalibrationRowId(cell!)).resolves.toBe(
       CALIBRATION_ROW_ID,
@@ -249,6 +284,141 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
     expect(READ_NATIVE_AD_CALIBRATION_ROW_ID_SQL).toContain(
       "calibration.business_id = $1::text",
     );
+  });
+
+  it("keeps an old cutoff-safe target authoritative when hydrating a persisted native cell", async () => {
+    const oldTarget: NativeAdTargetAuthorityInput = {
+      ...TARGET,
+      effectiveAt: "2026-05-01T00:00:00.000Z",
+      recordedAt: "2026-05-01T00:00:01.000Z",
+    };
+    const row = nativeCellRow(oldTarget);
+    const db = fakeDb((query) => {
+      if (query.includes("native-ad-profile-cell")) return [row];
+      if (query === READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL) {
+        return [
+          {
+            source_row_id: oldTarget.sourceRowId,
+            operation: oldTarget.operation,
+            target_cpa: oldTarget.targetCpa,
+            target_roas: oldTarget.targetRoas,
+            break_even_cpa: oldTarget.breakEvenCpa,
+            break_even_roas: oldTarget.breakEvenRoas,
+            operator_aov_assumption: oldTarget.operatorAovAssumption,
+            default_risk_posture: oldTarget.defaultRiskPosture,
+            effective_at: oldTarget.effectiveAt,
+            recorded_at: oldTarget.recordedAt,
+          },
+        ];
+      }
+      return [];
+    });
+    const store = new WarehouseNativeAdAccountProfileDataSource(db);
+    const cell = await store.getNativeAdCalibrationCell({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act-native",
+      accountTimezone: "Europe/Istanbul",
+      accountCurrency: "USD",
+      cellScope: "objective_cohort_context",
+      objective: "OUTCOME_SALES",
+      cohort: "purchase",
+      optimizationContext: String(row["optimization_context"]),
+      asOfDate: AS_OF,
+      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+    });
+
+    expect(cell?.targetAuthority).toMatchObject({
+      status: "stale",
+      targetRoasAuthority: true,
+      breakEvenRoasAuthority: true,
+    });
+    expect(
+      resolveNativeAdCalibrationActionReadiness({
+        key: cell!.key,
+        matureAdCount: cell!.matureAdCount,
+        metricSampleCounts: cell!.metricSampleCounts,
+        targetAuthority: cell!.targetAuthority,
+        accountCalibration: cell!.accountCalibration,
+      }),
+    ).toEqual(cell!.actionReadiness);
+
+    await expect(
+      resolveNativeAdAccountDecisionProfile({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act-native",
+        accountTimezone: "Europe/Istanbul",
+        accountCurrency: "USD",
+        objective: "OUTCOME_SALES",
+        optimizationGoal: "PURCHASE",
+        customEventType: "PURCHASE",
+        cohort: "purchase",
+        asOf: AS_OF,
+        dataSource: store,
+        flags: {
+          businessId: BUSINESS_ID,
+          enabled: true,
+          surfaceVisible: false,
+          shadowOnly: false,
+          presetOverride: null,
+          source: {
+            enabled: "env",
+            surfaceVisible: "env",
+            shadowOnly: "env",
+            presetOverride: null,
+          },
+          envDefaults: {
+            enabled: true,
+            surfaceVisible: false,
+            shadowOnly: false,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      status: "ready",
+      reason: null,
+      selectedCell: {
+        targetAuthority: {
+          status: "stale",
+          targetRoasAuthority: true,
+          breakEvenRoasAuthority: true,
+        },
+      },
+    });
+  });
+
+  it("keeps missing and cutoff-unsafe persisted targets fail-closed", async () => {
+    const cases: NativeAdTargetAuthorityInput[] = [
+      { ...TARGET, operation: "delete" },
+      {
+        ...TARGET,
+        effectiveAt: "2026-08-01T00:00:00.000Z",
+        recordedAt: "2026-08-01T00:00:01.000Z",
+      },
+    ];
+
+    for (const targetInput of cases) {
+      const cell = await readNativeCell(nativeCellRow(targetInput));
+      expect(cell?.targetAuthority).toMatchObject({
+        targetRoasAuthority: false,
+        breakEvenRoasAuthority: false,
+      });
+    }
+  });
+
+  it("keeps persisted target authority action-specific", async () => {
+    const cell = await readNativeCell(
+      nativeCellRow({
+        ...TARGET,
+        targetRoas: null,
+      }),
+    );
+
+    expect(cell?.targetAuthority).toMatchObject({
+      status: "fresh",
+      targetRoasAuthority: false,
+      breakEvenRoasAuthority: true,
+    });
   });
 
   it("maps bitemporal native target authority without a current-state fallback", async () => {

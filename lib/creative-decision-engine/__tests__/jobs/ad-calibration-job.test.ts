@@ -33,6 +33,7 @@ import {
   buildNativeAdCalibrationPersistencePayload,
   computeNativeAdCalibrationBatch,
   inspectNativeAdCalibrationSchemaCapability,
+  isNativeAdTargetAuthorityCutoffSafe,
   replaceNativeAdCalibrationBatch,
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationDate,
@@ -41,6 +42,7 @@ import {
   type NativeAdCalibrationBatch,
   type NativeAdCalibrationSourceRow,
   type NativeAdTargetAuthorityInput,
+  type NativeAdTargetAuthorityStatus,
 } from "../../jobs/ad-calibration-job";
 import { NATIVE_AD_ENGINE_VERSION } from "../../types";
 
@@ -444,6 +446,21 @@ describe("native ad calibration computation", () => {
         CUTOFF,
       ).targetRoasAuthority,
     ).toBe(false);
+  });
+
+  it("defines cutoff safety exhaustively for every target authority status", () => {
+    const cases: ReadonlyArray<
+      readonly [NativeAdTargetAuthorityStatus, boolean]
+    > = [
+      ["fresh", true],
+      ["stale", true],
+      ["missing", false],
+      ["cutoff_unsafe", false],
+    ];
+
+    for (const [status, expected] of cases) {
+      expect(isNativeAdTargetAuthorityCutoffSafe(status)).toBe(expected);
+    }
   });
 
   it("hard-disables historical/currently unbound computation", () => {

@@ -344,7 +344,7 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     expect(dataSource.calibrationCalls).toHaveLength(1);
   });
 
-  it("keeps a low-sample exact cell usable for soft decisions while each hard action fails closed", async () => {
+  it("keeps low-sample scale and refresh soft-only while preserving commercial stop-loss cut authority", async () => {
     const dataSource = new NativeOnlyProfileDataSource(buildCells(10));
 
     const result = await resolveWith(dataSource, {
@@ -357,14 +357,21 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
       calibrationSource: "objective_cohort_context",
       hardActionEligibility: {
         scale: false,
-        cut: false,
+        cut: true,
         refresh: false,
       },
     });
     expect(result.hardActionEligibility.reasons).toMatchObject({
       scale: "native_ad_calibration:scale_calibration_sample_low",
-      cut: "native_ad_calibration:cut_calibration_sample_low",
+      cut: null,
       refresh: "native_ad_calibration:refresh_calibration_sample_low",
+    });
+    expect(result.selectedCell?.actionReadiness.cut).toEqual({
+      ready: true,
+      reason: null,
+      authorityBasis: "commercial_stop_loss",
+      observedSampleCount: 10,
+      requiredSampleCount: 0,
     });
     expect(dataSource.targetCalls).toBe(1);
     expect(dataSource.calibrationCalls).toHaveLength(1);
@@ -398,7 +405,7 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     expect(result).toMatchObject({
       status: "ready",
       calibrationSource: "objective_cohort_context",
-      hardActionEligibility: { scale: false, cut: false, refresh: false },
+      hardActionEligibility: { scale: false, cut: true, refresh: false },
     });
     expect(result.selectedCell?.matureAdCount).toBe(5);
     expect(dataSource.calibrationCalls).toHaveLength(1);
@@ -477,6 +484,50 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
           ready: true,
           reason: null,
         },
+      },
+    }));
+    const dataSource = new NativeOnlyProfileDataSource(cells);
+
+    const result = await resolveWith(dataSource);
+
+    expect(result).toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_contract_invalid",
+    });
+    expect(dataSource.targetCalls).toBe(0);
+  });
+
+  it("rejects a structurally valid commercial stop-loss proof when the cell has calibrated relative evidence", async () => {
+    const cells = buildCells(30).map((cell) => ({
+      ...cell,
+      actionReadiness: {
+        ...cell.actionReadiness,
+        cut: {
+          ready: true,
+          reason: null,
+          authorityBasis: "commercial_stop_loss" as const,
+          observedSampleCount: cell.actionReadiness.cut.observedSampleCount,
+          requiredSampleCount: 0,
+        },
+      },
+    }));
+    const dataSource = new NativeOnlyProfileDataSource(cells);
+
+    const result = await resolveWith(dataSource);
+
+    expect(result).toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_contract_invalid",
+    });
+    expect(dataSource.targetCalls).toBe(0);
+  });
+
+  it("rejects a low-sample cell that carries an untrusted positive P25 into the commercial path", async () => {
+    const cells = buildCells(10).map((cell) => ({
+      ...cell,
+      accountCalibration: {
+        ...cell.accountCalibration,
+        roasRatioP25: 0.9,
       },
     }));
     const dataSource = new NativeOnlyProfileDataSource(cells);

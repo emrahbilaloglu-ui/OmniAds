@@ -217,6 +217,29 @@ When persisted `blocked_action_type` is non-null, the server projection must
 also be blocked and must label the held Scale/Cut/Refresh signal explicitly;
 the published soft compatibility label remains audit provenance only.
 
+## Native Ad Calibration Action Readiness v2 (D060)
+
+The v2 native calibration receipt makes the evidence path explicit without
+moving label math out of the canonical resolver:
+
+```ts
+interface NativeAdCalibrationActionReadinessEntryV2 {
+  ready: boolean;
+  reason: string | null;
+  authorityBasis: "calibrated_relative" | "commercial_stop_loss" | null;
+  observedSampleCount: number;
+  requiredSampleCount: number;
+}
+```
+
+A ready `commercial_stop_loss` proof is valid only for exact purchase-cell
+`cut`, requires both target and break-even authority, and declares zero required
+peer samples. A ready `calibrated_relative` proof requires the action's positive
+sample floor and observed samples at or above it. Blocked proofs must have a
+non-null reason and null authority basis. Pooled/non-purchase cells remain
+blocked. V1 receipts have no authority-basis field and remain readable only
+under their original engine epoch; they must not be upgraded by inference.
+
 ## Constraints
 
 - Do not collapse `primaryDecision` and `buyerAction`.

@@ -126,18 +126,21 @@ function nativeCellRow(
       scale: {
         ready: true,
         reason: null,
+        authorityBasis: "calibrated_relative",
         observedSampleCount: 30,
         requiredSampleCount: 30,
       },
       cut: {
         ready: true,
         reason: null,
+        authorityBasis: "calibrated_relative",
         observedSampleCount: 30,
         requiredSampleCount: 20,
       },
       refresh: {
         ready: true,
         reason: null,
+        authorityBasis: "calibrated_relative",
         observedSampleCount: 30,
         requiredSampleCount: 20,
       },
@@ -493,6 +496,66 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
         policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
       }),
     ).rejects.toThrow(/metric_sample_counts_json.roas must be an integer/);
+  });
+
+  it("rejects forged action-authority bases before profile authority", async () => {
+    const row = nativeCellRow();
+    const valid = row["action_readiness_json"] as Record<
+      "scale" | "cut" | "refresh",
+      Record<string, unknown>
+    >;
+    const forgedProofs = [
+      {
+        ...valid,
+        scale: {
+          ...valid.scale,
+          authorityBasis: "commercial_stop_loss",
+          requiredSampleCount: 0,
+        },
+      },
+      {
+        ...valid,
+        cut: {
+          ...valid.cut,
+          authorityBasis: "commercial_stop_loss",
+          requiredSampleCount: 1,
+        },
+      },
+      {
+        ...valid,
+        cut: {
+          ...valid.cut,
+          ready: false,
+          reason: "cut_calibration_sample_low",
+          authorityBasis: "calibrated_relative",
+        },
+      },
+      {
+        ...valid,
+        refresh: {
+          ...valid.refresh,
+          authorityBasis: "untrusted_override",
+        },
+      },
+      {
+        ...valid,
+        cut: {
+          ready: true,
+          reason: null,
+          observedSampleCount: 30,
+          requiredSampleCount: 20,
+        },
+      },
+    ];
+
+    for (const actionReadiness of forgedProofs) {
+      await expect(
+        readNativeCell({
+          ...row,
+          action_readiness_json: actionReadiness,
+        }),
+      ).rejects.toThrow(/invalid readiness proof/);
+    }
   });
 });
 

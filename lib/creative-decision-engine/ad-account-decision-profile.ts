@@ -14,6 +14,7 @@ import {
   buildNativeAdOptimizationContext,
   NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
   NATIVE_AD_CALIBRATION_BATCH_TABLE,
+  NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR,
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
   resolveNativeAdCalibrationDate,
@@ -510,21 +511,48 @@ function validateCell(
     /^[0-9a-f]{64}$/.test(cell.batchInputManifestHash) &&
     /^[0-9a-f]{64}$/.test(cell.inputManifestHash) &&
     /^[0-9a-f]{64}$/.test(cell.sourceManifestHash) &&
+    nativeCutBoundaryAuthorityMatchesCell(cell) &&
     (["scale", "cut", "refresh"] as const).every((action) => {
       const readiness = cell.actionReadiness[action];
+      const validReadyBasis =
+        readiness.ready &&
+        (readiness.authorityBasis === "calibrated_relative"
+          ? readiness.requiredSampleCount > 0 &&
+            readiness.observedSampleCount >= readiness.requiredSampleCount
+          : readiness.authorityBasis === "commercial_stop_loss" &&
+            action === "cut" &&
+            readiness.requiredSampleCount === 0);
       return (
         typeof readiness.ready === "boolean" &&
         Number.isInteger(readiness.observedSampleCount) &&
         readiness.observedSampleCount >= 0 &&
         Number.isInteger(readiness.requiredSampleCount) &&
-        readiness.requiredSampleCount > 0 &&
+        readiness.requiredSampleCount >= 0 &&
         (readiness.ready
-          ? readiness.reason === null
-          : readiness.reason !== null)
+          ? readiness.reason === null && validReadyBasis
+          : readiness.reason !== null && readiness.authorityBasis === null)
       );
     }) &&
     nativeActionReadinessMatchesComputedCell(cell);
   return identityMatches && contractMatches ? "valid" : "invalid";
+}
+
+function nativeCutBoundaryAuthorityMatchesCell(
+  cell: NativeAdCalibrationCell,
+): boolean {
+  const readiness = cell.actionReadiness.cut;
+  if (!readiness.ready) return readiness.authorityBasis === null;
+  const accountP25 = cell.accountCalibration.roasRatioP25;
+  if (readiness.authorityBasis === "calibrated_relative") {
+    return (
+      cell.metricSampleCounts.roasRatio >=
+        NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR && positiveFinite(accountP25)
+    );
+  }
+  return (
+    readiness.authorityBasis === "commercial_stop_loss" &&
+    (accountP25 === null || accountP25 === 0)
+  );
 }
 
 function nativeActionReadinessMatchesComputedCell(
@@ -543,6 +571,7 @@ function nativeActionReadinessMatchesComputedCell(
     return (
       stored.ready === expected.ready &&
       stored.reason === expected.reason &&
+      stored.authorityBasis === expected.authorityBasis &&
       stored.observedSampleCount === expected.observedSampleCount &&
       stored.requiredSampleCount === expected.requiredSampleCount
     );

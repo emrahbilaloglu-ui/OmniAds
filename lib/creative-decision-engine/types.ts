@@ -13,10 +13,10 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-15-target-age-advisory";
+export const ENGINE_VERSION = "v3-2026-07-15-commercial-stop-loss";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-07-15-target-age-advisory-shadow";
+  "v3-ad-2026-07-15-commercial-stop-loss-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =

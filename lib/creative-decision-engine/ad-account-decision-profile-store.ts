@@ -17,6 +17,7 @@ import {
   type NativeAdCalibrationQualityStatus,
   type NativeAdCalibrationActionReadiness,
   type NativeAdCalibrationActionBlockReason,
+  type NativeAdCalibrationActionAuthorityBasis,
   type NativeAdTargetAuthorityInput,
   type NativeAdTargetAuthorityStatus,
 } from "./jobs/ad-calibration-job";
@@ -510,6 +511,12 @@ const NATIVE_ACTION_BLOCK_REASONS =
     "refresh_calibration_sample_low",
   ]);
 
+const NATIVE_ACTION_AUTHORITY_BASES =
+  new Set<NativeAdCalibrationActionAuthorityBasis>([
+    "calibrated_relative",
+    "commercial_stop_loss",
+  ]);
+
 function nativeActionReadiness(
   value: unknown,
 ): NativeAdCalibrationActionReadiness {
@@ -542,12 +549,25 @@ function nativeActionReadiness(
     );
     const reasonText = optionalText(entry.reason);
     const reason = reasonText as NativeAdCalibrationActionBlockReason | null;
+    const authorityBasisText = optionalText(entry.authorityBasis);
+    const authorityBasis =
+      authorityBasisText as NativeAdCalibrationActionAuthorityBasis | null;
+    const validReadyBasis =
+      entry.ready &&
+      authorityBasis !== null &&
+      NATIVE_ACTION_AUTHORITY_BASES.has(authorityBasis) &&
+      (authorityBasis === "commercial_stop_loss"
+        ? action === "cut" && requiredSampleCount === 0
+        : requiredSampleCount > 0 &&
+          observedSampleCount >= requiredSampleCount);
     if (
       observedSampleCount < 0 ||
-      requiredSampleCount <= 0 ||
-      (entry.ready && reason !== null) ||
+      requiredSampleCount < 0 ||
+      (entry.ready && (reason !== null || !validReadyBasis)) ||
       (!entry.ready &&
-        (reason === null || !NATIVE_ACTION_BLOCK_REASONS.has(reason)))
+        (reason === null ||
+          !NATIVE_ACTION_BLOCK_REASONS.has(reason) ||
+          authorityBasis !== null))
     ) {
       throw new TypeError(
         `action_readiness_json.${action} has an invalid readiness proof.`,
@@ -556,6 +576,7 @@ function nativeActionReadiness(
     return {
       ready: entry.ready,
       reason,
+      authorityBasis,
       observedSampleCount,
       requiredSampleCount,
     };

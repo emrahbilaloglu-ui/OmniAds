@@ -13,6 +13,7 @@ import {
   SCALE_RATIO_BY_PRESET,
   STALE_SOURCE_UPDATED_AT_HOURS,
   TARGET_BAND_MIN_RATIO,
+  UNCALIBRATED_CUT_RATIO_FALLBACK,
   WEAK_TARGET_MAX_RATIO,
   CUT_BOUNDARY_RATIO_CLAMP,
 } from "../config-values";
@@ -744,6 +745,14 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
           )}% and breakeven ${formatRatioPercent(
             cutBoundary.breakevenRatio ?? breakevenRatio,
           )}%)`
+        : cutBoundary.mode === "uncalibrated_commercial_stop_loss"
+          ? `uncalibrated commercial stop-loss (${formatRatioPercent(
+              cutBoundary.ratio,
+            )}%; minimum of the canonical cold-start boundary ${formatRatioPercent(
+              UNCALIBRATED_CUT_RATIO_FALLBACK,
+            )}% and breakeven ${formatRatioPercent(
+              cutBoundary.breakevenRatio ?? breakevenRatio,
+            )}%)`
         : `account bottom quartile (${formatRatioPercent(cutBoundary.ratio)}%)`;
     return terminal(
       ctx,
@@ -771,21 +780,27 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
 
 export interface CutBoundaryResolution {
   ratio: number;
-  mode: "account_p25" | "breakeven_ceiling";
+  mode:
+    | "account_p25"
+    | "breakeven_ceiling"
+    | "uncalibrated_commercial_stop_loss";
   accountP25: number | null;
   breakevenRatio: number | null;
 }
 
 export function resolveCutBoundary(ctx: GateContext): CutBoundaryResolution {
-  const accountP25 = ctx.profile.thresholds.bottomQuartileRatio;
-  const currentRatio = Math.min(accountP25 ?? 0.7, CUT_BOUNDARY_RATIO_CLAMP);
+  const configuredAccountP25 = ctx.profile.thresholds.bottomQuartileRatio;
+  const accountP25 = positiveFinite(configuredAccountP25)
+    ? configuredAccountP25
+    : null;
+  const currentRatio = Math.min(
+    accountP25 ?? UNCALIBRATED_CUT_RATIO_FALLBACK,
+    CUT_BOUNDARY_RATIO_CLAMP,
+  );
   const breakEvenRoas = ctx.profile.spendUnitEvidence.breakEvenRoas;
   const canUseBreakevenCeiling =
     ctx.truthSource === "commercial_truth" &&
     ctx.profile.hardActionEligibility.cut &&
-    accountP25 !== null &&
-    Number.isFinite(accountP25) &&
-    accountP25 > 0 &&
     breakEvenRoas !== null &&
     Number.isFinite(breakEvenRoas) &&
     breakEvenRoas > 0 &&
@@ -802,10 +817,19 @@ export function resolveCutBoundary(ctx: GateContext): CutBoundaryResolution {
   }
 
   const breakevenRatio = breakEvenRoas / ctx.effectiveTargetRoas;
-  const ratio = Math.min(accountP25, breakevenRatio, CUT_BOUNDARY_RATIO_CLAMP);
+  const ratio = Math.min(
+    currentRatio,
+    breakevenRatio,
+    CUT_BOUNDARY_RATIO_CLAMP,
+  );
   return {
     ratio,
-    mode: ratio < currentRatio ? "breakeven_ceiling" : "account_p25",
+    mode:
+      accountP25 === null
+        ? "uncalibrated_commercial_stop_loss"
+        : ratio < currentRatio
+          ? "breakeven_ceiling"
+          : "account_p25",
     accountP25,
     breakevenRatio,
   };

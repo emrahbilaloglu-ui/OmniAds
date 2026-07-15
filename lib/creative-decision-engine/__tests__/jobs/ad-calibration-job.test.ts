@@ -322,8 +322,15 @@ describe("native ad calibration computation", () => {
         cell.key.optimizationContext ===
         NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
     );
-    expect(exact?.actionReadiness.scale.ready).toBe(true);
-    expect(exact?.actionReadiness.cut.ready).toBe(true);
+    expect(exact?.actionReadiness.scale).toMatchObject({
+      ready: true,
+      authorityBasis: "calibrated_relative",
+    });
+    expect(exact?.actionReadiness.cut).toMatchObject({
+      ready: true,
+      authorityBasis: "calibrated_relative",
+      requiredSampleCount: 20,
+    });
     expect(pooled?.actionReadiness).toMatchObject({
       scale: { ready: false, reason: "pooled_optimization_context_soft_only" },
       cut: { ready: false, reason: "pooled_optimization_context_soft_only" },
@@ -332,6 +339,73 @@ describe("native ad calibration computation", () => {
         reason: "pooled_optimization_context_soft_only",
       },
     });
+  });
+
+  it("authorizes only the commercial stop-loss cut path when peer calibration is thin", () => {
+    const rows = Array.from({ length: 5 }, (_, index) =>
+      makeRow({
+        sourceRowId: `thin-stop-loss-${index}`,
+        adId: `thin-stop-loss-${index}`,
+        revenue: 40 + index,
+      }),
+    );
+    const exact = compute(rows).cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+
+    expect(exact?.accountCalibration.roasRatioP25).toBeNull();
+    expect(exact?.actionReadiness).toMatchObject({
+      scale: {
+        ready: false,
+        authorityBasis: null,
+        reason: "scale_calibration_sample_low",
+      },
+      cut: {
+        ready: true,
+        authorityBasis: "commercial_stop_loss",
+        requiredSampleCount: 0,
+      },
+      refresh: {
+        ready: false,
+        authorityBasis: null,
+        reason: "refresh_calibration_sample_low",
+      },
+    });
+  });
+
+  it("keeps thin-cell commercial stop-loss authority closed when either commercial anchor is missing", () => {
+    const rows = Array.from({ length: 5 }, (_, index) =>
+      makeRow({
+        sourceRowId: `thin-missing-anchor-${index}`,
+        adId: `thin-missing-anchor-${index}`,
+        revenue: 40 + index,
+      }),
+    );
+    const cases = [
+      {
+        target: { ...FRESH_TARGET, targetRoas: null },
+        reason: "target_roas_authority_missing",
+        observedSampleCount: 0,
+      },
+      {
+        target: { ...FRESH_TARGET, breakEvenRoas: null },
+        reason: "break_even_roas_authority_missing",
+        observedSampleCount: 5,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const exact = compute(rows, { target: testCase.target }).cells.find(
+        (cell) => cell.key.cellScope === "objective_cohort_context",
+      );
+      expect(exact?.actionReadiness.cut).toEqual({
+        ready: false,
+        reason: testCase.reason,
+        authorityBasis: null,
+        observedSampleCount: testCase.observedSampleCount,
+        requiredSampleCount: 0,
+      });
+    }
   });
 
   it("keeps an old but bitemporally valid target authoritative", () => {

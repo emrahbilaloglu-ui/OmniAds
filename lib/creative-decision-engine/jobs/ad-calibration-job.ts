@@ -25,7 +25,7 @@ export const NATIVE_AD_CALIBRATION_TABLE =
 export const NATIVE_AD_CALIBRATION_BATCH_TABLE =
   "engine_v3_ad_account_calibration_batches" as const;
 export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
-  "engine-v3-native-ad-calibration.v1" as const;
+  "engine-v3-native-ad-calibration.v2" as const;
 export const NATIVE_AD_CALIBRATION_POLICY_VERSION =
   `retained-account-calibration.${NATIVE_AD_ENGINE_VERSION}` as const;
 export const NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT = "*" as const;
@@ -53,9 +53,14 @@ export type NativeAdCalibrationActionBlockReason =
   | "cut_calibration_sample_low"
   | "refresh_calibration_sample_low";
 
+export type NativeAdCalibrationActionAuthorityBasis =
+  | "calibrated_relative"
+  | "commercial_stop_loss";
+
 export interface NativeAdCalibrationActionReadinessEntry {
   ready: boolean;
   reason: NativeAdCalibrationActionBlockReason | null;
+  authorityBasis: NativeAdCalibrationActionAuthorityBasis | null;
   observedSampleCount: number;
   requiredSampleCount: number;
 }
@@ -3695,10 +3700,10 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
     ? "target_roas_authority_missing"
     : !input.targetAuthority.breakEvenRoasAuthority
       ? "break_even_roas_authority_missing"
-      : cutObserved < NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR ||
-          !positiveFinite(input.accountCalibration.roasRatioP25)
-        ? "cut_calibration_sample_low"
-        : null;
+      : null;
+  const cutUsesCalibratedRelativeBoundary =
+    cutObserved >= NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
+    positiveFinite(input.accountCalibration.roasRatioP25);
   const refreshReason: NativeAdCalibrationActionBlockReason | null =
     refreshObserved < NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR ||
     !positiveFinite(input.accountCalibration.refreshRatioP10)
@@ -3714,7 +3719,14 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
     cut: actionReadinessEntry(
       cutReason,
       cutObserved,
-      NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR,
+      cutUsesCalibratedRelativeBoundary
+        ? NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR
+        : 0,
+      cutReason === null
+        ? cutUsesCalibratedRelativeBoundary
+          ? "calibrated_relative"
+          : "commercial_stop_loss"
+        : null,
     ),
     refresh: actionReadinessEntry(
       refreshReason,
@@ -3751,10 +3763,13 @@ function actionReadinessEntry(
   reason: NativeAdCalibrationActionBlockReason | null,
   observedSampleCount: number,
   requiredSampleCount: number,
+  authorityBasis: NativeAdCalibrationActionAuthorityBasis | null =
+    reason === null ? "calibrated_relative" : null,
 ): NativeAdCalibrationActionReadinessEntry {
   return {
     ready: reason === null,
     reason,
+    authorityBasis,
     observedSampleCount,
     requiredSampleCount,
   };

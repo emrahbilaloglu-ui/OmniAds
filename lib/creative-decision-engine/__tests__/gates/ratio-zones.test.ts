@@ -896,7 +896,7 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     });
   });
 
-  it("does not feed the 0.7 cold-start fallback into the adaptive formula", () => {
+  it("keeps the cold-start stop-loss boundary but records the commercial path", () => {
     const context = ratioContext(0.6, {
       profile: profileWithBreakeven({
         breakEvenRoas: TARGET_ROAS * 0.78,
@@ -907,9 +907,47 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
 
     expect(resolveCutBoundary(context)).toEqual({
       ratio: 0.7,
-      mode: "account_p25",
+      mode: "uncalibrated_commercial_stop_loss",
       accountP25: null,
-      breakevenRatio: null,
+      breakevenRatio: 0.78,
+    });
+  });
+
+  it("caps the uncalibrated stop-loss below break-even", () => {
+    const context = ratioContext(0.65, {
+      input: { spend: 9000 },
+      profile: profileWithBreakeven({
+        breakEvenRoas: TARGET_ROAS * 0.6,
+        bottomQuartileRatio: undefined,
+      }),
+    });
+    context.profile.thresholds.bottomQuartileRatio = null;
+
+    expect(resolveCutBoundary(context)).toEqual({
+      ratio: 0.6,
+      mode: "uncalibrated_commercial_stop_loss",
+      accountP25: null,
+      breakevenRatio: 0.6,
+    });
+
+    const output = terminalOutput(ratioZonesGate(context));
+    expect(output.label).toBe("keep");
+    expect(output.reason.startsWith("[weak zone]")).toBe(true);
+  });
+
+  it("treats a zero peer percentile as unavailable rather than disabling stop-loss", () => {
+    const context = ratioContext(0.5, {
+      profile: profileWithBreakeven({
+        breakEvenRoas: TARGET_ROAS * 0.65,
+        bottomQuartileRatio: 0,
+      }),
+    });
+
+    expect(resolveCutBoundary(context)).toEqual({
+      ratio: 0.65,
+      mode: "uncalibrated_commercial_stop_loss",
+      accountP25: null,
+      breakevenRatio: 0.65,
     });
   });
 });

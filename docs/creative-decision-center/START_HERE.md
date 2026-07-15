@@ -27,8 +27,11 @@ before proposing another threshold, confidence, structure, context, or
 hysteresis variant. All bounded H1-H12 families, native/structure replays,
 3d/7d/14d outcomes, H10 calibration, and expanded H11/H12 policies have run.
 No challenger passed its locked promotion gate. D049 remains a monotonic
-safety invariant, not proven historical lift. The current release candidate is
-versioned under `v3-2026-07-15-target-age-advisory`; deployment state
+safety invariant, not proven historical lift. D060 closes the duplicate native
+Cut veto without promoting a challenger: calibrated P25 remains the relative
+path, while an uncalibrated exact purchase cell may use the existing fallback
+only after explicit break-even narrows it. The current release candidate is
+versioned under `v3-2026-07-15-commercial-stop-loss`; deployment state
 must be verified from `/api/build-info`, not inferred from this document.
 
 The strict replay found 17,233 restated native rows but zero cutoff-safe

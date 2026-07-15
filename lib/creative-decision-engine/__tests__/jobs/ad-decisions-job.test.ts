@@ -463,6 +463,165 @@ describe("native ad decision computation", () => {
     });
   });
 
+  it("publishes a low-peer commercial stop-loss only after a later-date confirmation", () => {
+    const adId = "ad-commercial-stop-loss";
+    const baseProfile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      scope: { type: "account", id: "act-1" },
+      thresholds: { bottomQuartileRatio: null },
+      hardActionEligibility: {
+        scale: false,
+        cut: true,
+        refresh: false,
+        reason: "scale calibration remains below its action floor",
+        reasons: {
+          scale: "scale calibration remains below its action floor",
+          cut: null,
+          refresh: "refresh calibration remains below its action floor",
+        },
+      },
+    });
+    const profile = {
+      ...baseProfile,
+      spendUnitEvidence: {
+        ...baseProfile.spendUnitEvidence,
+        targetRoas: 2,
+        breakEvenRoas: 1.5,
+      },
+    };
+    const input = {
+      ...adInput({ adId, campaignId: "campaign-a" }),
+      spend: 900,
+      purchases: 3,
+      purchaseValue: 540,
+      roas: 0.6,
+      cpa: 300,
+      linkClicks: 200,
+      landingPageViews: 180,
+      addToCart: 30,
+      initiateCheckout: 9,
+      recent7dSpend: 210,
+      recent7dPurchases: 1,
+      recent7dRoas: 0.55,
+      targetRoas: 2,
+      breakevenRoas: 1.5,
+    };
+    const first = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [input],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+    })[0];
+    if (!first) throw new Error("Expected first stop-loss computation.");
+
+    expect(first).toMatchObject({
+      rawLabel: "cut",
+      hysteresisSuppressed: true,
+      decision: {
+        label: "keep",
+        preAuthorityLabel: "cut",
+        authorityBlocker: null,
+        blockedActionType: "cut",
+      },
+    });
+    const firstPayload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000761",
+      scope: profile.scope,
+      computation: first,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000762",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "5".repeat(64),
+        decisionHash: "6".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+    expect(firstPayload).toMatchObject({
+      label: "keep",
+      raw_label: "cut",
+      blocked_action_type: "cut",
+      authorized_action: null,
+    });
+
+    const stabilityKey = `${BUSINESS_ID}\u0000${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${adId}\u0000account\u0000act-1`;
+    const second = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [input],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map([
+        [
+          stabilityKey,
+          {
+            businessId: BUSINESS_ID,
+            providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+            providerAccountId: "act-1",
+            decisionEntityType: "ad" as const,
+            decisionEntityId: adId,
+            sourceSnapshotId: "snapshot-prior-stop-loss",
+            sourceEvaluationId: "evaluation-prior-stop-loss",
+            sourceEngineVersion: NATIVE_AD_ENGINE_VERSION,
+            sourceAsOfDate: "2026-07-11",
+            sourceComputedAt: "2026-07-11T03:15:00.000Z",
+            sourceInputHash: "7".repeat(64),
+            sourceDecisionHash: "8".repeat(64),
+            publishedLabel: "keep" as const,
+            rawLabel: "cut" as const,
+          },
+        ],
+      ]),
+    })[0];
+    if (!second) throw new Error("Expected confirmed stop-loss computation.");
+    expect(second).toMatchObject({
+      rawLabel: "cut",
+      hysteresisSuppressed: false,
+      decision: {
+        label: "cut",
+        preAuthorityLabel: "cut",
+        authorityBlocker: null,
+        blockedActionType: null,
+      },
+    });
+    const secondPayload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000763",
+      scope: profile.scope,
+      computation: second,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000764",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "9".repeat(64),
+        decisionHash: "a".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:20:00.000Z`,
+    });
+    expect(secondPayload).toMatchObject({
+      label: "cut",
+      raw_label: "cut",
+      blocked_action_type: null,
+      authorized_action: "cut",
+    });
+    expect(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY).toContain(
+      "snapshot.as_of_date < $4::date",
+    );
+  });
+
   it("keeps a present-day dimension-only ad when profile context is incomplete", async () => {
     const groups = await resolveNativeAdDecisionProfileGroups({
       businessId: BUSINESS_ID,

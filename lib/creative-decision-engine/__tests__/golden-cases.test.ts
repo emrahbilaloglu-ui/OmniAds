@@ -139,6 +139,8 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-080",
   "GC-081",
   "GC-082",
+  "GC-083",
+  "GC-084",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -833,6 +835,61 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         },
       );
     }
+    case "GC-083": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: { bottomQuartileRatio: null },
+      });
+      return decideCreative(
+        makeCreativeInput({
+          spend: 500,
+          purchases: 4,
+          purchaseValue: 400,
+          roas: 0.8,
+          cpa: 125,
+          recent7dSpend: 120,
+          recent7dRoas: 0.8,
+          targetRoas: 2,
+          breakevenRoas: 1.5,
+          linkClicks: 200,
+          landingPageViews: 180,
+          addToCart: 40,
+          initiateCheckout: 16,
+        }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.5,
+          },
+        },
+      );
+    }
+    case "GC-084": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: { bottomQuartileRatio: null },
+      });
+      return decideCreative(
+        makeCreativeInput({
+          spend: 1500,
+          purchases: 12,
+          purchaseValue: 1950,
+          roas: 1.3,
+          recent7dSpend: 300,
+          recent7dRoas: 1.3,
+          targetRoas: 2,
+          breakevenRoas: 1.2,
+        }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.2,
+          },
+        },
+      );
+    }
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -890,7 +947,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(78);
+    expect(fixtureCases).toHaveLength(80);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -960,6 +1017,8 @@ describe("Creative Decision Center golden cases", () => {
       "GC-080",
       "GC-081",
       "GC-082",
+      "GC-083",
+      "GC-084",
     ]);
 
     expect(pendingCases).toHaveLength(37);

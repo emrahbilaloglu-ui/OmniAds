@@ -2071,3 +2071,56 @@ Presenting the published compatibility label as `Continue Test` told the buyer
 the opposite of the retained verdict. The server already owns both the held
 action and its blocker, so it must project the honest blocked state without a
 second calculator or any authority expansion.
+
+## D060 - Commercial Stop-Loss Does Not Require A Peer Percentile
+
+Decision: native Cut authority has two mutually exclusive canonical evidence
+paths. A cell with at least the declared ROAS-ratio sample floor and a positive
+account P25 uses the calibrated relative path from D049. When that percentile
+is unavailable, an exact purchase cell may instead use the commercial
+stop-loss path. That path requires cutoff-safe explicit target and break-even
+ROAS authority, retained commercial spend-unit authority, the existing
+loss-budget maturity/recovery/status/data-health gates, and a canonical cut
+boundary of:
+
+`min(account P25 ?? existing uncalibrated 0.70 fallback, break-even / target, 1.0)`
+
+The `0.70` fallback already existed in the resolver; this decision does not
+introduce a new threshold. It closes the duplicate native veto while making
+the fallback safer: explicit break-even now narrows the boundary even when P25
+is absent. A missing/invalid/cutoff-unsafe anchor, non-purchase or pooled cell,
+untrusted spend unit, source/status/context blocker, recovery hold, or broken
+lineage still fails closed. Pooled calibration remains soft-only.
+
+The native calibration receipt records the selected authority basis. A ready
+sample-backed action uses `calibrated_relative`. A ready exact-cell Cut without
+a sample-backed P25 uses `commercial_stop_loss` and declares zero required peer
+samples. This is provenance, not a second calculation: all label mathematics
+remain in the canonical resolver. Scale retains its 30-sample winner benchmark,
+purchase-depth, and recent-hold requirements. Refresh retains its calibrated
+trend requirement.
+
+D049 remains binding whenever a calibrated P25 exists: break-even can only
+narrow that boundary, and the uncalibrated path cannot override it. D036 also
+remains binding. A first hard Cut is published as pending and only a later-date
+natural evaluation can confirm it; same-day retries do not manufacture
+independent evidence. Automatic provider execution remains separately closed
+by the controlled-causal and operator-enablement contracts.
+
+The behavior ships under `v3-2026-07-15-commercial-stop-loss` and
+`v3-ad-2026-07-15-commercial-stop-loss-shadow`, canonical evaluation v4 and
+native-Ad evaluation v6. Because `action_readiness_json` gains the mandatory
+authority-basis proof, native-Ad calibration advances from v1 to v2. Workspace
+read v3, OS presentation v4, and existing Meta recommendation contracts do not
+change because their shapes and ownership do not change. Prior epochs remain
+readable under their original semantics and are never reinterpreted as v2.
+
+Reason: the retained engine already separated loss-budget Cut maturity from
+winner-depth Scale readiness, but the native adapter added a second global
+`20 samples + P25` Cut veto. Live exact-Ad evidence exposed 33 active
+commercial-truth Cut candidates with null P25; blindly deleting the veto would
+also have authorized a Tiles row whose ROAS was above explicit break-even.
+Applying the break-even ceiling to the existing uncalibrated fallback excludes
+that counterexample while allowing the canonical stop-loss path. This is a
+contract-conformance and monotonic-safety correction, not a causal lift claim
+or a business-specific exception.

@@ -82,6 +82,8 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-080  | mature ad is above fresh break-even but below an unusually high account P25                                            | Keep                    | review              | review_only           | performance          | medium               | medium                 | breakeven_cut_ceiling                   | mature           | diagnose_data                     |
 | GC-081  | mature ad is between account P25 and fresh break-even when P25 is the lower boundary                                   | Keep                    | review              | review_only           | performance          | medium               | medium                 | no_cut_zone_expansion                   | mature           | diagnose_data                     |
 | GC-082  | old valid target with a mature clear-loss profile remains a hard cut                                                   | Cut                     | cut                 | review_only           | performance          | high                 | high                   | old_target_clear_loss_cut               | mature           | diagnose_data                     |
+| GC-083  | exact purchase cell has no calibrated P25 but valid target/break-even and a mature loss below the cold-start stop-loss boundary | Cut                  | cut                 | review_only           | performance          | high                 | high                   | uncalibrated_commercial_stop_loss       | mature           | diagnose_data                     |
+| GC-084  | exact purchase cell has no calibrated P25 and sits below the cold-start ratio but above explicit break-even               | Keep                    | review              | review_only           | performance          | medium               | medium                 | uncalibrated_break_even_ceiling         | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -208,6 +210,11 @@ These cases must become executable fixtures before resolver behavior changes. Do
 - GC-082 proves an old valid target cannot suppress a mature clear-loss Cut
   when the existing target-relative loss and maturity gates pass. Its fixture
   values are regression evidence, not production thresholds.
+- GC-083 proves missing peer calibration does not globally veto the canonical
+  commercial stop-loss when exact commercial authority and loss-budget
+  maturity are present.
+- GC-084 proves the uncalibrated fallback cannot Cut an ad whose ROAS is above
+  explicit break-even; break-even narrows the fallback before label math.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match

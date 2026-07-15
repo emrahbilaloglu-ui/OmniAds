@@ -1012,5 +1012,31 @@
     "expectedTopReasonTag": "old_target_clear_loss_cut",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-083",
+    "inputSummary": "exact purchase cell has no calibrated P25 but valid target/break-even and a mature loss below the cold-start stop-loss boundary",
+    "expectedPrimaryDecision": "Cut",
+    "expectedBuyerAction": "cut",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "high",
+    "expectedTopReasonTag": "uncalibrated_commercial_stop_loss",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-084",
+    "inputSummary": "exact purchase cell has no calibrated P25 and sits below the cold-start ratio but above explicit break-even",
+    "expectedPrimaryDecision": "Keep",
+    "expectedBuyerAction": "review",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "medium",
+    "expectedConfidenceBand": "medium",
+    "expectedTopReasonTag": "uncalibrated_break_even_ceiling",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }
 ]

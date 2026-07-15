@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { DbClient } from "@/lib/db";
 import { LOCK_DECISION_ORIGIN_ACTION_FOR_FINALIZATION_QUERY } from "@/lib/meta/ads-action-log";
-import { canonicalSha256 } from "../../canonical-evaluation";
+import {
+  CANONICAL_EVALUATION_CONTRACT_VERSION,
+  canonicalSha256,
+} from "../../canonical-evaluation";
 import {
   NATIVE_AD_OPERATOR_RESPONSE_CONTRACT_VERSION,
   buildAdRecommendationEpisode,
@@ -11,6 +14,8 @@ import {
   type ExactMetaAdsActionLineage,
 } from "../../ad-operator-response-detection";
 import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
+import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "../../evaluation-store";
+import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../../jobs/ad-calibration-job";
 import {
   AD_OPERATOR_RESPONSE_EVENTS_TABLE,
   AD_OPERATOR_RESPONSE_SCHEMA_SQL,
@@ -32,12 +37,37 @@ import {
   persistAdRecommendationEpisodes,
   persistImmutableAdOperatorActionReceipt,
   readAdOperatorResponses,
+  NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION,
   type AdOperatorResponsePersistenceBatch,
 } from "../../jobs/ad-operator-response-job";
-import { NATIVE_AD_ENGINE_VERSION } from "../../types";
+import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 
 const CUTOFF = "2026-07-13T03:00:00.000Z";
 const JOB_RUN_ID = "00000000-0000-4000-8000-000000000099";
+
+describe("commercial stop-loss release epoch contract", () => {
+  it("locks current contracts and the exact immediately previous rollback epoch", () => {
+    expect(ENGINE_VERSION).toBe("v3-2026-07-15-commercial-stop-loss");
+    expect(NATIVE_AD_ENGINE_VERSION).toBe(
+      "v3-ad-2026-07-15-commercial-stop-loss-shadow",
+    );
+    expect(NATIVE_AD_CALIBRATION_CONTRACT_VERSION).toBe(
+      "engine-v3-native-ad-calibration.v2",
+    );
+    expect(CANONICAL_EVALUATION_CONTRACT_VERSION).toBe(
+      "engine-v3-canonical-evaluation.v4",
+    );
+    expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
+      "engine-v3-canonical-ad-evaluation.v6",
+    );
+    expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
+      "v3-ad-2026-07-15-target-age-advisory-shadow",
+    );
+    expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).not.toBe(
+      NATIVE_AD_ENGINE_VERSION,
+    );
+  });
+});
 
 function dbClient(
   query: (queryText: string, params?: unknown[]) => Promise<unknown[]>,

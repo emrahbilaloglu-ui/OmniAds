@@ -39,6 +39,10 @@ export const STALE_CONFIDENCE_CAP = 65;
 // The account/economic cut boundary is capped at target. The resolver may
 // narrow it further to valid explicit breakeven, but never widen account P25.
 export const CUT_BOUNDARY_RATIO_CLAMP = 1.0;
+// Existing cold-start cut boundary used only when an account-relative P25 is
+// unavailable. Commercial break-even may narrow this boundary but never widen
+// it; see D060.
+export const UNCALIBRATED_CUT_RATIO_FALLBACK = 0.7;
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;
 export const LAUNCH_MONITOR_WINDOW_DAYS = 3;

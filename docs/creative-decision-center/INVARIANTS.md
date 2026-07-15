@@ -95,6 +95,15 @@ These rules are hard gates for V2.1.
   conversation totals and calibration exist, unrelated post-engagement metrics
   must never authorize messaging scale or cut.
 - Cut maturity must use commercial loss-budget spend, not winner-pool purchase depth.
+- A calibrated relative Cut requires its declared ROAS-ratio sample floor and
+  positive account P25. When that percentile is unavailable, only an exact
+  purchase cell with cutoff-safe explicit target and break-even authority may
+  use the canonical commercial stop-loss path. Its boundary is the minimum of
+  the existing uncalibrated fallback, break-even/target, and 1.0; break-even
+  may narrow but never widen Cut authority.
+- Native action readiness must record whether authority came from
+  `calibrated_relative` or `commercial_stop_loss`. Pooled, non-purchase,
+  invalid-anchor, or lineage-unsafe cells cannot use the stop-loss path.
 - Scale spend maturity must use the same commercial loss-budget spend as cut.
 - Scale must additionally require purchase depth and recent performance hold;
   commercial spend maturity alone must not emit `scale`.

@@ -40,6 +40,63 @@ describe("projectMetaDecisionSemantics", () => {
     },
   );
 
+  it("uses the persisted engine authority blocker before secondary evidence on a held verdict", () => {
+    expect(
+      projectMetaDecisionSemantics({
+        legacyBuyerAction: "test_more",
+        sourceLabel: "test_more",
+        lifecycleRole: "main",
+        badgeCodes: ["campaign_context_unresolved"],
+        blockerCodes: ["profile_hard_action_ineligible"],
+        heldAction: "cut",
+        authorityBlocker: "profile_hard_action_ineligible",
+      }),
+    ).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      resolution: { code: "complete_hard_action_evidence" },
+    });
+  });
+
+  it("uses structured commercial-truth evidence within a profile authority hold", () => {
+    expect(
+      projectMetaDecisionSemantics({
+        legacyBuyerAction: "test_more",
+        sourceLabel: "test_more",
+        lifecycleRole: "main",
+        badgeCodes: [
+          "campaign_context_unresolved",
+          "truth_commercial_stale",
+        ],
+        blockerCodes: ["profile_hard_action_ineligible"],
+        heldAction: "cut",
+        authorityBlocker: "profile_hard_action_ineligible",
+      }),
+    ).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      resolution: { code: "confirm_commercial_target" },
+    });
+  });
+
+  it("keeps a held verdict blocked even when its compatibility label is out of scope", () => {
+    expect(
+      projectMetaDecisionSemantics({
+        legacyBuyerAction: "diagnose_data",
+        sourceLabel: "out_of_scope",
+        lifecycleRole: "label_needed",
+        badgeCodes: [],
+        blockerCodes: ["native_profile_unavailable"],
+        heldAction: "cut",
+        authorityBlocker: "native_profile_unavailable",
+      }),
+    ).toMatchObject({
+      decisionState: "blocked",
+      buyerAction: null,
+      resolution: { code: "restore_native_profile" },
+    });
+  });
+
   it("keeps a Test winner actionable while the same Main winner monitors", () => {
     const base = {
       legacyBuyerAction: "scale" as const,
@@ -53,6 +110,53 @@ describe("projectMetaDecisionSemantics", () => {
       projectMetaDecisionSemantics({ ...base, lifecycleRole: "main" }),
     ).toMatchObject({ decisionState: "monitor", buyerAction: "scale" });
   });
+
+  it("does not turn target-age metadata into a second buyer-action gate", () => {
+    expect(
+      projectMetaDecisionSemantics({
+        legacyBuyerAction: "cut",
+        sourceLabel: "cut",
+        lifecycleRole: "main",
+        badgeCodes: ["truth_commercial_stale"],
+      }),
+    ).toMatchObject({
+      decisionState: "act",
+      buyerAction: "cut",
+      resolution: null,
+    });
+  });
+
+  it.each([
+    [
+      "cut",
+      "test_more",
+      "profile_hard_action_ineligible",
+      "complete_hard_action_evidence",
+    ],
+    ["scale", "protect", "pending_transition", "await_decision_confirmation"],
+    ["refresh", "protect", "source_freshness", "refresh_decision_data"],
+  ] as const)(
+    "serves a held %s as a blocked resolution instead of the published %s action",
+    (heldAction, legacyBuyerAction, blockerCode, resolutionCode) => {
+      expect(
+        projectMetaDecisionSemantics({
+          legacyBuyerAction,
+          sourceLabel: legacyBuyerAction,
+          lifecycleRole: "main",
+          badgeCodes:
+            blockerCode === "pending_transition" ? [blockerCode] : [],
+          blockerCodes:
+            blockerCode === "pending_transition" ? [] : [blockerCode],
+          heldAction,
+        }),
+      ).toMatchObject({
+        decisionState: "blocked",
+        legacyBuyerAction,
+        buyerAction: null,
+        resolution: { code: resolutionCode },
+      });
+    },
+  );
 
   it("keeps unresolved automatic context system-owned instead of requesting a label", () => {
     const projection = projectMetaDecisionSemantics({

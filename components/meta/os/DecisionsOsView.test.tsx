@@ -38,7 +38,7 @@ const action = {
 const priority = {
   band: "high",
   rank: 330,
-  version: "meta-os-decisions.presentation.v3",
+  version: "meta-os-decisions.presentation.v4",
 };
 
 const urgency = {
@@ -74,7 +74,7 @@ const workspace = {
   viewer: { readOnly: false, readOnlyReason: null },
   banners: [] as MetaOsWorkspaceBanner[],
   os: {
-    contractVersion: "meta-os-decisions.presentation.v3",
+    contractVersion: "meta-os-decisions.presentation.v4",
     generatedAt: "2026-07-10T04:00:00.000Z",
     source: {
       snapshotAsOf: "2026-07-10",
@@ -219,13 +219,13 @@ describe("DecisionsOsView", () => {
     expect(html).not.toContain("Verified — provider confirmed");
   });
 
-  it("renders stale-target authority as a scoped warning without a global action lock", () => {
+  it("renders target age as an advisory review warning without an action lock", () => {
     const targetAuthorityBanner = {
       id: "stale_commercial_target_authority",
       tone: "warning" as const,
-      title: "Commercial targets need reconfirmation.",
+      title: "Commercial target review is due.",
       detail:
-        "Configured targets are stale. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed.",
+        "Configured targets are older than the review interval. This is advisory only; age does not suppress the decision engine's Scale/Cut authority.",
       blocking: false,
       scope: "target_hard_actions" as const,
       action: {
@@ -247,7 +247,7 @@ describe("DecisionsOsView", () => {
     );
 
     expect(html).toContain('data-scope="target_hard_actions"');
-    expect(html).toContain("Hard Scale/Cut authority is suppressed");
+    expect(html).toContain("age does not suppress the decision engine");
     expect(html).toContain('href="/commercial-truth"');
     expect(html).toContain("Review commercial truth");
     expect(resolveGlobalBlockingBanner([targetAuthorityBanner])).toBeNull();

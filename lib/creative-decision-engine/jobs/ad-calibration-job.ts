@@ -1302,8 +1302,10 @@ export function resolveNativeAdTargetAuthority(
     defaultRiskPosture: normalized?.defaultRiskPosture ?? null,
     effectiveAt: normalized?.effectiveAt ?? null,
     recordedAt: normalized?.recordedAt ?? null,
-    targetRoasAuthority: status === "fresh" && positiveFinite(targetRoas),
-    breakEvenRoasAuthority: status === "fresh" && positiveFinite(breakEvenRoas),
+    // Age is audit provenance, not economic authority. A cutoff-safe upsert
+    // remains authoritative until a later semantic upsert or delete replaces it.
+    targetRoasAuthority: cutoffSafe && positiveFinite(targetRoas),
+    breakEvenRoasAuthority: cutoffSafe && positiveFinite(breakEvenRoas),
     authorityHash,
   };
 }

@@ -200,7 +200,7 @@ describe("GET /api/meta/decisions-workspace", () => {
         } | null,
       ) =>
         targets?.source === "configured_targets" &&
-        targets.freshness === "fresh" &&
+        targets.freshness !== "unknown" &&
         Boolean(targets.updatedAt),
     );
     dbMock.getDb.mockImplementation(() => {
@@ -836,7 +836,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     ).toBe(0);
   });
 
-  it("scopes stale commercial targets to hard Scale/Cut authority without globally blocking the workspace", async () => {
+  it("serves old-target review as advisory without suppressing engine authority", async () => {
     commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
       source: "configured_targets",
       targetRoas: 2.5,
@@ -881,7 +881,8 @@ describe("GET /api/meta/decisions-workspace", () => {
         href: "/commercial-truth",
       },
     });
-    expect(banner.detail).toContain("Hard Scale/Cut authority is suppressed");
+    expect(banner.detail).toContain("age does not suppress");
+    expect(banner.detail).not.toContain("authority is suppressed");
   });
 
   it("does not show a target-authority warning for fresh configured targets", async () => {
@@ -1085,7 +1086,7 @@ describe("GET /api/meta/decisions-workspace", () => {
     expect(payload.queue.actionStates.executablePause).toBe(1);
   });
 
-  it("downgrades stale Structure hard actions across lanes, queue states, and OS actions", async () => {
+  it("does not downgrade Structure hard actions because a valid target is old", async () => {
     commercialTargetsMock.readMetaCommercialTargets.mockResolvedValue({
       source: "configured_targets",
       targetRoas: 2.5,
@@ -1143,36 +1144,33 @@ describe("GET /api/meta/decisions-workspace", () => {
     const structureNode = payload.os.structure.groups[0].adsets[0];
 
     expect(response.status).toBe(200);
-    expect(payload.lanes.actionNow).toHaveLength(0);
-    expect(payload.lanes.watching[0]).toMatchObject({
+    expect(payload.lanes.actionNow[0]).toMatchObject({
       id: "stale-structure-cut",
       decisionLabel: "cut",
-      decisionState: "watch",
-      actionKind: "review_drill",
-      primaryActionLabel: "Review Commercial Truth",
+      actionKind: "execute_pause",
+      primaryActionLabel: "Pause Ad Set",
     });
-    expect(payload.lanes.watchingSegments).toEqual([
-      expect.objectContaining({ key: "missing_target", count: 1 }),
-    ]);
+    expect(payload.lanes.watching).toHaveLength(0);
+    expect(payload.lanes.watchingSegments).toEqual([]);
     expect(payload.queue.groups[0]).toMatchObject({
       key: "action",
-      count: 0,
+      count: 1,
     });
     expect(payload.queue.groups[1]).toMatchObject({
       key: "watching",
-      count: 1,
+      count: 0,
     });
     expect(payload.queue.actionStates).toMatchObject({
-      executablePause: 0,
-      reviewOnly: 1,
+      executablePause: 1,
+      reviewOnly: 0,
     });
     expect(structureNode).toMatchObject({
-      lane: "blocked",
-      assessment: "Decision Blocked",
+      lane: "act",
+      assessment: "Underperformer",
       action: {
-        code: "review_commercial_truth",
+        code: "execute_pause",
         intent: "review",
-        providerMutation: null,
+        providerMutation: "pause",
       },
     });
   });

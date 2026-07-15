@@ -498,7 +498,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v2",
+            overlayVersion: "meta-decisions-classification-overlay.v3",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "test" },
             assessment: { value: "proven_winner" },
@@ -616,7 +616,7 @@ describe("MetaPlatformPage", () => {
             provenance: {},
           },
           classification: {
-            overlayVersion: "meta-decisions-classification-overlay.v2",
+            overlayVersion: "meta-decisions-classification-overlay.v3",
             queueSection: "creative_rotation",
             lifecycleRole: { value: "main" },
             assessment: { value: "below_target" },
@@ -1034,7 +1034,7 @@ describe("MetaPlatformPage", () => {
     ]);
   });
 
-  it("surfaces stale commercial targets with reduced authority", () => {
+  it("surfaces target age as advisory without claiming reduced authority", () => {
     state.pulsePayload = metaPulse({
       roas: {
         selected: 3.2,
@@ -1063,9 +1063,47 @@ describe("MetaPlatformPage", () => {
       <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
     );
 
-    expect(html).toContain("Target stale - reduced authority");
+    expect(html).toContain("Target review due - authority unchanged");
+    expect(html).not.toContain("reduced authority");
     expect(html).toContain("Review target pack");
     expect(html).toContain('data-target-freshness="stale"');
+  });
+
+  it("withholds authority when a configured target timestamp is unavailable", () => {
+    state.pulsePayload = metaPulse({
+      roas: {
+        selected: 3.2,
+        d7: 2.8,
+        d14: 3,
+        d28: 3.2,
+        target: 2.5,
+        median: 2.1,
+        target_source: "commercial_truth_stale",
+        targetFreshness: "unknown",
+        targetUpdatedAt: null,
+      },
+      targetAnchor: {
+        configured: true,
+        source: "configured_targets",
+        targetRoas: 2.5,
+        breakEvenRoas: 1.7,
+        targetCpa: null,
+        breakEvenCpa: null,
+        freshness: "unknown",
+        updatedAt: null,
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      <MetaPlatformPage businessId="biz_1" businessName="TheSwaf" />,
+    );
+
+    expect(html).toContain(
+      "Target timestamp unavailable - Scale/Cut authority withheld",
+    );
+    expect(html).not.toContain("authority unchanged");
+    expect(html).toContain("Review target pack");
+    expect(html).toContain('data-target-freshness="unknown"');
   });
 
   it("routes closed structures to the additive History surface", () => {

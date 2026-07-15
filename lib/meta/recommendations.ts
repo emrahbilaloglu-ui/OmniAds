@@ -374,7 +374,7 @@ export interface MetaRecommendationsResponse {
 }
 
 export const META_RECOMMENDATION_ENGINE_VERSION =
-  "v1.1.0-decision-safety";
+  "v1.2.0-target-age-advisory";
 
 export interface MetaCalibrationContext {
   thresholds: MetaCalibrationThresholds;

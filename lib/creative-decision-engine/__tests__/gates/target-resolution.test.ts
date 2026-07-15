@@ -30,7 +30,7 @@ describe("targetResolutionGate", () => {
     expect(ctx.confidenceDeltas).toEqual([]);
   });
 
-  it("keeps a stale target visible but reduces its decision authority", () => {
+  it("treats an old but timestamp-trusted target exactly like recent commercial truth", () => {
     const ctx = advanceContext(
       targetResolutionGate(
         makeGateContext({
@@ -42,14 +42,10 @@ describe("targetResolutionGate", () => {
       ),
     );
 
-    expect(ctx.truthSource).toBe("commercial_truth_stale");
+    expect(ctx.truthSource).toBe("commercial_truth");
     expect(ctx.effectiveTargetRoas).toBe(2.2);
-    expect(ctx.badges).toContainEqual({
-      type: "truth_commercial_stale",
-      label: "Target stale - reduced authority",
-      severity: "warning",
-    });
-    expect(ctx.confidenceDeltas).toEqual([-15]);
+    expect(ctx.badges).toEqual([]);
+    expect(ctx.confidenceDeltas).toEqual([]);
   });
 
   it("treats unknown target freshness as stale-equivalent", () => {
@@ -68,7 +64,7 @@ describe("targetResolutionGate", () => {
     expect(ctx.confidenceDeltas).toEqual([-15]);
   });
 
-  it("uses a pooled relative P60 when a stale target sits above a thin account", () => {
+  it("does not replace an old valid target with a pooled relative P60", () => {
     const calibration = makeAccountCalibration({
       matureCreativeCount: 16,
       roasP60: 1.8,
@@ -89,24 +85,13 @@ describe("targetResolutionGate", () => {
       ),
     );
 
-    expect(ctx.truthSource).toBe("account_baseline_thin");
-    expect(ctx.effectiveTargetRoas).toBe(1.8);
-    expect(ctx.badges).toEqual([
-      {
-        type: "truth_commercial_stale",
-        label: "Target stale - reduced authority",
-        severity: "warning",
-      },
-      {
-        type: "truth_account_baseline_thin",
-        label: "Truth: thin account baseline (P60)",
-        severity: "warning",
-      },
-    ]);
-    expect(ctx.confidenceDeltas).toEqual([-15]);
+    expect(ctx.truthSource).toBe("commercial_truth");
+    expect(ctx.effectiveTargetRoas).toBe(3.5);
+    expect(ctx.badges).toEqual([]);
+    expect(ctx.confidenceDeltas).toEqual([]);
   });
 
-  it("does not change stale-target behavior for legacy account-wide creative scope", () => {
+  it("keeps old-target authority for legacy account-wide creative scope", () => {
     const ctx = advanceContext(
       targetResolutionGate(
         makeGateContext({
@@ -122,7 +107,7 @@ describe("targetResolutionGate", () => {
       ),
     );
 
-    expect(ctx.truthSource).toBe("commercial_truth_stale");
+    expect(ctx.truthSource).toBe("commercial_truth");
     expect(ctx.effectiveTargetRoas).toBe(3.5);
   });
 

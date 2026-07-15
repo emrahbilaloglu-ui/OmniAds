@@ -16,8 +16,8 @@ Known facts to preserve unless repo evidence proves otherwise:
 
 | action | requiredData | currentlyAvailable | whereAvailable | missingFields | likelyDataSource | safeFallbackIfMissing | canMVPEmit | confidenceImpact |
 |---|---|---|---|---|---|---|---|---|
-| scale | spend, purchases, CPA/ROAS, target or benchmark, truth, maturity | partial | V1/V2 metrics, commercial truth partial | target source, freshness, attribution quality | business target config, snapshot trust | test_more / diagnose_data | conditional | cap if target/benchmark/truth weak |
-| cut | mature spend, CPA/ROAS vs target, no recovery, truth | partial | V1/V2 metrics | target source, maturity, freshness | commercial truth, historical windows | diagnose_data | conditional | no high-confidence cut without maturity/truth |
+| scale | spend, purchases, CPA/ROAS, valid target or benchmark, truth, maturity | partial | V1/V2 metrics, commercial truth partial | action-specific target anchor, timestamp provenance, attribution quality | business target config, snapshot trust | test_more / diagnose_data | conditional | target age has no confidence impact; missing/invalid authority fails closed |
+| cut | mature spend, CPA/ROAS vs valid break-even, no recovery, truth | partial | V1/V2 metrics | action-specific break-even anchor, maturity, timestamp provenance | commercial truth, historical windows | diagnose_data | conditional | target age has no confidence impact; no hard cut without maturity/valid truth |
 | refresh | CTR/CPM/frequency trend, fatigue proof, winner context | partial | V1 fatigue/historical windows | explicit `ctr`, `cpm`, `frequency` trend fields in V2 input | historical feature enrichment | test_more / diagnose_data | conditional | single-metric fatigue is low confidence |
 | protect | stable winner, adequate history, no blockers | partial | V1 lifecycle/operator, V2 Protect | freshness/target context | V1/V2 + trust | test_more / diagnose_data | conditional | cap if benchmark weak |
 | test_more | low maturity/insufficient signal | yes/partial | V1/V2/scoring | none critical | current metrics | diagnose_data if stale | yes | safe default |

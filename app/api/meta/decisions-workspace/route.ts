@@ -891,10 +891,10 @@ function workspaceBanners(input: {
       tone: "warning",
       title: freshnessUnknown
         ? "Commercial target freshness is unknown."
-        : "Commercial targets need reconfirmation.",
+        : "Commercial target review is due.",
       detail: freshnessUnknown
         ? "Configured targets have no trustworthy confirmation time. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed."
-        : "Configured targets are stale. Hard Scale/Cut authority is suppressed until the economics are reviewed and reconfirmed.",
+        : "Configured targets are older than the review interval. This is advisory only; age does not suppress the decision engine's Scale/Cut authority.",
       blocking: false,
       scope: "target_hard_actions",
       action: {

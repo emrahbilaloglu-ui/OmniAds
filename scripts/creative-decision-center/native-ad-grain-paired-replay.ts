@@ -163,7 +163,7 @@ interface BusinessRow {
   name: string;
 }
 
-interface TargetPack {
+export interface TargetPack {
   targetCpa: number | null;
   targetRoas: number | null;
   breakEvenCpa: number | null;
@@ -173,6 +173,7 @@ interface TargetPack {
   updatedAt: string | null;
   effectiveAt: string | null;
   recordedAt: string | null;
+  operation: "upsert" | "delete";
   source: "business_target_pack_history" | "business_target_packs";
 }
 
@@ -1074,6 +1075,7 @@ async function loadSimulationData(args: ParsedArgs) {
         h.break_even_roas,
         h.aov_assumption,
         h.default_risk_posture,
+        h.operation,
         h.effective_at,
         h.recorded_at,
         'business_target_pack_history'::text AS source
@@ -1088,6 +1090,7 @@ async function loadSimulationData(args: ParsedArgs) {
         p.break_even_roas,
         p.aov_assumption,
         p.default_risk_posture,
+        'upsert'::text AS operation,
         p.updated_at AS effective_at,
         p.updated_at AS recorded_at,
         'business_target_packs'::text AS source
@@ -1114,6 +1117,7 @@ async function loadSimulationData(args: ParsedArgs) {
         updatedAt: isoTimestamp(row.recorded_at),
         effectiveAt: isoTimestamp(row.effective_at),
         recordedAt: isoTimestamp(row.recorded_at),
+        operation: row.operation === "delete" ? "delete" : "upsert",
         source:
           source === "business_target_pack_history"
             ? "business_target_pack_history"
@@ -1965,42 +1969,54 @@ function effectiveProfileConfig(
   return profile.updatedAt <= `${asOfDate}T03:00:00.000Z` ? profile : null;
 }
 
-function targetAtCutoff(
+export function selectReplayTargetAtCutoff(
   observations: readonly TargetPack[],
   asOfDate: string,
 ): TargetPack | null {
   const cutoff = `${asOfDate}T03:00:00.000Z`;
-  return (
-    [...observations]
-      .filter(
-        (target) =>
-          target.effectiveAt !== null &&
-          target.recordedAt !== null &&
-          target.effectiveAt <= cutoff &&
-          target.recordedAt <= cutoff,
-      )
-      .sort(
-        (left, right) =>
-          (right.effectiveAt ?? "").localeCompare(left.effectiveAt ?? "") ||
-          (right.recordedAt ?? "").localeCompare(left.recordedAt ?? "") ||
-          left.source.localeCompare(right.source),
-      )[0] ?? null
-  );
+  const latest = [...observations]
+    .filter(
+      (target) =>
+        target.effectiveAt !== null &&
+        target.recordedAt !== null &&
+        target.recordedAt >= target.effectiveAt &&
+        target.effectiveAt <= cutoff &&
+        target.recordedAt <= cutoff,
+    )
+    .sort(
+      (left, right) =>
+        (right.effectiveAt ?? "").localeCompare(left.effectiveAt ?? "") ||
+        (right.recordedAt ?? "").localeCompare(left.recordedAt ?? "") ||
+        (left.operation === right.operation
+          ? 0
+          : left.operation === "delete"
+            ? -1
+            : 1) ||
+        left.source.localeCompare(right.source),
+    )[0];
+  return latest?.operation === "delete" ? null : (latest ?? null);
 }
 
 function targetState(target: TargetPack | null, asOfDate: string) {
-  if (!target?.effectiveAt || !target.recordedAt) {
+  if (
+    target?.operation !== "upsert" ||
+    !target.effectiveAt ||
+    !target.recordedAt
+  ) {
     return { exact: false, fresh: false };
   }
   const cutoff = `${asOfDate}T03:00:00.000Z`;
-  const exact = target.effectiveAt <= cutoff && target.recordedAt <= cutoff;
+  const exact =
+    target.recordedAt >= target.effectiveAt &&
+    target.effectiveAt <= cutoff &&
+    target.recordedAt <= cutoff;
   const ageDays = exact
     ? diffDays(asOfDate, target.effectiveAt.slice(0, 10))
     : Number.POSITIVE_INFINITY;
   return { exact, fresh: exact && ageDays <= TARGET_FRESHNESS_DAYS };
 }
 
-function buildProfile(input: {
+export function buildReplayProfile(input: {
   business: BusinessRow;
   asOfDate: string;
   target: TargetPack | null;
@@ -2096,13 +2112,13 @@ function buildProfile(input: {
   const commercialThresholdEligible = resolution.hardEligibleByDefault;
   const scaleEligible =
     commercialThresholdEligible &&
-    targetStatus.fresh &&
+    targetStatus.exact &&
     (input.target?.targetRoas ?? 0) > 0 &&
     input.calibration.matureCreativeCount >= 30 &&
     (input.calibration.winnerPurchaseP50 ?? 0) > 0;
   const cutEligible =
     commercialThresholdEligible &&
-    targetStatus.fresh &&
+    targetStatus.exact &&
     (input.target?.breakEvenRoas ?? 0) > 0;
   const refreshEligible = commercialThresholdEligible;
   const hardActionEligibility = input.forceRawAuthority
@@ -2118,10 +2134,10 @@ function buildProfile(input: {
         reasons: {
           scale: scaleEligible
             ? null
-            : "fresh target and ready winner calibration required",
+            : "valid target and ready winner calibration required",
           cut: cutEligible
             ? null
-            : "fresh explicit break-even and commercial threshold required",
+            : "valid explicit break-even and commercial threshold required",
           refresh: refreshEligible
             ? null
             : "commercial threshold evidence required",
@@ -2150,7 +2166,7 @@ function buildProfile(input: {
     hardActionEligibility,
     quality: {
       commercialTruthReady:
-        targetStatus.fresh &&
+        targetStatus.exact &&
         (input.target?.targetRoas ?? 0) > 0 &&
         (input.target?.breakEvenRoas ?? 0) > 0,
       commercialTruthFreshness: targetStatus.fresh
@@ -3408,7 +3424,6 @@ function createManifestHash(input: {
   context: AdContext;
   target: TargetPack | null;
   targetExact: boolean;
-  targetFresh: boolean;
   outcomes: Record<OutcomeWindowDays, ForwardOutcome>;
   profileConfig: ProfileConfig | null;
 }) {
@@ -3516,7 +3531,6 @@ function createManifestHash(input: {
         ? ["source_observed_after_cutoff"]
         : []),
       ...(input.targetExact ? [] : ["target_at_cutoff"]),
-      ...(input.targetFresh ? [] : ["fresh_target_at_cutoff"]),
     ],
     conflictFields: [],
     outcomeCompleteness: {
@@ -4667,7 +4681,7 @@ export async function runReplay(args: ParsedArgs) {
         return context ? [context] : [];
       });
       if (contexts.length === 0) continue;
-      const target = targetAtCutoff(
+      const target = selectReplayTargetAtCutoff(
         data.targets.get(business.id) ?? [],
         asOfDate,
       );
@@ -4697,7 +4711,7 @@ export async function runReplay(args: ParsedArgs) {
           target: targetStatus.exact ? target : null,
         });
         const profileConfig = data.profiles.get(business.id) ?? null;
-        const baseRawProfile = buildProfile({
+        const baseRawProfile = buildReplayProfile({
           business,
           asOfDate,
           target: targetStatus.exact ? target : null,
@@ -4788,7 +4802,6 @@ export async function runReplay(args: ParsedArgs) {
               context,
               target,
               targetExact: targetStatus.exact,
-              targetFresh: targetStatus.fresh,
               outcomes,
               profileConfig,
             }),

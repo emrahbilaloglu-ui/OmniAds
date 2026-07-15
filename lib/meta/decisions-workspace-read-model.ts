@@ -423,6 +423,10 @@ function hardBlockedAction(
     : null;
 }
 
+function heldActionBuyerLabel(action: "scale" | "cut" | "refresh") {
+  return `${action.charAt(0).toUpperCase()}${action.slice(1)} · Held`;
+}
+
 function normalizeCurrency(value: unknown): string | null {
   const normalized = text(value)?.toUpperCase() ?? null;
   return normalized && /^[A-Z]{3}$/.test(normalized) ? normalized : null;
@@ -917,6 +921,16 @@ function buildBlockers(input: {
       field: "assessment",
     });
   }
+  const authorityBlocker = persistedAuthorityBlocker(
+    input.snapshot.authority_blocker,
+  );
+  if (authorityBlocker) {
+    entries.push({
+      code: authorityBlocker,
+      source: "engine_v3_decision_snapshots_daily",
+      field: "authority_blocker",
+    });
+  }
   entries.push({
     code: "risk_tier_unclassified",
     source: META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION,
@@ -1200,6 +1214,8 @@ function buildCanonicalDecision(input: {
     lifecycleRole: role.value,
     badgeCodes: parsedBadges.codes,
     blockerCodes: blockers.map((blocker) => blocker.code),
+    heldAction,
+    authorityBlocker: decisionOutput.authorityBlocker,
   });
   const exposure = exposureFor({
     snapshot: input.snapshot,
@@ -1323,10 +1339,14 @@ function buildCanonicalDecision(input: {
         heldAction,
         legacyBuyerAction: semantics.legacyBuyerAction,
         buyerAction: semantics.buyerAction,
-        buyerLabel: adapted.buyerLabel,
+        buyerLabel: heldAction
+          ? heldActionBuyerLabel(heldAction)
+          : adapted.buyerLabel,
         executionAction:
-          (adapted.executionAction as MetaCanonicalDecision["classification"]["executionAction"]) ??
-          null,
+          semantics.decisionState === "blocked"
+            ? null
+            : ((adapted.executionAction as MetaCanonicalDecision["classification"]["executionAction"]) ??
+              null),
         resolution: semantics.resolution,
         blockers,
         provenance: provenance({

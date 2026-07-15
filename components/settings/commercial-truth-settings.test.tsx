@@ -59,6 +59,7 @@ function snapshot(pack = targetPack()): BusinessCommercialTruthSnapshot {
 function renderTargetSection(input?: {
   reconfirmDisabledReason?: string | null;
   freshnessStatus?: "fresh" | "stale" | "missing";
+  freshnessAgeHours?: number | null;
 }) {
   const freshnessStatus = input?.freshnessStatus ?? "stale";
   return renderToStaticMarkup(
@@ -76,7 +77,12 @@ function renderTargetSection(input?: {
       freshness={{
         status: freshnessStatus,
         updatedAt: UPDATED_AT,
-        ageHours: freshnessStatus === "fresh" ? 1 : 1_800,
+        ageHours:
+          input && "freshnessAgeHours" in input
+            ? (input.freshnessAgeHours ?? null)
+            : freshnessStatus === "fresh"
+              ? 1
+              : 1_800,
         reason: freshnessStatus === "stale" ? "Review required." : null,
       }}
       updatedAt={UPDATED_AT}
@@ -99,21 +105,50 @@ describe("Commercial Truth target-pack settings", () => {
     expect(html).toContain('value="55"');
   });
 
-  it("states stale authority and does not call stale thresholds complete", () => {
+  it("states that an old target is review-due without suppressing decision authority", () => {
     const targetHtml = renderTargetSection();
     const coverageHtml = renderToStaticMarkup(
       <DecisionCoverageSection snapshot={snapshot()} />,
     );
 
-    expect(targetHtml).toContain("Decision authority needs reconfirmation");
+    expect(targetHtml).toContain("Commercial target review is due");
     expect(targetHtml).toContain(
-      "Hard Scale/Cut authority is blocked until reconfirmed.",
+      "Target age is advisory and does not block engine-owned Scale/Cut authority.",
     );
     expect(targetHtml).toContain("Last updated or confirmed:");
-    expect(coverageHtml).toContain("Stale");
+    expect(coverageHtml).toContain("Review due");
     expect(coverageHtml).toContain(
-      "Hard Scale/Cut authority blocked until reconfirmed",
+      "Review due; target age does not change decision authority",
     );
+    expect(coverageHtml).not.toContain("Blocking reasons");
+    expect(coverageHtml).not.toContain(
+      "The engine stays on conservative fallbacks",
+    );
+  });
+
+  it("keeps an unsafe target timestamp fail-closed instead of treating it as age-only", () => {
+    const targetHtml = renderTargetSection({
+      freshnessStatus: "stale",
+      freshnessAgeHours: null,
+    });
+    const unsafeSnapshot = snapshot();
+    unsafeSnapshot.sectionMeta.targetPack.freshness = {
+      status: "stale",
+      updatedAt: "2099-01-01T00:00:00.000Z",
+      ageHours: null,
+      reason: "Configured data is missing a tracked refresh timestamp.",
+    };
+    const coverageHtml = renderToStaticMarkup(
+      <DecisionCoverageSection snapshot={unsafeSnapshot} />,
+    );
+
+    expect(targetHtml).toContain("Decision authority unavailable");
+    expect(targetHtml).toContain(
+      "Target confirmation time is unavailable or cutoff-unsafe",
+    );
+    expect(targetHtml).not.toContain("Target age is advisory");
+    expect(coverageHtml).toContain("Blocking reasons");
+    expect(coverageHtml).toContain("hard action authority withheld");
   });
 
   it("blocks reconfirmation while local edits are dirty", () => {
@@ -147,7 +182,7 @@ describe("Commercial Truth target-pack settings", () => {
       freshnessStatus: "fresh",
     });
 
-    expect(disabledReason).toContain("already fresh");
+    expect(disabledReason).toContain("already within the review interval");
     expect(
       renderTargetSection({
         reconfirmDisabledReason: disabledReason,

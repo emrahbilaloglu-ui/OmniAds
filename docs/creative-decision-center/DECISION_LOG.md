@@ -1171,6 +1171,9 @@ Implementation landed behind the kill switch with zero default behavior change:
 
 ## D034 - Reduce Decision Authority When Commercial Targets Are Stale
 
+Status: superseded by D058 for decisions produced by the 2026-07-15
+target-age-advisory epochs. Historical snapshots keep this contract.
+
 Decision: a configured commercial target remains inspectable after it becomes
 stale, but it must not retain the same decision authority as a recently
 confirmed target. A target is fresh for 30 days from its persisted
@@ -1888,6 +1891,11 @@ different evidence epoch from the rest of the workspace.
 
 ## D055 - Stale Commercial Targets Require Explicit Reconfirmation
 
+Status: superseded by D058 for action authority. Value validation,
+bitemporal history, compare-and-swap writes, and atomic replacement remain
+binding; elapsed time and value-preserving reconfirmation no longer grant or
+remove decision authority.
+
 Decision: target-pack freshness is authority, not display metadata. Stale
 commercial anchors remain visible but cannot authorize hard Scale/Cut actions.
 They are never refreshed from account performance, a background job, or an
@@ -1987,3 +1995,79 @@ unreadable after a version bump. Those failures are systemic authority defects,
 not account-specific formula problems. Durable attempts, cross-epoch ranking,
 closed action authorization, exact replay epochs, and atomic commercial truth
 make failure visible without weakening decision thresholds.
+
+## D058 - Configured Commercial Targets Do Not Expire With Age
+
+Decision: a configured commercial target with cutoff-safe persisted timestamp
+provenance and a finite positive action-specific anchor remains authoritative
+until a later semantic upsert or delete replaces it. Elapsed time alone cannot
+change the target value, effective threshold, confidence, hard-action
+eligibility, buyer action, authority blocker, or provider-write eligibility.
+The 30-day status may remain visible as advisory review metadata, but it is not
+a decision input.
+
+The canonical engine remains the sole owner of target-relative Scale/Cut
+mathematics. An old target may not be replaced by account P75/P60 merely
+because of age. Adapters, read models, routes, and UI may not turn an engine
+Scale/Cut into Keep, Test More, or Watch by applying another age clock. A
+serve-time guard may still fail closed for a missing/deleted anchor, an
+invalid or unknown timestamp, cutoff-unsafe history, an action/objective
+mismatch, or unreadable commercial truth; those are provenance/validity
+failures, not age failures.
+
+This decision supersedes the age-authority portions of D034, D039, D041, D045,
+D049, D053, and D055. It preserves action-specific anchors: Scale requires a
+valid explicit target ROAS, and Cut requires a valid explicit break-even ROAS;
+neither may be fabricated from the other. It also preserves source-evidence
+freshness, calibration, maturity/loss-budget, recovery hold, campaign context,
+active hierarchy, policy/delivery, hysteresis, lineage, and the invariant that
+an effective authority blocker implies no authorized action.
+
+The behavior ships under `v3-2026-07-15-target-age-advisory` and
+`v3-ad-2026-07-15-target-age-advisory-shadow`, canonical evaluation v3,
+native-Ad evaluation v5, workspace read v3, OS presentation v4, and Meta
+recommendation `v1.2.0-target-age-advisory`. Prior epochs remain readable
+under their original semantics.
+
+Reason: the 30-day veto was a repository product policy, not a business
+setting. It caused a mathematically clear Cut to be rewritten as Test More and
+then suppressed again at serve time. Age is not evidence that the configured
+economics changed. Explicit replacement/deletion and cutoff-safe provenance
+are deterministic authority boundaries; elapsed time is not.
+
+## D059 - A Held Hard Verdict Is A Blocked Resolution, Not A Soft Buyer Action
+
+Decision: whenever a persisted decision carries non-null
+`blocked_action_type`, the Meta Decisions server projection must serve
+`decisionState: blocked`, `buyerAction: null`, an explicit held-action label,
+and a deterministic resolution derived from structured badges/blockers. The
+published `keep`, `test_more`, or other soft label remains compatibility and
+audit provenance only; it cannot become the operator instruction. The UI
+renders this projection and does not infer the held action from metrics, free
+text, or thresholds.
+
+The projection includes persisted `authority_blocker` in its structured
+blocker set. Profile/calibration holds, source freshness, campaign context,
+native metric/profile availability, and hysteresis pending transitions receive
+distinct server-owned resolution copy. For a held verdict, the persisted engine
+`authority_blocker` selects the resolution before secondary badges; structured
+commercial-truth evidence may then refine a composite profile blocker into the
+specific target-provenance repair. Otherwise a real profile hold could
+misleadingly recommend campaign classification or another step that cannot
+release it. A held Cut is assessed as an
+underperformer, a held Scale as above-target but not action-ready, and a held
+Refresh as a refresh candidate. Classification overlay advances to
+`meta-decisions-classification-overlay.v3`; the uncommitted workspace read v3
+and OS presentation v4 contracts carry the change.
+
+This is presentation semantics only. It does not change the engine formula,
+published snapshot label, `authorized_action`, action preflight, or provider
+write eligibility. A held hard verdict remains non-executable, and
+`authorized_action` stays null.
+
+Reason: the engine may correctly preserve a hard verdict while profile,
+calibration, freshness, context, or hysteresis withholds action authority.
+Presenting the published compatibility label as `Continue Test` told the buyer
+the opposite of the retained verdict. The server already owns both the held
+action and its blocker, so it must project the honest blocked state without a
+second calculator or any authority expansion.

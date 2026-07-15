@@ -33,7 +33,13 @@ export function classifyMetaCreativeAssessment(input: {
   let blockerCode: string | null = null;
   const badgeCodes = new Set(input.badgeCodes);
 
-  if (input.label === "scale" && input.truthSource === "commercial_truth") {
+  if (input.heldAction === "cut") {
+    value = "below_target";
+  } else if (input.heldAction === "scale") {
+    value = "above_target_not_scale_ready";
+  } else if (input.heldAction === "refresh") {
+    value = "refresh_candidate";
+  } else if (input.label === "scale" && input.truthSource === "commercial_truth") {
     value = "proven_winner";
   } else if (
     input.label === "scale" &&
@@ -65,10 +71,6 @@ export function classifyMetaCreativeAssessment(input: {
     value = "fatigued_former_winner";
   } else if (input.label === "refresh") {
     value = "refresh_candidate";
-  } else if (input.label === "diagnose" && input.heldAction === "cut") {
-    value = "below_target";
-  } else if (input.label === "diagnose" && input.heldAction === "scale") {
-    value = "above_target_not_scale_ready";
   } else if (
     input.label === "diagnose" &&
     (badgeCodes.has("landing_page_issue") ||

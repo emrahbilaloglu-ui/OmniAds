@@ -37,7 +37,7 @@ export const PREFLIGHT_FRESHNESS_HOURS = 12;
 export const STALE_CONFIDENCE_CAP = 65;
 
 // The account/economic cut boundary is capped at target. The resolver may
-// narrow it further to fresh explicit breakeven, but never widen account P25.
+// narrow it further to valid explicit breakeven, but never widen account P25.
 export const CUT_BOUNDARY_RATIO_CLAMP = 1.0;
 
 export const ZERO_CONV_MIN_AGE_DAYS = 7;

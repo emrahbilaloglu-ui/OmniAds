@@ -82,7 +82,15 @@ export function DecisionAuthorityPanel({
     ]),
   );
   const blockingInputs = (commercialSummary?.requiredInputs ?? []).filter(
-    (item) => item.blocking && item.freshness.status !== "fresh",
+    (item) =>
+      item.blocking &&
+      item.freshness.status !== "fresh" &&
+      !(
+        item.section === "targetPack" &&
+        item.freshness.status === "stale" &&
+        typeof item.freshness.ageHours === "number" &&
+        Number.isFinite(item.freshness.ageHours)
+      ),
   );
   const thresholdPills = thresholds
     ? [

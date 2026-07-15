@@ -1282,4 +1282,130 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
       "monitor_low_truth",
     );
   });
+
+  it("keeps target age in review metadata without creating a blocking coverage gap", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-15T00:00:00.000Z"));
+      const oldTargetAt = new Date("2026-05-01T00:00:00.000Z");
+      const currentConstraintsAt = new Date("2026-07-14T00:00:00.000Z");
+      tableResponses.targetPack = [
+        {
+          target_cpa: null,
+          target_roas: 2.8,
+          break_even_cpa: null,
+          break_even_roas: 1.9,
+          contribution_margin_assumption: null,
+          aov_assumption: null,
+          new_customer_weight: null,
+          default_risk_posture: "balanced",
+          cost_cogs_percent: null,
+          cost_shipping_percent: null,
+          cost_fulfillment_percent: null,
+          cost_payment_processing_percent: null,
+          source_label: "seed",
+          updated_at: oldTargetAt,
+          updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+        },
+      ];
+      tableResponses.operatingConstraints = [
+        {
+          site_issue_status: "none",
+          checkout_issue_status: "none",
+          conversion_tracking_issue_status: "none",
+          feed_issue_status: "none",
+          stock_pressure_status: "healthy",
+          landing_page_concern: null,
+          merchandising_concern: null,
+          manual_do_not_scale_reason: null,
+          source_label: "seed",
+          updated_at: currentConstraintsAt,
+          updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+        },
+      ];
+
+      const snapshot =
+        await businessCommercial.getBusinessCommercialTruthSnapshot(
+          "11111111-1111-4111-8111-111111111111",
+        );
+      const targetRequirement = snapshot.coverage?.requiredInputs.find(
+        (input) => input.section === "targetPack",
+      );
+
+      expect(targetRequirement?.freshness.status).toBe("stale");
+      expect(snapshot.coverage).toMatchObject({
+        completeness: "complete",
+        freshness: { status: "fresh" },
+        blockingReasons: [],
+      });
+      expect(snapshot.coverage?.nonBlockingReasons.join(" ")).toContain(
+        "older than 30 days",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a future target confirmation timestamp in blocking provenance", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-15T00:00:00.000Z"));
+      tableResponses.targetPack = [
+        {
+          target_cpa: null,
+          target_roas: 2.8,
+          break_even_cpa: null,
+          break_even_roas: 1.9,
+          contribution_margin_assumption: null,
+          aov_assumption: null,
+          new_customer_weight: null,
+          default_risk_posture: "balanced",
+          cost_cogs_percent: null,
+          cost_shipping_percent: null,
+          cost_fulfillment_percent: null,
+          cost_payment_processing_percent: null,
+          source_label: "seed",
+          updated_at: new Date("2099-01-01T00:00:00.000Z"),
+          updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+        },
+      ];
+      tableResponses.operatingConstraints = [
+        {
+          site_issue_status: "none",
+          checkout_issue_status: "none",
+          conversion_tracking_issue_status: "none",
+          feed_issue_status: "none",
+          stock_pressure_status: "healthy",
+          landing_page_concern: null,
+          merchandising_concern: null,
+          manual_do_not_scale_reason: null,
+          source_label: "seed",
+          updated_at: new Date("2026-07-14T00:00:00.000Z"),
+          updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+        },
+      ];
+
+      const snapshot =
+        await businessCommercial.getBusinessCommercialTruthSnapshot(
+          "11111111-1111-4111-8111-111111111111",
+        );
+      const targetRequirement = snapshot.coverage?.requiredInputs.find(
+        (input) => input.section === "targetPack",
+      );
+
+      expect(targetRequirement).toMatchObject({
+        freshness: { status: "stale", ageHours: null },
+        actionCeiling: "review_hold",
+      });
+      expect(snapshot.coverage?.freshness.status).toBe("stale");
+      expect(snapshot.coverage?.blockingReasons.join(" ")).toContain(
+        "cutoff-unsafe",
+      );
+      expect(snapshot.coverage?.nonBlockingReasons.join(" ")).not.toContain(
+        "older than 30 days",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

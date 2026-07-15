@@ -60,6 +60,12 @@ interface CreativeDecisionOsV21Output {
   missingData: string[];
   queueEligible: false;
   applyEligible: false;
+  // Optional review metadata only. These fields must never affect the fields
+  // above, buyerAction, an authority blocker, or provider mutation eligibility.
+  commercialTargetAge?: {
+    status: "recent" | "review_due" | "unknown";
+    ageDays: number | null;
+  };
 }
 
 interface CreativeDecisionCenterRowDecision {
@@ -207,6 +213,9 @@ interface MetaDecisionClassificationProjection {
 When `decisionState === "blocked"`, `buyerAction` must be null,
 `resolution` must be non-null, and no provider mutation may be exposed. The UI
 must not recreate this projection from raw labels, reason text, or badge copy.
+When persisted `blocked_action_type` is non-null, the server projection must
+also be blocked and must label the held Scale/Cut/Refresh signal explicitly;
+the published soft compatibility label remains audit provenance only.
 
 ## Constraints
 

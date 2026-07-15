@@ -43,7 +43,9 @@ const ROAS_LOSS_TYPES = new Set<MetaRecommendation["type"]>([
 function blockerFor(targets: MetaCommercialTargets | null | undefined) {
   const normalized = normalizeMetaCommercialTargets(targets);
   if (normalized.source === "none") return "commercial_target_missing" as const;
-  if (normalized.freshness === "stale") return "commercial_target_stale" as const;
+  // A valid old timestamp is authoritative and never reaches this branch.
+  // If a target pack reaches this guard without hard-action authority, the
+  // provenance is missing or invalid rather than merely old.
   return "commercial_target_unknown" as const;
 }
 
@@ -83,9 +85,9 @@ export function enforceMetaCommercialActionAuthority(
     ...reviewOnly,
     decisionState: "watch",
     stateReason:
-      "Commercial action authority is blocked until a current business target is confirmed.",
+      "Commercial action authority is blocked until a valid action-specific business target is available.",
     recommendedAction:
-      "Review the evidence, confirm the current commercial target, and then re-evaluate. Do not change spend from this recommendation yet.",
+      "Review the evidence, complete the missing target provenance or action-specific anchor, and then re-evaluate. Do not change spend from this recommendation yet.",
     signalQuality: {
       ...(recommendation.signalQuality ?? {}),
       hard_action_authority: "blocked",

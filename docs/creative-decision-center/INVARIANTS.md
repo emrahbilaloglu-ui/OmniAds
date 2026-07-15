@@ -12,9 +12,13 @@ These rules are hard gates for V2.1.
   labels, badges, or metrics. It renders the server-produced resolution.
 - Persisted `diagnose` remains readable for historical compatibility; a
   presentation change must not rewrite old snapshots.
-- A campaign-context-held Scale, Cut, or Refresh signal must round-trip through
-  nullable snapshot `blocked_action_type`; consumers must not recover it by
-  parsing free-form reason text.
+- Any held Scale, Cut, or Refresh signal must round-trip through nullable
+  snapshot `blocked_action_type`; consumers must not recover it by parsing
+  free-form reason text.
+- A non-null `blocked_action_type` must serve as `decisionState: blocked`,
+  `buyerAction: null`, a server-produced resolution, and a held-action label.
+  It must never inherit an affirmative soft label such as `Continue Test` from
+  the published compatibility label, and it never grants provider authority.
 - Known `test_more`, `keep`, `refresh`, funnel, and out-of-scope states must not
   fall through to a generic "Cannot Assess" assessment.
 - Exact-ad candidate caps must run after server state/action classification and
@@ -36,22 +40,23 @@ These rules are hard gates for V2.1.
   caps confidence and serves the held action as review-only.
 - No hard cut for new launch unless maturity threshold is met or severe-loss rule is explicit.
 - No high-confidence scale when benchmark/target is missing.
-- A configured commercial target older than 30 days must remain visible but
-  must resolve as `commercial_truth_stale`, reduce confidence, and block
-  target-derived hard actions until reconfirmed.
-- Within a physical native-Ad account scope, a stale or unknown commercial
-  target may use a cutoff-safe account P75/P60 baseline for soft relative
-  ranking only when the stale target would collapse the account opportunity
-  set. This must not restore hard-action or provider-write authority, change
-  legacy Creative decisions, or replace fresh commercial truth.
+- A configured commercial target with cutoff-safe timestamp provenance does
+  not lose authority because of age. Crossing the 30-day review interval must
+  not change its target, confidence, Scale/Cut label, actionability, authority
+  blocker, or provider-write eligibility.
+- Target age may be displayed as advisory metadata only. Engine adapters,
+  read models, routes, and UI must not apply an age-based decision transform.
+- A valid configured target must never be silently replaced by account P75/P60
+  because of age. Pooled native calibration remains soft-only and may be used
+  only for a genuine missing/invalid authority path, never an elapsed-time
+  path.
 - A thin exact native-Ad optimization cell may borrow a same-account pooled
   purchase cell only for soft ranking, with at least 10 mature Ads and a finite
   P60. Pooled calibration can never authorize `scale`, `cut`, or `refresh`.
-- A configured commercial target with unknown update time is stale-equivalent;
-  unknown recency must never be interpreted as fresh commercial truth.
-- UI surfaces must consume server-provided commercial-target freshness and
-  authority. They must not recompute the 30-day boundary or restore a blocked
-  buyer action client-side.
+- A configured commercial target with an unknown/invalid update time remains
+  provenance-unsafe and must not be confused with an old but valid timestamp.
+- UI surfaces consume the server-produced decision and may render target age;
+  they must not compute a 30-day boundary or alter buyer action from it.
 - New decisions must persist the ordered authority trail:
   `pre_authority_label` (post-semantic, pre-authority), first
   `authority_blocker`, post-authority `raw_label`, then published `label`.
@@ -118,11 +123,11 @@ These rules are hard gates for V2.1.
 - Aggregate decisions must not attach to a random `creativeId`.
 - Same input/config/version must produce deterministic output.
 - No hard-coded thresholds scattered inside resolver.
-- Budget scale requires a fresh explicit target ROAS; break-even alone must not
-  be multiplied into a synthetic growth target. Economic cut requires a fresh
+- Budget scale requires a valid explicit target ROAS; break-even alone must not
+  be multiplied into a synthetic growth target. Economic cut requires a valid
   explicit break-even ROAS; target ROAS alone must not be multiplied into a
   synthetic loss boundary.
-- Account-relative curve grading must never cut an ad at or above fresh explicit
+- Account-relative curve grading must never cut an ad at or above valid explicit
   break-even. Break-even may narrow account P25; it must never widen the account
   cut zone toward break-even.
 - A campaign-kind classifier that failed its own locked segmentation gate must
@@ -164,12 +169,13 @@ These rules are hard gates for V2.1.
 - Optional Meta event metrics remain null when no source payload key was
   observed. Source absence must not be converted to a measured zero.
 - Creative/Ads `scale` and `cut` hard eligibility follow the same action-specific
-  ROAS anchors. A fresh target CPA may size evidence but cannot authorize either
+  ROAS anchors. A valid target CPA may size evidence but cannot authorize either
   ROAS action by itself.
 - A dated Structure snapshot must use the target version visible at its exact
   producer cutoff. A persisted spend-changing recommendation must be rechecked
-  against current commercial authority when served; stale, deleted, missing, or
-  objective-incompatible authority is review-only with no proposed mutation.
+  against current commercial validity when served; deleted, missing,
+  provenance-unsafe, or objective-incompatible authority is review-only with
+  no proposed mutation. Age alone cannot demote it.
 - A purchase target must not authorize CPL, cost-per-ATC, CPC, or engagement
   spend changes. Until goal-specific commercial anchors exist, those relative
   Structure candidates are review-only even when their cohort rank is strong.
@@ -267,8 +273,8 @@ These rules are hard gates for V2.1.
 | campaignStatus active -> paused     | `fix_delivery` disappears                                                              |
 | reviewStatus -> disapproved         | policy overrides performance                                                           |
 | launch age under threshold          | hard scale/cut becomes `watch_launch` / `test_more` unless maturity threshold is met   |
-| commercial target fresh -> stale    | target stays visible; confidence falls; target-derived hard actions become review-only |
-| commercial target timestamp missing | same authority reduction as stale, never fresh-by-default                              |
+| commercial target crosses 30-day review age | target, confidence, label, and authority remain unchanged; advisory metadata may change |
+| commercial target timestamp missing | provenance fails closed; this is distinct from a valid old timestamp                         |
 | only break-even ROAS becomes known  | portfolio comparison may improve; campaign budget scale stays blocked                  |
 | only target ROAS becomes known      | target-relative context appears; economic cut stays blocked without break-even          |
 | fresh break-even falls below account P25 | cut boundary narrows to break-even; known working-zone behavior below P25 is not widened |

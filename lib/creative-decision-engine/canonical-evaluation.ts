@@ -24,7 +24,7 @@ import type {
 } from "./types";
 
 export const CANONICAL_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-evaluation.v2" as const;
+  "engine-v3-canonical-evaluation.v3" as const;
 
 export type CanonicalJsonPrimitive = string | number | boolean | null;
 export type CanonicalJsonValue =

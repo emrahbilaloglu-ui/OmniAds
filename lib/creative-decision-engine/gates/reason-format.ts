@@ -9,7 +9,7 @@ export function comparisonLabel(truthSource: TruthSource): string {
     case "commercial_truth":
       return "commercial target";
     case "commercial_truth_stale":
-      return "stale commercial target";
+      return "commercial target with unavailable timestamp";
     case "account_baseline":
       return "account P75 baseline";
     case "account_baseline_thin":

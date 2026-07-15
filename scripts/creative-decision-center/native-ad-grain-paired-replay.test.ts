@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   assertNativeReplayCohortMatch,
+  buildReplayProfile,
   buildFunnelBaselines,
   isObservationCutoffSafe,
   outcomeWindowDates,
+  selectReplayTargetAtCutoff,
   selectCutoffSafeLifecycleObservation,
   selectForwardActionReceipts,
   summarizeActionExposure,
@@ -125,6 +127,118 @@ function lifecycle(
 }
 
 describe("native ad replay PIT context", () => {
+  it("keeps an old cutoff-safe target authoritative in the current engine replay", () => {
+    const profileInput = {
+      business: {
+        id: "business-a",
+        legacyId: "legacy-business-a",
+        name: "Business A",
+      },
+      asOfDate: "2026-07-15",
+      target: {
+        targetCpa: 100,
+        targetRoas: 2.4,
+        breakEvenCpa: 130,
+        breakEvenRoas: 1.6,
+        operatorAovAssumption: 240,
+        riskPosture: "balanced",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        effectiveAt: "2026-01-01T00:00:00.000Z",
+        recordedAt: "2026-01-01T00:00:00.000Z",
+        operation: "upsert",
+        source: "business_target_pack_history",
+      },
+      calibration: {
+        businessId: "business-a",
+        computedAt: "2026-07-15T03:00:00.000Z",
+        campaignKind: "all",
+        matureCreativeCount: 30,
+        roasP75: 3,
+        roasP60: 2.5,
+        refreshRatioP10: 0.5,
+        lowCtrP10: 0.01,
+        accountCpaP50: 100,
+        accountCpaSampleCount: 30,
+        metaAttributedAovMean90d: 240,
+        metaAttributedAovPurchaseCount90d: 100,
+        metaAttributedRevenue90d: 24_000,
+        matureSpendP50: 300,
+        matureSpendP75: 500,
+        winnerSpendP25: 250,
+        winnerSpendP50: 400,
+        winnerPurchaseP50: 5,
+        roasRatioP10: 0.4,
+        roasRatioP25: 0.6,
+        roasRatioP50: 1,
+        roasRatioP75: 1.4,
+        metaAovQuality: "ready",
+      },
+      profileConfig: null,
+      forceRawAuthority: false,
+    } satisfies Parameters<typeof buildReplayProfile>[0];
+    const profile = buildReplayProfile(profileInput);
+
+    expect(profile.quality).toMatchObject({
+      commercialTruthReady: true,
+      commercialTruthFreshness: "stale",
+    });
+    expect(profile.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+      refresh: true,
+    });
+
+    const deletedProfile = buildReplayProfile({
+      ...profileInput,
+      target: { ...profileInput.target, operation: "delete" },
+    });
+    expect(deletedProfile.quality.commercialTruthReady).toBe(false);
+    expect(deletedProfile.hardActionEligibility).toMatchObject({
+      scale: false,
+      cut: false,
+    });
+  });
+
+  it("treats the latest cutoff-safe target delete as no commercial authority", () => {
+    const upsert = {
+      targetCpa: 100,
+      targetRoas: 2.4,
+      breakEvenCpa: 130,
+      breakEvenRoas: 1.6,
+      operatorAovAssumption: 240,
+      riskPosture: "balanced" as const,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      effectiveAt: "2026-01-01T00:00:00.000Z",
+      recordedAt: "2026-01-01T00:00:00.000Z",
+      operation: "upsert" as const,
+      source: "business_target_pack_history" as const,
+    };
+    const deleted = {
+      ...upsert,
+      updatedAt: "2026-03-01T00:00:00.000Z",
+      effectiveAt: "2026-03-01T00:00:00.000Z",
+      recordedAt: "2026-03-01T00:00:00.000Z",
+      operation: "delete" as const,
+    };
+
+    expect(
+      selectReplayTargetAtCutoff([upsert, deleted], "2026-07-15"),
+    ).toBeNull();
+    expect(
+      selectReplayTargetAtCutoff(
+        [
+          upsert,
+          {
+            ...deleted,
+            effectiveAt: "2026-08-01T00:00:00.000Z",
+            recordedAt: "2026-08-01T00:00:00.000Z",
+          },
+        ],
+        "2026-07-15",
+      ),
+    ).toEqual(upsert);
+  });
+
   it("rejects lifecycle and daily observations first seen after the decision cutoff", () => {
     const selected = selectCutoffSafeLifecycleObservation(
       [

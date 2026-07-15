@@ -36,8 +36,9 @@ function recommendation(
 }
 
 describe("Meta commercial action authority", () => {
-  it("keeps stale loss evidence review-only and strips executable targets", () => {
-    const guarded = enforceMetaCommercialActionAuthority(recommendation(), {
+  it("preserves an old valid loss anchor and its executable target", () => {
+    const rec = recommendation();
+    const guarded = enforceMetaCommercialActionAuthority(rec, {
       source: "configured_targets",
       targetRoas: 2.2,
       breakEvenRoas: 1.5,
@@ -48,15 +49,7 @@ describe("Meta commercial action authority", () => {
       updatedAt: "2026-05-01T00:00:00.000Z",
     });
 
-    expect(guarded).toMatchObject({
-      decisionState: "watch",
-      signalQuality: {
-        hard_action_authority: "blocked",
-        hard_action_blocker: "commercial_target_stale",
-      },
-    });
-    expect(guarded.proposedAction).toBeUndefined();
-    expect(guarded.targetValue).toBeUndefined();
+    expect(guarded).toBe(rec);
   });
 
   it("preserves a commercial action when the configured target is fresh", () => {

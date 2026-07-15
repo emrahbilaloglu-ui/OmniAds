@@ -367,7 +367,102 @@ function hardScaleDecision(input: { creativeId: string }): DecisionOutput {
   };
 }
 
+function hardCutDecision(input: { creativeId: string }): DecisionOutput {
+  return {
+    creativeId: input.creativeId,
+    creativeName: "Shared creative",
+    label: "cut",
+    reason: "Mature target-relative loss.",
+    confidence: 80,
+    truthSource: "commercial_truth",
+    effectiveTargetRoas: 2,
+    ratioToTarget: 0.4,
+    badges: [],
+    metrics: { spend: 500, purchases: 4, roas: 0.8, recent7dRoas: 0.8 },
+    preAuthorityLabel: "cut",
+    authorityBlocker: null,
+    blockedActionType: null,
+    engineVersion: "legacy-resolver-epoch",
+    generatedAt: `${AS_OF}T03:00:00.000Z`,
+  };
+}
+
 describe("native ad decision computation", () => {
+  it("persists an engine-authorized cut when target age is the only advisory", () => {
+    const adId = "ad-old-target-cut";
+    const profile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      quality: {
+        commercialTruthReady: true,
+        commercialTruthFreshness: "stale",
+        calibrationReady: true,
+        metaAovQuality: "ready",
+        thresholdQuality: "ready",
+      },
+    });
+    const previousLabels = new Map([
+      [
+        `${BUSINESS_ID}\u0000${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${adId}\u0000account\u0000*`,
+        {
+          businessId: BUSINESS_ID,
+          providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+          providerAccountId: "act-1",
+          decisionEntityType: "ad" as const,
+          decisionEntityId: adId,
+          sourceSnapshotId: "snapshot-prior-cut",
+          sourceEvaluationId: "evaluation-prior-cut",
+          sourceEngineVersion: NATIVE_AD_ENGINE_VERSION,
+          sourceAsOfDate: "2026-07-11",
+          sourceComputedAt: "2026-07-11T03:15:00.000Z",
+          sourceInputHash: "a".repeat(64),
+          sourceDecisionHash: "b".repeat(64),
+          publishedLabel: "keep" as const,
+          rawLabel: "cut" as const,
+        },
+      ],
+    ]);
+    const [computation] = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: [adInput({ adId, campaignId: "campaign-a" })],
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels,
+      resolveDecision: (resolverInput) =>
+        hardCutDecision({ creativeId: resolverInput.creativeId }),
+    });
+    if (!computation) throw new Error("Expected native Ad computation.");
+
+    const payload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000741",
+      scope: profile.scope,
+      computation,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000742",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "1".repeat(64),
+        decisionHash: "2".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:10:00.000Z`,
+    });
+
+    expect(payload).toMatchObject({
+      label: "cut",
+      raw_label: "cut",
+      pre_authority_label: "cut",
+      authority_blocker: null,
+      blocked_action_type: null,
+      authorized_action: "cut",
+    });
+  });
+
   it("keeps a present-day dimension-only ad when profile context is incomplete", async () => {
     const groups = await resolveNativeAdDecisionProfileGroups({
       businessId: BUSINESS_ID,

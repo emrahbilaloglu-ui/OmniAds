@@ -13,10 +13,10 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-14-decision-health-provenance";
+export const ENGINE_VERSION = "v3-2026-07-15-target-age-advisory";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-07-14-decision-health-provenance-shadow";
+  "v3-ad-2026-07-15-target-age-advisory-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -90,7 +90,8 @@ export interface SpendUnitEvidence {
   accountCpaSampleCount: number;
   warnings: string[];
   /** Confidence produced by spend-unit evidence before commercial-target
-   * freshness caps it. Used to avoid charging the same stale cause twice. */
+   * provenance validation. Used to avoid charging an unavailable timestamp
+   * more than once. Target age itself never caps confidence. */
   confidenceBeforeFreshness?: SpendUnitConfidence;
 }
 
@@ -610,7 +611,7 @@ export const DECISION_BADGE_DISPLAY: Record<
     severity: "warning",
   },
   truth_commercial_stale: {
-    label: "Target stale - reduced authority",
+    label: "Target timestamp unavailable - reduced authority",
     severity: "warning",
   },
   truth_global_default: {

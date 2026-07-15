@@ -370,7 +370,7 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     expect(dataSource.calibrationCalls).toHaveLength(1);
   });
 
-  it("uses a pooled account cell for relative soft ranking when stale exact context is thin", async () => {
+  it("does not let target age select a pooled account cell", async () => {
     const cells = computeNativeAdCalibrationBatch({
       businessId: BUSINESS_ID,
       providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
@@ -397,11 +397,31 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
 
     expect(result).toMatchObject({
       status: "ready",
-      calibrationSource: "account_objective_cohort",
+      calibrationSource: "objective_cohort_context",
       hardActionEligibility: { scale: false, cut: false, refresh: false },
     });
-    expect(result.selectedCell?.matureAdCount).toBe(20);
-    expect(dataSource.calibrationCalls).toHaveLength(2);
+    expect(result.selectedCell?.matureAdCount).toBe(5);
+    expect(dataSource.calibrationCalls).toHaveLength(1);
+  });
+
+  it("keeps an old valid target authoritative in a mature exact cell", async () => {
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildCells(30, {}, STALE_TARGET),
+      STALE_TARGET,
+    );
+
+    const result = await resolveWith(dataSource);
+
+    expect(result).toMatchObject({
+      status: "ready",
+      reason: null,
+      calibrationSource: "objective_cohort_context",
+      hardActionEligibility: { scale: true, cut: true, refresh: true },
+    });
+    expect(result.profile?.quality).toMatchObject({
+      commercialTruthReady: true,
+      commercialTruthFreshness: "stale",
+    });
   });
 
   it("intersects retained authority with the exact cell per action instead of collapsing the whole profile", async () => {

@@ -173,7 +173,7 @@ describe("resolveAccountDecisionProfile", () => {
     expect(profile.hardActionEligibility.scale).toBe(true);
   });
 
-  it("keeps stale target math inspectable but blocks hard-action eligibility", async () => {
+  it("keeps an old but timestamp-trusted target fully eligible", async () => {
     const profile = await resolveAccountDecisionProfile({
       businessId: "00000000-0000-4000-8000-000000000501",
       asOf: "2026-05-04",
@@ -191,19 +191,19 @@ describe("resolveAccountDecisionProfile", () => {
     });
 
     expect(profile.spendUnit).toBe(100);
-    expect(profile.spendUnitConfidence).toBe("low");
+    expect(profile.spendUnitConfidence).toBe("high");
     expect(profile.spendUnitEvidence.warnings).toContain(
       "commercial_target_stale",
     );
     expect(profile.hardActionEligibility).toMatchObject({
-      scale: false,
-      cut: false,
-      refresh: false,
+      scale: true,
+      cut: true,
+      refresh: true,
     });
     expect(profile.quality).toMatchObject({
-      commercialTruthReady: false,
+      commercialTruthReady: true,
       commercialTruthFreshness: "stale",
-      thresholdQuality: "degraded",
+      thresholdQuality: "ready",
     });
   });
 
@@ -228,8 +228,8 @@ describe("resolveAccountDecisionProfile", () => {
       cut: false,
       refresh: true,
       reasons: {
-        scale: "fresh explicit target ROAS is required for scale authority",
-        cut: "fresh explicit break-even ROAS is required for cut authority",
+        scale: "valid explicit target ROAS is required for scale authority",
+        cut: "valid explicit break-even ROAS is required for cut authority",
       },
     });
     expect(profile.quality.commercialTruthReady).toBe(false);
@@ -256,7 +256,7 @@ describe("resolveAccountDecisionProfile", () => {
       refresh: true,
     });
     expect(profile.hardActionEligibility.reasons?.cut).toBe(
-      "fresh explicit break-even ROAS is required for cut authority",
+      "valid explicit break-even ROAS is required for cut authority",
     );
   });
 
@@ -281,7 +281,7 @@ describe("resolveAccountDecisionProfile", () => {
       refresh: true,
     });
     expect(profile.hardActionEligibility.reasons?.scale).toBe(
-      "fresh explicit target ROAS is required for scale authority",
+      "valid explicit target ROAS is required for scale authority",
     );
   });
 

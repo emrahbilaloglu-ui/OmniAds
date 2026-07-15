@@ -78,6 +78,19 @@ export type NativeAdCalibrationQualityStatus =
 export type NativeAdTargetAuthorityStatus =
   "fresh" | "stale" | "missing" | "cutoff_unsafe";
 
+const NATIVE_AD_TARGET_AUTHORITY_CUTOFF_SAFE_BY_STATUS = {
+  fresh: true,
+  stale: true,
+  missing: false,
+  cutoff_unsafe: false,
+} as const satisfies Record<NativeAdTargetAuthorityStatus, boolean>;
+
+export function isNativeAdTargetAuthorityCutoffSafe(
+  status: NativeAdTargetAuthorityStatus,
+): boolean {
+  return NATIVE_AD_TARGET_AUTHORITY_CUTOFF_SAFE_BY_STATUS[status];
+}
+
 export interface NativeAdTargetAuthorityInput {
   sourceRowId: string | null;
   operation: "upsert" | "delete";
@@ -1283,6 +1296,13 @@ export function resolveNativeAdTargetAuthority(
     status = ageHours > 24 * 30 ? "stale" : "fresh";
   }
 
+  const cutoffSafeStatus = isNativeAdTargetAuthorityCutoffSafe(status);
+  if (cutoffSafeStatus !== cutoffSafe) {
+    throw new Error(
+      `Native ad target authority status invariant failed for ${status}.`,
+    );
+  }
+
   const targetRoas = normalized?.targetRoas ?? null;
   const breakEvenRoas = normalized?.breakEvenRoas ?? null;
   const authorityHash = canonicalSha256({
@@ -1304,8 +1324,9 @@ export function resolveNativeAdTargetAuthority(
     recordedAt: normalized?.recordedAt ?? null,
     // Age is audit provenance, not economic authority. A cutoff-safe upsert
     // remains authoritative until a later semantic upsert or delete replaces it.
-    targetRoasAuthority: cutoffSafe && positiveFinite(targetRoas),
-    breakEvenRoasAuthority: cutoffSafe && positiveFinite(breakEvenRoas),
+    targetRoasAuthority: cutoffSafeStatus && positiveFinite(targetRoas),
+    breakEvenRoasAuthority:
+      cutoffSafeStatus && positiveFinite(breakEvenRoas),
     authorityHash,
   };
 }

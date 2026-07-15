@@ -9,6 +9,7 @@ import {
   NATIVE_AD_CALIBRATION_TABLE,
   NATIVE_AD_CALIBRATION_BATCH_TABLE,
   inspectNativeAdCalibrationSchemaCapability,
+  isNativeAdTargetAuthorityCutoffSafe,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   type NativeAdCalibrationCell,
   type NativeAdCalibrationMetricSampleCounts,
@@ -231,6 +232,8 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
   const targetStatus = nativeTargetStatus(row.target_authority_status);
   const targetRoas = optionalNumber(row.target_roas);
   const breakEvenRoas = optionalNumber(row.break_even_roas);
+  const cutoffSafeTargetAuthority =
+    isNativeAdTargetAuthorityCutoffSafe(targetStatus);
   const matureAdCount = requiredInteger(row.mature_ad_count, "mature_ad_count");
   const batchCompleteness = nativeBatchCompleteness(row.batch_completeness);
   if (batchCompleteness !== "complete") {
@@ -308,9 +311,10 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
       defaultRiskPosture: null,
       effectiveAt: optionalTimestamp(row.target_effective_at),
       recordedAt: optionalTimestamp(row.target_recorded_at),
-      targetRoasAuthority: targetStatus === "fresh" && positive(targetRoas),
+      targetRoasAuthority:
+        cutoffSafeTargetAuthority && positive(targetRoas),
       breakEvenRoasAuthority:
-        targetStatus === "fresh" && positive(breakEvenRoas),
+        cutoffSafeTargetAuthority && positive(breakEvenRoas),
       authorityHash: requiredHash(
         row.target_authority_hash,
         "target_authority_hash",

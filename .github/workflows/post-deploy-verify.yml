@@ -127,6 +127,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-verify-${{ steps.expected.outputs.sha }}
-          path: .artifacts
+          path: .artifacts/post-deploy-release-authority.json
           if-no-files-found: error
           include-hidden-files: true

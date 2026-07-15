@@ -951,13 +951,13 @@
   {
     "caseId": "GC-078",
     "inputSummary": "scale-ready winner uses a positive commercial target last confirmed more than 30 days ago",
-    "expectedPrimaryDecision": "Keep",
-    "expectedBuyerAction": "review",
+    "expectedPrimaryDecision": "Scale",
+    "expectedBuyerAction": "scale",
     "expectedActionability": "review_only",
-    "expectedProblemClass": "data_quality",
+    "expectedProblemClass": "performance",
     "expectedPriorityBand": "high",
-    "expectedConfidenceBand": "medium",
-    "expectedTopReasonTag": "commercial_truth_stale_scale_block",
+    "expectedConfidenceBand": "high",
+    "expectedTopReasonTag": "target_age_does_not_change_authority",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
   },
@@ -997,6 +997,19 @@
     "expectedPriorityBand": "medium",
     "expectedConfidenceBand": "medium",
     "expectedTopReasonTag": "no_cut_zone_expansion",
+    "expectedMaturity": "mature",
+    "expectedSafeFallbackIfDataMissing": "diagnose_data"
+  },
+  {
+    "caseId": "GC-082",
+    "inputSummary": "old valid target with a mature clear-loss profile remains a hard cut",
+    "expectedPrimaryDecision": "Cut",
+    "expectedBuyerAction": "cut",
+    "expectedActionability": "review_only",
+    "expectedProblemClass": "performance",
+    "expectedPriorityBand": "high",
+    "expectedConfidenceBand": "high",
+    "expectedTopReasonTag": "old_target_clear_loss_cut",
     "expectedMaturity": "mature",
     "expectedSafeFallbackIfDataMissing": "diagnose_data"
   }

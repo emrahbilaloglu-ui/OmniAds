@@ -24,7 +24,7 @@ function truthBadge(
     case "commercial_truth_stale":
       return {
         type: "truth_commercial_stale",
-        label: "Target stale - reduced authority",
+        label: "Target timestamp unavailable - reduced authority",
         severity: "warning",
       };
     case "global_default":
@@ -36,7 +36,7 @@ function truthBadge(
   }
 }
 
-function staleRelativeBaseline(
+function untrustedRelativeBaseline(
   profile: GateContext["profile"],
   staleTargetRoas: number,
 ): {
@@ -70,22 +70,26 @@ export function targetResolutionGate(ctx: GateContext): GateResult {
   let confidenceDelta: number | null = null;
 
   if (isFinitePositive(ctx.input.targetRoas)) {
-    const relativeBaseline = staleRelativeBaseline(
-      ctx.profile,
-      ctx.input.targetRoas,
-    );
-    if (ctx.input.commercialTargetFreshness === "fresh") {
+    if (ctx.input.commercialTargetFreshness !== "unknown") {
       effectiveTargetRoas = ctx.input.targetRoas;
       truthSource = "commercial_truth";
-    } else if (relativeBaseline !== null) {
-      effectiveTargetRoas = relativeBaseline.target;
-      truthSource = relativeBaseline.truthSource;
-      badges = [truthBadge("commercial_truth_stale"), truthBadge(truthSource)];
-      confidenceDelta = -15;
     } else {
-      effectiveTargetRoas = ctx.input.targetRoas;
-      truthSource = "commercial_truth_stale";
-      badges = [truthBadge(truthSource)];
+      const relativeBaseline = untrustedRelativeBaseline(
+        ctx.profile,
+        ctx.input.targetRoas,
+      );
+      if (relativeBaseline !== null) {
+        effectiveTargetRoas = relativeBaseline.target;
+        truthSource = relativeBaseline.truthSource;
+        badges = [
+          truthBadge("commercial_truth_stale"),
+          truthBadge(truthSource),
+        ];
+      } else {
+        effectiveTargetRoas = ctx.input.targetRoas;
+        truthSource = "commercial_truth_stale";
+        badges = [truthBadge(truthSource)];
+      }
       confidenceDelta = -15;
     }
   } else if (

@@ -39,7 +39,7 @@ export const AD_OPERATOR_RESPONSE_JOB_NAME =
  * database migrated by this image remains readable by that rollback image.
  */
 export const NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION =
-  "v3-ad-2026-07-12-d047-authority-v2-shadow";
+  "v3-ad-2026-07-14-decision-health-provenance-shadow";
 
 export const AD_RECOMMENDATION_EPISODES_TABLE =
   "engine_v3_ad_recommendation_episodes";

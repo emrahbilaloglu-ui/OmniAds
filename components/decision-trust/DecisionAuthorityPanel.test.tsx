@@ -38,4 +38,57 @@ describe("DecisionAuthorityPanel", () => {
     expect(html).toContain("Blocking Reasons");
     expect(html).toContain("target_pack");
   });
+
+  it("does not present target age as a blocking truth gap", () => {
+    const summary = createEmptyBusinessCommercialCoverageSummary();
+    const reviewReason =
+      "Target pack thresholds are older than 30 days and should be reviewed.";
+    summary.completeness = "complete";
+    summary.freshness = {
+      status: "fresh",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      ageHours: 24,
+      reason: null,
+    };
+    summary.blockingReasons = [];
+    summary.nonBlockingReasons = [reviewReason];
+    summary.actionCeilings = [];
+    summary.requiredInputs = summary.requiredInputs.map((input) => {
+      if (input.section === "targetPack") {
+        return {
+          ...input,
+          freshness: {
+            status: "stale" as const,
+            updatedAt: "2026-05-01T00:00:00.000Z",
+            ageHours: 1_800,
+            reason: reviewReason,
+          },
+          reason: reviewReason,
+          actionCeiling: null,
+        };
+      }
+      if (input.section === "operatingConstraints") {
+        return {
+          ...input,
+          freshness: {
+            status: "fresh" as const,
+            updatedAt: "2026-07-14T00:00:00.000Z",
+            ageHours: 24,
+            reason: null,
+          },
+          reason: "Operating constraints are configured.",
+          actionCeiling: null,
+        };
+      }
+      return input;
+    });
+
+    const html = renderToStaticMarkup(
+      <DecisionAuthorityPanel commercialSummary={summary} />,
+    );
+
+    expect(html).not.toContain("Blocking Truth Gaps");
+    expect(html).not.toContain("Blocking Reasons");
+    expect(html).toContain("target pack: stale");
+  });
 });

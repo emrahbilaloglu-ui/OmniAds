@@ -1,5 +1,6 @@
 import type {
   MetaDecisionBuyerAction,
+  MetaDecisionAuthorityBlocker,
   MetaDecisionLifecycleRole,
   MetaDecisionResolution,
   MetaDecisionServedBuyerAction,
@@ -14,8 +15,6 @@ export interface MetaDecisionSemanticProjection {
 }
 
 const FRESHNESS_AUTHORITY_BLOCKERS = new Set([
-  "commercial_truth_stale",
-  "truth_commercial_stale",
   "stale_evidence",
   "unknown_freshness",
   "missing_recent_data",
@@ -25,6 +24,66 @@ function isPerformanceAction(
   value: MetaDecisionBuyerAction,
 ): value is "scale" | "cut" | "refresh" {
   return value === "scale" || value === "cut" || value === "refresh";
+}
+
+function resolutionForAuthorityBlocker(
+  authorityBlocker: MetaDecisionAuthorityBlocker,
+  codes: ReadonlySet<string>,
+): MetaDecisionResolution {
+  if (authorityBlocker === "profile_hard_action_ineligible") {
+    if (
+      codes.has("commercial_truth_stale") ||
+      codes.has("truth_commercial_stale")
+    ) {
+      return {
+        code: "confirm_commercial_target",
+        category: "commercial_truth",
+        owner: "operator",
+        label: "Confirm Commercial Target",
+        nextStep:
+          "Confirm the missing or invalid target timestamp and action-specific commercial anchor before restoring the held verdict's authority.",
+      };
+    }
+    return {
+      code: "complete_hard_action_evidence",
+      category: "system",
+      owner: "system",
+      label: "Complete Hard-Action Evidence",
+      nextStep:
+        "Complete the action-specific target, threshold, or exact-cell calibration evidence reported missing by the engine. The held verdict remains visible, but no provider action is authorized.",
+    };
+  }
+  if (
+    authorityBlocker === "source_freshness" ||
+    authorityBlocker === "native_metrics_unavailable"
+  ) {
+    return {
+      code: "refresh_decision_data",
+      category: "data",
+      owner: "integration",
+      label: "Refresh Decision Data",
+      nextStep:
+        "Restore a fresh, complete evidence window before applying the held performance verdict.",
+    };
+  }
+  if (authorityBlocker === "campaign_context") {
+    return {
+      code: "resolve_campaign_role",
+      category: "campaign_context",
+      owner: "system",
+      label: "Automatic Classification Pending",
+      nextStep:
+        "The automatic resolver will keep evaluating this campaign. No label is required; save an explicit correction only when the provisional role is wrong.",
+    };
+  }
+  return {
+    code: "restore_native_profile",
+    category: "system",
+    owner: "system",
+    label: "Restore Native Decision Profile",
+    nextStep:
+      "Restore the authoritative native decision profile before applying the held performance verdict.",
+  };
 }
 
 function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
@@ -81,7 +140,8 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
     codes.has("campaign_context_unresolved") ||
     codes.has("campaign_context_low_confidence") ||
     codes.has("campaign_label_missing") ||
-    codes.has("unlabeled_campaign_context")
+    codes.has("unlabeled_campaign_context") ||
+    codes.has("campaign_context")
   ) {
     return {
       code: "resolve_campaign_role",
@@ -109,7 +169,9 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
     codes.has("unknown_freshness") ||
     codes.has("missing_recent_data") ||
     codes.has("freshness") ||
-    codes.has("data_health")
+    codes.has("data_health") ||
+    codes.has("source_freshness") ||
+    codes.has("native_metrics_unavailable")
   ) {
     return {
       code: "refresh_decision_data",
@@ -117,6 +179,36 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
       owner: "integration",
       label: "Refresh Decision Data",
       nextStep: "Restore a fresh, complete evidence window before applying a performance action.",
+    };
+  }
+  if (codes.has("pending_transition")) {
+    return {
+      code: "await_decision_confirmation",
+      category: "system",
+      owner: "system",
+      label: "Hard Action Pending Confirmation",
+      nextStep:
+        "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
+    };
+  }
+  if (codes.has("profile_hard_action_ineligible")) {
+    return {
+      code: "complete_hard_action_evidence",
+      category: "system",
+      owner: "system",
+      label: "Complete Hard-Action Evidence",
+      nextStep:
+        "Complete the action-specific target, threshold, or exact-cell calibration evidence reported missing by the engine. The held verdict remains visible, but no provider action is authorized.",
+    };
+  }
+  if (codes.has("native_profile_unavailable")) {
+    return {
+      code: "restore_native_profile",
+      category: "system",
+      owner: "system",
+      label: "Restore Native Decision Profile",
+      nextStep:
+        "Restore the authoritative native decision profile before applying the held performance verdict.",
     };
   }
   return {
@@ -134,7 +226,25 @@ export function projectMetaDecisionSemantics(input: {
   lifecycleRole: MetaDecisionLifecycleRole;
   badgeCodes: readonly string[];
   blockerCodes?: readonly string[];
+  heldAction?: "scale" | "cut" | "refresh" | null;
+  authorityBlocker?: MetaDecisionAuthorityBlocker | null;
 }): MetaDecisionSemanticProjection {
+  const evidenceCodes = new Set([
+    ...input.badgeCodes,
+    ...(input.blockerCodes ?? []),
+  ]);
+
+  if (input.heldAction) {
+    return {
+      decisionState: "blocked",
+      legacyBuyerAction: input.legacyBuyerAction,
+      buyerAction: null,
+      resolution: input.authorityBlocker
+        ? resolutionForAuthorityBlocker(input.authorityBlocker, evidenceCodes)
+        : resolutionFor(evidenceCodes),
+    };
+  }
+
   if (input.sourceLabel === "out_of_scope") {
     return {
       decisionState: "not_applicable",
@@ -143,11 +253,6 @@ export function projectMetaDecisionSemantics(input: {
       resolution: null,
     };
   }
-
-  const evidenceCodes = new Set([
-    ...input.badgeCodes,
-    ...(input.blockerCodes ?? []),
-  ]);
 
   if (input.legacyBuyerAction === "diagnose_data") {
     return {

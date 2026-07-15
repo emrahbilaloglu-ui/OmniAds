@@ -862,7 +862,7 @@ describe("meta snapshot job", () => {
     expect(result?.recommendations[0]?.confidenceReason).not.toBe("unlabeled_campaign_soft_only");
   });
 
-  it("revokes persisted spend authority when the current commercial target is stale", async () => {
+  it("preserves persisted spend authority when the current commercial target is old but valid", async () => {
     const sql = makeSqlMock([
       {
         scope_type: "campaign",
@@ -921,15 +921,11 @@ describe("meta snapshot job", () => {
 
     expect(result?.recommendations[0]).toMatchObject({
       type: "scale_for_volume",
-      decisionState: "watch",
-      signalQuality: {
-        hard_action_authority: "blocked",
-        hard_action_blocker: "commercial_target_stale",
-        commercial_target_freshness: "stale",
-      },
+      decisionState: "act",
     });
-    expect(result?.recommendations[0]?.proposedAction).toBeUndefined();
-    expect(result?.recommendations[0]?.targetValue).toBeUndefined();
+    expect(
+      result?.recommendations[0]?.signalQuality?.hard_action_blocker,
+    ).toBeUndefined();
   });
 
   it("marks previously active anomalies resolved when absent on rerun", async () => {

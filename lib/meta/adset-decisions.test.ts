@@ -413,7 +413,7 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
     expect(recs.some((rec) => rec.type === "adset_cut_spend")).toBe(false);
   });
 
-  it("keeps a stale break-even loss candidate visible but review-only", () => {
+  it("keeps an old valid break-even loss candidate actionable", () => {
     const recs = buildMetaAdsetRecommendations({
       adsets: [
         adset({
@@ -434,16 +434,13 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
 
     const cut = recs.find((rec) => rec.type === "adset_cut_spend");
     expect(cut).toMatchObject({
-      decisionState: "watch",
-      signalQuality: {
-        hard_action_authority: "blocked",
-        hard_action_blocker: "commercial_target_stale",
-      },
+      decisionState: "act",
       automationReadiness: {
         autoExecuteEligible: false,
-        tier: "read_only",
+        tier: "backtest_candidate",
       },
     });
+    expect(cut?.signalQuality?.hard_action_blocker).toBeUndefined();
   });
 
   it("blocks hard purchase adset actions when signal diagnostics show click-to-LPV tracking risk", () => {

@@ -77,10 +77,11 @@ These cases must become executable fixtures before resolver behavior changes. Do
 | GC-070  | cut-zone creative has recent 7d ROAS above target but recent spend below the recovery sample threshold                 | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_spend_boundary            | mature           | diagnose_data                     |
 | GC-071  | cut-zone creative has enough recent spend but recent 7d ROAS equals target exactly                                     | Cut                     | cut                 | review_only           | performance          | high                 | medium                 | recovery_hold_strict_roas_boundary      | mature           | diagnose_data                     |
 | GC-077  | scale-ready winner uses a positive commercial target confirmed within the 30-day freshness window                      | Scale                   | scale               | review_only           | performance          | high                 | high                   | fresh_commercial_truth_unchanged        | mature           | diagnose_data                     |
-| GC-078  | scale-ready winner uses a positive commercial target last confirmed more than 30 days ago                              | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_stale_scale_block      | mature           | diagnose_data                     |
+| GC-078  | scale-ready winner uses a positive commercial target last confirmed more than 30 days ago                              | Scale                   | scale               | review_only           | performance          | high                 | high                   | target_age_does_not_change_authority     | mature           | diagnose_data                     |
 | GC-079  | scale-ready winner uses a positive commercial target whose update time is unknown                                      | Keep                    | review              | review_only           | data_quality         | high                 | medium                 | commercial_truth_unknown_scale_block    | mature           | diagnose_data                     |
 | GC-080  | mature ad is above fresh break-even but below an unusually high account P25                                            | Keep                    | review              | review_only           | performance          | medium               | medium                 | breakeven_cut_ceiling                   | mature           | diagnose_data                     |
 | GC-081  | mature ad is between account P25 and fresh break-even when P25 is the lower boundary                                   | Keep                    | review              | review_only           | performance          | medium               | medium                 | no_cut_zone_expansion                   | mature           | diagnose_data                     |
+| GC-082  | old valid target with a mature clear-loss profile remains a hard cut                                                   | Cut                     | cut                 | review_only           | performance          | high                 | high                   | old_target_clear_loss_cut               | mature           | diagnose_data                     |
 
 ## Case Notes
 
@@ -197,13 +198,16 @@ These cases must become executable fixtures before resolver behavior changes. Do
   not a `decideCreative` fixture.
 - GC-077 proves a recently confirmed commercial target preserves the existing
   hard scale behavior without a confidence penalty.
-- GC-078 proves a target older than 30 days remains visible in target-relative
-  math but blocks hard scale and carries reduced authority.
-- GC-079 proves an unknown target update time is stale-equivalent and never
-  restores hard scale authority by default.
+- GC-078 proves a cutoff-safe target older than 30 days produces the same hard
+  Scale decision and confidence as the same recently persisted target.
+- GC-079 proves an unknown target update time remains provenance-unsafe; this
+  is distinct from a known timestamp that merely crossed the review interval.
 - GC-080 proves fresh break-even narrows an economically unsafe account P25
   boundary and prevents an above-break-even cut.
 - GC-081 proves break-even never widens a calibrated account P25 cut zone.
+- GC-082 proves an old valid target cannot suppress a mature clear-loss Cut
+  when the existing target-relative loss and maturity gates pass. Its fixture
+  values are regression evidence, not production thresholds.
 - P1b kind-segmented calibration was data-only. P1c consumes those
   baselines only through a strict profile selector: sufficient labeled kind
   data may change decisions; sparse, mixed-empty, or unlabeled rows must match
@@ -317,5 +321,5 @@ fixtures:
 | AR-001 | Fresh target CPA, no target/break-even ROAS | `scale=false`, `cut=false`; refresh may remain eligible | `account-decision-profile.test.ts` |
 | AR-002 | Fresh target ROAS, missing break-even ROAS | scale may pass; cut is blocked | `account-decision-profile.test.ts` |
 | AR-003 | Fresh break-even ROAS, missing target ROAS | cut may pass; scale is blocked | `account-decision-profile.test.ts` |
-| AR-004 | Persisted spend action, current target stale | serve `watch`, strip proposed mutation | `snapshot.test.ts` |
+| AR-004 | Persisted spend action, same valid target now older than review interval | preserve the action; age may add advisory metadata only | `snapshot.test.ts`, `commercial-action-authority.test.ts` |
 | AR-005 | Completed raw generation starts at global page 38 | next index is 39; page one is not fetched | `raw-snapshot-generation.test.ts`, `meta.test.ts` |

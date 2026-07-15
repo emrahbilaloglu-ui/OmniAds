@@ -138,6 +138,7 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-079",
   "GC-080",
   "GC-081",
+  "GC-082",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -720,12 +721,22 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         baseProfile,
       );
     case "GC-078":
-    case "GC-079": {
-      const commercialTruthFreshness =
-        caseId === "GC-078" ? "stale" : "unknown";
+      return decideCreative(
+        scaleReadyInput({ commercialTargetFreshness: "stale" }),
+        makeAccountDecisionProfile({
+          quality: {
+            commercialTruthReady: true,
+            commercialTruthFreshness: "stale",
+            calibrationReady: true,
+            metaAovQuality: "ready",
+            thresholdQuality: "ready",
+          },
+        }),
+      );
+    case "GC-079":
       return decideCreative(
         scaleReadyInput({
-          commercialTargetFreshness: commercialTruthFreshness,
+          commercialTargetFreshness: "unknown",
         }),
         makeAccountDecisionProfile({
           hardActionEligibility: {
@@ -736,14 +747,13 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
           },
           quality: {
             commercialTruthReady: false,
-            commercialTruthFreshness,
+            commercialTruthFreshness: "unknown",
             calibrationReady: true,
             metaAovQuality: "ready",
             thresholdQuality: "ready",
           },
         }),
       );
-    }
     case "GC-080": {
       const profile = makeAccountDecisionProfile({
         thresholds: { bottomQuartileRatio: 0.9 },
@@ -786,6 +796,39 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
             ...profile.spendUnitEvidence,
             targetRoas: 2,
             breakEvenRoas: 1.56,
+          },
+        },
+      );
+    }
+    case "GC-082": {
+      const profile = makeAccountDecisionProfile();
+      return decideCreative(
+        makeCreativeInput({
+          spend: 500,
+          purchases: 4,
+          purchaseValue: 400,
+          roas: 0.8,
+          cpa: 125,
+          recent7dSpend: 120,
+          recent7dRoas: 0.8,
+          targetRoas: 2,
+          breakevenRoas: 1.5,
+          commercialTargetFreshness: "stale",
+          linkClicks: 200,
+          landingPageViews: 180,
+          addToCart: 40,
+          initiateCheckout: 16,
+        }),
+        {
+          ...profile,
+          quality: {
+            ...profile.quality,
+            commercialTruthFreshness: "stale",
+          },
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.5,
           },
         },
       );
@@ -847,7 +890,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(77);
+    expect(fixtureCases).toHaveLength(78);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -916,6 +959,7 @@ describe("Creative Decision Center golden cases", () => {
       "GC-079",
       "GC-080",
       "GC-081",
+      "GC-082",
     ]);
 
     expect(pendingCases).toHaveLength(37);
@@ -1060,20 +1104,34 @@ describe("Creative Decision Center golden cases", () => {
       freshCommercialTruth.badges.map((badge) => badge.type),
     ).not.toContain("truth_commercial_stale");
 
-    for (const caseId of ["GC-078", "GC-079"]) {
-      const reducedAuthority = decideGoldenPrimary(caseId);
-      expect(reducedAuthority.label).toBe("keep");
-      expect(reducedAuthority.truthSource).toBe("commercial_truth_stale");
-      expect(reducedAuthority.confidence).toBeLessThan(
-        freshCommercialTruth.confidence,
-      );
-      expect(reducedAuthority.badges.map((badge) => badge.type)).toEqual(
-        expect.arrayContaining([
-          "truth_commercial_stale",
-          "scale_readiness_blocked",
-        ]),
-      );
-    }
+    const oldCommercialTruth = decideGoldenPrimary("GC-078");
+    expect(oldCommercialTruth.label).toBe("scale");
+    expect(oldCommercialTruth.truthSource).toBe("commercial_truth");
+    expect(oldCommercialTruth.confidence).toBe(freshCommercialTruth.confidence);
+    expect(oldCommercialTruth.badges.map((badge) => badge.type)).not.toContain(
+      "scale_readiness_blocked",
+    );
+
+    const unknownCommercialTruth = decideGoldenPrimary("GC-079");
+    expect(unknownCommercialTruth.label).toBe("keep");
+    expect(unknownCommercialTruth.truthSource).toBe("commercial_truth_stale");
+    expect(unknownCommercialTruth.confidence).toBeLessThan(
+      freshCommercialTruth.confidence,
+    );
+    expect(unknownCommercialTruth.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "truth_commercial_stale",
+        "scale_readiness_blocked",
+      ]),
+    );
+
+    expect(decideGoldenPrimary("GC-082")).toMatchObject({
+      label: "cut",
+      preAuthorityLabel: "cut",
+      authorityBlocker: null,
+      blockedActionType: null,
+      truthSource: "commercial_truth",
+    });
   });
 
   it("keeps canonical fallback cases equal to canonical all-account behavior", () => {

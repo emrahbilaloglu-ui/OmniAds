@@ -266,7 +266,8 @@ export function qualifyCurrentWinner(
       candidate: true,
       qualified: false,
       reason: "stale_commercial_truth",
-      explanation: "Winner language is withheld because the commercial target is stale.",
+      explanation:
+        "Winner language is withheld because the commercial target timestamp is unavailable.",
     };
   }
   if (card.truthSource !== "commercial_truth" && card.truthSource !== "account_baseline") {

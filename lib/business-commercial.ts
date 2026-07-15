@@ -892,25 +892,37 @@ function buildRequiredInputs(input: {
 
   return BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS.map((section) => {
     if (section === "targetPack") {
+      const freshness =
+        input.sectionMeta.targetPack.freshness ??
+        buildFreshnessMeta({
+          configured: false,
+          updatedAt: null,
+          staleAfterHours: SECTION_META_RULES.targetPack.staleAfterHours,
+          missingReason: SECTION_META_RULES.targetPack.missingReason,
+          staleReason: SECTION_META_RULES.targetPack.staleReason,
+        });
+      const ageOnlyReviewDue =
+        freshness.status === "stale" &&
+        typeof freshness.ageHours === "number" &&
+        Number.isFinite(freshness.ageHours);
+      const targetProvenanceUnsafe =
+        input.targetPack !== null &&
+        freshness.status !== "fresh" &&
+        !ageOnlyReviewDue;
       return {
         section,
         blocking: true,
-        freshness:
-          input.sectionMeta.targetPack.freshness ??
-          buildFreshnessMeta({
-            configured: false,
-            updatedAt: null,
-            staleAfterHours: SECTION_META_RULES.targetPack.staleAfterHours,
-            missingReason: SECTION_META_RULES.targetPack.missingReason,
-            staleReason: SECTION_META_RULES.targetPack.staleReason,
-          }),
+        freshness,
         reason: !input.targetPack
           ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
-          : input.sectionMeta.targetPack.freshness?.status === "stale"
-            ? (input.sectionMeta.targetPack.freshness.reason ??
+          : targetProvenanceUnsafe
+            ? "Target pack confirmation time is unavailable or cutoff-unsafe, so hard action authority remains withheld."
+          : ageOnlyReviewDue
+            ? (freshness.reason ??
               "Target pack thresholds need review.")
             : "Target pack thresholds are configured.",
-        actionCeiling: !input.targetPack ? "review_hold" : null,
+        actionCeiling:
+          !input.targetPack || targetProvenanceUnsafe ? "review_hold" : null,
       } satisfies BusinessCommercialRequiredInput;
     }
 
@@ -1043,7 +1055,19 @@ function buildCommercialCoverageSummary(input: {
   calibrationProfiles: BusinessDecisionCalibrationProfile[];
 }): BusinessCommercialCoverageSummary {
   const requiredInputs = buildRequiredInputs(input);
-  const blockingSections = requiredInputs.filter((section) => section.blocking);
+  const participatesInBlockingCoverage = (
+    section: BusinessCommercialRequiredInput,
+  ) =>
+      section.blocking &&
+    !(
+      section.section === "targetPack" &&
+      section.freshness.status === "stale" &&
+      typeof section.freshness.ageHours === "number" &&
+      Number.isFinite(section.freshness.ageHours)
+    );
+  const blockingSections = requiredInputs.filter(
+    participatesInBlockingCoverage,
+  );
   const configuredBlockingCount = blockingSections.filter(
     (section) => section.freshness.status !== "missing",
   ).length;
@@ -1093,7 +1117,9 @@ function buildCommercialCoverageSummary(input: {
   const blockingReasons = dedupeStringList(
     requiredInputs
       .filter(
-        (section) => section.blocking && section.freshness.status !== "fresh",
+        (section) =>
+          participatesInBlockingCoverage(section) &&
+          section.freshness.status !== "fresh",
       )
       .map((section) => section.reason),
   );
@@ -1101,7 +1127,9 @@ function buildCommercialCoverageSummary(input: {
   const nonBlockingReasons = dedupeStringList(
     requiredInputs
       .filter(
-        (section) => !section.blocking && section.freshness.status !== "fresh",
+        (section) =>
+          !participatesInBlockingCoverage(section) &&
+          section.freshness.status !== "fresh",
       )
       .map((section) => section.reason),
   );

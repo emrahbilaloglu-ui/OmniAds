@@ -36,6 +36,7 @@ import {
   replaceNativeAdCalibrationBatch,
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationDate,
+  resolveNativeAdTargetAuthority,
   runAdCalibrationJob,
   type NativeAdCalibrationBatch,
   type NativeAdCalibrationSourceRow,
@@ -63,6 +64,11 @@ const FRESH_TARGET: NativeAdTargetAuthorityInput = {
   defaultRiskPosture: "balanced",
   effectiveAt: "2026-07-01T00:00:00.000Z",
   recordedAt: "2026-07-01T00:00:01.000Z",
+};
+const OLD_TARGET: NativeAdTargetAuthorityInput = {
+  ...FRESH_TARGET,
+  effectiveAt: "2026-03-01T00:00:00.000Z",
+  recordedAt: "2026-03-01T00:00:01.000Z",
 };
 
 function makeRow(
@@ -324,6 +330,120 @@ describe("native ad calibration computation", () => {
         reason: "pooled_optimization_context_soft_only",
       },
     });
+  });
+
+  it("keeps an old but bitemporally valid target authoritative", () => {
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({
+        sourceRowId: `old-target-${index}`,
+        adId: `old-target-${index}`,
+        revenue: 180 + index * 5,
+      }),
+    );
+    const recent = compute(rows, { target: FRESH_TARGET });
+    const old = compute(rows, { target: OLD_TARGET });
+    const recentExact = recent.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+    const oldExact = old.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+
+    expect(old.targetAuthority).toMatchObject({
+      status: "stale",
+      targetRoasAuthority: true,
+      breakEvenRoasAuthority: true,
+    });
+    expect(old.qualityCounts.commercialAuthorityAdExclusionCount).toBe(0);
+    expect(oldExact?.qualityStatus).toBe(recentExact?.qualityStatus);
+    expect(oldExact?.actionReadiness).toEqual(recentExact?.actionReadiness);
+  });
+
+  it("fails target authority closed for missing, deleted, cutoff-unsafe, and invalid anchors", () => {
+    const deleted = resolveNativeAdTargetAuthority(
+      { ...FRESH_TARGET, operation: "delete" },
+      CUTOFF,
+    );
+    const futureEffective = resolveNativeAdTargetAuthority(
+      {
+        ...FRESH_TARGET,
+        effectiveAt: "2026-07-12T03:06:00.000Z",
+        recordedAt: "2026-07-12T03:06:01.000Z",
+      },
+      CUTOFF,
+    );
+    const futureRecorded = resolveNativeAdTargetAuthority(
+      {
+        ...FRESH_TARGET,
+        recordedAt: "2026-07-12T03:06:00.000Z",
+      },
+      CUTOFF,
+    );
+    const reversedBitemporalOrder = resolveNativeAdTargetAuthority(
+      {
+        ...FRESH_TARGET,
+        effectiveAt: "2026-07-01T00:00:02.000Z",
+        recordedAt: "2026-07-01T00:00:01.000Z",
+      },
+      CUTOFF,
+    );
+    const invalidTimestamps = resolveNativeAdTargetAuthority(
+      {
+        ...FRESH_TARGET,
+        effectiveAt: "not-a-date",
+        recordedAt: null,
+      },
+      CUTOFF,
+    );
+
+    for (const authority of [
+      resolveNativeAdTargetAuthority(null, CUTOFF),
+      deleted,
+      futureEffective,
+      futureRecorded,
+      reversedBitemporalOrder,
+      invalidTimestamps,
+    ]) {
+      expect(authority.targetRoasAuthority).toBe(false);
+      expect(authority.breakEvenRoasAuthority).toBe(false);
+    }
+    expect(resolveNativeAdTargetAuthority(null, CUTOFF).status).toBe("missing");
+    expect(deleted.status).toBe("missing");
+    for (const authority of [
+      futureEffective,
+      futureRecorded,
+      reversedBitemporalOrder,
+      invalidTimestamps,
+    ]) {
+      expect(authority.status).toBe("cutoff_unsafe");
+    }
+
+    expect(
+      resolveNativeAdTargetAuthority(
+        { ...FRESH_TARGET, targetRoas: 0, breakEvenRoas: 1.5 },
+        CUTOFF,
+      ),
+    ).toMatchObject({
+      status: "fresh",
+      targetRoasAuthority: false,
+      breakEvenRoasAuthority: true,
+    });
+    expect(
+      resolveNativeAdTargetAuthority(
+        { ...FRESH_TARGET, targetRoas: 2, breakEvenRoas: -1 },
+        CUTOFF,
+      ),
+    ).toMatchObject({
+      status: "fresh",
+      targetRoasAuthority: true,
+      breakEvenRoasAuthority: false,
+    });
+    expect(
+      resolveNativeAdTargetAuthority(
+        { ...FRESH_TARGET, targetRoas: Number.NaN, breakEvenRoas: 1.5 },
+        CUTOFF,
+      ).targetRoasAuthority,
+    ).toBe(false);
   });
 
   it("hard-disables historical/currently unbound computation", () => {

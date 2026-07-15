@@ -22,14 +22,12 @@ import {
 export function initialConfidenceDeltas(
   profile: AccountDecisionProfile,
 ): number[] {
-  const freshnessReducedCommercialAuthority =
-    profile.quality.commercialTruthFreshness !== "fresh" &&
+  const untrustedCommercialThreshold =
+    profile.quality.commercialTruthFreshness === "unknown" &&
     profile.spendUnitEvidence.warnings.some(
-      (warning) =>
-        warning === "commercial_target_stale" ||
-        warning === "commercial_target_freshness_unknown",
+      (warning) => warning === "commercial_target_freshness_unknown",
     );
-  const confidenceForIndependentPenalty = freshnessReducedCommercialAuthority
+  const confidenceForIndependentPenalty = untrustedCommercialThreshold
     ? profile.spendUnitEvidence.confidenceBeforeFreshness ??
       profile.spendUnitConfidence
     : profile.spendUnitConfidence;

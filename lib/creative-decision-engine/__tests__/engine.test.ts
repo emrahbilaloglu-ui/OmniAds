@@ -25,11 +25,11 @@ import type {
 describe("creative-decision-engine v3", () => {
   const mock = new MockDataSource();
 
-  it("deduplicates stale-target confidence cost while preserving independent low evidence", () => {
+  it("does not charge target age while preserving independent low-evidence cost", () => {
     const base = makeAccountDecisionProfile();
     const staleTargetOnly: AccountDecisionProfile = {
       ...base,
-      spendUnitConfidence: "low",
+      spendUnitConfidence: "high",
       spendUnitEvidence: {
         ...base.spendUnitEvidence,
         confidenceBeforeFreshness: "high",
@@ -42,6 +42,7 @@ describe("creative-decision-engine v3", () => {
     };
     const staleAndIndependentlyLow: AccountDecisionProfile = {
       ...staleTargetOnly,
+      spendUnitConfidence: "low",
       spendUnitEvidence: {
         ...staleTargetOnly.spendUnitEvidence,
         confidenceBeforeFreshness: "low",
@@ -51,6 +52,60 @@ describe("creative-decision-engine v3", () => {
 
     expect(initialConfidenceDeltas(staleTargetOnly)).toEqual([]);
     expect(initialConfidenceDeltas(staleAndIndependentlyLow)).toEqual([-10]);
+  });
+
+  it("emits the same hard cut for recent and old valid commercial targets", () => {
+    const profile = makeAccountDecisionProfile();
+    const input = makeCreativeInput({
+      spend: 500,
+      purchaseValue: 400,
+      purchases: 4,
+      roas: 0.8,
+      cpa: 125,
+      targetRoas: 2,
+      breakevenRoas: 1.5,
+      recent7dSpend: 120,
+      recent7dRoas: 0.8,
+      linkClicks: 200,
+      landingPageViews: 180,
+      addToCart: 40,
+      initiateCheckout: 16,
+    });
+    const recent = decideCreative(
+      { ...input, commercialTargetFreshness: "fresh" },
+      profile,
+    );
+    const old = decideCreative(
+      { ...input, commercialTargetFreshness: "stale" },
+      {
+        ...profile,
+        quality: {
+          ...profile.quality,
+          commercialTruthFreshness: "stale",
+        },
+      },
+    );
+
+    expect(old).toMatchObject({
+      label: "cut",
+      preAuthorityLabel: "cut",
+      authorityBlocker: null,
+      blockedActionType: null,
+      truthSource: "commercial_truth",
+    });
+    expect({
+      label: old.label,
+      confidence: old.confidence,
+      truthSource: old.truthSource,
+      ratioToTarget: old.ratioToTarget,
+      authorityBlocker: old.authorityBlocker,
+    }).toEqual({
+      label: recent.label,
+      confidence: recent.confidence,
+      truthSource: recent.truthSource,
+      ratioToTarget: recent.ratioToTarget,
+      authorityBlocker: recent.authorityBlocker,
+    });
   });
 
   async function getMockCreativeInput(creativeId: string) {

@@ -1123,10 +1123,17 @@ function FinalMetaPulse({
       </span>
       <span data-target-freshness={pulse?.roas.targetFreshness ?? "unknown"}>
         {pulse?.roas.target_source === "commercial_truth_stale" ? (
-          <>
-            Target stale - reduced authority ·{" "}
-            <a href="/commercial-truth">Review target pack</a>
-          </>
+          pulse.roas.targetFreshness === "stale" ? (
+            <>
+              Target review due - authority unchanged ·{" "}
+              <a href="/commercial-truth">Review target pack</a>
+            </>
+          ) : (
+            <>
+              Target timestamp unavailable - Scale/Cut authority withheld ·{" "}
+              <a href="/commercial-truth">Review target pack</a>
+            </>
+          )
         ) : (
           "tones from this business's server targets"
         )}

@@ -165,7 +165,7 @@ function assessedCard(): BriefingCreativeCard {
       label: "Proven winner",
       tone: "pos",
       blockerCode: null,
-      vocabularyVersion: "meta-decisions-classification-overlay.v2",
+      vocabularyVersion: "meta-decisions-classification-overlay.v3",
     },
   };
 }

@@ -1000,6 +1000,54 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
   });
 
+  it("never presents a soft-published held Cut as Continue Test", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000078", {
+        label: "test_more",
+        pre_authority_label: "cut",
+        authority_blocker: "profile_hard_action_ineligible",
+        raw_label: "test_more",
+        blocked_action_type: "cut",
+        authorized_action: null,
+        badges: [
+          {
+            type: "cut_candidate",
+            label: "Soft-cut candidate",
+            severity: "warning",
+          },
+          {
+            type: "campaign_context_unresolved",
+            label: "Campaign context unresolved",
+            severity: "warning",
+          },
+        ],
+        reason:
+          "[soft-only - cut blocked] Clear loser at scale (native_ad_calibration:pooled_optimization_context_soft_only)",
+      }),
+    ]);
+    const item = model.queue.adCandidates?.items[0];
+
+    expect(item?.classification).toMatchObject({
+      decisionState: "blocked",
+      heldAction: "cut",
+      legacyBuyerAction: "test_more",
+      buyerAction: null,
+      buyerLabel: "Cut · Held",
+      executionAction: null,
+      assessment: { value: "below_target" },
+      resolution: {
+        code: "complete_hard_action_evidence",
+        label: "Complete Hard-Action Evidence",
+      },
+    });
+    expect(item?.classification.buyerLabel).not.toMatch(/continue test/i);
+    expect(item?.sourceAuthority).toMatchObject({
+      status: "native_exact",
+      actionEligible: false,
+      authorizedAction: null,
+    });
+  });
+
   it("serves ordinary keep and out-of-scope as explicit D035 states", () => {
     const model = buildMetaDecisionsWorkspaceReadModel({
       businessId: "biz_1",
@@ -1606,7 +1654,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       legacy.queue.sections.creative_rotation.items[0] ??
       legacy.queue.adCandidates?.items[0];
 
-    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v2");
+    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v3");
     expect(legacyDecision?.sourceDecision).toMatchObject({
       label: "keep",
       rawLabel: "keep",

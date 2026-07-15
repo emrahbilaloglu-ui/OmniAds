@@ -293,10 +293,13 @@ function priorityForDecision(
       : decision.sourceDecision.confidenceBand === "medium"
         ? 2
         : 1;
+  const priorityAction =
+    decision.classification.heldAction ??
+    decision.classification.legacyBuyerAction;
   return {
     band: decision.sourceDecision.confidenceBand,
     rank:
-      (actionWeight[decision.classification.legacyBuyerAction] ?? 0) * 100 +
+      (actionWeight[priorityAction] ?? 0) * 100 +
       confidenceWeight * 10,
     version: META_OS_DECISIONS_PRESENTATION_VERSION,
   };

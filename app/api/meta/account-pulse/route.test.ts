@@ -222,7 +222,7 @@ describe("GET /api/meta/account-pulse", () => {
     expect(payload.roas.targetFreshness).toBe("fresh");
   });
 
-  it("keeps a stale target visible but marks its authority as reduced", async () => {
+  it("keeps an old target visible as review-due without changing engine authority", async () => {
     mockSql({
       targetRoas: 1.8,
       calibrationP50: 4.55,

@@ -224,8 +224,8 @@ function resolveSpendUnitProfile(input: {
 
   const freshness = input.targetPack?.freshness ?? "unknown";
   const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
-  const commercialTruthFresh =
-    freshness === "fresh" &&
+  const commercialTruthTimestampTrusted =
+    freshness !== "unknown" &&
     typeof targetUpdatedAt === "string" &&
     Number.isFinite(Date.parse(targetUpdatedAt));
   const usesCommercialThreshold =
@@ -233,27 +233,33 @@ function resolveSpendUnitProfile(input: {
     resolution.source === "operator_aov" ||
     resolution.source === "meta_derived_aov" ||
     resolution.source === "break_even_aov";
-  const commercialThresholdHasReducedAuthority =
+  const commercialThresholdLacksTrustedProvenance =
     input.targetPack !== null &&
-    !commercialTruthFresh &&
+    !commercialTruthTimestampTrusted &&
     usesCommercialThreshold;
+  const commercialTargetWarning =
+    input.targetPack !== null && usesCommercialThreshold
+      ? freshness === "stale"
+        ? "commercial_target_stale"
+        : !commercialTruthTimestampTrusted
+          ? "commercial_target_freshness_unknown"
+          : null
+      : null;
 
   return {
     spendUnit: resolution.spendUnit,
     spendUnitSource: resolution.source,
-    spendUnitConfidence: commercialThresholdHasReducedAuthority
+    spendUnitConfidence: commercialThresholdLacksTrustedProvenance
       ? "low"
       : resolution.confidence,
-    spendUnitEvidence: commercialThresholdHasReducedAuthority
+    spendUnitEvidence: commercialTargetWarning
       ? {
           ...resolution.evidence,
           confidenceBeforeFreshness: resolution.confidence,
           warnings: Array.from(
             new Set([
               ...resolution.evidence.warnings,
-              freshness === "stale"
-                ? "commercial_target_stale"
-                : "commercial_target_freshness_unknown",
+              commercialTargetWarning,
             ]),
           ),
         }
@@ -263,7 +269,7 @@ function resolveSpendUnitProfile(input: {
         },
     hardEligibleByDefault:
       resolution.hardEligibleByDefault &&
-      !commercialThresholdHasReducedAuthority,
+      !commercialThresholdLacksTrustedProvenance,
   };
 }
 
@@ -294,14 +300,16 @@ function resolveHardActionEligibility(input: {
       (input.spendUnitProfile.spendUnitConfidence === "medium" &&
         input.metaAovQuality === "ready"));
   const targetUpdatedAt = input.targetPack?.updatedAt ?? null;
-  const targetPackFresh =
-    input.targetPack?.freshness === "fresh" &&
+  const targetPackAuthoritative =
+    input.targetPack?.freshness !== "unknown" &&
     typeof targetUpdatedAt === "string" &&
     Number.isFinite(Date.parse(targetUpdatedAt));
   const scaleAnchorEligible =
-    targetPackFresh && positiveFinite(input.targetPack?.targetRoas ?? null);
+    targetPackAuthoritative &&
+    positiveFinite(input.targetPack?.targetRoas ?? null);
   const cutAnchorEligible =
-    targetPackFresh && positiveFinite(input.targetPack?.breakEvenRoas ?? null);
+    targetPackAuthoritative &&
+    positiveFinite(input.targetPack?.breakEvenRoas ?? null);
   const refreshEligible = commercialThresholdEligible;
   const scaleEligible =
     commercialThresholdEligible && input.calibrationReady && scaleAnchorEligible;
@@ -314,7 +322,7 @@ function resolveHardActionEligibility(input: {
           metaAovQuality: input.metaAovQuality,
         })
       : !scaleAnchorEligible
-        ? "fresh explicit target ROAS is required for scale authority"
+        ? "valid explicit target ROAS is required for scale authority"
         : "scale calibration sample is below automation-quality floor";
   const cutEligible = commercialThresholdEligible && cutAnchorEligible;
   const cutReason = cutEligible
@@ -325,7 +333,7 @@ function resolveHardActionEligibility(input: {
           confidence: input.spendUnitProfile.spendUnitConfidence,
           metaAovQuality: input.metaAovQuality,
         })
-      : "fresh explicit break-even ROAS is required for cut authority";
+      : "valid explicit break-even ROAS is required for cut authority";
   const refreshReason = refreshEligible
     ? null
     : hardActionReason({
@@ -580,7 +588,7 @@ export async function resolveAccountDecisionProfile(input: {
     hardActionEligibility: finalHardActionEligibility,
     quality: {
       commercialTruthReady:
-        commercialTruthFreshness === "fresh" &&
+        commercialTruthFreshness !== "unknown" &&
         positiveFinite(targetPack?.targetRoas ?? null) &&
         positiveFinite(targetPack?.breakEvenRoas ?? null),
       commercialTruthFreshness,

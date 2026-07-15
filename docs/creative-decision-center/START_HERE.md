@@ -28,7 +28,7 @@ hysteresis variant. All bounded H1-H12 families, native/structure replays,
 3d/7d/14d outcomes, H10 calibration, and expanded H11/H12 policies have run.
 No challenger passed its locked promotion gate. D049 remains a monotonic
 safety invariant, not proven historical lift. The current release candidate is
-versioned under `v3-2026-07-14-decision-health-provenance`; deployment state
+versioned under `v3-2026-07-15-target-age-advisory`; deployment state
 must be verified from `/api/build-info`, not inferred from this document.
 
 The strict replay found 17,233 restated native rows but zero cutoff-safe
@@ -95,7 +95,9 @@ Generated artifacts are planning and shadow-validation context. They are not pro
 - Missing data may remain persisted as legacy `diagnose` / `diagnose_data`,
   but buyer-facing Meta Decisions must serve it as a blocked resolution with a
   nullable buyer action. See D035.
-- No high-confidence scale/cut on stale or missing data.
+- No high-confidence scale/cut on stale or missing performance/source data.
+  A valid configured commercial target's age is advisory and is not source
+  staleness; missing, invalid, or cutoff-unsafe target provenance still blocks.
 - Policy and delivery blockers override performance.
 - Campaign/adset paused must not become `fix_delivery`.
 - Do not rename routes in the first migration PR.

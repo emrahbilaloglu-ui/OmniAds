@@ -251,7 +251,8 @@ export async function resolveNativeAdAccountDecisionProfile(
     exactCell !== null &&
     (fallbackPolicy === NATIVE_AD_ACCOUNT_FALLBACK_CELL ||
       fallbackPolicy === NATIVE_AD_THIN_EXACT_FALLBACK_CELL) &&
-    exactCell.targetAuthority.status !== "fresh" &&
+    (!exactCell.targetAuthority.targetRoasAuthority ||
+      !exactCell.targetAuthority.breakEvenRoasAuthority) &&
     exactCell.matureAdCount < 10
   ) {
     const fallbackQuery = buildQuery({

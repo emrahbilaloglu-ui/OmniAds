@@ -40,6 +40,7 @@ function normalizeRiskPosture(value: unknown): MetaCommercialRiskPosture {
 
 export function normalizeMetaCommercialTargets(
   input?: Partial<MetaCommercialTargets> | null,
+  referenceTime: Date = new Date(),
 ): MetaCommercialTargets {
   const targetRoas = positiveNumber(input?.targetRoas);
   const breakEvenRoas = positiveNumber(input?.breakEvenRoas);
@@ -56,10 +57,16 @@ export function normalizeMetaCommercialTargets(
     updatedAtCandidate && Number.isFinite(Date.parse(updatedAtCandidate))
       ? updatedAtCandidate
       : null;
+  const referenceTimeMs = referenceTime.getTime();
+  const updatedAtMs = updatedAt === null ? null : Date.parse(updatedAt);
+  const timestampCutoffSafe =
+    updatedAtMs !== null &&
+    Number.isFinite(referenceTimeMs) &&
+    updatedAtMs <= referenceTimeMs;
   const freshness =
-    hasAnchor && updatedAt && input?.freshness === "fresh"
+    hasAnchor && timestampCutoffSafe && input?.freshness === "fresh"
       ? "fresh"
-      : hasAnchor && input?.freshness === "stale"
+      : hasAnchor && timestampCutoffSafe && input?.freshness === "stale"
         ? "stale"
         : "unknown";
   return {
@@ -70,7 +77,7 @@ export function normalizeMetaCommercialTargets(
     breakEvenCpa,
     riskPosture: normalizeRiskPosture(input?.riskPosture),
     freshness,
-    updatedAt,
+    updatedAt: timestampCutoffSafe ? updatedAt : null,
   };
 }
 
@@ -94,18 +101,21 @@ export async function readMetaCommercialTargets(
       businessId,
       asOf: input.asOf,
     });
-    return normalizeMetaCommercialTargets({
-      targetRoas: targetPack?.targetRoas ?? null,
-      breakEvenRoas: targetPack?.breakEvenRoas ?? null,
-      targetCpa: targetPack?.targetCpa ?? null,
-      breakEvenCpa: targetPack?.breakEvenCpa ?? null,
-      riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
-      freshness: resolveBusinessTargetPackFreshness(
-        targetPack?.updatedAt,
-        referenceTime,
-      ),
-      updatedAt: targetPack?.updatedAt ?? null,
-    });
+    return normalizeMetaCommercialTargets(
+      {
+        targetRoas: targetPack?.targetRoas ?? null,
+        breakEvenRoas: targetPack?.breakEvenRoas ?? null,
+        targetCpa: targetPack?.targetCpa ?? null,
+        breakEvenCpa: targetPack?.breakEvenCpa ?? null,
+        riskPosture: targetPack?.defaultRiskPosture ?? "balanced",
+        freshness: resolveBusinessTargetPackFreshness(
+          targetPack?.updatedAt,
+          referenceTime,
+        ),
+        updatedAt: targetPack?.updatedAt ?? null,
+      },
+      referenceTime,
+    );
   }
 
   const snapshot = await getBusinessCommercialTruthSnapshot(businessId);
@@ -133,7 +143,7 @@ export function hasMetaHardActionAnchor(
   const normalized = normalizeMetaCommercialTargets(targets);
   return (
     normalized.source === "configured_targets" &&
-    normalized.freshness === "fresh" &&
+    normalized.freshness !== "unknown" &&
     normalized.updatedAt !== null
   );
 }
@@ -163,9 +173,8 @@ export function metaCutRoasReviewCeiling(
 ) {
   const normalized = normalizeMetaCommercialTargets(targets);
   if (normalized.source !== "configured_targets") return null;
-  // A stale break-even value may still identify a protective review candidate,
-  // but it must never grant action authority. The caller applies the authority
-  // guard before serving or executing the recommendation.
+  // Review candidates may use the configured loss boundary even when another
+  // action-specific anchor is absent. Age alone never changes authority.
   return normalized.breakEvenRoas;
 }
 

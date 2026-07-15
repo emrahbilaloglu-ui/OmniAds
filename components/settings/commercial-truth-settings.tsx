@@ -435,7 +435,7 @@ const COVERAGE_TONE = {
     dot: "bg-[var(--adc-caution-fg)]",
     ring: "shadow-[0_0_0_3px_rgb(245,158,11,0.13)]",
     badge: "bg-[var(--adc-caution-bg)] text-[var(--adc-caution-fg)]",
-    label: "Stale",
+    label: "Review due",
   },
   optional: {
     dot: "bg-[var(--adc-ink3)]",
@@ -466,8 +466,13 @@ export function DecisionCoverageSection({
   currency?: string;
 }) {
   const coverage = snapshot.coverage;
-  const targetPackFreshness =
-    snapshot.sectionMeta.targetPack.freshness?.status ?? "missing";
+  const targetPackFreshnessMeta =
+    snapshot.sectionMeta.targetPack.freshness ?? null;
+  const targetPackFreshness = targetPackFreshnessMeta?.status ?? "missing";
+  const targetPackAgeReviewDue =
+    targetPackFreshness === "stale" &&
+    typeof targetPackFreshnessMeta?.ageHours === "number" &&
+    Number.isFinite(targetPackFreshnessMeta.ageHours);
   const targetPack = snapshot.targetPack;
   const targetParts = targetPack
     ? [
@@ -497,8 +502,10 @@ export function DecisionCoverageSection({
       label: "Thresholds",
       detail: !targetPack
         ? "Not configured"
-        : targetPackFreshness === "stale"
-          ? `${targetParts.join(" · ") || "Configured anchors"} · Hard Scale/Cut authority blocked until reconfirmed`
+        : targetPackAgeReviewDue
+          ? `${targetParts.join(" · ") || "Configured anchors"} · Review due; target age does not change decision authority`
+          : targetPackFreshness !== "fresh"
+            ? `${targetParts.join(" · ") || "Configured anchors"} · Confirmation timestamp unavailable or cutoff-unsafe; hard action authority withheld`
           : targetParts.join(" · ") || "No decision anchors configured",
       status: !targetPack
         ? "blocking"
@@ -506,7 +513,7 @@ export function DecisionCoverageSection({
           ? "blocking"
           : targetPackFreshness === "fresh"
             ? "complete"
-            : targetPackFreshness === "stale"
+            : targetPackAgeReviewDue
               ? "stale"
               : "blocking",
     },
@@ -561,9 +568,7 @@ export function DecisionCoverageSection({
     },
   ];
 
-  const blockingRows = rows.filter(
-    (r) => r.status === "blocking" || r.status === "stale",
-  );
+  const blockingRows = rows.filter((r) => r.status === "blocking");
 
   return (
     <CtSection
@@ -1124,7 +1129,7 @@ export function getTargetPackReconfirmDisabledReason(input: {
     return "Target CPA must be less than or equal to break-even CPA.";
   }
   if (input.freshnessStatus === "fresh") {
-    return "Target economics are already fresh; reconfirmation is available after they expire.";
+    return "Target economics are already within the review interval; reconfirmation is available when the next review is due.";
   }
   if (input.freshnessStatus !== "stale") {
     return "Target-pack freshness is unavailable; reload or save before reconfirming.";
@@ -1179,6 +1184,12 @@ export function TargetRoasSection({
 }) {
   const val = targetRoas ?? 0;
   const ratio = isFinite(breakEven) && breakEven > 0 ? val / breakEven : 0;
+  const targetAgeReviewDue =
+    freshness?.status === "stale" &&
+    typeof freshness.ageHours === "number" &&
+    Number.isFinite(freshness.ageHours);
+  const targetProvenanceUnavailable =
+    freshness?.status !== "fresh" && !targetAgeReviewDue;
 
   let statusBg: string,
     statusBorder: string,
@@ -1344,7 +1355,7 @@ export function TargetRoasSection({
         className={`mt-5 flex items-start justify-between gap-4 rounded-xl border px-4 py-3.5 ${
           freshness?.status === "fresh"
             ? "border-[var(--adc-pos-bd)] bg-[var(--adc-pos-bg)]"
-            : freshness?.status === "stale"
+            : targetAgeReviewDue
               ? "border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)]"
               : "border-[var(--adc-danger-bd)] bg-[var(--adc-danger-bg)]"
         }`}
@@ -1354,8 +1365,8 @@ export function TargetRoasSection({
           <p className="text-[12.5px] font-bold text-[var(--adc-ink)]">
             {freshness?.status === "fresh"
               ? "Decision authority current"
-              : freshness?.status === "stale"
-                ? "Decision authority needs reconfirmation"
+              : targetAgeReviewDue
+                ? "Commercial target review is due"
                 : "Decision authority unavailable"}
           </p>
           <p
@@ -1365,9 +1376,14 @@ export function TargetRoasSection({
             Last updated or confirmed:{" "}
             {formatTargetPackTimestamp(freshness?.updatedAt ?? updatedAt)}
           </p>
-          {freshness?.status === "stale" ? (
+          {targetAgeReviewDue ? (
             <p className="text-[12px] font-semibold leading-snug text-[var(--adc-caution-fg)]">
-              Hard Scale/Cut authority is blocked until reconfirmed.
+              Target age is advisory and does not block engine-owned Scale/Cut authority.
+            </p>
+          ) : null}
+          {targetProvenanceUnavailable ? (
+            <p className="text-[12px] font-semibold leading-snug text-[var(--adc-danger-fg)]">
+              Target confirmation time is unavailable or cutoff-unsafe; hard Scale/Cut authority remains withheld.
             </p>
           ) : null}
           {freshness?.reason ? (

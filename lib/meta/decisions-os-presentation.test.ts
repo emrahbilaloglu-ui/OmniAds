@@ -132,7 +132,7 @@ function canonicalDecision(input: {
       },
     },
     classification: {
-      overlayVersion: "meta-decisions-classification-overlay.v2",
+      overlayVersion: "meta-decisions-classification-overlay.v3",
       queueSection: "creative_rotation",
       lifecycleRole: {
         value: input.role ?? "main",
@@ -275,7 +275,7 @@ function readModel(
     },
   });
   return {
-    contractVersion: "meta-decisions-workspace.read.v2",
+    contractVersion: "meta-decisions-workspace.read.v3",
     status: "available",
     generatedAt: "2026-07-10T04:00:00.000Z",
     scope: {
@@ -1387,7 +1387,7 @@ describe("buildMetaOsDecisionsPresentation", () => {
       currency: "EUR",
     });
 
-    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v3");
+    expect(result.contractVersion).toBe("meta-os-decisions.presentation.v4");
     expect(result.ads.items[0]).toMatchObject({
       action: {
         code: "keep_running",

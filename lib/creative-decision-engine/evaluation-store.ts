@@ -1,4 +1,5 @@
 import { getDb, type DbClient } from "@/lib/db";
+import { chunkDecisionRows } from "./batching";
 import {
   canonicalSha256,
   stableCanonicalJson,
@@ -1470,16 +1471,22 @@ export async function persistAdDecisionEvaluations(
     job_run_id: input.jobRunId,
     evaluated_at: input.evaluatedAt,
   }));
-  let storedRows = await db.query<StoredEvaluationRow>(
-    INSERT_AD_DECISION_EVALUATIONS_QUERY,
-    [JSON.stringify(rows)],
-  );
-  if (storedRows.length !== rows.length) {
-    // A concurrent conflict winner may fall outside the first statement snapshot.
-    storedRows = await db.query<StoredEvaluationRow>(
+  const storedRows: StoredEvaluationRow[] = [];
+  for (const batch of chunkDecisionRows(rows)) {
+    let storedBatch = await db.query<StoredEvaluationRow>(
       INSERT_AD_DECISION_EVALUATIONS_QUERY,
-      [JSON.stringify(rows)],
+      [JSON.stringify(batch)],
     );
+    if (storedBatch.length !== batch.length) {
+      // Preserve one compatibility retry for direct READ COMMITTED callers.
+      // The native job's REPEATABLE READ snapshot and advisory lock make this
+      // neither its concurrency-control path nor a whole-transaction retry.
+      storedBatch = await db.query<StoredEvaluationRow>(
+        INSERT_AD_DECISION_EVALUATIONS_QUERY,
+        [JSON.stringify(batch)],
+      );
+    }
+    storedRows.push(...storedBatch);
   }
   const stored = new Map<string, StoredAdDecisionEvaluation>();
   for (const row of storedRows) {

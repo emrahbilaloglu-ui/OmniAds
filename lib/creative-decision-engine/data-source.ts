@@ -15,6 +15,7 @@ import {
   FATIGUE_FREQUENCY_PRESSURE_QUANTILE,
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
 } from "./config-values";
+import { chunkDecisionRows } from "./batching";
 import { computeFatigue, type HistoricalWindow } from "./fatigue";
 import {
   computeMetaAttributedAov,
@@ -1660,7 +1661,7 @@ ORDER BY cumulative.provider_account_id, cumulative.ad_id
 `;
 
 export const READ_AD_ENTITY_STATE_AS_OF_QUERY = `
-/* ad-decision-state-asof: latest cutoff-strict state versus explicit tombstone */
+/* ad-decision-state-asof: generation-bound cutoff-strict state versus tombstone */
 WITH truth_events AS (
   SELECT
     'state'::text AS event_kind,
@@ -1684,11 +1685,13 @@ WITH truth_events AS (
   FROM meta_entity_state_history state
   WHERE state.business_ref_id = $1::uuid
     AND state.business_id = $1::text
-    AND state.provider_account_id = $2
+    AND state.provider_account_ref_id = $2::uuid
+    AND state.provider_account_id = $3
     AND state.entity_type = 'ad'
-    AND state.entity_id = ANY($3::text[])
-    AND state.observed_at <= $4::timestamptz
-    AND state.captured_at <= $4::timestamptz
+    AND state.entity_id = ANY($4::text[])
+    AND state.observed_at <= $5::timestamptz
+    AND ($6::timestamptz IS NULL OR state.captured_at >= $6::timestamptz)
+    AND state.captured_at <= $5::timestamptz
     AND state.run_completeness IN ('complete', 'partial', 'point_lookup')
     AND state.presence = 'present'
 
@@ -1716,11 +1719,13 @@ WITH truth_events AS (
   FROM meta_entity_tombstones tombstone
   WHERE tombstone.business_ref_id = $1::uuid
     AND tombstone.business_id = $1::text
-    AND tombstone.provider_account_id = $2
+    AND tombstone.provider_account_ref_id = $2::uuid
+    AND tombstone.provider_account_id = $3
     AND tombstone.entity_type = 'ad'
-    AND tombstone.entity_id = ANY($3::text[])
-    AND tombstone.observed_at <= $4::timestamptz
-    AND tombstone.captured_at <= $4::timestamptz
+    AND tombstone.entity_id = ANY($4::text[])
+    AND tombstone.observed_at <= $5::timestamptz
+    AND ($6::timestamptz IS NULL OR tombstone.captured_at >= $6::timestamptz)
+    AND tombstone.captured_at <= $5::timestamptz
     AND tombstone.reason IN ('explicit_deleted', 'explicit_not_found')
 )
 SELECT DISTINCT ON (entity_id)
@@ -3396,6 +3401,8 @@ function mapAdHydrationSourceReceipt(input: {
     ? Array.from(new Set(rawExpectedAdIds)).sort()
     : rawExpectedAdIds;
   const sourceRunId = toStringOrNull(input.row.source_run_id);
+  const sourceObservedAt = toIsoTimestampOrNull(input.row.source_observed_at);
+  const sourceCapturedAt = toIsoTimestampOrNull(input.row.source_captured_at);
   const sourceRunHash = toStringOrNull(input.row.source_run_hash);
   const sourceExpectedRowCount = toIntegerOrNull(
     input.row.source_expected_row_count,
@@ -3405,6 +3412,8 @@ function mapAdHydrationSourceReceipt(input: {
   );
   const sourceComplete =
     sourceRunId !== null &&
+    sourceObservedAt !== null &&
+    sourceCapturedAt !== null &&
     isSha256(sourceRunHash) &&
     sourceExpectedRowCount !== null &&
     sourceExpectedRowCount >= 0 &&
@@ -3426,8 +3435,8 @@ function mapAdHydrationSourceReceipt(input: {
     asOfDate: input.asOf,
     decisionCutoff: input.decisionCutoff,
     sourceRunId,
-    sourceObservedAt: toIsoTimestampOrNull(input.row.source_observed_at),
-    sourceCapturedAt: toIsoTimestampOrNull(input.row.source_captured_at),
+    sourceObservedAt,
+    sourceCapturedAt,
     sourceRunHash,
     sourcePayloadHash: toStringOrNull(input.row.source_payload_hash),
     sourceExpectedRowCount,
@@ -3463,22 +3472,31 @@ function finalizeAdHydrationReceipts(input: {
   decisionCutoff: string;
   adIdentityFilterApplied: boolean;
 }): AdDecisionHydrationReceipt[] {
+  const accountKey = (
+    providerAccountRefId: string,
+    providerAccountId: string,
+  ) => `${providerAccountRefId}\u0000${providerAccountId}`;
   const byAccount = new Map<string, AdDecisionHydrationReceipt>();
   for (const receipt of input.sourceReceipts) {
-    if (byAccount.has(receipt.providerAccountId)) {
+    const key = accountKey(
+      receipt.providerAccountRefId,
+      receipt.providerAccountId,
+    );
+    if (byAccount.has(key)) {
       throw new Error(
-        `Duplicate ad hydration receipt for ${receipt.providerAccountId}.`,
+        `Duplicate ad hydration receipt for ${receipt.providerAccountRefId}/${receipt.providerAccountId}.`,
       );
     }
-    byAccount.set(receipt.providerAccountId, receipt);
+    byAccount.set(key, receipt);
   }
   const hydratedByAccount = new Map<string, string[]>();
   for (const ad of input.inputs) {
-    const ids = hydratedByAccount.get(ad.providerAccountId) ?? [];
+    const key = accountKey(ad.providerAccountRefId, ad.providerAccountId);
+    const ids = hydratedByAccount.get(key) ?? [];
     ids.push(ad.adId);
-    hydratedByAccount.set(ad.providerAccountId, ids);
-    if (!byAccount.has(ad.providerAccountId)) {
-      byAccount.set(ad.providerAccountId, {
+    hydratedByAccount.set(key, ids);
+    if (!byAccount.has(key)) {
+      byAccount.set(key, {
         contractVersion: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
         businessId: input.businessId,
         providerAccountRefId: ad.providerAccountRefId,
@@ -3514,7 +3532,9 @@ function finalizeAdHydrationReceipts(input: {
   return Array.from(byAccount.values())
     .map((receipt) => {
       const hydratedAdIds = normalizedIdentityList(
-        hydratedByAccount.get(receipt.providerAccountId) ?? [],
+        hydratedByAccount.get(
+          accountKey(receipt.providerAccountRefId, receipt.providerAccountId),
+        ) ?? [],
       );
       if (hasDuplicateIdentity(hydratedAdIds)) {
         throw new Error(
@@ -3546,8 +3566,10 @@ function finalizeAdHydrationReceipts(input: {
             : (receipt.reason ?? "hydrated_manifest_mismatch"),
       };
     })
-    .sort((left, right) =>
-      left.providerAccountId.localeCompare(right.providerAccountId),
+    .sort(
+      (left, right) =>
+        left.providerAccountRefId.localeCompare(right.providerAccountRefId) ||
+        left.providerAccountId.localeCompare(right.providerAccountId),
     );
 }
 
@@ -3599,10 +3621,11 @@ export function isPresentDayAdDecisionAsOf(
 
 function adDecisionIdentityKey(input: {
   businessId: string;
+  providerAccountRefId: string;
   providerAccountId: string;
   adId: string;
 }) {
-  return `${input.businessId}\u0000${input.providerAccountId}\u0000${input.adId}`;
+  return `${input.businessId}\u0000${input.providerAccountRefId}\u0000${input.providerAccountId}\u0000${input.adId}`;
 }
 
 function dateDistanceDays(asOf: string, earlier: string | null) {
@@ -4358,6 +4381,304 @@ function buildWarehouseDataLayerHealth(input: {
   return health;
 }
 
+async function readAdEntityStatesInBatches(input: {
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  adIds: readonly string[];
+  decisionCutoff: string;
+  sourceCapturedAt: string | null;
+}): Promise<AdEntityStateRow[]> {
+  const rows: AdEntityStateRow[] = [];
+  for (const adIdBatch of chunkDecisionRows(
+    normalizedIdentityList(input.adIds),
+  )) {
+    try {
+      rows.push(
+        ...(await getDb().query<AdEntityStateRow>(
+          READ_AD_ENTITY_STATE_AS_OF_QUERY,
+          [
+            input.businessId,
+            input.providerAccountRefId,
+            input.providerAccountId,
+            adIdBatch,
+            input.decisionCutoff,
+            input.sourceCapturedAt,
+          ],
+        )),
+      );
+    } catch (error) {
+      if (isUndefinedTableError(error)) throw error;
+      throw new Error(
+        `Native ad state batch failed for ${input.providerAccountId} (${adIdBatch.length} identities): ${errorMessage(error)}`,
+      );
+    }
+  }
+  return rows;
+}
+
+function addPresentAdStateSeed(
+  seeds: Map<string, PresentAdStateSeedRow>,
+  row: PresentAdStateSeedRow,
+  businessId: string,
+) {
+  const rowBusinessId = toStringOrNull(row.business_id);
+  const providerAccountRefId = toStringOrNull(row.provider_account_ref_id);
+  const providerAccountId = toStringOrNull(row.provider_account_id);
+  const adId = toStringOrNull(row.ad_id);
+  if (
+    rowBusinessId !== businessId ||
+    providerAccountRefId === null ||
+    providerAccountId === null ||
+    adId === null
+  ) {
+    throw new Error(
+      "Present ad state seed has incomplete tenant/account lineage.",
+    );
+  }
+  const key = `${providerAccountRefId}\u0000${providerAccountId}\u0000${adId}`;
+  if (seeds.has(key)) {
+    throw new Error(`Duplicate present ad state seed: ${key}`);
+  }
+  seeds.set(key, row);
+}
+
+function presentAdStateSeedFromEntityState(
+  row: AdEntityStateRow,
+  businessId: string,
+): PresentAdStateSeedRow | null {
+  if (row.event_kind !== "state") return null;
+  const providerAccountRefId = toStringOrNull(row.provider_account_ref_id);
+  const providerAccountId = toStringOrNull(row.provider_account_id);
+  const adId = toStringOrNull(row.entity_id);
+  const capturedAt = toIsoTimestampOrNull(row.captured_at);
+  if (
+    providerAccountRefId === null ||
+    providerAccountId === null ||
+    adId === null ||
+    capturedAt === null
+  ) {
+    throw new Error("Current ad state row cannot form a hydration seed.");
+  }
+  return {
+    business_id: businessId,
+    provider_account_ref_id: providerAccountRefId,
+    provider_account_id: providerAccountId,
+    ad_id: adId,
+    campaign_id: toStringOrNull(row.campaign_id),
+    adset_id: toStringOrNull(row.adset_id),
+    creative_id: toStringOrNull(row.creative_id),
+    captured_at: capturedAt,
+  };
+}
+
+async function readPresentAdStateSeedsForHydration(input: {
+  businessId: string;
+  decisionCutoff: string;
+  sourceReceipts: AdDecisionHydrationReceipt[];
+  receiptQueryAvailable: boolean;
+  providerAccountIds: string[] | undefined;
+  adIds: string[] | undefined;
+}): Promise<{
+  seeds: PresentAdStateSeedRow[];
+  stateRows: AdEntityStateRow[];
+}> {
+  const fallback = async (providerAccountIds: string[] | undefined) => {
+    try {
+      return await getDb().query<PresentAdStateSeedRow>(
+        READ_PRESENT_AD_STATE_SEEDS_QUERY,
+        [
+          input.businessId,
+          input.decisionCutoff,
+          providerAccountIds ?? [],
+          providerAccountIds !== undefined,
+          input.adIds ?? [],
+          input.adIds !== undefined,
+        ],
+      );
+    } catch (error) {
+      if (isUndefinedTableError(error)) return [];
+      throw new Error(
+        `Native ad present-state seed failed: ${errorMessage(error)}`,
+      );
+    }
+  };
+  if (!input.receiptQueryAvailable || input.sourceReceipts.length === 0) {
+    return {
+      seeds: await fallback(input.providerAccountIds),
+      stateRows: [],
+    };
+  }
+  const requestedAdIds =
+    input.adIds === undefined ? null : new Set(input.adIds);
+  const seeds = new Map<string, PresentAdStateSeedRow>();
+  const completeStateRows: AdEntityStateRow[] = [];
+  for (const receipt of input.sourceReceipts) {
+    if (!receipt.sourceComplete) {
+      const fallbackRows = await fallback([receipt.providerAccountId]);
+      for (const row of fallbackRows) {
+        addPresentAdStateSeed(seeds, row, input.businessId);
+      }
+      continue;
+    }
+    if (receipt.sourceCapturedAt === null) {
+      throw new Error(
+        `Complete native ad receipt lacks a capture boundary for ${receipt.providerAccountId}.`,
+      );
+    }
+    const expectedAdIds = receipt.expectedAdIds.filter(
+      (adId) => requestedAdIds === null || requestedAdIds.has(adId),
+    );
+    const stateRows = await readAdEntityStatesInBatches({
+      businessId: input.businessId,
+      providerAccountRefId: receipt.providerAccountRefId,
+      providerAccountId: receipt.providerAccountId,
+      adIds: expectedAdIds,
+      decisionCutoff: input.decisionCutoff,
+      sourceCapturedAt: receipt.sourceCapturedAt,
+    });
+    completeStateRows.push(...stateRows);
+    const accountSeeds = stateRows.flatMap((row) => {
+      const seed = presentAdStateSeedFromEntityState(row, input.businessId);
+      return seed ? [seed] : [];
+    });
+    if (accountSeeds.length !== expectedAdIds.length) {
+      throw new Error(
+        `Complete native ad manifest/state mismatch for ${receipt.providerAccountId}: expected ${expectedAdIds.length}, resolved ${accountSeeds.length}.`,
+      );
+    }
+    for (const seed of accountSeeds) {
+      addPresentAdStateSeed(seeds, seed, input.businessId);
+    }
+  }
+  return {
+    seeds: Array.from(seeds.values()),
+    stateRows: completeStateRows,
+  };
+}
+
+function addAdEntityState(
+  statesByIdentity: Map<string, AdEntityStateRow>,
+  businessId: string,
+  row: AdEntityStateRow,
+) {
+  const providerAccountRefId = toStringOrNull(row.provider_account_ref_id);
+  const providerAccountId = toStringOrNull(row.provider_account_id);
+  const adId = toStringOrNull(row.entity_id);
+  if (
+    providerAccountRefId === null ||
+    providerAccountId === null ||
+    adId === null
+  )
+    return;
+  const key = adDecisionIdentityKey({
+    businessId,
+    providerAccountRefId,
+    providerAccountId,
+    adId,
+  });
+  if (statesByIdentity.has(key)) {
+    throw new Error(
+      `Duplicate native ad state identity: ${providerAccountId}/${adId}.`,
+    );
+  }
+  statesByIdentity.set(key, row);
+}
+
+async function readAdHydrationRowsInBatches(input: {
+  businessId: string;
+  asOf: string;
+  decisionCutoff: string;
+  sourceReceipts: AdDecisionHydrationReceipt[];
+  receiptQueryAvailable: boolean;
+  providerAccountIds: string[] | undefined;
+  adIds: string[] | undefined;
+  targetPack: BusinessTargetPack | null;
+  allowCurrentDimensionFallback: boolean;
+  presentAdStateSeeds: PresentAdStateSeedRow[];
+}): Promise<AdDecisionHydrationRow[]> {
+  const queryRows = async (queryInput: {
+    providerAccountIds: string[] | undefined;
+    adIds: string[] | undefined;
+    presentAdStateSeeds: PresentAdStateSeedRow[];
+  }) => {
+    try {
+      return await getDb().query<AdDecisionHydrationRow>(
+        HYDRATE_AD_DECISION_INPUTS_QUERY,
+        [
+          input.businessId,
+          input.asOf,
+          queryInput.providerAccountIds ?? [],
+          queryInput.providerAccountIds !== undefined,
+          queryInput.adIds ?? [],
+          queryInput.adIds !== undefined,
+          input.targetPack?.targetRoas ?? null,
+          input.targetPack?.breakEvenRoas ?? null,
+          input.targetPack?.updatedAt ?? null,
+          ENGINE_VERSION,
+          input.decisionCutoff,
+          input.allowCurrentDimensionFallback,
+          JSON.stringify(queryInput.presentAdStateSeeds),
+        ],
+      );
+    } catch (error) {
+      const accountScope = queryInput.providerAccountIds?.join(",") ?? "all";
+      throw new Error(
+        `Native ad hydration batch failed for ${accountScope} (${queryInput.adIds?.length ?? "unbounded"} identities): ${errorMessage(error)}`,
+      );
+    }
+  };
+  if (!input.receiptQueryAvailable || input.sourceReceipts.length === 0) {
+    return queryRows({
+      providerAccountIds: input.providerAccountIds,
+      adIds: input.adIds,
+      presentAdStateSeeds: input.presentAdStateSeeds,
+    });
+  }
+  const requestedAdIds =
+    input.adIds === undefined ? null : new Set(input.adIds);
+  const rows: AdDecisionHydrationRow[] = [];
+  for (const receipt of input.sourceReceipts) {
+    if (!receipt.sourceComplete && requestedAdIds === null) {
+      rows.push(
+        ...(await queryRows({
+          providerAccountIds: [receipt.providerAccountId],
+          adIds: undefined,
+          presentAdStateSeeds: input.presentAdStateSeeds.filter(
+            (seed) =>
+              toStringOrNull(seed.provider_account_ref_id) ===
+                receipt.providerAccountRefId &&
+              toStringOrNull(seed.provider_account_id) ===
+                receipt.providerAccountId,
+          ),
+        })),
+      );
+      continue;
+    }
+    const candidateAdIds = (
+      receipt.sourceComplete ? receipt.expectedAdIds : (input.adIds ?? [])
+    ).filter((adId) => requestedAdIds === null || requestedAdIds.has(adId));
+    for (const adIdBatch of chunkDecisionRows(candidateAdIds)) {
+      const batchIds = new Set(adIdBatch);
+      rows.push(
+        ...(await queryRows({
+          providerAccountIds: [receipt.providerAccountId],
+          adIds: adIdBatch,
+          presentAdStateSeeds: input.presentAdStateSeeds.filter(
+            (seed) =>
+              toStringOrNull(seed.provider_account_ref_id) ===
+                receipt.providerAccountRefId &&
+              toStringOrNull(seed.provider_account_id) ===
+                receipt.providerAccountId &&
+              batchIds.has(toStringOrNull(seed.ad_id) ?? ""),
+          ),
+        })),
+      );
+    }
+  }
+  return rows;
+}
+
 /**
  * Production warehouse implementation backed by meta_creative_daily and the
  * append-only business target history. The engine still consumes the same
@@ -4483,26 +4804,8 @@ export class WarehouseDataSource
       asOf,
       decisionCutoff,
     );
-    let presentAdStateSeeds: PresentAdStateSeedRow[] = [];
-    if (allowCurrentDimensionFallback) {
-      try {
-        presentAdStateSeeds = await getDb().query<PresentAdStateSeedRow>(
-          READ_PRESENT_AD_STATE_SEEDS_QUERY,
-          [
-            input.businessId,
-            decisionCutoff,
-            providerAccountIds ?? [],
-            providerAccountIds !== undefined,
-            adIds ?? [],
-            adIds !== undefined,
-          ],
-        );
-      } catch (error) {
-        if (!isUndefinedTableError(error)) throw error;
-      }
-    }
-
     let receiptRows: AdHydrationReceiptRow[] = [];
+    let receiptQueryAvailable = true;
     try {
       receiptRows = await getDb().query<AdHydrationReceiptRow>(
         READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
@@ -4516,40 +4819,46 @@ export class WarehouseDataSource
       );
     } catch (error) {
       if (!isUndefinedTableError(error)) throw error;
+      receiptQueryAvailable = false;
     }
-
-    const targetPack = await this.getBusinessTargetPack({
-      businessId: input.businessId,
-      asOf: decisionCutoff,
-    });
-    const rows = await getDb().query<AdDecisionHydrationRow>(
-      HYDRATE_AD_DECISION_INPUTS_QUERY,
-      [
-        input.businessId,
-        asOf,
-        providerAccountIds ?? [],
-        providerAccountIds !== undefined,
-        adIds ?? [],
-        adIds !== undefined,
-        targetPack?.targetRoas ?? null,
-        targetPack?.breakEvenRoas ?? null,
-        targetPack?.updatedAt ?? null,
-        ENGINE_VERSION,
-        decisionCutoff,
-        allowCurrentDimensionFallback,
-        JSON.stringify(presentAdStateSeeds),
-      ],
-    );
-    const mapped = rows.map((row) =>
-      mapAdDecisionHydrationRow({
+    const sourceReceipts = receiptRows.map((row) =>
+      mapAdHydrationSourceReceipt({
         row,
         businessId: input.businessId,
         asOf,
         decisionCutoff,
       }),
     );
-    const sourceReceipts = receiptRows.map((row) =>
-      mapAdHydrationSourceReceipt({
+    const presentStateHydration = allowCurrentDimensionFallback
+      ? await readPresentAdStateSeedsForHydration({
+          businessId: input.businessId,
+          decisionCutoff,
+          sourceReceipts,
+          receiptQueryAvailable,
+          providerAccountIds,
+          adIds,
+        })
+      : { seeds: [], stateRows: [] };
+    const presentAdStateSeeds = presentStateHydration.seeds;
+
+    const targetPack = await this.getBusinessTargetPack({
+      businessId: input.businessId,
+      asOf: decisionCutoff,
+    });
+    const rows = await readAdHydrationRowsInBatches({
+      businessId: input.businessId,
+      asOf,
+      decisionCutoff,
+      sourceReceipts,
+      receiptQueryAvailable,
+      providerAccountIds,
+      adIds,
+      targetPack,
+      allowCurrentDimensionFallback,
+      presentAdStateSeeds,
+    });
+    const mapped = rows.map((row) =>
+      mapAdDecisionHydrationRow({
         row,
         businessId: input.businessId,
         asOf,
@@ -4560,18 +4869,19 @@ export class WarehouseDataSource
       sourceReceipts
         .filter((receipt) => receipt.sourceComplete)
         .map((receipt) => [
-          receipt.providerAccountId,
+          `${receipt.providerAccountRefId}\u0000${receipt.providerAccountId}`,
           new Set(receipt.expectedAdIds),
         ]),
     );
     const mappedByIdentity = new Map<string, MappedAdDecisionInput>();
     for (const item of mapped) {
       const expected = completeExpectedByAccount.get(
-        item.input.providerAccountId,
+        `${item.input.providerAccountRefId}\u0000${item.input.providerAccountId}`,
       );
       if (expected && !expected.has(item.input.adId)) continue;
       const key = adDecisionIdentityKey({
         businessId: input.businessId,
+        providerAccountRefId: item.input.providerAccountRefId,
         providerAccountId: item.input.providerAccountId,
         adId: item.input.adId,
       });
@@ -4584,43 +4894,70 @@ export class WarehouseDataSource
     }
 
     const statesByIdentity = new Map<string, AdEntityStateRow>();
-    const adIdsByAccount = new Map<string, string[]>();
-    for (const item of mappedByIdentity.values()) {
-      const ids = adIdsByAccount.get(item.input.providerAccountId) ?? [];
-      ids.push(item.input.adId);
-      adIdsByAccount.set(item.input.providerAccountId, ids);
+    for (const state of presentStateHydration.stateRows) {
+      addAdEntityState(statesByIdentity, input.businessId, state);
     }
-    for (const [providerAccountId, accountAdIds] of Array.from(
-      adIdsByAccount.entries(),
-    ).sort(([left], [right]) => left.localeCompare(right))) {
+    const adIdsByAccount = new Map<
+      string,
+      {
+        providerAccountRefId: string;
+        providerAccountId: string;
+        adIds: string[];
+      }
+    >();
+    for (const item of mappedByIdentity.values()) {
+      const accountKey = `${item.input.providerAccountRefId}\u0000${item.input.providerAccountId}`;
+      const account = adIdsByAccount.get(accountKey) ?? {
+        providerAccountRefId: item.input.providerAccountRefId,
+        providerAccountId: item.input.providerAccountId,
+        adIds: [],
+      };
+      account.adIds.push(item.input.adId);
+      adIdsByAccount.set(accountKey, account);
+    }
+    for (const account of Array.from(adIdsByAccount.values()).sort(
+      (left, right) =>
+        left.providerAccountRefId.localeCompare(right.providerAccountRefId) ||
+        left.providerAccountId.localeCompare(right.providerAccountId),
+    )) {
+      const missingAdIds = Array.from(new Set(account.adIds))
+        .sort()
+        .filter(
+          (adId) =>
+            !statesByIdentity.has(
+              adDecisionIdentityKey({
+                businessId: input.businessId,
+                providerAccountRefId: account.providerAccountRefId,
+                providerAccountId: account.providerAccountId,
+                adId,
+              }),
+            ),
+        );
+      if (missingAdIds.length === 0) continue;
       let stateRows: AdEntityStateRow[];
       try {
-        stateRows = await getDb().query<AdEntityStateRow>(
-          READ_AD_ENTITY_STATE_AS_OF_QUERY,
-          [
-            input.businessId,
-            providerAccountId,
-            Array.from(new Set(accountAdIds)).sort(),
-            decisionCutoff,
-          ],
-        );
+        stateRows = await readAdEntityStatesInBatches({
+          businessId: input.businessId,
+          providerAccountRefId: account.providerAccountRefId,
+          providerAccountId: account.providerAccountId,
+          adIds: missingAdIds,
+          decisionCutoff,
+          sourceCapturedAt: null,
+        });
       } catch (error) {
         if (isUndefinedTableError(error)) continue;
         throw error;
       }
       for (const state of stateRows) {
-        const stateAccountId = toStringOrNull(state.provider_account_id);
-        const stateAdId = toStringOrNull(state.entity_id);
-        if (stateAccountId !== providerAccountId || stateAdId === null)
+        if (
+          toStringOrNull(state.provider_account_ref_id) !==
+            account.providerAccountRefId ||
+          toStringOrNull(state.provider_account_id) !==
+            account.providerAccountId
+        ) {
           continue;
-        statesByIdentity.set(
-          adDecisionIdentityKey({
-            businessId: input.businessId,
-            providerAccountId: stateAccountId,
-            adId: stateAdId,
-          }),
-          state,
-        );
+        }
+        addAdEntityState(statesByIdentity, input.businessId, state);
       }
     }
 

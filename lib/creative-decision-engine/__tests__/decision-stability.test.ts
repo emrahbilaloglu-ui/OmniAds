@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { DbClient } from "@/lib/db";
+import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
 import {
+  adDecisionStabilityKey,
   applyLabelHysteresis,
+  readPreviousPublishedAdLabels,
   stabilizeDecisionLabel,
   type PreviousPublishedLabel,
 } from "../decision-stability";
@@ -17,14 +21,154 @@ function runSequence(rawLabels: DecisionLabel[]): {
     const result = applyLabelHysteresis(raw, previous);
     published.push(result.publishedLabel);
     if (result.suppressed) suppressedDays.push(day);
-    previous = { publishedLabel: result.publishedLabel, rawLabel: result.rawLabel };
+    previous = {
+      publishedLabel: result.publishedLabel,
+      rawLabel: result.rawLabel,
+    };
   });
   return { published, suppressedDays };
 }
 
 describe("hard-label hysteresis (named live flip cases 2026-07-04..06)", () => {
+  it("keeps prior labels separate when an external account/ad identity is reused by another ref", async () => {
+    const businessId = "00000000-0000-4000-8000-000000000101";
+    const firstRef = "00000000-0000-4000-8000-000000000121";
+    const secondRef = "00000000-0000-4000-8000-000000000122";
+    const query = vi.fn(async () =>
+      [firstRef, secondRef].map((providerAccountRefId, index) => ({
+        source_snapshot_id: `00000000-0000-4000-8000-00000000020${index + 1}`,
+        provider_account_ref_id: providerAccountRefId,
+        provider_account_id: "act-reused",
+        decision_entity_type: "ad",
+        decision_entity_id: "ad-reused",
+        source_as_of_date: "2026-07-13",
+        source_computed_at: "2026-07-13T03:10:00.000Z",
+        source_engine_version: "engine-v3-native-ad.v1",
+        label: index === 0 ? "keep" : "diagnose",
+        raw_label: index === 0 ? "scale" : "diagnose",
+        source_evaluation_id: `00000000-0000-4000-8000-00000000021${index + 1}`,
+        source_input_hash: String(index + 1).repeat(64),
+        source_decision_hash: String(index + 3).repeat(64),
+      })),
+    );
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    const identities = [firstRef, secondRef].map((providerAccountRefId) => ({
+      providerAccountRefId,
+      providerAccountId: "act-reused",
+      decisionEntityType: "ad" as const,
+      decisionEntityId: "ad-reused",
+    }));
+
+    const result = await readPreviousPublishedAdLabels(
+      {
+        businessId,
+        asOf: "2026-07-14",
+        identities,
+        scopeType: "account",
+        scopeId: "act-reused",
+      },
+      db,
+    );
+
+    expect(result.size).toBe(2);
+    expect(
+      result.get(
+        adDecisionStabilityKey({
+          businessId,
+          providerAccountRefId: firstRef,
+          providerAccountId: "act-reused",
+          decisionEntityType: "ad",
+          decisionEntityId: "ad-reused",
+          scopeType: "account",
+          scopeId: "act-reused",
+        }),
+      ),
+    ).toMatchObject({ providerAccountRefId: firstRef, publishedLabel: "keep" });
+    expect(
+      result.get(
+        adDecisionStabilityKey({
+          businessId,
+          providerAccountRefId: secondRef,
+          providerAccountId: "act-reused",
+          decisionEntityType: "ad",
+          decisionEntityId: "ad-reused",
+          scopeType: "account",
+          scopeId: "act-reused",
+        }),
+      ),
+    ).toMatchObject({
+      providerAccountRefId: secondRef,
+      publishedLabel: "diagnose",
+    });
+  });
+
+  it("reads large native hysteresis identity sets in bounded batches", async () => {
+    const query = vi.fn(async (_query: string, params?: unknown[]) => {
+      const batch = JSON.parse(String(params?.[2])) as Array<{
+        provider_account_ref_id: string;
+        provider_account_id: string;
+        decision_entity_id: string;
+      }>;
+      if (batch.length !== 1) return [];
+      return [
+        {
+          source_snapshot_id: "00000000-0000-4000-8000-000000000201",
+          provider_account_ref_id: batch[0]!.provider_account_ref_id,
+          provider_account_id: batch[0]!.provider_account_id,
+          decision_entity_type: "ad",
+          decision_entity_id: batch[0]!.decision_entity_id,
+          source_as_of_date: "2026-07-13",
+          source_computed_at: "2026-07-13T03:10:00.000Z",
+          source_engine_version: "engine-v3-native-ad.v1",
+          label: "keep",
+          raw_label: "scale",
+          source_evaluation_id: "00000000-0000-4000-8000-000000000202",
+          source_input_hash: "a".repeat(64),
+          source_decision_hash: "b".repeat(64),
+        },
+      ];
+    });
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    const identities = Array.from(
+      { length: NATIVE_AD_DB_BATCH_SIZE + 1 },
+      (_, index) => ({
+        providerAccountRefId: "00000000-0000-4000-8000-000000000121",
+        providerAccountId: "act-1",
+        decisionEntityType: "ad" as const,
+        decisionEntityId: `ad-${index + 1}`,
+      }),
+    );
+
+    const result = await readPreviousPublishedAdLabels(
+      {
+        businessId: "00000000-0000-4000-8000-000000000101",
+        asOf: "2026-07-14",
+        identities,
+        scopeType: "account",
+        scopeId: "act-1",
+      },
+      db,
+    );
+    expect(result.size).toBe(1);
+    expect(Array.from(result.values())[0]).toMatchObject({
+      decisionEntityId: `ad-${NATIVE_AD_DB_BATCH_SIZE + 1}`,
+      publishedLabel: "keep",
+      rawLabel: "scale",
+    });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(
+      query.mock.calls.map(
+        ([, params]) => JSON.parse(String(params?.[2])).length,
+      ),
+    ).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+  });
+
   it("IwaStore 946471284944193: scale->keep->scale round trip is suppressed", () => {
-    const { published, suppressedDays } = runSequence(["scale", "keep", "scale"]);
+    const { published, suppressedDays } = runSequence([
+      "scale",
+      "keep",
+      "scale",
+    ]);
     expect(published).toEqual(["keep", "keep", "keep"]);
     expect(suppressedDays).toEqual([0, 2]);
   });
@@ -72,7 +216,10 @@ describe("hard-label hysteresis (named live flip cases 2026-07-04..06)", () => {
       publishedLabel: first.publishedLabel,
       rawLabel: first.rawLabel,
     });
-    expect([first.publishedLabel, second.publishedLabel]).toEqual(["keep", "cut"]);
+    expect([first.publishedLabel, second.publishedLabel]).toEqual([
+      "keep",
+      "cut",
+    ]);
   });
 
   it("publishes a safety diagnosis immediately instead of resurrecting the previous hard action", () => {
@@ -148,10 +295,13 @@ describe("stabilizeDecisionLabel", () => {
       preAuthorityLabel: "scale",
       reason: "Winner evidence supports promotion.",
     };
-    const { decision, rawLabel, suppressed } = stabilizeDecisionLabel(scaleDecision, {
-      publishedLabel: "keep",
-      rawLabel: "keep",
-    });
+    const { decision, rawLabel, suppressed } = stabilizeDecisionLabel(
+      scaleDecision,
+      {
+        publishedLabel: "keep",
+        rawLabel: "keep",
+      },
+    );
     expect(suppressed).toBe(true);
     expect(rawLabel).toBe("scale");
     expect(decision.label).toBe("keep");

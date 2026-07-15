@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DbClient } from "@/lib/db";
+import { NATIVE_AD_DB_BATCH_SIZE } from "../../batching";
 import type { CampaignContextLabelMap } from "../../campaign-context/source";
 import {
   AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
@@ -664,25 +665,31 @@ describe("native ad decision computation", () => {
       fakeDb([
         {
           id: "snapshot-ready",
+          provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
           provider_account_id: "act-1",
           decision_entity_type: "ad",
           decision_entity_id: "ad-ready",
+          scope_type: "account",
+          scope_id: "act-1",
           label: readyDecisions[0]!.decision.label,
           confidence: readyDecisions[0]!.decision.confidence,
         },
         {
           id: "snapshot-unready",
+          provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
           provider_account_id: "act-1",
           decision_entity_type: "ad",
           decision_entity_id: "ad-unready",
+          scope_type: "account",
+          scope_id: "act-1",
           label: "diagnose",
           confidence: 0,
         },
       ]),
     );
     expect(Array.from(persisted.keys()).sort()).toEqual([
-      "act-1:ad:ad-ready",
-      "act-1:ad:ad-unready",
+      `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-ready\u0000account\u0000act-1`,
+      `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-unready\u0000account\u0000act-1`,
     ]);
   });
 
@@ -984,21 +991,21 @@ describe("native ad decision computation", () => {
     });
     const previousSnapshots = new Map([
       [
-        "act-1:ad:ad-a",
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-a\u0000account\u0000${profile.scope.id}`,
         { id: "old-a", label: "diagnose" as const, confidence: 40 },
       ],
       [
-        "act-1:ad:ad-b",
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-b\u0000account\u0000${profile.scope.id}`,
         { id: "old-b", label: "diagnose" as const, confidence: 40 },
       ],
     ]);
     const currentSnapshots = new Map([
       [
-        "act-1:ad:ad-a",
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-a\u0000account\u0000${profile.scope.id}`,
         { id: "new-a", label: "keep" as const, confidence: 80 },
       ],
       [
-        "act-1:ad:ad-b",
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-b\u0000account\u0000${profile.scope.id}`,
         { id: "new-b", label: "keep" as const, confidence: 80 },
       ],
     ]);
@@ -1138,6 +1145,9 @@ describe("native ad producer persistence contract", () => {
       authoritativeReceiptCount: 1,
     });
     expect(completeDb.query).toHaveBeenCalledOnce();
+    expect(vi.mocked(completeDb.query).mock.calls[0]?.[1]?.[6]).toBe(
+      PROVIDER_ACCOUNT_REF_ID,
+    );
   });
 
   it("reconciles the full same-day identity set even when no change remains", async () => {
@@ -1181,6 +1191,84 @@ describe("native ad producer persistence contract", () => {
     );
   });
 
+  it("reconciles large same-day identity sets in bounded SQL batches", async () => {
+    const profile = makeAccountDecisionProfile({ asOfDate: AS_OF });
+    const decisions = computeNativeAdDecisions({
+      businessId: BUSINESS_ID,
+      profile,
+      dataHealth: makeDataHealth(),
+      adInputs: Array.from(
+        { length: NATIVE_AD_DB_BATCH_SIZE + 1 },
+        (_, index) =>
+          adInput({ adId: `ad-${index + 1}`, campaignId: "campaign-a" }),
+      ),
+      campaignContextMode: "legacy_labels",
+      campaignContextById: campaignContext(),
+      previousLabels: new Map(),
+      resolveDecision: (resolverInput) =>
+        hardScaleDecision({ creativeId: resolverInput.creativeId }),
+    });
+    const previousSnapshots = new Map(
+      decisions.map((decision, index) => [
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${decision.input.decisionEntityId}\u0000account\u0000${profile.scope.id}`,
+        {
+          id: `old-${index + 1}`,
+          label: "diagnose" as const,
+          confidence: 40,
+        },
+      ]),
+    );
+    const currentSnapshots = new Map(
+      decisions.map((decision, index) => [
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${decision.input.decisionEntityId}\u0000account\u0000${profile.scope.id}`,
+        {
+          id: `new-${index + 1}`,
+          label: "keep" as const,
+          confidence: 80,
+        },
+      ]),
+    );
+    const rows = buildNativeAdDecisionChangeEvents({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "job-1",
+      scope: profile.scope,
+      decisions,
+      previousSnapshots,
+      currentSnapshots,
+    });
+    const routedRowIds: string[] = [];
+    const query = vi.fn(async (_query: string, params?: unknown[]) => {
+      const routedRows = JSON.parse(String(params?.[0])) as Array<{
+        decision_entity_id: string;
+      }>;
+      routedRowIds.push(...routedRows.map((row) => row.decision_entity_id));
+      return routedRows.map((row) => ({ id: row.decision_entity_id }));
+    });
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+
+    await expect(
+      reconcileNativeAdDecisionChangeEvents(
+        {
+          businessId: BUSINESS_ID,
+          asOf: AS_OF,
+          scope: profile.scope,
+          decisions,
+          rows,
+        },
+        db,
+      ),
+    ).resolves.toBe(NATIVE_AD_DB_BATCH_SIZE + 1);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(
+      query.mock.calls.map(
+        ([, params]) => JSON.parse(String(params?.[1])).length,
+      ),
+    ).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+    expect(routedRowIds).toHaveLength(NATIVE_AD_DB_BATCH_SIZE + 1);
+    expect(routedRowIds.at(-1)).toBe(decisions.at(-1)?.input.decisionEntityId);
+  });
+
   it("fails the snapshot materialization when an evaluation link resolves no row", async () => {
     await expect(
       upsertNativeAdDecisionSnapshots([snapshotPayload()], fakeDb([])),
@@ -1189,13 +1277,93 @@ describe("native ad producer persistence contract", () => {
     );
   });
 
+  it("materializes large native snapshot sets in bounded SQL batches", async () => {
+    const batchSizes: number[] = [];
+    const query = vi.fn(async (_sql: string, params?: unknown[]) => {
+      const payload = JSON.parse(String(params?.[0])) as Array<
+        Record<string, unknown>
+      >;
+      batchSizes.push(payload.length);
+      return payload.map((row) => ({
+        id: `snapshot-${String(row.decision_entity_id)}`,
+        provider_account_ref_id: row.provider_account_ref_id,
+        provider_account_id: row.provider_account_id,
+        decision_entity_type: "ad",
+        decision_entity_id: row.decision_entity_id,
+        scope_type: row.scope_type,
+        scope_id: row.scope_id,
+        label: row.label,
+        confidence: row.confidence,
+      }));
+    });
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+    const rows = Array.from(
+      { length: NATIVE_AD_DB_BATCH_SIZE + 1 },
+      (_, index) => ({
+        ...snapshotPayload(),
+        decision_entity_id: `ad-${index + 1}`,
+        ad_id: `ad-${index + 1}`,
+      }),
+    );
+
+    const stored = await upsertNativeAdDecisionSnapshots(rows, db);
+
+    expect(batchSizes).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+    expect(stored.size).toBe(rows.length);
+  });
+
+  it("keeps snapshot identities distinct across provider references", async () => {
+    const secondProviderRefId = "00000000-0000-4000-8000-000000000741";
+    const rows = [
+      snapshotPayload(),
+      {
+        ...snapshotPayload(),
+        provider_account_ref_id: secondProviderRefId,
+      },
+    ];
+    const query = vi.fn(async (_sql: string, params?: unknown[]) => {
+      const payload = JSON.parse(String(params?.[0])) as Array<
+        Record<string, unknown>
+      >;
+      return payload.map((row, index) => ({
+        id: `snapshot-${index + 1}`,
+        provider_account_ref_id: row.provider_account_ref_id,
+        provider_account_id: row.provider_account_id,
+        decision_entity_type: row.decision_entity_type,
+        decision_entity_id: row.decision_entity_id,
+        scope_type: row.scope_type,
+        scope_id: row.scope_id,
+        label: row.label,
+        confidence: row.confidence,
+      }));
+    });
+    const db = Object.assign(vi.fn(), { query }) as unknown as DbClient;
+
+    const stored = await upsertNativeAdDecisionSnapshots(rows, db);
+
+    expect(stored.size).toBe(2);
+    expect(
+      stored.get(
+        `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-a\u0000account\u0000act-1`,
+      )?.id,
+    ).toBe("snapshot-1");
+    expect(
+      stored.get(
+        `${secondProviderRefId}\u0000act-1\u0000ad\u0000ad-a\u0000account\u0000act-1`,
+      )?.id,
+    ).toBe("snapshot-2");
+  });
+
   it("is same-row idempotent across same-day retry materialization", async () => {
     const db = fakeDb([
       {
         id: "snapshot-a",
+        provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
         provider_account_id: "act-1",
         decision_entity_type: "ad",
         decision_entity_id: "ad-a",
+        scope_type: "account",
+        scope_id: "act-1",
         label: "keep",
         confidence: 70,
       },
@@ -1210,8 +1378,9 @@ describe("native ad producer persistence contract", () => {
       db,
     );
 
-    expect(first.get("act-1:ad:ad-a")?.id).toBe("snapshot-a");
-    expect(second.get("act-1:ad:ad-a")?.id).toBe("snapshot-a");
+    const key = `${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000ad-a\u0000account\u0000act-1`;
+    expect(first.get(key)?.id).toBe("snapshot-a");
+    expect(second.get(key)?.id).toBe("snapshot-a");
     expect(db.query).toHaveBeenCalledTimes(2);
   });
 
@@ -1223,9 +1392,12 @@ describe("native ad producer persistence contract", () => {
     const db = fakeDb([
       {
         id: "snapshot-a",
+        provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
         provider_account_id: "act-1",
         decision_entity_type: "ad",
         decision_entity_id: "ad-a",
+        scope_type: "account",
+        scope_id: "act-1",
         label: "keep",
         confidence: 70,
       },
@@ -1277,6 +1449,15 @@ describe("native ad producer persistence contract", () => {
     expect(PRUNE_STALE_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).not.toContain(
       "creative_id = ANY",
     );
+    expect(PRUNE_STALE_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
+      "SELECT snapshot.id, snapshot.provider_account_ref_id",
+    );
+    expect(PRUNE_STALE_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
+      "snapshot.provider_account_ref_id = $7::uuid",
+    );
+    expect(PRUNE_STALE_NATIVE_AD_DECISION_SNAPSHOTS_QUERY).toContain(
+      "event.provider_account_ref_id = stale.provider_account_ref_id",
+    );
   });
 
   it("leaves the legacy producer source unchanged and separately callable", () => {
@@ -1310,10 +1491,13 @@ describe("native ad producer persistence contract", () => {
       "inspectEvaluationStoreSchemaCapability(db)",
     );
     const profileCapability = native.indexOf(
-      "inspectNativeAdProfileSchemaCapability(db)",
+      "options.inspectProfileSchema ?? inspectNativeAdProfileSchemaCapability",
     );
     const jobInsert = native.indexOf("const jobRunId = await insertAdJobRun");
-    const transaction = native.indexOf("return await runDbTransaction");
+    const transaction = native.indexOf("const transaction =", jobInsert);
+    const repeatableRead = native.indexOf(
+      "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+    );
     const savepoint = native.indexOf(
       "SAVEPOINT engine_v3_ad_decisions_job_work",
     );
@@ -1326,6 +1510,8 @@ describe("native ad producer persistence contract", () => {
     expect(capability).toBeGreaterThan(-1);
     expect(profileCapability).toBeGreaterThan(-1);
     expect(jobInsert).toBeLessThan(transaction);
+    expect(transaction).toBeLessThan(repeatableRead);
+    expect(repeatableRead).toBeLessThan(capability);
     expect(transaction).toBeLessThan(capability);
     expect(transaction).toBeLessThan(profileCapability);
     expect(capability).toBeLessThan(savepoint);

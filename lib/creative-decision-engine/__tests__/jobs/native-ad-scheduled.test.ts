@@ -16,6 +16,7 @@ import {
 import {
   hasReusableNativeCalibration,
   isZeroRowNativeDecisionSuccess,
+  listNativeAdMetaEligibleBusinessIds,
   READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL,
   readSuccessfulNativeJobs,
   runNativeAdShadowChainForActiveBusinessesIfDue,
@@ -89,6 +90,7 @@ function options(
     jobsDisabled: () => false,
     inspectSchema: async () => readySchema,
     listEnabledIds: async () => BUSINESSES.map((business) => business.id),
+    listMetaEligibleIds: async () => BUSINESSES.map((business) => business.id),
     readSuccessfulJobs: async () => new Map(),
     hasSuccessfulJob: async () => false,
     runCalibration: async () => calibrationResult(),
@@ -203,6 +205,67 @@ function nativeJobRow(input: {
 }
 
 describe("native ad shadow scheduled chain", () => {
+  it("runs only businesses with an assigned Meta account", async () => {
+    const db = {
+      query: vi.fn(async () => [{ business_id: BUSINESSES[0].id }]),
+    };
+    await expect(
+      listNativeAdMetaEligibleBusinessIds(
+        BUSINESSES.map((business) => business.id),
+        db as never,
+      ),
+    ).resolves.toEqual([BUSINESSES[0].id]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("binding.provider = 'meta'"),
+      [BUSINESSES.map((business) => business.id)],
+    );
+
+    const runCalibration = vi.fn(async () => calibrationResult());
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      BUSINESSES,
+      options({
+        listMetaEligibleIds: async () => [BUSINESSES[0].id],
+        runCalibration,
+      }),
+    );
+    expect(result.results?.map((business) => business.businessId)).toEqual([
+      BUSINESSES[0].id,
+    ]);
+    expect(runCalibration).toHaveBeenCalledOnce();
+  });
+
+  it("stops before history or jobs when no active business has a Meta assignment", async () => {
+    const readSuccessfulJobs = vi.fn(async () => new Map());
+    const hasSuccessfulJob = vi.fn(async () => false);
+    const runCalibration = vi.fn(async () => calibrationResult());
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      BUSINESSES,
+      options({
+        listMetaEligibleIds: async () => [],
+        readSuccessfulJobs,
+        hasSuccessfulJob,
+        runCalibration,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      skipped: true,
+      reason: "no_meta_businesses",
+    });
+    expect(readSuccessfulJobs).not.toHaveBeenCalled();
+    expect(hasSuccessfulJob).not.toHaveBeenCalled();
+    expect(runCalibration).not.toHaveBeenCalled();
+    expect(runDecisions).not.toHaveBeenCalled();
+    expect(runOperatorResponse).not.toHaveBeenCalled();
+  });
+
   it("honors the shared jobs kill switch before schema or business reads", async () => {
     const inspectSchema = vi.fn(async () => readySchema);
     const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
@@ -748,11 +811,7 @@ describe("native ad shadow scheduled chain", () => {
       "ad-operator-response-job.ts",
     ]) {
       const source = fs.readFileSync(
-        path.join(
-          process.cwd(),
-          "lib/creative-decision-engine/jobs",
-          file,
-        ),
+        path.join(process.cwd(), "lib/creative-decision-engine/jobs", file),
         "utf8",
       );
       expect(source).toMatch(

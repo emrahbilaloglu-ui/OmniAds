@@ -14,6 +14,7 @@ import {
   WarehouseDataSource,
   isPresentDayAdDecisionAsOf,
 } from "../data-source";
+import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000701";
 const HISTORICAL_AS_OF = "2026-07-10";
@@ -242,6 +243,63 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     );
   });
 
+  it("keeps reused external account/ad identities separate by provider account ref", async () => {
+    const firstRef = "00000000-0000-4000-8000-000000000711";
+    const secondRef = "00000000-0000-4000-8000-000000000712";
+    mocks.query.mockImplementation(
+      async (query: string, params?: unknown[]) => {
+        if (query.includes("ad-decision-present-state-seeds")) return [];
+        if (query.includes("ad-decision-hydration-receipts")) return [];
+        if (query.includes("ad-decision-hydration")) {
+          return [
+            hydrationRow({ provider_account_ref_id: firstRef }),
+            hydrationRow({ provider_account_ref_id: secondRef }),
+          ];
+        }
+        if (query.includes("ad-decision-state-asof")) {
+          const providerAccountRefId = String(params?.[1]);
+          return [
+            {
+              event_kind: "state",
+              id: `state-${providerAccountRefId}`,
+              provider_account_ref_id: providerAccountRefId,
+              provider_account_id: "act_account_1",
+              entity_id: "ad-1",
+              campaign_id: "campaign-1",
+              adset_id: "adset-1",
+              creative_id: "creative-shared",
+              configured_status: "ACTIVE",
+              effective_status: "ACTIVE",
+              observed_at: "2026-07-10T02:30:00.000Z",
+              captured_at: "2026-07-10T02:31:00.000Z",
+            },
+          ];
+        }
+        throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+      },
+    );
+    const warehouse = new WarehouseDataSource();
+    vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+    const result = await warehouse.listAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: HISTORICAL_AS_OF,
+      decisionCutoff: HISTORICAL_CUTOFF,
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((row) => row.providerAccountRefId).sort()).toEqual([
+      firstRef,
+      secondRef,
+    ]);
+    expect(
+      mocks.query.mock.calls
+        .filter(([query]) => String(query).includes("ad-decision-state-asof"))
+        .map(([, params]) => params?.[1])
+        .sort(),
+    ).toEqual([firstRef, secondRef]);
+  });
+
   it("does not drop a valid ad when creativeId is missing", async () => {
     const warehouse = warehouseWithRows({
       hydration: [
@@ -308,7 +366,7 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     const stateCall = mocks.query.mock.calls.find(([query]) =>
       String(query).includes("ad-decision-state-asof"),
     );
-    expect(stateCall?.[1]?.[3]).toBe(HISTORICAL_CUTOFF);
+    expect(stateCall?.[1]?.[4]).toBe(HISTORICAL_CUTOFF);
   });
 
   it("never treats current dimension state as historical truth", async () => {
@@ -390,6 +448,71 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
     ]);
   });
 
+  it("hydrates a complete large account manifest through bounded identity batches", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const cutoff = `${today}T12:00:00.000Z`;
+    const adIds = Array.from(
+      { length: NATIVE_AD_DB_BATCH_SIZE + 1 },
+      (_, index) => `ad-${index + 1}`,
+    );
+    const hydrationBatchSizes: number[] = [];
+    const stateBatchSizes: number[] = [];
+    mocks.query.mockImplementation(
+      async (query: string, params?: unknown[]) => {
+        if (query.includes("ad-decision-hydration-receipts")) {
+          return [receiptRow(adIds)];
+        }
+        if (query.includes("ad-decision-state-asof")) {
+          const batch = (params?.[3] ?? []) as string[];
+          stateBatchSizes.push(batch.length);
+          expect(params?.[1]).toBe("00000000-0000-4000-8000-000000000711");
+          expect(params?.[5]).toBe("2026-07-10T02:01:00.000Z");
+          return batch.map((adId) => ({
+            event_kind: "state",
+            id: `state-${adId}`,
+            provider_account_ref_id: "00000000-0000-4000-8000-000000000711",
+            provider_account_id: "act_account_1",
+            entity_id: adId,
+            campaign_id: "campaign-1",
+            adset_id: "adset-1",
+            creative_id: `creative-${adId}`,
+            configured_status: "ACTIVE",
+            effective_status: "ACTIVE",
+            observed_at: `${today}T02:30:00.000Z`,
+            captured_at: `${today}T02:31:00.000Z`,
+          }));
+        }
+        if (query.includes("ad-decision-hydration")) {
+          const batch = (params?.[4] ?? []) as string[];
+          hydrationBatchSizes.push(batch.length);
+          return batch.map((adId) =>
+            hydrationRow({
+              ad_id: adId,
+              creative_id: `creative-${adId}`,
+            }),
+          );
+        }
+        if (query.includes("ad-decision-present-state-seeds")) {
+          throw new Error("complete manifests must not scan all state history");
+        }
+        throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+      },
+    );
+    const warehouse = new WarehouseDataSource();
+    vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+    const result = await warehouse.hydrateAdDecisionInputs({
+      businessId: BUSINESS_ID,
+      asOf: today,
+      decisionCutoff: cutoff,
+    });
+
+    expect(result.inputs).toHaveLength(adIds.length);
+    expect(result.accountCoverageComplete).toBe(true);
+    expect(hydrationBatchSizes).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+    expect(stateBatchSizes).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+  });
+
   it("marks partial or count-mismatched source proof as non-authoritative", async () => {
     mocks.query.mockImplementation(async (query: string) => {
       if (query.includes("ad-decision-hydration-receipts")) {
@@ -420,6 +543,37 @@ describe("WarehouseDataSource native ad-grain hydration", () => {
       authoritativeForPrune: false,
     });
   });
+
+  it.each(["source_observed_at", "source_captured_at"])(
+    "fails source completeness closed when %s is missing",
+    async (missingTimestamp) => {
+      mocks.query.mockImplementation(async (query: string) => {
+        if (query.includes("ad-decision-hydration-receipts")) {
+          return [receiptRow(["ad-1"], { [missingTimestamp]: null })];
+        }
+        if (query.includes("ad-decision-present-state-seeds")) return [];
+        if (query.includes("ad-decision-hydration")) return [hydrationRow()];
+        if (query.includes("ad-decision-state-asof")) return [];
+        throw new Error(`Unexpected query: ${query.slice(0, 80)}`);
+      });
+      const warehouse = new WarehouseDataSource();
+      vi.spyOn(warehouse, "getBusinessTargetPack").mockResolvedValue(null);
+
+      const result = await warehouse.hydrateAdDecisionInputs({
+        businessId: BUSINESS_ID,
+        asOf: HISTORICAL_AS_OF,
+        decisionCutoff: HISTORICAL_CUTOFF,
+      });
+
+      expect(result.inputs).toHaveLength(1);
+      expect(result.accountCoverageComplete).toBe(false);
+      expect(result.receipts[0]).toMatchObject({
+        sourceComplete: false,
+        hydrationComplete: false,
+        authoritativeForPrune: false,
+      });
+    },
+  );
 
   it("allows current dimension status only for present-day runtime", async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -691,10 +845,16 @@ describe("native ad hydration SQL contract", () => {
 
   it("requires state observations and captures to precede the decision cutoff", () => {
     expect(READ_AD_ENTITY_STATE_AS_OF_QUERY).toContain(
-      "observed_at <= $4::timestamptz",
+      "observed_at <= $5::timestamptz",
     );
     expect(READ_AD_ENTITY_STATE_AS_OF_QUERY).toContain(
-      "captured_at <= $4::timestamptz",
+      "captured_at <= $5::timestamptz",
+    );
+    expect(READ_AD_ENTITY_STATE_AS_OF_QUERY).toContain(
+      "provider_account_ref_id = $2::uuid",
+    );
+    expect(READ_AD_ENTITY_STATE_AS_OF_QUERY).toContain(
+      "captured_at >= $6::timestamptz",
     );
     expect(READ_AD_ENTITY_STATE_AS_OF_QUERY).toContain(
       "business_ref_id = $1::uuid",

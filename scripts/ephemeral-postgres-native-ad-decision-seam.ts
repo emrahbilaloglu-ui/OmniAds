@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 import { Client } from "pg";
 
-import type { DbClient } from "@/lib/db";
+import { resetDbClientCache, type DbClient } from "@/lib/db";
 import {
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
   NATIVE_AD_DECISION_SCHEMA_SQL,
@@ -16,7 +16,9 @@ import {
   HYDRATE_AD_DECISION_INPUTS_QUERY,
   READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
   READ_AD_ENTITY_STATE_AS_OF_QUERY,
+  WarehouseDataSource,
   hashAdDecisionIdentityManifest,
+  type AdDecisionHydrationResult,
   type AdDecisionHydrationReceipt,
 } from "@/lib/creative-decision-engine/data-source";
 import {
@@ -27,12 +29,18 @@ import { AD_CALIBRATION_JOB_NAME } from "@/lib/creative-decision-engine/jobs/ad-
 import {
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
+  runAdDecisionsJob,
   upsertNativeAdDecisionSnapshots,
+  type AdDecisionsJobRuntimeOptions,
   type NativeDecisionChangeEventPayloadRow,
   type NativeSnapshotPayloadRow,
 } from "@/lib/creative-decision-engine/jobs/ad-decisions-job";
 import { hasReusableNativeCalibration } from "@/lib/creative-decision-engine/jobs/native-ad-scheduled";
-import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import type { EngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
+import {
+  NATIVE_AD_ENGINE_VERSION,
+  type AdDecisionInput,
+} from "@/lib/creative-decision-engine/types";
 
 const FORBIDDEN_PORTS = new Set([5432, 15432]);
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000901";
@@ -165,16 +173,28 @@ async function createBaseSchema(client: Client) {
       UNIQUE (business_id, provider_account_ref_id, provider_account_id)
     );
     CREATE TABLE engine_v3_job_runs (
-      id UUID PRIMARY KEY,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       job_name TEXT NOT NULL,
       business_ref_id UUID NOT NULL,
       business_id TEXT,
       as_of_date DATE NOT NULL,
       engine_version TEXT NOT NULL,
       status TEXT NOT NULL,
+      dependency_run_id UUID REFERENCES engine_v3_job_runs(id) ON DELETE SET NULL,
       started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       finished_at TIMESTAMPTZ,
-      error_json JSONB
+      duration_ms INTEGER,
+      row_count INTEGER,
+      source_min_date DATE,
+      source_max_date DATE,
+      source_max_updated_at TIMESTAMPTZ,
+      input_hash TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      error_code TEXT,
+      error_message TEXT,
+      error_json JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE TABLE engine_v3_ad_account_calibration_daily (
       id UUID PRIMARY KEY,
@@ -552,6 +572,520 @@ async function verifyHydrationReceiptCaptureAxis(client: Client) {
   );
 }
 
+interface GenerationBoundLargeManifestFixture {
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  asOf: string;
+  inputs: AdDecisionInput[];
+}
+
+async function verifyGenerationBoundLargeManifestHydration(
+  client: Client,
+): Promise<GenerationBoundLargeManifestFixture> {
+  const businessId = "00000000-0000-4000-8000-000000000990";
+  const providerAccountRefId = "00000000-0000-4000-8000-000000000991";
+  const providerAccountId = "act_generation_bound_scale";
+  const sourceRunId = "00000000-0000-4000-8000-000000000992";
+  const asOf = new Date().toISOString().slice(0, 10);
+  const decisionCutoff = `${asOf}T12:00:00.000Z`;
+  const sourceObservedAt = `${asOf}T03:00:00.000Z`;
+  const sourceCapturedAt = `${asOf}T03:00:05.000Z`;
+  const preGenerationTombstoneAt = `${asOf}T02:30:00.000Z`;
+  const expectedAdCount = 501;
+  const reappearedAdId = "ad-scale-0001";
+
+  await client.query(`INSERT INTO businesses (id) VALUES ($1)`, [businessId]);
+  await client.query(
+    `INSERT INTO provider_accounts (
+       id, provider, external_account_id, timezone, currency
+     ) VALUES ($1, 'meta', $2, 'UTC', 'USD')`,
+    [providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO business_provider_accounts (
+       business_id, provider, provider_account_ref_id, provider_account_id
+     ) VALUES ($1, 'meta', $2, $3)`,
+    [businessId, providerAccountRefId, providerAccountId],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_observation_runs (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, endpoint, observed_at, captured_at,
+       completeness, page_count, row_count, payload_hash, run_hash, created_at
+     ) VALUES (
+       $1, $2::uuid, $2::text, $3, $4, 'ad', 'ad_configs', $5, $6,
+       'complete', 2, $7, $8, $9, $6
+     )`,
+    [
+      sourceRunId,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      sourceObservedAt,
+      sourceCapturedAt,
+      expectedAdCount,
+      "1".repeat(64),
+      "2".repeat(64),
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_state_history (
+       run_id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, entity_id, entity_name, campaign_id,
+       adset_id, creative_id, configured_status, effective_status,
+       observed_at, captured_at, created_at, run_completeness, presence
+     )
+     SELECT
+       $1::uuid,
+       $2::uuid,
+       $2::text,
+       $3::uuid,
+       $4,
+       'ad',
+       'ad-scale-' || LPAD(sequence::text, 4, '0'),
+       'Scale ad ' || sequence,
+       'campaign-scale',
+       'adset-scale',
+       'creative-scale-' || LPAD(sequence::text, 4, '0'),
+       'ACTIVE',
+       'ACTIVE',
+       CASE
+         WHEN sequence = 1 THEN '2000-01-01T00:00:00.000Z'::timestamptz
+         ELSE $5::timestamptz
+       END,
+       $6::timestamptz,
+       $6::timestamptz,
+       'complete',
+       'present'
+     FROM generate_series(1, $7::integer) AS sequence`,
+    [
+      sourceRunId,
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      sourceObservedAt,
+      sourceCapturedAt,
+      expectedAdCount,
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_entity_tombstones (
+       business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, entity_id, reason,
+       observed_at, captured_at, created_at
+     ) VALUES (
+       $1::uuid, $1::text, $2, $3, 'ad', $4, 'explicit_not_found',
+       $5, $5, $5
+     )`,
+    [
+      businessId,
+      providerAccountRefId,
+      providerAccountId,
+      reappearedAdId,
+      preGenerationTombstoneAt,
+    ],
+  );
+  await client.query(
+    `INSERT INTO meta_ad_dimensions (
+       business_id, provider_account_id, ad_id, ad_name_current, creative_id,
+       campaign_id, adset_id, ad_status, first_seen_at, last_seen_at,
+       created_at, updated_at
+     )
+     SELECT
+       $1,
+       $2,
+       'ad-scale-' || LPAD(sequence::text, 4, '0'),
+       'Scale ad ' || sequence,
+       'creative-scale-' || LPAD(sequence::text, 4, '0'),
+       'campaign-scale',
+       'adset-scale',
+       'ACTIVE',
+       $3::timestamptz,
+       $3::timestamptz,
+       $3::timestamptz,
+       $3::timestamptz
+     FROM generate_series(1, $4::integer) AS sequence`,
+    [businessId, providerAccountId, sourceCapturedAt, expectedAdCount],
+  );
+
+  const result = await new WarehouseDataSource().hydrateAdDecisionInputs({
+    businessId,
+    asOf,
+    decisionCutoff,
+    providerAccountIds: [providerAccountId],
+  });
+  const reappeared = result.inputs.find((row) => row.adId === reappearedAdId);
+  assert(
+    result.inputs.length === expectedAdCount,
+    `Complete 501-row manifest hydrated ${result.inputs.length} rows.`,
+  );
+  assert(
+    result.accountCoverageComplete &&
+      result.receipts.length === 1 &&
+      result.receipts[0]?.expectedAdCount === expectedAdCount &&
+      result.receipts[0]?.hydratedAdCount === expectedAdCount &&
+      result.receipts[0]?.authoritativeForPrune === true,
+    "Complete 501-row manifest did not retain authoritative hydration proof.",
+  );
+  assert(
+    reappeared?.effectiveStatus === "ACTIVE" &&
+      reappeared.statusEvidence.source === "entity_state_history" &&
+      reappeared.statusEvidence.capturedAt ===
+        new Date(sourceCapturedAt).toISOString(),
+    "A pre-generation tombstone overrode the current complete-run state.",
+  );
+  return {
+    businessId,
+    providerAccountRefId,
+    providerAccountId,
+    asOf,
+    inputs: result.inputs,
+  };
+}
+
+function rollbackJobInputs(
+  fixture: GenerationBoundLargeManifestFixture,
+  mode: "baseline" | "non_purchase",
+): AdDecisionInput[] {
+  const contextReady = mode === "non_purchase";
+  return fixture.inputs.map((row) => ({
+    ...row,
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    campaignId: null,
+    adsetId: null,
+    creativeId: null,
+    objective: contextReady ? "OUTCOME_TRAFFIC" : null,
+    effectiveCohort: contextReady ? "traffic" : null,
+    optimizationGoal: contextReady ? "LINK_CLICKS" : null,
+    customEventType: null,
+    contextGrain: {
+      providerAccountCount: 1,
+      campaignCount: 0,
+      adsetCount: 0,
+      optimizationContextCount: contextReady ? 1 : 0,
+      objectiveCount: contextReady ? 1 : 0,
+      contextIdentityUnknown: !contextReady,
+    },
+    creativeEvidence: {
+      sourceLifecycleRowId: null,
+      sourceAsOfDate: null,
+      sourceComputedAt: null,
+      sourceMaxUpdatedAt: null,
+      lifecyclePosition: null,
+      daysSincePeak: null,
+      peakRoas30d: null,
+      peakConfidence: null,
+      spendTrajectory30d: null,
+      spendSlope7d: null,
+      spendSlope30d: null,
+      roasSlope7d: null,
+      roasSlope30d: null,
+      fatigueStatus: null,
+      qualityRanking: null,
+      engagementRateRanking: null,
+      conversionRateRanking: null,
+      creativeFormat: null,
+    },
+  }));
+}
+
+function rollbackJobHydration(input: {
+  fixture: GenerationBoundLargeManifestFixture;
+  inputs: AdDecisionInput[];
+  asOf: string;
+  decisionCutoff: string;
+}): AdDecisionHydrationResult {
+  const expectedAdIds = input.inputs.map((row) => row.adId).sort();
+  const manifestHash = hashAdDecisionIdentityManifest({
+    businessId: input.fixture.businessId,
+    providerAccountId: input.fixture.providerAccountId,
+    asOfDate: input.asOf,
+    adIds: expectedAdIds,
+  });
+  const sourceTimestamp = `${input.asOf}T00:00:00.000Z`;
+  return {
+    inputs: input.inputs,
+    receipts: [
+      {
+        contractVersion: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+        businessId: input.fixture.businessId,
+        providerAccountRefId: input.fixture.providerAccountRefId,
+        providerAccountId: input.fixture.providerAccountId,
+        scopeType: "account",
+        scopeId: input.fixture.providerAccountId,
+        asOfDate: input.asOf,
+        decisionCutoff: input.decisionCutoff,
+        sourceRunId: "00000000-0000-4000-8000-000000000993",
+        sourceObservedAt: sourceTimestamp,
+        sourceCapturedAt: sourceTimestamp,
+        sourceRunHash: "3".repeat(64),
+        sourcePayloadHash: "4".repeat(64),
+        sourceExpectedRowCount: expectedAdIds.length,
+        sourcePersistedRowCount: expectedAdIds.length,
+        expectedAdCount: expectedAdIds.length,
+        expectedAdIds,
+        expectedManifestHash: manifestHash,
+        hydratedAdCount: expectedAdIds.length,
+        hydratedManifestHash: manifestHash,
+        sourceComplete: true,
+        hydrationComplete: true,
+        authoritativeForPrune: true,
+        reason: null,
+      },
+    ],
+    accountCoverageComplete: true,
+  };
+}
+
+async function verifyRunAdDecisionsJobSecondEventBatchRollback(
+  client: Client,
+  fixture: GenerationBoundLargeManifestFixture,
+) {
+  const db = dbClient(client);
+  const currentAsOf = fixture.asOf;
+  const baselineDate = new Date(`${currentAsOf}T00:00:00.000Z`);
+  baselineDate.setUTCDate(baselineDate.getUTCDate() - 1);
+  const baselineAsOf = baselineDate.toISOString().slice(0, 10);
+  const baselineInputs = rollbackJobInputs(fixture, "baseline");
+  const currentInputs = rollbackJobInputs(fixture, "non_purchase");
+  assert(
+    baselineInputs.length === 501 && currentInputs.length === 501,
+    "Rollback seam requires exactly 501 native ad inputs.",
+  );
+
+  const dataSource: Pick<WarehouseDataSource, "hydrateAdDecisionInputs"> = {
+    async hydrateAdDecisionInputs(input) {
+      const inputs =
+        input.asOf === baselineAsOf
+          ? baselineInputs
+          : input.asOf === currentAsOf
+            ? currentInputs
+            : null;
+      if (inputs === null) {
+        throw new Error(`Unexpected rollback seam asOf ${input.asOf}.`);
+      }
+      return rollbackJobHydration({
+        fixture,
+        inputs,
+        asOf: input.asOf,
+        decisionCutoff: input.decisionCutoff,
+      });
+    },
+  };
+  const flags: EngineV3Flags = {
+    businessId: fixture.businessId,
+    enabled: true,
+    surfaceVisible: false,
+    shadowOnly: true,
+    presetOverride: null,
+    source: {
+      enabled: "env",
+      surfaceVisible: "env",
+      shadowOnly: "env",
+      presetOverride: null,
+    },
+    envDefaults: {
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: true,
+    },
+  };
+  const transaction = async <T>(fn: () => Promise<T>) => {
+    await client.query("BEGIN");
+    try {
+      const result = await fn();
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+  };
+  const options: AdDecisionsJobRuntimeOptions = {
+    db,
+    transaction,
+    businessGuard: async () => null,
+    resolveFlags: async () => flags,
+    dataSource,
+    inspectProfileSchema: async () => ({ ready: true, missing: [] }),
+  };
+
+  const baseline = await runAdDecisionsJob(
+    { businessId: fixture.businessId, asOf: baselineAsOf },
+    options,
+  );
+  assert(
+    baseline.status === "success" &&
+      baseline.snapshotsWritten === 501 &&
+      baseline.changeEventsWritten === 0,
+    `Rollback baseline job failed: ${baseline.errorMessage ?? baseline.status}.`,
+  );
+  const baselineRows = await client.query<{
+    snapshot_count: string;
+    diagnose_count: string;
+  }>(
+    `SELECT
+       COUNT(*)::text AS snapshot_count,
+       COUNT(*) FILTER (WHERE label = 'diagnose')::text AS diagnose_count
+     FROM engine_v3_ad_decision_snapshots_daily
+     WHERE job_run_id = $1::uuid`,
+    [baseline.jobRunId],
+  );
+  assert(
+    baselineRows.rows[0]?.snapshot_count === "501" &&
+      baselineRows.rows[0]?.diagnose_count === "501",
+    "Rollback baseline did not persist 501 diagnose snapshots.",
+  );
+
+  await client.query(`
+    CREATE SEQUENCE native_ad_rollback_event_attempt_seq;
+    CREATE SEQUENCE native_ad_rollback_event_statement_seq;
+    CREATE FUNCTION native_ad_count_event_insert_statements()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      PERFORM nextval('native_ad_rollback_event_statement_seq');
+      RETURN NULL;
+    END
+    $$;
+    CREATE FUNCTION native_ad_fail_second_event_batch()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      PERFORM nextval('native_ad_rollback_event_attempt_seq');
+      IF NEW.decision_entity_id = 'ad-scale-0501' THEN
+        RAISE EXCEPTION USING
+          ERRCODE = 'P0001',
+          MESSAGE = 'forced native-ad second event batch failure';
+      END IF;
+      RETURN NEW;
+    END
+    $$;
+    CREATE TRIGGER native_ad_fail_second_event_batch_trigger
+    BEFORE INSERT ON engine_v3_ad_decision_events
+    FOR EACH ROW EXECUTE FUNCTION native_ad_fail_second_event_batch();
+    CREATE TRIGGER native_ad_count_event_insert_statements_trigger
+    BEFORE INSERT ON engine_v3_ad_decision_events
+    FOR EACH STATEMENT EXECUTE FUNCTION native_ad_count_event_insert_statements();
+  `);
+
+  const failed = await runAdDecisionsJob(
+    { businessId: fixture.businessId, asOf: currentAsOf },
+    options,
+  );
+  assert(
+    failed.status === "failed" &&
+      failed.snapshotsWritten === 0 &&
+      failed.changeEventsWritten === 0 &&
+      failed.errorMessage?.includes(
+        "forced native-ad second event batch failure",
+      ),
+    `Second event batch did not fail closed: ${failed.errorMessage ?? failed.status}.`,
+  );
+
+  const attemptSequence = await client.query<{
+    last_value: string;
+    is_called: boolean;
+  }>(
+    `SELECT last_value::text AS last_value, is_called
+     FROM native_ad_rollback_event_attempt_seq`,
+  );
+  assert(
+    attemptSequence.rows[0]?.is_called === true &&
+      attemptSequence.rows[0]?.last_value === "501",
+    "The forced failure did not occur after the first 500-row event batch.",
+  );
+
+  const statementSequence = await client.query<{
+    last_value: string;
+    is_called: boolean;
+  }>(
+    `SELECT last_value::text AS last_value, is_called
+     FROM native_ad_rollback_event_statement_seq`,
+  );
+  assert(
+    statementSequence.rows[0]?.is_called === true &&
+      statementSequence.rows[0]?.last_value === "2",
+    "The rollback seam did not execute distinct 500-row and 1-row event batches.",
+  );
+
+  const failedRun = await client.query<{
+    status: string;
+    row_count: number | null;
+    error_message: string | null;
+  }>(
+    `SELECT status, row_count, error_message
+     FROM engine_v3_job_runs
+     WHERE id = $1::uuid`,
+    [failed.jobRunId],
+  );
+  assert(
+    failedRun.rows[0]?.status === "failed" &&
+      failedRun.rows[0]?.row_count === 0 &&
+      failedRun.rows[0]?.error_message?.includes(
+        "forced native-ad second event batch failure",
+      ),
+    "The failed native ad job attempt was not committed durably.",
+  );
+
+  const failedWrites = await client.query<{
+    context_count: string;
+    evaluation_count: string;
+    snapshot_count: string;
+    event_count: string;
+  }>(
+    `SELECT
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_evaluation_contexts
+        WHERE job_run_id = $1::uuid) AS context_count,
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_evaluations
+        WHERE job_run_id = $1::uuid) AS evaluation_count,
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_snapshots_daily
+        WHERE job_run_id = $1::uuid) AS snapshot_count,
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_events
+        WHERE job_run_id = $1::uuid) AS event_count`,
+    [failed.jobRunId],
+  );
+  assert(
+    failedWrites.rows[0]?.context_count === "0" &&
+      failedWrites.rows[0]?.evaluation_count === "0" &&
+      failedWrites.rows[0]?.snapshot_count === "0" &&
+      failedWrites.rows[0]?.event_count === "0",
+    "Savepoint rollback left failed-job native authority writes behind.",
+  );
+
+  const dayAndBaselineCounts = await client.query<{
+    failed_day_snapshot_count: string;
+    failed_day_event_count: string;
+    retained_baseline_count: string;
+  }>(
+    `SELECT
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_snapshots_daily
+        WHERE business_ref_id = $1::uuid
+          AND as_of_date = $2::date
+          AND decision_entity_id LIKE 'ad-scale-%') AS failed_day_snapshot_count,
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_events
+        WHERE business_ref_id = $1::uuid
+          AND event_date = $2::date
+          AND decision_entity_id LIKE 'ad-scale-%') AS failed_day_event_count,
+       (SELECT COUNT(*)::text
+        FROM engine_v3_ad_decision_snapshots_daily
+        WHERE job_run_id = $3::uuid) AS retained_baseline_count`,
+    [fixture.businessId, currentAsOf, baseline.jobRunId],
+  );
+  assert(
+    dayAndBaselineCounts.rows[0]?.failed_day_snapshot_count === "0" &&
+      dayAndBaselineCounts.rows[0]?.failed_day_event_count === "0" &&
+      dayAndBaselineCounts.rows[0]?.retained_baseline_count === "501",
+    "Rollback either leaked current-day authority or damaged the baseline.",
+  );
+}
+
 async function verifyTombstoneAndHistoricalCutoff(client: Client) {
   await client.query(
     `INSERT INTO meta_entity_state_history (
@@ -574,7 +1108,14 @@ async function verifyTombstoneAndHistoricalCutoff(client: Client) {
   );
   const tombstone = await client.query<{ event_kind: string }>(
     READ_AD_ENTITY_STATE_AS_OF_QUERY,
-    [BUSINESS_ID, ACCOUNT_ID, ["ad-tombstone"], CUTOFF],
+    [
+      BUSINESS_ID,
+      ACCOUNT_REF_ID,
+      ACCOUNT_ID,
+      ["ad-tombstone"],
+      CUTOFF,
+      `${AS_OF}T02:00:00.000Z`,
+    ],
   );
   assert(
     tombstone.rows[0]?.event_kind === "tombstone",
@@ -1098,7 +1639,11 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     ],
     db,
   );
-  const snapshotId = firstSnapshots.get(`${ACCOUNT_ID}:ad:ad-retry`)!.id;
+  const snapshotId = firstSnapshots.get(
+    [ACCOUNT_REF_ID, ACCOUNT_ID, "ad", "ad-retry", "account", ACCOUNT_ID].join(
+      "\u0000",
+    ),
+  )!.id;
   await reconcileNativeAdDecisionChangeEvents(
     {
       businessId: BUSINESS_ID,
@@ -1344,11 +1889,17 @@ async function runSeam(client: Client) {
     `Exact native schema capability failed: ${capability.missing.join(", ")}`,
   );
   await verifyHydrationReceiptCaptureAxis(client);
+  const largeManifestFixture =
+    await verifyGenerationBoundLargeManifestHydration(client);
   await verifyTombstoneAndHistoricalCutoff(client);
   await verifyCurrentIdentityAndConfigFallback(client);
   await verifyFirstWriteEvaluationLinkage(client);
   await verifyPruneRetryAndConstraints(client, db);
   await verifyCalibrationReuseAccountIdentity(client, db);
+  await verifyRunAdDecisionsJobSecondEventBatchRollback(
+    client,
+    largeManifestFixture,
+  );
 }
 
 async function main() {
@@ -1395,17 +1946,19 @@ async function main() {
       ],
       "createdb",
     );
-    const client = new Client({
-      connectionString: `postgresql://postgres@127.0.0.1:${port}/native_ad_seam`,
-    });
+    const connectionString = `postgresql://postgres@127.0.0.1:${port}/native_ad_seam`;
+    process.env.DATABASE_URL = connectionString;
+    resetDbClientCache();
+    const client = new Client({ connectionString });
     await client.connect();
     try {
       await runSeam(client);
     } finally {
       await client.end();
+      resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis receipt, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
     );
   } finally {
     if (started) {

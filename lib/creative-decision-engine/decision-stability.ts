@@ -7,7 +7,8 @@
 // direct hard-to-hard switch publishes a neutral pending state for one
 // evaluation. The raw label is persisted alongside the published label so the
 // confirmation rule has one evaluation of memory.
-import { getDb } from "@/lib/db";
+import { getDb, type DbClient } from "@/lib/db";
+import { chunkDecisionRows } from "./batching";
 import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "./types";
 import type {
   AdDecisionOutput,
@@ -176,6 +177,7 @@ WITH identities AS (
   )
 )
 SELECT DISTINCT ON (
+  snapshot.provider_account_ref_id,
   snapshot.provider_account_id,
   snapshot.decision_entity_type,
   snapshot.decision_entity_id
@@ -220,6 +222,7 @@ WHERE snapshot.business_ref_id = $1::uuid
   AND snapshot.scope_type = $5
   AND snapshot.scope_id = $6
 ORDER BY
+  snapshot.provider_account_ref_id,
   snapshot.provider_account_id,
   snapshot.decision_entity_type,
   snapshot.decision_entity_id,
@@ -228,23 +231,26 @@ ORDER BY
   snapshot.id DESC
 `;
 
-export async function readPreviousPublishedAdLabels(input: {
-  businessId: string;
-  asOf: string;
-  identities: AdDecisionStabilityIdentity[];
-  scopeType?: "account" | "campaign";
-  scopeId?: string;
-}): Promise<Map<string, PreviousAdPublishedLabel>> {
+export async function readPreviousPublishedAdLabels(
+  input: {
+    businessId: string;
+    asOf: string;
+    identities: AdDecisionStabilityIdentity[];
+    scopeType?: "account" | "campaign";
+    scopeId?: string;
+  },
+  db: DbClient = getDb(),
+): Promise<Map<string, PreviousAdPublishedLabel>> {
   if (input.identities.length === 0) return new Map();
   const scopeType = input.scopeType ?? "account";
   const scopeId = input.scopeId ?? "*";
-  const rows = await getDb().query<Row>(
-    READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY,
-    [
+  const map = new Map<string, PreviousAdPublishedLabel>();
+  for (const identityBatch of chunkDecisionRows(input.identities)) {
+    const rows = await db.query<Row>(READ_PREVIOUS_PUBLISHED_AD_LABELS_QUERY, [
       input.businessId,
       NATIVE_AD_ENGINE_VERSION,
       JSON.stringify(
-        input.identities.map((identity) => ({
+        identityBatch.map((identity) => ({
           provider_account_id: identity.providerAccountId,
           provider_account_ref_id: identity.providerAccountRefId,
           decision_entity_type: identity.decisionEntityType,
@@ -254,56 +260,53 @@ export async function readPreviousPublishedAdLabels(input: {
       input.asOf,
       scopeType,
       scopeId,
-    ],
-  );
-  const map = new Map<string, PreviousAdPublishedLabel>();
-  for (const row of rows) {
-    const providerAccountId = requiredText(row.provider_account_id);
-    const providerAccountRefId = requiredText(row.provider_account_ref_id);
-    const decisionEntityId = requiredText(row.decision_entity_id);
-    const sourceSnapshotId = requiredText(row.source_snapshot_id);
-    const sourceEvaluationId = requiredText(row.source_evaluation_id);
-    const sourceEngineVersion = requiredText(row.source_engine_version);
-    const sourceAsOfDate = requiredText(row.source_as_of_date);
-    const sourceComputedAt = requiredText(row.source_computed_at);
-    const sourceInputHash = requiredText(row.source_input_hash);
-    const sourceDecisionHash = requiredText(row.source_decision_hash);
-    const label = toPersistedDecisionLabel(row.label);
-    const rawLabel = toPersistedDecisionLabel(row.raw_label);
-    if (
-      providerAccountId === null ||
-      providerAccountRefId === null ||
-      decisionEntityId === null ||
-      sourceSnapshotId === null ||
-      sourceEvaluationId === null ||
-      sourceEngineVersion === null ||
-      sourceAsOfDate === null ||
-      sourceComputedAt === null ||
-      sourceInputHash === null ||
-      sourceDecisionHash === null ||
-      label === null ||
-      row.decision_entity_type !== "ad"
-    ) {
-      throw new Error("Persisted ad hysteresis lineage is incomplete.");
-    }
-    const value: PreviousAdPublishedLabel = {
-      businessId: input.businessId,
-      providerAccountRefId,
-      providerAccountId,
-      decisionEntityType: "ad",
-      decisionEntityId,
-      sourceSnapshotId,
-      sourceEvaluationId,
-      sourceEngineVersion,
-      sourceAsOfDate,
-      sourceComputedAt,
-      sourceInputHash,
-      sourceDecisionHash,
-      publishedLabel: label,
-      rawLabel,
-    };
-    map.set(
-      adDecisionStabilityKey({
+    ]);
+    for (const row of rows) {
+      const providerAccountId = requiredText(row.provider_account_id);
+      const providerAccountRefId = requiredText(row.provider_account_ref_id);
+      const decisionEntityId = requiredText(row.decision_entity_id);
+      const sourceSnapshotId = requiredText(row.source_snapshot_id);
+      const sourceEvaluationId = requiredText(row.source_evaluation_id);
+      const sourceEngineVersion = requiredText(row.source_engine_version);
+      const sourceAsOfDate = requiredText(row.source_as_of_date);
+      const sourceComputedAt = requiredText(row.source_computed_at);
+      const sourceInputHash = requiredText(row.source_input_hash);
+      const sourceDecisionHash = requiredText(row.source_decision_hash);
+      const label = toPersistedDecisionLabel(row.label);
+      const rawLabel = toPersistedDecisionLabel(row.raw_label);
+      if (
+        providerAccountId === null ||
+        providerAccountRefId === null ||
+        decisionEntityId === null ||
+        sourceSnapshotId === null ||
+        sourceEvaluationId === null ||
+        sourceEngineVersion === null ||
+        sourceAsOfDate === null ||
+        sourceComputedAt === null ||
+        sourceInputHash === null ||
+        sourceDecisionHash === null ||
+        label === null ||
+        row.decision_entity_type !== "ad"
+      ) {
+        throw new Error("Persisted ad hysteresis lineage is incomplete.");
+      }
+      const value: PreviousAdPublishedLabel = {
+        businessId: input.businessId,
+        providerAccountRefId,
+        providerAccountId,
+        decisionEntityType: "ad",
+        decisionEntityId,
+        sourceSnapshotId,
+        sourceEvaluationId,
+        sourceEngineVersion,
+        sourceAsOfDate,
+        sourceComputedAt,
+        sourceInputHash,
+        sourceDecisionHash,
+        publishedLabel: label,
+        rawLabel,
+      };
+      const key = adDecisionStabilityKey({
         businessId: input.businessId,
         providerAccountRefId,
         providerAccountId,
@@ -311,9 +314,12 @@ export async function readPreviousPublishedAdLabels(input: {
         decisionEntityId,
         scopeType,
         scopeId,
-      }),
-      value,
-    );
+      });
+      if (map.has(key)) {
+        throw new Error(`Duplicate persisted ad hysteresis identity: ${key}`);
+      }
+      map.set(key, value);
+    }
   }
   return map;
 }

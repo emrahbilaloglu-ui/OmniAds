@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 import type { DbClient } from "@/lib/db";
+import { NATIVE_AD_DB_BATCH_SIZE } from "../batching";
 import {
   buildCanonicalEvaluationProvenance,
   type BuildCanonicalEvaluationInput,
@@ -423,6 +424,50 @@ describe("evaluation store schema gate", () => {
     );
   });
 
+  it("persists large native evaluation sets in bounded SQL batches", async () => {
+    const evaluationBatchSizes: number[] = [];
+    const db = fakeDb(async (query, params) => {
+      if (query.includes("information_schema.columns")) return readyColumns();
+      if (query.includes("FROM pg_indexes")) return readyIndexes();
+      if (query.includes("pg_constraint")) return readyConstraints();
+      if (query.includes("engine_v3_ad_decision_evaluation_contexts")) {
+        return [{ id: "00000000-0000-4000-8000-000000000201" }];
+      }
+      const payload = JSON.parse(String(params?.[0])) as Array<
+        Record<string, unknown>
+      >;
+      evaluationBatchSizes.push(payload.length);
+      return payload.map((row) => ({
+        id: `evaluation-${String(row.decision_entity_id)}`,
+        provider_account_ref_id: row.provider_account_ref_id,
+        provider_account_id: row.provider_account_id,
+        decision_entity_id: row.decision_entity_id,
+        input_hash: row.input_hash,
+        decision_hash: row.decision_hash,
+      }));
+    });
+    const evaluations = Array.from(
+      { length: NATIVE_AD_DB_BATCH_SIZE + 1 },
+      (_, index) => adEvaluation(`ad-${index + 1}`),
+    );
+
+    const stored = await persistAdDecisionEvaluations(
+      {
+        businessId: "biz-1",
+        asOf: "2026-07-12",
+        engineVersion: "v3-test",
+        scope: { type: "account", id: "act-1" },
+        jobRunId: "00000000-0000-4000-8000-000000000101",
+        evaluatedAt: "2026-07-12T03:00:01.000Z",
+        evaluations,
+      },
+      db,
+    );
+
+    expect(evaluationBatchSizes).toEqual([NATIVE_AD_DB_BATCH_SIZE, 1]);
+    expect(stored.size).toBe(evaluations.length);
+  });
+
   it("fails closed when any expected evaluation cannot be resolved", async () => {
     const db = fakeDb(async (query, params) => {
       if (query.includes("information_schema.columns")) return readyColumns();
@@ -466,7 +511,7 @@ describe("evaluation store schema gate", () => {
     );
   });
 
-  it("re-resolves once when the first statement snapshot misses a conflict winner", async () => {
+  it("keeps one compatibility re-resolution attempt for direct read-committed callers", async () => {
     let evaluationAttempt = 0;
     const db = fakeDb(async (query, params) => {
       if (query.includes("information_schema.columns")) return readyColumns();

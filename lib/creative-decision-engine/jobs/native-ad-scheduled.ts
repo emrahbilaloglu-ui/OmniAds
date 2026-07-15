@@ -76,7 +76,8 @@ export interface NativeAdShadowChainDueResult {
     | "outside_slot"
     | "schema_not_ready"
     | "already_ran"
-    | "no_enabled_businesses";
+    | "no_enabled_businesses"
+    | "no_meta_businesses";
   missingSchema?: string[];
   results?: NativeAdShadowBusinessResult[];
 }
@@ -103,6 +104,10 @@ interface CurrentHydrationReceiptRow extends Record<string, unknown> {
 
 interface CalibrationReuseReceiptRow extends Record<string, unknown> {
   reusable: unknown;
+}
+
+interface MetaEligibleBusinessRow extends Record<string, unknown> {
+  business_id: unknown;
 }
 
 export const READ_NATIVE_AD_CALIBRATION_REUSE_RECEIPT_SQL = `
@@ -207,6 +212,9 @@ export interface NativeAdShadowScheduleOptions {
   inspectSchema?: () => Promise<NativeAdShadowSchemaReadiness>;
   listEnabledIds?: () => Promise<readonly string[]>;
   listActiveBusinesses?: () => Promise<readonly ScheduledBusiness[]>;
+  listMetaEligibleIds?: (
+    businessIds: readonly string[],
+  ) => Promise<readonly string[]>;
   readSuccessfulJobs?: (input: {
     businessIds: readonly string[];
     asOf: string;
@@ -288,6 +296,30 @@ async function defaultListActiveBusinesses(): Promise<ScheduledBusiness[]> {
     id: business.id,
     name: business.name,
   }));
+}
+
+export async function listNativeAdMetaEligibleBusinessIds(
+  businessIds: readonly string[],
+  db: DbClient = getDb(),
+): Promise<string[]> {
+  const normalized = Array.from(
+    new Set(businessIds.map((businessId) => businessId.trim()).filter(Boolean)),
+  );
+  if (normalized.length === 0) return [];
+  const rows = await db.query<MetaEligibleBusinessRow>(
+    `
+    SELECT DISTINCT binding.business_id
+    FROM business_provider_accounts binding
+    WHERE binding.provider = 'meta'
+      AND binding.business_id = ANY($1::text[])
+    ORDER BY binding.business_id
+    `,
+    [normalized],
+  );
+  return rows.flatMap((row) => {
+    const businessId = String(row.business_id ?? "").trim();
+    return businessId ? [businessId] : [];
+  });
 }
 
 export async function readSuccessfulNativeJobs(
@@ -715,9 +747,22 @@ export async function runNativeAdShadowChainForActiveBusinessesIfDue(
     (options.listEnabledIds ?? listEnabledBusinessIds)(),
   ]);
   const enabled = new Set(enabledIds);
-  const businesses = active.filter((business) => enabled.has(business.id));
-  if (businesses.length === 0) {
+  const enabledBusinesses = active.filter((business) =>
+    enabled.has(business.id),
+  );
+  if (enabledBusinesses.length === 0) {
     return { ...base, skipped: true, reason: "no_enabled_businesses" };
+  }
+  const metaEligible = new Set(
+    await (options.listMetaEligibleIds ?? listNativeAdMetaEligibleBusinessIds)(
+      enabledBusinesses.map((business) => business.id),
+    ),
+  );
+  const businesses = enabledBusinesses.filter((business) =>
+    metaEligible.has(business.id),
+  );
+  if (businesses.length === 0) {
+    return { ...base, skipped: true, reason: "no_meta_businesses" };
   }
 
   const successes = closeNativeJobDependencies(

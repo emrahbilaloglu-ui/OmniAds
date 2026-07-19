@@ -219,6 +219,15 @@ export function demoNativeFixtureInputHash(
   );
 }
 
+function canonicalDemoFixtureRatioToTarget(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return value;
+  if (Object.is(value, -0)) return 0;
+  // This is a derived demo-only ratio. Canonicalizing it at the fixture/hash
+  // boundary avoids platform-specific JSON-loader rounding without weakening
+  // the exact source-input hash or changing production decision math.
+  return Number(value.toPrecision(15));
+}
+
 export function demoNativeFixtureItemHash(
   item:
     | DemoNativeCanonicalFixtureDraftItem
@@ -226,7 +235,14 @@ export function demoNativeFixtureItemHash(
 ) {
   const { decisionHash: _decisionHash, ...payload } =
     item as DemoNativeCanonicalFixtureItem;
-  return sha256(stableDemoFixtureJson(payload));
+  return sha256(
+    stableDemoFixtureJson({
+      ...payload,
+      ratioToTarget: canonicalDemoFixtureRatioToTarget(
+        payload.ratioToTarget,
+      ),
+    }),
+  );
 }
 
 export function demoNativeFixtureManifestHash(
@@ -249,10 +265,18 @@ export function finalizeDemoNativeCanonicalFixture(input: {
   items: readonly DemoNativeCanonicalFixtureDraftItem[];
 }): DemoNativeCanonicalFixture {
   const items = [...input.items]
-    .map((item) => ({
-      ...item,
-      decisionHash: demoNativeFixtureItemHash(item),
-    }))
+    .map((item) => {
+      const canonicalItem = {
+        ...item,
+        ratioToTarget: canonicalDemoFixtureRatioToTarget(
+          item.ratioToTarget,
+        ),
+      };
+      return {
+        ...canonicalItem,
+        decisionHash: demoNativeFixtureItemHash(canonicalItem),
+      };
+    })
     .sort((left, right) => left.adId.localeCompare(right.adId));
   const withoutManifest: Omit<DemoNativeCanonicalFixture, "manifestHash"> = {
     contractVersion: DEMO_NATIVE_CANONICAL_FIXTURE_CONTRACT_VERSION,
@@ -496,6 +520,10 @@ function validateDemoNativeCanonicalFixtureUnsafe(input: {
       !Number.isSafeInteger(item.purchases) ||
       item.purchases < 0 ||
       !nullableFiniteNumber(item.ratioToTarget) ||
+      !Object.is(
+        item.ratioToTarget,
+        canonicalDemoFixtureRatioToTarget(item.ratioToTarget),
+      ) ||
       !nullableFiniteNumber(item.roas) ||
       !nullableFiniteNumber(item.recent7dRoas) ||
       !validDemoItemSemantics(item) ||

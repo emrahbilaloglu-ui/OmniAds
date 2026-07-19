@@ -38,6 +38,36 @@ function mutateAndRehash(
 }
 
 describe("demo native canonical fixture contract", () => {
+  it("canonicalizes only the derived ratio before fixture hashing", () => {
+    const canonical = committedFixture.items.find(
+      (item) => item.adId === "m-ad-8",
+    )! as DemoNativeCanonicalFixtureItem;
+    const binaryTail: DemoNativeCanonicalFixtureItem = {
+      ...canonical,
+      ratioToTarget: 2.35 / 2.5,
+    };
+
+    expect(binaryTail.ratioToTarget).toBe(0.9400000000000001);
+    expect(demoNativeFixtureItemHash(binaryTail)).toBe(
+      demoNativeFixtureItemHash(canonical),
+    );
+  });
+
+  it("rejects a stored non-canonical ratio even when both hashes are recomputed", () => {
+    const fixture = structuredClone(
+      committedFixture,
+    ) as DemoNativeCanonicalFixture;
+    const item = fixture.items.find((candidate) => candidate.adId === "m-ad-8")!;
+    item.ratioToTarget = 2.35 / 2.5;
+    item.decisionHash = demoNativeFixtureItemHash(item);
+    fixture.manifestHash = demoNativeFixtureManifestHash(fixture);
+
+    expect(validate(fixture)).toEqual({
+      ok: false,
+      reason: "demo_fixture_item_invalid",
+    });
+  });
+
   it.each([
     ["non-string provider account reference", { providerAccountRefId: 7 }],
     [

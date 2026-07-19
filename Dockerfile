@@ -9,6 +9,7 @@ RUN npm ci
 FROM deps AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DISABLE_WEBPACK_CACHE=1
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY . .
 RUN npm run build
 

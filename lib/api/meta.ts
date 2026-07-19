@@ -3558,7 +3558,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           if (adProof) {
             await replaceMetaAdDailySlice({ rows: adRows, proof: adProof });
           } else if (adRows.length > 0) {
-            await upsertMetaAdDailyRows(adRows);
+            await upsertMetaAdDailyRows(adRows, {
+              writeMode: "authoritative_fact",
+            });
           }
         }
       },

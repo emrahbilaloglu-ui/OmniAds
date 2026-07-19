@@ -1,20 +1,25 @@
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/platforms/meta/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
+
+const observedQueries = vi.hoisted(() => ({ keys: [] as unknown[][] }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
   }),
-  useQuery: () => ({
-    data: null,
-    isLoading: false,
-    isFetching: false,
-    isError: false,
-    refetch: vi.fn(),
-  }),
+  useQuery: (input: { queryKey?: unknown[] }) => {
+    if (input.queryKey) observedQueries.keys.push(input.queryKey);
+    return {
+      data: null,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
+  },
 }));
 
 vi.mock("@/components/date-range/DateRangePicker", () => ({
@@ -151,6 +156,65 @@ function renderDetail(row = mapApiRowToUiRow(buildApiRow())) {
 }
 
 describe("CreativeDetailExperience", () => {
+  beforeEach(() => {
+    observedQueries.keys = [];
+  });
+
+  it("passes only the exact selected account and real Ad identity to evidence", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: "row-1",
+        real_ad_id: "ad-1",
+        account_id: "act_1",
+      }),
+    );
+
+    renderDetail(row);
+
+    expect(observedQueries.keys).toContainEqual([
+      "engine-v3-native-ad-evidence",
+      "biz",
+      "act_1",
+      "ad-1",
+    ]);
+  });
+
+  it("does not require creative grouping metadata for exact Ad evidence", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: "row-without-creative-group",
+        real_ad_id: "ad-without-creative-group",
+        account_id: "act_1",
+      }),
+    );
+    row.creativeId = "";
+
+    renderDetail(row);
+
+    expect(observedQueries.keys).toContainEqual([
+      "engine-v3-native-ad-evidence",
+      "biz",
+      "act_1",
+      "ad-without-creative-group",
+    ]);
+  });
+
+  it("fails closed instead of treating a row id as a provider Ad id", () => {
+    const html = renderDetail(
+      mapApiRowToUiRow(
+        buildApiRow({ id: "synthetic-row", real_ad_id: null }),
+      ),
+    );
+
+    expect(html).toContain("Exact Ad evidence unavailable");
+    expect(observedQueries.keys).not.toContainEqual([
+      "engine-v3-native-ad-evidence",
+      "biz",
+      "act_1",
+      "synthetic-row",
+    ]);
+  });
+
   it("renders preview, performance, and notes without decision payloads", () => {
     const html = renderDetail();
 

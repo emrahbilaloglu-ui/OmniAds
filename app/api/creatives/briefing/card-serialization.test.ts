@@ -48,6 +48,41 @@ describe("card serialization", () => {
     });
   });
 
+  it.each([
+    {
+      name: "missing recent evidence",
+      badges: [
+        {
+          type: "missing_recent_data" as const,
+          label: "Recent break-even evidence unavailable",
+          severity: "warning" as const,
+        },
+      ],
+      label: "Refresh recent evidence",
+    },
+    {
+      name: "thin recent evidence",
+      badges: [],
+      label: "Await recent evidence",
+    },
+  ])("serves a D063 held Cut as $label for $name", ({ badges, label }) => {
+    const card = cardForDecision({
+      decision: decision({
+        label: "test_more",
+        preAuthorityLabel: "cut",
+        authorityBlocker: "recent_recovery_unverifiable",
+        blockedActionType: "cut",
+        badges,
+      }),
+    });
+
+    expect(card.primary).toEqual({ kind: "review", label });
+    expect(card.primary).not.toEqual({
+      kind: "fresh_test",
+      label: "Launch new test",
+    });
+  });
+
   it("derives watching sub-buckets server-side from decision evidence", () => {
     expect(
       deriveWatchingSubBucket(
@@ -183,6 +218,29 @@ describe("card serialization", () => {
     });
   });
 
+  it("uses the card account currency in spend near-miss prose", () => {
+    const card = cardForDecision({
+      decision: decision({
+        blockedActionType: "scale",
+        blockers: [
+          {
+            predicate: "scale_spend_depth",
+            observed: 10,
+            threshold: 50,
+            status: "failed",
+            severity: "warning",
+            reason: "spend floor",
+          },
+        ],
+      }),
+      currency: "GBP",
+    });
+
+    expect(card.explainability?.nearMisses).toEqual([
+      "Needs £40.00 more spend at current ROAS.",
+    ]);
+  });
+
   it("preserves stale commercial-target provenance for operator review", () => {
     const card = cardForDecision({
       decision: decision({ truthSource: "commercial_truth_stale" }),
@@ -273,7 +331,7 @@ describe("card serialization", () => {
       label: "Proven winner",
       tone: "pos",
       blockerCode: null,
-      vocabularyVersion: "meta-decisions-classification-overlay.v3",
+      vocabularyVersion: "meta-decisions-classification-overlay.v4",
     });
   });
 });

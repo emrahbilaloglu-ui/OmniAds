@@ -280,7 +280,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
     vi.mocked(warehouse.replaceMetaAdDailySlice).mockImplementation(
       async (input) => {
-        await warehouse.upsertMetaAdDailyRows(input.rows as never);
+        await warehouse.upsertMetaAdDailyRows(input.rows as never, {
+          writeMode: "authoritative_fact",
+        });
       },
     );
     vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(

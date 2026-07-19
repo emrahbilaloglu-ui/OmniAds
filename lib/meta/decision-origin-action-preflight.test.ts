@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DecisionOriginAdExecutionRequest } from "@/lib/creative-decision-engine/execution-safety";
+import {
+  createDecisionOriginAdActionIdempotencyKey,
+  type DecisionOriginAdExecutionRequest,
+} from "@/lib/creative-decision-engine/execution-safety";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
 
 vi.mock("@/lib/meta/ads-action-log", () => ({
@@ -27,20 +30,25 @@ const DECISION_HASH = "d".repeat(64);
 function request(
   overrides: Partial<DecisionOriginAdExecutionRequest> = {},
 ): DecisionOriginAdExecutionRequest {
-  return {
-    contractVersion: "meta-decision-origin-ad-execution.v1",
+  const base = {
+    contractVersion: "meta-decision-origin-ad-execution.v1" as const,
     businessId: "business_1",
     providerAccountId: "act_123",
-    adId: "ad_1",
+    adId: "123456789012345",
     snapshotId: "snapshot_1",
     evaluationId: "evaluation_1",
     engineVersion: NATIVE_AD_ENGINE_VERSION,
     decisionHash: DECISION_HASH,
     action: "pause",
-    idempotencyKey: "decision-action-1",
+    idempotencyKey: "",
     creativeId: "creative_1",
     ...overrides,
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "idempotencyKey")) {
+    base.idempotencyKey =
+      createDecisionOriginAdActionIdempotencyKey(base);
+  }
+  return base;
 }
 
 describe("server decision-origin action preflight", () => {
@@ -56,7 +64,15 @@ describe("server decision-origin action preflight", () => {
     });
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: true,
-      adId: "ad_1",
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
       policyEligible: true,
@@ -68,8 +84,10 @@ describe("server decision-origin action preflight", () => {
       businessId: "business_1",
       providerAccountId: "act_123",
       decisionEntityType: "ad",
-      decisionEntityId: "ad_1",
-      adId: "ad_1",
+      decisionEntityId: "123456789012345",
+      adId: "123456789012345",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
       creativeId: "creative_1",
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
@@ -102,12 +120,103 @@ describe("server decision-origin action preflight", () => {
     });
     expect(adsWrite.readMetaAdExecutionState).toHaveBeenCalledWith(
       expect.objectContaining({ providerAccountId: "act_123" }),
-      "ad_1",
+      "123456789012345",
     );
     expect(actionLog.readDecisionOriginSourceDecision).toHaveBeenCalledWith({
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
     });
+  });
+
+  it("rejects a non-canonical native tuple key before any evidence read", async () => {
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request({ idempotencyKey: "alternate-attempt-key" }),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain("idempotency_key_mismatch");
+    expect(
+      actionLog.findDecisionOriginActionByIdempotency,
+    ).not.toHaveBeenCalled();
+    expect(adsWrite.readMetaAdExecutionState).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing source or live creative identity review-only", async () => {
+    vi.mocked(actionLog.readDecisionOriginSourceDecision).mockResolvedValue({
+      ...(await actionLog.readDecisionOriginSourceDecision({
+        snapshotId: "snapshot_1",
+        evaluationId: "evaluation_1",
+      })),
+      creativeId: null,
+    });
+    const missingSource = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    vi.mocked(actionLog.readDecisionOriginSourceDecision).mockResolvedValue({
+      found: true,
+      businessId: "business_1",
+      providerAccountId: "act_123",
+      decisionEntityType: "ad",
+      decisionEntityId: "123456789012345",
+      adId: "123456789012345",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
+      creativeId: "creative_1",
+      snapshotId: "snapshot_1",
+      evaluationId: "evaluation_1",
+      engineVersion: NATIVE_AD_ENGINE_VERSION,
+      decisionHash: DECISION_HASH,
+      decisionLabel: "cut",
+      blockedActionType: null,
+      explicitAuthorizedAction: "pause",
+      computedAt: "2026-07-12T09:30:00.000Z",
+    });
+    vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
+      ok: true,
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: null,
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T09:59:00.000Z",
+    });
+    const missingLive = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(missingSource.shouldMutate).toBe(false);
+    expect(missingSource.blockers).toContain(
+      "source_decision_lineage_mismatch",
+    );
+    expect(missingLive.shouldMutate).toBe(false);
+    expect(missingLive.blockers).toContain("ad_identity_mismatch");
   });
 
   it("fails closed on a stale source decision", async () => {
@@ -158,10 +267,43 @@ describe("server decision-origin action preflight", () => {
     expect(result.blockers).toContain("action_not_authorized");
   });
 
+  it("blocks a Cut whose exact persisted tuple has no explicit pause authorization", async () => {
+    vi.mocked(actionLog.readDecisionOriginSourceDecision).mockResolvedValue({
+      ...(await actionLog.readDecisionOriginSourceDecision({
+        snapshotId: "snapshot_1",
+        evaluationId: "evaluation_1",
+      })),
+      decisionLabel: "cut",
+      blockedActionType: null,
+      explicitAuthorizedAction: null,
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request({ action: "pause" }),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain("action_not_authorized");
+  });
+
   it("fails closed when Meta reports a policy block", async () => {
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: true,
-      adId: "ad_1",
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
       configuredStatus: "ACTIVE",
       effectiveStatus: "DISAPPROVED",
       policyEligible: false,
@@ -185,10 +327,80 @@ describe("server decision-origin action preflight", () => {
     );
   });
 
+  it("fails closed when the current parent hierarchy is not exactly ACTIVE", async () => {
+    vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
+      ok: true,
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "PAUSED",
+      campaignEffectiveStatus: "PAUSED",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T09:59:00.000Z",
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain(
+      "current_hierarchy_state_incompatible",
+    );
+  });
+
+  it("fails closed when the current parent identity differs from the decision input", async () => {
+    vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
+      ok: true,
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_other",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T09:59:00.000Z",
+    });
+
+    const result = await runServerDecisionOriginAdActionPreflight({
+      request: request(),
+      ctx: {
+        businessId: "business_1",
+        providerAccountId: "act_123",
+        accessToken: "secret-token",
+      },
+      now: NOW,
+    });
+
+    expect(result.shouldMutate).toBe(false);
+    expect(result.blockers).toContain(
+      "current_hierarchy_identity_mismatch",
+    );
+  });
+
   it("preserves a transient Meta read failure as unverified state", async () => {
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: false,
-      adId: "ad_1",
+      adId: "123456789012345",
       httpStatus: null,
       preflightBlocker: "current_ad_state_unverified",
       error: {
@@ -216,7 +428,7 @@ describe("server decision-origin action preflight", () => {
   it("preserves a permanent Meta read failure instead of returning retryable state", async () => {
     vi.mocked(adsWrite.readMetaAdExecutionState).mockResolvedValue({
       ok: false,
-      adId: "ad_1",
+      adId: "123456789012345",
       httpStatus: 400,
       preflightBlocker: "meta_account_unresolved",
       error: {
@@ -248,13 +460,14 @@ describe("server decision-origin action preflight", () => {
       actionLogId: "log_1",
       businessId: "business_1",
       providerAccountId: "act_123",
-      adId: "ad_1",
+      adId: "123456789012345",
+      creativeId: "creative_1",
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
       engineVersion: NATIVE_AD_ENGINE_VERSION,
       decisionHash: DECISION_HASH,
       action: "pause",
-      idempotencyKey: "decision-action-1",
+      idempotencyKey: request().idempotencyKey,
       status: "success",
       dryRun: false,
       providerVerified: true,

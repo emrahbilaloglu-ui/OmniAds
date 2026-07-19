@@ -33,8 +33,14 @@ function finiteNumberOrNull(value: unknown): number | null {
   return null;
 }
 
-export function formatCurrency(value: unknown): string {
-  return `$${Math.round(finiteNumber(value)).toLocaleString("en-US")}`;
+export function formatCurrency(
+  value: unknown,
+  currency?: string | null,
+): string {
+  const numeric = finiteNumberOrNull(value);
+  return numeric === null
+    ? "—"
+    : formatMoney(Math.round(numeric), currency, null);
 }
 
 export function formatRoas(value: unknown): string {
@@ -92,3 +98,4 @@ export function tileFor(name: unknown): [string, string] {
   }
   return TILE_PALETTE[Math.abs(hash) % TILE_PALETTE.length];
 }
+import { formatMoney } from "@/components/creatives/money";

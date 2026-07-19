@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent-lineage";
+import { META_LAUNCHPAD_MANUAL_AUTHORITY } from "@/lib/launchpad/meta-manual-authority";
 
 vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 
@@ -29,10 +29,18 @@ const { GET, POST } = await import("./route");
 const BUSINESS_ID = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
 const USER_ID = "272d0ab8-495b-4679-a4c6-ffa404c389d3";
 
+function creativeIds(count: number) {
+  return Array.from({ length: count }, (_, index) => `creative_${index + 1}`);
+}
+
 function post(body: unknown) {
+  const authorizedBody =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? { ...META_LAUNCHPAD_MANUAL_AUTHORITY, ...body }
+      : body;
   return new NextRequest("http://localhost/api/launchpad/meta/intents", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify(authorizedBody),
     headers: { "content-type": "application/json" },
   });
 }
@@ -78,7 +86,7 @@ describe("/api/launchpad/meta/intents", () => {
     });
   });
 
-  it("creates an immutable PAUSED intent with decision and brief lineage", async () => {
+  it("creates an immutable PAUSED intent bound to manual authority", async () => {
     vi.mocked(store.createMetaLaunchIntent).mockResolvedValue({
       created: true,
       intent: {
@@ -94,8 +102,6 @@ describe("/api/launchpad/meta/intents", () => {
         providerAccountId: "act_123",
         operation: "new_campaign",
         idempotencyKey: "idem_1",
-        sourceDecisionId: "decision_1",
-        creativeBriefId: "brief_1",
         payload: {
           campaign: { name: "Launch", objective: "OUTCOME_SALES" },
         },
@@ -111,11 +117,155 @@ describe("/api/launchpad/meta/intents", () => {
         providerAccountId: "act_123",
         operation: "new_campaign",
         idempotencyKey: "idem_1",
-        sourceDecisionId: "decision_1",
-        creativeBriefId: "brief_1",
+        requestPayload: expect.objectContaining({
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+        }),
         createdBy: USER_ID,
       }),
     );
+  });
+
+  it("accepts a normalized new-campaign intent at the exact provider-create boundary", async () => {
+    vi.mocked(store.createMetaLaunchIntent).mockResolvedValue({
+      created: true,
+      intent: {
+        id: "intent_new_boundary",
+        requestedStatus: "PAUSED",
+        providerAccountId: "act_123",
+      },
+    } as never);
+
+    const response = await POST(
+      post({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        operation: "new_campaign",
+        idempotencyKey: "idem_new_boundary",
+        payload: {
+          creativeIds: creativeIds(18),
+          adSets: [{ clientId: "adset_1" }],
+        },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(store.createMetaLaunchIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "new_campaign",
+        requestPayload: expect.objectContaining({
+          creativeIds: creativeIds(18),
+          adSets: [expect.objectContaining({ clientId: "adset_1" })],
+        }),
+      }),
+    );
+  });
+
+  it("rejects an over-bound normalized new-campaign intent before persistence", async () => {
+    const response = await POST(
+      post({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        operation: "new_campaign",
+        idempotencyKey: "idem_new_over_bound",
+        payload: {
+          creativeIds: creativeIds(19),
+          adSets: [{ clientId: "adset_1" }],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body.error.code).toBe(
+      "launchpad_provider_create_limit_exceeded",
+    );
+    expect(body.counts).toEqual({
+      creatives: 19,
+      adSetsOrTargets: 1,
+      plannedProviderCreates: 21,
+    });
+    expect(capability.getMetaLaunchIntentCapability).not.toHaveBeenCalled();
+    expect(store.createMetaLaunchIntent).not.toHaveBeenCalled();
+  });
+
+  it("accepts a normalized add-to-existing intent at the exact provider-create boundary", async () => {
+    vi.mocked(store.createMetaLaunchIntent).mockResolvedValue({
+      created: true,
+      intent: {
+        id: "intent_add_boundary",
+        requestedStatus: "PAUSED",
+        providerAccountId: "act_123",
+      },
+    } as never);
+
+    const response = await POST(
+      post({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        operation: "add_to_existing",
+        idempotencyKey: "idem_add_boundary",
+        payload: {
+          copyMode: "reuse_creative",
+          creativeIds: creativeIds(20),
+          targets: [
+            {
+              targetCampaignId: "campaign_1",
+              targetAdsetId: "adset_1",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(store.createMetaLaunchIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "add_to_existing",
+        requestPayload: expect.objectContaining({
+          copyMode: "reuse_creative",
+          creativeIds: creativeIds(20),
+          targets: [
+            expect.objectContaining({
+              targetCampaignId: "campaign_1",
+              targetAdsetId: "adset_1",
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("uses normalized copy mode and rejects an over-bound add-to-existing intent before persistence", async () => {
+    const response = await POST(
+      post({
+        businessId: BUSINESS_ID,
+        providerAccountId: "act_123",
+        operation: "add_to_existing",
+        idempotencyKey: "idem_add_over_bound",
+        payload: {
+          creativeIds: creativeIds(11),
+          targets: [
+            {
+              targetCampaignId: "campaign_1",
+              targetAdsetId: "adset_1",
+            },
+          ],
+        },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body.error.code).toBe(
+      "launchpad_provider_create_limit_exceeded",
+    );
+    expect(body.counts).toEqual({
+      creatives: 11,
+      adSetsOrTargets: 1,
+      plannedProviderCreates: 22,
+    });
+    expect(capability.getMetaLaunchIntentCapability).not.toHaveBeenCalled();
+    expect(store.createMetaLaunchIntent).not.toHaveBeenCalled();
   });
 
   it("reports the pending LaunchIntent migration without claiming an empty ledger", async () => {
@@ -186,14 +336,7 @@ describe("/api/launchpad/meta/intents", () => {
     expect(store.createMetaLaunchIntent).not.toHaveBeenCalled();
   });
 
-  it("returns 422 when decision or brief lineage cannot be proven", async () => {
-    vi.mocked(store.createMetaLaunchIntent).mockRejectedValue(
-      new MetaLaunchIntentLineageError(
-        "source_decision_not_found",
-        "The source decision snapshot is not available in the selected Meta account.",
-      ),
-    );
-
+  it("rejects native decision lineage on the manual intent contract", async () => {
     const response = await POST(
       post({
         businessId: BUSINESS_ID,
@@ -207,7 +350,8 @@ describe("/api/launchpad/meta/intents", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(422);
-    expect(body.error.code).toBe("source_decision_not_found");
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("mixed_action_origin_contract");
+    expect(store.createMetaLaunchIntent).not.toHaveBeenCalled();
   });
 });

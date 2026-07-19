@@ -7,6 +7,7 @@ import type {
   CreativeInput,
   DecisionKindSource,
   FormatFunnelBaseline,
+  HardActionEligibility,
 } from "./types";
 import { MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE } from "./config";
 import { MIN_KIND_CALIBRATION_MATURE_COUNT } from "./config-values";
@@ -77,6 +78,55 @@ function selectKindFunnelCalibration(input: {
   };
 }
 
+function selectKindHardActionEligibility(input: {
+  accountProfile: AccountDecisionProfile;
+  kindEligibility: HardActionEligibility;
+}): {
+  effective: HardActionEligibility;
+  canonical: HardActionEligibility | null;
+} {
+  const canonicalAccountEligibility =
+    input.accountProfile.commercialStopLossCanonicalHardActionEligibility;
+  const overlayCanRepairCut =
+    input.accountProfile.commercialStopLossSpendUnit != null &&
+    input.accountProfile.commercialStopLossThresholds != null &&
+    canonicalAccountEligibility != null &&
+    !canonicalAccountEligibility.cut &&
+    input.accountProfile.hardActionEligibility.cut;
+  if (!overlayCanRepairCut) {
+    return { effective: input.kindEligibility, canonical: null };
+  }
+  const actionReason = (
+    eligibility: HardActionEligibility,
+    action: "scale" | "cut" | "refresh",
+  ) =>
+    eligibility.reasons?.[action] ??
+    (eligibility[action] ? null : eligibility.reason);
+  const scale = input.kindEligibility.scale;
+  const cut = input.kindEligibility.cut || overlayCanRepairCut;
+  const refresh = input.kindEligibility.refresh;
+  const reasons = {
+    scale: actionReason(input.kindEligibility, "scale"),
+    cut: input.kindEligibility.cut
+      ? actionReason(input.kindEligibility, "cut")
+      : actionReason(input.accountProfile.hardActionEligibility, "cut"),
+    refresh: actionReason(input.kindEligibility, "refresh"),
+  };
+  return {
+    effective: {
+      scale,
+      cut,
+      refresh,
+      reason:
+        scale && cut && refresh
+          ? null
+          : (reasons.scale ?? reasons.cut ?? reasons.refresh),
+      reasons,
+    },
+    canonical: input.kindEligibility,
+  };
+}
+
 export function selectKindAwareDecisionProfile(
   input: CreativeInput,
   profile: AccountDecisionProfile,
@@ -117,6 +167,11 @@ export function selectKindAwareDecisionProfile(
     };
   }
 
+  const selectedHardActionEligibility = selectKindHardActionEligibility({
+    accountProfile: profile,
+    kindEligibility: hardActionEligibility,
+  });
+
   return {
     profile: {
       ...profile,
@@ -127,7 +182,9 @@ export function selectKindAwareDecisionProfile(
       thresholds,
       accountBaselines,
       funnelCalibration,
-      hardActionEligibility,
+      hardActionEligibility: selectedHardActionEligibility.effective,
+      commercialStopLossCanonicalHardActionEligibility:
+        selectedHardActionEligibility.canonical,
       quality: {
         ...profile.quality,
         calibrationReady:

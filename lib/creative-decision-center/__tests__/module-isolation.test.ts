@@ -32,6 +32,7 @@ const ALLOWED_RUNTIME_IMPORTERS = new Set<string>([
   "app/api/creatives/briefing/route.ts",
   "app/api/creatives/briefing/route.test.ts",
   "components/creatives/briefing/types.ts",
+  "lib/meta/canonical-decision-presentation.ts",
   "lib/meta/decisions-workspace-read-model.ts",
   "lib/meta/decisions-workspace-read-model.test.ts",
 ]);

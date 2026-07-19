@@ -1,7 +1,10 @@
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import type { MetaAdsWriteContext } from "@/lib/meta/ads-write";
+import {
+  META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
+  type MetaAdsWriteContext,
+} from "@/lib/meta/ads-write";
 import {
   normalizeMetaAddToExistingPayload,
   normalizeMetaLaunchPayload,
@@ -65,6 +68,12 @@ export interface MetaAddToExistingValidationResult {
   target: MetaAddToExistingTargetValidation | null;
   targets: MetaAddToExistingTargetValidation[];
   creatives: MetaAddToExistingCreativeStatus[];
+}
+
+export interface MetaAddToExistingLiveProviderPreflightResult {
+  ok: boolean;
+  blockers: LaunchpadIssue[];
+  checks: Array<Record<string, unknown>>;
 }
 
 function sanitizeMetaMessage(message: string) {
@@ -181,6 +190,7 @@ async function graphGet(ctx: MetaAdsWriteContext, path: string, fields?: string)
   const response = await fetch(url.toString(), {
     method: "GET",
     cache: "no-store",
+    signal: AbortSignal.timeout(META_ADS_PROVIDER_FETCH_TIMEOUT_MS),
   });
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
@@ -612,6 +622,336 @@ export async function validateMetaAddToExistingRequest(input: {
   };
 }
 
+const SOURCE_AD_POLICY_BLOCKED_EFFECTIVE_STATUSES = new Set([
+  "ARCHIVED",
+  "DELETED",
+  "DISAPPROVED",
+  "PENDING_BILLING_INFO",
+  "PENDING_REVIEW",
+  "WITH_ISSUES",
+]);
+
+function sameProviderAccount(
+  observedAccountId: string,
+  expectedProviderAccountId: string,
+) {
+  return (
+    normalizeMetaLaunchProviderAccountId(observedAccountId) ===
+    normalizeMetaLaunchProviderAccountId(expectedProviderAccountId)
+  );
+}
+
+/**
+ * Fresh provider-only proof for the clone path. Warehouse rows remain useful
+ * for discovery, but they are never sufficient authority for a Meta write.
+ */
+export async function validateMetaAddToExistingLiveProviderPreflight(input: {
+  ctx: MetaAdsWriteContext;
+  payload: MetaAddToExistingPayload;
+}): Promise<MetaAddToExistingLiveProviderPreflightResult> {
+  const blockers: LaunchpadIssue[] = [];
+  const checks: Array<Record<string, unknown>> = [];
+  const sourceByCreativeId = new Map(
+    input.payload.creatives.map((creative) => [
+      creative.creativeId,
+      creative.sourceAdId?.trim() ?? "",
+    ]),
+  );
+
+  for (const creativeId of input.payload.creativeIds) {
+    const sourceAdId = sourceByCreativeId.get(creativeId) ?? "";
+    if (!sourceAdId) {
+      blockers.push({
+        code: "source_ad_required",
+        message: `Creative ${creativeId} is missing an exact source Meta ad id.`,
+      });
+      continue;
+    }
+
+    let sourceAdPayload: Record<string, unknown> | null = null;
+    try {
+      const payload = await graphGet(
+        input.ctx,
+        sourceAdId,
+        "id,account_id,status,effective_status,creative{id}",
+      );
+      sourceAdPayload = isRecord(payload) ? payload : null;
+    } catch (error) {
+      blockers.push({
+        code: "source_ad_state_unverified",
+        message: `Source ad ${sourceAdId} could not be verified from Meta: ${sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      });
+      continue;
+    }
+
+    const observedAdId = readProviderString(sourceAdPayload, "id");
+    const observedAdAccountId = readProviderString(
+      sourceAdPayload,
+      "account_id",
+    );
+    const configuredStatus = readProviderString(
+      sourceAdPayload,
+      "status",
+    ).toUpperCase();
+    const effectiveStatus = readProviderString(
+      sourceAdPayload,
+      "effective_status",
+    ).toUpperCase();
+    const observedCreativeId = readProviderString(
+      isRecord(sourceAdPayload?.creative) ? sourceAdPayload.creative : null,
+      "id",
+    );
+    checks.push({
+      kind: "source_ad",
+      requestedAdId: sourceAdId,
+      observedAdId,
+      creativeId,
+      observedCreativeId,
+      observedAccountId: observedAdAccountId,
+      configuredStatus,
+      effectiveStatus,
+    });
+    if (observedAdId !== sourceAdId) {
+      blockers.push({
+        code: "source_ad_identity_mismatch",
+        message: `Source ad ${sourceAdId} resolved to a different Meta ad.`,
+      });
+    }
+    if (
+      !observedAdAccountId ||
+      !sameProviderAccount(
+        observedAdAccountId,
+        input.ctx.providerAccountId,
+      )
+    ) {
+      blockers.push({
+        code: "source_ad_account_mismatch",
+        message: `Source ad ${sourceAdId} does not resolve to the selected Meta ad account.`,
+      });
+    }
+    if (observedCreativeId !== creativeId) {
+      blockers.push({
+        code: "source_creative_identity_mismatch",
+        message: `Source ad ${sourceAdId} does not contain creative ${creativeId}.`,
+      });
+    }
+    if (!effectiveStatus) {
+      blockers.push({
+        code: "source_ad_policy_state_unverified",
+        message: `Source ad ${sourceAdId} policy state could not be verified.`,
+      });
+    } else if (
+      SOURCE_AD_POLICY_BLOCKED_EFFECTIVE_STATUSES.has(effectiveStatus)
+    ) {
+      blockers.push({
+        code: "source_ad_policy_ineligible",
+        message: `Source ad ${sourceAdId} is ${effectiveStatus.toLowerCase()} and cannot be cloned.`,
+      });
+    }
+
+    let sourceCreativePayload: Record<string, unknown> | null = null;
+    try {
+      const payload = await graphGet(
+        input.ctx,
+        creativeId,
+        "id,account_id",
+      );
+      sourceCreativePayload = isRecord(payload) ? payload : null;
+    } catch (error) {
+      blockers.push({
+        code: "source_creative_state_unverified",
+        message: `Source creative ${creativeId} could not be verified from Meta: ${sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      });
+      continue;
+    }
+    const resolvedCreativeId = readProviderString(sourceCreativePayload, "id");
+    const observedCreativeAccountId = readProviderString(
+      sourceCreativePayload,
+      "account_id",
+    );
+    checks.push({
+      kind: "source_creative",
+      requestedCreativeId: creativeId,
+      observedCreativeId: resolvedCreativeId,
+      observedAccountId: observedCreativeAccountId,
+    });
+    if (resolvedCreativeId !== creativeId) {
+      blockers.push({
+        code: "source_creative_identity_mismatch",
+        message: `Source creative ${creativeId} resolved to a different Meta creative.`,
+      });
+    }
+    if (
+      !observedCreativeAccountId ||
+      !sameProviderAccount(
+        observedCreativeAccountId,
+        input.ctx.providerAccountId,
+      )
+    ) {
+      blockers.push({
+        code: "source_creative_account_mismatch",
+        message: `Source creative ${creativeId} does not resolve to the selected Meta ad account.`,
+      });
+    }
+  }
+
+  for (const target of input.payload.targets) {
+    let adsetPayload: Record<string, unknown> | null = null;
+    try {
+      const payload = await graphGet(
+        input.ctx,
+        target.targetAdsetId,
+        "id,account_id,campaign_id,status,effective_status",
+      );
+      adsetPayload = isRecord(payload) ? payload : null;
+    } catch (error) {
+      blockers.push({
+        code: "target_adset_state_unverified",
+        message: `Target ad set ${target.targetAdsetId} could not be verified from Meta: ${sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      });
+      continue;
+    }
+    const observedAdsetId = readProviderString(adsetPayload, "id");
+    const observedAdsetAccountId = readProviderString(
+      adsetPayload,
+      "account_id",
+    );
+    const observedCampaignId = readProviderString(
+      adsetPayload,
+      "campaign_id",
+    );
+    const adsetConfiguredStatus = readProviderString(
+      adsetPayload,
+      "status",
+    ).toUpperCase();
+    const adsetEffectiveStatus = readProviderString(
+      adsetPayload,
+      "effective_status",
+    ).toUpperCase();
+    checks.push({
+      kind: "target_adset",
+      requestedAdsetId: target.targetAdsetId,
+      observedAdsetId,
+      requestedCampaignId: target.targetCampaignId,
+      observedCampaignId,
+      observedAccountId: observedAdsetAccountId,
+      configuredStatus: adsetConfiguredStatus,
+      effectiveStatus: adsetEffectiveStatus,
+    });
+    if (observedAdsetId !== target.targetAdsetId) {
+      blockers.push({
+        code: "target_adset_identity_mismatch",
+        message: `Target ad set ${target.targetAdsetId} resolved to a different Meta ad set.`,
+      });
+    }
+    if (
+      !observedAdsetAccountId ||
+      !sameProviderAccount(
+        observedAdsetAccountId,
+        input.ctx.providerAccountId,
+      )
+    ) {
+      blockers.push({
+        code: "target_adset_account_mismatch",
+        message: `Target ad set ${target.targetAdsetId} does not resolve to the selected Meta ad account.`,
+      });
+    }
+    if (observedCampaignId !== target.targetCampaignId) {
+      blockers.push({
+        code: "target_campaign_identity_mismatch",
+        message: `Target ad set ${target.targetAdsetId} does not belong to campaign ${target.targetCampaignId}.`,
+      });
+    }
+    if (
+      adsetConfiguredStatus !== "ACTIVE" ||
+      adsetEffectiveStatus !== "ACTIVE"
+    ) {
+      blockers.push({
+        code: "target_adset_not_active",
+        message: `Target ad set ${target.targetAdsetId} must be configured and effectively ACTIVE.`,
+      });
+    }
+
+    let campaignPayload: Record<string, unknown> | null = null;
+    try {
+      const payload = await graphGet(
+        input.ctx,
+        target.targetCampaignId,
+        "id,account_id,status,effective_status",
+      );
+      campaignPayload = isRecord(payload) ? payload : null;
+    } catch (error) {
+      blockers.push({
+        code: "target_campaign_state_unverified",
+        message: `Target campaign ${target.targetCampaignId} could not be verified from Meta: ${sanitizeMetaMessage(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      });
+      continue;
+    }
+    const resolvedCampaignId = readProviderString(campaignPayload, "id");
+    const observedCampaignAccountId = readProviderString(
+      campaignPayload,
+      "account_id",
+    );
+    const campaignConfiguredStatus = readProviderString(
+      campaignPayload,
+      "status",
+    ).toUpperCase();
+    const campaignEffectiveStatus = readProviderString(
+      campaignPayload,
+      "effective_status",
+    ).toUpperCase();
+    checks.push({
+      kind: "target_campaign",
+      requestedCampaignId: target.targetCampaignId,
+      observedCampaignId: resolvedCampaignId,
+      observedAccountId: observedCampaignAccountId,
+      configuredStatus: campaignConfiguredStatus,
+      effectiveStatus: campaignEffectiveStatus,
+    });
+    if (resolvedCampaignId !== target.targetCampaignId) {
+      blockers.push({
+        code: "target_campaign_identity_mismatch",
+        message: `Target campaign ${target.targetCampaignId} resolved to a different Meta campaign.`,
+      });
+    }
+    if (
+      !observedCampaignAccountId ||
+      !sameProviderAccount(
+        observedCampaignAccountId,
+        input.ctx.providerAccountId,
+      )
+    ) {
+      blockers.push({
+        code: "target_campaign_account_mismatch",
+        message: `Target campaign ${target.targetCampaignId} does not resolve to the selected Meta ad account.`,
+      });
+    }
+    if (
+      campaignConfiguredStatus !== "ACTIVE" ||
+      campaignEffectiveStatus !== "ACTIVE"
+    ) {
+      blockers.push({
+        code: "target_campaign_not_active",
+        message: `Target campaign ${target.targetCampaignId} must be configured and effectively ACTIVE.`,
+      });
+    }
+  }
+
+  return {
+    ok: blockers.length === 0,
+    blockers,
+    checks,
+  };
+}
+
 const NON_RESUMABLE_EFFECTIVE_STATUSES = new Set([
   "ARCHIVED",
   "DELETED",
@@ -754,7 +1094,7 @@ export async function validateMetaBulkResumePreflight(input: {
       const adsetPayload = await graphGet(
         state.ctx,
         adsetId,
-        "id,status,effective_status,promoted_object",
+        "id,status,effective_status,promoted_object,campaign_id",
       );
       const adsetStatus = readProviderString(
         isRecord(adsetPayload) ? adsetPayload : null,
@@ -770,6 +1110,45 @@ export async function validateMetaBulkResumePreflight(input: {
           message: `Ad ${target.adId} parent ad set must be fully active before the ad can be resumed.`,
           adId: target.adId,
         });
+      }
+      const campaignId = readProviderString(
+        isRecord(adsetPayload) ? adsetPayload : null,
+        "campaign_id",
+      );
+      if (!campaignId) {
+        blockers.push({
+          code: "parent_campaign_unresolved",
+          message: `Ad ${target.adId} parent campaign could not be verified.`,
+          adId: target.adId,
+        });
+      } else {
+        const campaignPayload = await graphGet(
+          state.ctx,
+          campaignId,
+          "id,status,effective_status",
+        );
+        const campaignStatus = readProviderString(
+          isRecord(campaignPayload) ? campaignPayload : null,
+          "status",
+        ).toUpperCase();
+        const campaignEffectiveStatus = readProviderString(
+          isRecord(campaignPayload) ? campaignPayload : null,
+          "effective_status",
+        ).toUpperCase();
+        if (
+          readProviderString(
+            isRecord(campaignPayload) ? campaignPayload : null,
+            "id",
+          ) !== campaignId ||
+          campaignStatus !== "ACTIVE" ||
+          campaignEffectiveStatus !== "ACTIVE"
+        ) {
+          blockers.push({
+            code: "parent_campaign_not_active",
+            message: `Ad ${target.adId} parent campaign must be fully active before the ad can be resumed.`,
+            adId: target.adId,
+          });
+        }
       }
       const promotedObject =
         isRecord(adsetPayload) && isRecord(adsetPayload.promoted_object)

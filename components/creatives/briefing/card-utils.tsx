@@ -111,8 +111,11 @@ export function formatOptionalInteger(value: number | null | undefined) {
   return hasMetricValue(value) ? Math.round(value).toLocaleString("en-US") : "—";
 }
 
-export function formatOptionalCurrency(value: number | null | undefined) {
-  return hasMetricValue(value) ? formatCurrency(value) : "—";
+export function formatOptionalCurrency(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+) {
+  return hasMetricValue(value) ? formatCurrency(value, currency) : "—";
 }
 
 export function formatOptionalRoas(value: number | null | undefined) {
@@ -571,9 +574,12 @@ function formatMaybeNumber(value: number | null | undefined, digits = 2) {
   return value.toFixed(digits);
 }
 
-function formatMaybeCurrency(value: number | null | undefined) {
+function formatMaybeCurrency(
+  value: number | null | undefined,
+  currency: string | null | undefined,
+) {
   return typeof value === "number" && Number.isFinite(value)
-    ? formatCurrency(value)
+    ? formatCurrency(value, currency)
     : "—";
 }
 
@@ -674,13 +680,13 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
           {proof?.thresholdQuality ?? "—"}
         </Kv>
         <Kv label="Spend unit">
-          {formatMaybeCurrency(proof?.spendUnit)}
+          {formatMaybeCurrency(proof?.spendUnit, card.currency)}
         </Kv>
         <Kv label="Maturity spend">
-          {formatMaybeCurrency(proof?.commercialMaturitySpend)}
+          {formatMaybeCurrency(proof?.commercialMaturitySpend, card.currency)}
         </Kv>
         <Kv label="Hard cut spend">
-          {formatMaybeCurrency(proof?.hardCutSpend)}
+          {formatMaybeCurrency(proof?.hardCutSpend, card.currency)}
         </Kv>
         <Kv label="Scale purchases">
           {typeof proof?.scaleMinPurchases === "number"
@@ -732,8 +738,8 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             <span>{priority.reason}</span>
           </div>
           <div className="mt-1 text-[11px] text-neutral-500">
-            spend at risk {formatCurrency(priority.inputs.spendAtRisk)} ·
-            opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
+            spend at risk {formatCurrency(priority.inputs.spendAtRisk, card.currency)} ·
+            opportunity {formatCurrency(priority.inputs.opportunityValue, card.currency)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
           </div>
         </div>
@@ -987,16 +993,16 @@ export function buildEvidenceSections(
       ),
       content: (
         <div className="grid grid-cols-4 gap-3 text-[12px]">
-          <Kv label="28d Spend">{formatOptionalCurrency(card.spend)}</Kv>
+          <Kv label="28d Spend">{formatOptionalCurrency(card.spend, card.currency)}</Kv>
           <Kv label="28d ROAS">{formatOptionalRoas(card.roas)}</Kv>
           <Kv label="Purchases">{formatOptionalInteger(card.purchases)}</Kv>
-          <Kv label="CPA">{formatOptionalCurrency(card.cpa)}</Kv>
+          <Kv label="CPA">{formatOptionalCurrency(card.cpa, card.currency)}</Kv>
           <Kv label="CTR">{formatOptionalFixed(card.ctr, 2, "%")}</Kv>
           <Kv label="Frequency">{formatOptionalFixed(card.frequency, 1)}</Kv>
           <Kv label="Age">{hasMetricValue(card.ageDays) ? `${numberOrZero(card.ageDays)}d` : "—"}</Kv>
           <Kv label="Status">{card.status || "ACTIVE"}</Kv>
           <Kv label="24h Spend">
-            {typeof card.spend24h === "number" ? formatCurrency(card.spend24h) : "—"}
+            {typeof card.spend24h === "number" ? formatCurrency(card.spend24h, card.currency) : "—"}
           </Kv>
           <Kv label="24h Impr.">
             {typeof card.impressions24h === "number"

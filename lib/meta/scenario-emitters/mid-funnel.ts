@@ -1,3 +1,4 @@
+import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { LEGACY_META_CALIBRATION_THRESHOLDS, type MetaCalibrationMetricName, type MetaMetricPercentiles } from "@/lib/meta/calibration";
 import { META_RECOMMENDATION_ENGINE_VERSION, type MetaRecommendation } from "@/lib/meta/recommendations";
@@ -13,20 +14,6 @@ type MidFunnelMetricKind = "atc" | "ic" | "vc";
 
 function r2(value: number) {
   return Math.round(value * 100) / 100;
-}
-
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "TRY ";
-  if (currency === "EUR") return "EUR ";
-  return "$";
-}
-
-function fmtCurrency(value: number | null, currency: string | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "No events";
-  return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function fmtPercent(value: number) {
@@ -219,7 +206,7 @@ export function emitMidFunnelAdsetScenario(input: AdsetScenarioInput): MetaRecom
   const event = eventLabel(kind);
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Mid-funnel score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
-    { label: costMetricLabel(kind), value: fmtCurrency(Number.isFinite(costPerEvent) ? costPerEvent : null, currency), tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
+    { label: costMetricLabel(kind), value: Number.isFinite(costPerEvent) ? formatMoney(costPerEvent, currency, null) : "No events", tone: costRank >= 0.7 ? "positive" : costRank <= 0.3 ? "warning" : "neutral" },
     { label: `${event} rate`, value: fmtPercent(eventRate), tone: rateRank >= 0.7 ? "positive" : rateRank <= 0.3 ? "warning" : "neutral" },
     { label: `${event} to purchase`, value: fmtPercent(eventToPurchaseRate), tone: purchaseRank >= 0.7 ? "positive" : purchaseRank <= 0.3 ? "warning" : "neutral" },
   ];

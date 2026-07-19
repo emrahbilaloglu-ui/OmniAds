@@ -41,9 +41,9 @@ function rec(overrides: Partial<MetaRecommendation> = {}): MetaRecommendation {
 }
 
 describe("server-owned rec presentation", () => {
-  it("executes get execute verbs; drawer-only actions get review framing", () => {
+  it("keeps campaign/ad-set mutation suggestions review-only", () => {
     expect(serverPrimaryActionLabelForRec(rec({ type: "adset_cut_spend" }))).toBe(
-      "Pause adset",
+      "Review cut plan",
     );
     expect(
       serverPrimaryActionLabelForRec(
@@ -52,7 +52,7 @@ describe("server-owned rec presentation", () => {
           proposedAction: { kind: "apply_bid", bidAmountMinor: 500 },
         }),
       ),
-    ).toBe("Apply bid cap");
+    ).toBe("Review tuning");
     // Scale recs have no execute path on this page - the old UI said
     // "Scale budget" on a button that only opened a drawer.
     const scale = rec({ type: "adset_scale_budget", proposedAction: undefined });
@@ -61,6 +61,25 @@ describe("server-owned rec presentation", () => {
     const keep = rec({ type: "scenario_m2_mid_funnel_steady_keep", proposedAction: undefined });
     expect(serverPrimaryActionLabelForRec(keep)).toBe("Review status");
   });
+
+  it.each([
+    [{ kind: "pause" } as const, "adset_cut_spend"],
+    [{ kind: "resume" } as const, "adset_state"],
+    [
+      { kind: "apply_bid", bidAmountMinor: 500 } as const,
+      "bid_value_guidance",
+    ],
+  ])(
+    "does not treat proposedAction %o as provider-write authority",
+    (proposedAction, type) => {
+      const candidate = rec({
+        type: type as MetaRecommendation["type"],
+        proposedAction,
+      });
+      expect(serverActionKindForRec(candidate)).toBe("review_drill");
+      expect(serverPrimaryActionLabelForRec(candidate)).toMatch(/^Review /);
+    },
+  );
 
   it("never exposes an execute CTA for test or watch decisions", () => {
     const watchCut = rec({
@@ -112,8 +131,8 @@ describe("server-owned rec presentation", () => {
       ["as_1", { accountId: "act_1234567890", thumbLabel: null }],
     ]);
     const [annotated] = annotateMetaRecPresentation([rec()], metrics, rowPresentation);
-    expect(annotated.actionKind).toBe("execute_pause");
-    expect(annotated.primaryActionLabel).toBe("Pause adset");
+    expect(annotated.actionKind).toBe("review_drill");
+    expect(annotated.primaryActionLabel).toBe("Review cut plan");
     expect(annotated.decisionLabel).toBe("cut");
     expect(annotated.rowPresentation).toMatchObject({
       accountBadge: "act_1234567890",

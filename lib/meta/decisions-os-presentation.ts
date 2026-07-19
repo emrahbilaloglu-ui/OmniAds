@@ -58,6 +58,11 @@ const AUTHORITY_BLOCKER_PRESENTATION: Record<
     explanation:
       "The native Ad profile required to authorize the verdict was unavailable.",
   },
+  recent_recovery_unverifiable: {
+    label: "Recent economic recovery cannot be ruled out",
+    explanation:
+      "The Cut verdict is held until a sufficiently sampled recent window confirms ROAS remains below break-even.",
+  },
 };
 
 function authorityProvenanceForDecision(

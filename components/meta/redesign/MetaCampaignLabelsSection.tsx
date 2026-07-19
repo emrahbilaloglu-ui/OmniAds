@@ -407,7 +407,7 @@ export function MetaCampaignLabelsSection({
                     ))}
                   </select>
                   <div className="text-right font-mono tabular-nums text-slate-700">
-                    {formatCurrency(campaign.spend)}
+                    {formatCurrency(campaign.spend, campaign.currency)}
                     <div className="text-[10.5px] text-slate-400">
                       {formatRoas(campaign.roas)}
                     </div>

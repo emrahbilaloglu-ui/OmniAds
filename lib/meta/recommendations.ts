@@ -1,6 +1,7 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { AppLanguage } from "@/lib/i18n";
+import { formatMoney } from "@/components/creatives/money";
 import type {
   MetaCalibrationScopeResult,
   MetaCalibrationThresholds,
@@ -276,7 +277,11 @@ export interface MetaRecommendation {
   bidRegime?: MetaBidRegime;
   cohort?: MetaFunnelCohort | null;
   /** Server-owned action presentation (filled at read time by lane-classify
-   * via lib/meta/rec-presentation.ts; the UI must not derive these). */
+   * via lib/meta/rec-presentation.ts; the UI must not derive these).
+   * execute_* values remain in the wire type only for old persisted payload
+   * compatibility. They are not current authority and clients must fail them
+   * closed to review until campaign/ad-set execution receives a canonical
+   * decision-origin contract. */
   actionKind?:
     | "execute_pause"
     | "execute_bid"
@@ -920,17 +925,11 @@ function r2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "₺";
-  if (currency === "EUR") return "€";
-  return "$";
-}
-
-function fmtCurrency(value: number, currency = "$") {
-  return `${currency}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function fmtCurrency(
+  value: number,
+  currency: string | null | undefined,
+) {
+  return formatMoney(value, currency, null);
 }
 
 function fmtRoas(value: number) {
@@ -1022,9 +1021,9 @@ function commercialTargetEvidence(
     items.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
   }
   if (targets?.breakEvenCpa) {
-    items.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency ?? "$"), tone: "neutral" });
+    items.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency), tone: "neutral" });
   } else if (targets?.targetCpa) {
-    items.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency ?? "$"), tone: "neutral" });
+    items.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency), tone: "neutral" });
   }
   return items;
 }
@@ -2163,7 +2162,11 @@ function historicalBidRange(input: MetaRecommendationWindows) {
   };
 }
 
-function fmtCurrencyRange(low: number, high: number, currency = "$") {
+function fmtCurrencyRange(
+  low: number,
+  high: number,
+  currency: string | null | undefined,
+) {
   if (Math.abs(low - high) <= 1) {
     return fmtCurrency(low / 100, currency);
   }
@@ -2501,7 +2504,7 @@ function maybeBidBandRecommendation(
   suggestedRoasRange: { low: number; high: number } | null,
   seasonalContext: MetaSeasonalContext
 ): MetaRecommendation | null {
-  const currency = currencySymbol(selectedRows[0]?.currency);
+  const currency = selectedRows[0]?.currency;
   const defensiveBand = suggestedBidRange ? fmtCurrencyRange(suggestedBidRange.low, suggestedBidRange.high, currency) : null;
   const scaleBandRaw = widenBidRange(suggestedBidRange, 1.05, 1.15);
   const scaleBand = scaleBandRaw ? fmtCurrencyRange(scaleBandRaw.low, scaleBandRaw.high, currency) : null;
@@ -2555,7 +2558,7 @@ function maybeRebuildRecommendation(
 ): MetaRecommendation | null {
   const historical = aggregateBidRegimeSummary(selectedRows, historicalBidRegimes);
   const current = currentBidRegimeSummary(selectedRows);
-  const currency = currencySymbol(selectedRows[0]?.currency);
+  const currency = selectedRows[0]?.currency;
   const defensiveBand = suggestedBidRange ? fmtCurrencyRange(suggestedBidRange.low, suggestedBidRange.high, currency) : null;
   const rebuildMethod = constrainedRebuildLabel(historical);
   const shouldRebuild =
@@ -2663,12 +2666,12 @@ function maybeOptimizationRecommendation(window: CampaignWindowSnapshot): MetaRe
       expectedImpact: "Lower wasted spend and better downstream conversion quality.",
       evidence: [
         { label: "Optimization", value: row.optimizationGoal ?? "—", tone: "warning" },
-        { label: "Cost / lead", value: fmtCurrency(row.costPerLead, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"), tone: "warning" },
+        { label: "Cost / lead", value: fmtCurrency(row.costPerLead, row.currency), tone: "warning" },
         { label: "Leads", value: String(row.leads), tone: "neutral" },
       ],
       timeframeContext: buildTimeframeContext(
         "Core verdict says lead quality economics are not strong enough for clean scaling.",
-        `Selected range currently reads ${fmtCurrency(row.costPerLead, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$")} per lead.`,
+        `Selected range currently reads ${fmtCurrency(row.costPerLead, row.currency)} per lead.`,
         `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
         seasonality.flag,
         seasonality.note
@@ -2778,10 +2781,10 @@ function maybeBidRecommendation(
       (historical) => historical.roas >= Math.max(accountRoas * 0.9, 2)
     );
     const decision = conservativeDecision(support.supportCount, support.total, seasonality.flag);
-    const bidCurrencySymbol = currencySymbol(row.currency);
+    const bidCurrency = row.currency;
     const suggestedBidText =
       suggestedBidRange
-        ? fmtCurrencyRange(suggestedBidRange.low, suggestedBidRange.high, bidCurrencySymbol)
+        ? fmtCurrencyRange(suggestedBidRange.low, suggestedBidRange.high, bidCurrency)
         : null;
     return applyConfidence({
       id: `bid-${row.id}`,
@@ -2810,7 +2813,7 @@ function maybeBidRecommendation(
         ...(typeof row.bidValue === "number"
           ? [{
               label: "Bid value",
-              value: row.bidValueFormat === "roas" ? fmtRoas(row.bidValue) : fmtCurrency(row.bidValue / 100, bidCurrencySymbol),
+              value: row.bidValueFormat === "roas" ? fmtRoas(row.bidValue) : fmtCurrency(row.bidValue / 100, bidCurrency),
               tone: "neutral" as const,
             }]
           : []),
@@ -2821,7 +2824,7 @@ function maybeBidRecommendation(
       ],
       timeframeContext: buildTimeframeContext(
         "Core verdict reads weighted performance against a constrained bid strategy.",
-        `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, bidCurrencySymbol)} spend.`,
+        `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, bidCurrency)} spend.`,
         suggestedBidText
           ? `Historical support found in ${support.supportCount}/${support.total} independent segments. Suggested bid range is derived from disjoint AOV and ROAS history.`
           : `Historical support found in ${support.supportCount}/${support.total} independent segments.`,
@@ -2950,9 +2953,9 @@ function maybeVolumeScaleRecommendation(
     expectedImpact: "Higher delivery and more conversion volume without immediately giving up control.",
     evidence: [
       { label: "Core ROAS", value: fmtRoas(core.roas), tone: "positive" },
-      { label: "Core CPA", value: fmtCurrency(core.cpa, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"), tone: "positive" },
+      { label: "Core CPA", value: fmtCurrency(core.cpa, row.currency), tone: "positive" },
       { label: "Core purchases", value: String(Math.round(core.purchases)), tone: "positive" },
-      ...commercialTargetEvidence(commercialTargets, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"),
+      ...commercialTargetEvidence(commercialTargets, row.currency),
     ],
     timeframeContext: buildTimeframeContext(
       "Core verdict says scale economics are healthy across recency-weighted independent history segments.",
@@ -3037,12 +3040,12 @@ function maybeProfitabilityRecommendation(
       { label: "Spend share", value: `${r2(spendShare * 100)}%`, tone: "warning" },
       { label: "Core ROAS", value: fmtRoas(core.roas), tone: "warning" },
       { label: "Peer-group ROAS", value: fmtRoas(peerRoas), tone: "neutral" },
-      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"), tone: "neutral" },
-      ...commercialTargetEvidence(commercialTargets, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$"),
+      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      ...commercialTargetEvidence(commercialTargets, row.currency),
     ],
     timeframeContext: buildTimeframeContext(
       "Core verdict says profitability is weaker than the comparable optimization cohort.",
-      `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, row.currency === "TRY" ? "₺" : row.currency === "EUR" ? "€" : "$")} spend.`,
+      `Selected range currently reads ${fmtRoas(row.roas)} ROAS on ${fmtCurrency(row.spend, row.currency)} spend.`,
       `Historical weakness confirmed in ${support.supportCount}/${support.total} independent segments.`,
       seasonality.flag,
       seasonality.note
@@ -3271,17 +3274,27 @@ function ensurePriorityRecommendationsIncluded(
     .slice(0, 10);
 }
 
-export function buildMetaRecommendations(input: {
+export interface MetaRecommendationsBuildInput {
   windows: MetaRecommendationWindows;
   breakdowns: MetaBreakdownsResponse | null;
   historicalBidRegimes?: Record<string, MetaBidRegimeHistorySummary>;
-  creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
   calibrationContext?: MetaCalibrationContext | null;
   calibrationContextByCampaignId?: Record<string, MetaCalibrationContext | null | undefined>;
   entitySignalsByCampaignId?: Record<string, MetaEntityDecisionSignal | null | undefined>;
   commercialTargets?: MetaCommercialTargets | null;
   language?: AppLanguage;
-}): MetaRecommendationsResponse {
+}
+
+type HistoricalMetaRecommendationsBuildInput =
+  MetaRecommendationsBuildInput & {
+    creativeIntelligence: MetaCreativeIntelligenceSummary;
+  };
+
+function buildMetaRecommendationsInternal(
+  input: MetaRecommendationsBuildInput & {
+    creativeIntelligence?: MetaCreativeIntelligenceSummary | null;
+  },
+): MetaRecommendationsResponse {
   const language = input.language ?? "en";
   const allWindows = buildCampaignWindows(input.windows);
   const allSelectedRows = input.windows.selected;
@@ -3521,4 +3534,23 @@ export function buildMetaRecommendations(input: {
     summary: buildSummary(deduped, language),
     recommendations: deduped,
   }, language);
+}
+
+/** Active campaign recommendation builder. Legacy creative-score decisions
+ * cannot be supplied through this contract. */
+export function buildMetaRecommendations(
+  input: MetaRecommendationsBuildInput,
+): MetaRecommendationsResponse {
+  return buildMetaRecommendationsInternal({
+    ...input,
+    creativeIntelligence: null,
+  });
+}
+
+/** Historical compatibility/replay only. Active routes must not import this
+ * builder or turn its legacy score labels into buyer actions. */
+export function buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence(
+  input: HistoricalMetaRecommendationsBuildInput,
+): MetaRecommendationsResponse {
+  return buildMetaRecommendationsInternal(input);
 }

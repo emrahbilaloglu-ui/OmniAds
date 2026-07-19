@@ -10,14 +10,16 @@ import {
 import type { DecisionOriginBriefingCard } from "@/components/creatives/briefing/action-handlers";
 
 const DECISION_HASH = "c".repeat(64);
+const INPUT_HASH = "d".repeat(64);
+const ENGINE_VERSION = "v3-ad-2026-07-18-decision-presentation-hardening-shadow";
 
 function card(
   overrides: Partial<DecisionOriginBriefingCard> = {},
 ): DecisionOriginBriefingCard {
-  return {
+  const value: DecisionOriginBriefingCard = {
     id: "row_1",
     creativeId: "creative_1",
-    realAdId: "ad_1",
+    realAdId: "100000000000001",
     providerAccountId: "act_123",
     name: "Aphrodite Hook",
     brand: "TheSwaf",
@@ -25,10 +27,17 @@ function card(
     primary: { kind: "cut", label: "Cut" },
     sourceDecisionSnapshotId: "snapshot_1",
     sourceDecisionEvaluationId: "evaluation_1",
-    sourceDecisionSnapshotEngineVersion:
-      "v3-ad-2026-07-12-native-provenance-shadow",
+    sourceDecisionSnapshotEngineVersion: ENGINE_VERSION,
+    sourceDecisionAuthorityStatus: "native_exact",
+    sourceDecisionInputHash: INPUT_HASH,
     sourceDecisionHash: DECISION_HASH,
+    sourceDecisionProviderAccountRefId: "provider_ref_1",
+    sourceDecisionJobRunId: "job_run_1",
+    sourceDecisionAuthorizedAction: "cut",
+    sourceDecisionActionEligible: true,
     sourceDecisionSnapshotMatch: "matched",
+    authorityBlocker: null,
+    blockedActionType: null,
     spend: 1200,
     roas: 3.4,
     ctr: 1.8,
@@ -38,6 +47,58 @@ function card(
     sparkline: [2.8, 3.1, 3.4],
     ...overrides,
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "canonicalDecision")) {
+    const snapshotId = value.sourceDecisionSnapshotId?.trim() ?? "";
+    const evaluationId = value.sourceDecisionEvaluationId?.trim() ?? "";
+    const providerAccountId = value.providerAccountId?.trim() ?? "";
+    const adId = value.realAdId?.trim() ?? "";
+    value.canonicalDecision = {
+      contractVersion: "briefing-canonical-native-ad.v1",
+      identityGrain: "ad",
+      decisionId: `decision_${adId}`,
+      episodeId: `episode_${adId}`,
+      sourceSnapshotId: snapshotId,
+      adId,
+      creativeId: value.creativeId ?? null,
+      identityResolution: {
+        basis: "native_ad_exact",
+        adActionEligible: true,
+      },
+      classification: {
+        decisionState: "act",
+        buyerAction: "cut",
+        buyerLabel: "Cut",
+        executionAction: null,
+        heldAction: null,
+      },
+      sourceDecision: {
+        label: "cut",
+        authorityBlocker: null,
+        confidence: 0.9,
+        reason: "Canonical Cut",
+        snapshotAsOf: "2026-07-18",
+        computedAt: "2026-07-18T03:00:00.000Z",
+      },
+      sourceAuthority: {
+        status: "native_exact",
+        snapshotId,
+        evaluationId,
+        inputHash: value.sourceDecisionInputHash?.trim() ?? "",
+        decisionHash: value.sourceDecisionHash?.trim() ?? "",
+        engineVersion:
+          value.sourceDecisionSnapshotEngineVersion?.trim() ?? "",
+        providerAccountRefId:
+          value.sourceDecisionProviderAccountRefId?.trim() ?? "",
+        providerAccountId,
+        realAdId: adId,
+        jobRunId: value.sourceDecisionJobRunId?.trim() ?? "",
+        authorizedAction: "cut",
+        actionEligible: true,
+        reviewOnlyReason: null,
+      },
+    };
+  }
+  return value;
 }
 
 describe("bulk briefing actions", () => {
@@ -50,7 +111,7 @@ describe("bulk briefing actions", () => {
         card({
           id: "row_2",
           creativeId: "creative_2",
-          realAdId: "ad_2",
+          realAdId: "100000000000002",
           name: "Second",
           sourceDecisionSnapshotId: "snapshot_2",
           sourceDecisionEvaluationId: "evaluation_2",
@@ -60,6 +121,7 @@ describe("bulk briefing actions", () => {
 
     expect(body).toMatchObject({
       contractVersion: "meta-decision-origin-ad-execution.v1",
+      actionOrigin: "native_decision_v1",
       businessId: "biz_1",
       providerAccountId: "act_123",
       action: "pause",
@@ -69,17 +131,17 @@ describe("bulk briefing actions", () => {
     expect(body.ads[0]).toMatchObject({
       businessId: "biz_1",
       providerAccountId: "act_123",
-      adId: "ad_1",
+      adId: "100000000000001",
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
-    engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+      engineVersion: ENGINE_VERSION,
       decisionHash: DECISION_HASH,
       action: "pause",
       creativeId: "creative_1",
       name: "Aphrodite Hook",
     });
     expect(body.ads[1]).toMatchObject({
-      adId: "ad_2",
+      adId: "100000000000002",
       snapshotId: "snapshot_2",
       evaluationId: "evaluation_2",
     });
@@ -87,45 +149,18 @@ describe("bulk briefing actions", () => {
     expect(body.ads[1]).not.toHaveProperty("candidateAdIds");
   });
 
-  it("builds a manual legacy batch when briefing cards omit native lineage", () => {
-    const body = buildBulkPauseRequestBody({
-      businessId: "biz_1",
-      cards: [
-        card({
-          sourceDecisionEvaluationId: null,
-          sourceDecisionHash: null,
-          metaAdId: "alternate_ad_1",
-        }),
-        card({
-          id: "row_2",
-          creativeId: "creative_2",
-          realAdId: "ad_2",
-          sourceDecisionEvaluationId: null,
-          sourceDecisionHash: null,
-        }),
-      ],
-    });
-
-    expect(body).toMatchObject({
-      businessId: "biz_1",
-      providerAccountId: "act_123",
-      action: "pause",
-    });
-    expect(body).not.toHaveProperty("contractVersion");
-    expect(body.ads).toEqual([
-      expect.objectContaining({
-        adId: "ad_1",
-        candidateAdIds: expect.arrayContaining([
-          "ad_1",
-          "alternate_ad_1",
-          "creative_1",
-        ]),
+  it("rejects a lineage-free batch instead of emitting a manual contract", () => {
+    expect(() =>
+      buildBulkPauseRequestBody({
+        businessId: "biz_1",
+        cards: [
+          card({
+            sourceDecisionEvaluationId: null,
+            sourceDecisionHash: null,
+          }),
+        ],
       }),
-      expect.objectContaining({
-        adId: "ad_2",
-        candidateAdIds: expect.arrayContaining(["ad_2", "creative_2"]),
-      }),
-    ]);
+    ).toThrow("exact native eligible authorized Cut");
   });
 
   it("rejects mixed native and legacy bulk authority instead of downgrading it", () => {
@@ -136,13 +171,13 @@ describe("bulk briefing actions", () => {
           card(),
           card({
             id: "row_2",
-            realAdId: "ad_2",
+            realAdId: "100000000000002",
             sourceDecisionEvaluationId: null,
             sourceDecisionHash: null,
           }),
         ],
       }),
-    ).toThrow("cannot mix native decision lineage");
+    ).toThrow("exact native eligible authorized Cut");
   });
 
   it("rejects synthetic/alternate ids before calling the route", async () => {
@@ -160,7 +195,7 @@ describe("bulk briefing actions", () => {
         ],
         fetchImpl,
       }),
-    ).rejects.toThrow("missing_ad_id");
+    ).rejects.toThrow("exact native eligible authorized Cut");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -171,7 +206,10 @@ describe("bulk briefing actions", () => {
         businessId: "biz_1",
         cards: [
           card(),
-          card({ realAdId: "ad_2", providerAccountId: "act_456" }),
+          card({
+            realAdId: "100000000000002",
+            providerAccountId: "act_456",
+          }),
         ],
       }),
     ).toThrow("exactly one provider account");
@@ -186,8 +224,18 @@ describe("bulk briefing actions", () => {
         successCount: 2,
         failedCount: 0,
         results: [
-          { inputAdId: "ad_1", adId: "ad_1", ok: true, status: "PAUSED" },
-          { inputAdId: "ad_2", adId: "ad_2", ok: true, status: "PAUSED" },
+          {
+            inputAdId: "100000000000001",
+            adId: "100000000000001",
+            ok: true,
+            status: "PAUSED",
+          },
+          {
+            inputAdId: "100000000000002",
+            adId: "100000000000002",
+            ok: true,
+            status: "PAUSED",
+          },
         ],
       }),
     })) as unknown as typeof fetch;
@@ -200,7 +248,7 @@ describe("bulk briefing actions", () => {
         card({
           id: "row_2",
           creativeId: "creative_2",
-          realAdId: "ad_2",
+          realAdId: "100000000000002",
           sourceDecisionSnapshotId: "snapshot_2",
           sourceDecisionEvaluationId: "evaluation_2",
         }),
@@ -218,6 +266,7 @@ describe("bulk briefing actions", () => {
     );
     expect(requestBody).toMatchObject({
       contractVersion: "meta-decision-origin-ad-execution.v1",
+      actionOrigin: "native_decision_v1",
       businessId: "biz_1",
       providerAccountId: "act_123",
       action: "pause",
@@ -225,44 +274,34 @@ describe("bulk briefing actions", () => {
     });
     expect(requestBody.ads).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ adId: "ad_1", snapshotId: "snapshot_1" }),
-        expect.objectContaining({ adId: "ad_2", snapshotId: "snapshot_2" }),
+        expect.objectContaining({
+          adId: "100000000000001",
+          snapshotId: "snapshot_1",
+        }),
+        expect.objectContaining({
+          adId: "100000000000002",
+          snapshotId: "snapshot_2",
+        }),
       ]),
     );
   });
 
-  it("posts lineage-free briefing cards through the route's manual mode", async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        successCount: 1,
-        failedCount: 0,
-        results: [
-          { inputAdId: "ad_1", adId: "ad_1", ok: true, status: "PAUSED" },
+  it("rejects lineage-free briefing cards before calling the bulk route", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      pauseBriefingCardsBulk({
+        businessId: "biz_1",
+        cards: [
+          card({
+            sourceDecisionEvaluationId: null,
+            sourceDecisionHash: null,
+          }),
         ],
+        fetchImpl,
       }),
-    })) as unknown as typeof fetch;
-
-    await pauseBriefingCardsBulk({
-      businessId: "biz_1",
-      cards: [
-        card({
-          sourceDecisionEvaluationId: null,
-          sourceDecisionHash: null,
-        }),
-      ],
-      fetchImpl,
-    });
-
-    const requestBody = JSON.parse(
-      String((vi.mocked(fetchImpl).mock.calls[0]?.[1] as RequestInit)?.body),
-    );
-    expect(requestBody).not.toHaveProperty("contractVersion");
-    expect(requestBody.ads[0]).toMatchObject({
-      adId: "ad_1",
-      candidateAdIds: expect.arrayContaining(["ad_1", "creative_1"]),
-    });
+    ).rejects.toThrow("exact native eligible authorized Cut");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("throws on endpoint errors so callers can rollback optimistic bulk state", async () => {
@@ -283,8 +322,16 @@ describe("bulk briefing actions", () => {
 
   it("maps only exact-ad successes back to card ids", () => {
     const cards = [
-      card({ id: "row_1", creativeId: "shared_creative", realAdId: "ad_1" }),
-      card({ id: "row_2", creativeId: "shared_creative", realAdId: "ad_2" }),
+      card({
+        id: "row_1",
+        creativeId: "shared_creative",
+        realAdId: "100000000000001",
+      }),
+      card({
+        id: "row_2",
+        creativeId: "shared_creative",
+        realAdId: "100000000000002",
+      }),
     ];
     const result = {
       ok: false,
@@ -292,14 +339,14 @@ describe("bulk briefing actions", () => {
       failedCount: 1,
       results: [
         {
-          inputAdId: "ad_1",
-          adId: "ad_1",
+          inputAdId: "100000000000001",
+          adId: "100000000000001",
           creativeId: "shared_creative",
           ok: true,
           status: "PAUSED",
         },
         {
-          inputAdId: "ad_2",
+          inputAdId: "100000000000002",
           creativeId: "shared_creative",
           ok: false,
           error: { code: "ad_not_found", message: "Ad was not found for this business." },
@@ -312,87 +359,38 @@ describe("bulk briefing actions", () => {
   });
 
   it("does not accept an exact-lineage success that resolved to another ad", () => {
-    const cards = [card({ id: "row_1", realAdId: "ad_1" })];
+    const cards = [
+      card({ id: "row_1", realAdId: "100000000000001" }),
+    ];
     expect(
       successfulBulkPauseCardIds(cards, {
         ok: false,
         results: [
           {
-            inputAdId: "ad_1",
-            adId: "ad_2",
+            inputAdId: "100000000000001",
+            adId: "100000000000002",
             ok: true,
             status: "PAUSED",
-            attemptedIds: ["ad_1"],
+            attemptedIds: ["100000000000001"],
           },
         ],
       }),
     ).toEqual([]);
   });
 
-  it("keeps a legacy bulk success resolved through a later candidate", () => {
-    const cards = [
-      card({
-        id: "row_1",
-        realAdId: "stale_ad",
-        metaAdId: "current_ad",
-        sourceDecisionEvaluationId: null,
-        sourceDecisionHash: null,
-      }),
-    ];
-
-    expect(
-      successfulBulkPauseCardIds(cards, {
-        ok: true,
-        results: [
-          {
-            inputAdId: "stale_ad",
-            adId: "current_ad",
-            ok: true,
-            status: "PAUSED",
-            attemptedIds: ["stale_ad", "current_ad"],
-          },
-        ],
-      }),
-    ).toEqual(["row_1"]);
-  });
-
-  it("keeps a resolved success when a card candidate was the attempted lookup", () => {
-    const cards = [
-      card({
-        id: "row_1",
-        realAdId: "stale_ad",
-        creativeId: "creative_lookup",
-        sourceDecisionEvaluationId: null,
-        sourceDecisionHash: null,
-      }),
-    ];
-
-    expect(
-      successfulBulkPauseCardIds(cards, {
-        ok: true,
-        results: [
-          {
-            inputAdId: "stale_ad",
-            adId: "resolved_ad",
-            ok: true,
-            status: "PAUSED",
-            attemptedIds: ["stale_ad", "creative_lookup"],
-          },
-        ],
-      }),
-    ).toEqual(["row_1"]);
-  });
-
   it("builds bulk Launchpad URLs for 1, 3, and 5 selected creatives", () => {
-    expect(buildBulkLaunchpadHref([card()], "demote")).toBe(
+    const legacyCard = (
+      overrides: Partial<DecisionOriginBriefingCard> = {},
+    ) => card({ canonicalDecision: null, ...overrides });
+    expect(buildBulkLaunchpadHref([legacyCard()], "demote")).toBe(
       "/platforms/meta/launchpad?creativeIds=creative_1&mode=demote&fromBriefing=true",
     );
     expect(
       buildBulkLaunchpadHref(
         [
-          card(),
-          card({ id: "row_2", creativeId: "creative_2" }),
-          card({ id: "row_3", creativeId: "creative_3" }),
+          legacyCard(),
+          legacyCard({ id: "row_2", creativeId: "creative_2" }),
+          legacyCard({ id: "row_3", creativeId: "creative_3" }),
         ],
         "fresh_test",
       ),
@@ -400,11 +398,11 @@ describe("bulk briefing actions", () => {
     expect(
       buildBulkLaunchpadHref(
         [
-          card(),
-          card({ id: "row_2", creativeId: "creative_2" }),
-          card({ id: "row_3", creativeId: "creative_3" }),
-          card({ id: "row_4", creativeId: "creative_4" }),
-          card({ id: "row_5", creativeId: "creative_5" }),
+          legacyCard(),
+          legacyCard({ id: "row_2", creativeId: "creative_2" }),
+          legacyCard({ id: "row_3", creativeId: "creative_3" }),
+          legacyCard({ id: "row_4", creativeId: "creative_4" }),
+          legacyCard({ id: "row_5", creativeId: "creative_5" }),
         ],
         "add_existing",
       ),

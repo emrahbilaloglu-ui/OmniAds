@@ -23,6 +23,9 @@ vi.mock("@/lib/sync/worker-health", () => ({
 }));
 
 const db = await import("@/lib/db");
+const providerAccountReferenceStore = await import(
+  "@/lib/provider-account-reference-store"
+);
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
   buildMetaAuthoritativePublicationLookup,
@@ -809,15 +812,77 @@ describe("meta warehouse ownership safety", () => {
         cpc: 2.4,
         linkClicks: null,
         sourceSnapshotId: "snapshot-1",
-        payloadJson: null,
+        payloadJson: {
+          spend: "12",
+          preview_url: "https://cdn.example.com/preview.png",
+          nested: {
+            thumbnail_url: "https://cdn.example.com/thumb.png",
+            objective: "SALES",
+          },
+        },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     const adDailyQueryIndex = queries.findIndex((query) =>
       query.includes("INSERT INTO meta_ad_daily"),
     );
     expect(adDailyQueryIndex).toBeGreaterThanOrEqual(0);
     expect(capturedValues[adDailyQueryIndex]?.[31]).toBe(0);
+    expect(JSON.parse(String(capturedValues[adDailyQueryIndex]?.[39]))).toEqual({
+      spend: "12",
+      nested: { objective: "SALES" },
+    });
+    const authoritativeInsert = queries[adDailyQueryIndex] ?? "";
+    const insertColumns =
+      authoritativeInsert
+        .match(/INSERT INTO meta_ad_daily\s*\(([^]*?)\)\s*VALUES/i)?.[1]
+        ?.split(",")
+        .map((column) => column.trim())
+        .filter(Boolean) ?? [];
+    expect(insertColumns).toHaveLength(41);
+    expect(insertColumns.at(-1)).toBe("updated_at");
+    expect(capturedValues[adDailyQueryIndex]).toHaveLength(40);
+    expect(authoritativeInsert).toContain("$40::jsonb,now())");
+  });
+
+  it("rejects creative enrichment before it can mutate historical Meta Ad facts", async () => {
+    await expect(
+      upsertMetaAdDailyRows(
+        [{ businessId: "biz-1" }] as never,
+        { writeMode: "creative_enrichment" } as never,
+      ),
+    ).rejects.toThrow(
+      "Unsupported Meta Ad daily write mode: creative_enrichment",
+    );
+    expect(db.getDb).not.toHaveBeenCalled();
+    expect(
+      providerAccountReferenceStore.ensureProviderAccountReferenceIds,
+    ).not.toHaveBeenCalled();
+    expect(
+      providerAccountReferenceStore.resolveBusinessReferenceIds,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("rejects an omitted Meta Ad fact ownership mode before DB access", async () => {
+    await expect(
+      upsertMetaAdDailyRows(
+        [{ businessId: "biz-1" }] as never,
+        undefined as never,
+      ),
+    ).rejects.toThrow("Unsupported Meta Ad daily write mode: undefined");
+    expect(db.getDb).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for an unknown Meta Ad daily write mode", async () => {
+    await expect(
+      upsertMetaAdDailyRows(
+        [{ businessId: "biz-1" }] as never,
+        { writeMode: "creative_typo" } as never,
+      ),
+    ).rejects.toThrow(
+      "Unsupported Meta Ad daily write mode: creative_typo",
+    );
+    expect(db.getDb).not.toHaveBeenCalled();
   });
 
   it("casts warehouse range dates to text when truth lifecycle columns are enabled", async () => {
@@ -1210,7 +1275,7 @@ describe("meta warehouse ownership safety", () => {
         sourceSnapshotId: "snapshot-2",
         payloadJson: { adId: "ad-2" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     const adDailyQueries = queries.filter((query) =>
       query.includes("INSERT INTO meta_ad_daily"),
@@ -4074,7 +4139,7 @@ describe("meta warehouse config columns", () => {
         sourceSnapshotId: null,
         payloadJson: { adId: "ad-1" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     await upsertMetaCreativeDailyRows([
       {
@@ -4247,7 +4312,7 @@ describe("meta warehouse config columns", () => {
         sourceRunId: "run-1",
         payloadJson: { adId: "ad-1" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     await upsertMetaCreativeDailyRows([
       {

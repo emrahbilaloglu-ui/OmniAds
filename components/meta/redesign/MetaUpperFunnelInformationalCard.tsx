@@ -5,9 +5,11 @@ import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import { formatPercent } from "@/lib/briefing/utils";
 import { MetaCohortChip } from "@/components/meta/redesign/MetaCohortChip";
 import { MetaScopeChip } from "@/components/meta/redesign/MetaScopeChip";
+import { formatMoney } from "@/components/meta/redesign/meta-card-utils";
 
 interface MetaUpperFunnelInformationalCardProps {
   rec: MetaRecommendation;
+  moneyCurrency?: string | null;
   onOpenDrill?: (rec: MetaRecommendation) => void;
 }
 
@@ -40,11 +42,6 @@ export function upperFunnelMetricsForRec(rec: MetaRecommendation): MetaUpperFunn
   };
 }
 
-function formatMoney(value: number) {
-  if (value > 0 && value < 10) return `$${value.toFixed(2)}`;
-  return `$${Math.round(value).toLocaleString("en-US")}`;
-}
-
 function formatRatioPercent(numerator: number | null, denominator: number | null) {
   if (numerator == null || denominator == null || denominator <= 0) return "—";
   return formatPercent((numerator / denominator) * 100, 1);
@@ -55,9 +52,12 @@ function formatFrequency(value: number | null) {
   return value.toFixed(1);
 }
 
-function costPerThruplay(metrics: MetaUpperFunnelMetrics) {
+function costPerThruplay(
+  metrics: MetaUpperFunnelMetrics,
+  moneyCurrency: string | null | undefined,
+) {
   if (metrics.spend == null || metrics.thruplayActions == null || metrics.thruplayActions <= 0) return "—";
-  return formatMoney(metrics.spend / metrics.thruplayActions);
+  return formatMoney(metrics.spend / metrics.thruplayActions, moneyCurrency);
 }
 
 function KpiTile({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
@@ -70,13 +70,25 @@ function KpiTile({ label, value, sub }: { label: string; value: string; sub?: st
   );
 }
 
-export function UpperFunnelKpiGrid({ metrics }: { metrics: MetaUpperFunnelMetrics }) {
+export function UpperFunnelKpiGrid({
+  metrics,
+  moneyCurrency,
+}: {
+  metrics: MetaUpperFunnelMetrics;
+  moneyCurrency?: string | null;
+}) {
   const p50Sub =
-    metrics.costPerThruplayP50 != null ? `vs cohort p50 ${formatMoney(metrics.costPerThruplayP50)}` : null;
+    metrics.costPerThruplayP50 != null
+      ? `vs cohort p50 ${formatMoney(metrics.costPerThruplayP50, moneyCurrency)}`
+      : null;
 
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" data-upper-funnel-kpi-grid>
-      <KpiTile label="Cost / ThruPlay" value={costPerThruplay(metrics)} sub={p50Sub} />
+      <KpiTile
+        label="Cost / ThruPlay"
+        value={costPerThruplay(metrics, moneyCurrency)}
+        sub={p50Sub}
+      />
       <KpiTile label="ThruPlay rate" value={formatRatioPercent(metrics.thruplayActions, metrics.impressions)} />
       <KpiTile label="Hook rate (3s)" value={formatRatioPercent(metrics.videoViews3s, metrics.impressions)} />
       <KpiTile label="Frequency" value={formatFrequency(metrics.frequency)} />
@@ -86,6 +98,7 @@ export function UpperFunnelKpiGrid({ metrics }: { metrics: MetaUpperFunnelMetric
 
 export function MetaUpperFunnelInformationalCard({
   rec,
+  moneyCurrency,
   onOpenDrill,
 }: MetaUpperFunnelInformationalCardProps) {
   if (rec.cohort !== "upper_funnel") return null;
@@ -116,7 +129,10 @@ export function MetaUpperFunnelInformationalCard({
       </p>
 
       <div className="mt-3">
-        <UpperFunnelKpiGrid metrics={metrics} />
+        <UpperFunnelKpiGrid
+          metrics={metrics}
+          moneyCurrency={moneyCurrency}
+        />
       </div>
 
       <div className="mt-3 flex items-center justify-end">

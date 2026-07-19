@@ -1,12 +1,6 @@
 import { createHash } from "node:crypto";
-import {
-  CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
-  adaptCreativeDecisionToRow,
-} from "@/lib/creative-decision-center/adapter";
-import {
-  CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
-  bridgeV3DecisionToV21,
-} from "@/lib/creative-decision-center/v3-bridge";
+import { CREATIVE_DECISION_CENTER_ADAPTER_VERSION } from "@/lib/creative-decision-center/adapter";
+import { CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION } from "@/lib/creative-decision-center/v3-bridge";
 import {
   DECISION_BADGE_DISPLAY,
   DECISION_AUTHORITY_BLOCKERS,
@@ -25,8 +19,8 @@ import {
   resolveCampaignContextMode,
 } from "@/lib/creative-decision-engine/campaign-context/source";
 import { DEFAULT_CONTEXT_CONFIG } from "@/lib/creative-decision-engine/campaign-context/resolver";
-import { classifyMetaCreativeAssessment } from "@/lib/meta/creative-assessment";
-import { projectMetaDecisionSemantics } from "@/lib/meta/decision-semantics";
+import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
+import { projectCanonicalMetaDecisionPresentation } from "@/lib/meta/canonical-decision-presentation";
 import {
   META_DECISIONS_AD_CANDIDATE_LANE_RESERVE,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
@@ -119,6 +113,8 @@ const BLOCKER_LABELS: Record<string, string> = {
   account_baseline_not_economic:
     "Account baseline is relative, not economic proof",
   winner_evidence_insufficient: "Winner evidence is insufficient",
+  recent_recovery_unverifiable:
+    "Recent economic recovery evidence is missing or too thin",
 };
 
 export interface MetaDecisionSnapshotSourceRow {
@@ -415,18 +411,6 @@ function verifiedMetaAdId(value: string | null | undefined): string | null {
   return normalized && /^\d+$/.test(normalized) ? normalized : null;
 }
 
-function hardBlockedAction(
-  value: DecisionLabel | string | null | undefined,
-): "scale" | "cut" | "refresh" | null {
-  return value === "scale" || value === "cut" || value === "refresh"
-    ? value
-    : null;
-}
-
-function heldActionBuyerLabel(action: "scale" | "cut" | "refresh") {
-  return `${action.charAt(0).toUpperCase()}${action.slice(1)} · Held`;
-}
-
 function normalizeCurrency(value: unknown): string | null {
   const normalized = text(value)?.toUpperCase() ?? null;
   return normalized && /^[A-Z]{3}$/.test(normalized) ? normalized : null;
@@ -448,10 +432,9 @@ function deliveryScopeForIdentity(
     Boolean(status),
   );
   const allKnown = knownStatuses.length === statuses.length;
-  const liveStatuses = new Set(["ACTIVE", "WITH_ISSUES"]);
-  const allLive =
-    allKnown && knownStatuses.every((status) => liveStatuses.has(status));
-  const state = allLive ? "active" : allKnown ? "inactive" : "unknown";
+  const allActive =
+    allKnown && knownStatuses.every((status) => status === "ACTIVE");
+  const state = allActive ? "active" : allKnown ? "inactive" : "unknown";
   return {
     state,
     campaignStatus,
@@ -850,18 +833,11 @@ function campaignRole(input: {
 
 function assessmentFor(input: {
   snapshot: MetaDecisionSnapshotSourceRow;
-  badgeCodes: readonly string[];
-  heldAction: "scale" | "cut" | "refresh" | null;
+  classification: MetaCreativeAssessmentPresentation;
 }): MetaDecisionAssessmentOverlay {
-  const classification = classifyMetaCreativeAssessment({
-    label: input.snapshot.label,
-    truthSource: input.snapshot.truth_source,
-    badgeCodes: input.badgeCodes,
-    heldAction: input.heldAction,
-  });
   return {
-    value: classification.value,
-    blockerCode: classification.blockerCode,
+    value: input.classification.value,
+    blockerCode: input.classification.blockerCode,
     provenance: provenance({
       source: "engine_v3_decision_snapshots_daily",
       field: "label,badges",
@@ -1144,7 +1120,8 @@ function toDecisionOutput(input: {
       input.snapshot.blocked_action_type === "cut" ||
       input.snapshot.blocked_action_type === "refresh"
         ? input.snapshot.blocked_action_type
-        : input.badges.some((badge) => badge.type === "stop_loss_review")
+        : input.snapshot.engine_version !== NATIVE_AD_ENGINE_VERSION &&
+            input.badges.some((badge) => badge.type === "stop_loss_review")
           ? "cut"
           : null,
     engineVersion: input.snapshot.engine_version,
@@ -1177,7 +1154,7 @@ function buildCanonicalDecision(input: {
   if (!decisionOutput) {
     return { decision: null, omissionReason: "snapshot_contract_invalid" };
   }
-  const bridged = bridgeV3DecisionToV21({
+  const presentation = projectCanonicalMetaDecisionPresentation({
     decision: decisionOutput,
     context: {
       creativeId: input.snapshot.creative_id,
@@ -1185,22 +1162,30 @@ function buildCanonicalDecision(input: {
       familyId: null,
       campaignKind: decisionOutput.campaignKind ?? null,
     },
+    lifecycleRole: role.value,
+    blockerCodes: [
+      ...(role.blockerCode ? [role.blockerCode] : []),
+      "risk_tier_unclassified",
+    ],
+    reviewOnly: true,
   });
-  if (bridged.kind === "omitted") {
-    return { decision: null, omissionReason: bridged.omitReason };
+  if (presentation.kind === "omitted") {
+    return {
+      decision: null,
+      omissionReason: presentation.bridge.omitReason,
+    };
   }
-  const adapted = adaptCreativeDecisionToRow(bridged.adapterInput).row;
-  const legacyBuyerAction = adapted.buyerAction as MetaDecisionBuyerAction;
+  const bridged = presentation.bridge;
+  const adapted = presentation.adapterRow;
   // This read model is creative-grain only. Campaign/ad-set money moves and
   // account integrity events are composed by their own server producers; a
   // creative label never crosses into those grains merely because its action
   // vocabulary contains scale/cut/diagnose.
   const queueSection: MetaDecisionQueueSectionKey = "creative_rotation";
-  const heldAction = hardBlockedAction(decisionOutput.blockedActionType);
+  const heldAction = presentation.heldAction;
   const assessment = assessmentFor({
     snapshot: input.snapshot,
-    badgeCodes: parsedBadges.codes,
-    heldAction,
+    classification: presentation.assessment,
   });
   const blockers = buildBlockers({
     bridgeCodes: bridged.engine.blockerReasons,
@@ -1208,15 +1193,17 @@ function buildCanonicalDecision(input: {
     assessment,
     snapshot: input.snapshot,
   });
-  const semantics = projectMetaDecisionSemantics({
-    legacyBuyerAction,
-    sourceLabel: input.snapshot.label,
-    lifecycleRole: role.value,
-    badgeCodes: parsedBadges.codes,
-    blockerCodes: blockers.map((blocker) => blocker.code),
-    heldAction,
-    authorityBlocker: decisionOutput.authorityBlocker,
-  });
+  const semantics = {
+    ...presentation.semantics,
+    // A legacy creative verdict remains useful review evidence, but this
+    // source is explicitly not action authority. Preserve the buyer verdict
+    // while preventing an act-state classification from contradicting the
+    // legacy_review_only sourceAuthority envelope below.
+    decisionState:
+      presentation.semantics.decisionState === "act"
+        ? ("monitor" as const)
+        : presentation.semantics.decisionState,
+  };
   const exposure = exposureFor({
     snapshot: input.snapshot,
     identity: input.identity,
@@ -1326,6 +1313,9 @@ function buildCanonicalDecision(input: {
               : "unresolved",
         candidateAdCount,
         metricsEquivalent: candidateAdCount === 1 && Boolean(verifiedAdId),
+        // Identity-only capability: this says one provider Ad can be named.
+        // Provider execution still requires sourceAuthority.actionEligible,
+        // which is always false for this legacy creative builder.
         adActionEligible: candidateAdCount === 1 && Boolean(verifiedAdId),
       },
       media: mediaEnvelope(input.identity),
@@ -1339,14 +1329,8 @@ function buildCanonicalDecision(input: {
         heldAction,
         legacyBuyerAction: semantics.legacyBuyerAction,
         buyerAction: semantics.buyerAction,
-        buyerLabel: heldAction
-          ? heldActionBuyerLabel(heldAction)
-          : adapted.buyerLabel,
-        executionAction:
-          semantics.decisionState === "blocked"
-            ? null
-            : ((adapted.executionAction as MetaCanonicalDecision["classification"]["executionAction"]) ??
-              null),
+        buyerLabel: presentation.buyerLabel,
+        executionAction: presentation.executionAction,
         resolution: semantics.resolution,
         blockers,
         provenance: provenance({
@@ -1834,17 +1818,71 @@ export function buildMetaDecisionsWorkspaceReadModel(
   };
 }
 
+export interface MetaNativeDecisionGeneration {
+  jobRunId: string;
+  asOfDate: string;
+  providerAccountRefId: string;
+  manifestHash: string;
+  expectedAdCount: number;
+}
+
+export type MetaNativeGenerationValidationIssue =
+  | "snapshot_count_mismatch"
+  | "duplicate_ad_identity"
+  | "manifest_hash_mismatch"
+  | "lineage_incomplete"
+  | "job_run_mismatch"
+  | "provider_scope_mismatch"
+  | "engine_epoch_mismatch"
+  | "snapshot_as_of_mismatch"
+  | "decision_scope_mismatch"
+  | "ad_identity_missing"
+  | "input_hash_invalid"
+  | "decision_hash_invalid";
+
+export type MetaValidatedNativeDecisionGenerationBundle =
+  | {
+      status: "available";
+      generation: Readonly<MetaNativeDecisionGeneration>;
+      snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
+      unavailableReason: null;
+      validationIssue: null;
+    }
+  | {
+      status: "unavailable";
+      generation: null;
+      snapshotRows: readonly [];
+      unavailableReason: string;
+      validationIssue: MetaNativeGenerationValidationIssue | null;
+    };
+
+export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
+  businessId: string;
+  providerAccountId: string;
+  asOfDate?: string;
+  currentAds?: readonly MetaCurrentAdStatusSourceRow[];
+  currentAdSourceComplete?: boolean;
+}
+
+export type MetaNativeCanonicalDecisionInventory =
+  | {
+      status: "available";
+      generation: Readonly<MetaNativeDecisionGeneration>;
+      items: readonly MetaCanonicalDecision[];
+      unavailableReason: null;
+    }
+  | {
+      status: "unavailable";
+      generation: null;
+      items: readonly [];
+      unavailableReason: string;
+    };
+
 export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   businessId: string;
   providerAccountId: string;
-  generation: {
-    jobRunId: string;
-    asOfDate: string;
-    providerAccountRefId: string;
-    manifestHash: string;
-    expectedAdCount: number;
-  };
-  snapshotRows: MetaNativeDecisionSnapshotSourceRow[];
+  generation: MetaNativeDecisionGeneration;
+  snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
   campaignContextRows?: MetaDecisionCampaignContextSourceRow[];
   eventRows?: MetaDecisionEventSourceRow[];
   outcomeRows?: MetaDecisionOutcomeSourceRow[];
@@ -1855,6 +1893,85 @@ export interface BuildNativeMetaDecisionsWorkspaceReadModelInput {
   generatedAt?: string;
   sectionLimit?: number;
   adCandidateLimit?: number;
+}
+
+function unavailableNativeGenerationBundle(input: {
+  reason: string;
+  validationIssue?: MetaNativeGenerationValidationIssue | null;
+}): MetaValidatedNativeDecisionGenerationBundle {
+  return {
+    status: "unavailable",
+    generation: null,
+    snapshotRows: [],
+    unavailableReason: input.reason,
+    validationIssue: input.validationIssue ?? null,
+  };
+}
+
+export function validateMetaNativeDecisionGenerationBundle(input: {
+  businessId: string;
+  providerAccountId: string;
+  generation: MetaNativeDecisionGeneration;
+  snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
+}): MetaValidatedNativeDecisionGenerationBundle {
+  const fail = (
+    validationIssue: MetaNativeGenerationValidationIssue,
+  ): MetaValidatedNativeDecisionGenerationBundle =>
+    unavailableNativeGenerationBundle({
+      reason: "native_generation_lineage_or_manifest_invalid",
+      validationIssue,
+    });
+  if (input.snapshotRows.length !== input.generation.expectedAdCount) {
+    return fail("snapshot_count_mismatch");
+  }
+  const adIds = input.snapshotRows.map((row) => row.ad_id).sort();
+  if (new Set(adIds).size !== adIds.length) {
+    return fail("duplicate_ad_identity");
+  }
+  if (
+    hashAdDecisionIdentityManifest({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      asOfDate: input.generation.asOfDate,
+      adIds,
+    }) !== input.generation.manifestHash
+  ) {
+    return fail("manifest_hash_mismatch");
+  }
+  for (const row of input.snapshotRows) {
+    if (!row.lineage_valid) return fail("lineage_incomplete");
+    if (row.job_run_id !== input.generation.jobRunId) {
+      return fail("job_run_mismatch");
+    }
+    if (
+      row.provider_account_id !== input.providerAccountId ||
+      row.provider_account_ref_id !== input.generation.providerAccountRefId
+    ) {
+      return fail("provider_scope_mismatch");
+    }
+    if (row.engine_version !== NATIVE_AD_ENGINE_VERSION) {
+      return fail("engine_epoch_mismatch");
+    }
+    if (row.as_of_date !== input.generation.asOfDate) {
+      return fail("snapshot_as_of_mismatch");
+    }
+    if (
+      row.scope_type !== "account" ||
+      row.scope_id !== input.providerAccountId
+    ) {
+      return fail("decision_scope_mismatch");
+    }
+    if (row.ad_id.trim() === "") return fail("ad_identity_missing");
+    if (!isSha256(row.input_hash)) return fail("input_hash_invalid");
+    if (!isSha256(row.decision_hash)) return fail("decision_hash_invalid");
+  }
+  return {
+    status: "available",
+    generation: input.generation,
+    snapshotRows: input.snapshotRows,
+    unavailableReason: null,
+    validationIssue: null,
+  };
 }
 
 function nativeResponseHistory(input: {
@@ -1918,89 +2035,286 @@ function nativeResponseHistory(input: {
   };
 }
 
+function nativeSnapshotToInternalSnapshot(
+  row: MetaNativeDecisionSnapshotSourceRow,
+): MetaDecisionSnapshotSourceRow {
+  return {
+    snapshot_id: row.snapshot_id,
+    provider_account_id: row.provider_account_id,
+    creative_id: row.ad_id,
+    as_of_date: row.as_of_date,
+    engine_version: row.engine_version,
+    scope_type: row.scope_type,
+    scope_id: row.scope_id,
+    label: row.label,
+    pre_authority_label: row.pre_authority_label,
+    authority_blocker: row.authority_blocker,
+    raw_label: row.raw_label,
+    confidence: row.confidence,
+    truth_source: row.truth_source,
+    effective_target_roas: row.effective_target_roas,
+    ratio_to_target: row.ratio_to_target,
+    badges: row.badges,
+    reason: row.reason,
+    spend: row.spend,
+    purchases: row.purchases,
+    roas: row.roas,
+    recent7d_roas: row.recent7d_roas,
+    label_transform: row.label_transform,
+    blocked_action_type: row.blocked_action_type,
+    computed_at: row.computed_at,
+    episode_started_at: row.episode_started_at,
+  };
+}
+
+function nativeSnapshotToIdentity(
+  row: MetaNativeDecisionSnapshotSourceRow,
+): MetaDecisionIdentitySourceRow {
+  return {
+    provider_account_id: row.provider_account_id,
+    creative_id: row.ad_id,
+    creative_name: row.creative_name,
+    campaign_id: row.campaign_id,
+    campaign_name: row.campaign_name,
+    adset_id: row.adset_id,
+    adset_name: row.adset_name,
+    ad_id: row.ad_id,
+    ad_name: row.ad_name,
+    campaign_status: row.campaign_status,
+    adset_status: row.adset_status,
+    ad_status: row.ad_status,
+    currency: row.currency,
+    thumbnail_url: row.thumbnail_url,
+    media_source_present: row.media_source_present,
+    media_available: row.media_available,
+    media_source: row.media_source,
+    source_updated_at: row.source_updated_at,
+    candidate_ad_count: 1,
+  };
+}
+
+function applyNativeCanonicalDecisionAuthority(input: {
+  businessId: string;
+  decision: MetaCanonicalDecision;
+  row: MetaNativeDecisionSnapshotSourceRow;
+  responseRows: readonly MetaNativeDecisionResponseSourceRow[];
+  responseSourceAvailable: boolean;
+}): MetaCanonicalDecision {
+  const { decision, row } = input;
+  const response = nativeResponseHistory({
+    snapshotId: row.snapshot_id,
+    rows: input.responseRows,
+    sourceAvailable: input.responseSourceAvailable,
+  });
+  decision.decisionId = stableId("mdd", [
+    input.businessId,
+    row.provider_account_ref_id,
+    row.provider_account_id,
+    "ad",
+    row.ad_id,
+    row.scope_type,
+    row.scope_id,
+  ]);
+  decision.episodeId =
+    response.episodeKey ??
+    stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
+  decision.identityGrain = "ad";
+  decision.parentChain.ad = { id: row.ad_id, name: row.ad_name };
+  decision.parentChain.creative = row.creative_id
+    ? { id: row.creative_id, name: row.creative_name }
+    : null;
+  decision.deliveryScope = deliveryScopeForIdentity(
+    nativeSnapshotToIdentity(row),
+  );
+  decision.parentChain.provenance = provenance({
+    source: "engine_v3_ad_decision_snapshots_daily+meta_ad_dimensions",
+    field: "provider_account_ref_id,provider_account_id,ad_id,creative_id",
+    recordId: row.snapshot_id,
+    asOf: row.source_updated_at,
+    version: row.engine_version,
+  });
+  const hasExactCreativeIdentity = Boolean(row.creative_id?.trim());
+  decision.identityResolution = {
+    basis: "native_ad_exact",
+    candidateAdCount: 1,
+    metricsEquivalent: true,
+    adActionEligible: hasExactCreativeIdentity,
+  };
+  const authorizedAction =
+    row.authorized_action === "scale" ||
+    row.authorized_action === "cut" ||
+    row.authorized_action === "refresh"
+      ? row.authorized_action
+      : null;
+  const activeHierarchy = decision.deliveryScope.state === "active";
+  decision.sourceAuthority = {
+    status: "native_exact",
+    actionEligible:
+      activeHierarchy &&
+      hasExactCreativeIdentity &&
+      authorizedAction !== null &&
+      decision.classification.buyerAction === authorizedAction,
+    reviewOnlyReason: !hasExactCreativeIdentity
+      ? "current_creative_identity_is_missing"
+      : !activeHierarchy
+      ? decision.deliveryScope.state === "inactive"
+        ? "current_hierarchy_is_not_active"
+        : "current_hierarchy_status_is_unknown"
+      : authorizedAction !== null &&
+          decision.classification.buyerAction === authorizedAction
+        ? null
+        : "native_snapshot_did_not_authorize_the_served_action",
+    snapshotId: row.snapshot_id,
+    evaluationId: row.evaluation_id,
+    inputHash: row.input_hash,
+    decisionHash: row.decision_hash,
+    providerAccountRefId: row.provider_account_ref_id,
+    engineVersion: row.engine_version,
+    realAdId: row.ad_id,
+    authorizedAction: hasExactCreativeIdentity ? authorizedAction : null,
+    jobRunId: row.job_run_id,
+  };
+  decision.sourceDecision.provenance = provenance({
+    source: "engine_v3_ad_decision_snapshots_daily",
+    field:
+      "label,pre_authority_label,authority_blocker,raw_label,confidence,reason,badges,authorized_action",
+    recordId: row.snapshot_id,
+    asOf: row.as_of_date,
+    version: row.engine_version,
+  });
+  decision.metrics.provenance = provenance({
+    source: "engine_v3_ad_decision_snapshots_daily+meta_ad_daily",
+    field:
+      "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,account_currency",
+    recordId: row.snapshot_id,
+    asOf: row.as_of_date,
+    version: row.engine_version,
+  });
+  if (decision.exposure) decision.exposure.grain = "ad";
+  decision.history.responses = response.responses;
+  decision.history.providerWrites = response.providerWrites;
+  return decision;
+}
+
+export interface BuildNativeMetaCanonicalDecisionInventoryInput {
+  businessId: string;
+  providerAccountId: string;
+  generation: MetaNativeDecisionGeneration;
+  snapshotRows: readonly MetaNativeDecisionSnapshotSourceRow[];
+  campaignContextRows?: readonly MetaDecisionCampaignContextSourceRow[];
+  eventRows?: readonly MetaDecisionEventSourceRow[];
+  outcomeRows?: readonly MetaDecisionOutcomeSourceRow[];
+  responseRows?: readonly MetaNativeDecisionResponseSourceRow[];
+  eventSourceAvailable?: boolean;
+  outcomeSourceAvailable?: boolean;
+  responseSourceAvailable?: boolean;
+}
+
+export function buildNativeMetaCanonicalDecisionInventory(
+  input: BuildNativeMetaCanonicalDecisionInventoryInput,
+): MetaNativeCanonicalDecisionInventory {
+  const validatedBundle = validateMetaNativeDecisionGenerationBundle({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    generation: input.generation,
+    snapshotRows: input.snapshotRows,
+  });
+  if (validatedBundle.status === "unavailable") {
+    return {
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: validatedBundle.unavailableReason,
+    };
+  }
+
+  const contextByCampaignId = new Map(
+    (input.campaignContextRows ?? []).map((row) => [row.campaignId, row]),
+  );
+  const eventsByAdId = new Map<string, MetaDecisionEventSourceRow[]>();
+  for (const row of input.eventRows ?? []) {
+    const rows = eventsByAdId.get(row.creative_id) ?? [];
+    rows.push(row);
+    eventsByAdId.set(row.creative_id, rows);
+  }
+  const outcomesBySnapshotId = new Map<
+    string,
+    MetaDecisionOutcomeSourceRow[]
+  >();
+  for (const row of input.outcomeRows ?? []) {
+    const rows = outcomesBySnapshotId.get(row.decision_snapshot_id) ?? [];
+    rows.push(row);
+    outcomesBySnapshotId.set(row.decision_snapshot_id, rows);
+  }
+
+  const items: MetaCanonicalDecision[] = [];
+  for (const row of [...validatedBundle.snapshotRows].sort((left, right) =>
+    left.ad_id.localeCompare(right.ad_id),
+  )) {
+    const canonical = buildCanonicalDecision({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      snapshot: nativeSnapshotToInternalSnapshot(row),
+      identity: nativeSnapshotToIdentity(row),
+      campaignContext: row.campaign_id
+        ? (contextByCampaignId.get(row.campaign_id) ?? null)
+        : null,
+      eventRows: eventsByAdId.get(row.ad_id) ?? [],
+      outcomeRows: outcomesBySnapshotId.get(row.snapshot_id) ?? [],
+      eventSourceAvailable: input.eventSourceAvailable !== false,
+      outcomeSourceAvailable: input.outcomeSourceAvailable !== false,
+    });
+    if (!canonical.decision) {
+      return {
+        status: "unavailable",
+        generation: null,
+        items: [],
+        unavailableReason: "native_canonical_projection_incomplete",
+      };
+    }
+    items.push(
+      applyNativeCanonicalDecisionAuthority({
+        businessId: input.businessId,
+        decision: canonical.decision,
+        row,
+        responseRows: input.responseRows ?? [],
+        responseSourceAvailable: input.responseSourceAvailable === true,
+      }),
+    );
+  }
+  if (items.length !== input.generation.expectedAdCount) {
+    return {
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_canonical_projection_incomplete",
+    };
+  }
+  return {
+    status: "available",
+    generation: input.generation,
+    items,
+    unavailableReason: null,
+  };
+}
+
 export function buildNativeMetaDecisionsWorkspaceReadModel(
   input: BuildNativeMetaDecisionsWorkspaceReadModelInput,
 ): MetaDecisionsWorkspaceReadModel {
-  const expectedIds = input.snapshotRows.map((row) => row.ad_id).sort();
-  const actualManifestHash = hashAdDecisionIdentityManifest({
+  const validatedBundle = validateMetaNativeDecisionGenerationBundle({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
-    asOfDate: input.generation.asOfDate,
-    adIds: expectedIds,
+    generation: input.generation,
+    snapshotRows: input.snapshotRows,
   });
-  if (
-    input.snapshotRows.length !== input.generation.expectedAdCount ||
-    actualManifestHash !== input.generation.manifestHash ||
-    new Set(expectedIds).size !== expectedIds.length ||
-    input.snapshotRows.some(
-      (row) =>
-        !row.lineage_valid ||
-        row.job_run_id !== input.generation.jobRunId ||
-        row.provider_account_id !== input.providerAccountId ||
-        row.provider_account_ref_id !== input.generation.providerAccountRefId ||
-        row.engine_version !== NATIVE_AD_ENGINE_VERSION ||
-        row.as_of_date !== input.generation.asOfDate ||
-        row.scope_type !== "account" ||
-        row.scope_id !== input.providerAccountId ||
-        row.ad_id.trim() === "" ||
-        !isSha256(row.input_hash) ||
-        !isSha256(row.decision_hash),
-    )
-  ) {
+  if (validatedBundle.status === "unavailable") {
     throw new Error("Native ad generation lineage or manifest is incomplete.");
   }
 
-  const internalSnapshotRows: MetaDecisionSnapshotSourceRow[] =
-    input.snapshotRows.map((row) => ({
-      snapshot_id: row.snapshot_id,
-      provider_account_id: row.provider_account_id,
-      creative_id: row.ad_id,
-      as_of_date: row.as_of_date,
-      engine_version: row.engine_version,
-      scope_type: row.scope_type,
-      scope_id: row.scope_id,
-      label: row.label,
-      pre_authority_label: row.pre_authority_label,
-      authority_blocker: row.authority_blocker,
-      raw_label: row.raw_label,
-      confidence: row.confidence,
-      truth_source: row.truth_source,
-      effective_target_roas: row.effective_target_roas,
-      ratio_to_target: row.ratio_to_target,
-      badges: row.badges,
-      reason: row.reason,
-      spend: row.spend,
-      purchases: row.purchases,
-      roas: row.roas,
-      recent7d_roas: row.recent7d_roas,
-      label_transform: row.label_transform,
-      blocked_action_type: row.blocked_action_type,
-      computed_at: row.computed_at,
-      episode_started_at: row.episode_started_at,
-    }));
-  const identityRows: MetaDecisionIdentitySourceRow[] = input.snapshotRows.map(
-    (row) => ({
-      provider_account_id: row.provider_account_id,
-      creative_id: row.ad_id,
-      creative_name: row.creative_name,
-      campaign_id: row.campaign_id,
-      campaign_name: row.campaign_name,
-      adset_id: row.adset_id,
-      adset_name: row.adset_name,
-      ad_id: row.ad_id,
-      ad_name: row.ad_name,
-      campaign_status: row.campaign_status,
-      adset_status: row.adset_status,
-      ad_status: row.ad_status,
-      currency: row.currency,
-      thumbnail_url: row.thumbnail_url,
-      media_source_present: row.media_source_present,
-      media_available: row.media_available,
-      media_source: row.media_source,
-      source_updated_at: row.source_updated_at,
-      candidate_ad_count: 1,
-    }),
+  const internalSnapshotRows = input.snapshotRows.map(
+    nativeSnapshotToInternalSnapshot,
   );
+  const identityRows = input.snapshotRows.map(nativeSnapshotToIdentity);
 
   if (input.snapshotRows.length === 0) {
     const empty = buildUnavailableMetaDecisionsWorkspaceReadModel({
@@ -2068,111 +2382,13 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
   for (const decision of allDecisions.values()) {
     const row = nativeBySnapshot.get(decision.sourceSnapshotId);
     if (!row) throw new Error("Native decision lost its snapshot identity.");
-    const response = nativeResponseHistory({
-      snapshotId: row.snapshot_id,
-      rows: input.responseRows ?? [],
-      sourceAvailable: input.responseSourceAvailable === true,
+    applyNativeCanonicalDecisionAuthority({
+      businessId: input.businessId,
+      decision,
+      row,
+      responseRows: input.responseRows ?? [],
+      responseSourceAvailable: input.responseSourceAvailable === true,
     });
-    decision.decisionId = stableId("mdd", [
-      input.businessId,
-      row.provider_account_ref_id,
-      row.provider_account_id,
-      "ad",
-      row.ad_id,
-      row.scope_type,
-      row.scope_id,
-    ]);
-    decision.episodeId =
-      response.episodeKey ??
-      stableId("mde", [decision.decisionId, row.label, row.episode_started_at]);
-    decision.identityGrain = "ad";
-    decision.parentChain.ad = { id: row.ad_id, name: row.ad_name };
-    decision.parentChain.creative = row.creative_id
-      ? { id: row.creative_id, name: row.creative_name }
-      : null;
-    decision.deliveryScope = deliveryScopeForIdentity({
-      provider_account_id: row.provider_account_id,
-      creative_id: row.ad_id,
-      creative_name: row.creative_name,
-      campaign_id: row.campaign_id,
-      campaign_name: row.campaign_name,
-      adset_id: row.adset_id,
-      adset_name: row.adset_name,
-      ad_id: row.ad_id,
-      ad_name: row.ad_name,
-      campaign_status: row.campaign_status,
-      adset_status: row.adset_status,
-      ad_status: row.ad_status,
-      currency: row.currency,
-      thumbnail_url: row.thumbnail_url,
-      media_source_present: row.media_source_present,
-      media_available: row.media_available,
-      media_source: row.media_source,
-      source_updated_at: row.source_updated_at,
-    });
-    decision.parentChain.provenance = provenance({
-      source: "engine_v3_ad_decision_snapshots_daily+meta_ad_dimensions",
-      field: "provider_account_ref_id,provider_account_id,ad_id,creative_id",
-      recordId: row.snapshot_id,
-      asOf: row.source_updated_at,
-      version: row.engine_version,
-    });
-    decision.identityResolution = {
-      basis: "native_ad_exact",
-      candidateAdCount: 1,
-      metricsEquivalent: true,
-      adActionEligible: true,
-    };
-    const authorizedAction =
-      row.authorized_action === "scale" ||
-      row.authorized_action === "cut" ||
-      row.authorized_action === "refresh"
-        ? row.authorized_action
-        : null;
-    const activeHierarchy = decision.deliveryScope?.state === "active";
-    decision.sourceAuthority = {
-      status: "native_exact",
-      actionEligible:
-        activeHierarchy &&
-        authorizedAction !== null &&
-        decision.classification.buyerAction === authorizedAction,
-      reviewOnlyReason: !activeHierarchy
-        ? decision.deliveryScope?.state === "inactive"
-          ? "current_hierarchy_is_not_active"
-          : "current_hierarchy_status_is_unknown"
-        : authorizedAction !== null &&
-            decision.classification.buyerAction === authorizedAction
-          ? null
-          : "native_snapshot_did_not_authorize_the_served_action",
-      snapshotId: row.snapshot_id,
-      evaluationId: row.evaluation_id,
-      inputHash: row.input_hash,
-      decisionHash: row.decision_hash,
-      providerAccountRefId: row.provider_account_ref_id,
-      engineVersion: row.engine_version,
-      realAdId: row.ad_id,
-      authorizedAction,
-      jobRunId: row.job_run_id,
-    };
-    decision.sourceDecision.provenance = provenance({
-      source: "engine_v3_ad_decision_snapshots_daily",
-      field:
-        "label,pre_authority_label,authority_blocker,raw_label,confidence,reason,badges,authorized_action",
-      recordId: row.snapshot_id,
-      asOf: row.as_of_date,
-      version: row.engine_version,
-    });
-    decision.metrics.provenance = provenance({
-      source: "engine_v3_ad_decision_snapshots_daily+meta_ad_daily",
-      field:
-        "spend,purchases,roas,recent7d_roas,effective_target_roas,ratio_to_target,account_currency",
-      recordId: row.snapshot_id,
-      asOf: row.as_of_date,
-      version: row.engine_version,
-    });
-    if (decision.exposure) decision.exposure.grain = "ad";
-    decision.history.responses = response.responses;
-    decision.history.providerWrites = response.providerWrites;
   }
   model.source = {
     status: "available",
@@ -2289,8 +2505,7 @@ async function readNativeGeneration(input: {
   providerAccountId: string;
   asOfDate?: string;
 }): Promise<{
-  generation:
-    BuildNativeMetaDecisionsWorkspaceReadModelInput["generation"] | null;
+  generation: MetaNativeDecisionGeneration | null;
   fallbackReason: string;
 }> {
   const rows = await getDb().query<MetaNativeDecisionGenerationSourceRow>(
@@ -2303,6 +2518,12 @@ async function readNativeGeneration(input: {
       NATIVE_DECISION_RUNNING_GRACE_MS,
     ],
   );
+  if (rows.length > 1) {
+    return {
+      generation: null,
+      fallbackReason: "native_account_receipt_cardinality_invalid",
+    };
+  }
   const row = rows[0];
   if (!row)
     return { generation: null, fallbackReason: "native_job_unavailable" };
@@ -2416,29 +2637,26 @@ async function readNativeSnapshotRows(input: {
         AS adset_name,
       COALESCE(ad_dim.ad_name_current, ad_dim.ad_name_historical) AS ad_name,
       CASE
-        WHEN campaign_state.presence IS NULL THEN campaign_dim.campaign_status
+        WHEN campaign_state.presence IS NULL THEN NULL
         WHEN campaign_state.presence = 'present' THEN COALESCE(
           campaign_state.effective_status,
-          campaign_state.configured_status,
-          campaign_dim.campaign_status
+          campaign_state.configured_status
         )
         ELSE 'DELETED'
       END AS campaign_status,
       CASE
-        WHEN adset_state.presence IS NULL THEN adset_dim.adset_status
+        WHEN adset_state.presence IS NULL THEN NULL
         WHEN adset_state.presence = 'present' THEN COALESCE(
           adset_state.effective_status,
-          adset_state.configured_status,
-          adset_dim.adset_status
+          adset_state.configured_status
         )
         ELSE 'DELETED'
       END AS adset_status,
       CASE
-        WHEN ad_state.presence IS NULL THEN ad_dim.ad_status
+        WHEN ad_state.presence IS NULL THEN NULL
         WHEN ad_state.presence = 'present' THEN COALESCE(
           ad_state.effective_status,
-          ad_state.configured_status,
-          ad_dim.ad_status
+          ad_state.configured_status
         )
         ELSE 'DELETED'
       END AS ad_status,
@@ -2576,6 +2794,7 @@ async function readNativeSnapshotRows(input: {
       FROM meta_entity_state_history state
       WHERE state.business_ref_id = $1::uuid
         AND state.business_id = $1
+        AND state.provider_account_ref_id = snapshot.provider_account_ref_id
         AND state.provider_account_id = $2
         AND state.entity_type = 'campaign'
         AND state.entity_id = ad_dim.campaign_id
@@ -2587,6 +2806,7 @@ async function readNativeSnapshotRows(input: {
       FROM meta_entity_state_history state
       WHERE state.business_ref_id = $1::uuid
         AND state.business_id = $1
+        AND state.provider_account_ref_id = snapshot.provider_account_ref_id
         AND state.provider_account_id = $2
         AND state.entity_type = 'adset'
         AND state.entity_id = ad_dim.adset_id
@@ -2598,6 +2818,7 @@ async function readNativeSnapshotRows(input: {
       FROM meta_entity_state_history state
       WHERE state.business_ref_id = $1::uuid
         AND state.business_id = $1
+        AND state.provider_account_ref_id = snapshot.provider_account_ref_id
         AND state.provider_account_id = $2
         AND state.entity_type = 'ad'
         AND state.entity_id = snapshot.ad_id
@@ -2627,6 +2848,39 @@ async function readNativeSnapshotRows(input: {
       NATIVE_AD_ENGINE_VERSION,
     ],
   );
+}
+
+export async function readValidatedMetaNativeDecisionGenerationBundle(
+  input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
+): Promise<MetaValidatedNativeDecisionGenerationBundle> {
+  try {
+    const generationRead = await readNativeGeneration(input);
+    if (!generationRead.generation) {
+      return unavailableNativeGenerationBundle({
+        reason: generationRead.fallbackReason,
+      });
+    }
+    const storedSnapshotRows = await readNativeSnapshotRows({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      generation: generationRead.generation,
+    });
+    const snapshotRows = reconcileNativeSnapshotRowsWithCurrentAds({
+      snapshotRows: storedSnapshotRows,
+      currentAds: input.currentAds ?? [],
+      sourceComplete: input.currentAdSourceComplete === true,
+    });
+    return validateMetaNativeDecisionGenerationBundle({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      generation: generationRead.generation,
+      snapshotRows,
+    });
+  } catch {
+    return unavailableNativeGenerationBundle({
+      reason: "native_schema_or_generation_read_failed",
+    });
+  }
 }
 
 async function readNativeEventRows(input: {
@@ -2776,6 +3030,109 @@ async function readNativeResponseRows(input: {
       input.snapshotIds,
     ],
   );
+}
+
+interface MetaNativeDecisionAncillaryRows {
+  campaignContextRows: MetaDecisionCampaignContextSourceRow[];
+  eventRows: MetaDecisionEventSourceRow[];
+  outcomeRows: MetaDecisionOutcomeSourceRow[];
+  responseRows: MetaNativeDecisionResponseSourceRow[];
+  eventSourceAvailable: boolean;
+  outcomeSourceAvailable: boolean;
+  responseSourceAvailable: boolean;
+}
+
+async function readNativeDecisionAncillaryRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  bundle: Extract<
+    MetaValidatedNativeDecisionGenerationBundle,
+    { status: "available" }
+  >;
+}): Promise<MetaNativeDecisionAncillaryRows> {
+  const adIds = input.bundle.snapshotRows.map((row) => row.ad_id);
+  const snapshotIds = input.bundle.snapshotRows.map((row) => row.snapshot_id);
+  const campaignIds = [
+    ...new Set(
+      input.bundle.snapshotRows
+        .map((row) => row.campaign_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const [contextResult, eventResult, outcomeResult, responseResult] =
+    await Promise.allSettled([
+      readMetaDecisionCampaignContextRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        campaignIds,
+        snapshotAsOf: input.bundle.generation.asOfDate,
+      }),
+      readNativeEventRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        providerAccountRefId: input.bundle.generation.providerAccountRefId,
+        adIds,
+      }),
+      readNativeOutcomeRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        providerAccountRefId: input.bundle.generation.providerAccountRefId,
+        snapshotIds,
+      }),
+      readNativeResponseRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        providerAccountRefId: input.bundle.generation.providerAccountRefId,
+        snapshotIds,
+      }),
+    ]);
+  return {
+    campaignContextRows:
+      contextResult.status === "fulfilled" ? contextResult.value : [],
+    eventRows: eventResult.status === "fulfilled" ? eventResult.value : [],
+    outcomeRows:
+      outcomeResult.status === "fulfilled" ? outcomeResult.value : [],
+    responseRows:
+      responseResult.status === "fulfilled" ? responseResult.value : [],
+    eventSourceAvailable: eventResult.status === "fulfilled",
+    outcomeSourceAvailable: outcomeResult.status === "fulfilled",
+    responseSourceAvailable: responseResult.status === "fulfilled",
+  };
+}
+
+export async function readMetaNativeCanonicalDecisionInventory(
+  input: ReadValidatedMetaNativeDecisionGenerationBundleInput,
+): Promise<MetaNativeCanonicalDecisionInventory> {
+  const bundle = await readValidatedMetaNativeDecisionGenerationBundle(input);
+  if (bundle.status === "unavailable") {
+    return {
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: bundle.unavailableReason,
+    };
+  }
+  try {
+    const ancillary = await readNativeDecisionAncillaryRows({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      bundle,
+    });
+    return buildNativeMetaCanonicalDecisionInventory({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      generation: bundle.generation,
+      snapshotRows: bundle.snapshotRows,
+      ...ancillary,
+    });
+  } catch {
+    return {
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_canonical_inventory_read_failed",
+    };
+  }
 }
 
 async function readSnapshotRows(input: {
@@ -3446,96 +3803,32 @@ export async function readMetaDecisionsWorkspaceReadModel(input: {
   sectionLimit?: number;
   adCandidateLimit?: number;
 }): Promise<MetaDecisionsWorkspaceReadModel> {
-  let nativeFallbackReason = "native_schema_or_generation_unavailable";
-  try {
-    const nativeGeneration = await readNativeGeneration(input);
-    nativeFallbackReason = nativeGeneration.fallbackReason;
-    if (nativeGeneration.generation) {
-      const generation = nativeGeneration.generation;
-      const nativeSnapshotRowsFromStore = await readNativeSnapshotRows({
-        ...input,
-        generation,
+  const nativeBundle =
+    await readValidatedMetaNativeDecisionGenerationBundle(input);
+  let nativeFallbackReason =
+    nativeBundle.status === "available"
+      ? "native_generation_ready"
+      : nativeBundle.unavailableReason;
+  if (nativeBundle.status === "available") {
+    try {
+      const ancillary = await readNativeDecisionAncillaryRows({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        bundle: nativeBundle,
       });
-      const nativeSnapshotRows = reconcileNativeSnapshotRowsWithCurrentAds({
-        snapshotRows: nativeSnapshotRowsFromStore,
-        currentAds: input.currentAds ?? [],
-        sourceComplete: input.currentAdSourceComplete === true,
+      return buildNativeMetaDecisionsWorkspaceReadModel({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        generation: nativeBundle.generation,
+        snapshotRows: nativeBundle.snapshotRows,
+        ...ancillary,
+        generatedAt: input.generatedAt,
+        sectionLimit: input.sectionLimit,
+        adCandidateLimit: input.adCandidateLimit,
       });
-      const nativeAdIds = [
-        ...new Set(nativeSnapshotRows.map((row) => row.ad_id)),
-      ];
-      const nativeSnapshotIds = [
-        ...new Set(nativeSnapshotRows.map((row) => row.snapshot_id)),
-      ];
-      const nativeCampaignIds = [
-        ...new Set(
-          nativeSnapshotRows
-            .map((row) => row.campaign_id)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
-      const manifestMatches =
-        nativeSnapshotRows.length === generation.expectedAdCount &&
-        nativeSnapshotRows.every((row) => row.lineage_valid === true) &&
-        hashAdDecisionIdentityManifest({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          asOfDate: generation.asOfDate,
-          adIds: nativeAdIds,
-        }) === generation.manifestHash;
-      if (manifestMatches) {
-        const [contextResult, eventResult, outcomeResult, responseResult] =
-          await Promise.allSettled([
-            readMetaDecisionCampaignContextRows({
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              campaignIds: nativeCampaignIds,
-              snapshotAsOf: generation.asOfDate,
-            }),
-            readNativeEventRows({
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              providerAccountRefId: generation.providerAccountRefId,
-              adIds: nativeAdIds,
-            }),
-            readNativeOutcomeRows({
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              providerAccountRefId: generation.providerAccountRefId,
-              snapshotIds: nativeSnapshotIds,
-            }),
-            readNativeResponseRows({
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              providerAccountRefId: generation.providerAccountRefId,
-              snapshotIds: nativeSnapshotIds,
-            }),
-          ]);
-        return buildNativeMetaDecisionsWorkspaceReadModel({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          generation,
-          snapshotRows: nativeSnapshotRows,
-          campaignContextRows:
-            contextResult.status === "fulfilled" ? contextResult.value : [],
-          eventRows:
-            eventResult.status === "fulfilled" ? eventResult.value : [],
-          outcomeRows:
-            outcomeResult.status === "fulfilled" ? outcomeResult.value : [],
-          responseRows:
-            responseResult.status === "fulfilled" ? responseResult.value : [],
-          eventSourceAvailable: eventResult.status === "fulfilled",
-          outcomeSourceAvailable: outcomeResult.status === "fulfilled",
-          responseSourceAvailable: responseResult.status === "fulfilled",
-          generatedAt: input.generatedAt,
-          sectionLimit: input.sectionLimit,
-          adCandidateLimit: input.adCandidateLimit,
-        });
-      }
-      nativeFallbackReason = "native_generation_lineage_or_manifest_invalid";
+    } catch {
+      nativeFallbackReason = "native_canonical_projection_failed";
     }
-  } catch {
-    nativeFallbackReason = "native_schema_or_generation_read_failed";
   }
 
   const snapshotRows = await readSnapshotRows(input);

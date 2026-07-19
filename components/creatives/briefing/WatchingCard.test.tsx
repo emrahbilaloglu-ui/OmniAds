@@ -47,6 +47,38 @@ describe("WatchingCard", () => {
     expect(html).toContain('data-action="evidence"');
   });
 
+  it("never turns a held canonical test_more compatibility label into Fresh test", () => {
+    const html = renderToStaticMarkup(
+      <WatchingCard
+        card={card({
+          label: "test_more",
+          blockedActionType: "cut",
+          primary: { kind: "review", label: "Await recent evidence" },
+          canonicalDecision: {
+            classification: {
+              decisionState: "blocked",
+              buyerAction: null,
+              buyerLabel: "Cut pending",
+              executionAction: null,
+              heldAction: "cut",
+            },
+            sourceAuthority: {
+              status: "native_exact",
+              actionEligible: false,
+              authorizedAction: null,
+            },
+          } as never,
+        })}
+      />,
+    );
+
+    expect(html).not.toContain('data-kind="fresh_test"');
+    expect(html).not.toContain(">Fresh test<");
+    expect(html).not.toContain(">Test More<");
+    expect(html).toContain("Cut pending");
+    expect(html).toContain('data-action="evidence"');
+  });
+
   it("renders deferred chip when deferred", () => {
     const html = renderToStaticMarkup(<WatchingCard card={card()} deferred />);
 

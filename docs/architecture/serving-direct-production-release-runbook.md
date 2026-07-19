@@ -13,7 +13,8 @@ This runbook uses only deploy machinery already present in the repo:
 - `docker-compose.yml`
   - `web`, `worker`, and `migrate` production services
 - `.github/workflows/ci.yml`
-  - builds/tests the repo on `main`
+  - runs `typecheck`, `test`, and `database-seams` on pull requests and `main`
+  - runs the application `build` job on pull requests
   - publishes `ghcr.io/erhanrdn/omniads-web:<sha>` and `ghcr.io/erhanrdn/omniads-worker:<sha>` when runtime-affecting files changed
   - dispatches `.github/workflows/deploy-hetzner.yml` after image publish succeeds
 - `.github/workflows/deploy-hetzner.yml`
@@ -23,7 +24,7 @@ This runbook uses only deploy machinery already present in the repo:
   - force-recreates `web` and `worker`
   - verifies container images, `/api/build-info`, optional container health, public ingress build-id match, and ingress smoke
 - `.github/workflows/post-deploy-verify.yml`
-  - records report-only post-deploy release authority and Meta watch-window observation for the exact deployed SHA
+  - uploads the report-only post-deploy release-authority artifact for the exact deployed SHA
 - `deploy/nginx/adsecute.conf`
   - public reverse-proxy shape for the Hetzner host
 - `scripts/verify-serving-direct-release.ts`
@@ -94,12 +95,18 @@ The repo-supported direct production deploy path is:
 
 1. Make the target SHA the `main` branch head.
 2. Let `.github/workflows/ci.yml` run:
-   - `build-test`
-   - runtime-change detection
-   - exact-SHA GHCR image publish
-   - deploy workflow dispatch
+   - `typecheck`
+   - `test`
+   - `database-seams`
+   - `detect-runtime-changes`
+   - `publish-web-image` and `publish-worker-image` when runtime changed
+   - `dispatch-deploy` after both exact-SHA image publishes succeed
+
+   The application `build` job is a pull-request gate; the main-push image
+   publish jobs perform the exact production Docker builds.
 3. Let `.github/workflows/deploy-hetzner.yml` perform the server cutover.
-4. Let `.github/workflows/post-deploy-verify.yml` capture report-only release authority and watch-window observation for the same SHA.
+4. Let `.github/workflows/post-deploy-verify.yml` upload the report-only
+   release-authority artifact for the same SHA.
 
 What the deploy workflow already does on the server:
 
@@ -113,7 +120,8 @@ What the deploy workflow already does on the server:
 - checks optional container health
 - verifies `https://adsecute.com/api/build-info` and `https://www.adsecute.com/api/build-info`
 - runs public ingress smoke on `https://adsecute.com/about` and `https://www.adsecute.com/about`
-- dispatches `.github/workflows/post-deploy-verify.yml` for report-only post-deploy observation
+- dispatches `.github/workflows/post-deploy-verify.yml` for the report-only
+  post-deploy release-authority artifact
 
 If an operator needs a direct manual deploy of an already-published SHA, use the existing GitHub Actions workflow dispatch:
 
@@ -127,6 +135,14 @@ If an operator needs a direct manual deploy of an already-published SHA, use the
 Do not use branch names, short SHAs, `main`, or `latest` in place of the full SHA.
 
 ## Post-Deploy Verification
+
+The post-deploy workflow uploads an artifact named
+`post-deploy-verify-<sha>` containing
+`post-deploy-release-authority.json`. Its verification step is report-only and
+may continue after a failed authority check, so a green workflow conclusion
+alone is insufficient. Inspect the artifact and require the exact
+deployed/main/live SHA, `summary.result: "pass"`, and an empty
+`summary.blockers` list.
 
 After the deploy workflow finishes, run:
 
@@ -183,6 +199,14 @@ Post-deploy acceptable findings:
 - intentional `manual_boundary`
 - intentional `manual_missing`
 - `unknown` where the repo-supported checks cannot prove applicability
+
+The natural Meta scheduler verification is a separate operational gate; the
+post-deploy workflow does not observe a Meta watch window. After the first
+natural 03:00 UTC scheduler wave following the deploy has completed, verify
+current-epoch calibration, decisions, operator jobs, chain ordering, counts,
+receipts, and lineage with SELECT-only queries in an explicit repeatable-read,
+read-only transaction. Do not trigger cron manually, write the live database,
+or call a provider to manufacture this proof.
 
 ## Rollback
 

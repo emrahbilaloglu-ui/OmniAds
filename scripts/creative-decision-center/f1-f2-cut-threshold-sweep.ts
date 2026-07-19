@@ -3,12 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { getDbWithTimeout, resetDbClientCache } from "@/lib/db";
+import { Client, type QueryResultRow } from "pg";
 import {
   ENGINE_PRESET_MULTIPLIERS,
   ZERO_CONV_MIN_AGE_DAYS,
 } from "@/lib/creative-decision-engine/config-values";
-import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
 import { normalizePostgresDate } from "@/lib/creative-decision-engine/simulation/calendar-date";
 import { resolveSpendUnit } from "@/lib/creative-decision-engine/spend-unit-resolver";
 import { ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
@@ -18,19 +17,60 @@ import {
   withOperationalStartupLogsSilenced,
 } from "@/scripts/_operational-runtime";
 
-const DEFAULT_BUSINESS_IDENTIFIERS = ["IwaStore", "EMOLOS", "Grandmix", "TheSwaf"];
+const DEFAULT_ACCOUNT_SCOPES = [
+  { businessIdentifier: "IwaStore", providerAccountId: "act_1087566732415606" },
+  { businessIdentifier: "EMOLOS", providerAccountId: "act_1054905059780305" },
+  { businessIdentifier: "Grandmix", providerAccountId: "act_805150454596350" },
+  { businessIdentifier: "TheSwaf", providerAccountId: "act_822913786458311" },
+] as const;
+const DEFAULT_BUSINESS_IDENTIFIERS = DEFAULT_ACCOUNT_SCOPES.map(
+  (scope) => scope.businessIdentifier,
+);
 const DEFAULT_JSON_OUT =
   "docs/creative-decision-center/generated/f1-f2-cut-threshold-sweep.json";
 const DEFAULT_MD_OUT =
   "docs/creative-decision-center/F1_F2_CUT_THRESHOLD_SWEEP_2026-07-02.md";
+const LOCKED_WINDOW_SUITE = [
+  {
+    id: "2025-12_to_2026-01",
+    label: "December 2025 - January 2026",
+    startDate: "2025-12-01",
+    endDate: "2026-01-31",
+  },
+  {
+    id: "2026-02_to_2026-03",
+    label: "February - March 2026",
+    startDate: "2026-02-01",
+    endDate: "2026-03-31",
+  },
+  {
+    id: "2026-04_to_2026-05",
+    label: "April - May 2026",
+    startDate: "2026-04-01",
+    endDate: "2026-05-31",
+  },
+  {
+    id: "2026-06",
+    label: "June 2026",
+    startDate: "2026-06-01",
+    endDate: "2026-06-30",
+  },
+] as const;
+const FOCUSED_VARIANT_IDS = [
+  "V0_current",
+  "V2b_p25_breakeven_floor",
+  "V2c_breakeven_recent_hold",
+  "V2d_breakeven_recent_hold_temporal_confirmation",
+] as const;
 const MIN_DEFENSIBLE_EPISODES = 30;
+const STATEMENT_TIMEOUT_MS = 30_000;
 export const F1_F2_SWEEP_CONTRACT_VERSION =
   "adsecute.f1-f2-cut-threshold-sweep.v1" as const;
-export const F1_F2_SWEEP_CONTRACT_REVISION = 4 as const;
+export const F1_F2_SWEEP_CONTRACT_REVISION = 5 as const;
 
 type Row = Record<string, unknown>;
 type CountMap = Record<string, number>;
-type CutSource =
+export type CutSource =
   | "zero_conv_burner"
   | "maturity_severe_loser"
   | "ratio_hard_cut"
@@ -38,6 +78,8 @@ type CutSource =
   | "ratio_loss_budget";
 type BoundaryMode = "current" | "upper_1" | "breakeven_floor";
 type PurchaseFloorMode = null | "fixed_2" | "fixed_3" | "fixed_5" | "half_winner";
+type RecentRecoveryMode = "target" | "breakeven";
+type ConfirmationMode = "none" | "later_calendar_date_consecutive";
 
 interface ParsedArgs {
   asOf: string;
@@ -50,13 +92,15 @@ interface ParsedArgs {
   mdOut: string;
   reportTitle: string;
   writeFiles: boolean;
-  queryTimeoutMs: number;
   sampleSize: number;
+  windowSuite: boolean;
+  focusCreativeIds: string[];
 }
 
 interface BusinessIdentity {
   id: string;
   name: string;
+  providerAccountId: string | null;
 }
 
 interface BusinessSourceStats {
@@ -81,7 +125,7 @@ interface TargetConfig {
   resolvedPreset: EngineRiskPreset;
 }
 
-interface DailyCandidateRow {
+export interface DailyCandidateRow {
   business: BusinessIdentity;
   asOfDate: string;
   creativeId: string;
@@ -140,12 +184,14 @@ interface ThresholdContext {
   boundaryFallbackReason: string | null;
 }
 
-interface VariantSpec {
+export interface VariantSpec {
   id: string;
   label: string;
   purchaseFloor: PurchaseFloorMode;
   boundaryMode: BoundaryMode;
   lossBudgetMultiplierOverride: number | null;
+  recentRecoveryMode?: RecentRecoveryMode;
+  confirmationMode?: ConfirmationMode;
   isBaseline: boolean;
 }
 
@@ -201,6 +247,8 @@ interface VariantBusinessSummary {
   purchaseFloorFallbackEpisodes: number;
   lossBudgetGeHardCutEpisodes: number;
   boundaryFallbackEpisodes: number;
+  temporalPendingDailyRows: number;
+  rawDailySourceCounts: CountMap;
   window14: WindowSummary;
   window28: WindowSummary;
 }
@@ -230,7 +278,26 @@ interface BusinessReview {
   candidateRowsWithTarget: number;
   variants: VariantBusinessSummary[];
   samples: Episode[];
+  focusedCreatives: FocusedCreativeReview[];
   errorMessage?: string;
+}
+
+interface FocusedCreativeReview {
+  creativeId: string;
+  creativeName: string | null;
+  variantId: string;
+  dailyRows: number;
+  rawCutDays: number;
+  publishedCutDays: number;
+  pendingConfirmationDays: number;
+  recentRecoveryHoldDays: number;
+  notInCutZoneDays: number;
+  belowCommercialMaturityDays: number;
+  firstPublishedCutDate: string | null;
+  lastPublishedCutDate: string | null;
+  episodes: number;
+  window14: WindowSummary;
+  window28: WindowSummary;
 }
 
 interface PooledSummary {
@@ -284,7 +351,54 @@ interface SweepReport {
   evidenceLimits: string[];
 }
 
-const VARIANTS: VariantSpec[] = [
+interface FocusedAggregateSummary {
+  variantId: string;
+  episodes: number;
+  temporalPendingDailyRows: number;
+  rawDailySourceCounts: CountMap;
+  window14: WindowSummary;
+  window28: WindowSummary;
+}
+
+interface WindowSuiteReport {
+  contractVersion: typeof F1_F2_SWEEP_CONTRACT_VERSION;
+  revision: typeof F1_F2_SWEEP_CONTRACT_REVISION;
+  generatedAt: string;
+  readOnly: true;
+  mutatesData: false;
+  lineage: SweepReport["lineage"];
+  transaction: {
+    isolation: "repeatable read";
+    readOnly: true;
+    statementTimeoutMs: typeof STATEMENT_TIMEOUT_MS;
+    applicationName: string;
+  };
+  accountScopes: Array<{
+    businessName: string;
+    providerAccountId: string | null;
+  }>;
+  windows: Array<{
+    id: (typeof LOCKED_WINDOW_SUITE)[number]["id"];
+    label: string;
+    startDate: string;
+    endDate: string;
+    report: SweepReport;
+  }>;
+  aggregate: {
+    pooled: FocusedAggregateSummary[];
+    byBusiness: Array<{
+      business: BusinessIdentity;
+      variants: FocusedAggregateSummary[];
+    }>;
+  };
+  verdict: {
+    status: "review_only_reject_production_promotion";
+    text: string;
+  };
+  evidenceLimits: string[];
+}
+
+export const VARIANTS: VariantSpec[] = [
   {
     id: "V0_current",
     label: "Current formula baseline; recovery guard already live",
@@ -339,6 +453,28 @@ const VARIANTS: VariantSpec[] = [
     purchaseFloor: null,
     boundaryMode: "breakeven_floor",
     lossBudgetMultiplierOverride: null,
+    isBaseline: false,
+  },
+  {
+    id: "V2c_breakeven_recent_hold",
+    label:
+      "Mature below-break-even: breakeven boundary, but hold when a sufficient recent 7d sample is at or above explicit break-even",
+    purchaseFloor: null,
+    boundaryMode: "breakeven_floor",
+    lossBudgetMultiplierOverride: null,
+    recentRecoveryMode: "breakeven",
+    confirmationMode: "none",
+    isBaseline: false,
+  },
+  {
+    id: "V2d_breakeven_recent_hold_temporal_confirmation",
+    label:
+      "V2c plus next-calendar-date consecutive confirmation for ratio cuts; zero-conversion and maturity-severe safety cuts remain immediate",
+    purchaseFloor: null,
+    boundaryMode: "breakeven_floor",
+    lossBudgetMultiplierOverride: null,
+    recentRecoveryMode: "breakeven",
+    confirmationMode: "later_calendar_date_consecutive",
     isBaseline: false,
   },
   {
@@ -403,6 +539,65 @@ const LOSS_BUDGET_VARIANT_IDS = VARIANTS.filter(
   (variant) => variant.lossBudgetMultiplierOverride !== null,
 ).map((variant) => variant.id);
 
+let activeReplayClient: Client | null = null;
+
+async function queryRows<TRow extends QueryResultRow = Row>(
+  queryText: string,
+  params?: unknown[],
+) {
+  if (!activeReplayClient) {
+    throw new Error("Read-only replay query attempted outside its bound transaction.");
+  }
+  const result = await activeReplayClient.query<TRow>(queryText, params);
+  return result.rows;
+}
+
+function assertTunnelReadOnlyRuntime(databaseUrl: string) {
+  const url = new URL(databaseUrl);
+  if (
+    !["127.0.0.1", "localhost", "::1"].includes(url.hostname) ||
+    url.port !== "15432"
+  ) {
+    throw new Error(
+      "F1/F2 replay requires the existing read-only tunnel at 127.0.0.1:15432.",
+    );
+  }
+  const applicationName = process.env.PGAPPNAME?.trim();
+  if (!applicationName) throw new Error("PGAPPNAME is required.");
+  const pgOptions = process.env.PGOPTIONS ?? "";
+  if (!pgOptions.includes("default_transaction_read_only=on")) {
+    throw new Error("PGOPTIONS must include default_transaction_read_only=on.");
+  }
+  return applicationName;
+}
+
+async function withReadOnlyReplayTransaction<T>(run: () => Promise<T>) {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+  const applicationName = assertTunnelReadOnlyRuntime(databaseUrl);
+  const client = new Client({
+    connectionString: databaseUrl,
+    application_name: applicationName,
+  });
+  await client.connect();
+  await client.query(
+    "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+  );
+  try {
+    await client.query("SET LOCAL statement_timeout = '30s'");
+    activeReplayClient = client;
+    const result = await run();
+    await client.query("ROLLBACK");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    activeReplayClient = null;
+    await client.end();
+  }
+}
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -426,8 +621,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       "F1/F2 Cut Threshold Sweep - 2026-07-02",
     ),
     writeFiles: arg(argv, "write", "1") !== "0",
-    queryTimeoutMs: Math.max(8_000, Number(arg(argv, "queryTimeoutMs", "120000")) || 120_000),
     sampleSize: Math.max(1, Number(arg(argv, "sampleSize", "12")) || 12),
+    windowSuite: arg(argv, "windowSuite", "0") === "1",
+    focusCreativeIds: csvArg(argv, "focusCreatives") ?? [],
   };
 }
 
@@ -475,6 +671,10 @@ function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function nonNegativeFinite(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 function addDays(date: string, days: number) {
   const parsed = new Date(`${date}T00:00:00.000Z`);
   parsed.setUTCDate(parsed.getUTCDate() + days);
@@ -519,7 +719,7 @@ function resolvePreset(input: {
 
 async function findBusinesses(identifiers: readonly string[]) {
   const normalized = identifiers.map((item) => item.toLowerCase());
-  const rows = await getDbWithTimeout(30_000).query<Row & { id: unknown; name: unknown }>(
+  const rows = await queryRows<Row & { id: unknown; name: unknown }>(
     `
     SELECT id::text AS id, name
     FROM businesses
@@ -533,12 +733,19 @@ async function findBusinesses(identifiers: readonly string[]) {
   return rows.flatMap((row) => {
     const id = toText(row.id);
     const name = toText(row.name);
-    return id && name ? [{ id, name }] : [];
+    if (!id || !name) return [];
+    const providerAccountId =
+      DEFAULT_ACCOUNT_SCOPES.find(
+        (scope) => scope.businessIdentifier.toLowerCase() === name.toLowerCase(),
+      )?.providerAccountId ?? null;
+    return [{ id, name, providerAccountId }];
   });
 }
 
-async function readSourceStats(businessId: string): Promise<BusinessSourceStats> {
-  const [row] = await getDbWithTimeout(30_000).query<Row>(
+async function readSourceStats(
+  business: BusinessIdentity,
+): Promise<BusinessSourceStats> {
+  const [row] = await queryRows<Row>(
     `
     SELECT
       MIN(date) AS earliest_data_date,
@@ -548,9 +755,10 @@ async function readSourceStats(businessId: string): Promise<BusinessSourceStats>
       COUNT(DISTINCT campaign_id)::integer AS campaign_count,
       COALESCE(SUM(spend), 0) AS total_spend
     FROM meta_creative_daily
-    WHERE business_ref_id = $1::uuid
+    WHERE business_id = $1::text
+      AND ($2::text IS NULL OR provider_account_id = $2::text)
     `,
-    [businessId],
+    [business.id, business.providerAccountId],
   );
 
   return {
@@ -564,7 +772,7 @@ async function readSourceStats(businessId: string): Promise<BusinessSourceStats>
 }
 
 async function readTargetConfig(businessId: string): Promise<TargetConfig> {
-  const [row] = await getDbWithTimeout(30_000).query<Row>(
+  const [row] = await queryRows<Row>(
     `
     WITH target_pack AS (
       SELECT
@@ -587,6 +795,12 @@ async function readTargetConfig(businessId: string): Promise<TargetConfig> {
         AND objective_family = 'sales'
       ORDER BY updated_at DESC
       LIMIT 1
+    ),
+    flags AS (
+      SELECT preset_override
+      FROM business_engine_v3_flags
+      WHERE business_id = $1::uuid
+      LIMIT 1
     )
     SELECT
       target_pack.target_cpa,
@@ -596,17 +810,18 @@ async function readTargetConfig(businessId: string): Promise<TargetConfig> {
       target_pack.aov_assumption,
       target_pack.default_risk_posture,
       profile.engine_preset_label,
-      profile.attribution_aov_adjustment_multiplier
+      profile.attribution_aov_adjustment_multiplier,
+      flags.preset_override
     FROM (SELECT 1) seed
     LEFT JOIN target_pack ON true
     LEFT JOIN profile ON true
+    LEFT JOIN flags ON true
     `,
     [businessId],
   );
-  const flags = await resolveEngineV3Flags(businessId);
   const targetPreset = parsePreset(row?.default_risk_posture);
   const profilePreset = parsePreset(row?.engine_preset_label);
-  const presetOverride = flags.presetOverride;
+  const presetOverride = parsePreset(row?.preset_override);
 
   return {
     targetCpa: toNullableNumber(row?.target_cpa),
@@ -640,9 +855,8 @@ async function readDailyCandidateRows(input: {
   targetConfig: TargetConfig;
   startDate: string;
   endDate: string;
-  queryTimeoutMs: number;
 }): Promise<DailyCandidateRow[]> {
-  const rows = await getDbWithTimeout(input.queryTimeoutMs).query<Row>(
+  const rows = await queryRows<Row>(
     `
     WITH days AS (
       SELECT generate_series($2::date, $3::date, INTERVAL '1 day')::date AS as_of_date
@@ -651,7 +865,8 @@ async function readDailyCandidateRows(input: {
       SELECT days.as_of_date, d.creative_id
       FROM days
       JOIN meta_creative_daily d
-        ON d.business_ref_id = $1::uuid
+        ON d.business_id = $1::text
+       AND ($5::text IS NULL OR d.provider_account_id = $5::text)
        AND d.date BETWEEN (days.as_of_date - INTERVAL '27 days') AND days.as_of_date
       WHERE d.spend > 0
       GROUP BY days.as_of_date, d.creative_id
@@ -700,7 +915,8 @@ async function readDailyCandidateRows(input: {
         ), 0) AS forward_28d_revenue
       FROM selected s
       JOIN meta_creative_daily d
-        ON d.business_ref_id = $1::uuid
+        ON d.business_id = $1::text
+       AND ($5::text IS NULL OR d.provider_account_id = $5::text)
        AND d.creative_id = s.creative_id
        AND d.date BETWEEN (s.as_of_date - INTERVAL '27 days') AND (s.as_of_date + INTERVAL '28 days')
       GROUP BY s.as_of_date, s.creative_id
@@ -714,7 +930,8 @@ async function readDailyCandidateRows(input: {
         SUM(d.revenue) AS total_revenue
       FROM days
       JOIN meta_creative_daily d
-        ON d.business_ref_id = $1::uuid
+        ON d.business_id = $1::text
+       AND ($5::text IS NULL OR d.provider_account_id = $5::text)
        AND d.date BETWEEN (days.as_of_date - INTERVAL '89 days') AND days.as_of_date
       GROUP BY days.as_of_date, d.creative_id
     ),
@@ -774,7 +991,8 @@ async function readDailyCandidateRows(input: {
         COALESCE(SUM(d.revenue), 0) AS meta_revenue_90d
       FROM days
       LEFT JOIN meta_creative_daily d
-        ON d.business_ref_id = $1::uuid
+        ON d.business_id = $1::text
+       AND ($5::text IS NULL OR d.provider_account_id = $5::text)
        AND d.date BETWEEN (days.as_of_date - INTERVAL '89 days') AND days.as_of_date
        AND d.objective = 'OUTCOME_SALES'
       GROUP BY days.as_of_date
@@ -820,6 +1038,7 @@ async function readDailyCandidateRows(input: {
       input.startDate,
       input.endDate,
       input.targetConfig.targetRoas,
+      input.business.providerAccountId,
     ],
   );
 
@@ -1006,14 +1225,45 @@ function commercialMaturitySpendThreshold(input: {
   return input.matureSpendP50 ?? input.recentSampleMinSpend ?? 300;
 }
 
-function hasRecentRecovery(row: DailyCandidateRow, thresholds: ThresholdContext) {
+export function shouldHoldForRecentRecovery(input: {
+  mode: RecentRecoveryMode;
+  targetRoas: number | null;
+  breakEvenRoas: number | null;
+  recent7Spend: number;
+  recentSampleMinSpend: number | null;
+  recent7Roas: number | null;
+}) {
+  if (
+    !positiveFinite(input.recentSampleMinSpend) ||
+    input.recent7Spend < input.recentSampleMinSpend ||
+    !nonNegativeFinite(input.recent7Roas)
+  ) {
+    return false;
+  }
+  if (input.mode === "breakeven") {
+    return (
+      positiveFinite(input.breakEvenRoas) &&
+      input.recent7Roas >= input.breakEvenRoas
+    );
+  }
   return (
-    positiveFinite(row.targetRoas) &&
-    positiveFinite(thresholds.recentSampleMinSpend) &&
-    row.recent7Spend >= thresholds.recentSampleMinSpend &&
-    positiveFinite(row.recent7Roas) &&
-    row.recent7Roas > row.targetRoas
+    positiveFinite(input.targetRoas) && input.recent7Roas > input.targetRoas
   );
+}
+
+function hasRecentRecovery(
+  row: DailyCandidateRow,
+  thresholds: ThresholdContext,
+  mode: RecentRecoveryMode,
+) {
+  return shouldHoldForRecentRecovery({
+    mode,
+    targetRoas: row.targetRoas,
+    breakEvenRoas: row.breakEvenRoas,
+    recent7Spend: row.recent7Spend,
+    recentSampleMinSpend: thresholds.recentSampleMinSpend,
+    recent7Roas: row.recent7Roas,
+  });
 }
 
 function purchaseFloorAllowsCut(row: DailyCandidateRow, thresholds: ThresholdContext) {
@@ -1025,8 +1275,8 @@ function purchaseFloorAllowsCut(row: DailyCandidateRow, thresholds: ThresholdCon
   );
 }
 
-function evaluateCut(row: DailyCandidateRow, variant: VariantSpec): CutEvaluation {
-  if (!positiveFinite(row.targetRoas) || !positiveFinite(row.roas28)) {
+export function evaluateCut(row: DailyCandidateRow, variant: VariantSpec): CutEvaluation {
+  if (!positiveFinite(row.targetRoas) || !nonNegativeFinite(row.roas28)) {
     return {
       cuts: false,
       source: null,
@@ -1080,6 +1330,16 @@ function evaluateCut(row: DailyCandidateRow, variant: VariantSpec): CutEvaluatio
     };
   }
 
+  const recoveryMode = variant.recentRecoveryMode ?? "target";
+  if (recoveryMode === "breakeven" && !positiveFinite(row.breakEvenRoas)) {
+    return {
+      cuts: false,
+      source: null,
+      threshold: thresholds,
+      blockedReason: "explicit_breakeven_missing",
+    };
+  }
+
   if (ratio >= thresholds.boundary) {
     return {
       cuts: false,
@@ -1089,7 +1349,7 @@ function evaluateCut(row: DailyCandidateRow, variant: VariantSpec): CutEvaluatio
     };
   }
 
-  if (hasRecentRecovery(row, thresholds)) {
+  if (hasRecentRecovery(row, thresholds, recoveryMode)) {
     return {
       cuts: false,
       source: null,
@@ -1138,12 +1398,44 @@ function evaluateCut(row: DailyCandidateRow, variant: VariantSpec): CutEvaluatio
   };
 }
 
+function isImmediateSafetyCut(source: CutSource | null) {
+  return source === "zero_conv_burner" || source === "maturity_severe_loser";
+}
+
+export function resolvePublishedCutState(input: {
+  confirmationMode: ConfirmationMode;
+  currentDate: string;
+  currentRawCuts: boolean;
+  currentSource: CutSource | null;
+  previousDate: string | null;
+  previousRawCuts: boolean;
+  previousPublishedCuts: boolean;
+}) {
+  if (!input.currentRawCuts) return { cuts: false, pending: false };
+  if (
+    input.confirmationMode === "none" ||
+    isImmediateSafetyCut(input.currentSource)
+  ) {
+    return { cuts: true, pending: false };
+  }
+  const isNextCalendarDate =
+    input.previousDate !== null &&
+    diffDays(input.currentDate, input.previousDate) === 1;
+  const confirmed =
+    isNextCalendarDate &&
+    (input.previousRawCuts || input.previousPublishedCuts);
+  return { cuts: confirmed, pending: !confirmed };
+}
+
 function collectEpisodes(input: {
   rows: DailyCandidateRow[];
   variant: VariantSpec;
+  reportStartDate?: string;
 }) {
   const episodes: Episode[] = [];
   const dailyCutRows = new Map<string, CutEvaluation>();
+  const rawDailySourceCounts: CountMap = {};
+  let temporalPendingDailyRows = 0;
   const sortedRows = [...input.rows].sort((left, right) => {
     const dateCmp = left.asOfDate.localeCompare(right.asOfDate);
     return dateCmp || left.creativeId.localeCompare(right.creativeId);
@@ -1152,7 +1444,8 @@ function collectEpisodes(input: {
     string,
     {
       date: string | null;
-      cuts: boolean;
+      rawCuts: boolean;
+      publishedCuts: boolean;
       lastEpisodeDate: string | null;
       hasSpendAfterLastEpisode: boolean;
     }
@@ -1161,11 +1454,11 @@ function collectEpisodes(input: {
   for (const row of sortedRows) {
     const evaluation = evaluateCut(row, input.variant);
     const key = dailyKey(row);
-    dailyCutRows.set(key, evaluation);
     const previous =
       previousByCreative.get(row.creativeId) ?? {
         date: null,
-        cuts: false,
+        rawCuts: false,
+        publishedCuts: false,
         lastEpisodeDate: null,
         hasSpendAfterLastEpisode: false,
       };
@@ -1178,12 +1471,35 @@ function collectEpisodes(input: {
     }
     const previousDayDiff =
       previous.date === null ? null : diffDays(row.asOfDate, previous.date);
+    const published = resolvePublishedCutState({
+      confirmationMode: input.variant.confirmationMode ?? "none",
+      currentDate: row.asOfDate,
+      currentRawCuts: evaluation.cuts,
+      currentSource: evaluation.source,
+      previousDate: previous.date,
+      previousRawCuts: previous.rawCuts,
+      previousPublishedCuts: previous.publishedCuts,
+    });
+    const inReportWindow =
+      input.reportStartDate === undefined || row.asOfDate >= input.reportStartDate;
+    if (inReportWindow) {
+      if (evaluation.cuts) increment(rawDailySourceCounts, evaluation.source);
+      if (published.pending) temporalPendingDailyRows += 1;
+      dailyCutRows.set(key, {
+        ...evaluation,
+        cuts: published.cuts,
+        blockedReason: published.pending
+          ? "later_calendar_date_confirmation_pending"
+          : evaluation.blockedReason,
+      });
+    }
     const startsCutRun =
-      evaluation.cuts &&
-      (!previous?.cuts || previousDayDiff === null || previousDayDiff > 1);
+      published.cuts &&
+      (!previous.publishedCuts || previousDayDiff === null || previousDayDiff > 1);
     const hasFreshSpendSinceLastEpisode =
       previous.lastEpisodeDate === null || previous.hasSpendAfterLastEpisode;
-    const startsEpisode = startsCutRun && hasFreshSpendSinceLastEpisode;
+    const startsEpisode =
+      inReportWindow && startsCutRun && hasFreshSpendSinceLastEpisode;
 
     if (startsEpisode && evaluation.source && evaluation.threshold && row.targetRoas) {
       episodes.push({
@@ -1219,11 +1535,17 @@ function collectEpisodes(input: {
     }
 
     previous.date = row.asOfDate;
-    previous.cuts = evaluation.cuts;
+    previous.rawCuts = evaluation.cuts;
+    previous.publishedCuts = published.cuts;
     previousByCreative.set(row.creativeId, previous);
   }
 
-  return { episodes, dailyCutRows };
+  return {
+    episodes,
+    dailyCutRows,
+    rawDailySourceCounts,
+    temporalPendingDailyRows,
+  };
 }
 
 function dailyKey(row: DailyCandidateRow) {
@@ -1286,6 +1608,8 @@ function summarizeVariant(input: {
   baselineEpisodes: Episode[];
   dailyCutRows: Map<string, CutEvaluation>;
   baselineDailyCutRows: Map<string, CutEvaluation>;
+  rawDailySourceCounts: CountMap;
+  temporalPendingDailyRows: number;
 }) {
   const sourceCounts: CountMap = {};
   let purchaseFloorFallbackEpisodes = 0;
@@ -1329,6 +1653,8 @@ function summarizeVariant(input: {
     purchaseFloorFallbackEpisodes,
     lossBudgetGeHardCutEpisodes,
     boundaryFallbackEpisodes,
+    temporalPendingDailyRows: input.temporalPendingDailyRows,
+    rawDailySourceCounts: input.rawDailySourceCounts,
     window14: summarizeWindow(input.episodes, 14),
     window28: summarizeWindow(input.episodes, 28),
   } satisfies VariantBusinessSummary;
@@ -1458,7 +1784,7 @@ async function reviewBusiness(input: {
   business: BusinessIdentity;
   args: ParsedArgs;
 }): Promise<BusinessReview> {
-  const sourceStats = await readSourceStats(input.business.id);
+  const sourceStats = await readSourceStats(input.business);
   const targetConfig = await readTargetConfig(input.business.id);
   if (!sourceStats.latestDataDate || !sourceStats.earliestDataDate) {
     return {
@@ -1476,6 +1802,7 @@ async function reviewBusiness(input: {
       candidateRowsWithTarget: 0,
       variants: [],
       samples: [],
+      focusedCreatives: [],
       errorMessage: "no_meta_creative_daily_rows",
     };
   }
@@ -1495,6 +1822,7 @@ async function reviewBusiness(input: {
       candidateRowsWithTarget: 0,
       variants: [],
       samples: [],
+      focusedCreatives: [],
       errorMessage: "target_roas_missing",
     };
   }
@@ -1525,6 +1853,7 @@ async function reviewBusiness(input: {
       candidateRowsWithTarget: 0,
       variants: [],
       samples: [],
+      focusedCreatives: [],
       errorMessage: "insufficient_history_for_90d_calibration_and_28d_forward_window",
     };
   }
@@ -1532,14 +1861,23 @@ async function reviewBusiness(input: {
   const rows = await readDailyCandidateRows({
     business: input.business,
     targetConfig,
-    startDate,
+    // Two warm-up dates reconstruct both pending and already-confirmed V2d
+    // state at the report boundary without counting a pre-window episode.
+    startDate: addDays(startDate, -2),
     endDate,
-    queryTimeoutMs: input.args.queryTimeoutMs,
   });
-  const candidateRowsWithTarget = rows.filter((row) => positiveFinite(row.targetRoas)).length;
+  const reportRows = rows.filter((row) => row.asOfDate >= startDate);
+  const candidateRowsWithTarget = reportRows.filter((row) =>
+    positiveFinite(row.targetRoas),
+  ).length;
   const collections = new Map<
     string,
-    { episodes: Episode[]; dailyCutRows: Map<string, CutEvaluation> }
+    {
+      episodes: Episode[];
+      dailyCutRows: Map<string, CutEvaluation>;
+      rawDailySourceCounts: CountMap;
+      temporalPendingDailyRows: number;
+    }
   >();
 
   for (const variant of VARIANTS) {
@@ -1548,6 +1886,7 @@ async function reviewBusiness(input: {
       collectEpisodes({
         rows,
         variant,
+        reportStartDate: startDate,
       }),
     );
   }
@@ -1567,12 +1906,60 @@ async function reviewBusiness(input: {
       baselineEpisodes: baseline.episodes,
       dailyCutRows: collection.dailyCutRows,
       baselineDailyCutRows: baseline.dailyCutRows,
+      rawDailySourceCounts: collection.rawDailySourceCounts,
+      temporalPendingDailyRows: collection.temporalPendingDailyRows,
     });
   });
 
   const samples = [...baseline.episodes]
     .sort((left, right) => right.spend28 - left.spend28)
     .slice(0, input.args.sampleSize);
+  const focusedCreatives = input.args.focusCreativeIds.flatMap((creativeId) => {
+    const creativeName = [...reportRows]
+      .reverse()
+      .find((row) => row.creativeId === creativeId)?.creativeName ?? null;
+    return FOCUSED_VARIANT_IDS.flatMap((variantId) => {
+      const collection = collections.get(variantId);
+      if (!collection) return [];
+      const evaluations = [...collection.dailyCutRows.entries()]
+        .filter(([key]) => key.endsWith(`::${creativeId}`))
+        .sort(([left], [right]) => left.localeCompare(right));
+      if (evaluations.length === 0) return [];
+      const publishedDates = evaluations.flatMap(([key, evaluation]) =>
+        evaluation.cuts ? [key.slice(0, 10)] : [],
+      );
+      const episodes = collection.episodes.filter(
+        (episode) => episode.creativeId === creativeId,
+      );
+      const countReason = (reason: string) =>
+        evaluations.filter(([, evaluation]) => evaluation.blockedReason === reason)
+          .length;
+      const pendingConfirmationDays = countReason(
+        "later_calendar_date_confirmation_pending",
+      );
+      return [
+        {
+          creativeId,
+          creativeName,
+          variantId,
+          dailyRows: evaluations.length,
+          rawCutDays:
+            evaluations.filter(([, evaluation]) => evaluation.cuts).length +
+            pendingConfirmationDays,
+          publishedCutDays: publishedDates.length,
+          pendingConfirmationDays,
+          recentRecoveryHoldDays: countReason("recent_recovery_hold"),
+          notInCutZoneDays: countReason("not_in_cut_zone"),
+          belowCommercialMaturityDays: countReason("below_commercial_maturity"),
+          firstPublishedCutDate: publishedDates[0] ?? null,
+          lastPublishedCutDate: publishedDates.at(-1) ?? null,
+          episodes: episodes.length,
+          window14: summarizeWindow(episodes, 14),
+          window28: summarizeWindow(episodes, 28),
+        } satisfies FocusedCreativeReview,
+      ];
+    });
+  });
 
   return {
     business: input.business,
@@ -1585,10 +1972,11 @@ async function reviewBusiness(input: {
       lookbackDays: input.args.lookbackDays,
       forwardWindowDays: input.args.primaryForwardWindowDays,
     },
-    rowsEvaluated: rows.length,
+    rowsEvaluated: reportRows.length,
     candidateRowsWithTarget,
     variants: summaries,
     samples,
+    focusedCreatives,
   };
 }
 
@@ -1810,6 +2198,10 @@ function buildReport(input: {
     revision: F1_F2_SWEEP_CONTRACT_REVISION,
     revisionNotes: [
       "Finite zero-ROAS outcomes with positive forward spend are known loser outcomes, not unknown censoring.",
+      "Finite zero current ROAS is also known evidence, so the zero-conversion and severe-loss branches are no longer accidentally skipped by a positive-only preflight.",
+      "Default business scope is pinned to the four requested physical Meta accounts; TheSwaf Main no longer co-mingles another TheSwaf account.",
+      "Adds V2c break-even recovery hold and V2d later-calendar-date ratio-cut confirmation while preserving immediate zero-conversion and maturity-severe safety semantics.",
+      "The complete four-window suite runs inside one repeatable-read read-only transaction with a 30-second statement timeout and always rolls back.",
       "Episode dedup now requires at least one post-trigger daily spend > 0 before the same creative can open a new cut episode.",
       "Evidence limits now describe attribution lag in both directions.",
       "Recommendation is reframed from no-change-supported to no-uniform-change-supported with account-level signals.",
@@ -1831,11 +2223,11 @@ function buildReport(input: {
       lookaheadBiasStatus:
         "trailing 90d calibration percentiles are recomputed for each replay day from data available on or before that day",
       targetHistoryAssumption:
-        "business_target_packs keeps the latest target pack; historical target ROAS and breakeven ROAS are assumed fixed",
+        "this legacy sweep reads the latest business_target_packs row and does not consume point-in-time target history; historical target ROAS and breakeven ROAS are therefore assumed fixed",
       guardrailScope:
         "formula-level threshold sweep; campaign-label guard, provider writes, DB writes, migrations, and resolver threshold changes are not applied",
       nonMutationStatement:
-        "This report only reads meta_creative_daily, businesses, target/config/flag tables and writes local JSON/MD artifacts.",
+        "This report only reads meta_creative_daily, businesses, target/config/flag tables inside a repeatable-read read-only transaction that terminates with ROLLBACK, then writes local JSON/MD artifacts.",
       queryCostBound: `per-business generated daily replay bounded to ${
         input.args.startDate && input.args.endDate
           ? `${input.args.startDate}..${input.args.endDate}`
@@ -1852,7 +2244,9 @@ function buildReport(input: {
     evidenceLimits: [
       "Survivorship: history contains creatives operators did not already kill, so observed early-cut rate is a lower bound.",
       "Attribution lag can move in both directions: delayed conversions may make forward ROAS look too low, while conversions caused by pre-cut spend may make post-cut recovery look too high.",
-      "Target history is not versioned in business_target_packs; target and breakeven are held constant across the replay.",
+      "This legacy sweep does not consume point-in-time target history; the latest target and break-even values are held constant across the replay.",
+      "Default comparisons are bound to one exact provider account per business; custom non-default businesses without an exact binding are not promotion evidence.",
+      "Historical rows are creative-grain rather than immutable exact-Ad decision inputs; multi-Ad creative reuse can blur identity.",
       "The sweep uses raw forward ROAS and does not depend on v1/v2 outcome classifiers.",
       "Pooled saved-spend uses spendUnit-normalized units; raw currency is not pooled across businesses.",
       "LossBudgetMultiplier rows are univariate shadow sensitivity tests: purchase floor and boundary mode stay at current behavior unless the variant label says otherwise.",
@@ -2111,10 +2505,494 @@ function writeText(path: string, data: string) {
   writeFileSync(path, data);
 }
 
-async function main() {
-  configureOperationalScriptRuntime({ lane: "read_only_observation" });
-  const args = parseArgs(process.argv.slice(2));
+function mergeCounts(target: CountMap, source: CountMap) {
+  for (const [key, value] of Object.entries(source)) {
+    target[key] = (target[key] ?? 0) + value;
+  }
+  return target;
+}
+
+function aggregateFocusedSummaries(
+  summaries: VariantBusinessSummary[],
+): FocusedAggregateSummary[] {
+  return FOCUSED_VARIANT_IDS.map((variantId) => {
+    const matching = summaries.filter((summary) => summary.variantId === variantId);
+    const rawDailySourceCounts: CountMap = {};
+    for (const summary of matching) {
+      mergeCounts(rawDailySourceCounts, summary.rawDailySourceCounts);
+    }
+    return {
+      variantId,
+      episodes: matching.reduce((sum, summary) => sum + summary.episodes, 0),
+      temporalPendingDailyRows: matching.reduce(
+        (sum, summary) => sum + summary.temporalPendingDailyRows,
+        0,
+      ),
+      rawDailySourceCounts,
+      window14: poolWindows(matching.map((summary) => summary.window14)),
+      window28: poolWindows(matching.map((summary) => summary.window28)),
+    };
+  });
+}
+
+function buildWindowSuiteReport(input: {
+  windows: WindowSuiteReport["windows"];
+  applicationName: string;
+}): WindowSuiteReport {
+  const allBusinessSummaries = input.windows.flatMap((window) =>
+    window.report.reviews.flatMap((review) => review.variants),
+  );
+  const businessMap = new Map<
+    string,
+    { business: BusinessIdentity; summaries: VariantBusinessSummary[] }
+  >();
+  for (const window of input.windows) {
+    for (const review of window.report.reviews) {
+      const key = `${review.business.id}::${review.business.providerAccountId ?? "all"}`;
+      const current = businessMap.get(key) ?? {
+        business: review.business,
+        summaries: [],
+      };
+      current.summaries.push(...review.variants);
+      businessMap.set(key, current);
+    }
+  }
+  const firstReport = input.windows[0]?.report;
+  if (!firstReport) throw new Error("Window suite requires at least one report.");
+  return {
+    contractVersion: F1_F2_SWEEP_CONTRACT_VERSION,
+    revision: F1_F2_SWEEP_CONTRACT_REVISION,
+    generatedAt: new Date().toISOString(),
+    readOnly: true,
+    mutatesData: false,
+    lineage: firstReport.lineage,
+    transaction: {
+      isolation: "repeatable read",
+      readOnly: true,
+      statementTimeoutMs: STATEMENT_TIMEOUT_MS,
+      applicationName: input.applicationName,
+    },
+    accountScopes: firstReport.reviews.map((review) => ({
+      businessName: review.business.name,
+      providerAccountId: review.business.providerAccountId,
+    })),
+    windows: input.windows,
+    aggregate: {
+      pooled: aggregateFocusedSummaries(allBusinessSummaries),
+      byBusiness: [...businessMap.values()]
+        .sort((left, right) => left.business.name.localeCompare(right.business.name))
+        .map((item) => ({
+          business: item.business,
+          variants: aggregateFocusedSummaries(item.summaries),
+        })),
+    },
+    verdict: {
+      status: "review_only_reject_production_promotion",
+      text:
+        "Reject production promotion from this lane alone. It can compare relative formula behavior, but current target packs are applied anachronistically, historical rows are creative-grain survivor data, and observational forward spend/ROAS is not a controlled pause counterfactual.",
+    },
+    evidenceLimits: [
+      "Current target and break-even packs are held fixed across every historical date because exact point-in-time commercial target history is not consumed by this legacy sweep.",
+      "The raw source is creative-grain, not the immutable exact-Ad decision input chain; one creative may represent more than one Ad over time.",
+      "Survivorship bias remains: creatives already paused by operators disappear from later observed spend, so early-cut error can be understated.",
+      "Attribution lag moves both directions: delayed conversions can make forward ROAS look too low, while conversions caused by pre-trigger spend can make apparent recovery look too high.",
+      "Saved-spend units are observational spend after a trigger divided by the trigger spend unit; they are not causal savings and raw currencies are never pooled.",
+      "The June 2026 requested window is automatically truncated per account to the last date with a closed 28-day forward outcome.",
+      "Zero-conversion and maturity-severe raw safety branches are intentionally unchanged by V2b/V2c/V2d; V2d temporal confirmation applies only to ratio cuts.",
+    ],
+  };
+}
+
+function signedNumber(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "n/a";
+  return `${value >= 0 ? "+" : ""}${formatNumber(value)}`;
+}
+
+function signedPoints(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "n/a";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)} pp`;
+}
+
+function trueLoserPrecision(window: WindowSummary) {
+  return window.knownEpisodes > 0
+    ? window.trueLoserEpisodes / window.knownEpisodes
+    : null;
+}
+
+function wilsonLower95(successes: number, total: number) {
+  if (total <= 0) return null;
+  const z = 1.96;
+  const p = successes / total;
+  const z2 = z * z;
+  const denominator = 1 + z2 / total;
+  const center = p + z2 / (2 * total);
+  const margin =
+    z * Math.sqrt((p * (1 - p) + z2 / (4 * total)) / total);
+  return rounded((center - margin) / denominator);
+}
+
+function renderDirectionDiagnostics(report: WindowSuiteReport) {
+  const lines = [
+    "| Window | Business/account | V0 to V2c episodes | V2b to V2c episodes | V0 to V2c 14d early | V2b to V2c 14d early | V0 to V2c 14d units | V2b to V2c 14d units | V0 to V2c 28d early | V2b to V2c 28d early | V0 to V2c 28d units | V2b to V2c 28d units |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  ];
+  for (const window of report.windows) {
+    for (const review of window.report.reviews) {
+      const v0 = review.variants.find((item) => item.variantId === "V0_current");
+      const v2b = review.variants.find(
+        (item) => item.variantId === "V2b_p25_breakeven_floor",
+      );
+      const v2c = review.variants.find(
+        (item) => item.variantId === "V2c_breakeven_recent_hold",
+      );
+      if (!v0 || !v2b || !v2c) continue;
+      const delta = (value: number | null, baseline: number | null) =>
+        value === null || baseline === null ? null : rounded(value - baseline);
+      lines.push(
+        [
+          `| ${window.id}`,
+          `${review.business.name} / ${review.business.providerAccountId ?? "all"}`,
+          signedNumber(v2c.episodes - v0.episodes),
+          signedNumber(v2c.episodes - v2b.episodes),
+          signedPoints(delta(v2c.window14.earlyCutRate, v0.window14.earlyCutRate)),
+          signedPoints(
+            delta(v2c.window14.earlyCutRate, v2b.window14.earlyCutRate),
+          ),
+          signedNumber(
+            delta(v2c.window14.savedSpendUnits, v0.window14.savedSpendUnits),
+          ),
+          signedNumber(
+            delta(v2c.window14.savedSpendUnits, v2b.window14.savedSpendUnits),
+          ),
+          signedPoints(delta(v2c.window28.earlyCutRate, v0.window28.earlyCutRate)),
+          signedPoints(
+            delta(v2c.window28.earlyCutRate, v2b.window28.earlyCutRate),
+          ),
+          signedNumber(
+            delta(v2c.window28.savedSpendUnits, v0.window28.savedSpendUnits),
+          ),
+          signedNumber(
+            delta(v2c.window28.savedSpendUnits, v2b.window28.savedSpendUnits),
+          ),
+        ].join(" | ") + " |",
+      );
+    }
+  }
+  return lines;
+}
+
+function directionCounts(input: {
+  report: WindowSuiteReport;
+  baselineId: string;
+  window: "window14" | "window28";
+  metric: "earlyCutRate" | "savedSpendUnits";
+}) {
+  let improved = 0;
+  let worse = 0;
+  let tied = 0;
+  let unavailable = 0;
+  for (const replayWindow of input.report.windows) {
+    for (const review of replayWindow.report.reviews) {
+      const baseline = review.variants.find(
+        (variant) => variant.variantId === input.baselineId,
+      );
+      const challenger = review.variants.find(
+        (variant) => variant.variantId === "V2c_breakeven_recent_hold",
+      );
+      const left = baseline?.[input.window][input.metric] ?? null;
+      const right = challenger?.[input.window][input.metric] ?? null;
+      if (left === null || right === null) {
+        unavailable += 1;
+        continue;
+      }
+      const delta = right - left;
+      if (Math.abs(delta) < 1e-9) tied += 1;
+      else if (
+        (input.metric === "earlyCutRate" && delta < 0) ||
+        (input.metric === "savedSpendUnits" && delta > 0)
+      ) {
+        improved += 1;
+      } else {
+        worse += 1;
+      }
+    }
+  }
+  return { improved, worse, tied, unavailable };
+}
+
+function renderFocusedComparisonTable(
+  scopes: Array<{ label: string; variants: FocusedAggregateSummary[] }>,
+) {
+  const lines = [
+    "| Scope | Variant | Episodes | Delta episodes vs V2b | 14d known/unknown | 14d early-cut | Delta early vs V2b | 14d true losers | Delta losers | 14d saved units | Delta units | 28d known/unknown | 28d early-cut | Delta early vs V2b | 28d true losers | Delta losers | 28d saved units | Delta units |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+  ];
+  for (const scope of scopes) {
+    const v2b = scope.variants.find(
+      (variant) => variant.variantId === "V2b_p25_breakeven_floor",
+    );
+    for (const variant of scope.variants) {
+      const delta = (
+        value: number | null,
+        baseline: number | null,
+      ): number | null =>
+        value === null || baseline === null ? null : rounded(value - baseline);
+      lines.push(
+        [
+          `| ${scope.label}`,
+          variant.variantId,
+          variant.episodes,
+          signedNumber(v2b ? variant.episodes - v2b.episodes : null),
+          `${variant.window14.knownEpisodes}/${variant.window14.unknownEpisodes}`,
+          formatPercent(variant.window14.earlyCutRate),
+          signedPoints(
+            delta(variant.window14.earlyCutRate, v2b?.window14.earlyCutRate ?? null),
+          ),
+          variant.window14.trueLoserEpisodes,
+          signedNumber(
+            v2b
+              ? variant.window14.trueLoserEpisodes -
+                  v2b.window14.trueLoserEpisodes
+              : null,
+          ),
+          formatNumber(variant.window14.savedSpendUnits),
+          signedNumber(
+            delta(
+              variant.window14.savedSpendUnits,
+              v2b?.window14.savedSpendUnits ?? null,
+            ),
+          ),
+          `${variant.window28.knownEpisodes}/${variant.window28.unknownEpisodes}`,
+          formatPercent(variant.window28.earlyCutRate),
+          signedPoints(
+            delta(variant.window28.earlyCutRate, v2b?.window28.earlyCutRate ?? null),
+          ),
+          variant.window28.trueLoserEpisodes,
+          signedNumber(
+            v2b
+              ? variant.window28.trueLoserEpisodes -
+                  v2b.window28.trueLoserEpisodes
+              : null,
+          ),
+          formatNumber(variant.window28.savedSpendUnits),
+          signedNumber(
+            delta(
+              variant.window28.savedSpendUnits,
+              v2b?.window28.savedSpendUnits ?? null,
+            ),
+          ),
+        ].join(" | ") + " |",
+      );
+    }
+  }
+  return lines;
+}
+
+function renderWindowSuiteMarkdown(report: WindowSuiteReport) {
+  const lines: string[] = [
+    "# Mature Below-Breakeven Temporal Replay - 2026-07-16",
+    "",
+    "This is a SELECT-only historical formula simulation. It does not change the production resolver, provider state, live database state, thresholds, or operator behavior.",
+    "",
+    "## Verdict",
+    "",
+    `Status: ${report.verdict.status}`,
+    "",
+    report.verdict.text,
+    "",
+    "The useful conclusion is comparative, not causal: V2c tests a break-even recovery hold on top of V2b, while V2d tests one later-calendar-date confirmation for ratio cuts. Neither may be promoted from this legacy lane without exact point-in-time commercial and decision-input evidence.",
+    "",
+    "## Read-Only Contract",
+    "",
+    `- generatedAt: ${report.generatedAt}`,
+    `- gitSha: ${report.lineage.gitSha}`,
+    `- isolation: ${report.transaction.isolation}`,
+    `- transaction readOnly: ${report.transaction.readOnly}`,
+    `- statement timeout: ${report.transaction.statementTimeoutMs} ms`,
+    `- application name: ${report.transaction.applicationName}`,
+    "- terminal action: one ROLLBACK for the complete four-window suite; no COMMIT path",
+    "",
+    "## Exact Account Scope",
+    "",
+  ];
+  for (const scope of report.accountScopes) {
+    lines.push(`- ${scope.businessName}: ${scope.providerAccountId ?? "all accounts (unsafe fallback)"}`);
+  }
+  lines.push("");
+  lines.push("## Aggregate Across Four Requested Windows");
+  lines.push("");
+  lines.push(
+    ...renderFocusedComparisonTable([
+      ...report.aggregate.byBusiness.map((item) => ({
+        label: `${item.business.name} / ${item.business.providerAccountId ?? "all"}`,
+        variants: item.variants,
+      })),
+      { label: "POOLED", variants: report.aggregate.pooled },
+    ]),
+  );
+  lines.push("");
+  lines.push("### True-Loser Precision And Wilson Lower Bound");
+  lines.push("");
+  lines.push(
+    "True-loser precision is the share of known forward outcomes below explicit break-even. It is observational precision, not causal pause precision.",
+  );
+  lines.push("");
+  lines.push("| Scope | Variant | 14d precision | 14d Wilson 95% lower | 28d precision | 28d Wilson 95% lower |");
+  lines.push("| --- | --- | ---: | ---: | ---: | ---: |");
+  for (const scope of [
+    ...report.aggregate.byBusiness.map((item) => ({
+      label: `${item.business.name} / ${item.business.providerAccountId ?? "all"}`,
+      variants: item.variants,
+    })),
+    { label: "POOLED", variants: report.aggregate.pooled },
+  ]) {
+    for (const variant of scope.variants) {
+      lines.push(
+        `| ${scope.label} | ${variant.variantId} | ${formatPercent(trueLoserPrecision(variant.window14))} | ${formatPercent(wilsonLower95(variant.window14.trueLoserEpisodes, variant.window14.knownEpisodes))} | ${formatPercent(trueLoserPrecision(variant.window28))} | ${formatPercent(wilsonLower95(variant.window28.trueLoserEpisodes, variant.window28.knownEpisodes))} |`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push("### V2c Direction Consistency By Account And Window");
+  lines.push("");
+  for (const baseline of [
+    { id: "V0_current", label: "V0" },
+    { id: "V2b_p25_breakeven_floor", label: "V2b" },
+  ]) {
+    for (const window of ["window14", "window28"] as const) {
+      const early = directionCounts({
+        report,
+        baselineId: baseline.id,
+        window,
+        metric: "earlyCutRate",
+      });
+      const saved = directionCounts({
+        report,
+        baselineId: baseline.id,
+        window,
+        metric: "savedSpendUnits",
+      });
+      lines.push(
+        `- ${baseline.label} to V2c ${window === "window14" ? "14d" : "28d"}: early-cut improved/worse/tied/unavailable = ${early.improved}/${early.worse}/${early.tied}/${early.unavailable}; saved units improved/worse/tied/unavailable = ${saved.improved}/${saved.worse}/${saved.tied}/${saved.unavailable}.`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push(...renderDirectionDiagnostics(report));
+  lines.push("");
+  lines.push("### V2d Is Not Production D036");
+  lines.push("");
+  lines.push(
+    "V2d is a standalone historical sensitivity: it confirms only ratio-based Cuts and intentionally leaves zero-conversion/maturity-severe safety branches immediate. Production D036 governs entry into every hard action using persisted prior-epoch evaluation state. Composing V2d with D036 would double-count confirmation and could add an unintended extra delay; V2d must never be layered on top of D036 as a second calculator.",
+  );
+  lines.push(
+    "V2d also changes episode boundaries: a pending day followed by a confirmed day, recovery interruption, or window edge can create more counted episodes while reducing known-outcome coverage. Its episode and unknown counts are therefore part of the rejection evidence, not a lift claim.",
+  );
+  const focusedRows = report.windows.flatMap((window) =>
+    window.report.reviews.flatMap((review) =>
+      review.focusedCreatives.map((focused) => ({
+        window: window.id,
+        business: review.business,
+        focused,
+      })),
+    ),
+  );
+  if (focusedRows.length > 0) {
+    lines.push("");
+    lines.push("## Focus Creative Identity History");
+    lines.push("");
+    lines.push(
+      "These rows bind the requested current exact-Ad identities only to their persisted creative IDs. They do not pretend that a creative-grain historical row is an immutable exact-Ad input.",
+    );
+    lines.push("");
+    lines.push(
+      "| Window | Business/account | Creative | Variant | Daily rows | Raw Cut days | Published Cut days | Pending days | Recovery-hold days | First published | Last published | Episodes | 14d early | 14d saved units | 28d early | 28d saved units |",
+    );
+    lines.push(
+      "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    );
+    for (const row of focusedRows) {
+      lines.push(
+        [
+          `| ${row.window}`,
+          `${row.business.name} / ${row.business.providerAccountId ?? "all"}`,
+          `${sanitizeCell(row.focused.creativeName ?? "unknown")} (${row.focused.creativeId})`,
+          row.focused.variantId,
+          row.focused.dailyRows,
+          row.focused.rawCutDays,
+          row.focused.publishedCutDays,
+          row.focused.pendingConfirmationDays,
+          row.focused.recentRecoveryHoldDays,
+          row.focused.firstPublishedCutDate ?? "n/a",
+          row.focused.lastPublishedCutDate ?? "n/a",
+          row.focused.episodes,
+          formatPercent(row.focused.window14.earlyCutRate),
+          formatNumber(row.focused.window14.savedSpendUnits),
+          formatPercent(row.focused.window28.earlyCutRate),
+          formatNumber(row.focused.window28.savedSpendUnits),
+        ].join(" | ") + " |",
+      );
+    }
+  }
+  for (const window of report.windows) {
+    lines.push("");
+    lines.push(`## ${window.label}`);
+    lines.push("");
+    lines.push(`Requested window: ${window.startDate} to ${window.endDate}.`);
+    lines.push("");
+    const scopes = window.report.reviews.map((review) => ({
+      label: `${review.business.name} / ${review.business.providerAccountId ?? "all"} (${review.evaluatedWindow.startDate ?? "n/a"}..${review.evaluatedWindow.endDate ?? "n/a"})`,
+      variants: aggregateFocusedSummaries(review.variants),
+    }));
+    scopes.push({
+      label: "POOLED",
+      variants: aggregateFocusedSummaries(
+        window.report.reviews.flatMap((review) => review.variants),
+      ),
+    });
+    lines.push(...renderFocusedComparisonTable(scopes));
+  }
+  lines.push("");
+  lines.push("## Zero-Conversion And Severe-Loss Safety Isolation");
+  lines.push("");
+  lines.push(
+    "Raw daily safety eligibility is shown separately from episode outcomes. V2d deliberately leaves these two branches immediate; only ratio cuts receive temporal confirmation.",
+  );
+  lines.push("");
+  lines.push("| Scope | Variant | Zero-conversion raw days | Maturity-severe raw days | Temporal-pending ratio days |");
+  lines.push("| --- | --- | ---: | ---: | ---: |");
+  for (const scope of [
+    ...report.aggregate.byBusiness.map((item) => ({
+      label: `${item.business.name} / ${item.business.providerAccountId ?? "all"}`,
+      variants: item.variants,
+    })),
+    { label: "POOLED", variants: report.aggregate.pooled },
+  ]) {
+    for (const variant of scope.variants) {
+      lines.push(
+        `| ${scope.label} | ${variant.variantId} | ${variant.rawDailySourceCounts.zero_conv_burner ?? 0} | ${variant.rawDailySourceCounts.maturity_severe_loser ?? 0} | ${variant.temporalPendingDailyRows} |`,
+      );
+    }
+  }
+  lines.push("");
+  lines.push("## Evidence Limits");
+  lines.push("");
+  for (const limit of report.evidenceLimits) lines.push(`- ${limit}`);
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
+async function runSingleReport(args: ParsedArgs) {
   const businesses = await findBusinesses(args.businessIdentifiers);
+  if (
+    args.windowSuite &&
+    (businesses.length !== args.businessIdentifiers.length ||
+      businesses.some((business) => business.providerAccountId === null))
+  ) {
+    throw new Error(
+      "Locked window suite requires every requested business to resolve to one exact provider account.",
+    );
+  }
   const reviews: BusinessReview[] = [];
 
   for (const business of businesses) {
@@ -2136,6 +3014,7 @@ async function main() {
         candidateRowsWithTarget: 0,
         variants: [],
         samples: [],
+        focusedCreatives: [],
         errorMessage: error instanceof Error ? error.message : String(error),
       });
     }
@@ -2146,6 +3025,61 @@ async function main() {
     businessesFound: businesses.length,
     reviews,
   });
+  return report;
+}
+
+async function main() {
+  configureOperationalScriptRuntime({ lane: "read_only_observation" });
+  const args = parseArgs(process.argv.slice(2));
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+  const applicationName = assertTunnelReadOnlyRuntime(databaseUrl);
+
+  if (args.windowSuite) {
+    const windows = await withReadOnlyReplayTransaction(async () => {
+      const results: WindowSuiteReport["windows"] = [];
+      for (const window of LOCKED_WINDOW_SUITE) {
+        const windowArgs: ParsedArgs = {
+          ...args,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          reportTitle: `${args.reportTitle} - ${window.label}`,
+        };
+        const report = await runSingleReport(windowArgs);
+        results.push({ ...window, report });
+      }
+      return results;
+    });
+    const suite = buildWindowSuiteReport({ windows, applicationName });
+    if (args.writeFiles) {
+      writeJson(args.jsonOut, suite);
+      writeText(args.mdOut, renderWindowSuiteMarkdown(suite));
+    }
+    console.log(
+      JSON.stringify(
+        {
+          jsonOut: args.writeFiles ? args.jsonOut : null,
+          mdOut: args.writeFiles ? args.mdOut : null,
+          verdict: suite.verdict,
+          windows: suite.windows.map((window) => ({
+            id: window.id,
+            businesses: window.report.reviews.map((review) => ({
+              business: review.business.name,
+              providerAccountId: review.business.providerAccountId,
+              status: review.status,
+              evaluatedWindow: review.evaluatedWindow,
+              rowsEvaluated: review.rowsEvaluated,
+            })),
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const report = await withReadOnlyReplayTransaction(() => runSingleReport(args));
   if (args.writeFiles) {
     writeJson(args.jsonOut, report);
     writeText(args.mdOut, renderMarkdown(report));
@@ -2180,8 +3114,5 @@ if (isMain) {
     .catch((error) => {
       console.error(error);
       process.exitCode = 1;
-    })
-    .finally(() => {
-      void resetDbClientCache();
     });
 }

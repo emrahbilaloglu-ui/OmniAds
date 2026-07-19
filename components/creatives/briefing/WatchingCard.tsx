@@ -17,7 +17,6 @@ import {
 import {
   BadgeChip,
   CampaignKindChip,
-  asDecisionLabel,
   buildEvidenceSections,
   cardAdset,
   cardCampaign,
@@ -32,8 +31,12 @@ import {
   Sparkline,
   Thumb,
 } from "@/components/creatives/briefing/card-utils";
+import { getBriefingCanonicalDecisionPresentation } from "@/components/creatives/briefing/action-authority";
 import { getCreativeScopeId } from "@/components/creatives/briefing/action-handlers";
-import type { LaunchpadOpenPayload } from "@/components/creatives/briefing/launchpad-bridge";
+import {
+  mapBriefingPrimaryToLaunchpadMode,
+  type LaunchpadOpenPayload,
+} from "@/components/creatives/briefing/launchpad-bridge";
 import type {
   BriefingCreativeCard,
   CardSelectionProps,
@@ -61,7 +64,9 @@ export function WatchingCard({
   onEvidenceOpen,
 }: WatchingCardProps) {
   const [localEvidenceOpen, setLocalEvidenceOpen] = useState(false);
-  const label = asDecisionLabel(card.label);
+  const decisionPresentation =
+    getBriefingCanonicalDecisionPresentation(card);
+  const label = decisionPresentation.label;
   const name = cardName(card);
   const confidence = confidenceValue(card);
   const conf = confidenceClass(confidence);
@@ -69,6 +74,8 @@ export function WatchingCard({
   const scopeId = getCreativeScopeId(card);
   const badges = Array.isArray(card.badges) ? card.badges : [];
   const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
+  const launchpadMode = mapBriefingPrimaryToLaunchpadMode(card);
+  const canLaunchFreshTest = launchpadMode === "fresh_test";
   const openEvidence = () => {
     if (onEvidenceOpen) {
       onEvidenceOpen(card);
@@ -83,7 +90,7 @@ export function WatchingCard({
 
   const metrics: TileMetric[] = [
     { key: "roas", label: "ROAS", value: formatOptionalRoas(card.roas) },
-    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend) },
+    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend, card.currency) },
     {
       key: "purch",
       label: "Purch",
@@ -93,7 +100,9 @@ export function WatchingCard({
 
   const chips = (
     <>
-      <DecisionLabelChip label={label} size="sm" />
+      <DecisionLabelChip label={label} size="sm">
+        {decisionPresentation.text}
+      </DecisionLabelChip>
       <CampaignKindChip card={card} />
       {badges.map((badge) => (
         <BadgeChip key={String(badge)} label={badge} />
@@ -115,7 +124,7 @@ export function WatchingCard({
   );
 
   const primaryAction =
-    label === "test_more" ? (
+    canLaunchFreshTest ? (
       <button
         type="button"
         className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 text-[11.5px] font-medium text-blue-700 hover:bg-blue-100"
@@ -124,7 +133,7 @@ export function WatchingCard({
         data-id={watchingCardId}
         onClick={(event) => {
           event.preventDefault();
-          onLaunchpadOpen?.({ card, mode: "fresh_test" });
+          onLaunchpadOpen?.({ card, mode: launchpadMode });
         }}
       >
         <Plus className="inline-block shrink-0" size={11} aria-hidden="true" />
@@ -207,7 +216,9 @@ export function WatchingCard({
             <span className="text-[10px] uppercase tracking-wider text-neutral-400">
               {card.brand || "Brand"}
             </span>
-            <DecisionLabelChip label={label} size="sm" />
+            <DecisionLabelChip label={label} size="sm">
+              {decisionPresentation.text}
+            </DecisionLabelChip>
             {badges.map((badge) => (
               <BadgeChip key={String(badge)} label={badge} />
             ))}
@@ -220,7 +231,7 @@ export function WatchingCard({
             {card.reason || "No engine reason supplied."}
           </div>
           <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-neutral-500">
-            <span className="font-mono tabular-nums">{formatOptionalCurrency(card.spend)}</span>
+            <span className="font-mono tabular-nums">{formatOptionalCurrency(card.spend, card.currency)}</span>
             <span className="text-neutral-300">·</span>
             <span className="font-mono tabular-nums">{formatOptionalRoas(card.roas)}</span>
             <span className="text-neutral-300">·</span>
@@ -260,7 +271,7 @@ export function WatchingCard({
             Evidence
             <ChevronDown className="inline-block shrink-0" size={11} aria-hidden="true" />
           </button>
-          {label === "test_more" ? (
+          {canLaunchFreshTest ? (
             <button
               type="button"
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px]"
@@ -269,7 +280,7 @@ export function WatchingCard({
               data-id={watchingCardId}
               onClick={(event) => {
                 event.preventDefault();
-                onLaunchpadOpen?.({ card, mode: "fresh_test" });
+                onLaunchpadOpen?.({ card, mode: launchpadMode });
               }}
             >
               <Plus className="inline-block shrink-0" size={11} aria-hidden="true" />

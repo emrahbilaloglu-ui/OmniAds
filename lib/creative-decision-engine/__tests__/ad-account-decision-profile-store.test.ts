@@ -11,13 +11,21 @@ import {
   resolveNativeAdAccountDecisionProfile,
 } from "../ad-account-decision-profile";
 import {
+  buildNativeAdCalibrationPersistencePayload,
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
   READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL,
   buildNativeAdOptimizationContext,
+  computeNativeAdCalibrationBatch,
+  recomputeNativeAdCalibrationCellInputManifestHash,
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdTargetAuthority,
+  recomputeNativeAdSpendUnitAuthorityHash,
+  type NativeAdCalibrationCell,
+  type NativeAdCalibrationMetricSampleCounts,
+  type NativeAdCalibrationSourceRow,
+  type NativeAdSpendUnitAuthority,
   type NativeAdTargetAuthorityInput,
 } from "../jobs/ad-calibration-job";
 import { NATIVE_AD_ENGINE_VERSION } from "../types";
@@ -28,6 +36,7 @@ const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000750";
 const CALIBRATION_ROW_ID = "00000000-0000-4000-8000-000000000752";
 const AS_OF = "2026-07-12";
 const CUTOFF = "2026-07-12T03:05:00.000Z";
+const JOB_RUN_ID = "00000000-0000-4000-8000-000000000755";
 const TARGET: NativeAdTargetAuthorityInput = {
   sourceRowId: "00000000-0000-4000-8000-000000000753",
   operation: "upsert",
@@ -40,6 +49,52 @@ const TARGET: NativeAdTargetAuthorityInput = {
   effectiveAt: "2026-07-01T00:00:00.000Z",
   recordedAt: "2026-07-01T00:00:01.000Z",
 };
+const AOV_ONLY_TARGET: NativeAdTargetAuthorityInput = {
+  ...TARGET,
+  targetCpa: null,
+  operatorAovAssumption: null,
+};
+
+function targetCpaSpendUnitAuthority(
+  targetAuthority: ReturnType<typeof resolveNativeAdTargetAuthority>,
+): NativeAdSpendUnitAuthority {
+  const authority: NativeAdSpendUnitAuthority = {
+    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    status: "ready",
+    basis: "target_cpa",
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-native",
+    accountCurrency: "USD",
+    asOfCutoff: CUTOFF,
+    targetAuthorityHash: targetAuthority.authorityHash,
+    baseSpendUnit: targetAuthority.targetCpa,
+    accountAovEvidence: {
+      status: "unavailable",
+      scope: "business_provider_account_currency",
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native",
+      accountCurrency: "USD",
+      sampleWindowStart: "2026-04-14",
+      sampleWindowEnd: AS_OF,
+      asOfCutoff: CUTOFF,
+      observedPurchaseCount: 0,
+      requiredPurchaseCount: 20,
+      revenueBackedRowCount: 0,
+      canonicalRowCount: 0,
+      contradictoryRowCount: 0,
+      legacySchemaRowCount: 0,
+      unsupportedSchemaRowCount: 0,
+      totalRevenue: 0,
+      meanAov: null,
+      evidenceHash: "4".repeat(64),
+    },
+    authorityHash: "",
+  };
+  authority.authorityHash = recomputeNativeAdSpendUnitAuthorityHash(authority);
+  return authority;
+}
 
 function nativeCellRow(
   targetInput: NativeAdTargetAuthorityInput = TARGET,
@@ -48,11 +103,14 @@ function nativeCellRow(
     businessId: BUSINESS_ID,
     asOfDate: AS_OF,
   });
+  const accountCalibration = {
+    ...profile.accountBaselines,
+    businessId: BUSINESS_ID,
+    computedAt: CUTOFF,
+    matureCreativeCount: 30,
+  };
   const cutoff = resolveNativeAdCalibrationCutoff(AS_OF, CUTOFF);
-  const target = resolveNativeAdTargetAuthority(
-    targetInput,
-    cutoff.asOfCutoff,
-  );
+  const target = resolveNativeAdTargetAuthority(targetInput, cutoff.asOfCutoff);
   const metricCounts = Object.fromEntries(
     [
       "roas",
@@ -71,8 +129,52 @@ function nativeCellRow(
       "icToPurchase",
       "clickToPurchase",
     ].map((key) => [key, 30]),
-  );
-  return {
+  ) as unknown as NativeAdCalibrationMetricSampleCounts;
+  const key = {
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-native",
+    accountTimezone: "Europe/Istanbul",
+    accountCurrency: "USD",
+    cellScope: "objective_cohort_context" as const,
+    objective: "OUTCOME_SALES",
+    cohort: "purchase" as const,
+    optimizationContext: buildNativeAdOptimizationContext(
+      "PURCHASE",
+      "PURCHASE",
+    )!,
+  };
+  const spendUnitAuthority = targetCpaSpendUnitAuthority(target);
+  const actionReadiness = resolveNativeAdCalibrationActionReadiness({
+    key,
+    matureAdCount: 30,
+    metricSampleCounts: metricCounts,
+    targetAuthority: target,
+    accountCalibration,
+    spendUnitAuthority,
+  });
+  const qualityCounts = {
+    candidateSourceRowCount: 30,
+    cutoffSafeSourceRowCount: 30,
+    candidateAdCount: 30,
+    eligibleAdObservationCount: 30,
+    identitySourceRowExclusionCount: 0,
+    duplicateSourceRowExclusionCount: 0,
+    duplicateConflictAdExclusionCount: 0,
+    missingContextAdExclusionCount: 0,
+    mixedContextAdExclusionCount: 0,
+    mixedCurrencyAdExclusionCount: 0,
+    mixedObjectiveAdExclusionCount: 0,
+    mixedCohortAdExclusionCount: 0,
+    peerTruthFinalizedAtMissingSourceRowCount: 0,
+    peerTruthFinalizedAtMissingAdCount: 0,
+    censoredSourceRowExclusionCount: 0,
+    censoredAdExclusionCount: 0,
+    freshnessSourceRowExclusionCount: 0,
+    freshnessAdExclusionCount: 0,
+    commercialAuthorityAdExclusionCount: 0,
+  };
+  const row: Record<string, unknown> = {
     business_id: BUSINESS_ID,
     provider: "meta",
     provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
@@ -82,10 +184,7 @@ function nativeCellRow(
     cell_scope: "objective_cohort_context",
     objective: "OUTCOME_SALES",
     funnel_cohort: "purchase",
-    optimization_context: buildNativeAdOptimizationContext(
-      "PURCHASE",
-      "PURCHASE",
-    ),
+    optimization_context: key.optimizationContext,
     as_of_date: AS_OF,
     as_of_cutoff: cutoff.asOfCutoff,
     engine_version: NATIVE_AD_ENGINE_VERSION,
@@ -98,72 +197,32 @@ function nativeCellRow(
     eligible_ad_count: 30,
     mature_ad_count: 30,
     zero_conversion_ad_count: 0,
-    roas_p75: profile.accountBaselines.roasP75,
-    roas_p60: profile.accountBaselines.roasP60,
-    refresh_ratio_p10: profile.accountBaselines.refreshRatioP10,
-    low_ctr_p10: profile.accountBaselines.lowCtrP10,
-    account_cpa_p50: profile.accountBaselines.accountCpaP50,
-    account_cpa_sample_count: profile.accountBaselines.accountCpaSampleCount,
+    roas_p75: accountCalibration.roasP75,
+    roas_p60: accountCalibration.roasP60,
+    refresh_ratio_p10: accountCalibration.refreshRatioP10,
+    low_ctr_p10: accountCalibration.lowCtrP10,
+    account_cpa_p50: accountCalibration.accountCpaP50,
+    account_cpa_sample_count: accountCalibration.accountCpaSampleCount,
     meta_attributed_aov_mean_90d:
-      profile.accountBaselines.metaAttributedAovMean90d,
+      accountCalibration.metaAttributedAovMean90d,
     meta_attributed_aov_purchase_count_90d:
-      profile.accountBaselines.metaAttributedAovPurchaseCount90d,
+      accountCalibration.metaAttributedAovPurchaseCount90d,
     meta_attributed_revenue_90d:
-      profile.accountBaselines.metaAttributedRevenue90d,
-    meta_aov_quality: profile.accountBaselines.metaAovQuality,
-    mature_spend_p50: profile.accountBaselines.matureSpendP50,
-    mature_spend_p75: profile.accountBaselines.matureSpendP75,
-    winner_spend_p25: profile.accountBaselines.winnerSpendP25,
-    winner_spend_p50: profile.accountBaselines.winnerSpendP50,
-    winner_purchase_p50: profile.accountBaselines.winnerPurchaseP50,
-    roas_ratio_p10: profile.accountBaselines.roasRatioP10,
-    roas_ratio_p25: profile.accountBaselines.roasRatioP25,
-    roas_ratio_p50: profile.accountBaselines.roasRatioP50,
-    roas_ratio_p75: profile.accountBaselines.roasRatioP75,
+      accountCalibration.metaAttributedRevenue90d,
+    meta_aov_quality: accountCalibration.metaAovQuality,
+    mature_spend_p50: accountCalibration.matureSpendP50,
+    mature_spend_p75: accountCalibration.matureSpendP75,
+    winner_spend_p25: accountCalibration.winnerSpendP25,
+    winner_spend_p50: accountCalibration.winnerSpendP50,
+    winner_purchase_p50: accountCalibration.winnerPurchaseP50,
+    roas_ratio_p10: accountCalibration.roasRatioP10,
+    roas_ratio_p25: accountCalibration.roasRatioP25,
+    roas_ratio_p50: accountCalibration.roasRatioP50,
+    roas_ratio_p75: accountCalibration.roasRatioP75,
     funnel_calibration_json: profile.funnelCalibration,
     metric_sample_counts_json: metricCounts,
-    action_readiness_json: {
-      scale: {
-        ready: true,
-        reason: null,
-        authorityBasis: "calibrated_relative",
-        observedSampleCount: 30,
-        requiredSampleCount: 30,
-      },
-      cut: {
-        ready: true,
-        reason: null,
-        authorityBasis: "calibrated_relative",
-        observedSampleCount: 30,
-        requiredSampleCount: 20,
-      },
-      refresh: {
-        ready: true,
-        reason: null,
-        authorityBasis: "calibrated_relative",
-        observedSampleCount: 30,
-        requiredSampleCount: 20,
-      },
-    },
-    quality_counts_json: {
-      candidateSourceRowCount: 30,
-      cutoffSafeSourceRowCount: 30,
-      candidateAdCount: 30,
-      eligibleAdObservationCount: 30,
-      identitySourceRowExclusionCount: 0,
-      duplicateSourceRowExclusionCount: 0,
-      duplicateConflictAdExclusionCount: 0,
-      missingContextAdExclusionCount: 0,
-      mixedContextAdExclusionCount: 0,
-      mixedCurrencyAdExclusionCount: 0,
-      mixedObjectiveAdExclusionCount: 0,
-      mixedCohortAdExclusionCount: 0,
-      censoredSourceRowExclusionCount: 0,
-      censoredAdExclusionCount: 0,
-      freshnessSourceRowExclusionCount: 0,
-      freshnessAdExclusionCount: 0,
-      commercialAuthorityAdExclusionCount: 0,
-    },
+    action_readiness_json: actionReadiness,
+    quality_counts_json: qualityCounts,
     quality_status: "ready",
     target_authority_status: target.status,
     target_roas: target.targetRoas,
@@ -183,6 +242,88 @@ function nativeCellRow(
     batch_cell_count: 1,
     batch_cell_set_hash: "4".repeat(64),
   };
+  const cell = {
+    batchId: String(row.batch_id),
+    batchCompleteness: "complete" as const,
+    batchCellCount: 1,
+    batchCellSetHash: String(row.batch_cell_set_hash),
+    key,
+    asOfDate: AS_OF,
+    asOfCutoff: cutoff.asOfCutoff,
+    sampleWindowStart: cutoff.sampleWindowStart,
+    sampleWindowEnd: cutoff.sampleWindowEnd,
+    sampleWindowDays: 90,
+    computedAt: CUTOFF,
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+    qualityStatus: "ready" as const,
+    sourceAdCount: 30,
+    sourceDayCount: 30,
+    eligibleAdCount: 30,
+    matureAdCount: 30,
+    zeroConversionAdCount: 0,
+    metricSampleCounts: metricCounts,
+    actionReadiness,
+    sourceMinDate: cutoff.sampleWindowStart,
+    sourceMaxDate: cutoff.sampleWindowEnd,
+    sourceMaxUpdatedAt: `${AS_OF}T02:00:00.000Z`,
+    targetAuthority: target,
+    accountCalibration,
+    funnelCalibration: profile.funnelCalibration,
+    batchInputManifestHash: String(row.batch_input_manifest_hash),
+    inputManifestHash: "0".repeat(64),
+    sourceManifestHash: String(row.source_manifest_hash),
+    qualityCounts,
+  } satisfies NativeAdCalibrationCell;
+  row.input_manifest_hash =
+    recomputeNativeAdCalibrationCellInputManifestHash(cell);
+  return row;
+}
+
+function productionSourceRow(index: number): NativeAdCalibrationSourceRow {
+  return {
+    sourceRowId: `roundtrip-source-${index}`,
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-native",
+    date: "2026-07-11",
+    campaignId: "campaign-native",
+    adsetId: "adset-native",
+    adId: `roundtrip-ad-${index}`,
+    accountTimezone: "Europe/Istanbul",
+    accountCurrency: "USD",
+    sourceAccountTimezone: "Europe/Istanbul",
+    sourceAccountCurrency: "USD",
+    metricSchemaVersion: 2,
+    objective: "OUTCOME_SALES",
+    optimizationGoal: "PURCHASE",
+    customEventType: "PURCHASE",
+    spend: 100 + index,
+    impressions: 10_000,
+    clicks: 300,
+    linkClicks: 250,
+    conversions: 2,
+    revenue: 250,
+    landingPageViews: 200,
+    addToCart: 50,
+    initiateCheckout: 20,
+    thumbstop: 0.3,
+    truthState: "finalized",
+    validationStatus: "passed",
+    finalizedAt: "2026-07-12T01:00:00.000Z",
+    createdAt: "2026-07-12T01:00:00.000Z",
+    updatedAt: "2026-07-12T02:00:00.000Z",
+    campaignSourceRowId: "roundtrip-campaign-source",
+    campaignTruthState: "finalized",
+    campaignValidationStatus: "passed",
+    campaignCreatedAt: "2026-07-12T01:00:00.000Z",
+    campaignUpdatedAt: "2026-07-12T02:00:00.000Z",
+    adsetSourceRowId: "roundtrip-adset-source",
+    adsetTruthState: "finalized",
+    adsetValidationStatus: "passed",
+    adsetCreatedAt: "2026-07-12T01:00:00.000Z",
+    adsetUpdatedAt: "2026-07-12T02:00:00.000Z",
+  };
 }
 
 function fakeDb(
@@ -196,9 +337,7 @@ function fakeDb(
 
 function readNativeCell(row: Record<string, unknown>) {
   const store = new WarehouseNativeAdAccountProfileDataSource(
-    fakeDb((query) =>
-      query.includes("native-ad-profile-cell") ? [row] : [],
-    ),
+    fakeDb((query) => (query.includes("native-ad-profile-cell") ? [row] : [])),
   );
   return store.getNativeAdCalibrationCell({
     businessId: BUSINESS_ID,
@@ -215,7 +354,138 @@ function readNativeCell(row: Record<string, unknown>) {
   });
 }
 
+function targetAuthorityRow(target: NativeAdTargetAuthorityInput) {
+  return {
+    source_row_id: target.sourceRowId,
+    operation: target.operation,
+    target_cpa: target.targetCpa,
+    target_roas: target.targetRoas,
+    break_even_cpa: target.breakEvenCpa,
+    break_even_roas: target.breakEvenRoas,
+    operator_aov_assumption: target.operatorAovAssumption,
+    default_risk_posture: target.defaultRiskPosture,
+    effective_at: target.effectiveAt,
+    recorded_at: target.recordedAt,
+  };
+}
+
+function resolveNativeCell(
+  row: Record<string, unknown>,
+  target: NativeAdTargetAuthorityInput = TARGET,
+) {
+  const store = new WarehouseNativeAdAccountProfileDataSource(
+    fakeDb((query) => {
+      if (query.includes("native-ad-profile-cell")) return [row];
+      if (query === READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL) {
+        return [targetAuthorityRow(target)];
+      }
+      return [];
+    }),
+  );
+  return resolveNativeAdAccountDecisionProfile({
+    businessId: BUSINESS_ID,
+    providerAccountId: "act-native",
+    accountTimezone: "Europe/Istanbul",
+    accountCurrency: "USD",
+    objective: "OUTCOME_SALES",
+    optimizationGoal: "PURCHASE",
+    customEventType: "PURCHASE",
+    cohort: "purchase",
+    asOf: AS_OF,
+    dataSource: store,
+    flags: {
+      businessId: BUSINESS_ID,
+      enabled: true,
+      surfaceVisible: false,
+      shadowOnly: false,
+      presetOverride: null,
+      source: {
+        enabled: "env",
+        surfaceVisible: "env",
+        shadowOnly: "env",
+        presetOverride: null,
+      },
+      envDefaults: {
+        enabled: true,
+        surfaceVisible: false,
+        shadowOnly: false,
+      },
+    },
+  });
+}
+
+type NativeActionReadinessJson = {
+  spendUnitAuthority: NativeAdSpendUnitAuthority;
+  scale: Record<string, unknown>;
+  cut: Record<string, unknown>;
+  refresh: Record<string, unknown>;
+};
+
+function forgeSpendUnitAuthority(
+  row: Record<string, unknown>,
+  mutate: (authority: NativeAdSpendUnitAuthority) => void,
+  options: { recomputeHash?: boolean } = {},
+) {
+  const actionReadiness = structuredClone(
+    row["action_readiness_json"],
+  ) as NativeActionReadinessJson;
+  mutate(actionReadiness.spendUnitAuthority);
+  if (options.recomputeHash !== false) {
+    actionReadiness.spendUnitAuthority.authorityHash =
+      recomputeNativeAdSpendUnitAuthorityHash(
+        actionReadiness.spendUnitAuthority,
+      );
+  }
+  return {
+    ...row,
+    action_readiness_json: actionReadiness,
+  };
+}
+
 describe("WarehouseNativeAdAccountProfileDataSource", () => {
+  it("round-trips a production-computed cell through the persistence payload and resolver", async () => {
+    const batch = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native",
+      asOf: AS_OF,
+      computationCutoff: CUTOFF,
+      sourceRows: Array.from({ length: 30 }, (_, index) =>
+        productionSourceRow(index + 1),
+      ),
+      targetAuthority: TARGET,
+    });
+    const payload = buildNativeAdCalibrationPersistencePayload(batch, {
+      batchId: "00000000-0000-4000-8000-000000000754",
+      jobRunId: JOB_RUN_ID,
+    });
+    const row = payload.find(
+      (candidate) =>
+        candidate.cell_scope === "objective_cohort_context" &&
+        candidate.optimization_context ===
+          buildNativeAdOptimizationContext("PURCHASE", "PURCHASE"),
+    );
+    expect(row).toBeDefined();
+    const persistedRow = {
+      ...row!,
+      batch_completeness: "complete",
+      batch_cell_count: batch.expectedCellCount,
+      batch_cell_set_hash: batch.cellSetHash,
+    };
+    const hydrated = await readNativeCell(persistedRow);
+
+    expect(hydrated).not.toBeNull();
+    expect(recomputeNativeAdCalibrationCellInputManifestHash(hydrated!)).toBe(
+      hydrated!.inputManifestHash,
+    );
+    await expect(resolveNativeCell(persistedRow, TARGET)).resolves.toMatchObject(
+      {
+        status: "ready",
+        reason: null,
+      },
+    );
+  });
+
   it("round-trips one native epoch cell and resolves its exact native row id", async () => {
     const row = nativeCellRow();
     const db = fakeDb((query) => {
@@ -336,6 +606,9 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
       targetRoasAuthority: true,
       breakEvenRoasAuthority: true,
     });
+    expect(recomputeNativeAdCalibrationCellInputManifestHash(cell!)).toBe(
+      cell!.inputManifestHash,
+    );
     expect(
       resolveNativeAdCalibrationActionReadiness({
         key: cell!.key,
@@ -343,6 +616,7 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
         metricSampleCounts: cell!.metricSampleCounts,
         targetAuthority: cell!.targetAuthority,
         accountCalibration: cell!.accountCalibration,
+        spendUnitAuthority: cell!.actionReadiness.spendUnitAuthority,
       }),
     ).toEqual(cell!.actionReadiness);
 
@@ -496,6 +770,357 @@ describe("WarehouseNativeAdAccountProfileDataSource", () => {
         policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
       }),
     ).rejects.toThrow(/metric_sample_counts_json.roas must be an integer/);
+  });
+
+  it("rejects forged spend-unit proof hashes and cell identities", async () => {
+    const row = nativeCellRow();
+    const cases: Array<{
+      label: string;
+      recomputeHash?: boolean;
+      mutate: (authority: NativeAdSpendUnitAuthority) => void;
+    }> = [
+      {
+        label: "authority hash",
+        recomputeHash: false,
+        mutate: (authority) => {
+          authority.authorityHash = "f".repeat(64);
+        },
+      },
+      {
+        label: "authority business id",
+        mutate: (authority) => {
+          authority.businessId = "00000000-0000-4000-8000-000000000799";
+        },
+      },
+      {
+        label: "authority account currency",
+        mutate: (authority) => {
+          authority.accountCurrency = "EUR";
+        },
+      },
+      {
+        label: "authority provider-account ref",
+        mutate: (authority) => {
+          authority.providerAccountRefId =
+            "00000000-0000-4000-8000-000000000798";
+        },
+      },
+      {
+        label: "authority provider-account id",
+        mutate: (authority) => {
+          authority.providerAccountId = "act-forged";
+        },
+      },
+      {
+        label: "authority cutoff",
+        mutate: (authority) => {
+          authority.asOfCutoff = "2026-07-12T03:06:00.000Z";
+        },
+      },
+      {
+        label: "target authority hash",
+        mutate: (authority) => {
+          authority.targetAuthorityHash = "9".repeat(64);
+        },
+      },
+      {
+        label: "evidence business id",
+        mutate: (authority) => {
+          authority.accountAovEvidence.businessId =
+            "00000000-0000-4000-8000-000000000797";
+        },
+      },
+      {
+        label: "evidence account currency",
+        mutate: (authority) => {
+          authority.accountAovEvidence.accountCurrency = "EUR";
+        },
+      },
+      {
+        label: "evidence provider-account ref",
+        mutate: (authority) => {
+          authority.accountAovEvidence.providerAccountRefId =
+            "00000000-0000-4000-8000-000000000796";
+        },
+      },
+      {
+        label: "evidence provider-account id",
+        mutate: (authority) => {
+          authority.accountAovEvidence.providerAccountId = "act-forged";
+        },
+      },
+      {
+        label: "evidence cutoff",
+        mutate: (authority) => {
+          authority.accountAovEvidence.asOfCutoff = "2026-07-12T03:06:00.000Z";
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = await resolveNativeCell(
+        forgeSpendUnitAuthority(row, testCase.mutate, {
+          recomputeHash: testCase.recomputeHash,
+        }),
+      );
+      expect(result, testCase.label).toMatchObject({
+        status: "fail_closed",
+        reason: "native_calibration_contract_invalid",
+      });
+    }
+  });
+
+  it("rejects contradictory account-AOV proof semantics", async () => {
+    const row = nativeCellRow();
+    const cases: Array<{
+      label: string;
+      mutate: (authority: NativeAdSpendUnitAuthority) => void;
+    }> = [
+      {
+        label: "mean does not equal revenue divided by purchases",
+        mutate: (authority) => {
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            status: "ready",
+            observedPurchaseCount: 20,
+            revenueBackedRowCount: 20,
+            canonicalRowCount: 20,
+            totalRevenue: 2_000,
+            meanAov: 99,
+          };
+        },
+      },
+      {
+        label: "physical-account AOV basis carries unavailable evidence",
+        mutate: (authority) => {
+          authority.basis = "physical_account_purchase_aov_90d";
+          authority.baseSpendUnit = 50;
+        },
+      },
+      {
+        label: "purchase totals have no revenue-backed source rows",
+        mutate: (authority) => {
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            status: "ready",
+            observedPurchaseCount: 20,
+            revenueBackedRowCount: 0,
+            canonicalRowCount: 20,
+            totalRevenue: 2_000,
+            meanAov: 100,
+          };
+        },
+      },
+      {
+        label: "revenue-backed rows exceed canonical rows and purchases",
+        mutate: (authority) => {
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            status: "ready",
+            observedPurchaseCount: 20,
+            revenueBackedRowCount: 21,
+            canonicalRowCount: 20,
+            totalRevenue: 2_000,
+            meanAov: 100,
+          };
+        },
+      },
+      {
+        label: "zero purchases carry positive revenue",
+        mutate: (authority) => {
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            status: "insufficient_sample",
+            observedPurchaseCount: 0,
+            revenueBackedRowCount: 0,
+            canonicalRowCount: 1,
+            totalRevenue: 100,
+            meanAov: null,
+          };
+        },
+      },
+      {
+        label: "unsupported future schema is omitted from contradictions",
+        mutate: (authority) => {
+          authority.accountAovEvidence = {
+            ...authority.accountAovEvidence,
+            unsupportedSchemaRowCount: 1,
+            contradictoryRowCount: 0,
+          };
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const result = await resolveNativeCell(
+        forgeSpendUnitAuthority(row, testCase.mutate),
+      );
+      expect(result, testCase.label).toMatchObject({
+        status: "fail_closed",
+        reason: "native_calibration_contract_invalid",
+      });
+    }
+  });
+
+  it("rejects a physical-account AOV proof that omits future schema rows from contradictions", async () => {
+    const row = nativeCellRow(AOV_ONLY_TARGET);
+    const forged = forgeSpendUnitAuthority(row, (authority) => {
+      authority.status = "ready";
+      authority.basis = "physical_account_purchase_aov_90d";
+      authority.baseSpendUnit = 50;
+      authority.accountAovEvidence = {
+        ...authority.accountAovEvidence,
+        status: "ready",
+        observedPurchaseCount: 20,
+        revenueBackedRowCount: 20,
+        canonicalRowCount: 20,
+        contradictoryRowCount: 0,
+        unsupportedSchemaRowCount: 1,
+        totalRevenue: 2_000,
+        meanAov: 100,
+      };
+    });
+
+    await expect(
+      resolveNativeCell(forged, AOV_ONLY_TARGET),
+    ).resolves.toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_contract_invalid",
+    });
+  });
+
+  it("rejects a blocked spend-unit proof that still carries a base spend unit", async () => {
+    const target = {
+      ...TARGET,
+      targetCpa: null,
+      operatorAovAssumption: null,
+    };
+    const row = nativeCellRow(target);
+    const forged = forgeSpendUnitAuthority(row, (authority) => {
+      authority.status = "blocked";
+      authority.basis = null;
+      authority.baseSpendUnit = 50;
+    });
+    const actionReadiness = forged[
+      "action_readiness_json"
+    ] as NativeActionReadinessJson;
+    actionReadiness.cut = {
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
+      observedSampleCount: 30,
+      requiredSampleCount: 20,
+    };
+
+    await expect(resolveNativeCell(forged, target)).resolves.toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_contract_invalid",
+    });
+  });
+
+  it("rejects non-number spend-unit scalar values while parsing persisted JSON", async () => {
+    const row = nativeCellRow();
+    const cases: Array<{
+      label: string;
+      mutate: (authority: NativeAdSpendUnitAuthority) => void;
+    }> = [
+      {
+        label: "base spend unit",
+        mutate: (authority) => {
+          authority.baseSpendUnit = "50" as unknown as number;
+        },
+      },
+      {
+        label: "observed purchase count",
+        mutate: (authority) => {
+          authority.accountAovEvidence.observedPurchaseCount =
+            "0" as unknown as number;
+        },
+      },
+      {
+        label: "required purchase count",
+        mutate: (authority) => {
+          authority.accountAovEvidence.requiredPurchaseCount =
+            "20" as unknown as number;
+        },
+      },
+      {
+        label: "total revenue",
+        mutate: (authority) => {
+          authority.accountAovEvidence.totalRevenue = "0" as unknown as number;
+        },
+      },
+      {
+        label: "mean AOV",
+        mutate: (authority) => {
+          authority.accountAovEvidence.meanAov = "100" as unknown as number;
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      await expect(
+        readNativeCell(
+          forgeSpendUnitAuthority(row, testCase.mutate, {
+            recomputeHash: false,
+          }),
+        ),
+        testCase.label,
+      ).rejects.toThrow(TypeError);
+    }
+  });
+
+  it("rejects omitted required-nullable spend-unit proof fields", async () => {
+    const row = nativeCellRow();
+    const cases: Array<{
+      label: string;
+      mutate: (authority: NativeAdSpendUnitAuthority) => void;
+    }> = [
+      {
+        label: "basis",
+        mutate: (authority) => {
+          authority.basis =
+            undefined as unknown as NativeAdSpendUnitAuthority["basis"];
+        },
+      },
+      {
+        label: "authority account currency",
+        mutate: (authority) => {
+          authority.accountCurrency = undefined as unknown as string | null;
+        },
+      },
+      {
+        label: "base spend unit",
+        mutate: (authority) => {
+          authority.baseSpendUnit = undefined as unknown as number | null;
+        },
+      },
+      {
+        label: "evidence account currency",
+        mutate: (authority) => {
+          authority.accountAovEvidence.accountCurrency =
+            undefined as unknown as string | null;
+        },
+      },
+      {
+        label: "mean AOV",
+        mutate: (authority) => {
+          authority.accountAovEvidence.meanAov = undefined as unknown as
+            number | null;
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      await expect(
+        readNativeCell(
+          forgeSpendUnitAuthority(row, testCase.mutate, {
+            recomputeHash: false,
+          }),
+        ),
+        testCase.label,
+      ).rejects.toThrow(TypeError);
+    }
   });
 
   it("rejects forged action-authority bases before profile authority", async () => {

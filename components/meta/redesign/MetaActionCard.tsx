@@ -5,9 +5,6 @@ import {
   ArrowRight,
   Copy,
   MoreHorizontal,
-  Pause,
-  Play,
-  Sliders,
   ExternalLink,
 } from "lucide-react";
 import { DeferChip, DeferTooltip } from "@/components/common/briefing";
@@ -16,11 +13,10 @@ import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import {
   decisionLabelForRec,
-  launchModeForRec,
   primaryLabelForRec,
-  proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
+  uiActionKindForRec,
   formatMoney,
 } from "@/components/meta/redesign/meta-card-utils";
 
@@ -50,7 +46,6 @@ interface MetaActionCardProps {
   evidenceWindow?: string;
   onSelect?: (id: string, selected: boolean) => void;
   onPrimary?: (rec: MetaRecommendation) => void;
-  onResume?: (rec: MetaRecommendation) => void;
   onOpenDrill?: (item: MetaRecommendation | MetaAnomaly) => void;
   onDefer?: (rec: MetaRecommendation) => void;
   onUndoDefer?: (rec: MetaRecommendation) => void;
@@ -130,33 +125,8 @@ function completedPrimaryLabel(rec: MetaRecommendation) {
   return "Acted";
 }
 
-function canResumeCompletedPrimary(
-  rec: MetaRecommendation,
-  primaryCompleted: boolean,
-) {
-  if (!primaryCompleted) return false;
-  const subtype = (rec.operatorResponseSubtype ?? "").toLowerCase();
-  const pauseLike =
-    subtype.includes("pause") || (!subtype && rec.type === "adset_cut_spend");
-  if (!pauseLike) return false;
-  return (
-    (rec.level === "adset" && Boolean(rec.adsetId)) ||
-    (rec.level === "campaign" && Boolean(rec.campaignId))
-  );
-}
-
-function resumePrimaryLabel(rec: MetaRecommendation) {
-  return rec.level === "campaign" ? "Resume campaign" : "Resume adset";
-}
-
 function actionAuthorityForRec(rec: MetaRecommendation) {
-  switch (rec.actionKind) {
-    case "execute_pause":
-      return { kind: "execute", label: "Execute · pause" };
-    case "execute_bid":
-      return { kind: "execute", label: "Execute · bid" };
-    case "execute_resume":
-      return { kind: "execute", label: "Execute · resume" };
+  switch (uiActionKindForRec(rec)) {
     case "route_launchpad_rebuild":
       return { kind: "route", label: "Route · rebuild" };
     case "route_launchpad_duplicate":
@@ -220,20 +190,7 @@ function bidConfigurationSummary(
     .join(" · ");
 }
 
-function PrimaryIcon({ rec }: { rec: MetaRecommendation }) {
-  if (rec.type === "adset_cut_spend")
-    return (
-      <Pause className="inline-block shrink-0" size={13} aria-hidden="true" />
-    );
-  if (
-    rec.type === "bid_strategy_fit" ||
-    rec.type === "bid_value_guidance" ||
-    rec.type === "bid_band_from_history"
-  ) {
-    return (
-      <Sliders className="inline-block shrink-0" size={13} aria-hidden="true" />
-    );
-  }
+function PrimaryIcon() {
   return (
     <ArrowRight
       className="inline-block shrink-0"
@@ -393,7 +350,6 @@ export function MetaActionCard({
   readOnlyReason = null,
   onSelect,
   onPrimary,
-  onResume,
   onOpenDrill,
   onDefer,
   onUndoDefer,
@@ -540,14 +496,6 @@ export function MetaActionCard({
       ? "Let cook"
       : primaryLabelForRec(rec);
   const primaryCompleted = effectiveResponseState === "acted";
-  const primaryCanResume =
-    !readOnlyMode &&
-    Boolean(onResume) &&
-    canResumeCompletedPrimary(rec, primaryCompleted);
-  const primaryDisabledForContract =
-    !readOnlyMode &&
-    launchModeForRec(rec) === "apply_bid" &&
-    proposedBidMinorForExecute(rec, moneyCurrency) == null;
 
   const openDrill = () => onOpenDrill?.(rec);
   const copyEntityId = () => {
@@ -629,7 +577,7 @@ export function MetaActionCard({
           <span
             className="meta-row__authority"
             data-action-authority={displayedActionAuthority.kind}
-            data-action-kind={rec.actionKind ?? "review_drill"}
+            data-action-kind={uiActionKindForRec(rec)}
             data-read-only-action={readOnlyMode ? "true" : "false"}
             title={
               readOnlyMode
@@ -733,38 +681,24 @@ export function MetaActionCard({
           className="btn btn--primary"
           disabled={
             primaryPending ||
-            primaryDisabledForContract ||
-            (primaryCompleted && !primaryCanResume)
+            primaryCompleted
           }
           title={
             readOnlyMode
               ? (readOnlyReason ?? "Current viewer is read-only.")
-              : primaryDisabledForContract
-                ? "No executable bid value - open evidence"
-                : undefined
+              : undefined
           }
           onClick={(event) => {
             event.stopPropagation();
             if (readOnlyMode) return onOpenDrill?.(rec);
-            if (primaryCanResume) return onResume?.(rec);
             if (watchPrimaryDefers) return onDefer?.(rec);
             return onPrimary?.(rec);
           }}
         >
-          {primaryCanResume ? (
-            <Play
-              className="inline-block shrink-0"
-              size={13}
-              aria-hidden="true"
-            />
-          ) : (
-            <PrimaryIcon rec={rec} />
-          )}
+          <PrimaryIcon />
           {primaryPending
             ? "Working..."
-            : primaryCanResume
-              ? resumePrimaryLabel(rec)
-              : primaryCompleted
+            : primaryCompleted
                 ? completedPrimaryLabel(rec)
                 : primaryActionLabel}
         </button>

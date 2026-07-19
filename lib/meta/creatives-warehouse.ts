@@ -32,7 +32,6 @@ import {
   getMetaCreativeDailyRange,
   getMetaCreativeMediaPreviewCoverage,
   getMetaCreativeMediaRange,
-  upsertMetaAdDailyRows,
   upsertMetaCreativeDailyRows,
   upsertMetaCreativeMediaRows,
 } from "@/lib/meta/warehouse";
@@ -886,54 +885,6 @@ async function syncMetaCreativesAccountDay(input: {
   const creativeRows = groupRows(rawRows, "creative", creativeUsageMap);
   assertMetaCanonicalClicksSource({ targetField: "clicks", sourceField: "clicks" });
 
-  const adDailyRows: MetaAdDailyRow[] = rawRows.map((row, index) => ({
-    businessId: input.businessId,
-    providerAccountId: input.accountId,
-    date: input.day,
-    campaignId: row.campaign_id,
-    adsetId: row.adset_id,
-    adId: row.id,
-    adNameCurrent: row.name,
-    adNameHistorical: row.name,
-    adStatus: null,
-    accountTimezone: "UTC",
-    accountCurrency,
-    spend: row.spend,
-    impressions: row.impressions,
-    clicks: row.clicks,
-    reach: row.reach ?? row.impressions,
-    frequency: row.frequency ?? null,
-    conversions: row.purchases,
-    revenue: row.purchase_value,
-    roas: row.roas,
-    cpa: row.cpa,
-    ctr: row.ctr_all,
-    cpc: row.cpc_link,
-    linkClicks: row.link_clicks,
-    outboundClicks: row.outbound_clicks,
-    landingPageViews: row.landing_page_views,
-    addToCart: row.add_to_cart,
-    initiateCheckout: row.initiate_checkout,
-    destinationUrl: row.destination_url ?? null,
-    destinationUrlRaw: row.destination_url_raw ?? null,
-    destinationUrlSource: row.destination_url_source ?? null,
-    destinationUrlConfidence: row.destination_url_confidence ?? null,
-    ctaType: row.cta_type ?? null,
-    objectStoryId: row.object_story_id ?? null,
-    effectiveObjectStoryId: row.effective_object_story_id ?? null,
-    sourceSnapshotId: null,
-    sourceRunId: input.sourceRunId ?? null,
-    metricSchemaVersion: META_CANONICAL_METRIC_SCHEMA_VERSION,
-    payloadJson: {
-      ...(apiRows[index] ?? row),
-      destination_url: row.destination_url ?? null,
-      destination_url_raw: row.destination_url_raw ?? null,
-      destination_url_source: row.destination_url_source ?? null,
-      destination_url_confidence: row.destination_url_confidence ?? null,
-      cta_type: row.cta_type ?? null,
-    },
-  }));
-
   const creativeDailyRows: MetaCreativeDailyRow[] = creativeRows.map((row) => {
     const payloadRow = buildMetaCreativeApiRow({
       row,
@@ -1026,7 +977,6 @@ async function syncMetaCreativesAccountDay(input: {
       : [];
 
   await Promise.all([
-    upsertMetaAdDailyRows(adDailyRows),
     upsertMetaCreativeDailyRows(creativeDailyRows),
     upsertMetaCreativeMediaRows(creativeMediaRows),
   ]);

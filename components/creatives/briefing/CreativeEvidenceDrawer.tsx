@@ -16,8 +16,13 @@ import {
   getCreativeScopeId,
   isCutPrimaryAction,
 } from "@/components/creatives/briefing/action-handlers";
+import {
+  getBriefingCanonicalDecisionPresentation,
+  hasBriefingCanonicalNativeActionAuthority,
+} from "@/components/creatives/briefing/action-authority";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import {
+  canOpenBriefingCardInLaunchpad,
   mapBriefingPrimaryToLaunchpadMode,
   type LaunchpadBridgeMode,
 } from "@/components/creatives/briefing/launchpad-bridge";
@@ -181,7 +186,9 @@ function hasNumeric(value: number | null | undefined) {
 
 function buildEvidenceItems(card: BriefingCreativeCard): EvidenceItem[] {
   const source = sourceText(card, "/api/creatives/briefing");
-  const label = asDecisionLabel(card.label);
+  const decisionPresentation =
+    getBriefingCanonicalDecisionPresentation(card);
+  const label = decisionPresentation.label;
   const items: EvidenceItem[] = [];
   const hasPerformance =
     hasNumeric(card.roas) ||
@@ -191,9 +198,11 @@ function buildEvidenceItems(card: BriefingCreativeCard): EvidenceItem[] {
 
   if (card.reason?.trim()) {
     items.push({
-      title: labelText(label),
+      title: decisionPresentation.text ?? labelText(label),
       body: card.reason.trim(),
-      source: `${source} - decision - label ${label}`,
+      source: decisionPresentation.canonicalHeld
+        ? `${source} - canonical held verdict - ${label}`
+        : `${source} - decision - label ${label}`,
       tone: label === "cut" || label === "below_breakeven" ? "warn" : "default",
     });
   }
@@ -202,8 +211,12 @@ function buildEvidenceItems(card: BriefingCreativeCard): EvidenceItem[] {
     // Honest formatting: a metric the payload omits renders as an em dash, never
     // a fabricated 0.00x / zero-currency. Currency stays per-card via formatCurrency.
     const roasText = hasNumeric(card.roas) ? formatRoas(card.roas) : "—";
-    const spendText = hasNumeric(card.spend) ? formatCurrency(card.spend) : "—";
-    const cpaText = hasNumeric(card.cpa) ? formatCurrency(card.cpa) : "—";
+    const spendText = hasNumeric(card.spend)
+      ? formatCurrency(card.spend, card.currency)
+      : "—";
+    const cpaText = hasNumeric(card.cpa)
+      ? formatCurrency(card.cpa, card.currency)
+      : "—";
     items.push({
       title: `ROAS ${roasText} - spend ${spendText}`,
       body: `Purchases ${formatCount(card.purchases)}; CPA ${cpaText}; confidence ${formatOptionalFixed(card.confidence, 0, "%")}.`,
@@ -796,15 +809,29 @@ function CreativeEvidenceDrawerContent({
   }, []);
 
   const format = getCreativeFormatPresentation({ ...card, preview: card.preview ?? null });
-  const label = asDecisionLabel(card.label);
+  const decisionPresentation =
+    getBriefingCanonicalDecisionPresentation(card);
+  const label = decisionPresentation.label;
   const campaignChip = campaignContext(card);
   const evidenceItems = buildEvidenceItems(card);
   const decisionCenterRow = card.decisionCenterRow ?? null;
   const primaryMode = mapBriefingPrimaryToLaunchpadMode(card);
-  const cutPrimary = isCutPrimaryAction(card);
+  const canExecuteCut = hasBriefingCanonicalNativeActionAuthority(card, "cut");
+  const canAddToExisting = canOpenBriefingCardInLaunchpad(
+    card,
+    "add_existing",
+  );
+  const canLaunchFreshTest = canOpenBriefingCardInLaunchpad(
+    card,
+    "fresh_test",
+  );
   const scopeId = getCreativeScopeId(card);
-  const cardTitle = primaryActionLabel(card);
-  const hasPrimaryAction = cutPrimary || Boolean(primaryMode);
+  const cardTitle =
+    decisionPresentation.text ??
+    (canExecuteCut
+      ? card.canonicalDecision?.classification.buyerLabel || "Cut"
+      : primaryActionLabel(card));
+  const hasPrimaryAction = canExecuteCut || Boolean(primaryMode);
   const automationReadiness = card.automationReadiness ?? null;
   const automationTier = automationReadiness?.tier
     ? automationReadiness.tier.replace(/_/g, " ")
@@ -912,7 +939,7 @@ function CreativeEvidenceDrawerContent({
                 <div className="creative-evidence-meta-line">
                   <span className={`chip ${chipClass(label)}`}>
                     <span className="dot" />
-                    {labelText(label)}
+                    {decisionPresentation.text ?? labelText(label)}
                   </span>
                   <span className={`chip ${campaignChip.className}`}>
                     <span className="dot" />
@@ -967,13 +994,17 @@ function CreativeEvidenceDrawerContent({
                     {
                       key: "spend",
                       label: "Spend",
-                      value: hasNumeric(card.spend) ? formatCurrency(card.spend) : "—",
+                      value: hasNumeric(card.spend)
+                        ? formatCurrency(card.spend, card.currency)
+                        : "—",
                       color: "var(--ink, #10151c)",
                     },
                     {
                       key: "cpa",
                       label: "CPA",
-                      value: hasNumeric(card.cpa) ? formatCurrency(card.cpa) : "—",
+                      value: hasNumeric(card.cpa)
+                        ? formatCurrency(card.cpa, card.currency)
+                        : "—",
                       color: "var(--ink, #10151c)",
                     },
                     {
@@ -1263,10 +1294,10 @@ function CreativeEvidenceDrawerContent({
               {hasPrimaryAction ? (
                 <button
                   type="button"
-                  className={`btn ${cutPrimary ? "btn--danger" : "btn--primary"}`}
+                  className={`btn ${canExecuteCut ? "btn--danger" : "btn--primary"}`}
                   disabled={cutPending}
                   onClick={() => {
-                    if (cutPrimary) {
+                    if (canExecuteCut) {
                       onCut(card);
                       return;
                     }
@@ -1274,25 +1305,29 @@ function CreativeEvidenceDrawerContent({
                   }}
                 >
                   {cutPending ? "Working" : cardTitle}
-                  {!cutPrimary ? <ArrowRight size={14} aria-hidden="true" /> : null}
+                  {!canExecuteCut ? <ArrowRight size={14} aria-hidden="true" /> : null}
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="btn"
-                onClick={() => onLaunchpad(card, "add_existing")}
-              >
-                <Plus size={14} aria-hidden="true" />
-                Add to existing
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => onLaunchpad(card, "fresh_test")}
-              >
-                <TestTube2 size={14} aria-hidden="true" />
-                Fresh test
-              </button>
+              {canAddToExisting ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => onLaunchpad(card, "add_existing")}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  Add to existing
+                </button>
+              ) : null}
+              {canLaunchFreshTest && primaryMode !== "fresh_test" ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => onLaunchpad(card, "fresh_test")}
+                >
+                  <TestTube2 size={14} aria-hidden="true" />
+                  Fresh test
+                </button>
+              ) : null}
               {deferred ? (
                 <button type="button" className="btn btn--ghost" onClick={() => onUndefer(scopeId)}>
                   Undo defer

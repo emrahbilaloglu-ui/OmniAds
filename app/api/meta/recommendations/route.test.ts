@@ -98,21 +98,6 @@ vi.mock("@/lib/meta/recommendations", async (importOriginal) => {
   };
 });
 
-vi.mock("@/lib/meta/creative-intelligence", () => ({
-  buildMetaCreativeIntelligence: vi.fn(() => ({ rows: [] })),
-}));
-
-vi.mock("@/lib/meta/creative-score-service", () => ({
-  getCreativeScoreSnapshot: vi.fn(async () => ({
-    selectedRows: [],
-    historyById: new Map(),
-    decisionsById: new Map(),
-    computedAt: new Date().toISOString(),
-    freshnessState: "fresh",
-    ruleVersion: "meta-creative-score-v1",
-  })),
-}));
-
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const campaignsSource = await import("@/lib/meta/campaigns-source");

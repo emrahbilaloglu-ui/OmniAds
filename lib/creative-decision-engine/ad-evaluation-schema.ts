@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_snapshots_daily (
     authority_blocker IS NULL OR authority_blocker IN (
       'profile_hard_action_ineligible', 'source_freshness',
       'campaign_context', 'native_metrics_unavailable',
-      'native_profile_unavailable'
+      'native_profile_unavailable', 'recent_recovery_unverifiable'
     )
   ),
   CONSTRAINT engine_v3_ad_snapshots_binding_fk FOREIGN KEY (
@@ -320,7 +320,7 @@ BEGIN
         CHECK (authority_blocker IS NULL OR authority_blocker IN (
           'profile_hard_action_ineligible', 'source_freshness',
           'campaign_context', 'native_metrics_unavailable',
-          'native_profile_unavailable'
+          'native_profile_unavailable', 'recent_recovery_unverifiable'
         ));
     END IF;
   END IF;

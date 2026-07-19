@@ -1,36 +1,31 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  WarehouseDataSource,
-  type DecisionResponse,
-  type EngineV3Flags,
-} from "@/lib/creative-decision-engine";
 import { requireBusinessAccess } from "@/lib/access";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
-import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { resolveDataSource } from "./data-source";
+import {
+  resolveEngineV3Flags,
+  type EngineV3Flags,
+} from "@/lib/creative-decision-engine/feature-flags";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
 import { GET } from "./route";
 
-vi.mock("@/lib/access", () => ({
-  requireBusinessAccess: vi.fn(),
-}));
-
+vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
 }));
-
-vi.mock("@/lib/meta/campaign-labels", () => ({
-  readMetaCampaignLabels: vi.fn(),
+vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  readMetaNativeCanonicalDecisionInventory: vi.fn(),
 }));
 
-const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
-const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
+const INPUT_HASH = "1".repeat(64);
+const DECISION_HASH = "2".repeat(64);
 
-function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+function flags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
     businessId: "biz-1",
     enabled: true,
-    surfaceVisible: false,
+    surfaceVisible: true,
     shadowOnly: true,
     presetOverride: null,
     source: {
@@ -41,268 +36,315 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
     },
     envDefaults: {
       enabled: true,
-      surfaceVisible: false,
+      surfaceVisible: true,
       shadowOnly: true,
     },
     ...overrides,
   };
 }
 
-function mockBusinessAccess(businessId = "biz-1") {
+function canonicalDecision(input: {
+  adId: string;
+  creativeId?: string | null;
+  providerAccountId?: string;
+  campaignId?: string;
+}): MetaCanonicalDecision {
+  const providerAccountId = input.providerAccountId ?? "act_1";
+  return {
+    decisionId: `decision-${input.adId}`,
+    episodeId: `episode-${input.adId}`,
+    episodeStartedAt: "2026-07-16",
+    providerAccountId,
+    identityGrain: "ad",
+    sourceSnapshotId: `snapshot-${input.adId}`,
+    sourceAuthority: {
+      status: "native_exact",
+      actionEligible: true,
+      reviewOnlyReason: null,
+      snapshotId: `snapshot-${input.adId}`,
+      evaluationId: `evaluation-${input.adId}`,
+      inputHash: INPUT_HASH,
+      decisionHash: DECISION_HASH,
+      providerAccountRefId: "provider-ref-1",
+      engineVersion: "native-current",
+      realAdId: input.adId,
+      authorizedAction: "cut",
+      jobRunId: "job-run-1",
+    },
+    sourceDecision: {
+      label: "cut",
+      preAuthorityLabel: "cut",
+      authorityBlocker: null,
+      rawLabel: "cut",
+      reason: `Persisted exact-Ad verdict for ${input.adId}`,
+      confidence: 91,
+      confidenceBand: "high",
+      truthSource: "commercial_truth",
+      engineVersion: "native-current",
+      snapshotAsOf: "2026-07-16",
+      computedAt: "2026-07-16T03:05:00.000Z",
+      badges: ["below_breakeven"],
+      provenance: {} as never,
+    },
+    parentChain: {
+      account: { id: providerAccountId, name: null },
+      campaign: { id: input.campaignId ?? "campaign-1", name: "Campaign" },
+      adset: { id: "adset-1", name: "Ad set" },
+      ad: { id: input.adId, name: `Ad ${input.adId}` },
+      creative:
+        input.creativeId === null
+          ? null
+          : { id: input.creativeId ?? "creative-1", name: "Creative" },
+      provenance: {} as never,
+    },
+    identityResolution: {
+      basis: "native_ad_exact",
+      candidateAdCount: 1,
+      metricsEquivalent: true,
+      adActionEligible: true,
+    },
+    classification: {
+      overlayVersion: "meta-decisions-classification-overlay.v1",
+      queueSection: "creative_rotation",
+      lifecycleRole: { value: "main" } as never,
+      assessment: {} as never,
+      decisionState: "act",
+      heldAction: null,
+      legacyBuyerAction: "cut",
+      buyerAction: "cut",
+      buyerLabel: "Cut",
+      executionAction: null,
+      resolution: null,
+      blockers: [],
+      provenance: {} as never,
+    },
+    metrics: {
+      spend: 500,
+      purchases: 2,
+      roas: 0.8,
+      recent7dRoas: 0.7,
+      effectiveTargetRoas: 2.2,
+      ratioToTarget: 0.36,
+      currency: "USD",
+      attribution: "meta_attributed",
+      provenance: {} as never,
+    },
+  } as unknown as MetaCanonicalDecision;
+}
+
+function inventory(items: MetaCanonicalDecision[]) {
+  return {
+    status: "available" as const,
+    generation: {
+      jobRunId: "job-run-1",
+      asOfDate: "2026-07-16",
+      providerAccountRefId: "provider-ref-1",
+      manifestHash: "a".repeat(64),
+      expectedAdCount: items.length,
+    },
+    items,
+    unavailableReason: null,
+  };
+}
+
+function mockAccess() {
   vi.mocked(requireBusinessAccess).mockResolvedValue({
-    session: {
-      user: {
-        id: "user-1",
-        email: "operator@adsecute.com",
-      },
-    } as never,
+    session: { user: { id: "user-1" } } as never,
     membership: {
       id: "membership-1",
       userId: "user-1",
-      businessId,
+      businessId: "biz-1",
       role: "guest",
       status: "active",
-      joinedAt: "2026-05-04T00:00:00.000Z",
+      joinedAt: "2026-07-01T00:00:00.000Z",
     },
-  });
-}
-
-function mockAccessError(status: 401 | 403) {
-  vi.mocked(requireBusinessAccess).mockResolvedValue({
-    error: NextResponse.json(
-      {
-        error: "auth_error",
-        message:
-          status === 401
-            ? "Authentication required."
-            : "You do not have access to this business.",
-      },
-      { status },
-    ),
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
-  mockBusinessAccess();
-  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
-    {
-      businessId: "biz-1",
-      campaignId: "mock-campaign-001",
-      kind: "main",
-      testDimension: null,
-      source: "user",
-      providerAccountId: null,
-      campaignName: null,
-      labeledBy: "user-1",
-      labeledAt: "2026-05-04T00:00:00.000Z",
-      updatedAt: "2026-05-04T00:00:00.000Z",
-    },
-  ]);
-  vi.mocked(resolveEngineV3Flags).mockImplementation(async (businessId) =>
-    makeFlags({ businessId: String(businessId) }),
+  mockAccess();
+  vi.mocked(resolveEngineV3Flags).mockResolvedValue(flags());
+  vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+    inventory([canonicalDecision({ adId: "ad-1" })]),
   );
 });
 
-afterEach(() => {
-  if (previousDataSourceFlag === undefined) {
-    delete process.env.DECISION_ENGINE_V3_DATA_SOURCE;
-  } else {
-    process.env.DECISION_ENGINE_V3_DATA_SOURCE = previousDataSourceFlag;
-  }
-  if (previousCampaignContextMode === undefined) {
-    delete process.env.CAMPAIGN_CONTEXT_MODE;
-  } else {
-    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
-  }
-});
-
 describe("GET /api/creatives/decision-engine-v3", () => {
-  it("uses MockDataSource when DECISION_ENGINE_V3_DATA_SOURCE=mock", async () => {
-    process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
-
-    const response = await GET(
+  it("requires exact business and provider-account scope", async () => {
+    const missingBusiness = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&asOf=2026-05-04",
+        "http://localhost/api/creatives/decision-engine-v3?providerAccountId=act_1",
       ),
     );
-    const payload = (await response.json()) as DecisionResponse;
-
-    expect(response.status).toBe(200);
-    expect(payload.dataSource).toBe("mock");
-    expect(payload.businessId).toBe("biz-1");
-    expect(payload.flags).toMatchObject({
-      businessId: "biz-1",
-      enabled: true,
-      surfaceVisible: false,
-      shadowOnly: true,
-    });
-    expect(payload.dataHealth.worstTier).toBe("none");
-    expect(payload.dataHealth.degraded).toBe(false);
-    expect(payload.dataHealth.calibration).toBeDefined();
-    expect(payload.dataHealth.lifecycle).toBeDefined();
-    expect(payload.dataHealth.decisions).toBeDefined();
-    expect(payload.accountProfile).toMatchObject({
-      businessId: "biz-1",
-      preset: "balanced",
-      spendUnitSource: "meta_derived_aov",
-      scope: { type: "account", id: "*" },
-    });
-    expect(payload.scope).toEqual({ type: "account", id: "*" });
-    expect(payload.decisions).toHaveLength(3);
-    expect(payload.decisions[0]?.campaignLabelStatus).toBe("labeled");
-    expect(payload.decisions[0]?.campaignKind).toBe("main");
-    expect(requireBusinessAccess).toHaveBeenCalledWith({
-      request: expect.any(NextRequest),
-      businessId: "biz-1",
-      minRole: "guest",
-    });
-  });
-
-  it("passes campaignId through to campaign-scoped profile resolution", async () => {
-    process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&campaignId=mock-campaign-001&asOf=2026-05-04",
-      ),
-    );
-    const payload = (await response.json()) as DecisionResponse;
-
-    expect(response.status).toBe(200);
-    expect(payload.scope).toEqual({
-      type: "campaign",
-      id: "mock-campaign-001",
-    });
-    expect(payload.accountProfile.scope).toEqual(payload.scope);
-    expect(payload.decisions).toHaveLength(3);
-  });
-
-  it("adds missing campaign label context when labels are absent", async () => {
-    process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&asOf=2026-05-04",
-      ),
-    );
-    const payload = (await response.json()) as DecisionResponse;
-
-    expect(response.status).toBe(200);
-    expect(payload.decisions[0]).toMatchObject({
-      campaignLabelStatus: "unlabeled",
-      campaignKind: null,
-      preAuthorityLabel: "scale",
-      authorityBlocker: "profile_hard_action_ineligible",
-      blockedActionType: "scale",
-    });
-    expect(payload.decisions[0]?.badges.map((badge) => badge.type)).toContain(
-      "unlabeled_campaign_context",
-    );
-  });
-
-  it("returns 403 for an authenticated user with no membership", async () => {
-    mockAccessError(403);
-
-    const response = await GET(
+    const missingAccount = await GET(
       new NextRequest(
         "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1",
       ),
     );
-    const payload = (await response.json()) as { error?: string };
 
-    expect(response.status).toBe(403);
-    expect(payload.error).toBe("auth_error");
+    expect(missingBusiness.status).toBe(400);
+    expect(missingAccount.status).toBe(400);
+    expect(await missingAccount.json()).toEqual({
+      error: "providerAccountId required",
+    });
+    expect(requireBusinessAccess).not.toHaveBeenCalled();
   });
 
-  it("returns a disabled response when engine v3 is disabled for the business", async () => {
-    vi.mocked(resolveEngineV3Flags).mockResolvedValue(
-      makeFlags({
-        businessId: "biz-1",
-        enabled: false,
-        source: {
-          enabled: "business_override",
-          surfaceVisible: "env",
-          shadowOnly: "env",
-          presetOverride: null,
-        },
-      }),
-    );
-
+  it("serves persisted exact-Ad inventory and a one-to-one review projection", async () => {
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&asOf=2026-05-04",
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1&creativeIds=creative-1&asOf=2026-07-16",
       ),
     );
-    const payload = (await response.json()) as {
-      status?: string;
-      reason?: string;
-      flags?: EngineV3Flags;
-    };
+    const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      status: "disabled",
-      reason: "engine_v3_disabled_for_business",
-      flags: {
-        businessId: "biz-1",
-        enabled: false,
+      status: "available",
+      contractVersion: "decision-engine-v3-native-ad-serving.v1",
+      providerAccountId: "act_1",
+      asOf: "2026-07-16",
+      dataSource: "native_persisted_generation",
+      inventory: {
+        preFilterCount: 1,
+        selectedCount: 1,
+        identityGrain: "ad",
+      },
+      compatibility: {
+        authority: "review_only",
+        omittedAmbiguousCreativeCount: 0,
       },
     });
-  });
-
-  it("returns 403 for an authenticated user with membership for a different business", async () => {
-    mockAccessError(403);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-requested",
-      ),
-    );
-    const payload = (await response.json()) as { error?: string };
-
-    expect(response.status).toBe(403);
-    expect(payload.error).toBe("auth_error");
-    expect(requireBusinessAccess).toHaveBeenCalledWith({
-      request: expect.any(NextRequest),
-      businessId: "biz-requested",
-      minRole: "guest",
+    expect(payload.inventory.items[0].parentChain.ad.id).toBe("ad-1");
+    expect(payload.decisions).toEqual([
+      expect.objectContaining({
+        creativeId: "creative-1",
+        label: "cut",
+        reason: "Persisted exact-Ad verdict for ad-1",
+      }),
+    ]);
+    expect(readMetaNativeCanonicalDecisionInventory).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      asOfDate: "2026-07-16",
     });
   });
 
-  it("returns 401 for a missing or invalid session", async () => {
-    mockAccessError(401);
+  it("retains every Ad sharing a creative and withholds representative selection", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      inventory([
+        canonicalDecision({ adId: "ad-1", creativeId: "creative-shared" }),
+        canonicalDecision({ adId: "ad-2", creativeId: "creative-shared" }),
+      ]),
+    );
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1&creativeIds=creative-shared",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.inventory.items.map((item: MetaCanonicalDecision) => item.parentChain.ad?.id)).toEqual([
+      "ad-1",
+      "ad-2",
+    ]);
+    expect(payload.decisions).toEqual([]);
+    expect(payload.compatibility.omittedAmbiguousCreativeCount).toBe(1);
+  });
+
+  it("omits a creative review projection when required metrics are non-finite", async () => {
+    const decision = canonicalDecision({ adId: "ad-1" });
+    decision.metrics = { ...decision.metrics, spend: null };
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      inventory([decision]),
+    );
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1",
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1",
       ),
     );
-    const payload = (await response.json()) as { error?: string };
+    const payload = await response.json();
 
-    expect(response.status).toBe(401);
-    expect(payload.error).toBe("auth_error");
+    expect(response.status).toBe(200);
+    expect(payload.inventory.items).toHaveLength(1);
+    expect(payload.decisions).toEqual([]);
+    expect(JSON.stringify(payload)).not.toContain("NaN");
   });
 
-  it("defaults to WarehouseDataSource without an env override", () => {
-    delete process.env.DECISION_ENGINE_V3_DATA_SOURCE;
-
-    const resolved = resolveDataSource();
-
-    expect(resolved.label).toBe("warehouse");
-    expect(resolved.instance).toBeInstanceOf(WarehouseDataSource);
-  });
-
-  it("returns 400 when businessId is missing", async () => {
-    const response = await GET(
-      new NextRequest("http://localhost/api/creatives/decision-engine-v3"),
+  it("fails closed on a cross-account or malformed canonical projection", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      inventory([
+        canonicalDecision({ adId: "ad-1", providerAccountId: "act_2" }),
+      ]),
     );
-    const payload = (await response.json()) as { error?: string };
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1",
+      ),
+    );
 
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe("businessId required");
-    expect(requireBusinessAccess).not.toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      reason: "native_canonical_serving_projection_invalid",
+    });
+  });
+
+  it("does not borrow or recompute a decision when the generation is unavailable", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_account_receipt_cardinality_invalid",
+    });
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1",
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      reason: "native_account_receipt_cardinality_invalid",
+    });
+  });
+
+  it("preserves access and feature-flag fail-closed gates", async () => {
+    vi.mocked(requireBusinessAccess).mockResolvedValue({
+      error: NextResponse.json({ error: "auth_error" }, { status: 403 }),
+    });
+    const denied = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1",
+      ),
+    );
+    expect(denied.status).toBe(403);
+
+    mockAccess();
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue(flags({ enabled: false }));
+    const disabled = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-engine-v3?businessId=biz-1&providerAccountId=act_1",
+      ),
+    );
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toMatchObject({
+      status: "disabled",
+      reason: "engine_v3_disabled_for_business",
+    });
+  });
+
+  it("contains no request-time resolver or data-source path", () => {
+    const source = readFileSync(
+      "app/api/creatives/decision-engine-v3/route.ts",
+      "utf8",
+    );
+    expect(source).not.toMatch(/\bdecideCreative\b/);
+    expect(source).not.toMatch(/\bresolveAccountDecisionProfile\b/);
+    expect(source).not.toMatch(/\bresolveDataSource\b/);
   });
 });

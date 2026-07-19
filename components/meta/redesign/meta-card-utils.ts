@@ -26,20 +26,46 @@ export function decisionLabelForRec(rec: MetaRecommendation): DecisionLabel {
   return (rec.decisionLabel as DecisionLabel | undefined) ?? "diagnose";
 }
 
+export type MetaRecommendationUiActionKind =
+  | "route_launchpad_rebuild"
+  | "route_launchpad_duplicate"
+  | "review_drill";
+
+/**
+ * Defensive client boundary for legacy campaign/ad-set recommendations.
+ * execute_* existed before recommendation writes had a canonical
+ * decision-origin authority contract. Treat even an injected/stale execute
+ * value as review-only; proposedAction and display copy never grant authority.
+ */
+export function uiActionKindForRec(
+  rec: Pick<MetaRecommendation, "actionKind">,
+): MetaRecommendationUiActionKind {
+  if (rec.actionKind === "route_launchpad_rebuild") {
+    return "route_launchpad_rebuild";
+  }
+  if (rec.actionKind === "route_launchpad_duplicate") {
+    return "route_launchpad_duplicate";
+  }
+  return "review_drill";
+}
+
 export function launchModeForRec(rec: MetaRecommendation): MetaLaunchMode | null {
-  switch (rec.actionKind) {
+  switch (uiActionKindForRec(rec)) {
     case "route_launchpad_rebuild":
       return "rebuild";
     case "route_launchpad_duplicate":
       return "duplicate";
-    case "execute_bid":
-      return "apply_bid";
     default:
       return null;
   }
 }
 
 export function primaryLabelForRec(rec: MetaRecommendation) {
+  if (uiActionKindForRec(rec) === "review_drill") {
+    return rec.actionKind === "review_drill"
+      ? (rec.primaryActionLabel ?? "Open drilldown")
+      : "Review evidence";
+  }
   return rec.primaryActionLabel ?? "Open drilldown";
 }
 

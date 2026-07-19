@@ -17,6 +17,9 @@ import type {
 } from "@/lib/creative-decision-engine";
 import type { MetaAutomationReadiness } from "@/lib/meta/automation-readiness";
 import type { MetaCreativeAssessmentPresentation } from "@/lib/meta/creative-assessment";
+import type {
+  MetaCanonicalDecision,
+} from "@/lib/meta/decisions-workspace-contract";
 // Type-only imports so the response interface can carry the production-default
 // decisionCenter snapshot and its server-supplied row decision. UI components
 // must not import decision-center builders/adapters or compute buyerAction
@@ -25,6 +28,8 @@ import type {
   CreativeDecisionCenterRowDecision,
   DecisionCenterSnapshot,
 } from "@/lib/creative-decision-center";
+
+export type { CreativeDecisionCenterRowDecision };
 
 export interface BriefingPrimaryAction {
   kind?: string | null;
@@ -109,6 +114,73 @@ export interface BriefingCreativePreview {
   poster_url: string | null;
   source: string | null;
   is_catalog: boolean;
+}
+
+/**
+ * Additive, exact-ad projection of the persisted native decision. The legacy
+ * Decision Center row remains presentation-only because its non-null
+ * `buyerAction` contract cannot faithfully represent a canonical review-only
+ * or unavailable action.
+ */
+export interface BriefingCanonicalNativeAdDecision {
+  contractVersion: "briefing-canonical-native-ad.v1";
+  identityGrain: "ad";
+  decisionId: string;
+  episodeId: string;
+  sourceSnapshotId: string;
+  adId: string;
+  creativeId: string | null;
+  identityResolution: {
+    basis: "native_ad_exact";
+    adActionEligible: boolean;
+  };
+  classification: Pick<
+    MetaCanonicalDecision["classification"],
+    | "decisionState"
+    | "buyerAction"
+    | "buyerLabel"
+    | "executionAction"
+    | "heldAction"
+  >;
+  sourceDecision: {
+    label: string;
+    authorityBlocker:
+      MetaCanonicalDecision["sourceDecision"]["authorityBlocker"];
+    confidence: number;
+    reason: string;
+    snapshotAsOf: string;
+    computedAt: string;
+  };
+  sourceAuthority: {
+    status: "native_exact" | "demo_synthetic_review_only";
+    snapshotId: string;
+    evaluationId: string;
+    inputHash: string;
+    decisionHash: string;
+    engineVersion: string;
+    providerAccountRefId: string;
+    providerAccountId: string;
+    realAdId: string;
+    jobRunId: string;
+    authorizedAction: "scale" | "cut" | "refresh" | null;
+    actionEligible: boolean;
+    reviewOnlyReason: string | null;
+  };
+}
+
+export interface BriefingCanonicalInventorySource {
+  contractVersion: "briefing-canonical-native-ad.v1";
+  status: "available" | "unavailable";
+  unavailableReason: string | null;
+  generation: {
+    jobRunId: string;
+    asOfDate: string;
+    providerAccountRefId: string;
+    manifestHash: string;
+    expectedAdCount: number;
+    authorityStatus?: "native_exact" | "demo_synthetic_review_only";
+  } | null;
+  itemCount: number;
 }
 
 export interface BriefingPlacement {
@@ -199,6 +271,18 @@ export interface BriefingCreativeCard {
   sourceDecisionSnapshotAsOf?: string | null;
   sourceDecisionSnapshotEngineVersion?: string | null;
   sourceDecisionSnapshotMatch?: "matched" | "unavailable" | "mismatch" | null;
+  sourceDecisionAuthorityStatus?:
+    | "native_exact"
+    | "demo_synthetic_review_only"
+    | null;
+  sourceDecisionEvaluationId?: string | null;
+  sourceDecisionInputHash?: string | null;
+  sourceDecisionHash?: string | null;
+  sourceDecisionProviderAccountRefId?: string | null;
+  sourceDecisionJobRunId?: string | null;
+  sourceDecisionAuthorizedAction?: "scale" | "cut" | "refresh" | null;
+  sourceDecisionActionEligible?: boolean | null;
+  canonicalDecision?: BriefingCanonicalNativeAdDecision | null;
   status?: string | null;
   ageDays?: number | null;
   firstSeenAt?: string | null;
@@ -339,6 +423,7 @@ export interface CreativesBriefingResponse {
     measurementReconciliation?: CreativesBriefingMeasurementReconciliation | null;
     laneSummary?: BriefingLaneSummary | null;
     aggregateSuppressionTrace?: BriefingAggregateSuppressionTrace | null;
+    canonicalDecisionInventory?: BriefingCanonicalInventorySource | null;
   } | null;
   /**
    * Additive production-default Decision Center snapshot. Null indicates the

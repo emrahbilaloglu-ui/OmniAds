@@ -4,6 +4,7 @@ const sql = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => sql),
+  runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 vi.mock("@/lib/launchpad/meta-launch-intent-lineage", () => ({
@@ -56,7 +57,10 @@ describe("Meta LaunchIntent store", () => {
   });
 
   it("persists PAUSED-only account scope, lineage, and idempotency uniqueness", async () => {
-    sql.mockResolvedValueOnce([row]);
+    sql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row]);
 
     const result = await store.createMetaLaunchIntent({
       businessId: row.business_id,
@@ -69,7 +73,7 @@ describe("Meta LaunchIntent store", () => {
       createdBy: row.created_by,
     });
 
-    const query = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
+    const query = String(sql.mock.calls[2]?.[0]?.join(" ") ?? "");
     expect(result).toMatchObject({
       created: true,
       intent: {
@@ -83,6 +87,56 @@ describe("Meta LaunchIntent store", () => {
     });
     expect(query).toContain("ON CONFLICT (business_id, provider_account_id, operation, idempotency_key)");
     expect(query).toContain("requested_status");
+  });
+
+  it("blocks an unresolved semantic ambiguity before a fresh-key insert", async () => {
+    const ambiguousRow = {
+      ...row,
+      id: "intent_ambiguous",
+      idempotency_key: "old-key",
+      status: "silent_failure",
+      error_receipt_json: {
+        code: "provider_outcome_ambiguous",
+        message: "Unknown provider outcome.",
+        partialResult: {
+          campaignId: null,
+          adsetIds: [],
+          adIds: [],
+          steps: [],
+        },
+      },
+    };
+    sql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([ambiguousRow]);
+
+    await expect(
+      store.createMetaLaunchIntent({
+        businessId: row.business_id,
+        providerAccountId: "act_123",
+        operation: "new_campaign",
+        idempotencyKey: "fresh-key",
+        requestPayload: row.request_payload_json,
+        sourceDecisionId: "decision_1",
+        creativeBriefId: "brief_1",
+        createdBy: row.created_by,
+      }),
+    ).rejects.toMatchObject({
+      code: "launch_intent_provider_outcome_ambiguous",
+      intent: { id: "intent_ambiguous" },
+    });
+
+    const queries = sql.mock.calls.map((call) =>
+      String(call[0]?.join(" ") ?? ""),
+    );
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).toContain("pg_advisory_xact_lock");
+    expect(queries[1]).toContain("request_fingerprint");
+    expect(queries[1]).toContain("status = 'silent_failure'");
+    expect(queries[1]).toContain(
+      "error_receipt_json->>'code' = 'provider_outcome_ambiguous'",
+    );
+    expect(queries.some((query) => query.includes("INSERT INTO"))).toBe(false);
   });
 
   it("allows validation only from prepared and outcome only from executing", async () => {

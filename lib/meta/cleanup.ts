@@ -35,7 +35,6 @@ const META_TERMINAL_RUN_REPAIR_TABLES = [
 ] as const;
 const META_CREATIVE_MEDIA_PRUNE_TABLES = [
   "meta_creative_media",
-  "meta_ad_daily",
   "meta_creative_daily",
 ] as const;
 
@@ -571,69 +570,6 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
     SELECT COUNT(*)::int AS count FROM deleted
   `);
 
-  const metaAdDailyUpdated = await execCount(sql`
-    WITH updated AS (
-      UPDATE meta_ad_daily
-      SET
-        payload_json = jsonb_set(
-          jsonb_set(
-            jsonb_set(
-              jsonb_set(
-                jsonb_set(
-                  jsonb_set(
-                    COALESCE(payload_json, '{}'::jsonb),
-                    '{preview_url}',
-                    'null'::jsonb,
-                    true
-                  ),
-                  '{thumbnail_url}',
-                  'null'::jsonb,
-                  true
-                ),
-                '{image_url}',
-                'null'::jsonb,
-                true
-              ),
-              '{table_thumbnail_url}',
-              'null'::jsonb,
-              true
-            ),
-            '{card_preview_url}',
-            'null'::jsonb,
-            true
-          ),
-          '{preview}',
-          jsonb_set(
-            jsonb_set(
-              jsonb_set(COALESCE(payload_json->'preview', '{}'::jsonb), '{image_url}', 'null'::jsonb, true),
-              '{poster_url}',
-              'null'::jsonb,
-              true
-            ),
-            '{video_url}',
-            'null'::jsonb,
-            true
-          ),
-          true
-        ),
-        updated_at = now()
-      WHERE (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
-        AND date::date < ${input.keepFromDate}::date
-        AND (
-          NULLIF(payload_json->>'preview_url', '') IS NOT NULL OR
-          NULLIF(payload_json->>'thumbnail_url', '') IS NOT NULL OR
-          NULLIF(payload_json->>'image_url', '') IS NOT NULL OR
-          NULLIF(payload_json->>'table_thumbnail_url', '') IS NOT NULL OR
-          NULLIF(payload_json->>'card_preview_url', '') IS NOT NULL OR
-          NULLIF(payload_json->'preview'->>'image_url', '') IS NOT NULL OR
-          NULLIF(payload_json->'preview'->>'poster_url', '') IS NOT NULL OR
-          NULLIF(payload_json->'preview'->>'video_url', '') IS NOT NULL
-        )
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS count FROM updated
-  `);
-
   const metaCreativeDailyUpdated = await execCount(sql`
     WITH updated AS (
       UPDATE meta_creative_daily
@@ -701,7 +637,9 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
 
   return {
     metaCreativeMediaDeleted,
-    metaAdDailyUpdated,
+    // meta_ad_daily is immutable decision-fact history from this cleanup
+    // path. Authoritative ingestion strips media fields before persistence.
+    metaAdDailyUpdated: 0,
     metaCreativeDailyUpdated,
   };
 }

@@ -7,7 +7,9 @@ import {
 } from "@/lib/meta/ads-action-log";
 import {
   duplicateAd,
+  type MetaAdDuplicateSourceIdentity,
   type MetaAdsWriteFailure,
+  type MetaProviderMutationAttemptReceipt,
 } from "@/lib/meta/ads-write";
 import { rejectIfMetaWritesBlocked } from "@/lib/meta/automation-write-guard";
 import {
@@ -20,6 +22,7 @@ import {
   buildMetaLaunchIntentResultReceipt,
   buildMetaLaunchIntentValidationReceipt,
 } from "@/lib/launchpad/meta-launch-intent";
+import { evaluateMetaLaunchpadExecutionBounds } from "@/lib/launchpad/meta-execution-bounds";
 import { MetaLaunchIntentLineageError } from "@/lib/launchpad/meta-launch-intent-lineage";
 import { prepareMetaLaunchIntentForExecution } from "@/lib/launchpad/meta-launch-intent-service";
 import { getMetaLaunchIntentCapability } from "@/lib/launchpad/meta-launch-intent-capability";
@@ -34,8 +37,14 @@ import {
   metaLaunchAccountBlockerHttpStatus,
   resolveAssignedMetaLaunchAccount,
   resolveMetaLaunchWriteContext,
+  validateMetaAddToExistingLiveProviderPreflight,
   validateMetaAddToExistingRequest,
 } from "@/lib/launchpad/meta-validation";
+import {
+  bindMetaLaunchpadManualAuthorityToPayload,
+  evaluateMetaLaunchpadManualAuthority,
+  metaLaunchpadActionLogAuthority,
+} from "@/lib/launchpad/meta-manual-authority";
 import {
   jsonError,
   readJsonBody,
@@ -73,11 +82,10 @@ type AddToExistingBody = {
   names?: Record<string, string>;
   sourceAdIds?: Record<string, string>;
   copyMode?: MetaAddToExistingCopyMode;
+  actionOrigin?: string;
+  manualConfirmation?: string;
   idempotencyKey?: string;
   launchIntentId?: string | null;
-  sourceDecisionId?: string | null;
-  sourceDecisionSnapshotId?: string | null;
-  creativeBriefId?: string | null;
   sourceDraftId?: string | null;
 };
 
@@ -95,7 +103,27 @@ function ensureRecord(value: Record<string, unknown> | null | undefined) {
 }
 
 function getFailureLogStatus(result: MetaAdsWriteFailure): Exclude<MetaAdsActionStatus, "pending" | "success"> {
-  return result.error.code === "silent_failure" ? "silent_failure" : "failure";
+  return result.error.code === "silent_failure" ||
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+    ? "silent_failure"
+    : "failure";
+}
+
+function isProviderOutcomeAmbiguous(result: MetaAdsWriteFailure) {
+  return (
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+  );
+}
+
+function shouldHaltProviderMutationChain(result: MetaAdsWriteFailure) {
+  return (
+    result.error.code === "kill_switch_engaged" ||
+    result.error.code === "silent_failure" ||
+    result.mutationAttempt != null ||
+    isProviderOutcomeAmbiguous(result)
+  );
 }
 
 function normalizeBodyTargets(body: AddToExistingBody | null) {
@@ -139,12 +167,26 @@ type AddToExistingStep = {
   status: "success" | "failure" | "silent_failure";
   id?: string;
   creativeId: string;
+  sourceIdentity?: MetaAdDuplicateSourceIdentity | null;
+  providerOutcome?: "definite_failure" | "outcome_ambiguous";
+  mutationAttempt?: MetaProviderMutationAttemptReceipt | null;
+  retryAllowed?: false;
   adsManagerUrl?: string;
   error?: { code: string; message: string };
 };
 
 function stepsAsRecords(steps: AddToExistingStep[]): Array<Record<string, unknown>> {
   return steps.map((step) => ({ ...step }));
+}
+
+function providerEvidenceWithSourceIdentity(
+  payload: Record<string, unknown> | null | undefined,
+  sourceIdentity: MetaAdDuplicateSourceIdentity | null | undefined,
+) {
+  return {
+    provider_payload: ensureRecord(payload),
+    source_identity: sourceIdentity ?? null,
+  };
 }
 
 function intentErrorResponse(input: {
@@ -171,7 +213,10 @@ async function completeFailure(input: {
   return completeMetaAdsActionLog({
     id: input.logId,
     status: getFailureLogStatus(input.result),
-    payloadResponse: ensureRecord(input.result.responsePayload),
+    payloadResponse: providerEvidenceWithSourceIdentity(
+      input.result.responsePayload,
+      input.result.sourceIdentity,
+    ),
     errorCode: input.result.error.code,
     errorMessage: input.result.error.message,
     resultingAdId: input.result.resultingAdId ?? null,
@@ -179,7 +224,10 @@ async function completeFailure(input: {
     verifiedAt: input.result.verificationPayload
       ? new Date().toISOString()
       : null,
-    verificationPayload: ensureRecord(input.result.verificationPayload),
+    verificationPayload: providerEvidenceWithSourceIdentity(
+      input.result.verificationPayload,
+      input.result.sourceIdentity,
+    ),
   });
 }
 
@@ -198,11 +246,57 @@ export async function POST(request: NextRequest) {
   if (!access.ok) return access.response;
   const reviewerBlocked = rejectIfLaunchpadReviewerReadOnly(access, "launchpad_add_to_existing");
   if (reviewerBlocked) return reviewerBlocked;
+  const manualAuthority = evaluateMetaLaunchpadManualAuthority(body);
+  if (!manualAuthority.ok) {
+    return jsonError(
+      manualAuthority.status,
+      manualAuthority.error.code,
+      manualAuthority.error.message,
+    );
+  }
+  const authority = manualAuthority.authority;
   if (!idempotencyKey) {
     return jsonError(400, "idempotency_key_required", "idempotencyKey is required.");
   }
   if (requestedTargets.length === 0 || requestedTargets.some((target) => !target.targetAdsetId)) {
     return jsonError(400, "target_adset_required", "At least one target ad set is required.");
+  }
+  if (copyMode !== "reuse_creative") {
+    return jsonError(
+      409,
+      "rebuild_creative_receipt_contract_required",
+      "Recreate exact ad is review-only until every provider image, creative, and ad write has a durable step receipt.",
+    );
+  }
+
+  const normalizedPayload = normalizeMetaAddToExistingPayload({
+    mode: "add_to_existing",
+    targetCampaignId,
+    targetAdsetId,
+    copyMode,
+    targets: requestedTargets,
+    creativeIds: body?.creativeIds ?? [],
+    creatives: body?.creatives ?? [],
+    names: body?.names ?? {},
+    sourceAdIds: body?.sourceAdIds ?? {},
+  });
+  const executionBounds = evaluateMetaLaunchpadExecutionBounds({
+    operation: "add_to_existing",
+    creativeCount: normalizedPayload.creativeIds.length,
+    adSetOrTargetCount: normalizedPayload.targets.length,
+    copyMode: normalizedPayload.copyMode,
+  });
+  if (!executionBounds.ok) {
+    const blocker = executionBounds.blockers[0]!;
+    return NextResponse.json(
+      {
+        ok: false,
+        error: blocker,
+        blockers: executionBounds.blockers,
+        counts: executionBounds.counts,
+      },
+      { status: 413 },
+    );
   }
 
   const account = await resolveAssignedMetaLaunchAccount({
@@ -228,27 +322,17 @@ export async function POST(request: NextRequest) {
       },
     });
   }
-  const normalizedPayload = normalizeMetaAddToExistingPayload({
-    mode: "add_to_existing",
-    targetCampaignId,
-    targetAdsetId,
-    copyMode,
-    targets: requestedTargets,
-    creativeIds: body?.creativeIds ?? [],
-    creatives: body?.creatives ?? [],
-    names: body?.names ?? {},
-    sourceAdIds: body?.sourceAdIds ?? {},
-  });
+  const intentRequestPayload = bindMetaLaunchpadManualAuthorityToPayload(
+    normalizedPayload,
+    authority,
+  );
   const prepared = await prepareMetaLaunchIntentForExecution({
     businessId: access.businessId,
     providerAccountId,
     operation: "add_to_existing",
     idempotencyKey,
-    requestPayload: normalizedPayload,
+    requestPayload: intentRequestPayload,
     launchIntentId: body?.launchIntentId,
-    sourceDecisionId: body?.sourceDecisionId,
-    sourceDecisionSnapshotId: body?.sourceDecisionSnapshotId,
-    creativeBriefId: body?.creativeBriefId,
     sourceDraftId: body?.sourceDraftId,
     createdBy: access.userId,
   }).catch((error) => ({
@@ -274,6 +358,15 @@ export async function POST(request: NextRequest) {
     });
   }
   const launchIntentId = prepared.intent.id;
+  const requestFingerprint = prepared.intent.requestFingerprint;
+  const receiptBinding = {
+    executionAuthority: authority,
+    requestFingerprint,
+  } as const;
+  const actionLogAuthority = metaLaunchpadActionLogAuthority({
+    authority,
+    requestFingerprint,
+  });
 
   const blocked = await rejectIfMetaWritesBlocked({ businessId: access.businessId });
   if (blocked) {
@@ -281,6 +374,7 @@ export async function POST(request: NextRequest) {
       businessId: access.businessId,
       id: launchIntentId,
       receipt: buildMetaLaunchIntentErrorReceipt({
+        ...receiptBinding,
         providerAccountId,
         code: "kill_switch_engaged",
         message: "Meta writes are disabled by kill switch.",
@@ -312,6 +406,7 @@ export async function POST(request: NextRequest) {
       businessId: access.businessId,
       id: launchIntentId,
       receipt: buildMetaLaunchIntentErrorReceipt({
+        ...receiptBinding,
         providerAccountId,
         code: "launch_in_flight",
         message:
@@ -343,6 +438,7 @@ export async function POST(request: NextRequest) {
       businessId: access.businessId,
       id: launchIntentId,
       receipt: buildMetaLaunchIntentErrorReceipt({
+        ...receiptBinding,
         providerAccountId,
         code: "launch_validation_failed",
         message,
@@ -355,17 +451,18 @@ export async function POST(request: NextRequest) {
       intent,
     });
   }
-  const validatedIntent = await recordMetaLaunchIntentValidation({
-    businessId: access.businessId,
-    id: launchIntentId,
-    receipt: buildMetaLaunchIntentValidationReceipt({
-      providerAccountId,
-      ok: validation.ok,
-      blockers: validation.blockers,
-      warnings: validation.warnings,
-    }),
-  });
   if (!validation.ok) {
+    const validatedIntent = await recordMetaLaunchIntentValidation({
+      businessId: access.businessId,
+      id: launchIntentId,
+      receipt: buildMetaLaunchIntentValidationReceipt({
+        ...receiptBinding,
+        providerAccountId,
+        ok: false,
+        blockers: validation.blockers,
+        warnings: validation.warnings,
+      }),
+    });
     return NextResponse.json(
       {
         ok: false,
@@ -391,6 +488,7 @@ export async function POST(request: NextRequest) {
       businessId: access.businessId,
       id: launchIntentId,
       receipt: buildMetaLaunchIntentErrorReceipt({
+        ...receiptBinding,
         providerAccountId,
         code: ctxResult.blocker.code,
         message: ctxResult.blocker.message,
@@ -405,6 +503,56 @@ export async function POST(request: NextRequest) {
         launchIntentStatus: intent.status,
       },
       { status: 502 },
+    );
+  }
+
+  let livePreflight: Awaited<
+    ReturnType<typeof validateMetaAddToExistingLiveProviderPreflight>
+  >;
+  try {
+    livePreflight = await validateMetaAddToExistingLiveProviderPreflight({
+      ctx: ctxResult.ctx,
+      payload: validation.payload,
+    });
+  } catch (error) {
+    livePreflight = {
+      ok: false,
+      blockers: [
+        {
+          code: "provider_preflight_unavailable",
+          message: sanitizeErrorMessage(error),
+        },
+      ],
+      checks: [],
+    };
+  }
+  const validatedIntent = await recordMetaLaunchIntentValidation({
+    businessId: access.businessId,
+    id: launchIntentId,
+    receipt: buildMetaLaunchIntentValidationReceipt({
+      ...receiptBinding,
+      providerAccountId,
+      ok: livePreflight.ok,
+      blockers: livePreflight.blockers,
+      warnings: validation.warnings,
+      checks: livePreflight.checks,
+    }),
+  });
+  if (!livePreflight.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "provider_preflight_blocked",
+          message:
+            "Fresh Meta source and target hierarchy verification blocked this launch.",
+        },
+        blockers: livePreflight.blockers,
+        warnings: validation.warnings,
+        launchIntentId,
+        launchIntentStatus: validatedIntent.status,
+      },
+      { status: 409 },
     );
   }
 
@@ -423,6 +571,10 @@ export async function POST(request: NextRequest) {
     targetAdsetId: string;
     ok: boolean;
     adId?: string;
+    sourceIdentity?: MetaAdDuplicateSourceIdentity | null;
+    providerOutcome?: "definite_failure" | "outcome_ambiguous";
+    mutationAttempt?: MetaProviderMutationAttemptReceipt | null;
+    retryAllowed?: false;
     error?: { code: string; message: string };
   }> = [];
   const steps: AddToExistingStep[] = [];
@@ -493,11 +645,14 @@ export async function POST(request: NextRequest) {
           adId: sourceAdId,
           creativeId,
           action: "launch_ad",
+          source: "launchpad_manual",
           requestedBy: access.userId,
           launchIntentId,
           payloadRequest: {
+            ...actionLogAuthority,
             launch_intent_id: launchIntentId,
             idempotency_key: idempotencyKey,
+            provider_preflight: livePreflight.checks,
             target_campaign_id: target.targetCampaignId,
             target_adset_id: target.targetAdsetId,
             target_campaign_name: target.targetCampaignName ?? resolvedTarget?.campaignName ?? null,
@@ -521,6 +676,7 @@ export async function POST(request: NextRequest) {
         const adResult = await duplicateAd(ctx, {
           adId: sourceAdId,
           targetAdsetId: target.targetAdsetId,
+          expectedSourceCreativeId: creativeId,
           name: adName,
           copyMode,
         });
@@ -532,6 +688,18 @@ export async function POST(request: NextRequest) {
             targetCampaignId: target.targetCampaignId,
             targetAdsetId: target.targetAdsetId,
             ok: false,
+            ...(adResult.sourceIdentity
+              ? { sourceIdentity: adResult.sourceIdentity }
+              : {}),
+            ...(adResult.providerOutcome
+              ? { providerOutcome: adResult.providerOutcome }
+              : {}),
+            ...(adResult.mutationAttempt
+              ? { mutationAttempt: adResult.mutationAttempt }
+              : {}),
+            ...(isProviderOutcomeAmbiguous(adResult)
+              ? { retryAllowed: false as const }
+              : {}),
             error: adResult.error,
           });
           steps.push({
@@ -541,12 +709,27 @@ export async function POST(request: NextRequest) {
             status,
             id: adResult.resultingAdId ?? undefined,
             creativeId,
+            ...(adResult.sourceIdentity
+              ? { sourceIdentity: adResult.sourceIdentity }
+              : {}),
+            ...(adResult.providerOutcome
+              ? { providerOutcome: adResult.providerOutcome }
+              : {}),
+            ...(adResult.mutationAttempt
+              ? { mutationAttempt: adResult.mutationAttempt }
+              : {}),
+            ...(isProviderOutcomeAmbiguous(adResult)
+              ? { retryAllowed: false as const }
+              : {}),
             adsManagerUrl: adResult.resultingAdId
               ? adsManagerUrl(ctx.providerAccountId, "ad", adResult.resultingAdId)
               : undefined,
             error: adResult.error,
           });
-          if (adResult.error.code === "kill_switch_engaged") {
+          // D065: once a provider mutation has been attempted, any failure is
+          // terminal for this request chain. Read-only identity drift may still
+          // leave independent later targets safe to inspect.
+          if (shouldHaltProviderMutationChain(adResult)) {
             haltedReason = adResult.error;
             break targetLoop;
           }
@@ -556,11 +739,17 @@ export async function POST(request: NextRequest) {
         await completeMetaAdsActionLog({
           id: adLog.id,
           status: "success",
-          payloadResponse: ensureRecord(adResult.responsePayload),
+          payloadResponse: providerEvidenceWithSourceIdentity(
+            adResult.responsePayload,
+            adResult.sourceIdentity,
+          ),
           resultingAdId: adResult.newAdId,
           durationMs: Date.now() - startedAt,
           verifiedAt: new Date().toISOString(),
-          verificationPayload: ensureRecord(adResult.verificationPayload),
+          verificationPayload: providerEvidenceWithSourceIdentity(
+            adResult.verificationPayload,
+            adResult.sourceIdentity,
+          ),
         });
         results.push({
           creativeId,
@@ -568,6 +757,7 @@ export async function POST(request: NextRequest) {
           targetAdsetId: target.targetAdsetId,
           ok: true,
           adId: adResult.newAdId,
+          sourceIdentity: adResult.sourceIdentity,
         });
         steps.push({
           kind: "ad",
@@ -576,6 +766,7 @@ export async function POST(request: NextRequest) {
           status: "success",
           id: adResult.newAdId,
           creativeId,
+          sourceIdentity: adResult.sourceIdentity,
           adsManagerUrl: adsManagerUrl(ctx.providerAccountId, "ad", adResult.newAdId),
         });
       }
@@ -587,19 +778,23 @@ export async function POST(request: NextRequest) {
     const hasSilentFailure = steps.some(
       (step) => step.status === "silent_failure",
     );
+    const hasAmbiguousOutcome = steps.some(
+      (step) => step.providerOutcome === "outcome_ambiguous",
+    );
     providerOutcomeStatus =
       failedCount === 0
         ? "succeeded"
-        : successCount > 0
-          ? "partially_succeeded"
-          : hasSilentFailure
-            ? "silent_failure"
+        : hasSilentFailure
+          ? "silent_failure"
+          : successCount > 0
+            ? "partially_succeeded"
             : "failed";
     const completedIntent = await recordMetaLaunchIntentOutcome({
       businessId: access.businessId,
       id: launchIntentId,
       status: providerOutcomeStatus,
       resultReceipt: buildMetaLaunchIntentResultReceipt({
+        ...receiptBinding,
         providerAccountId,
         adIds,
         steps: stepsAsRecords(steps),
@@ -607,6 +802,7 @@ export async function POST(request: NextRequest) {
       errorReceipt:
         failedCount > 0
           ? buildMetaLaunchIntentErrorReceipt({
+              ...receiptBinding,
               providerAccountId,
               code:
                 haltedReason?.code ??
@@ -642,7 +838,14 @@ export async function POST(request: NextRequest) {
         launchIntentId,
         launchIntentStatus: completedIntent.status,
       },
-      { status: haltedReason ? 503 : 200 },
+      {
+        status:
+          haltedReason?.code === "kill_switch_engaged"
+            ? 503
+            : haltedReason || hasAmbiguousOutcome
+              ? 502
+              : 200,
+      },
     );
   } catch (error) {
     const rawMessage = sanitizeErrorMessage(error);
@@ -660,12 +863,14 @@ export async function POST(request: NextRequest) {
         (adIds.length > 0 ? "partially_succeeded" : "failed"),
       resultReceipt: providerOutcomeStatus || adIds.length > 0
         ? buildMetaLaunchIntentResultReceipt({
+            ...receiptBinding,
             providerAccountId,
             adIds,
             steps: stepsAsRecords(steps),
           })
         : null,
       errorReceipt: buildMetaLaunchIntentErrorReceipt({
+        ...receiptBinding,
         providerAccountId,
         code: errorCode,
         message,

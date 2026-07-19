@@ -100,6 +100,9 @@ export function CreativeAdActionsSection({
 
   const manualAdActionCandidateIds = resolveManualAdActionCandidateIds(row);
   const adId = manualAdActionCandidateIds[0] ?? "";
+  const hasExactAdAuthority = Boolean(
+    adId && row.creativeId?.trim() && row.accountId?.trim(),
+  );
   const actionsQueryKey = ["meta-ad-actions", businessId, adId] as const;
 
   useEffect(() => {
@@ -183,7 +186,12 @@ export function CreativeAdActionsSection({
     const result = await postManualAdAction({
       candidateAdIds: manualAdActionCandidateIds,
       action,
-      body: { businessId },
+      body: {
+        businessId,
+        providerAccountId: row.accountId,
+        adId,
+        creativeId: row.creativeId,
+      },
     });
 
     setPendingAction(null);
@@ -220,6 +228,9 @@ export function CreativeAdActionsSection({
       action: "duplicate",
       body: buildDuplicateActionBody({
         businessId,
+        providerAccountId: row.accountId ?? "",
+        adId,
+        creativeId: row.creativeId,
         targetAdsetId: selectedAdsetId,
         nameOverride,
       }),
@@ -288,13 +299,20 @@ export function CreativeAdActionsSection({
         </button>
         <button
           type="button"
+          disabled={!hasExactAdAuthority}
           onClick={() => setDuplicateOpen(true)}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <Copy className="h-4 w-4" />
           Duplicate to campaign...
         </button>
       </div>
+      {!hasExactAdAuthority ? (
+        <p className="mt-2 text-xs leading-5 text-amber-700">
+          Review only: Meta did not present one exact ad, creative, and account
+          identity for this row. Provider actions stay disabled.
+        </p>
+      ) : null}
 
       <details className="mt-4 rounded-xl border border-neutral-200 bg-white">
         <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-500">
@@ -534,14 +552,22 @@ export function isDuplicateConfirmDisabled(input: {
 
 export function buildDuplicateActionBody(input: {
   businessId: string;
+  providerAccountId: string;
+  adId: string;
+  creativeId: string;
   targetAdsetId: string;
   nameOverride: string;
 }) {
   const name = input.nameOverride.trim();
   return {
     businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    adId: input.adId,
+    creativeId: input.creativeId,
     targetAdsetId: input.targetAdsetId,
     name: name || undefined,
+    actionOrigin: "manual_operator_v1",
+    manualConfirmation: "explicit_operator_confirmation",
   };
 }
 
@@ -550,7 +576,14 @@ export function resolveManualAdActionId(row: MetaCreativeRow) {
 }
 
 export function resolveManualAdActionCandidateIds(row: MetaCreativeRow) {
-  return nonEmptyIds([row.realAdId, row.creativeId, row.id]);
+  if (
+    !row.realAdId?.trim() ||
+    !row.creativeId?.trim() ||
+    !row.accountId?.trim()
+  ) {
+    return [];
+  }
+  return [row.realAdId.trim()];
 }
 
 function statusClassName(status: string) {
@@ -636,47 +669,55 @@ export async function postManualAdAction(input: {
 }): Promise<ActionResponse> {
   const fetcher = input.fetchImpl ?? fetch;
   const candidateAdIds = nonEmptyIds(input.candidateAdIds);
-  if (candidateAdIds.length === 0) {
+  const exactAdId =
+    typeof input.body.adId === "string" ? input.body.adId.trim() : "";
+  const exactCreativeId =
+    typeof input.body.creativeId === "string"
+      ? input.body.creativeId.trim()
+      : "";
+  const exactProviderAccountId =
+    typeof input.body.providerAccountId === "string"
+      ? input.body.providerAccountId.trim()
+      : "";
+  if (
+    candidateAdIds.length !== 1 ||
+    !exactAdId ||
+    candidateAdIds[0] !== exactAdId ||
+    !exactCreativeId ||
+    !exactProviderAccountId
+  ) {
     return {
       ok: false,
       error: {
-        code: "missing_ad_id",
-        message: "No actionable Meta ad id was available for this creative.",
+        code: "exact_ad_authority_required",
+        message:
+          "One exact server-presented Meta ad, creative, and account identity is required.",
       },
     };
   }
 
-  let lastResult: ActionResponse | null = null;
-  for (const adId of candidateAdIds) {
-    const response = await fetcher(
-      `/api/meta/ads/${encodeURIComponent(adId)}/${input.action}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input.body),
-      },
-    );
-    const payload = (await response.json().catch(() => null)) as ActionResponse | null;
-    if (response.ok && payload?.ok) return payload;
-
-    lastResult =
-      payload ?? {
-        ok: false,
-        error: {
-          code: String(response.status),
-          message: "Meta action returned an empty response.",
-        },
-      };
-    if (lastResult.error?.code === "ad_not_found") continue;
-    return lastResult;
-  }
-
+  const response = await fetcher(
+    `/api/meta/ads/${encodeURIComponent(exactAdId)}/${input.action}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...input.body,
+        actionOrigin: "manual_operator_v1",
+        manualConfirmation: "explicit_operator_confirmation",
+      }),
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as
+    | ActionResponse
+    | null;
+  if (response.ok && payload?.ok) return payload;
   return (
-    lastResult ?? {
+    payload ?? {
       ok: false,
       error: {
-        code: "ad_not_found",
-        message: "Ad not found for this business.",
+        code: String(response.status),
+        message: "Meta action returned an empty response.",
       },
     }
   );

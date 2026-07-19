@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExactCampaignStatusSelection,
+  buildExactConfigReceiptQuery,
   buildExactPitConfirmatoryReport,
   buildRollingCutoffSourceReceipts,
   buildRollingCutoffWindowReceipts,
@@ -190,9 +191,14 @@ function config(
     objective: entityType === "campaign" ? "OUTCOME_SALES" : null,
     optimizationGoal: "OFFSITE_CONVERSIONS",
     sourceKind: "raw_snapshot",
-    sourceSnapshotId: `config-source-${date}`,
+    sourceSnapshotId: `snapshot-${date}`,
     capturedAt: `${date}T02:20:00.000Z`,
+    createdAt: `${date}T02:40:01.000Z`,
     effectiveFrom: date,
+    sourceSnapshotBusinessId: businessId,
+    sourceSnapshotProviderAccountId: accountId,
+    sourceSnapshotFetchedAt: `${date}T02:30:00.000Z`,
+    sourceSnapshotCreatedAt: `${date}T02:30:01.000Z`,
     conflictingAtLatestCapture: false,
     ...overrides,
   };
@@ -262,6 +268,140 @@ describe("exact PIT confirmatory replay", () => {
     expect(() =>
       parseExactPitArgs(["--start=2026-07-05", "--end=2026-06-01"]),
     ).toThrow("start must be on or before end");
+  });
+
+  it.each(["campaign", "adset"] as const)(
+    "selects every row tied at the latest %s config capture only after config existence checks and joins raw source proof",
+    (entityType) => {
+      const query = buildExactConfigReceiptQuery(entityType);
+
+      expect(query).toContain("config.created_at <= keys.cutoff");
+      expect(query).toContain("latest.created_at <= keys.cutoff");
+      expect(query).toContain("SELECT MAX(latest.captured_at)");
+      expect(query).toContain("LEFT JOIN meta_raw_snapshots raw_source");
+      expect(query).toContain("raw_source.fetched_at AS source_fetched_at");
+      expect(query).toContain("raw_source.created_at AS source_created_at");
+      expect(query).not.toContain("LIMIT");
+    },
+  );
+
+  it("does not project a config backfill created after cutoff into exact provenance", () => {
+    const date = "2026-07-05";
+    const report = buildExactPitConfirmatoryReport({
+      integrityReports: [integrity(date)],
+      configReceipts: [
+        config(date, "campaign", {
+          objective: "OUTCOME_ENGAGEMENT",
+          optimizationGoal: "POST_ENGAGEMENT",
+          createdAt: `${date}T04:00:00.000Z`,
+        }),
+      ],
+      startDate: date,
+      endDate: date,
+      generatedAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    expect(report.summary).toMatchObject({
+      exactManifestRows: 1,
+      campaignConfigCoveredRows: 0,
+      unsupportedObjectiveResolvedRows: 0,
+    });
+    expect(report.manifests[0]?.manifest.configProvenance).toEqual([]);
+    expect(report.manifests[0]?.branchTerminalCore).toMatchObject({
+      status: "not_evaluable",
+      branch: null,
+    });
+  });
+
+  it.each([
+    {
+      name: "missing source snapshot",
+      overrides: {
+        sourceSnapshotId: null,
+        sourceSnapshotBusinessId: null,
+        sourceSnapshotProviderAccountId: null,
+        sourceSnapshotFetchedAt: null,
+        sourceSnapshotCreatedAt: null,
+      },
+    },
+    {
+      name: "source fetched after cutoff",
+      overrides: { sourceSnapshotFetchedAt: "2026-07-05T04:00:00.000Z" },
+    },
+    {
+      name: "source fetched after its config receipt",
+      overrides: { sourceSnapshotFetchedAt: "2026-07-05T02:50:00.000Z" },
+    },
+    {
+      name: "source created after cutoff",
+      overrides: { sourceSnapshotCreatedAt: "2026-07-05T04:00:00.000Z" },
+    },
+    {
+      name: "source created after its config receipt",
+      overrides: { sourceSnapshotCreatedAt: "2026-07-05T02:50:00.000Z" },
+    },
+    {
+      name: "source tenant contradiction",
+      overrides: { sourceSnapshotBusinessId: "other-business" },
+    },
+    {
+      name: "source outside selected exact generation",
+      overrides: { sourceSnapshotId: "unselected-source" },
+    },
+    {
+      name: "conflicting latest capture",
+      overrides: { conflictingAtLatestCapture: true },
+    },
+  ])("fails config exactness closed for $name", ({ overrides }) => {
+    const date = "2026-07-05";
+    const report = buildExactPitConfirmatoryReport({
+      integrityReports: [integrity(date)],
+      configReceipts: [
+        config(date, "campaign", {
+          objective: "OUTCOME_ENGAGEMENT",
+          optimizationGoal: "POST_ENGAGEMENT",
+          ...overrides,
+        }),
+      ],
+      startDate: date,
+      endDate: date,
+      generatedAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    expect(report.summary.campaignConfigCoveredRows).toBe(0);
+    expect(report.summary.unsupportedObjectiveResolvedRows).toBe(0);
+    expect(report.manifests[0]?.manifest.configProvenance).toEqual([]);
+  });
+
+  it("does not fall back to an older config when the latest existing capture lacks exact source proof", () => {
+    const date = "2026-07-05";
+    const report = buildExactPitConfirmatoryReport({
+      integrityReports: [integrity(date)],
+      configReceipts: [
+        config(date, "campaign", {
+          rowId: "older-valid-config",
+          objective: "OUTCOME_ENGAGEMENT",
+          optimizationGoal: "POST_ENGAGEMENT",
+          capturedAt: `${date}T01:00:00.000Z`,
+          createdAt: `${date}T02:40:01.000Z`,
+        }),
+        config(date, "campaign", {
+          rowId: "latest-unproved-config",
+          objective: "OUTCOME_ENGAGEMENT",
+          optimizationGoal: "POST_ENGAGEMENT",
+          capturedAt: `${date}T02:00:00.000Z`,
+          createdAt: `${date}T02:41:00.000Z`,
+          sourceSnapshotId: "unselected-source",
+        }),
+      ],
+      startDate: date,
+      endDate: date,
+      generatedAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    expect(report.summary.campaignConfigCoveredRows).toBe(0);
+    expect(report.summary.unsupportedObjectiveResolvedRows).toBe(0);
+    expect(report.manifests[0]?.manifest.configProvenance).toEqual([]);
   });
 
   it("builds only exact_raw_pit manifests and keeps current dimensions/restated rows at zero", () => {

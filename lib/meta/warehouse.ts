@@ -8388,7 +8388,9 @@ export async function replaceMetaAdDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaAdDailyRows(input.rows);
+    await upsertMetaAdDailyRows(input.rows, {
+      writeMode: "authoritative_fact",
+    });
     const adIds = input.rows.map((row) => row.adId);
     await sql`
       DELETE FROM meta_ad_daily
@@ -9102,10 +9104,67 @@ async function upsertMetaCreativeDimensionRows(
   }
 }
 
-export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
+export interface MetaAdDailyWriteOptions {
+  writeMode: "authoritative_fact";
+}
+
+export async function upsertMetaAdDailyRows(
+  rows: MetaAdDailyRow[],
+  options: MetaAdDailyWriteOptions,
+) {
+  if (options?.writeMode !== "authoritative_fact") {
+    throw new Error(
+      `Unsupported Meta Ad daily write mode: ${String(options?.writeMode)}`,
+    );
+  }
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
+
   const sql = getDb();
+  const conflictAssignments = `
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_daily.provider_account_ref_id),
+        campaign_id = EXCLUDED.campaign_id,
+        adset_id = EXCLUDED.adset_id,
+        ad_name_current = EXCLUDED.ad_name_current,
+        ad_name_historical = EXCLUDED.ad_name_historical,
+        ad_status = EXCLUDED.ad_status,
+        destination_url = COALESCE(EXCLUDED.destination_url, meta_ad_daily.destination_url),
+        destination_url_raw = COALESCE(EXCLUDED.destination_url_raw, meta_ad_daily.destination_url_raw),
+        destination_url_source = COALESCE(EXCLUDED.destination_url_source, meta_ad_daily.destination_url_source),
+        destination_url_confidence = COALESCE(EXCLUDED.destination_url_confidence, meta_ad_daily.destination_url_confidence),
+        cta_type = COALESCE(EXCLUDED.cta_type, meta_ad_daily.cta_type),
+        object_story_id = COALESCE(EXCLUDED.object_story_id, meta_ad_daily.object_story_id),
+        effective_object_story_id = COALESCE(EXCLUDED.effective_object_story_id, meta_ad_daily.effective_object_story_id),
+        account_timezone = EXCLUDED.account_timezone,
+        account_currency = EXCLUDED.account_currency,
+        spend = EXCLUDED.spend,
+        impressions = EXCLUDED.impressions,
+        clicks = EXCLUDED.clicks,
+        reach = EXCLUDED.reach,
+        frequency = EXCLUDED.frequency,
+        conversions = EXCLUDED.conversions,
+        revenue = EXCLUDED.revenue,
+        roas = EXCLUDED.roas,
+        cpa = EXCLUDED.cpa,
+        ctr = EXCLUDED.ctr,
+        cpc = EXCLUDED.cpc,
+        link_clicks = COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks),
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        truth_state = EXCLUDED.truth_state,
+        truth_version = CASE
+          WHEN meta_ad_daily.truth_state = EXCLUDED.truth_state
+            AND COALESCE(meta_ad_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
+            THEN GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
+          ELSE GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
+        END,
+        finalized_at = EXCLUDED.finalized_at,
+        validation_status = EXCLUDED.validation_status,
+        source_run_id = COALESCE(EXCLUDED.source_run_id, meta_ad_daily.source_run_id),
+        metric_schema_version = EXCLUDED.metric_schema_version,
+        payload_json = EXCLUDED.payload_json,
+        updated_at = now()
+      `;
   for (const chunk of chunkRows(rows, 150)) {
     const referenceContext = await resolveMetaChunkReferenceContext(
       chunk.map((row) => ({
@@ -9159,7 +9218,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.validationStatus ?? "passed",
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
-          JSON.stringify(row.payloadJson ?? null)
+          JSON.stringify(stripMetaCreativeMediaPayload(row.payloadJson ?? null)),
         );
         return buildSqlValueTuple(offset, 40, { 40: "::jsonb" });
       })
@@ -9211,48 +9270,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET
-        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_daily.business_ref_id),
-        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_daily.provider_account_ref_id),
-        campaign_id = EXCLUDED.campaign_id,
-        adset_id = EXCLUDED.adset_id,
-        ad_name_current = EXCLUDED.ad_name_current,
-        ad_name_historical = EXCLUDED.ad_name_historical,
-        ad_status = EXCLUDED.ad_status,
-        destination_url = COALESCE(EXCLUDED.destination_url, meta_ad_daily.destination_url),
-        destination_url_raw = COALESCE(EXCLUDED.destination_url_raw, meta_ad_daily.destination_url_raw),
-        destination_url_source = COALESCE(EXCLUDED.destination_url_source, meta_ad_daily.destination_url_source),
-        destination_url_confidence = COALESCE(EXCLUDED.destination_url_confidence, meta_ad_daily.destination_url_confidence),
-        cta_type = COALESCE(EXCLUDED.cta_type, meta_ad_daily.cta_type),
-        object_story_id = COALESCE(EXCLUDED.object_story_id, meta_ad_daily.object_story_id),
-        effective_object_story_id = COALESCE(EXCLUDED.effective_object_story_id, meta_ad_daily.effective_object_story_id),
-        account_timezone = EXCLUDED.account_timezone,
-        account_currency = EXCLUDED.account_currency,
-        spend = EXCLUDED.spend,
-        impressions = EXCLUDED.impressions,
-        clicks = EXCLUDED.clicks,
-        reach = EXCLUDED.reach,
-        frequency = EXCLUDED.frequency,
-        conversions = EXCLUDED.conversions,
-        revenue = EXCLUDED.revenue,
-        roas = EXCLUDED.roas,
-        cpa = EXCLUDED.cpa,
-        ctr = EXCLUDED.ctr,
-        cpc = EXCLUDED.cpc,
-        link_clicks = COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks),
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        truth_state = EXCLUDED.truth_state,
-        truth_version = CASE
-          WHEN meta_ad_daily.truth_state = EXCLUDED.truth_state
-            AND COALESCE(meta_ad_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
-            THEN GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
-          ELSE GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
-        END,
-        finalized_at = EXCLUDED.finalized_at,
-        validation_status = EXCLUDED.validation_status,
-        source_run_id = COALESCE(EXCLUDED.source_run_id, meta_ad_daily.source_run_id),
-        metric_schema_version = EXCLUDED.metric_schema_version,
-        payload_json = EXCLUDED.payload_json,
-        updated_at = now()
+        ${conflictAssignments}
     `,
       values
     );

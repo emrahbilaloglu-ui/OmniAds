@@ -302,6 +302,42 @@ describe("Decision basis section", () => {
     expect(html).toContain("observed 120 - threshold 300");
   });
 
+  it("hides every decision-origin Launchpad control for a held canonical card", () => {
+    const html = renderDrawer(
+      <CreativeEvidenceDrawer
+        open
+        card={card({
+          label: "test_more",
+          blockedActionType: "cut",
+          primary: { kind: "review", label: "Await recent evidence" },
+          canonicalDecision: {
+            classification: {
+              decisionState: "blocked",
+              buyerAction: null,
+              buyerLabel: "Cut pending",
+              executionAction: null,
+              heldAction: "cut",
+            },
+            sourceAuthority: {
+              status: "native_exact",
+              actionEligible: false,
+              authorizedAction: null,
+            },
+          } as never,
+        })}
+        {...noopProps}
+      />,
+    );
+
+    expect(html).not.toContain("Add to existing");
+    expect(html).not.toContain("lucide-test-tube-2");
+    expect(html).not.toContain('class="btn btn--primary"');
+    expect(html).not.toContain(">Fresh test<");
+    expect(html).not.toContain(">Test More<");
+    expect(html).toContain("Cut pending");
+    expect(html).toContain("Defer");
+  });
+
   it("renders the server-supplied pre-authority verdict and first blocker without deriving action", () => {
     const html = renderDrawer(
       <CreativeEvidenceDrawer

@@ -339,9 +339,7 @@ describe("meta creatives warehouse", () => {
       assignedAccountIds: ["act_1"],
     });
 
-    expect(warehouse.upsertMetaAdDailyRows).toHaveBeenCalledWith([
-      expect.objectContaining({ accountCurrency: "TRY" }),
-    ]);
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledWith([
       expect.objectContaining({ accountCurrency: "TRY" }),
     ]);
@@ -404,21 +402,7 @@ describe("meta creatives warehouse", () => {
         }),
       ]),
     );
-    const adRows = vi.mocked(warehouse.upsertMetaAdDailyRows).mock.calls[0]?.[0] ?? [];
-    expect(adRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adId: "ad-1",
-          destinationUrl: "https://iwastore.com/products/lp",
-          destinationUrlRaw: "https://iwastore.com/products/lp?utm_source=meta",
-          destinationUrlSource: "creative_link_data",
-          destinationUrlConfidence: "high",
-          ctaType: "SHOP_NOW",
-          objectStoryId: "123_456",
-          effectiveObjectStoryId: "123_789",
-        }),
-      ]),
-    );
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
     const creativeRows =
       vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]?.[0] ?? [];
     expect(creativeRows).toHaveLength(1);

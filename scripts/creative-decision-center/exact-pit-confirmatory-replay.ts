@@ -59,7 +59,12 @@ export interface ExactConfigReceipt {
   sourceKind: string;
   sourceSnapshotId: string | null;
   capturedAt: string;
+  createdAt: string;
   effectiveFrom: string | null;
+  sourceSnapshotBusinessId: string | null;
+  sourceSnapshotProviderAccountId: string | null;
+  sourceSnapshotFetchedAt: string | null;
+  sourceSnapshotCreatedAt: string | null;
   conflictingAtLatestCapture: boolean;
 }
 
@@ -576,7 +581,12 @@ type ConfigDbRow = Record<string, unknown> & {
   source_kind: unknown;
   source_snapshot_id: unknown;
   captured_at: unknown;
+  config_created_at: unknown;
   effective_from: unknown;
+  source_business_id: unknown;
+  source_provider_account_id: unknown;
+  source_fetched_at: unknown;
+  source_created_at: unknown;
 };
 
 type TargetDbRow = Record<string, unknown> & {
@@ -1490,7 +1500,7 @@ function normalizeObservation(
   };
 }
 
-function latestConfigByKey(receipts: ExactConfigReceipt[]) {
+function configCandidatesByKey(receipts: ExactConfigReceipt[]) {
   const byKeyAndType = new Map<string, ExactConfigReceipt[]>();
   for (const receipt of receipts) {
     const key = `${receipt.key}::${receipt.entityType}`;
@@ -1505,9 +1515,84 @@ function latestConfigByKey(receipts: ExactConfigReceipt[]) {
         (left, right) =>
           right.capturedAt.localeCompare(left.capturedAt) ||
           right.rowId.localeCompare(left.rowId),
-      )[0] as ExactConfigReceipt,
+      ),
     ]),
   );
+}
+
+function timestampAtOrBeforeCutoff(value: string | null, cutoff: string) {
+  const normalized = isoTimestamp(value);
+  return normalized !== null && normalized <= cutoff;
+}
+
+function exactConfigAtCutoff(input: {
+  candidates: ExactConfigReceipt[];
+  entityType: "campaign" | "adset";
+  cutoff: string;
+  businessId: string;
+  providerAccountId: string;
+  campaignId: string;
+  adsetId: string;
+  selectedGeneration: NonNullable<IntegrityScope["selectedGeneration"]>;
+}) {
+  const candidatesThatCouldExist = input.candidates.filter((receipt) => {
+    const createdAt = isoTimestamp(receipt.createdAt);
+    return (
+      timestampAtOrBeforeCutoff(receipt.capturedAt, input.cutoff) &&
+      (createdAt === null || createdAt <= input.cutoff)
+    );
+  });
+  const latest = candidatesThatCouldExist[0] ?? null;
+  if (!latest) return null;
+
+  const expectedEntityId =
+    input.entityType === "campaign" ? input.campaignId : input.adsetId;
+  const sourceSnapshotId = latest.sourceSnapshotId;
+  const configCreatedAt = isoTimestamp(latest.createdAt);
+  const sourceFetchedAt = isoTimestamp(latest.sourceSnapshotFetchedAt);
+  const sourceCreatedAt = isoTimestamp(latest.sourceSnapshotCreatedAt);
+  const sourceIdentityMatches =
+    latest.sourceSnapshotBusinessId === input.businessId &&
+    latest.sourceSnapshotProviderAccountId === input.providerAccountId;
+  const receiptIdentityMatches =
+    latest.entityType === input.entityType &&
+    latest.businessId === input.businessId &&
+    latest.providerAccountId === input.providerAccountId &&
+    latest.entityId === expectedEntityId &&
+    (latest.campaignId === null || latest.campaignId === input.campaignId);
+  const sourceIsSelectedExactGeneration =
+    sourceSnapshotId !== null &&
+    input.selectedGeneration.reconstructable &&
+    input.selectedGeneration.conflictFree &&
+    input.selectedGeneration.snapshotIds.includes(sourceSnapshotId);
+  const sourcePredatesReceipt =
+    configCreatedAt !== null &&
+    sourceFetchedAt !== null &&
+    sourceCreatedAt !== null &&
+    sourceFetchedAt <= configCreatedAt &&
+    sourceCreatedAt <= configCreatedAt;
+
+  if (
+    latest.conflictingAtLatestCapture ||
+    !timestampAtOrBeforeCutoff(latest.createdAt, input.cutoff) ||
+    !sourceSnapshotId ||
+    !receiptIdentityMatches ||
+    !sourceIdentityMatches ||
+    !timestampAtOrBeforeCutoff(
+      latest.sourceSnapshotFetchedAt,
+      input.cutoff,
+    ) ||
+    !timestampAtOrBeforeCutoff(
+      latest.sourceSnapshotCreatedAt,
+      input.cutoff,
+    ) ||
+    !sourcePredatesReceipt ||
+    !sourceIsSelectedExactGeneration
+  ) {
+    return null;
+  }
+
+  return latest;
 }
 
 function targetForCutoff(
@@ -2113,7 +2198,7 @@ export function buildExactPitConfirmatoryReport(input: {
   const configReceipts = input.configReceipts ?? [];
   const targetCandidates = input.targetCandidates ?? [];
   const baselineRows = input.baselineRows ?? [];
-  const configByKey = latestConfigByKey(configReceipts);
+  const configCandidates = configCandidatesByKey(configReceipts);
   const legacyOutputHashesByCreative =
     buildLegacyCreativeOutputLookup(baselineRows);
   const reports = [...input.integrityReports].sort((left, right) =>
@@ -2210,9 +2295,26 @@ export function buildExactPitConfirmatoryReport(input: {
           campaignId: evidence.campaignId,
           adsetId: evidence.adsetId,
         });
-        const campaignConfig =
-          configByKey.get(`${lookupKey}::campaign`) ?? null;
-        const adsetConfig = configByKey.get(`${lookupKey}::adset`) ?? null;
+        const campaignConfig = exactConfigAtCutoff({
+          candidates: configCandidates.get(`${lookupKey}::campaign`) ?? [],
+          entityType: "campaign",
+          cutoff: report.input.cutoff,
+          businessId: scope.businessId,
+          providerAccountId: scope.providerAccountId,
+          campaignId: evidence.campaignId,
+          adsetId: evidence.adsetId,
+          selectedGeneration,
+        });
+        const adsetConfig = exactConfigAtCutoff({
+          candidates: configCandidates.get(`${lookupKey}::adset`) ?? [],
+          entityType: "adset",
+          cutoff: report.input.cutoff,
+          businessId: scope.businessId,
+          providerAccountId: scope.providerAccountId,
+          campaignId: evidence.campaignId,
+          adsetId: evidence.adsetId,
+          selectedGeneration,
+        });
         const campaignStatus =
           campaignStatusByKey.get(
             campaignStatusReceiptKey({
@@ -2912,7 +3014,7 @@ export function buildExactPitConfirmatoryReport(input: {
     ],
     caveats: [
       "Exact scope coverage uses only scopes observed in meta_raw_snapshots; it is not an account-inventory denominator.",
-      "Config-history and target-pack receipts are cutoff-safe bitemporal provenance, not raw insight metrics.",
+      "Config-history is accepted as exact provenance only when the config row existed by cutoff and its cutoff-safe raw source belongs to the selected complete, conflict-free generation; an invalid latest capture never falls back to an older config. Target-pack receipts are cutoff-safe bitemporal provenance, not raw insight metrics.",
       "A current business_target_packs row is used only when its recorded update predates the cutoff; pre-update values are never projected backward.",
       "Rolling window receipts use exact_raw_pit source generations only. A source-day generation fetched after that source date is valid only when it is latest, complete, conflict-free, and at or before the later decision cutoff.",
       "Campaign-status receipts require both fetched_at and created_at at or before the decision cutoff. The latest observed captured generation wins; an incomplete or conflicting latest generation never falls back to an older capture.",
@@ -3020,7 +3122,17 @@ function configReceiptFromRows(rows: ConfigDbRow[]) {
       sourceKind: requiredText(latest.source_kind, "source_kind"),
       sourceSnapshotId: optionalText(latest.source_snapshot_id),
       capturedAt: latestCapturedAt,
+      createdAt: requiredTimestamp(
+        latest.config_created_at,
+        "config_created_at",
+      ),
       effectiveFrom: optionalText(latest.effective_from)?.slice(0, 10) ?? null,
+      sourceSnapshotBusinessId: optionalText(latest.source_business_id),
+      sourceSnapshotProviderAccountId: optionalText(
+        latest.source_provider_account_id,
+      ),
+      sourceSnapshotFetchedAt: isoTimestamp(latest.source_fetched_at),
+      sourceSnapshotCreatedAt: isoTimestamp(latest.source_created_at),
       conflictingAtLatestCapture: latestFingerprints.size > 1,
     });
   }
@@ -3395,31 +3507,15 @@ async function readRawEndpointInventory(args: ParsedExactPitArgs) {
   }
 }
 
-async function readConfigReceipts(keys: ConfigLookupKey[]) {
-  if (keys.length === 0) return [];
-  const [{ getDb, resetDbClientCache, runDbTransaction }, operational] =
-    await Promise.all([
-      import("@/lib/db"),
-      import("@/scripts/_operational-runtime"),
-    ]);
-  operational.configureOperationalScriptRuntime({
-    lane: "read_only_observation",
-  });
-  const payload = keys.map((key) => ({
-    key: key.key,
-    cutoff: key.cutoff,
-    business_id: key.businessId,
-    provider_account_id: key.providerAccountId,
-    campaign_id: key.campaignId,
-    adset_id: key.adsetId,
-  }));
-  const queryFor = (entityType: "campaign" | "adset") => {
-    const table =
-      entityType === "campaign"
-        ? "meta_campaign_config_history"
-        : "meta_adset_config_history";
-    const idColumn = entityType === "campaign" ? "campaign_id" : "adset_id";
-    return `
+export function buildExactConfigReceiptQuery(
+  entityType: "campaign" | "adset",
+) {
+  const table =
+    entityType === "campaign"
+      ? "meta_campaign_config_history"
+      : "meta_adset_config_history";
+  const idColumn = entityType === "campaign" ? "campaign_id" : "adset_id";
+  return `
       WITH keys AS (
         SELECT *
         FROM jsonb_to_recordset($1::jsonb) AS row(
@@ -3445,7 +3541,12 @@ async function readConfigReceipts(keys: ConfigLookupKey[]) {
         config.source_kind,
         config.source_snapshot_id::text,
         config.captured_at,
-        config.effective_from::text AS effective_from
+        config.created_at AS config_created_at,
+        config.effective_from::text AS effective_from,
+        raw_source.business_id AS source_business_id,
+        raw_source.provider_account_id AS source_provider_account_id,
+        raw_source.fetched_at AS source_fetched_at,
+        raw_source.created_at AS source_created_at
       FROM keys
       LEFT JOIN LATERAL (
         SELECT *
@@ -3454,12 +3555,42 @@ async function readConfigReceipts(keys: ConfigLookupKey[]) {
           AND config.provider_account_id = keys.provider_account_id
           AND config.${idColumn} = keys.${idColumn}
           AND config.captured_at <= keys.cutoff
+          AND config.created_at <= keys.cutoff
+          AND config.captured_at = (
+            SELECT MAX(latest.captured_at)
+            FROM ${table} latest
+            WHERE latest.business_id = keys.business_id
+              AND latest.provider_account_id = keys.provider_account_id
+              AND latest.${idColumn} = keys.${idColumn}
+              AND latest.captured_at <= keys.cutoff
+              AND latest.created_at <= keys.cutoff
+          )
         ORDER BY config.captured_at DESC, config.id DESC
-        LIMIT 2
       ) config ON TRUE
+      LEFT JOIN meta_raw_snapshots raw_source
+        ON raw_source.id = config.source_snapshot_id
       ORDER BY keys.key, config.captured_at DESC, config.id DESC
     `;
-  };
+}
+
+async function readConfigReceipts(keys: ConfigLookupKey[]) {
+  if (keys.length === 0) return [];
+  const [{ getDb, resetDbClientCache, runDbTransaction }, operational] =
+    await Promise.all([
+      import("@/lib/db"),
+      import("@/scripts/_operational-runtime"),
+    ]);
+  operational.configureOperationalScriptRuntime({
+    lane: "read_only_observation",
+  });
+  const payload = keys.map((key) => ({
+    key: key.key,
+    cutoff: key.cutoff,
+    business_id: key.businessId,
+    provider_account_id: key.providerAccountId,
+    campaign_id: key.campaignId,
+    adset_id: key.adsetId,
+  }));
   try {
     const rows = await operational.withOperationalStartupLogsSilenced(
       async () =>
@@ -3468,10 +3599,10 @@ async function readConfigReceipts(keys: ConfigLookupKey[]) {
             const sql = getDb();
             await sql.query("SET TRANSACTION READ ONLY");
             const [campaignRows, adsetRows] = await Promise.all([
-              sql.query<ConfigDbRow>(queryFor("campaign"), [
+              sql.query<ConfigDbRow>(buildExactConfigReceiptQuery("campaign"), [
                 JSON.stringify(payload),
               ]),
-              sql.query<ConfigDbRow>(queryFor("adset"), [
+              sql.query<ConfigDbRow>(buildExactConfigReceiptQuery("adset"), [
                 JSON.stringify(payload),
               ]),
             ]);

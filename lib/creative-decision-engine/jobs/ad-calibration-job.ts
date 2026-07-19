@@ -2,10 +2,12 @@ import {
   resolveMetaFunnelCohort,
   type MetaFunnelCohort,
 } from "@/lib/meta/funnel-cohort";
+import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
 import { canonicalSha256 } from "../canonical-evaluation";
 import {
   MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+  NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR,
   SAMPLE_WINDOW_DAYS,
 } from "../config-values";
 import { resolveEngineV3Flags, type EngineV3Flags } from "../feature-flags";
@@ -25,13 +27,57 @@ export const NATIVE_AD_CALIBRATION_TABLE =
 export const NATIVE_AD_CALIBRATION_BATCH_TABLE =
   "engine_v3_ad_account_calibration_batches" as const;
 export const NATIVE_AD_CALIBRATION_CONTRACT_VERSION =
-  "engine-v3-native-ad-calibration.v2" as const;
+  "engine-v3-native-ad-calibration.v3" as const;
 export const NATIVE_AD_CALIBRATION_POLICY_VERSION =
   `retained-account-calibration.${NATIVE_AD_ENGINE_VERSION}` as const;
 export const NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT = "*" as const;
 export const NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR = 20;
+export { NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR } from "../config-values";
 export const AD_CALIBRATION_JOB_NAME =
   "engine_v3_native_ad_calibration_shadow_job" as const;
+
+export interface NativeAdCalibrationCurrencyAdmission {
+  contractVersion: "engine-v3-native-ad-currency-admission.v1";
+  status: "ready" | "blocked" | "unavailable";
+  keyBasis: "immutable_source" | "bound_provider_fallback" | null;
+  accountCurrency: string | null;
+  reason:
+    | "source_currency_unavailable"
+    | "source_currency_missing"
+    | "resolved_currency_missing"
+    | "resolved_source_currency_mismatch"
+    | "mixed_source_currency"
+    | null;
+  candidateRowCount: number;
+  admittedRowCount: number;
+  anomalyRowCount: number;
+  sourceCurrencyMissingRowCount: number;
+  resolvedCurrencyMissingRowCount: number;
+  resolvedSourceMismatchRowCount: number;
+  distinctSourceCurrencyCount: number;
+  distinctResolvedCurrencyCount: number;
+  manifestHash: string;
+}
+
+export interface NativeAdCalibrationTimezoneAdmission {
+  contractVersion: "engine-v3-native-ad-timezone-admission.v1";
+  status: "ready" | "blocked" | "unavailable";
+  keyBasis: "immutable_latest_source_date" | null;
+  accountTimezone: string | null;
+  reason:
+    | "source_timezone_unavailable"
+    | "latest_source_timezone_missing"
+    | "mixed_latest_source_timezone"
+    | null;
+  candidateRowCount: number;
+  latestSourceDate: string | null;
+  latestSourceRowCount: number;
+  admittedRowCount: number;
+  anomalyRowCount: number;
+  sourceTimezoneMissingRowCount: number;
+  distinctSourceTimezoneCount: number;
+  manifestHash: string;
+}
 
 export interface NativeAdCalibrationSourceProvenance {
   mode: "current_transaction_snapshot";
@@ -39,6 +85,8 @@ export interface NativeAdCalibrationSourceProvenance {
   providerAccountId: string;
   transactionCutoff: string;
   transactionIsolation: "repeatable read";
+  currencyAdmission: NativeAdCalibrationCurrencyAdmission;
+  timezoneAdmission: NativeAdCalibrationTimezoneAdmission;
 }
 
 export type NativeAdCalibrationAction = "scale" | "cut" | "refresh";
@@ -48,6 +96,7 @@ export type NativeAdCalibrationActionBlockReason =
   | "unsupported_cohort"
   | "target_roas_authority_missing"
   | "break_even_roas_authority_missing"
+  | "commercial_spend_unit_authority_missing"
   | "scale_calibration_sample_low"
   | "scale_winner_benchmark_missing"
   | "cut_calibration_sample_low"
@@ -55,7 +104,54 @@ export type NativeAdCalibrationActionBlockReason =
 
 export type NativeAdCalibrationActionAuthorityBasis =
   | "calibrated_relative"
+  | "calibrated_relative_with_economic_stop_loss"
   | "commercial_stop_loss";
+
+export type NativeAdAccountAovEvidenceStatus =
+  | "ready"
+  | "insufficient_sample"
+  | "contradictory_purchase_truth"
+  | "unavailable";
+
+export interface NativeAdAccountAovEvidence {
+  status: NativeAdAccountAovEvidenceStatus;
+  scope: "business_provider_account_currency";
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  accountCurrency: string | null;
+  sampleWindowStart: string;
+  sampleWindowEnd: string;
+  asOfCutoff: string;
+  observedPurchaseCount: number;
+  requiredPurchaseCount: number;
+  revenueBackedRowCount: number;
+  canonicalRowCount: number;
+  contradictoryRowCount: number;
+  legacySchemaRowCount: number;
+  unsupportedSchemaRowCount: number;
+  totalRevenue: number;
+  meanAov: number | null;
+  evidenceHash: string;
+}
+
+export type NativeAdSpendUnitAuthorityBasis =
+  "target_cpa" | "operator_aov" | "physical_account_purchase_aov_90d";
+
+export interface NativeAdSpendUnitAuthority {
+  contractVersion: "engine-v3-native-ad-spend-unit-authority.v1";
+  status: "ready" | "blocked";
+  basis: NativeAdSpendUnitAuthorityBasis | null;
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  accountCurrency: string | null;
+  asOfCutoff: string;
+  targetAuthorityHash: string;
+  baseSpendUnit: number | null;
+  accountAovEvidence: NativeAdAccountAovEvidence;
+  authorityHash: string;
+}
 
 export interface NativeAdCalibrationActionReadinessEntry {
   ready: boolean;
@@ -68,7 +164,9 @@ export interface NativeAdCalibrationActionReadinessEntry {
 export type NativeAdCalibrationActionReadiness = Record<
   NativeAdCalibrationAction,
   NativeAdCalibrationActionReadinessEntry
->;
+> & {
+  spendUnitAuthority: NativeAdSpendUnitAuthority;
+};
 
 export type NativeAdCalibrationCellScope =
   "objective_cohort_context" | "account_objective_cohort";
@@ -141,6 +239,9 @@ export interface NativeAdCalibrationSourceRow {
   adId: string;
   accountTimezone: string | null;
   accountCurrency: string | null;
+  sourceAccountTimezone: string | null;
+  sourceAccountCurrency: string | null;
+  metricSchemaVersion: number;
   objective: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
@@ -231,6 +332,8 @@ export interface NativeAdCalibrationQualityCounts {
   mixedCurrencyAdExclusionCount: number;
   mixedObjectiveAdExclusionCount: number;
   mixedCohortAdExclusionCount: number;
+  peerTruthFinalizedAtMissingSourceRowCount: number;
+  peerTruthFinalizedAtMissingAdCount: number;
   censoredSourceRowExclusionCount: number;
   censoredAdExclusionCount: number;
   freshnessSourceRowExclusionCount: number;
@@ -317,6 +420,7 @@ export interface NativeAdCalibrationBatch {
   sampleWindowDays: number;
   computedAt: string;
   targetAuthority: ResolvedNativeAdTargetAuthority;
+  spendUnitAuthority: NativeAdSpendUnitAuthority;
   observations: NativeAdCalibrationObservation[];
   qualityCounts: NativeAdCalibrationQualityCounts;
   generationContentHash: string;
@@ -374,6 +478,8 @@ export interface NativeAdCalibrationJobBatchResult {
   inputManifestHash: string;
   sourceManifestHash: string;
   cellSetHash: string;
+  currencyAdmission: NativeAdCalibrationCurrencyAdmission;
+  timezoneAdmission: NativeAdCalibrationTimezoneAdmission;
 }
 
 export interface NativeAdCalibrationReplacementResult {
@@ -423,14 +529,14 @@ SELECT
   d.campaign_id,
   d.adset_id,
   d.ad_id,
+  NULLIF(BTRIM(d.account_timezone), '') AS account_timezone,
   COALESCE(
-    NULLIF(BTRIM(account.timezone), ''),
-    NULLIF(BTRIM(d.account_timezone), '')
-  ) AS account_timezone,
-  COALESCE(
-    NULLIF(BTRIM(account.currency), ''),
-    NULLIF(BTRIM(d.account_currency), '')
+    NULLIF(BTRIM(d.account_currency), ''),
+    NULLIF(BTRIM(account.currency), '')
   ) AS account_currency,
+  NULLIF(BTRIM(d.account_timezone), '') AS source_account_timezone,
+  NULLIF(BTRIM(d.account_currency), '') AS source_account_currency,
+  d.metric_schema_version,
   campaign.objective,
   COALESCE(adset.optimization_goal, campaign.optimization_goal) AS optimization_goal,
   COALESCE(adset.custom_event_type, campaign.custom_event_type) AS custom_event_type,
@@ -1185,6 +1291,9 @@ interface NormalizedSourceRow extends NativeAdCalibrationSourceRow {
   adId: string;
   accountTimezone: string | null;
   accountCurrency: string | null;
+  sourceAccountTimezone: string | null;
+  sourceAccountCurrency: string | null;
+  metricSchemaVersion: number;
   objective: string | null;
   optimizationGoal: string | null;
   customEventType: string | null;
@@ -1201,6 +1310,11 @@ interface ObservationBuildResult {
   observations: NativeAdCalibrationObservation[];
   qualityCounts: NativeAdCalibrationQualityCounts;
   eligibleSourceRows: NormalizedSourceRow[];
+}
+
+interface NativeAdSpendUnitAuthorityBuild {
+  authority: NativeAdSpendUnitAuthority;
+  manifestRows: NormalizedSourceRow[];
 }
 
 export function resolveNativeAdCalibrationDate(asOf: string): {
@@ -1274,6 +1388,239 @@ function assertNativeAdSourceBindings(input: {
   }
 }
 
+interface NativeAdCalibrationAdmissionInput {
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  sampleWindowStart: string;
+  sampleWindowEnd: string;
+  asOfCutoff: string;
+  rows: NormalizedSourceRow[];
+}
+
+function nativeAdCalibrationAdmissionCandidateRows(
+  input: NativeAdCalibrationAdmissionInput,
+) {
+  return input.rows
+    .filter(
+      (row) =>
+        row.date >= input.sampleWindowStart &&
+        row.date <= input.sampleWindowEnd &&
+        hasFinalizedAdFact(row) &&
+        isAdFactAvailableAtCutoff(row, input.asOfCutoff),
+    )
+    .sort((left, right) =>
+      sourceManifestEntry(left).sortKey.localeCompare(
+        sourceManifestEntry(right).sortKey,
+      ),
+    );
+}
+
+function resolveNativeAdCalibrationCurrencyAdmission(
+  input: NativeAdCalibrationAdmissionInput,
+): NativeAdCalibrationCurrencyAdmission {
+  const candidateRows = nativeAdCalibrationAdmissionCandidateRows(input);
+  const sourceCurrencies = new Set(
+    candidateRows
+      .map((row) => row.sourceAccountCurrency)
+      .filter((value): value is string => value !== null),
+  );
+  const resolvedCurrencies = new Set(
+    candidateRows
+      .map((row) => row.accountCurrency)
+      .filter((value): value is string => value !== null),
+  );
+  const sourceCurrencyMissingRowCount = candidateRows.filter(
+    (row) => row.sourceAccountCurrency === null,
+  ).length;
+  const resolvedCurrencyMissingRowCount = candidateRows.filter(
+    (row) => row.accountCurrency === null,
+  ).length;
+  const resolvedSourceMismatchRowCount = candidateRows.filter(
+    (row) =>
+      row.sourceAccountCurrency !== null &&
+      row.accountCurrency !== row.sourceAccountCurrency,
+  ).length;
+  const mixedCurrency =
+    sourceCurrencies.size > 1 || resolvedCurrencies.size > 1;
+  const accountCurrency =
+    sourceCurrencies.size === 1
+      ? ([...sourceCurrencies][0] ?? null)
+      : sourceCurrencies.size === 0 && resolvedCurrencies.size === 1
+        ? ([...resolvedCurrencies][0] ?? null)
+        : null;
+  const keyBasis =
+    sourceCurrencies.size === 1
+      ? ("immutable_source" as const)
+      : sourceCurrencies.size === 0 && resolvedCurrencies.size === 1
+        ? ("bound_provider_fallback" as const)
+        : null;
+
+  let status: NativeAdCalibrationCurrencyAdmission["status"];
+  let reason: NativeAdCalibrationCurrencyAdmission["reason"];
+  if (candidateRows.length === 0) {
+    status = "unavailable";
+    reason = "source_currency_unavailable";
+  } else if (resolvedCurrencyMissingRowCount > 0) {
+    status = "blocked";
+    reason = "resolved_currency_missing";
+  } else if (resolvedSourceMismatchRowCount > 0) {
+    status = "blocked";
+    reason = "resolved_source_currency_mismatch";
+  } else if (mixedCurrency) {
+    status = "blocked";
+    reason = "mixed_source_currency";
+  } else if (sourceCurrencyMissingRowCount > 0) {
+    status = "blocked";
+    reason = "source_currency_missing";
+  } else {
+    status = "ready";
+    reason = null;
+  }
+  const anomalyRowCount =
+    status === "ready" || status === "unavailable"
+      ? 0
+      : mixedCurrency
+        ? candidateRows.length
+        : candidateRows.filter(
+            (row) =>
+              row.sourceAccountCurrency === null ||
+              row.accountCurrency === null ||
+              row.accountCurrency !== row.sourceAccountCurrency,
+          ).length;
+  const manifestHash = canonicalSha256({
+    contractVersion: "engine-v3-native-ad-currency-admission.v1",
+    businessId: input.businessId,
+    providerAccountRefId: input.providerAccountRefId,
+    providerAccountId: input.providerAccountId,
+    sampleWindowStart: input.sampleWindowStart,
+    sampleWindowEnd: input.sampleWindowEnd,
+    asOfCutoff: input.asOfCutoff,
+    rows: candidateRows.map((row) => ({
+      sourceRowId: row.sourceRowId,
+      adId: row.adId,
+      date: row.date,
+      accountCurrency: row.accountCurrency,
+      sourceAccountCurrency: row.sourceAccountCurrency,
+      truthState: row.truthState,
+      validationStatus: row.validationStatus,
+      finalizedAt: row.finalizedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })),
+  });
+  return {
+    contractVersion: "engine-v3-native-ad-currency-admission.v1",
+    status,
+    keyBasis,
+    accountCurrency,
+    reason,
+    candidateRowCount: candidateRows.length,
+    admittedRowCount: status === "ready" ? candidateRows.length : 0,
+    anomalyRowCount,
+    sourceCurrencyMissingRowCount,
+    resolvedCurrencyMissingRowCount,
+    resolvedSourceMismatchRowCount,
+    distinctSourceCurrencyCount: sourceCurrencies.size,
+    distinctResolvedCurrencyCount: resolvedCurrencies.size,
+    manifestHash,
+  };
+}
+
+function resolveNativeAdCalibrationTimezoneAdmission(
+  input: NativeAdCalibrationAdmissionInput,
+): NativeAdCalibrationTimezoneAdmission {
+  const candidateRows = nativeAdCalibrationAdmissionCandidateRows(input);
+  const latestSourceDate = maxText(candidateRows.map((row) => row.date));
+  const latestSourceRows =
+    latestSourceDate === null
+      ? []
+      : candidateRows.filter((row) => row.date === latestSourceDate);
+  const sourceTimezones = new Set(
+    latestSourceRows
+      .map((row) => row.sourceAccountTimezone)
+      .filter((value): value is string => value !== null),
+  );
+  const sourceTimezoneMissingRowCount = latestSourceRows.filter(
+    (row) => row.sourceAccountTimezone === null,
+  ).length;
+  const mixedTimezone = sourceTimezones.size > 1;
+  const accountTimezone =
+    sourceTimezones.size === 1 ? ([...sourceTimezones][0] ?? null) : null;
+
+  let status: NativeAdCalibrationTimezoneAdmission["status"];
+  let reason: NativeAdCalibrationTimezoneAdmission["reason"];
+  if (candidateRows.length === 0) {
+    status = "unavailable";
+    reason = "source_timezone_unavailable";
+  } else if (sourceTimezoneMissingRowCount > 0) {
+    status = "blocked";
+    reason = "latest_source_timezone_missing";
+  } else if (mixedTimezone) {
+    status = "blocked";
+    reason = "mixed_latest_source_timezone";
+  } else {
+    status = "ready";
+    reason = null;
+  }
+  const anomalyRowCount =
+    status === "ready" || status === "unavailable"
+      ? 0
+      : mixedTimezone
+        ? latestSourceRows.length
+        : sourceTimezoneMissingRowCount;
+  const manifestHash = canonicalSha256({
+    contractVersion: "engine-v3-native-ad-timezone-admission.v1",
+    businessId: input.businessId,
+    providerAccountRefId: input.providerAccountRefId,
+    providerAccountId: input.providerAccountId,
+    sampleWindowStart: input.sampleWindowStart,
+    sampleWindowEnd: input.sampleWindowEnd,
+    asOfCutoff: input.asOfCutoff,
+    latestSourceDate,
+    rows: candidateRows.map((row) => ({
+      sourceRowId: row.sourceRowId,
+      adId: row.adId,
+      date: row.date,
+      sourceAccountTimezone: row.sourceAccountTimezone,
+      truthState: row.truthState,
+      validationStatus: row.validationStatus,
+      finalizedAt: row.finalizedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })),
+  });
+  return {
+    contractVersion: "engine-v3-native-ad-timezone-admission.v1",
+    status,
+    keyBasis:
+      status === "ready" ? "immutable_latest_source_date" : null,
+    accountTimezone,
+    reason,
+    candidateRowCount: candidateRows.length,
+    latestSourceDate,
+    latestSourceRowCount: latestSourceRows.length,
+    admittedRowCount: status === "ready" ? candidateRows.length : 0,
+    anomalyRowCount,
+    sourceTimezoneMissingRowCount,
+    distinctSourceTimezoneCount: sourceTimezones.size,
+    manifestHash,
+  };
+}
+
+function bindNativeAdCalibrationTimezone(
+  rows: NormalizedSourceRow[],
+  admission: NativeAdCalibrationTimezoneAdmission,
+): NormalizedSourceRow[] {
+  if (admission.status !== "ready" || admission.accountTimezone === null) {
+    return rows;
+  }
+  return rows.map((row) => ({
+    ...row,
+    accountTimezone: admission.accountTimezone,
+  }));
+}
+
 export function resolveNativeAdTargetAuthority(
   input: NativeAdTargetAuthorityInput | null,
   asOfCutoff: string,
@@ -1330,10 +1677,299 @@ export function resolveNativeAdTargetAuthority(
     // Age is audit provenance, not economic authority. A cutoff-safe upsert
     // remains authoritative until a later semantic upsert or delete replaces it.
     targetRoasAuthority: cutoffSafeStatus && positiveFinite(targetRoas),
-    breakEvenRoasAuthority:
-      cutoffSafeStatus && positiveFinite(breakEvenRoas),
+    breakEvenRoasAuthority: cutoffSafeStatus && positiveFinite(breakEvenRoas),
     authorityHash,
   };
+}
+
+export function recomputeNativeAdSpendUnitAuthorityHash(
+  authority: NativeAdSpendUnitAuthority,
+): string {
+  const { authorityHash: _authorityHash, ...content } = authority;
+  return canonicalSha256(content);
+}
+
+type NativeAdCalibrationCellInputManifestSource = Omit<
+  NativeAdCalibrationCell,
+  "inputManifestHash"
+>;
+
+function nativeAdCalibrationCellInputManifestContent(
+  cell: NativeAdCalibrationCellInputManifestSource,
+) {
+  const persistedTargetAuthority = {
+    status: cell.targetAuthority.status,
+    sourceRowId: null,
+    targetCpa: null,
+    targetRoas: cell.targetAuthority.targetRoas,
+    breakEvenCpa: null,
+    breakEvenRoas: cell.targetAuthority.breakEvenRoas,
+    operatorAovAssumption: null,
+    defaultRiskPosture: null,
+    effectiveAt: cell.targetAuthority.effectiveAt,
+    recordedAt: cell.targetAuthority.recordedAt,
+    targetRoasAuthority: cell.targetAuthority.targetRoasAuthority,
+    breakEvenRoasAuthority: cell.targetAuthority.breakEvenRoasAuthority,
+    authorityHash: cell.targetAuthority.authorityHash,
+  };
+  return {
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    policyVersion: cell.policyVersion,
+    engineVersion: cell.engineVersion,
+    key: cell.key,
+    asOfDate: cell.asOfDate,
+    asOfCutoff: cell.asOfCutoff,
+    sampleWindowStart: cell.sampleWindowStart,
+    sampleWindowEnd: cell.sampleWindowEnd,
+    sampleWindowDays: cell.sampleWindowDays,
+    computedAt: cell.computedAt,
+    qualityStatus: cell.qualityStatus,
+    sourceAdCount: cell.sourceAdCount,
+    sourceDayCount: cell.sourceDayCount,
+    eligibleAdCount: cell.eligibleAdCount,
+    matureAdCount: cell.matureAdCount,
+    zeroConversionAdCount: cell.zeroConversionAdCount,
+    metricSampleCounts: cell.metricSampleCounts,
+    actionReadiness: cell.actionReadiness,
+    sourceMinDate: cell.sourceMinDate,
+    sourceMaxDate: cell.sourceMaxDate,
+    sourceMaxUpdatedAt: cell.sourceMaxUpdatedAt,
+    // Bind the exact projection persisted by the calibration row. The full
+    // bitemporal target payload is separately authenticated by authorityHash
+    // and re-read at the same cutoff before a profile is admitted.
+    targetAuthority: persistedTargetAuthority,
+    accountCalibration: cell.accountCalibration,
+    funnelCalibration: cell.funnelCalibration,
+    batchInputManifestHash: cell.batchInputManifestHash,
+    sourceManifestHash: cell.sourceManifestHash,
+    qualityCounts: cell.qualityCounts,
+  };
+}
+
+export function recomputeNativeAdCalibrationCellInputManifestHash(
+  cell: NativeAdCalibrationCell,
+): string {
+  const { inputManifestHash: _inputManifestHash, ...source } = cell;
+  return canonicalSha256(
+    nativeAdCalibrationCellInputManifestContent(source),
+  );
+}
+
+function nativeAdSpendUnitAuthorityGenerationContent(
+  authority: NativeAdSpendUnitAuthority,
+) {
+  const {
+    authorityHash: _authorityHash,
+    asOfCutoff: _asOfCutoff,
+    accountAovEvidence,
+    ...authorityContent
+  } = authority;
+  const {
+    evidenceHash: _evidenceHash,
+    asOfCutoff: _evidenceCutoff,
+    ...accountAovContent
+  } = accountAovEvidence;
+  return {
+    ...authorityContent,
+    accountAovEvidence: accountAovContent,
+  };
+}
+
+function buildNativeAdSpendUnitAuthority(input: {
+  businessId: string;
+  providerAccountRefId: string;
+  providerAccountId: string;
+  sampleWindowStart: string;
+  sampleWindowEnd: string;
+  asOfCutoff: string;
+  rows: NormalizedSourceRow[];
+  targetAuthority: ResolvedNativeAdTargetAuthority;
+  currencyAdmission: NativeAdCalibrationCurrencyAdmission;
+  timezoneAdmission: NativeAdCalibrationTimezoneAdmission;
+}): NativeAdSpendUnitAuthorityBuild {
+  const accountCurrency = input.currencyAdmission.accountCurrency;
+  const cutoffSafeFinalizedRows = input.rows.filter(
+    (row) =>
+      row.date >= input.sampleWindowStart &&
+      row.date <= input.sampleWindowEnd &&
+      hasFinalizedAdFact(row) &&
+      isAdFactAvailableAtCutoff(row, input.asOfCutoff),
+  );
+  const manifestRows = [...cutoffSafeFinalizedRows].sort((left, right) =>
+    sourceManifestEntry(left).sortKey.localeCompare(
+      sourceManifestEntry(right).sortKey,
+    ),
+  );
+  const rowsByAdDate = new Map<string, NormalizedSourceRow[]>();
+  for (const row of manifestRows) {
+    const key = `${row.adId}\u0000${row.date}`;
+    const rows = rowsByAdDate.get(key) ?? [];
+    rows.push(row);
+    rowsByAdDate.set(key, rows);
+  }
+  const deduplicated: NormalizedSourceRow[] = [];
+  let duplicateConflictCount = 0;
+  for (const rows of rowsByAdDate.values()) {
+    const signatures = new Set(rows.map(accountAovFactSignature));
+    if (signatures.size > 1) {
+      duplicateConflictCount += rows.length;
+    } else if (rows[0]) {
+      deduplicated.push(rows[0]);
+    }
+  }
+  const uniqueRows = deduplicated.sort((left, right) =>
+    sourceManifestEntry(left).sortKey.localeCompare(
+      sourceManifestEntry(right).sortKey,
+    ),
+  );
+  const canonicalRows = uniqueRows.filter(
+    (row) => row.metricSchemaVersion === META_CANONICAL_METRIC_SCHEMA_VERSION,
+  );
+  const legacySchemaRowCount = uniqueRows.filter(
+    (row) => row.metricSchemaVersion < META_CANONICAL_METRIC_SCHEMA_VERSION,
+  ).length;
+  const unsupportedSchemaRowCount = uniqueRows.filter(
+    (row) => row.metricSchemaVersion > META_CANONICAL_METRIC_SCHEMA_VERSION,
+  ).length;
+  const invalidCanonicalRows = canonicalRows.filter(
+    (row) =>
+      hasInvalidMetric(row) ||
+      (row.conversions > 0 && row.revenue <= 0) ||
+      (row.revenue > 0 && row.conversions <= 0),
+  );
+  const revenueBackedRows = canonicalRows.filter(
+    (row) =>
+      !hasInvalidMetric(row) &&
+      Number.isInteger(row.conversions) &&
+      row.conversions > 0 &&
+      Number.isFinite(row.revenue) &&
+      row.revenue > 0,
+  );
+  const observedPurchaseCount = sum(
+    revenueBackedRows,
+    (row) => row.conversions,
+  );
+  const totalRevenue = sum(revenueBackedRows, (row) => row.revenue);
+  const contradictoryRowCount =
+    invalidCanonicalRows.length +
+    duplicateConflictCount +
+    unsupportedSchemaRowCount +
+    input.currencyAdmission.anomalyRowCount;
+  const status: NativeAdAccountAovEvidenceStatus =
+    contradictoryRowCount > 0
+      ? "contradictory_purchase_truth"
+      : observedPurchaseCount >= NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR &&
+          totalRevenue > 0
+        ? "ready"
+        : canonicalRows.length === 0
+          ? "unavailable"
+          : "insufficient_sample";
+  const evidenceHash = canonicalSha256({
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    scope: "business_provider_account_currency",
+    businessId: input.businessId,
+    providerAccountRefId: input.providerAccountRefId,
+    providerAccountId: input.providerAccountId,
+    accountCurrency,
+    sampleWindowStart: input.sampleWindowStart,
+    sampleWindowEnd: input.sampleWindowEnd,
+    asOfCutoff: input.asOfCutoff,
+    duplicateConflictCount,
+    currencyAdmission: input.currencyAdmission,
+    timezoneAdmission: input.timezoneAdmission,
+    rows: manifestRows.map((row) => ({
+      sourceRowId: row.sourceRowId,
+      adId: row.adId,
+      date: row.date,
+      accountCurrency: row.accountCurrency,
+      sourceAccountCurrency: row.sourceAccountCurrency,
+      metricSchemaVersion: row.metricSchemaVersion,
+      conversions: manifestNumber(row.conversions),
+      revenue: manifestNumber(row.revenue),
+      truthState: row.truthState,
+      validationStatus: row.validationStatus,
+      finalizedAt: row.finalizedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })),
+  });
+  const accountAovEvidence: NativeAdAccountAovEvidence = {
+    status,
+    scope: "business_provider_account_currency",
+    businessId: input.businessId,
+    providerAccountRefId: input.providerAccountRefId,
+    providerAccountId: input.providerAccountId,
+    accountCurrency,
+    sampleWindowStart: input.sampleWindowStart,
+    sampleWindowEnd: input.sampleWindowEnd,
+    asOfCutoff: input.asOfCutoff,
+    observedPurchaseCount,
+    requiredPurchaseCount: NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR,
+    revenueBackedRowCount: revenueBackedRows.length,
+    canonicalRowCount: canonicalRows.length,
+    contradictoryRowCount,
+    legacySchemaRowCount,
+    unsupportedSchemaRowCount,
+    totalRevenue,
+    meanAov:
+      observedPurchaseCount > 0 ? totalRevenue / observedPurchaseCount : null,
+    evidenceHash,
+  };
+  const targetCutoffSafe = isNativeAdTargetAuthorityCutoffSafe(
+    input.targetAuthority.status,
+  );
+  const accountDimensionsReady =
+    input.currencyAdmission.status === "ready" &&
+    input.timezoneAdmission.status === "ready";
+  let basis: NativeAdSpendUnitAuthorityBasis | null = null;
+  let baseSpendUnit: number | null = null;
+  if (
+    accountDimensionsReady &&
+    targetCutoffSafe &&
+    positiveFinite(input.targetAuthority.targetCpa)
+  ) {
+    basis = "target_cpa";
+    baseSpendUnit = input.targetAuthority.targetCpa;
+  } else if (
+    accountDimensionsReady &&
+    targetCutoffSafe &&
+    positiveFinite(input.targetAuthority.operatorAovAssumption) &&
+    input.targetAuthority.targetRoasAuthority &&
+    positiveFinite(input.targetAuthority.targetRoas)
+  ) {
+    basis = "operator_aov";
+    baseSpendUnit =
+      input.targetAuthority.operatorAovAssumption /
+      input.targetAuthority.targetRoas;
+  } else if (
+    accountDimensionsReady &&
+    accountAovEvidence.status === "ready" &&
+    positiveFinite(accountAovEvidence.meanAov) &&
+    input.targetAuthority.targetRoasAuthority &&
+    positiveFinite(input.targetAuthority.targetRoas)
+  ) {
+    basis = "physical_account_purchase_aov_90d";
+    baseSpendUnit =
+      accountAovEvidence.meanAov / input.targetAuthority.targetRoas;
+  }
+  const content: Omit<NativeAdSpendUnitAuthority, "authorityHash"> = {
+    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    status: basis === null ? "blocked" : "ready",
+    basis,
+    businessId: input.businessId,
+    providerAccountRefId: input.providerAccountRefId,
+    providerAccountId: input.providerAccountId,
+    accountCurrency,
+    asOfCutoff: input.asOfCutoff,
+    targetAuthorityHash: input.targetAuthority.authorityHash,
+    baseSpendUnit,
+    accountAovEvidence,
+  };
+  const authority: NativeAdSpendUnitAuthority = {
+    ...content,
+    authorityHash: canonicalSha256(content),
+  };
+  return { authority, manifestRows };
 }
 
 export function computeNativeAdCalibrationBatch(
@@ -1353,13 +1989,6 @@ export function computeNativeAdCalibrationBatch(
     input.computationCutoff,
   );
   const computedAt = cutoff.asOfCutoff;
-  const sourceProvenance: NativeAdCalibrationSourceProvenance = {
-    mode: "current_transaction_snapshot",
-    providerAccountRefId,
-    providerAccountId,
-    transactionCutoff: cutoff.asOfCutoff,
-    transactionIsolation: "repeatable read",
-  };
   const targetAuthority = resolveNativeAdTargetAuthority(
     input.targetAuthority,
     cutoff.asOfCutoff,
@@ -1371,13 +2000,78 @@ export function computeNativeAdCalibrationBatch(
     providerAccountId,
     rows: normalizedRows,
   });
+  const currencyAdmission = resolveNativeAdCalibrationCurrencyAdmission({
+    businessId,
+    providerAccountRefId,
+    providerAccountId,
+    sampleWindowStart: cutoff.sampleWindowStart,
+    sampleWindowEnd: cutoff.sampleWindowEnd,
+    asOfCutoff: cutoff.asOfCutoff,
+    rows: normalizedRows,
+  });
+  const timezoneAdmission = resolveNativeAdCalibrationTimezoneAdmission({
+    businessId,
+    providerAccountRefId,
+    providerAccountId,
+    sampleWindowStart: cutoff.sampleWindowStart,
+    sampleWindowEnd: cutoff.sampleWindowEnd,
+    asOfCutoff: cutoff.asOfCutoff,
+    rows: normalizedRows,
+  });
+  const dimensionBoundRows = bindNativeAdCalibrationTimezone(
+    normalizedRows,
+    timezoneAdmission,
+  );
+  const sourceProvenance: NativeAdCalibrationSourceProvenance = {
+    mode: "current_transaction_snapshot",
+    providerAccountRefId,
+    providerAccountId,
+    transactionCutoff: cutoff.asOfCutoff,
+    transactionIsolation: "repeatable read",
+    currencyAdmission,
+    timezoneAdmission,
+  };
+  const spendUnitAuthorityBuild = buildNativeAdSpendUnitAuthority({
+    businessId,
+    providerAccountRefId,
+    providerAccountId,
+    sampleWindowStart: cutoff.sampleWindowStart,
+    sampleWindowEnd: cutoff.sampleWindowEnd,
+    asOfCutoff: cutoff.asOfCutoff,
+    rows: dimensionBoundRows,
+    targetAuthority,
+    currencyAdmission,
+    timezoneAdmission,
+  });
+  const spendUnitAuthority = spendUnitAuthorityBuild.authority;
+  const peerObservationRows =
+    currencyAdmission.status === "ready" &&
+    timezoneAdmission.status === "ready"
+      ? dimensionBoundRows
+      : currencyAdmission.status === "unavailable" &&
+          timezoneAdmission.status === "unavailable"
+        ? normalizedRows
+        : [];
   const built = buildObservations({
     businessId,
     asOfCutoff: cutoff.asOfCutoff,
     sampleWindowStart: cutoff.sampleWindowStart,
     sampleWindowEnd: cutoff.sampleWindowEnd,
-    rows: normalizedRows,
+    // The strict Ad-finalized dimension lane owns account AOV/spend authority.
+    // A wholly unavailable strict lane (legacy rows with null finalized_at)
+    // must not censor otherwise exact, cutoff-safe peer observations. Each peer
+    // Ad still has to prove its own singular context in buildObservations.
+    // A contradictory/blocked strict lane remains account-fatal and emits no
+    // cells, so peer facts can never launder a strict dimension anomaly.
+    rows: peerObservationRows,
   });
+  const sourceManifestRows = new Map<string, NormalizedSourceRow>();
+  for (const row of [
+    ...built.eligibleSourceRows,
+    ...spendUnitAuthorityBuild.manifestRows,
+  ]) {
+    sourceManifestRows.set(sourceManifestEntry(row).sortKey, row);
+  }
   const sourceManifestHash = canonicalSha256({
     contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
     businessId,
@@ -1385,7 +2079,7 @@ export function computeNativeAdCalibrationBatch(
     providerAccountId,
     sampleWindowStart: cutoff.sampleWindowStart,
     sampleWindowEnd: cutoff.sampleWindowEnd,
-    rows: built.eligibleSourceRows
+    rows: [...sourceManifestRows.values()]
       .map(sourceManifestEntry)
       .sort((left, right) => left.sortKey.localeCompare(right.sortKey)),
   });
@@ -1407,6 +2101,8 @@ export function computeNativeAdCalibrationBatch(
     sampleWindowEnd: cutoff.sampleWindowEnd,
     sourceManifestHash,
     targetAuthority,
+    spendUnitAuthority:
+      nativeAdSpendUnitAuthorityGenerationContent(spendUnitAuthority),
     qualityCounts: built.qualityCounts,
     observations: built.observations.map(observationManifestEntry),
   });
@@ -1431,6 +2127,7 @@ export function computeNativeAdCalibrationBatch(
     sampleWindowDays: SAMPLE_WINDOW_DAYS,
     computedAt,
     targetAuthority,
+    spendUnitAuthority,
     observations: built.observations,
     qualityCounts: built.qualityCounts,
     generationContentHash,
@@ -2191,7 +2888,7 @@ function assertPersistedCellSetProofRows(
   }
 }
 
-function assertNativeAdCalibrationBatchContract(
+export function assertNativeAdCalibrationBatchContract(
   batch: NativeAdCalibrationBatch,
 ) {
   requiredHash(batch.generationContentHash, "generationContentHash");
@@ -2199,11 +2896,42 @@ function assertNativeAdCalibrationBatchContract(
   requiredHash(batch.sourceManifestHash, "sourceManifestHash");
   requiredHash(batch.cellSetHash, "cellSetHash");
   requiredUuid(batch.providerAccountRefId, "providerAccountRefId");
+  assertNativeAdCalibrationCurrencyAdmission(
+    batch.sourceProvenance.currencyAdmission,
+  );
+  assertNativeAdCalibrationTimezoneAdmission(
+    batch.sourceProvenance.timezoneAdmission,
+  );
   const window = resolveNativeAdCalibrationCutoff(
     batch.asOfDate,
     batch.asOfCutoff,
   );
+  const recomputedGenerationContentHash = canonicalSha256({
+    contractVersion: NATIVE_AD_CALIBRATION_CONTRACT_VERSION,
+    policyVersion: NATIVE_AD_CALIBRATION_POLICY_VERSION,
+    engineVersion: NATIVE_AD_ENGINE_VERSION,
+    businessId: batch.businessId,
+    providerAccountRefId: batch.providerAccountRefId,
+    providerAccountId: batch.providerAccountId,
+    asOfDate: batch.asOfDate,
+    sampleWindowStart: batch.sampleWindowStart,
+    sampleWindowEnd: batch.sampleWindowEnd,
+    sourceManifestHash: batch.sourceManifestHash,
+    targetAuthority: batch.targetAuthority,
+    spendUnitAuthority:
+      nativeAdSpendUnitAuthorityGenerationContent(
+        batch.spendUnitAuthority,
+      ),
+    qualityCounts: batch.qualityCounts,
+    observations: batch.observations.map(observationManifestEntry),
+  });
+  const recomputedInputManifestHash = canonicalSha256({
+    generationContentHash: recomputedGenerationContentHash,
+    sourceProvenance: batch.sourceProvenance,
+    asOfCutoff: batch.asOfCutoff,
+  });
   if (
+    batch.contractVersion !== NATIVE_AD_CALIBRATION_CONTRACT_VERSION ||
     batch.engineVersion !== NATIVE_AD_ENGINE_VERSION ||
     batch.policyVersion !== NATIVE_AD_CALIBRATION_POLICY_VERSION ||
     batch.providerAccountRefId !==
@@ -2214,7 +2942,10 @@ function assertNativeAdCalibrationBatchContract(
     batch.sourceProvenance.transactionIsolation !== "repeatable read" ||
     batch.computedAt !== batch.asOfCutoff ||
     batch.sampleWindowStart !== window.sampleWindowStart ||
-    batch.sampleWindowEnd !== window.sampleWindowEnd
+    batch.sampleWindowEnd !== window.sampleWindowEnd ||
+    batch.sampleWindowDays !== SAMPLE_WINDOW_DAYS ||
+    batch.generationContentHash !== recomputedGenerationContentHash ||
+    batch.inputManifestHash !== recomputedInputManifestHash
   ) {
     throw new Error(
       "Native ad calibration batch uses a non-native engine epoch.",
@@ -2235,6 +2966,11 @@ function assertNativeAdCalibrationBatchContract(
       cell.key.providerAccountId !== batch.providerAccountId ||
       cell.asOfCutoff !== batch.asOfCutoff ||
       cell.engineVersion !== NATIVE_AD_ENGINE_VERSION ||
+      cell.policyVersion !== NATIVE_AD_CALIBRATION_POLICY_VERSION ||
+      cell.batchInputManifestHash !== batch.inputManifestHash ||
+      cell.sourceManifestHash !== batch.sourceManifestHash ||
+      recomputeNativeAdCalibrationCellInputManifestHash(cell) !==
+        cell.inputManifestHash ||
       cell.batchCellCount !== batch.expectedCellCount ||
       cell.batchCellSetHash !== batch.cellSetHash ||
       cell.batchCompleteness !== "computed"
@@ -2243,6 +2979,169 @@ function assertNativeAdCalibrationBatchContract(
         "Native ad calibration cell is outside its batch contract.",
       );
     }
+  }
+}
+
+function assertNativeAdCalibrationCurrencyAdmission(
+  admission: NativeAdCalibrationCurrencyAdmission,
+) {
+  const counts = [
+    admission.candidateRowCount,
+    admission.admittedRowCount,
+    admission.anomalyRowCount,
+    admission.sourceCurrencyMissingRowCount,
+    admission.resolvedCurrencyMissingRowCount,
+    admission.resolvedSourceMismatchRowCount,
+    admission.distinctSourceCurrencyCount,
+    admission.distinctResolvedCurrencyCount,
+  ];
+  if (
+    admission.contractVersion !==
+      "engine-v3-native-ad-currency-admission.v1" ||
+    counts.some((value) => !Number.isInteger(value) || value < 0) ||
+    admission.admittedRowCount > admission.candidateRowCount ||
+    admission.anomalyRowCount > admission.candidateRowCount ||
+    admission.sourceCurrencyMissingRowCount > admission.candidateRowCount ||
+    admission.resolvedCurrencyMissingRowCount > admission.candidateRowCount ||
+    admission.resolvedSourceMismatchRowCount > admission.candidateRowCount ||
+    admission.distinctSourceCurrencyCount > admission.candidateRowCount ||
+    admission.distinctResolvedCurrencyCount > admission.candidateRowCount ||
+    !/^[0-9a-f]{64}$/.test(admission.manifestHash)
+  ) {
+    throw new Error(
+      "Native ad calibration currency admission receipt is malformed.",
+    );
+  }
+  if (
+    admission.status === "ready" &&
+    (admission.reason !== null ||
+      admission.keyBasis !== "immutable_source" ||
+      admission.accountCurrency === null ||
+      admission.candidateRowCount === 0 ||
+      admission.admittedRowCount !== admission.candidateRowCount ||
+      admission.anomalyRowCount !== 0 ||
+      admission.sourceCurrencyMissingRowCount !== 0 ||
+      admission.resolvedCurrencyMissingRowCount !== 0 ||
+      admission.resolvedSourceMismatchRowCount !== 0 ||
+      admission.distinctSourceCurrencyCount !== 1 ||
+      admission.distinctResolvedCurrencyCount !== 1)
+  ) {
+    throw new Error(
+      "Native ad calibration ready currency admission receipt is contradictory.",
+    );
+  }
+  if (
+    admission.status === "unavailable" &&
+    (admission.reason !== "source_currency_unavailable" ||
+      admission.keyBasis !== null ||
+      admission.accountCurrency !== null ||
+      admission.candidateRowCount !== 0 ||
+      admission.admittedRowCount !== 0 ||
+      admission.anomalyRowCount !== 0)
+  ) {
+    throw new Error(
+      "Native ad calibration unavailable currency admission receipt is contradictory.",
+    );
+  }
+  if (
+    admission.status === "blocked" &&
+    (admission.reason === null ||
+      admission.reason === "source_currency_unavailable" ||
+      admission.candidateRowCount === 0 ||
+      admission.admittedRowCount !== 0 ||
+      admission.anomalyRowCount === 0)
+  ) {
+    throw new Error(
+      "Native ad calibration blocked currency admission receipt is contradictory.",
+    );
+  }
+}
+
+function assertNativeAdCalibrationTimezoneAdmission(
+  admission: NativeAdCalibrationTimezoneAdmission,
+) {
+  const counts = [
+    admission.candidateRowCount,
+    admission.latestSourceRowCount,
+    admission.admittedRowCount,
+    admission.anomalyRowCount,
+    admission.sourceTimezoneMissingRowCount,
+    admission.distinctSourceTimezoneCount,
+  ];
+  if (
+    admission.contractVersion !==
+      "engine-v3-native-ad-timezone-admission.v1" ||
+    counts.some((value) => !Number.isInteger(value) || value < 0) ||
+    admission.latestSourceRowCount > admission.candidateRowCount ||
+    admission.admittedRowCount > admission.candidateRowCount ||
+    admission.anomalyRowCount > admission.latestSourceRowCount ||
+    admission.sourceTimezoneMissingRowCount >
+      admission.latestSourceRowCount ||
+    admission.distinctSourceTimezoneCount >
+      admission.latestSourceRowCount ||
+    !/^[0-9a-f]{64}$/.test(admission.manifestHash)
+  ) {
+    throw new Error(
+      "Native ad calibration timezone admission receipt is malformed.",
+    );
+  }
+  if (
+    admission.status === "ready" &&
+    (admission.reason !== null ||
+      admission.keyBasis !== "immutable_latest_source_date" ||
+      admission.accountTimezone === null ||
+      admission.candidateRowCount === 0 ||
+      admission.latestSourceDate === null ||
+      !isDateOnly(admission.latestSourceDate) ||
+      admission.latestSourceRowCount === 0 ||
+      admission.admittedRowCount !== admission.candidateRowCount ||
+      admission.anomalyRowCount !== 0 ||
+      admission.sourceTimezoneMissingRowCount !== 0 ||
+      admission.distinctSourceTimezoneCount !== 1)
+  ) {
+    throw new Error(
+      "Native ad calibration ready timezone admission receipt is contradictory.",
+    );
+  }
+  if (
+    admission.status === "unavailable" &&
+    (admission.reason !== "source_timezone_unavailable" ||
+      admission.keyBasis !== null ||
+      admission.accountTimezone !== null ||
+      admission.candidateRowCount !== 0 ||
+      admission.latestSourceDate !== null ||
+      admission.latestSourceRowCount !== 0 ||
+      admission.admittedRowCount !== 0 ||
+      admission.anomalyRowCount !== 0 ||
+      admission.sourceTimezoneMissingRowCount !== 0 ||
+      admission.distinctSourceTimezoneCount !== 0)
+  ) {
+    throw new Error(
+      "Native ad calibration unavailable timezone admission receipt is contradictory.",
+    );
+  }
+  if (
+    admission.status === "blocked" &&
+    (admission.reason === null ||
+      admission.reason === "source_timezone_unavailable" ||
+      admission.keyBasis !== null ||
+      admission.accountTimezone !== null ||
+      admission.candidateRowCount === 0 ||
+      admission.latestSourceDate === null ||
+      !isDateOnly(admission.latestSourceDate) ||
+      admission.latestSourceRowCount === 0 ||
+      admission.admittedRowCount !== 0 ||
+      admission.anomalyRowCount === 0 ||
+      (admission.reason === "latest_source_timezone_missing" &&
+        admission.sourceTimezoneMissingRowCount === 0) ||
+      (admission.reason === "mixed_latest_source_timezone" &&
+        (admission.sourceTimezoneMissingRowCount !== 0 ||
+          admission.distinctSourceTimezoneCount <= 1 ||
+          admission.anomalyRowCount !== admission.latestSourceRowCount)))
+  ) {
+    throw new Error(
+      "Native ad calibration blocked timezone admission receipt is contradictory.",
+    );
   }
 }
 
@@ -2496,6 +3395,8 @@ export async function runAdCalibrationJob(
         inputManifestHash: replacement.inputManifestHash,
         sourceManifestHash: replacement.sourceManifestHash,
         cellSetHash: replacement.cellSetHash,
+        currencyAdmission: batch.sourceProvenance.currencyAdmission,
+        timezoneAdmission: batch.sourceProvenance.timezoneAdmission,
       }));
       const proof = aggregateCalibrationJobProof(batches);
       return {
@@ -2634,6 +3535,8 @@ async function markAdCalibrationJobSuccess(
             input_manifest_hash: replacement.inputManifestHash,
             source_manifest_hash: replacement.sourceManifestHash,
             cell_set_hash: replacement.cellSetHash,
+            currency_admission: batch.sourceProvenance.currencyAdmission,
+            timezone_admission: batch.sourceProvenance.timezoneAdmission,
           })),
         },
       }),
@@ -2798,6 +3701,14 @@ function buildObservations(input: {
       continue;
     }
     qualityCounts.cutoffSafeSourceRowCount += rows.length;
+    const peerTruthFinalizedAtMissingRows = rows.filter(
+      (row) => row.finalizedAt === null,
+    );
+    qualityCounts.peerTruthFinalizedAtMissingSourceRowCount +=
+      peerTruthFinalizedAtMissingRows.length;
+    if (peerTruthFinalizedAtMissingRows.length > 0) {
+      qualityCounts.peerTruthFinalizedAtMissingAdCount += 1;
+    }
 
     const dayGroups = groupBy(rows, (row) => row.date);
     const deduplicated: NormalizedSourceRow[] = [];
@@ -3079,6 +3990,7 @@ function computeCell(
     metricSampleCounts,
     targetAuthority: batch.targetAuthority,
     accountCalibration,
+    spendUnitAuthority: batch.spendUnitAuthority,
   });
   const sourceMinDate = minText(observations.map((row) => row.sourceMinDate));
   const sourceMaxDate = maxText(observations.map((row) => row.sourceMaxDate));
@@ -3091,23 +4003,7 @@ function computeCell(
     matureAdCount: converterPopulation.length,
     targetAuthority: batch.targetAuthority,
   });
-  const cellInput = {
-    contractVersion: batch.contractVersion,
-    policyVersion: batch.policyVersion,
-    engineVersion: batch.engineVersion,
-    key,
-    asOfDate: batch.asOfDate,
-    asOfCutoff: batch.asOfCutoff,
-    sampleWindowStart: batch.sampleWindowStart,
-    sampleWindowEnd: batch.sampleWindowEnd,
-    targetAuthority: purchase ? batch.targetAuthority : null,
-    qualityStatus,
-    metricSampleCounts,
-    actionReadiness,
-    observations: observations.map(observationManifestEntry),
-  };
-
-  return {
+  const cellWithoutInputManifest: NativeAdCalibrationCellInputManifestSource = {
     batchId: null,
     batchCompleteness: "computed",
     batchCellCount: 0,
@@ -3138,9 +4034,14 @@ function computeCell(
     accountCalibration,
     funnelCalibration,
     batchInputManifestHash: batch.inputManifestHash,
-    inputManifestHash: canonicalSha256(cellInput),
     sourceManifestHash: batch.sourceManifestHash,
     qualityCounts: batch.qualityCounts,
+  };
+  return {
+    ...cellWithoutInputManifest,
+    inputManifestHash: canonicalSha256(
+      nativeAdCalibrationCellInputManifestContent(cellWithoutInputManifest),
+    ),
   };
 }
 
@@ -3427,6 +4328,12 @@ function contextCardinality(contexts: ExactContext[]) {
 function normalizeSourceRow(
   row: NativeAdCalibrationSourceRow,
 ): NormalizedSourceRow {
+  if (
+    !Number.isInteger(row.metricSchemaVersion) ||
+    row.metricSchemaVersion < 1
+  ) {
+    throw new TypeError("metricSchemaVersion must be a positive integer.");
+  }
   return {
     ...row,
     sourceRowId: normalizeText(row.sourceRowId) ?? "",
@@ -3439,6 +4346,9 @@ function normalizeSourceRow(
     adId: normalizeText(row.adId) ?? "",
     accountTimezone: normalizeText(row.accountTimezone),
     accountCurrency: normalizeGoal(row.accountCurrency),
+    sourceAccountTimezone: normalizeText(row.sourceAccountTimezone),
+    sourceAccountCurrency: normalizeGoal(row.sourceAccountCurrency),
+    metricSchemaVersion: row.metricSchemaVersion,
     objective: normalizeGoal(row.objective),
     optimizationGoal: normalizeGoal(row.optimizationGoal),
     customEventType: normalizeGoal(row.customEventType),
@@ -3471,6 +4381,25 @@ function hasFinalizedTruth(row: NormalizedSourceRow) {
     row.adsetTruthState === "FINALIZED" &&
     row.adsetValidationStatus === "PASSED"
   );
+}
+
+function hasFinalizedAdFact(row: NormalizedSourceRow) {
+  return (
+    row.truthState === "FINALIZED" &&
+    row.validationStatus === "PASSED" &&
+    row.finalizedAt !== null
+  );
+}
+
+function isAdFactAvailableAtCutoff(
+  row: NormalizedSourceRow,
+  asOfCutoff: string,
+) {
+  const cutoffMs = requireTimestamp(asOfCutoff, "asOfCutoff");
+  return [row.createdAt, row.updatedAt, row.finalizedAt].every((timestamp) => {
+    const parsed = timestampOrNull(timestamp);
+    return parsed !== null && parsed <= cutoffMs;
+  });
 }
 
 function isRowAvailableAtCutoff(row: NormalizedSourceRow, asOfCutoff: string) {
@@ -3507,6 +4436,9 @@ function hasInvalidMetric(row: NormalizedSourceRow) {
   ];
   return (
     required.some((value) => !Number.isFinite(value) || value < 0) ||
+    !Number.isInteger(row.conversions) ||
+    (row.conversions > 0 && row.revenue <= 0) ||
+    (row.revenue > 0 && row.conversions <= 0) ||
     optional.some(
       (value) => value != null && (!Number.isFinite(value) || value < 0),
     )
@@ -3524,6 +4456,9 @@ function sourceContentSignature(row: NormalizedSourceRow) {
     adId: row.adId,
     accountTimezone: row.accountTimezone,
     accountCurrency: row.accountCurrency,
+    sourceAccountTimezone: row.sourceAccountTimezone,
+    sourceAccountCurrency: row.sourceAccountCurrency,
+    metricSchemaVersion: row.metricSchemaVersion,
     objective: row.objective,
     optimizationGoal: row.optimizationGoal,
     customEventType: row.customEventType,
@@ -3537,6 +4472,14 @@ function sourceContentSignature(row: NormalizedSourceRow) {
     addToCart: manifestNumber(row.addToCart ?? null),
     initiateCheckout: manifestNumber(row.initiateCheckout ?? null),
     thumbstop: manifestNumber(row.thumbstop ?? null),
+  });
+}
+
+function accountAovFactSignature(row: NormalizedSourceRow) {
+  return canonicalSha256({
+    sourceContentHash: sourceContentSignature(row),
+    truthState: row.truthState,
+    validationStatus: row.validationStatus,
   });
 }
 
@@ -3557,6 +4500,10 @@ function sourceManifestEntry(row: NormalizedSourceRow) {
     providerAccountId: row.providerAccountId,
     adId: row.adId,
     date: row.date,
+    sourceAccountTimezone: row.sourceAccountTimezone,
+    accountCurrency: row.accountCurrency,
+    sourceAccountCurrency: row.sourceAccountCurrency,
+    metricSchemaVersion: row.metricSchemaVersion,
     campaignSourceRowId: row.campaignSourceRowId,
     adsetSourceRowId: row.adsetSourceRowId,
     truthState: row.truthState,
@@ -3664,6 +4611,7 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
   metricSampleCounts: NativeAdCalibrationMetricSampleCounts;
   targetAuthority: ResolvedNativeAdTargetAuthority;
   accountCalibration: AccountCalibration;
+  spendUnitAuthority: NativeAdSpendUnitAuthority;
 }): NativeAdCalibrationActionReadiness {
   const scaleObserved = Math.min(
     input.matureAdCount,
@@ -3673,18 +4621,26 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
   const refreshObserved = input.metricSampleCounts.refreshRatio;
 
   if (input.key.cellScope === "account_objective_cohort") {
-    return blockedActionReadiness("pooled_optimization_context_soft_only", {
-      scale: scaleObserved,
-      cut: cutObserved,
-      refresh: refreshObserved,
-    });
+    return blockedActionReadiness(
+      "pooled_optimization_context_soft_only",
+      {
+        scale: scaleObserved,
+        cut: cutObserved,
+        refresh: refreshObserved,
+      },
+      input.spendUnitAuthority,
+    );
   }
   if (input.key.cohort !== "purchase") {
-    return blockedActionReadiness("unsupported_cohort", {
-      scale: scaleObserved,
-      cut: cutObserved,
-      refresh: refreshObserved,
-    });
+    return blockedActionReadiness(
+      "unsupported_cohort",
+      {
+        scale: scaleObserved,
+        cut: cutObserved,
+        refresh: refreshObserved,
+      },
+      input.spendUnitAuthority,
+    );
   }
 
   const scaleReason: NativeAdCalibrationActionBlockReason | null = !input
@@ -3695,15 +4651,31 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
       : !positiveFinite(input.accountCalibration.winnerPurchaseP50)
         ? "scale_winner_benchmark_missing"
         : null;
+  const cutUsesCalibratedRelativeBoundary =
+    cutObserved >= NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
+    positiveFinite(input.accountCalibration.roasRatioP25);
+  const cutHasCanonicalExactSpendAuthority =
+    input.accountCalibration.accountCpaSampleCount >=
+      NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
+    positiveFinite(input.accountCalibration.accountCpaP50);
+  const cutHasEconomicSpendAuthority =
+    input.spendUnitAuthority.status === "ready" ||
+    cutHasCanonicalExactSpendAuthority;
+  // A sample-backed positive P25 is the retained D049 Cut authority and must
+  // not depend on an account-wide AOV receipt. The economic spend authority is
+  // additive there: when ready it opens D063's bounded expanded strip; when
+  // blocked the legacy-safe relative region remains available. A P25-null cell
+  // has no retained peer boundary and therefore still requires the commercial
+  // stop-loss proof to become Cut-ready at all.
   const cutReason: NativeAdCalibrationActionBlockReason | null = !input
     .targetAuthority.targetRoasAuthority
     ? "target_roas_authority_missing"
     : !input.targetAuthority.breakEvenRoasAuthority
       ? "break_even_roas_authority_missing"
-      : null;
-  const cutUsesCalibratedRelativeBoundary =
-    cutObserved >= NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
-    positiveFinite(input.accountCalibration.roasRatioP25);
+      : !cutUsesCalibratedRelativeBoundary &&
+          input.spendUnitAuthority.status !== "ready"
+        ? "commercial_spend_unit_authority_missing"
+        : null;
   const refreshReason: NativeAdCalibrationActionBlockReason | null =
     refreshObserved < NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR ||
     !positiveFinite(input.accountCalibration.refreshRatioP10)
@@ -3711,6 +4683,7 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
       : null;
 
   return {
+    spendUnitAuthority: input.spendUnitAuthority,
     scale: actionReadinessEntry(
       scaleReason,
       scaleObserved,
@@ -3724,7 +4697,9 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
         : 0,
       cutReason === null
         ? cutUsesCalibratedRelativeBoundary
-          ? "calibrated_relative"
+          ? cutHasEconomicSpendAuthority
+            ? "calibrated_relative_with_economic_stop_loss"
+            : "calibrated_relative"
           : "commercial_stop_loss"
         : null,
     ),
@@ -3739,8 +4714,10 @@ export function resolveNativeAdCalibrationActionReadiness(input: {
 function blockedActionReadiness(
   reason: NativeAdCalibrationActionBlockReason,
   observed: Record<NativeAdCalibrationAction, number>,
+  spendUnitAuthority: NativeAdSpendUnitAuthority,
 ): NativeAdCalibrationActionReadiness {
   return {
+    spendUnitAuthority,
     scale: actionReadinessEntry(
       reason,
       observed.scale,
@@ -3763,8 +4740,10 @@ function actionReadinessEntry(
   reason: NativeAdCalibrationActionBlockReason | null,
   observedSampleCount: number,
   requiredSampleCount: number,
-  authorityBasis: NativeAdCalibrationActionAuthorityBasis | null =
-    reason === null ? "calibrated_relative" : null,
+  authorityBasis: NativeAdCalibrationActionAuthorityBasis | null = reason ===
+  null
+    ? "calibrated_relative"
+    : null,
 ): NativeAdCalibrationActionReadinessEntry {
   return {
     ready: reason === null,
@@ -3823,6 +4802,8 @@ function emptyQualityCounts(
     mixedCurrencyAdExclusionCount: 0,
     mixedObjectiveAdExclusionCount: 0,
     mixedCohortAdExclusionCount: 0,
+    peerTruthFinalizedAtMissingSourceRowCount: 0,
+    peerTruthFinalizedAtMissingAdCount: 0,
     censoredSourceRowExclusionCount: 0,
     censoredAdExclusionCount: 0,
     freshnessSourceRowExclusionCount: 0,
@@ -4071,7 +5052,7 @@ function maxText(values: string[]) {
     : null;
 }
 
-function mapNativeAdCalibrationSourceRow(
+export function mapNativeAdCalibrationSourceRow(
   row: Record<string, unknown>,
 ): NativeAdCalibrationSourceRow {
   return {
@@ -4091,6 +5072,12 @@ function mapNativeAdCalibrationSourceRow(
     adId: dbRequiredText(row.ad_id, "ad_id"),
     accountTimezone: dbOptionalText(row.account_timezone),
     accountCurrency: dbOptionalText(row.account_currency),
+    sourceAccountTimezone: dbOptionalText(row.source_account_timezone),
+    sourceAccountCurrency: dbOptionalText(row.source_account_currency),
+    metricSchemaVersion: dbRequiredInteger(
+      row.metric_schema_version,
+      "metric_schema_version",
+    ),
     objective: dbOptionalText(row.objective),
     optimizationGoal: dbOptionalText(row.optimization_goal),
     customEventType: dbOptionalText(row.custom_event_type),
@@ -4098,8 +5085,12 @@ function mapNativeAdCalibrationSourceRow(
     impressions: dbRequiredNumber(row.impressions, "impressions"),
     clicks: dbRequiredNumber(row.clicks, "clicks"),
     linkClicks: dbRequiredNumber(row.link_clicks, "link_clicks"),
-    conversions: dbRequiredNumber(row.conversions, "conversions"),
-    revenue: dbRequiredNumber(row.revenue, "revenue"),
+    // PostgreSQL double precision can represent NaN/Infinity. Keep malformed
+    // canonical purchase truth in the source manifest so the account-AOV
+    // receipt becomes contradictory instead of aborting the whole job before
+    // a durable fail-closed proof is produced.
+    conversions: dbRequiredManifestNumber(row.conversions, "conversions"),
+    revenue: dbRequiredManifestNumber(row.revenue, "revenue"),
     landingPageViews: dbOptionalNumber(row.landing_page_views),
     addToCart: dbOptionalNumber(row.add_to_cart),
     initiateCheckout: dbOptionalNumber(row.initiate_checkout),
@@ -4122,7 +5113,7 @@ function mapNativeAdCalibrationSourceRow(
   };
 }
 
-function mapNativeAdTargetAuthorityRow(
+export function mapNativeAdTargetAuthorityRow(
   row: Record<string, unknown>,
 ): NativeAdTargetAuthorityInput {
   const operation = dbRequiredText(row.operation, "target operation");
@@ -4173,6 +5164,25 @@ function dbOptionalNumber(value: unknown): number | null {
 function dbRequiredNumber(value: unknown, field: string): number {
   const number = dbOptionalNumber(value);
   if (number === null) throw new TypeError(`${field} must be finite.`);
+  return number;
+}
+
+function dbRequiredManifestNumber(value: unknown, field: string): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (/^(?:NaN|[+-]?Infinity)$/i.test(normalized)) {
+      return Number(normalized);
+    }
+  }
+  return dbRequiredNumber(value, field);
+}
+
+function dbRequiredInteger(value: unknown, field: string): number {
+  const number = dbRequiredNumber(value, field);
+  if (!Number.isInteger(number)) {
+    throw new TypeError(`${field} must be an integer.`);
+  }
   return number;
 }
 

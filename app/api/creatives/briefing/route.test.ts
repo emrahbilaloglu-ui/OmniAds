@@ -1,18 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { isDemoBusiness } from "@/lib/business-mode.server";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
-import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
-import { readTriageState } from "@/lib/triage-events";
-import { DECISION_CENTER_OBSERVABILITY_LOG_MARKER } from "@/lib/creative-decision-center";
 import {
-  ENGINE_VERSION,
-  type DecisionOutput,
-  type EngineV3Flags,
-} from "@/lib/creative-decision-engine";
-import { UNUSED_APPROVED_LOOKBACK_DAYS } from "@/lib/creative-decision-engine/config-values";
-import { cardForDecision } from "./card-serialization";
+  DEMO_BUSINESS_ID,
+  getDemoMetaCreatives,
+} from "@/lib/demo-business";
+import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import { readTriageState } from "@/lib/triage-events";
+import {
+  buildBriefingDecisionOriginAdActionRequest,
+  hasNativeDecisionOriginLineage,
+} from "@/components/creatives/briefing/action-handlers";
+import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import { GET } from "./route";
 
 vi.mock("@/lib/access", () => ({
@@ -35,32 +38,246 @@ vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/campaign-labels", () => ({
-  readMetaCampaignLabels: vi.fn(),
+vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  readMetaNativeCanonicalDecisionInventory: vi.fn(),
 }));
 
 vi.mock("@/lib/triage-events", () => ({
   readTriageState: vi.fn(),
 }));
 
-const mockDbQuery = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/db", () => ({
-  getDb: vi.fn(() => ({
-    query: mockDbQuery,
-  })),
-}));
-
 const previousDataSourceFlag = process.env.DECISION_ENGINE_V3_DATA_SOURCE;
-const previousObservabilityFlag = process.env.DECISION_CENTER_OBSERVABILITY;
-const previousObservabilitySalt =
-  process.env.DECISION_CENTER_OBSERVABILITY_SALT;
 const previousDecisionCenterDefaultDisabled =
   process.env.DECISION_CENTER_DEFAULT_DISABLED;
-const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
 
-function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
+const INPUT_HASH = "1".repeat(64);
+const DECISION_HASH = "2".repeat(64);
+
+function canonicalDecision(
+  input: {
+    adId?: string;
+    creativeId?: string | null;
+    campaignId?: string;
+    label?: string;
+    buyerAction?: "scale" | "cut" | "refresh" | null;
+    authorizedAction?: "scale" | "cut" | "refresh" | null;
+    actionEligible?: boolean;
+    decisionState?: "act" | "monitor" | "blocked" | "not_applicable";
+    executionAction?:
+      "promote_to_main" | "scale_budget" | "controlled_scale" | null;
+    lifecycleRole?: "main" | "test" | "mixed" | "label_needed";
+    inputHash?: string;
+    decisionHash?: string;
+  } = {},
+): MetaCanonicalDecision {
+  const adId = input.adId ?? "ad_1";
+  const creativeId =
+    input.creativeId === undefined ? "mock-creative-001" : input.creativeId;
+  const label = input.label ?? "scale";
+  const buyerAction =
+    input.buyerAction === undefined ? "scale" : input.buyerAction;
+  const authorizedAction =
+    input.authorizedAction === undefined ? buyerAction : input.authorizedAction;
+  const actionEligible = input.actionEligible ?? buyerAction !== null;
+  const lifecycleRole = input.lifecycleRole ?? "main";
   return {
+    decisionId: `decision_${adId}`,
+    episodeId: `episode_${adId}`,
+    episodeStartedAt: "2026-05-07T03:00:00.000Z",
+    providerAccountId: "act_1",
+    identityGrain: "ad",
+    sourceSnapshotId: `snapshot_${adId}`,
+    sourceAuthority: {
+      status: "native_exact",
+      actionEligible,
+      reviewOnlyReason: actionEligible ? null : "review_only_fixture",
+      snapshotId: `snapshot_${adId}`,
+      evaluationId: `evaluation_${adId}`,
+      inputHash: input.inputHash ?? INPUT_HASH,
+      decisionHash: input.decisionHash ?? DECISION_HASH,
+      providerAccountRefId: "provider-ref-1",
+      engineVersion: "native-ad-engine.v1",
+      realAdId: adId,
+      authorizedAction,
+      jobRunId: "job-run-1",
+    },
+    sourceDecision: {
+      label,
+      preAuthorityLabel: label,
+      authorityBlocker: null,
+      rawLabel: label,
+      reason: `Persisted ${label} verdict for ${adId}`,
+      confidence: 91,
+      confidenceBand: "high",
+      truthSource: "commercial_truth",
+      engineVersion: "native-ad-engine.v1",
+      snapshotAsOf: "2026-05-07",
+      computedAt: "2026-05-07T03:05:00.000Z",
+      badges: [],
+    },
+    parentChain: {
+      campaign: {
+        id: input.campaignId ?? "mock-campaign-001",
+        name: "Mock Campaign",
+      },
+      adset: { id: "adset_1", name: "Mock Adset" },
+      ad: { id: adId, name: `Ad ${adId}` },
+      creative: creativeId ? { id: creativeId, name: "Shared Creative" } : null,
+    },
+    identityResolution: {
+      basis: "native_ad_exact",
+      candidateAdCount: 1,
+      metricsEquivalent: true,
+      adActionEligible: true,
+    },
+    media: {
+      state: "available",
+      thumbnail: { url: `https://example.com/${adId}.jpg` },
+    },
+    deliveryScope: {
+      state: "active",
+      campaignStatus: "ACTIVE",
+      adsetStatus: "ACTIVE",
+      adStatus: "ACTIVE",
+    },
+    classification: {
+      lifecycleRole: { value: lifecycleRole },
+      decisionState:
+        input.decisionState ?? (actionEligible ? "act" : "blocked"),
+      heldAction: actionEligible ? null : buyerAction,
+      buyerAction,
+      buyerLabel: buyerAction ? `Buyer ${buyerAction}` : "Review evidence",
+      executionAction:
+        input.executionAction === undefined
+          ? "scale_budget"
+          : input.executionAction,
+      resolution: actionEligible
+        ? null
+        : {
+            code: "review_only_fixture",
+            category: "system",
+            nextStep: "Review canonical evidence",
+          },
+      blockers: actionEligible
+        ? []
+        : [{ code: "review_only_fixture", label: "Review only" }],
+    },
+    metrics: {
+      spend: 500,
+      purchases: 8,
+      roas: 3,
+      recent7dRoas: 2.8,
+      effectiveTargetRoas: 2.2,
+      ratioToTarget: 1.36,
+      currency: "USD",
+    },
+  } as unknown as MetaCanonicalDecision;
+}
+
+function generation(items: MetaCanonicalDecision[]) {
+  return {
+    status: "available" as const,
+    generation: {
+      jobRunId: "job-run-1",
+      asOfDate: "2026-05-07",
+      providerAccountRefId: "provider-ref-1",
+      manifestHash: "a".repeat(64),
+      expectedAdCount: items.length,
+    },
+    items,
+    unavailableReason: null,
+  };
+}
+
+function creativeRow(adId = "ad_1", creativeId = "mock-creative-001") {
+  return {
+    id: adId,
+    creative_id: creativeId,
+    real_ad_id: adId,
+    effective_status: "ACTIVE",
+    associated_ads_count: 1,
+    account_id: "act_1",
+    account_name: "Meta Account",
+    campaign_id: "mock-campaign-001",
+    campaign_name: "Mock Campaign",
+    adset_id: "adset_1",
+    adset_name: "Mock Adset",
+    currency: "USD",
+    name: `Ad ${adId}`,
+    launch_date: "2026-05-01",
+    preview_url: `https://example.com/${adId}-preview.jpg`,
+    preview_source: null,
+    thumbnail_url: `https://example.com/${adId}-thumb.jpg`,
+    image_url: `https://example.com/${adId}-image.jpg`,
+    table_thumbnail_url: `https://example.com/${adId}-table.jpg`,
+    card_preview_url: `https://example.com/${adId}-card.jpg`,
+    cached_thumbnail_url: `https://example.com/${adId}-cache.jpg`,
+    is_catalog: false,
+    preview_state: "preview" as const,
+    preview: {
+      render_mode: "image" as const,
+      image_url: `https://example.com/${adId}.jpg`,
+      video_url: null,
+      poster_url: null,
+      source: "preview_url" as const,
+      is_catalog: false,
+    },
+    tags: [],
+    ai_tags: {},
+    format: "image" as const,
+    creative_type: "feed" as const,
+    creative_type_label: "Feed",
+    creative_delivery_type: "standard" as const,
+    creative_visual_format: "image" as const,
+    creative_primary_type: "standard" as const,
+    creative_primary_label: "Standard",
+    creative_secondary_type: null,
+    creative_secondary_label: null,
+    spend: 500,
+    purchase_value: 1500,
+    roas: 3,
+    cpa: 62.5,
+    clicks: 100,
+    cpc_link: 1,
+    cpm: 10,
+    ctr_all: 1.2,
+    purchases: 8,
+    impressions: 50_000,
+    link_clicks: 600,
+    landing_page_views: 480,
+    add_to_cart: 80,
+    initiate_checkout: 40,
+    thumbstop: 25,
+    click_to_atc: 13.33,
+    atc_to_purchase: 10,
+    leads: 0,
+    messages: 0,
+    video25: 18,
+    video50: 10,
+    video75: 6,
+    video100: 3,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(isDemoBusiness).mockResolvedValue(false);
+  process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
+  delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
+  vi.mocked(requireBusinessAccess).mockResolvedValue({
+    session: {
+      user: { id: "user_1", email: "operator@adsecute.com" },
+    } as never,
+    membership: {
+      id: "membership_1",
+      userId: "user_1",
+      businessId: "biz_1",
+      role: "guest",
+      status: "active",
+      joinedAt: "2026-05-07T00:00:00.000Z",
+    },
+  });
+  vi.mocked(resolveEngineV3Flags).mockResolvedValue({
     businessId: "biz_1",
     enabled: true,
     surfaceVisible: true,
@@ -77,135 +294,17 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
       surfaceVisible: true,
       shadowOnly: false,
     },
-    ...overrides,
-  };
-}
-
-function campaignLabel(
-  kind: "main" | "test" | "mixed",
-  testDimension: "creative" | null = null,
-) {
-  return {
-    businessId: "biz_1",
-    campaignId: "mock-campaign-001",
-    kind,
-    testDimension,
-    source: "user" as const,
-    providerAccountId: null,
-    campaignName: "Mock Campaign",
-    labeledBy: "user_1",
-    labeledAt: "2026-05-07T00:00:00.000Z",
-    updatedAt: "2026-05-07T00:00:00.000Z",
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockDbQuery.mockImplementation(async (query: unknown) => {
-    const sql = String(query);
-    if (
-      sql.includes("SELECT DISTINCT ON (creative_id)") &&
-      sql.includes("raw_label")
-    ) {
-      return [
-        {
-          creative_id: "mock-creative-001",
-          label: "scale",
-          raw_label: "scale",
-        },
-      ];
-    }
-    return [];
   });
-  process.env.DECISION_ENGINE_V3_DATA_SOURCE = "mock";
-  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
-  delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
-  delete process.env.DECISION_CENTER_OBSERVABILITY;
-  delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
-  vi.mocked(requireBusinessAccess).mockResolvedValue({
-    session: { user: { id: "user_1", email: "operator@adsecute.com" } } as never,
-    membership: {
-      id: "membership_1",
-      userId: "user_1",
-      businessId: "biz_1",
-      role: "guest",
-      status: "active",
-      joinedAt: "2026-05-07T00:00:00.000Z",
-    },
-  });
-  vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags());
-  vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("main")]);
   vi.mocked(readTriageState).mockResolvedValue({ rows: [], deferredCount: 0 });
   vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
     status: "ok",
-    rows: [
-      {
-        id: "row_1",
-        creative_id: "mock-creative-001",
-        effective_status: "ACTIVE",
-        real_ad_id: "ad_1",
-        associated_ads_count: 1,
-        account_id: "act_1",
-        account_name: "Meta Account",
-        campaign_id: "mock-campaign-001",
-        campaign_name: "Mock Campaign",
-        adset_id: "adset_1",
-        adset_name: "Mock Adset",
-        currency: "USD",
-        name: "Mock Creative",
-        launch_date: "2026-05-01",
-        preview_url: "https://example.com/preview.jpg",
-        preview_source: null,
-        thumbnail_url: "https://example.com/thumb.jpg",
-        image_url: "https://example.com/image.jpg",
-        table_thumbnail_url: "https://example.com/table.jpg",
-        card_preview_url: "https://example.com/card.jpg",
-        cached_thumbnail_url: "https://example.com/cache.jpg",
-        is_catalog: false,
-        preview_state: "preview",
-        preview: { render_mode: "image", image_url: "https://example.com/preview-object.jpg", video_url: null, poster_url: "https://example.com/poster.jpg", source: "preview_url", is_catalog: false },
-        tags: [],
-        ai_tags: {},
-        format: "image",
-        creative_type: "feed",
-        creative_type_label: "Feed",
-        creative_delivery_type: "standard",
-        creative_visual_format: "video",
-        creative_primary_type: "video",
-        creative_primary_label: "Video",
-        creative_secondary_type: null,
-        creative_secondary_label: null,
-        taxonomy_version: "v2",
-        taxonomy_source: "deterministic",
-        taxonomy_reconciled_by_video_evidence: false,
-        spend: 500,
-        purchase_value: 1500,
-        roas: 3,
-        cpa: 62.5,
-        clicks: 100,
-        cpc_link: 1,
-        cpm: 10,
-        ctr_all: 1.2,
-        purchases: 8,
-        impressions: 50000,
-        link_clicks: 600,
-        landing_page_views: 480,
-        add_to_cart: 80,
-        initiate_checkout: 40,
-        thumbstop: 25,
-        click_to_atc: 13.33,
-        atc_to_purchase: 10,
-        leads: 0,
-        messages: 0,
-        video25: 18,
-        video50: 10,
-        video75: 6,
-        video100: 3,
-      },
-    ],
+    rows: [creativeRow()],
     media_mode: "metadata",
     media_hydrated: false,
   });
+  vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+    generation([canonicalDecision()]),
+  );
 });
 
 afterEach(() => {
@@ -214,1153 +313,502 @@ afterEach(() => {
   } else {
     process.env.DECISION_ENGINE_V3_DATA_SOURCE = previousDataSourceFlag;
   }
-  if (previousObservabilityFlag === undefined) {
-    delete process.env.DECISION_CENTER_OBSERVABILITY;
-  } else {
-    process.env.DECISION_CENTER_OBSERVABILITY = previousObservabilityFlag;
-  }
-  if (previousObservabilitySalt === undefined) {
-    delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
-  } else {
-    process.env.DECISION_CENTER_OBSERVABILITY_SALT =
-      previousObservabilitySalt;
-  }
   if (previousDecisionCenterDefaultDisabled === undefined) {
     delete process.env.DECISION_CENTER_DEFAULT_DISABLED;
   } else {
     process.env.DECISION_CENTER_DEFAULT_DISABLED =
       previousDecisionCenterDefaultDisabled;
   }
-  if (previousCampaignContextMode === undefined) {
-    delete process.env.CAMPAIGN_CONTEXT_MODE;
-  } else {
-    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
-  }
 });
 
-describe("GET /api/creatives/briefing", () => {
-  it("carries structured decision blockers onto briefing cards", () => {
-    const decision: DecisionOutput = {
-      creativeId: "mock-creative-001",
-      creativeName: "Mock Creative",
-      label: "keep",
-      preAuthorityLabel: "keep",
-      authorityBlocker: null,
-      reason: "[near scale] ROAS above target but blocked by purchase depth.",
-      confidence: 80,
-      truthSource: "commercial_truth",
-      effectiveTargetRoas: 2.2,
-      ratioToTarget: 1.4,
-      badges: [
-        {
-          type: "scale_readiness_blocked",
-          label: "Scale readiness blocked",
-          severity: "info",
-        },
-      ],
-      blockers: [
-        {
-          predicate: "scale_purchase_depth",
-          observed: 2,
-          threshold: 5,
-          status: "failed",
-          severity: "warning",
-          reason: "purchases 2 below scale floor",
-        },
-      ],
-      metrics: {
-        spend: 500,
-        purchases: 2,
-        roas: 3,
-        recent7dRoas: 2.4,
-      },
-      labelTransform: null,
-      engineVersion: "test-engine",
-      generatedAt: "2026-05-07T00:00:00.000Z",
-    };
-
-    expect(cardForDecision({ decision })).toMatchObject({
-      label: "keep",
-      badges: ["scale_readiness_blocked"],
-      blockers: [
-        {
-          predicate: "scale_purchase_depth",
-          observed: 2,
-          threshold: 5,
-        },
-      ],
+describe("GET /api/creatives/briefing canonical native-ad authority", () => {
+  it("serves an exact native card with the complete producer-to-handler lineage", async () => {
+    const exactAdId = "100000000000001";
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [creativeRow(exactAdId)],
+      media_mode: "metadata",
+      media_hydrated: false,
     });
-  });
-
-  it("classifies engine v3 decisions into briefing lanes server-side", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(Array.isArray(payload.actionNow)).toBe(true);
-    expect(Array.isArray(payload.watching)).toBe(true);
-    expect(Array.isArray(payload.healthy)).toBe(true);
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
-    expect(cards[0]).toMatchObject({
-      impressions: 50000,
-      linkClicks: 600,
-      addToCart: 80,
-      campaignKind: "main",
-      campaignLabelStatus: "labeled",
-      label: "scale",
-      primary: { kind: "scale_budget", label: "Scale budget" },
-      automationReadiness: {
-        contractVersion: "meta-automation-readiness.v1",
-        tier: "read_only",
-        autoExecuteEligible: false,
-        operatorReviewRequired: true,
-        blockers: [
-          "no_empirical_outcome_model",
-          "missing_executor",
-          "missing_live_preflight",
-          "missing_rollback_plan",
-          "missing_post_action_monitor",
-          "missing_holdout_plan",
-          "missing_operator_enablement",
-        ],
-      },
-      explainability: expect.objectContaining({
-        targetRoas: expect.any(Number),
-        thresholdSource: expect.any(String),
-        missingEvidence: expect.any(Array),
-      }),
-      priorityScore: expect.objectContaining({
-        score: expect.any(Number),
-        band: expect.any(String),
-        inputs: expect.objectContaining({
-          spend: expect.any(Number),
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision({
+          adId: exactAdId,
+          label: "cut",
+          buyerAction: "cut",
+          authorizedAction: "cut",
+          executionAction: null,
         }),
-      }),
-      mediaPreviewUrl: "https://example.com/card.jpg",
-      tableThumbnailUrl: "https://example.com/table.jpg",
-      cardPreviewUrl: "https://example.com/card.jpg",
-      previewUrl: "https://example.com/preview.jpg",
-      imageUrl: "https://example.com/image.jpg",
-      cachedThumbnailUrl: "https://example.com/cache.jpg",
-      previewState: "preview",
-      format: "image",
-      creativeVisualFormat: "video",
-      creativePrimaryType: "video",
-      creativePrimaryLabel: "Video",
-      creativeDeliveryType: "standard",
-      taxonomySource: expect.any(String),
-      taxonomyReconciledByVideoEvidence: expect.anything(),
-      engineVersion: expect.any(String),
-      sourceAsOf: "2026-05-07",
-      sourceDataSource: expect.any(String),
-      profileScope: expect.stringContaining(":"),
-    });
-    expect(payload.pulse.engineVersion).toBeTruthy();
-    expect(payload.statusFilter).toBe("active");
-    expect(JSON.stringify(payload)).not.toContain("buyerAction");
-    expect(JSON.stringify(payload)).not.toContain("brief_variation");
-    expect(requireBusinessAccess).toHaveBeenCalledWith({
-      request: expect.any(NextRequest),
-      businessId: "biz_1",
-      minRole: "guest",
-    });
-  });
-
-  it("keeps bootstrap hard decisions pending when no scoped hysteresis baseline exists", async () => {
-    mockDbQuery.mockResolvedValue([]);
-
+      ]),
+    );
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
       ),
     );
     const payload = await response.json();
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
-
-    expect(payload.actionNow).toEqual([]);
-    expect(cards[0]).toMatchObject({
-      label: "keep",
-      rawLabel: "scale",
-      pendingTransition: true,
-      primary: { kind: "review", label: "Review pending signal" },
-    });
-  });
-
-  it("fails closed when the scoped hysteresis baseline read errors", async () => {
-    mockDbQuery.mockImplementation(async (query: unknown) => {
-      const sql = String(query);
-      if (
-        sql.includes("SELECT DISTINCT ON (creative_id)") &&
-        sql.includes("raw_label")
-      ) {
-        throw new Error("baseline unavailable");
-      }
-      return [];
-    });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=0",
-      ),
-    );
-    const payload = await response.json();
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
-
-    expect(payload.actionNow).toEqual([]);
-    expect(cards[0]).toMatchObject({
-      label: "keep",
-      rawLabel: "scale",
-      pendingTransition: true,
-    });
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("hard entries remain pending"),
-      expect.any(Error),
-    );
-    errorSpy.mockRestore();
-  });
-
-  it("hydrates synthetic grouped creative ids with real Meta ad ids", async () => {
-    const syntheticCreativeRow = {
-      id: "creative_synthetic",
-      creative_id: "mock-creative-001",
-      effective_status: "ACTIVE",
-      real_ad_id: "creative_synthetic",
-      associated_ads_count: 1,
-      account_id: "act_1",
-      account_name: "Meta Account",
-      campaign_id: "mock-campaign-001",
-      campaign_name: "Mock Campaign",
-      adset_id: "adset_1",
-      adset_name: "Mock Adset",
-      currency: "USD",
-      name: "Mock Creative",
-      launch_date: "2026-05-01",
-      preview_url: "https://example.com/preview.jpg",
-      preview_source: null,
-      thumbnail_url: "https://example.com/thumb.jpg",
-      image_url: "https://example.com/image.jpg",
-      table_thumbnail_url: "https://example.com/table.jpg",
-      card_preview_url: "https://example.com/card.jpg",
-      cached_thumbnail_url: "https://example.com/cache.jpg",
-      is_catalog: false,
-      preview_state: "preview" as const,
-      preview: { render_mode: "image" as const, image_url: "https://example.com/preview-object.jpg", video_url: null, poster_url: "https://example.com/poster.jpg", source: "preview_url" as const, is_catalog: false },
-      tags: [],
-      ai_tags: {},
-      format: "image",
-      creative_type: "feed",
-      creative_type_label: "Feed",
-      creative_delivery_type: "standard",
-      creative_visual_format: "image",
-      creative_primary_type: "standard",
-      creative_primary_label: null,
-      creative_secondary_type: null,
-      creative_secondary_label: null,
-      spend: 500,
-      purchase_value: 1500,
-      roas: 3,
-      cpa: 62.5,
-      clicks: 100,
-      cpc_link: 1,
-      cpm: 10,
-      ctr_all: 1.2,
-      purchases: 8,
-      impressions: 50000,
-      link_clicks: 600,
-      landing_page_views: 480,
-      add_to_cart: 80,
-      initiate_checkout: 40,
-      thumbstop: 25,
-      click_to_atc: 13.33,
-      atc_to_purchase: 10,
-      leads: 0,
-      messages: 0,
-      video25: 18,
-      video50: 10,
-      video75: 6,
-      video100: 3,
-    };
-    vi.mocked(getMetaCreativesApiPayload)
-      .mockResolvedValueOnce({
-        status: "ok",
-        rows: [syntheticCreativeRow as never],
-        media_mode: "metadata",
-        media_hydrated: false,
-      })
-      .mockResolvedValueOnce({
-        status: "ok",
-        rows: [
-          {
-            ...syntheticCreativeRow,
-            id: "120000000000001",
-            real_ad_id: "120000000000001",
-          } as never,
-        ],
-        media_mode: "metadata",
-        media_hydrated: false,
-      });
-
-    const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
-    );
-    const payload = await response.json();
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
+    const card = payload.actionNow[0] as BriefingCreativeCard;
 
     expect(response.status).toBe(200);
-    expect(cards[0]).toMatchObject({
-      id: "creative_synthetic",
-      adId: "120000000000001",
-      realAdId: "120000000000001",
+    expect(card).toMatchObject({
+      id: exactAdId,
+      adId: exactAdId,
+      realAdId: exactAdId,
+      creativeId: "mock-creative-001",
+      label: "cut",
+      primary: { kind: "cut", label: "Cut" },
+      sourceDecisionSnapshotId: `snapshot_${exactAdId}`,
+      sourceDecisionEvaluationId: `evaluation_${exactAdId}`,
+      sourceDecisionInputHash: INPUT_HASH,
+      sourceDecisionHash: DECISION_HASH,
+      sourceDecisionProviderAccountRefId: "provider-ref-1",
+      sourceDecisionJobRunId: "job-run-1",
+      sourceDecisionAuthorizedAction: "cut",
+      sourceDecisionActionEligible: true,
+      sourceDecisionSnapshotMatch: "matched",
+      canonicalDecision: {
+        contractVersion: "briefing-canonical-native-ad.v1",
+        identityGrain: "ad",
+        adId: exactAdId,
+        classification: { buyerAction: "cut" },
+      },
     });
-    expect(getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ groupBy: "creative" }),
-    );
-    expect(getMetaCreativesApiPayload).toHaveBeenNthCalledWith(
-      2,
+    expect(hasNativeDecisionOriginLineage(card)).toBe(true);
+    expect(
+      buildBriefingDecisionOriginAdActionRequest({
+        businessId: "biz_1",
+        card,
+        action: "pause",
+      }),
+    ).toMatchObject({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      adId: exactAdId,
+      snapshotId: `snapshot_${exactAdId}`,
+      evaluationId: `evaluation_${exactAdId}`,
+      engineVersion: "native-ad-engine.v1",
+      decisionHash: DECISION_HASH,
+      action: "pause",
+    });
+    expect(payload.source).toMatchObject({
+      dataSource: "native_ad_generation",
+      canonicalDecisionInventory: {
+        status: "available",
+        itemCount: 1,
+        generation: { jobRunId: "job-run-1", expectedAdCount: 1 },
+      },
+    });
+    expect(payload.decisionCenter.rowDecisions[0]).toMatchObject({
+      rowId: exactAdId,
+      identityGrain: "ad",
+      buyerAction: "cut",
+      sourceDecision: "native:cut",
+    });
+    expect(payload.decisionCenter.actionBoard.cut).toEqual([exactAdId]);
+    expect(getMetaCreativesApiPayload).toHaveBeenCalledWith(
       expect.objectContaining({ groupBy: "ad" }),
     );
   });
 
-  it("uses the caller's date window when resolving Studio creative identity", async () => {
-    await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&providerAccountId=act_1&start=2026-05-01&asOf=2026-05-07&status_filter=all",
-      ),
-    );
-
-    expect(getMetaCreativesApiPayload).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerAccountId: "act_1",
-        start: "2026-05-01",
-        end: "2026-05-07",
-      }),
-    );
-  });
-
-  it("maps scale primary actions by campaign kind server-side", async () => {
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("test", "creative")]);
-
-    const testResponse = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
-    );
-    const testPayload = await testResponse.json();
-    const testCards = [
-      ...testPayload.actionNow,
-      ...testPayload.watching,
-      ...testPayload.healthy,
-    ];
-
-    expect(testCards[0]).toMatchObject({
-      campaignKind: "test",
-      label: "scale",
-      primary: { kind: "promote", label: "Promote to main" },
-    });
-
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("mixed")]);
-
-    const mixedResponse = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
-    );
-    const mixedPayload = await mixedResponse.json();
-    const mixedCards = [
-      ...mixedPayload.actionNow,
-      ...mixedPayload.watching,
-      ...mixedPayload.healthy,
-    ];
-
-    expect(mixedCards[0]).toMatchObject({
-      campaignKind: "mixed",
-      label: "scale",
-      primary: {
-        kind: "controlled_scale",
-        label: "Review structure & scale",
-      },
-    });
-  });
-
-  it("returns empty lanes when engine v3 is disabled", async () => {
-    vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags({ enabled: false }));
-
-    const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1"),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.status).toBe("disabled");
-    expect(payload.statusFilter).toBe("active");
-    expect(payload.actionNow).toEqual([]);
-    expect(payload.watching).toEqual([]);
-    expect(payload.healthy).toEqual([]);
-    expect(payload.decisionCenter).toMatchObject({
-      contractVersion: "creative-decision-center.v2.1",
-      engineVersion: "disabled",
-      rowDecisions: [],
-      aggregateDecisions: [],
-      todayBrief: [],
-    });
-  });
-
-  it("includes a validated decisionCenter snapshot in the default response (D027)", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter).not.toBeNull();
-    expect(payload.decisionCenter).toMatchObject({
-      contractVersion: "creative-decision-center.v2.1",
-      adapterVersion:
-        "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
-      configVersion: "creative-decision-engine.config.v1",
-      generatedAt: expect.any(String),
-      dataFreshness: {
-        status: "unknown",
-        maxAgeHours: 26,
-        latestSnapshotAsOf: null,
-        snapshotAgeHours: null,
-      },
-      aggregateDecisions: [],
-      todayBrief: [],
-      missingDataSummary: {},
-      inputCoverageSummary: {},
-    });
-    expect(payload.decisionCenter.rowDecisions).toHaveLength(1);
-    expect(payload.decisionCenter.actionBoard.scale).toEqual(["row_1"]);
-    // Existing legacy assertions still hold.
-    expect(payload.statusFilter).toBe("active");
-    expect(Array.isArray(payload.actionNow)).toBe(true);
-    expect(Array.isArray(payload.watching)).toBe(true);
-    expect(Array.isArray(payload.healthy)).toBe(true);
-    expect(payload.pulse.engineVersion).toBeTruthy();
-    expect(payload.source.dataSource).toBe("mock");
-    expect(payload.source.measurementReconciliation).toMatchObject({
-      durationMs: expect.any(Number),
-      queryCount: 2,
-      briefingCounts: {
-        actionNow: expect.any(Number),
-        watching: expect.any(Number),
-        healthy: expect.any(Number),
-        total: expect.any(Number),
-      },
-      dataCompleteness: {
-        totalInputs: expect.any(Number),
-        fields: expect.objectContaining({
-          reviewStatus: expect.objectContaining({
-            criticalForActions: expect.arrayContaining(["fix_policy"]),
-          }),
-          policyReason: expect.objectContaining({
-            criticalForActions: expect.arrayContaining(["fix_policy"]),
-          }),
-        }),
-      },
-    });
-    expect(payload.source.laneSummary).toMatchObject({
-      actionNow: 1,
-      watching: {
-        total: 0,
-        nearAction: 0,
-        testMaturing: 0,
-        diagnostic: 0,
-        waitingOnLabels: 0,
-        other: 0,
-      },
-      healthy: 0,
-      totalDecisions: 1,
-    });
-    expect(payload.source.aggregateSuppressionTrace).toMatchObject({
-      candidateCount: expect.any(Number),
-      emittedCount: expect.any(Number),
-      suppressedCount: expect.any(Number),
-      suppressed: expect.any(Array),
-    });
-  });
-
-  it("flags EMOLOS-class live briefing rows without a persisted snapshot as reconciliation drift", async () => {
-    mockDbQuery.mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(
-      payload.actionNow.length + payload.watching.length + payload.healthy.length,
-    ).toBeGreaterThan(0);
-    expect(payload.source.measurementReconciliation.snapshotLatest).toBeNull();
-    expect(payload.source.measurementReconciliation.notes).toContain(
-      "snapshot_count_differs_from_live_briefing_count",
-    );
-    expect(payload.source.measurementReconciliation.notes).toContain(
-      "snapshot_missing_for_live_briefing_count",
-    );
-  });
-
-  it("flags latest snapshot days with zero account-scope rows as reconciliation drift", async () => {
-    mockDbQuery.mockImplementation(async (query: unknown) => {
-      const sql = String(query);
-      if (sql.includes("WITH latest_day AS")) {
-        return [
-          {
-            as_of_date: "2026-05-07",
-            engine_version: ENGINE_VERSION,
-            row_count: "0",
-            stale_rows: "0",
-            conflicting_groups: "0",
-            lifecycle_row_count: "31",
-          },
-        ];
-      }
-      return [];
-    });
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.source.measurementReconciliation.snapshotLatest).toMatchObject({
-      asOfDate: "2026-05-07",
-      rowCount: 0,
-      lifecycleRowCount: 31,
-    });
-    expect(payload.source.measurementReconciliation.notes).toContain(
-      "snapshot_count_differs_from_live_briefing_count",
-    );
-    expect(payload.source.measurementReconciliation.notes).toContain(
-      "snapshot_missing_account_scope_rows_for_live_briefing_count",
-    );
-  });
-
-  it("falls back to ENGINE_VERSION when a scoped response has no row decisions", async () => {
-    vi.mocked(resolveEngineV3Flags).mockResolvedValue(
-      makeFlags({ presetOverride: "aggressive" }),
-    );
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&campaignId=missing-campaign&asOf=2026-05-07",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.actionNow).toEqual([]);
-    expect(payload.watching).toEqual([]);
-    expect(payload.healthy).toEqual([]);
-    expect(payload.pulse.engineVersion).toBe(ENGINE_VERSION);
-    expect(payload.decisionCenter.engineVersion).toBe(ENGINE_VERSION);
-  });
-
-  it("emits unused-approved aggregate decisions only when proof fields are available", async () => {
-    mockDbQuery.mockImplementation(async (query: unknown) => {
-      const sql = String(query);
-      if (sql.includes("engine_v3_decision_snapshots_daily")) return [];
-      if (sql.includes("meta_creative_daily")) {
-        return [
-          {
-            approved_unused_ids: [
-              "creative_unused_001",
-              "creative_unused_002",
-              "creative_unused_003",
-              "creative_unused_004",
-              "creative_unused_005",
-            ],
-            approved_unused_count: "5",
-            status_proof_count: "5",
-            delivery_proof_count: "5",
-          },
-        ];
-      }
-      return [];
-    });
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter.aggregateDecisions).toEqual([
-      expect.objectContaining({
-        scope: "page",
-        action: "unused_approved_creatives",
-        priority: "high",
-        confidence: 70,
-        affectedCreativeIds: [
-          "creative_unused_001",
-          "creative_unused_002",
-          "creative_unused_003",
-          "creative_unused_004",
-          "creative_unused_005",
-        ],
-      }),
-    ]);
-    const unusedApprovedQuery = mockDbQuery.mock.calls.find((call) =>
-      String(call[0]).includes("latest_meta"),
-    );
-    expect(String(unusedApprovedQuery?.[0])).toContain(
-      "review_status IS NOT NULL AS has_status_proof",
-    );
-    expect(String(unusedApprovedQuery?.[0])).toContain(
-      "UPPER(REPLACE(COALESCE(review_status, ''), ' ', '_')) IN",
-    );
-    expect(String(unusedApprovedQuery?.[0])).toContain("'APPROVED'");
-    expect(unusedApprovedQuery?.[1]).toEqual([
-      "biz_1",
-      "2026-05-07",
-      UNUSED_APPROVED_LOOKBACK_DAYS,
-    ]);
-  });
-
-  it("suppresses unused-approved aggregates when explicit review proof is missing", async () => {
-    mockDbQuery.mockImplementation(async (query: unknown) => {
-      const sql = String(query);
-      if (sql.includes("engine_v3_decision_snapshots_daily")) return [];
-      if (sql.includes("meta_creative_daily")) {
-        return [
-          {
-            approved_unused_ids: ["creative_unused_001"],
-            approved_unused_count: "1",
-            status_proof_count: "0",
-            delivery_proof_count: "1",
-          },
-        ];
-      }
-      return [];
-    });
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
-    expect(payload.source.aggregateSuppressionTrace).toMatchObject({
-      candidateCount: 2,
-      emittedCount: 0,
-      suppressedCount: 2,
-      suppressed: expect.arrayContaining([
-        expect.objectContaining({
-          action: "unused_approved_creatives",
-          reason: "missing_required_data",
-          missingRequiredData: ["creative_review_status"],
-          prerequisites: [
-            { field: "creative_review_status", availableNow: false },
-            { field: "delivery_proof", availableNow: true },
-            { field: "lifetime_delivery", availableNow: true },
-          ],
+  it("keeps an exact Ad with missing creative identity review-only", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision({
+          creativeId: null,
+          label: "cut",
+          buyerAction: "cut",
+          authorizedAction: "cut",
+          executionAction: null,
         }),
       ]),
-    });
-  });
-
-  it("logs aggregate SQL failures without breaking the briefing response", async () => {
-    const queryError = new Error("snapshot query failed");
-    mockDbQuery.mockImplementation(async (query: unknown) => {
-      const sql = String(query);
-      if (sql.includes("engine_v3_decision_snapshots_daily")) {
-        throw queryError;
-      }
-      return [];
-    });
-    const errorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+    );
 
     const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter).not.toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[creative-decision-center] winner_gap candidate query failed",
-      queryError,
-    );
-    errorSpy.mockRestore();
-  });
-
-  it("keeps the explicit truthy decisionCenter request compatible (PR7C/D027)", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter).not.toBeNull();
-    expect(payload.decisionCenter).toMatchObject({
-      contractVersion: "creative-decision-center.v2.1",
-      adapterVersion:
-        "creative-decision-center.v3-bridge.v1+creative-decision-center.shadow-adapter.v1",
-      configVersion: "creative-decision-engine.config.v1",
-      generatedAt: expect.any(String),
-      dataFreshness: {
-        status: "unknown",
-        maxAgeHours: 26,
-        latestSnapshotAsOf: null,
-        snapshotAgeHours: null,
-      },
-      aggregateDecisions: [],
-      todayBrief: [],
-      missingDataSummary: {},
-      inputCoverageSummary: {},
-    });
-    expect(payload.decisionCenter.rowDecisions).toHaveLength(1);
-    expect(payload.decisionCenter.rowDecisions[0]).toMatchObject({
-      scope: "creative",
-      creativeId: "mock-creative-001",
-      rowId: "row_1",
-      identityGrain: "creative",
-      familyId: null,
-      buyerAction: "scale",
-      executionAction: "scale_budget",
-      sourceDecision: "v3:scale",
-      engine: {
-        contractVersion: "creative-decision-os.v2.1",
-        primaryDecision: "Scale",
-        problemClass: "performance",
-        actionability: "review_only",
-        queueEligible: false,
-        applyEligible: false,
-      },
-    });
-    expect(payload.actionNow[0]).toMatchObject({
-      primary: { kind: "scale_budget", label: "Scale budget" },
-      decisionCenterRow: {
-        buyerAction: "scale",
-        executionAction: "scale_budget",
-        sourceDecision: "v3:scale",
-      },
-    });
-    expect(payload.decisionCenter.dataFreshness.status).toBe("unknown");
-    expect(payload.decisionCenter.engineVersion).toBeTruthy();
-    expect(payload.decisionCenter.actionBoard.scale).toEqual(["row_1"]);
-    expect(Object.keys(payload.decisionCenter.actionBoard)).toEqual([
-      "scale",
-      "cut",
-      "refresh",
-      "protect",
-      "test_more",
-      "watch_launch",
-      "fix_delivery",
-      "fix_policy",
-      "diagnose_data",
-    ]);
-    expect(payload.decisionCenter.actionBoard.cut).toEqual([]);
-    expect(payload.decisionCenter.actionBoard.refresh).toEqual([]);
-    expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual([]);
-    expect(payload.decisionCenter.aggregateDecisions).toEqual([]);
-    for (const row of payload.decisionCenter.rowDecisions) {
-      expect(row.buyerAction).not.toBe("brief_variation");
-      expect(row.uiBucket).not.toBe("brief_variation");
-    }
-    // Legacy payload assertions remain intact.
-    expect(payload.statusFilter).toBe("active");
-    expect(Array.isArray(payload.actionNow)).toBe(true);
-    expect(payload.source.dataSource).toBe("mock");
-  });
-
-  it("keeps campaign-kind execution actions in the flagged decisionCenter snapshot (PR7C)", async () => {
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("test", "creative")]);
-
-    const testResponse = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const testPayload = await testResponse.json();
-    expect(testPayload.decisionCenter.rowDecisions[0]).toMatchObject({
-      buyerAction: "scale",
-      executionAction: "promote_to_main",
-    });
-
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([campaignLabel("mixed")]);
-
-    const mixedResponse = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=true",
-      ),
-    );
-    const mixedPayload = await mixedResponse.json();
-    expect(mixedPayload.decisionCenter.rowDecisions[0]).toMatchObject({
-      buyerAction: "scale",
-      executionAction: "controlled_scale",
-    });
-  });
-
-  it("keeps unlabeled scale execution blocked in the flagged decisionCenter snapshot (PR7C)", async () => {
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter.rowDecisions[0]).toMatchObject({
-      buyerAction: "diagnose_data",
-      executionAction: null,
-      sourceDecision: "v3:diagnose",
-      engine: {
-        primaryDecision: "Diagnose",
-        actionability: "diagnose",
-        queueEligible: false,
-        applyEligible: false,
-      },
-    });
-    expect(payload.decisionCenter.actionBoard.diagnose_data).toEqual(["row_1"]);
-  });
-
-  it("fails closed to a null decisionCenter when shadow snapshot assembly cannot validate (PR7C)", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=not-a-date&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter).toBeNull();
-    expect(payload.actionNow).toEqual(expect.any(Array));
-    expect(payload.source.dataSource).toBe("mock");
-  });
-
-  it.each(["0", "false", "off", "no"])(
-    "treats decisionCenter=%s as an explicit response opt-out (D027)",
-    async (value) => {
-      const response = await GET(
-        new NextRequest(
-          `http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=${encodeURIComponent(value)}`,
-        ),
-      );
-      const payload = await response.json();
-      expect(response.status).toBe(200);
-      expect(payload).not.toHaveProperty("decisionCenter");
-    },
-  );
-
-  it("supports snake-case decisionCenter opt-out values (D027)", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=false",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload).not.toHaveProperty("decisionCenter");
-  });
-
-  it("uses the default-disabled env kill switch with explicit truthy override (D027)", async () => {
-    const defaultResponse = await GET(
       new NextRequest(
         "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
       ),
     );
-    const defaultPayload = await defaultResponse.json();
-    expect(defaultPayload.decisionCenter).not.toBeNull();
-
-    process.env.DECISION_CENTER_DEFAULT_DISABLED = "1";
-    const killedResponse = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
-      ),
-    );
-    const killedPayload = await killedResponse.json();
-    expect(killedPayload).not.toHaveProperty("decisionCenter");
-
-    const overrideResponse = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const overridePayload = await overrideResponse.json();
-    expect(overridePayload.decisionCenter).not.toBeNull();
-  });
-
-  it("omits the disabled-path empty decisionCenter snapshot when opted out (D027)", async () => {
-    vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags({ enabled: false }));
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decision_center=false",
-      ),
-    );
     const payload = await response.json();
+    const card = payload.watching[0] as BriefingCreativeCard;
 
     expect(response.status).toBe(200);
-    expect(payload.status).toBe("disabled");
-    expect(payload).not.toHaveProperty("decisionCenter");
-  });
-
-  it.each([
-    {
-      name: "default env without flag",
-      env: undefined,
-      flag: false,
-      expectsLogs: false,
-    },
-    {
-      name: "default env with flag",
-      env: undefined,
-      flag: true,
-      expectsLogs: false,
-    },
-    {
-      name: "enabled env without flag",
-      env: "1",
-      flag: false,
-      expectsLogs: false,
-    },
-    {
-      name: "enabled env with flag",
-      env: "1",
-      flag: true,
-      expectsLogs: true,
-    },
-    {
-      name: "false env with flag",
-      env: "false",
-      flag: true,
-      expectsLogs: false,
-    },
-    {
-      name: "blank env with flag",
-      env: " ",
-      flag: true,
-      expectsLogs: false,
-    },
-  ])(
-    "gates Decision Center observability logs with an AND gate: $name (PR13)",
-    async ({ env, flag, expectsLogs }) => {
-      if (env === undefined) {
-        delete process.env.DECISION_CENTER_OBSERVABILITY;
-      } else {
-        process.env.DECISION_CENTER_OBSERVABILITY = env;
-      }
-      process.env.DECISION_CENTER_OBSERVABILITY_SALT = "test-salt";
-      const infoSpy = vi
-        .spyOn(console, "info")
-        .mockImplementation(() => undefined);
-      const url = flag
-        ? "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1"
-        : "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07";
-
-      const response = await GET(new NextRequest(url));
-      const payload = await response.json();
-
-      expect(response.status).toBe(200);
-      if (!expectsLogs) {
-        expect(infoSpy).not.toHaveBeenCalled();
-        infoSpy.mockRestore();
-        return;
-      }
-
-      expect(payload.decisionCenter).not.toBeNull();
-      expect(infoSpy).toHaveBeenCalled();
-      for (const call of infoSpy.mock.calls) {
-        expect(call[0]).toBe(DECISION_CENTER_OBSERVABILITY_LOG_MARKER);
-        expect(typeof call[1]).toBe("string");
-        const event = JSON.parse(call[1] as string);
-        expect(event).toMatchObject({
-          version: "creative-decision-center.observability.v1",
-          businessIdHash: expect.stringMatching(/^salted:business:/),
-          snapshotId: expect.stringMatching(/^salted:snapshot:/),
-          route: "GET /api/creatives/briefing",
-          decisionCenterRequested: true,
-        });
-      }
-      const logged = JSON.stringify(infoSpy.mock.calls);
-      expect(logged).not.toContain("biz_1");
-      expect(logged).not.toContain("act_1");
-      expect(logged).not.toContain("mock-creative-001");
-      expect(logged).not.toContain("row_1");
-      expect(logged).not.toContain("https://example.com");
-      expect(logged).not.toContain("Mock Creative");
-      expect(logged).toContain("decision_center.snapshot_observed");
-      expect(logged).toContain("decision_center.row_distribution");
-      infoSpy.mockRestore();
-    },
-  );
-
-  it("marks observability hashes as unsalted when the salt env is absent (PR13)", async () => {
-    process.env.DECISION_CENTER_OBSERVABILITY = "enabled";
-    delete process.env.DECISION_CENTER_OBSERVABILITY_SALT;
-    const infoSpy = vi
-      .spyOn(console, "info")
-      .mockImplementation(() => undefined);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-
-    expect(response.status).toBe(200);
-    expect(infoSpy).toHaveBeenCalled();
-    const firstEvent = JSON.parse(infoSpy.mock.calls[0][1] as string);
-    expect(firstEvent.businessIdHash).toMatch(/^unsalted:business:/);
-    expect(firstEvent.snapshotId).toMatch(/^unsalted:snapshot:/);
-    infoSpy.mockRestore();
-  });
-
-  it("keeps the briefing response intact when observability logging throws (PR13)", async () => {
-    process.env.DECISION_CENTER_OBSERVABILITY = "true";
-    process.env.DECISION_CENTER_OBSERVABILITY_SALT = "test-salt";
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {
-      throw new Error("telemetry failed");
+    expect(payload.actionNow).toHaveLength(0);
+    expect(card).toMatchObject({
+      id: "ad_1",
+      creativeId: null,
+      sourceDecisionActionEligible: false,
+      sourceDecisionAuthorizedAction: null,
+      canonicalDecision: {
+        creativeId: null,
+        identityResolution: { adActionEligible: false },
+        sourceAuthority: {
+          actionEligible: false,
+          authorizedAction: null,
+          reviewOnlyReason: "current_creative_identity_is_missing",
+        },
+      },
     });
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decisionCenter).not.toBeNull();
-    expect(payload.actionNow).toEqual(expect.any(Array));
-    expect(infoSpy).toHaveBeenCalled();
-    infoSpy.mockRestore();
+    expect(hasNativeDecisionOriginLineage(card)).toBe(false);
   });
 
-  it("surfaces missing campaign label context in cards", async () => {
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+  it("preserves two exact ads that share one creative without cross-target lineage", async () => {
+    const decisions = [
+      canonicalDecision({ adId: "ad_1" }),
+      canonicalDecision({
+        adId: "ad_2",
+        label: "cut",
+        buyerAction: "cut",
+        authorizedAction: "cut",
+        executionAction: null,
+      }),
+    ];
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation(decisions),
     );
-    const payload = await response.json();
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
-
-    expect(response.status).toBe(200);
-    expect(cards[0]).toMatchObject({
-      campaignLabelStatus: "unlabeled",
-      campaignKind: null,
-      blockedActionType: "scale",
-      primary: { kind: "review", label: "Open evidence" },
-    });
-  });
-
-  it("returns auth errors unchanged", async () => {
-    vi.mocked(requireBusinessAccess).mockResolvedValue({
-      error: NextResponse.json({ error: "auth_error" }, { status: 401 }),
-    });
-
-    const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1"),
-    );
-
-    expect(response.status).toBe(401);
-    expect(resolveEngineV3Flags).not.toHaveBeenCalled();
-  });
-
-  it("prefers engine input status over stale grouped creative-row status", async () => {
     vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
       status: "ok",
-      rows: [
-        {
-          id: "row_1",
-          creative_id: "mock-creative-001",
-          effective_status: "PAUSED",
-          real_ad_id: "ad_1",
-          associated_ads_count: 1,
-          account_id: "act_1",
-          account_name: "Meta Account",
-          campaign_id: "mock-campaign-001",
-          campaign_name: "Mock Campaign",
-          adset_id: "adset_1",
-          adset_name: "Mock Adset",
-          currency: "USD",
-          name: "Mock Creative",
-          launch_date: "2026-05-01",
-          preview_url: null,
-          preview_source: null,
-          thumbnail_url: null,
-          image_url: null,
-          is_catalog: false,
-          preview_state: "unavailable",
-          preview: { render_mode: "unavailable", image_url: null, video_url: null, poster_url: null, source: null, is_catalog: false },
-          tags: [],
-          ai_tags: {},
-          format: "image",
-          creative_type: "feed",
-          creative_type_label: "Feed",
-          creative_delivery_type: "standard",
-          creative_visual_format: "image",
-          creative_primary_type: "standard",
-          creative_primary_label: null,
-          creative_secondary_type: null,
-          creative_secondary_label: null,
-          spend: 500,
-          purchase_value: 1500,
-          roas: 3,
-          cpa: 62.5,
-          clicks: 100,
-          cpc_link: 1,
-          cpm: 10,
-          ctr_all: 1.2,
-          purchases: 8,
-          impressions: 50000,
-          link_clicks: 600,
-          landing_page_views: 480,
-          add_to_cart: 80,
-          initiate_checkout: 40,
-          thumbstop: 25,
-          click_to_atc: 13.33,
-          atc_to_purchase: 10,
-          leads: 0,
-          messages: 0,
-          video25: 18,
-          video50: 10,
-          video75: 6,
-          video100: 3,
-        },
-      ],
+      rows: [creativeRow("ad_1"), creativeRow("ad_2")],
       media_mode: "metadata",
       media_hydrated: false,
     });
 
     const response = await GET(
-      new NextRequest("http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07"),
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+    const cards = [
+      ...payload.actionNow,
+      ...payload.watching,
+      ...payload.healthy,
+    ];
+
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card: BriefingCreativeCard) => card.id).sort()).toEqual([
+      "ad_1",
+      "ad_2",
+    ]);
+    expect(
+      cards.map((card: BriefingCreativeCard) => ({
+        adId: card.realAdId,
+        snapshotId: card.sourceDecisionSnapshotId,
+        evaluationId: card.sourceDecisionEvaluationId,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          adId: "ad_1",
+          snapshotId: "snapshot_ad_1",
+          evaluationId: "evaluation_ad_1",
+        },
+        {
+          adId: "ad_2",
+          snapshotId: "snapshot_ad_2",
+          evaluationId: "evaluation_ad_2",
+        },
+      ]),
+    );
+    expect(payload.decisionCenter.rowDecisions).toHaveLength(2);
+  });
+
+  it("applies creative-scoped defer state to every exact ad sharing that creative", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision({ adId: "ad_1", creativeId: "creative_1" }),
+        canonicalDecision({ adId: "ad_2", creativeId: "creative_1" }),
+      ]),
+    );
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: [creativeRow("ad_1"), creativeRow("ad_2")],
+      media_mode: "metadata",
+      media_hydrated: false,
+    });
+    vi.mocked(readTriageState).mockResolvedValue({
+      rows: [
+        {
+          businessId: "biz_1",
+          scopeType: "creative",
+          scopeId: "creative_1",
+          action: "deferred",
+          timestamp: "2026-05-07T04:00:00.000Z",
+          reappearAt: null,
+        },
+      ],
+      deferredCount: 1,
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    const cards = [...payload.actionNow, ...payload.watching, ...payload.healthy];
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({
-      creativeId: "mock-creative-001",
-      status: "ACTIVE",
+    expect(payload.actionNow).toEqual([]);
+    expect(
+      payload.watching
+        .map((card: BriefingCreativeCard) => card.realAdId)
+        .sort(),
+    ).toEqual(["ad_1", "ad_2"]);
+    expect(payload.deferredCount).toBe(2);
+    expect(payload.source.laneSummary).toMatchObject({
+      actionNow: 0,
+      deferred: 2,
     });
+  });
+
+  it("reports the persisted generation date instead of restating the requested date", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-09",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.source.asOf).toBe("2026-05-07");
+    expect(payload.source.canonicalDecisionInventory.generation.asOfDate).toBe(
+      "2026-05-07",
+    );
+    expect(readMetaNativeCanonicalDecisionInventory).toHaveBeenCalledWith({
+      businessId: "biz_1",
+      providerAccountId: "act_1",
+      asOfDate: "2026-05-09",
+    });
+  });
+
+  it("represents nullable canonical buyerAction without inventing a legacy row action", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision({
+          label: "diagnose",
+          buyerAction: null,
+          authorizedAction: null,
+          actionEligible: false,
+          decisionState: "blocked",
+          executionAction: null,
+        }),
+      ]),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+    const card = payload.watching[0] as BriefingCreativeCard;
+
+    expect(payload.actionNow).toEqual([]);
+    expect(card.primary).toEqual({
+      kind: "review",
+      label: "Open canonical evidence",
+    });
+    expect(card.canonicalDecision?.classification.buyerAction).toBeNull();
+    expect(card.decisionCenterRow).toBeUndefined();
+    expect(payload.decisionCenter.rowDecisions).toEqual([]);
+  });
+
+  it("fails closed to an empty unavailable surface when the native bundle is unavailable", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_generation_manifest_mismatch",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.actionNow).toEqual([]);
+    expect(payload.watching).toEqual([]);
+    expect(payload.healthy).toEqual([]);
+    expect(payload.trackingBlocked).toBe(true);
+    expect(payload.source.canonicalDecisionInventory).toEqual({
+      contractVersion: "briefing-canonical-native-ad.v1",
+      status: "unavailable",
+      unavailableReason: "native_generation_manifest_mismatch",
+      generation: null,
+      itemCount: 0,
+    });
+    expect(payload.decisionCenter.rowDecisions).toEqual([]);
+  });
+
+  it("fails the whole surface closed when one exact-ad lineage projection is invalid", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision(),
+        canonicalDecision({ adId: "ad_2", inputHash: "not-a-sha256" }),
+      ]),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload.actionNow).toEqual([]);
+    expect(payload.watching).toEqual([]);
+    expect(payload.healthy).toEqual([]);
+    expect(payload.source.canonicalDecisionInventory).toMatchObject({
+      status: "unavailable",
+      unavailableReason: "native_canonical_briefing_projection_incomplete",
+    });
+  });
+
+  it.each(["0", "false", "off", "no"])(
+    "omits the additive Decision Center snapshot when decisionCenter=%s",
+    async (value) => {
+      const response = await GET(
+        new NextRequest(
+          `http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07&decisionCenter=${value}`,
+        ),
+      );
+      const payload = await response.json();
+
+      expect(payload).not.toHaveProperty("decisionCenter");
+      expect(payload.actionNow).toEqual([]);
+      expect(payload.watching[0]).toMatchObject({
+        id: "ad_1",
+        decisionCenterRow: null,
+        canonicalDecision: {
+          contractVersion: "briefing-canonical-native-ad.v1",
+        },
+      });
+    },
+  );
+
+  it("serves the committed demo engine fixture as synthetic review-only and never reads live inventory", async () => {
+    vi.mocked(isDemoBusiness).mockResolvedValue(true);
+    vi.mocked(requireBusinessAccess).mockResolvedValue({
+      session: {
+        user: { id: "user_1", email: "operator@adsecute.com" },
+      } as never,
+      membership: {
+        id: "membership_demo",
+        userId: "user_1",
+        businessId: DEMO_BUSINESS_ID,
+        role: "guest",
+        status: "active",
+        joinedAt: "2026-05-07T00:00:00.000Z",
+      },
+    });
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue({
+      businessId: DEMO_BUSINESS_ID,
+      enabled: true,
+      surfaceVisible: true,
+      shadowOnly: false,
+      presetOverride: null,
+      source: {
+        enabled: "env",
+        surfaceVisible: "env",
+        shadowOnly: "env",
+        presetOverride: null,
+      },
+      envDefaults: {
+        enabled: true,
+        surfaceVisible: true,
+        shadowOnly: false,
+      },
+    });
+    vi.mocked(getMetaCreativesApiPayload).mockResolvedValue({
+      status: "ok",
+      rows: getDemoMetaCreatives().rows,
+      media_mode: "metadata",
+      media_hydrated: false,
+    } as Awaited<ReturnType<typeof getMetaCreativesApiPayload>>);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/briefing?businessId=${DEMO_BUSINESS_ID}&providerAccountId=act_210009998877&asOf=2026-04-12&status_filter=all`,
+      ),
+    );
+    const payload = await response.json();
+    const cards = [
+      ...payload.actionNow,
+      ...payload.watching,
+      ...payload.healthy,
+    ] as BriefingCreativeCard[];
+    const cut = cards.find((card) => card.label === "cut");
+
+    expect(response.status).toBe(200);
+    expect(cards).toHaveLength(8);
+    expect(cut).toMatchObject({
+      primary: { kind: "review" },
+      sourceDecisionAuthorityStatus: "demo_synthetic_review_only",
+      sourceDecisionActionEligible: false,
+      sourceDecisionAuthorizedAction: null,
+    });
+    expect(hasNativeDecisionOriginLineage(cut!)).toBe(false);
+    expect(payload.source.canonicalDecisionInventory).toMatchObject({
+      status: "available",
+      generation: {
+        authorityStatus: "demo_synthetic_review_only",
+        expectedAdCount: 8,
+      },
+      itemCount: 8,
+    });
+    expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();
+  });
+
+  it("returns empty lanes when the engine is disabled without reading inventory", async () => {
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue({
+      businessId: "biz_1",
+      enabled: false,
+      surfaceVisible: false,
+      shadowOnly: false,
+      presetOverride: null,
+      source: {
+        enabled: "env",
+        surfaceVisible: "env",
+        shadowOnly: "env",
+        presetOverride: null,
+      },
+      envDefaults: {
+        enabled: false,
+        surfaceVisible: false,
+        shadowOnly: false,
+      },
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(payload).toMatchObject({
+      status: "disabled",
+      actionNow: [],
+      watching: [],
+      healthy: [],
+    });
+    expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();
+  });
+
+  it("returns access errors unchanged", async () => {
+    vi.mocked(requireBusinessAccess).mockResolvedValueOnce({
+      error: NextResponse.json({ error: "unauthorized" }, { status: 401 }),
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1",
+      ),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
+    expect(readMetaNativeCanonicalDecisionInventory).not.toHaveBeenCalled();
   });
 });

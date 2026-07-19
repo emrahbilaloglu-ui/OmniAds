@@ -14,20 +14,16 @@ describe("meta page UI contract doc stays consistent with code", () => {
   const doc = readFileSync(DOC_PATH, "utf8");
   const page = readFileSync(PAGE_PATH, "utf8");
 
-  it("execute_bid tracking gate: code gates it and the doc must not deny it", () => {
-    const gateBlock = page.slice(
-      page.indexOf("const isTrackingSensitiveRec"),
-      page.indexOf("};", page.indexOf("const isTrackingSensitiveRec")),
+  it("legacy execute hints are review-only and the doc must not claim direct provider writes", () => {
+    expect(page).toContain(
+      "This legacy execution hint is not a canonical provider-write authority.",
     );
-    expect(gateBlock).toContain('"execute_bid"');
-    expect(doc).not.toMatch(/execute_bid[^.\n]*not tracking/i);
-    // The gating section must list execute_bid among intercepted primaries.
-    expect(doc).toMatch(/isTrackingSensitiveRec/);
-    const gatingSection = doc.slice(
-      doc.indexOf("isTrackingSensitiveRec") - 400,
-      doc.indexOf("isTrackingSensitiveRec") + 400,
-    );
-    expect(gatingSection).toContain("execute_bid");
+    expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/apply-bid/);
+    expect(page).not.toMatch(/\/api\/meta\/adsets\/.*\/pause/);
+    expect(page).not.toMatch(/\/api\/meta\/campaigns\/.*\/resume/);
+    expect(doc).toContain("The recommendation page performs **no direct Meta provider write**");
+    expect(doc).toContain("defensively normalized");
+    expect(doc).not.toMatch(/Three writes execute from this page/);
   });
 
   it("dataReadiness: page renders through the workspace posture stack and the doc must not call it payload-only", () => {

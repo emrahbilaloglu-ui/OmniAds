@@ -15,21 +15,33 @@ import {
   type MetaAdsActionStatus,
 } from "@/lib/meta/ads-action-log";
 import {
+  hasSuccessfulMetaProviderMutationAttempt,
   pauseAdset,
   pauseCampaign,
+  readMetaEntityExecutionState,
   resumeAdset,
   resumeCampaign,
   updateAdsetBidAmount,
   type MetaAdsWriteContext,
   type MetaAdsWriteFailure,
+  type MetaEntityExecutionStateRead,
 } from "@/lib/meta/ads-write";
+import {
+  META_ACTION_ORIGIN_ALIAS_FIELDS,
+  META_NATIVE_LINEAGE_FIELDS,
+  hasInvalidMetaDryRunField,
+  presentMetaActionContractFields,
+} from "@/lib/launchpad/meta-manual-authority";
 
 type MetaEntityScopeType = "campaign" | "adset";
 type MetaEntityStatusAction = "pause" | "resume";
 type RouteParams = { params: Promise<Record<string, string | undefined>> };
 
 interface EntityActionBody {
+  actionOrigin?: string;
+  manualConfirmation?: string;
   businessId?: string;
+  providerAccountId?: string;
   recId?: string;
   recIdOrigin?: string;
   bidValue?: unknown;
@@ -37,6 +49,9 @@ interface EntityActionBody {
   bidAmountMinor?: unknown;
   dryRun?: unknown;
 }
+
+const META_ENTITY_MANUAL_ACTION_ORIGIN = "manual_operator_v1";
+const META_ENTITY_MANUAL_CONFIRMATION = "explicit_operator_confirmation";
 
 interface EntityActionTarget {
   businessId: string;
@@ -74,6 +89,111 @@ function recIdOriginFromBody(body: EntityActionBody | null) {
 
 function dryRunFromBody(body: EntityActionBody | null) {
   return body?.dryRun === true;
+}
+
+function stringField(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function evaluateManualMetaEntityPreflight(input: {
+  action: MetaEntityStatusAction | "apply_bid";
+  scopeType: MetaEntityScopeType;
+  expectedEntityId: string;
+  expectedProviderAccountId: string;
+  state: MetaEntityExecutionStateRead;
+}) {
+  if (!input.state.ok) {
+    return {
+      ok: false as const,
+      blocker: input.state.error.code || "current_entity_state_unverified",
+      retryable:
+        input.state.httpStatus == null ||
+        input.state.httpStatus === 429 ||
+        input.state.httpStatus >= 500,
+    };
+  }
+  const normalizedAccount = (value: string | null) => {
+    const numeric = value?.trim().replace(/^act_/, "") ?? "";
+    return numeric ? `act_${numeric}` : null;
+  };
+  const upper = (value: string | null) =>
+    value?.trim().toUpperCase() || null;
+  if (input.state.entityId !== input.expectedEntityId) {
+    return {
+      ok: false as const,
+      blocker: "entity_identity_mismatch",
+      retryable: false,
+    };
+  }
+  if (
+    normalizedAccount(input.state.providerAccountId) !==
+    normalizedAccount(input.expectedProviderAccountId)
+  ) {
+    return {
+      ok: false as const,
+      blocker: "provider_account_mismatch",
+      retryable: false,
+    };
+  }
+
+  const configuredStatus = upper(input.state.configuredStatus);
+  const effectiveStatus = upper(input.state.effectiveStatus);
+  if (!configuredStatus || !effectiveStatus) {
+    return {
+      ok: false as const,
+      blocker: "current_entity_state_unverified",
+      retryable: true,
+    };
+  }
+  if (input.scopeType === "adset") {
+    if (
+      !input.state.campaignId ||
+      normalizedAccount(input.state.campaignProviderAccountId) !==
+        normalizedAccount(input.expectedProviderAccountId)
+    ) {
+      return {
+        ok: false as const,
+        blocker: "current_hierarchy_identity_mismatch",
+        retryable: false,
+      };
+    }
+    if (
+      upper(input.state.campaignConfiguredStatus) !== "ACTIVE" ||
+      upper(input.state.campaignEffectiveStatus) !== "ACTIVE"
+    ) {
+      return {
+        ok: false as const,
+        blocker: "current_hierarchy_state_incompatible",
+        retryable: false,
+      };
+    }
+  }
+
+  if (input.action === "apply_bid") {
+    if (
+      configuredStatus !== effectiveStatus ||
+      (configuredStatus !== "ACTIVE" && configuredStatus !== "PAUSED")
+    ) {
+      return {
+        ok: false as const,
+        blocker: "current_entity_state_incompatible",
+        retryable: false,
+      };
+    }
+  } else {
+    const expected = input.action === "pause" ? "ACTIVE" : "PAUSED";
+    if (
+      configuredStatus !== expected ||
+      effectiveStatus !== expected
+    ) {
+      return {
+        ok: false as const,
+        blocker: "current_entity_state_incompatible",
+        retryable: false,
+      };
+    }
+  }
+  return { ok: true as const, blocker: null, retryable: false };
 }
 
 function requestedByFromAccess(access: Awaited<ReturnType<typeof requireBusinessAccess>>) {
@@ -222,8 +342,22 @@ async function resolveWriteContext(input: {
   };
 }
 
-function failureLogStatus(result: MetaAdsWriteFailure): MetaAdsActionStatus {
-  return result.error.code === "silent_failure" ? "silent_failure" : "failure";
+function failureLogStatus(
+  result: MetaAdsWriteFailure,
+): Exclude<MetaAdsActionStatus, "pending" | "success"> {
+  return result.error.code === "silent_failure" ||
+    hasSuccessfulMetaProviderMutationAttempt(result) ||
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+    ? "silent_failure"
+    : "failure";
+}
+
+function isProviderOutcomeAmbiguous(result: MetaAdsWriteFailure) {
+  return (
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+  );
 }
 
 async function completeFailure(input: {
@@ -266,6 +400,81 @@ async function prepareEntityAction(input: {
       response: jsonError(400, "missing_entity_id", "Entity id is required."),
     };
   }
+  if (hasInvalidMetaDryRunField(input.body)) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "invalid_dry_run",
+        "dryRun must be a JSON boolean when provided.",
+      ),
+    };
+  }
+  if (
+    presentMetaActionContractFields(
+      input.body,
+      META_ACTION_ORIGIN_ALIAS_FIELDS,
+    ).length > 0
+  ) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "mixed_action_origin_contract",
+        "The request must carry exactly one canonical, non-conflicting action origin.",
+      ),
+    };
+  }
+  if (
+    stringField(input.body?.actionOrigin) !==
+    META_ENTITY_MANUAL_ACTION_ORIGIN
+  ) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "action_origin_required",
+        "Campaign and ad set actions require the explicit manual-operator contract.",
+      ),
+    };
+  }
+  if (
+    presentMetaActionContractFields(
+      input.body,
+      META_NATIVE_LINEAGE_FIELDS,
+    ).length > 0
+  ) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "mixed_action_origin_contract",
+        "Manual entity actions cannot carry native decision lineage fields.",
+      ),
+    };
+  }
+  if (input.body?.manualConfirmation !== META_ENTITY_MANUAL_CONFIRMATION) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "manual_confirmation_required",
+        "Manual-operator actions require explicit operator confirmation.",
+      ),
+    };
+  }
+  const requestedProviderAccountId =
+    input.body?.providerAccountId?.trim() ?? "";
+  if (!requestedProviderAccountId) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        400,
+        "provider_account_id_required",
+        "Manual entity actions require the server-presented providerAccountId.",
+      ),
+    };
+  }
 
   const access = await requireBusinessAccess({
     request: input.request,
@@ -294,6 +503,20 @@ async function prepareEntityAction(input: {
       response: jsonError(404, "entity_not_found", "Meta entity not found for this business."),
     };
   }
+  if (
+    !target.providerAccountId ||
+    target.providerAccountId.replace(/^act_/, "") !==
+      requestedProviderAccountId.replace(/^act_/, "")
+  ) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        409,
+        "provider_account_mismatch",
+        "The requested entity does not belong to the server-presented provider account.",
+      ),
+    };
+  }
 
   const pending = await hasRecentPendingMetaAdsAction({
     businessId: access.membership.businessId,
@@ -316,6 +539,38 @@ async function prepareEntityAction(input: {
     providerAccountId: target.providerAccountId,
   });
   if (!ctxResult.ok) return { ok: false as const, response: ctxResult.response };
+
+  const currentState = await readMetaEntityExecutionState(
+    ctxResult.ctx,
+    input.scopeType,
+    target.entityId,
+  ).catch(() => null);
+  const preflight = currentState
+    ? evaluateManualMetaEntityPreflight({
+        action:
+          input.action === "apply_bid"
+            ? "apply_bid"
+            : (input.action as MetaEntityStatusAction),
+        scopeType: input.scopeType,
+        expectedEntityId: target.entityId,
+        expectedProviderAccountId: requestedProviderAccountId,
+        state: currentState,
+      })
+    : {
+        ok: false as const,
+        blocker: "current_entity_state_unverified",
+        retryable: true,
+      };
+  if (!preflight.ok) {
+    return {
+      ok: false as const,
+      response: jsonError(
+        preflight.retryable ? 503 : 409,
+        preflight.blocker,
+        `Manual entity preflight blocked the provider write (${preflight.blocker}).`,
+      ),
+    };
+  }
 
   return {
     ok: true as const,
@@ -371,6 +626,7 @@ async function handleMetaEntityStatusAction(
     adId: prepared.target.entityId,
     creativeId: null,
     action: input.action,
+    source: META_ENTITY_MANUAL_ACTION_ORIGIN,
     requestedBy: prepared.requestedBy,
     recIdOrigin: recIdOriginFromBody(body),
     payloadRequest: {
@@ -380,6 +636,8 @@ async function handleMetaEntityStatusAction(
       body: { status: input.action === "pause" ? "PAUSED" : "ACTIVE" },
       dry_run: dryRunFromBody(body),
       rec_id_origin: recIdOriginFromBody(body),
+      action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
+      manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
     },
   });
 
@@ -406,7 +664,18 @@ async function handleMetaEntityStatusAction(
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
-        { ok: false, error: result.error, metaHttpStatus: result.httpStatus },
+        {
+          ok: false,
+          error: result.error,
+          metaHttpStatus: result.httpStatus,
+          providerOutcome: result.providerOutcome ?? null,
+          mutationAttempt: result.mutationAttempt ?? null,
+          retryAllowed:
+            isProviderOutcomeAmbiguous(result) ||
+            hasSuccessfulMetaProviderMutationAttempt(result)
+              ? false
+              : null,
+        },
         { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }
@@ -504,6 +773,7 @@ export async function handleMetaAdsetBidAction(
     adId: prepared.target.entityId,
     creativeId: null,
     action: "launch_adset",
+    source: META_ENTITY_MANUAL_ACTION_ORIGIN,
     requestedBy: prepared.requestedBy,
     recIdOrigin: recIdOriginFromBody(body),
     payloadRequest: {
@@ -514,6 +784,8 @@ export async function handleMetaAdsetBidAction(
       body: { bid_amount: bidAmountMinor, currency: bidCurrency },
       dry_run: dryRunFromBody(body),
       rec_id_origin: recIdOriginFromBody(body),
+      action_origin: META_ENTITY_MANUAL_ACTION_ORIGIN,
+      manual_confirmation: META_ENTITY_MANUAL_CONFIRMATION,
     },
   });
 
@@ -527,7 +799,18 @@ export async function handleMetaAdsetBidAction(
     if (!result.ok) {
       await completeFailure({ logId: log.id, startedAt, result });
       return NextResponse.json(
-        { ok: false, error: result.error, metaHttpStatus: result.httpStatus },
+        {
+          ok: false,
+          error: result.error,
+          metaHttpStatus: result.httpStatus,
+          providerOutcome: result.providerOutcome ?? null,
+          mutationAttempt: result.mutationAttempt ?? null,
+          retryAllowed:
+            isProviderOutcomeAmbiguous(result) ||
+            hasSuccessfulMetaProviderMutationAttempt(result)
+              ? false
+              : null,
+        },
         { status: result.error.code === "kill_switch_engaged" ? 503 : 502 },
       );
     }

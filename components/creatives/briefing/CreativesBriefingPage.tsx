@@ -78,8 +78,13 @@ import {
   type BriefingToast,
 } from "@/components/creatives/briefing/action-handlers";
 import {
+  hasBriefingCanonicalNativeActionAuthority,
+} from "@/components/creatives/briefing/action-authority";
+import {
   buildLaunchpadBridgeHref,
   buildLaunchpadOverlayItem,
+  canOpenBriefingCardInLaunchpad,
+  canOpenBriefingCardsInLaunchpad,
   type LaunchpadBridgeMode,
   type LaunchpadOpenPayload,
 } from "@/components/creatives/briefing/launchpad-bridge";
@@ -309,6 +314,9 @@ function relativeTime(value: string | null | undefined) {
 export function openLaunchpadOverlayState(
   payload: LaunchpadOpenPayload,
 ): LaunchpadOverlayState {
+  if (!canOpenBriefingCardInLaunchpad(payload.card, payload.mode)) {
+    return CLOSED_LAUNCHPAD_OVERLAY_STATE;
+  }
   return {
     open: true,
     mode: payload.mode,
@@ -318,7 +326,25 @@ export function openLaunchpadOverlayState(
 
 export function launchpadHrefFromOverlayState(state: LaunchpadOverlayState) {
   if (!state.card || !state.mode) return null;
+  if (!canOpenBriefingCardInLaunchpad(state.card, state.mode)) return null;
   return buildLaunchpadBridgeHref(state.card, state.mode);
+}
+
+export function briefingBulkProviderActionAvailability(
+  cards: BriefingCreativeCard[],
+) {
+  return {
+    canPause:
+      cards.length > 0 &&
+      cards.every((card) =>
+        hasBriefingCanonicalNativeActionAuthority(card, "cut"),
+      ),
+    canDemote: canOpenBriefingCardsInLaunchpad(cards, "demote"),
+    canLaunchFreshTest: canOpenBriefingCardsInLaunchpad(
+      cards,
+      "fresh_test",
+    ),
+  };
 }
 
 export function filterSelectedIdsForLane(
@@ -648,12 +674,21 @@ function decisionCenterRowMaps(
 ): DecisionCenterRowMaps {
   const byRowId = new Map<string, DecisionCenterRowForCard>();
   const byCreativeId = new Map<string, DecisionCenterRowForCard>();
+  const ambiguousCreativeIds = new Set<string>();
   for (const row of safeDecisionCenterRows(snapshot)) {
     const rowId = normalizedDecisionCenterKey(row.rowId);
     const creativeId = normalizedDecisionCenterKey(row.creativeId);
     if (rowId && !byRowId.has(rowId)) byRowId.set(rowId, row);
-    if (creativeId && !byCreativeId.has(creativeId)) {
+    if (!creativeId || ambiguousCreativeIds.has(creativeId)) continue;
+    const existing = byCreativeId.get(creativeId);
+    if (!existing) {
       byCreativeId.set(creativeId, row);
+    } else if (
+      normalizedDecisionCenterKey(existing.rowId) !== rowId ||
+      existing.identityGrain !== row.identityGrain
+    ) {
+      byCreativeId.delete(creativeId);
+      ambiguousCreativeIds.add(creativeId);
     }
   }
   return { byRowId, byCreativeId };
@@ -669,7 +704,11 @@ function attachDecisionCenterRowToCard<T extends BriefingCreativeCard>(
     normalizedDecisionCenterKey(card.id);
   const decisionCenterRow =
     (rowId ? maps.byRowId.get(rowId) : undefined) ??
-    (creativeId ? maps.byCreativeId.get(creativeId) : undefined);
+    (card.canonicalDecision?.identityGrain === "ad"
+      ? undefined
+      : creativeId
+        ? maps.byCreativeId.get(creativeId)
+        : undefined);
 
   return decisionCenterRow ? { ...card, decisionCenterRow } : card;
 }
@@ -850,16 +889,24 @@ function assetMetricIdsFromPresetParam(value: string | null | undefined) {
   return preset ? preset.metricIds : DEFAULT_VISIBLE_METRIC_IDS;
 }
 
-// Action filtering reads the server-supplied decisionCenter row (buyerAction /
-// executionAction enums) when present; the legacy substring match over
-// card.primary/card.label remains only as fallback for cards without a
-// decisionCenter row. The UI never derives buyerAction itself.
+// Action filtering reads only server-supplied action projections. Canonical
+// exact-ad held actions are intentionally nullable in the legacy Decision
+// Center row contract, so they take precedence before that row. The UI never
+// derives buyerAction from metrics or labels.
 export function cardMatchesActionFilter(
   card: BriefingCreativeCard,
   actionFilter: CreativeActionFilter,
 ): boolean {
   if (actionFilter === "all") return true;
   const row = card.decisionCenterRow;
+  const heldAction =
+    card.canonicalDecision?.classification.heldAction ??
+    (row ? null : card.blockedActionType);
+  if (heldAction && actionFilter !== "add_existing") {
+    if (heldAction === "scale") return actionFilter === "scale";
+    if (heldAction === "cut") return actionFilter === "cut";
+    return actionFilter === "fresh_test";
+  }
   // add_existing is a launchpad workflow action with no decision-center
   // equivalent, so it always uses the legacy card-kind match below.
   if (row && actionFilter !== "add_existing") {
@@ -989,6 +1036,7 @@ function briefingCardFromAssetRow(row: MetaCreativeRow): BriefingCreativeCard {
     confidence: null,
     reason: "Selected from Asset Library.",
     spend: row.spend,
+    currency: row.currency ?? null,
     roas: row.roas,
     ctr: row.ctrAll,
     cpa: row.cpa,
@@ -1288,7 +1336,7 @@ function CreativePulseFinal({
     <div className="pulse">
       <div className="cell">
         <div className="label"><span>Spend · today</span><span>vs 7d avg</span></div>
-        <div className="value">{formatCurrency(spendToday)} <span className="sub">{conversions == null ? "" : `${conversions} conv`}</span></div>
+        <div className="value">{formatCurrency(spendToday, null)} <span className="sub">{conversions == null ? "" : `${conversions} conv`}</span></div>
         <div className="micro">conversions · {conversions ?? "—"}</div>
       </div>
       <div className="cell">
@@ -1303,7 +1351,7 @@ function CreativePulseFinal({
       <div className="cell">
         <div className="label"><span>Top creative · 7d</span><span style={{ color: "var(--ok)" }}>▲ winning</span></div>
         <div className="value" style={{ fontSize: 14 }}>{topName}</div>
-        <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend)} · {topContext}</div>
+        <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend, topCreative?.currency)} · {topContext}</div>
       </div>
       <div className="cell">
         <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />scoped</span></div>
@@ -1893,6 +1941,7 @@ export function CreativesBriefingPage() {
 
   const handleCut = useCallback(
     async (card: BriefingCreativeCard) => {
+      if (!hasBriefingCanonicalNativeActionAuthority(card, "cut")) return;
       const itemId = cardId(card);
       setCutPendingIds((current) => new Set(current).add(itemId));
       try {
@@ -1928,6 +1977,7 @@ export function CreativesBriefingPage() {
 
   const handleCutRequest = useCallback(
     (card: BriefingCreativeCard) => {
+      if (!hasBriefingCanonicalNativeActionAuthority(card, "cut")) return;
       if (trackingAnomalyActive) {
         setTrackingCutCard(card);
         return;
@@ -1939,7 +1989,15 @@ export function CreativesBriefingPage() {
 
   const handleBulkCutOpen = useCallback(
     (cards: BriefingCreativeCard[] = selectedActionCards) => {
-      if (cards.length === 0) return;
+      if (
+        cards.length === 0 ||
+        cards.some(
+          (card) =>
+            !hasBriefingCanonicalNativeActionAuthority(card, "cut"),
+        )
+      ) {
+        return;
+      }
       setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
       setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
       setBulkCutModalState({ open: true, cards });
@@ -1949,7 +2007,15 @@ export function CreativesBriefingPage() {
 
   const executeBulkCut = useCallback(
     async (cards: BriefingCreativeCard[]) => {
-      if (cards.length === 0) return;
+      if (
+        cards.length === 0 ||
+        cards.some(
+          (card) =>
+            !hasBriefingCanonicalNativeActionAuthority(card, "cut"),
+        )
+      ) {
+        return;
+      }
       const itemIds = cards.map(cardId);
       setBulkCutModalState(CLOSED_BULK_CUT_MODAL_STATE);
       setBulkPendingIds((current) => {
@@ -2019,7 +2085,7 @@ export function CreativesBriefingPage() {
 
   const handleBulkLaunchpadTeleport = useCallback(
     (cards: BriefingCreativeCard[], mode: LaunchpadBridgeMode) => {
-      if (cards.length === 0) return;
+      if (!canOpenBriefingCardsInLaunchpad(cards, mode)) return;
       setCompareDrawerState(CLOSED_COMPARE_DRAWER_STATE);
       setEvidenceDrawerState(CLOSED_EVIDENCE_DRAWER_STATE);
       router.push(buildBulkLaunchpadHref(cards, mode));
@@ -2179,6 +2245,8 @@ export function CreativesBriefingPage() {
       : activeLane === "watching"
         ? selectedWatchingCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)))
         : selectedHealthyCards.filter((card) => activeCards.some((item) => cardId(item) === cardId(card)));
+  const activeBulkProviderActions =
+    briefingBulkProviderActionAvailability(activeSelectedCards);
   const activeGroups = (() => {
     if (activeLane === "all") {
       return [
@@ -2423,9 +2491,15 @@ export function CreativesBriefingPage() {
                   <span>{activeSelectedCards.length} selected · {activeSelectedCards.slice(0, 2).map(cardName).join(", ")}</span>
                   <div className="acts">
                     <button type="button" className="btn" onClick={() => handleBulkToolbarAction("compare", activeSelectedCards)}>Compare</button>
-                    <button type="button" className="btn" onClick={() => handleBulkToolbarAction("demote", activeSelectedCards)}>Send as Promote ↗</button>
-                    <button type="button" className="btn" onClick={() => handleBulkToolbarAction("launch_new", activeSelectedCards)}>Send as Fresh test ↗</button>
-                    <button type="button" className="btn btn--danger" onClick={() => handleBulkToolbarAction("cut", activeSelectedCards)}>Pause</button>
+                    {activeBulkProviderActions.canDemote ? (
+                      <button type="button" className="btn" onClick={() => handleBulkToolbarAction("demote", activeSelectedCards)}>Send as Promote ↗</button>
+                    ) : null}
+                    {activeBulkProviderActions.canLaunchFreshTest ? (
+                      <button type="button" className="btn" onClick={() => handleBulkToolbarAction("launch_new", activeSelectedCards)}>Send as Fresh test ↗</button>
+                    ) : null}
+                    {activeBulkProviderActions.canPause ? (
+                      <button type="button" className="btn btn--danger" onClick={() => handleBulkToolbarAction("cut", activeSelectedCards)}>Pause</button>
+                    ) : null}
                     <button type="button" className="btn btn--ghost" onClick={() => clearSelectedIdsForLane(activeSelectedIds)}>×</button>
                   </div>
                 </div>
@@ -2716,9 +2790,9 @@ function PulseCenter({
       >
         <span className="text-neutral-500">Spend today</span>
         <span className="font-mono tabular-nums font-semibold text-neutral-900">
-          {formatCurrency(spend)}
+          {formatCurrency(spend, null)}
         </span>
-        <span className="text-neutral-400">/ {formatCurrency(target)}</span>
+        <span className="text-neutral-400">/ {formatCurrency(target, null)}</span>
         <svg
           viewBox="0 0 60 16"
           width="60"

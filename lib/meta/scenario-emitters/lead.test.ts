@@ -22,7 +22,9 @@ const context: MetaCalibrationContext = {
   cohort: "lead",
 };
 
-function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+function adset(
+  overrides: Partial<MetaAdSetData> & { currency?: string | null } = {},
+): MetaAdSetData {
   return {
     id: "adset_1",
     accountId: "act_1",
@@ -98,6 +100,22 @@ describe("emitLeadAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("lead");
+  });
+
+  it.each([
+    ["GBP", "£4.00"],
+    [null, "4 (Currency unavailable)"],
+  ] as const)("formats lead cost with provider currency %s", (currency, expected) => {
+    const rec = emitLeadAdsetScenario({
+      adset: adset({ spend: 100, leads: 25, currency }),
+      context,
+      cohort: "lead",
+      signals: signal(20),
+    });
+
+    const cost = rec?.evidence.find((item) => item.label === "Cost / lead")?.value;
+    expect(cost).toBe(expected);
+    if (currency === null) expect(cost).not.toContain("$");
   });
 
   it("keeps an efficient $4 / 1-lead row on watch despite mature age", () => {

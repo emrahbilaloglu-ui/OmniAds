@@ -523,6 +523,47 @@ describe("ratioZonesGate - cut zone", () => {
     });
   });
 
+  it("keeps the canonical recent-spend floor on non-Cut recovery rows", () => {
+    const baseProfile = makeAccountDecisionProfile();
+    const profile = makeAccountDecisionProfile({
+      spendUnitEvidence: {
+        ...baseProfile.spendUnitEvidence,
+        breakEvenRoas: 1.5,
+      },
+      thresholds: {
+        bottomQuartileRatio: 0.52,
+        recentSampleMinSpend: 200,
+        commercialMaturitySpend: 1_000,
+        hardCutSpend: 1_000,
+        sustainedLoserSpend: 1_000,
+      },
+    });
+    profile.commercialStopLossThresholds = {
+      ...profile.thresholds,
+      recentSampleMinSpend: 50,
+      commercialMaturitySpend: 100,
+      hardCutSpend: 100,
+      sustainedLoserSpend: 100,
+    };
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.5, {
+          profile,
+          input: {
+            spend: 300,
+            purchases: 1,
+            recent7dRoas: 2.4,
+            recent7dSpend: 80,
+          },
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("test_more");
+    expect(output.reason).toContain("spend not yet mature for hard cut");
+  });
+
   it("returns test_more below cut maturity without fatigue", () => {
     const output = terminalOutput(
       ratioZonesGate(
@@ -639,7 +680,15 @@ describe("ratioZonesGate - cut zone", () => {
 
 describe("ratioZonesGate - working zone", () => {
   it("keeps working-zone creatives and adds weak performance badge", () => {
-    const output = terminalOutput(ratioZonesGate(ratioContext(0.75)));
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.75, {
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.7,
+          }),
+        }),
+      ),
+    );
 
     expect(output.label).toBe("keep");
     expect(output.reason).toBe(
@@ -665,6 +714,9 @@ describe("ratioZonesGate - working zone", () => {
             recent7dSpend: 80,
             lifecyclePosition: "plateau",
           },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.7,
+          }),
         }),
       ),
     );
@@ -692,6 +744,9 @@ describe("ratioZonesGate - working zone", () => {
             ctr: 1.5,
             thumbstop: 30,
           },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.7,
+          }),
         }),
       ),
     );
@@ -712,6 +767,9 @@ describe("ratioZonesGate - working zone", () => {
             recent7dRoas: 1.43,
             recent7dSpend: 80,
           },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.7,
+          }),
         }),
       ),
     );
@@ -732,8 +790,413 @@ describe("ratioZonesGate - working zone", () => {
   });
 });
 
-describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
-  it("keeps mature working-zone creatives with a demote-candidate reason when below breakeven", () => {
+describe("ratioZonesGate - bounded economic stop-loss branch", () => {
+  it("preserves the canonical non-native expanded strip when native authority metadata is absent", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    profile.expandedEconomicCutAuthority = undefined;
+
+    expect(profile.hardActionEligibility.cut).toBe(true);
+    expect(profile.expandedEconomicCutAuthority).toBeUndefined();
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.reason.startsWith("[economic stop-loss]")).toBe(true);
+  });
+
+  it("reaches confirmed-loss Cut when the expanded economic strip is above the generic target band", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.95,
+            bottomQuartileRatio: 0.7,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.reason.startsWith("[economic stop-loss]")).toBe(true);
+    expect(output.reason).toContain("remains below break-even 1.90");
+  });
+
+  it("describes an authority-denied above-0.85 expanded row as below break-even", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    profile.expandedEconomicCutAuthority = {
+      eligible: false,
+      authorityBasis: null,
+      reason: "economic_spend_unit_authority_missing",
+    };
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("keep");
+    expect(output.reason).toContain(
+      "[below break-even - stop-loss review]",
+    );
+    expect(output.reason).toContain("below explicit break-even 1.90");
+    expect(output.reason).not.toContain("just above breakeven");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "below_breakeven",
+        "weak_performance",
+        "stop_loss_review",
+      ]),
+    );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "expanded_economic_cut_authority",
+          observed: "economic_spend_unit_authority_missing",
+          threshold: "eligible",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps above-0.85 expanded-loss geometry visible when retained-side Cut eligibility denies authority", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    profile.hardActionEligibility = {
+      ...profile.hardActionEligibility,
+      cut: false,
+      reason: "native calibration does not authorize Cut",
+      reasons: {
+        ...profile.hardActionEligibility.reasons,
+        cut: "native calibration does not authorize Cut",
+      },
+    };
+    profile.expandedEconomicCutAuthority = {
+      eligible: true,
+      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      reason: null,
+    };
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("keep");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.blockedActionType).toBeNull();
+    expect(output.reason).toContain(
+      "[below break-even - stop-loss review]",
+    );
+    expect(output.reason).toContain("below explicit break-even 1.90");
+    expect(output.reason).not.toContain("just above breakeven");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "below_breakeven",
+        "weak_performance",
+        "stop_loss_review",
+      ]),
+    );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "hard_action_eligibility.cut",
+          observed: "native calibration does not authorize Cut",
+          threshold: "true",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps below-0.85 expanded-loss geometry visible for a legacy profile without expanded authority metadata", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    profile.hardActionEligibility = {
+      ...profile.hardActionEligibility,
+      cut: false,
+      reason: "legacy soft-only profile",
+      reasons: {
+        ...profile.hardActionEligibility.reasons,
+        cut: "legacy soft-only profile",
+      },
+    };
+    profile.expandedEconomicCutAuthority = undefined;
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("keep");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.blockedActionType).toBeNull();
+    expect(output.reason).toContain(
+      "[below break-even - stop-loss review]",
+    );
+    expect(output.reason).toContain("below explicit break-even 1.90");
+    expect(output.reason).not.toContain("just above breakeven");
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "hard_action_eligibility.cut",
+          observed: "legacy soft-only profile",
+          threshold: "true",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps stop-loss review visible below 0.85 when expanded authority is denied", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    profile.expandedEconomicCutAuthority = {
+      eligible: false,
+      authorityBasis: null,
+      reason: "economic_spend_unit_authority_missing",
+    };
+
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("keep");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.blockedActionType).toBeNull();
+    expect(output.reason).toContain(
+      "[below break-even - stop-loss review]",
+    );
+    expect(output.reason).toContain("below explicit break-even 1.90");
+    expect(output.badges.map((badge) => badge.type)).toEqual(
+      expect.arrayContaining([
+        "below_breakeven",
+        "weak_performance",
+        "stop_loss_review",
+      ]),
+    );
+    expect(output.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          predicate: "expanded_economic_cut_authority",
+          observed: "economic_spend_unit_authority_missing",
+          threshold: "eligible",
+          status: "missing",
+        }),
+      ]),
+    );
+  });
+
+  it("preserves confirmed-loss Cut and Refresh precedence below 0.85", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+
+    const confirmedLoss = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+    const fatigued = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: {
+            spend: 9000,
+            fatigueStatus: "fatigued",
+            recent7dRoas: 1,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(confirmedLoss.label).toBe("cut");
+    expect(confirmedLoss.reason.startsWith("[economic stop-loss]")).toBe(true);
+    expect(fatigued.label).toBe("refresh");
+  });
+
+  it("uses explicit break-even as a safety veto when target provenance is stale", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.75,
+      bottomQuartileRatio: 0.9,
+    });
+    const aboveBreakEven = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.8, {
+          input: { spend: 9000 },
+          profile,
+          gate: { truthSource: "commercial_truth_stale" },
+        }),
+      ),
+    );
+    const atBreakEven = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.75, {
+          input: { spend: 9000 },
+          profile,
+          gate: { truthSource: "commercial_truth_stale" },
+        }),
+      ),
+    );
+    const belowBreakEven = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.74, {
+          input: { spend: 9000 },
+          profile,
+          gate: { truthSource: "commercial_truth_stale" },
+        }),
+      ),
+    );
+
+    for (const output of [aboveBreakEven, atBreakEven]) {
+      expect(output.label).toBe("keep");
+      expect(output.preAuthorityLabel).toBe("keep");
+      expect(output.blockedActionType).toBeNull();
+      expect(output.badges.map((badge) => badge.type)).not.toContain(
+        "cut_candidate",
+      );
+    }
+    expect(belowBreakEven.label).toBe("cut");
+    expect(belowBreakEven.preAuthorityLabel).toBe("cut");
+  });
+
+  it("keeps recovery and holds thin recent evidence in the above-0.85 economic strip", () => {
+    const profile = profileWithBreakeven({
+      breakEvenRoas: TARGET_ROAS * 0.95,
+      bottomQuartileRatio: 0.7,
+    });
+    const recovered = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.9,
+            recent7dSpend: 80,
+          },
+          profile,
+        }),
+      ),
+    );
+    const thin = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.5,
+            recent7dSpend: 10,
+          },
+          profile,
+        }),
+      ),
+    );
+
+    expect(recovered.label).toBe("keep");
+    expect(recovered.reason.startsWith("[economic recovery hold]")).toBe(true);
+    expect(thin.label).toBe("test_more");
+    expect(thin.preAuthorityLabel).toBe("cut");
+    expect(thin.authorityBlocker).toBe("recent_recovery_unverifiable");
+    expect(thin.blockedActionType).toBe("cut");
+  });
+
+  it("preserves Refresh precedence inside the above-0.85 economic strip", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.9, {
+          input: {
+            spend: 9000,
+            fatigueStatus: "fatigued",
+            lifecyclePosition: "plateau",
+            recent7dRoas: 1,
+            recent7dSpend: 80,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.95,
+            bottomQuartileRatio: 0.7,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("refresh");
+  });
+
+  it("keeps an expanded-strip loser when recent ROAS has recovered above break-even", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.6, {
@@ -748,10 +1211,8 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     );
 
     expect(output.label).toBe("keep");
-    expect(output.reason.startsWith("[demote candidate]")).toBe(true);
-    expect(output.reason).toContain(
-      "above account bottom quartile (52%) but below breakeven (1.56 = 78% of commercial target) at 9,000 mature spend",
-    );
+    expect(output.reason.startsWith("[economic recovery hold]")).toBe(true);
+    expect(output.reason).toContain("at or above break-even 1.56");
     expect(output.badges.map((badge) => badge.type)).toContain(
       "below_breakeven",
     );
@@ -847,11 +1308,98 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     );
   });
 
-  it("does not expand the account cut zone toward breakeven", () => {
+  it("cuts the expanded strip only when sufficient recent ROAS remains below break-even", () => {
     const output = terminalOutput(
       ratioZonesGate(
         ratioContext(0.6, {
-          input: { spend: 9000 },
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.2,
+            recent7dSpend: 80,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("cut");
+    expect(output.preAuthorityLabel).toBe("cut");
+    expect(output.authorityBlocker).toBeNull();
+    expect(output.reason.startsWith("[economic stop-loss]")).toBe(true);
+    expect(output.reason).toContain("remains below break-even 1.56");
+  });
+
+  it("holds the expanded-strip Cut when recent evidence is missing", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 9000,
+            recent7dRoas: null,
+            recent7dSpend: null,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "recent_recovery_unverifiable",
+      blockedActionType: "cut",
+    });
+    expect(output.badges.map((badge) => badge.type)).toContain(
+      "missing_recent_data",
+    );
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "pending_transition",
+    );
+  });
+
+  it("holds the expanded-strip Cut without a missing-data badge when recent spend is thin", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 9000,
+            recent7dRoas: 1.2,
+            recent7dSpend: 49,
+          },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output).toMatchObject({
+      label: "test_more",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "recent_recovery_unverifiable",
+      blockedActionType: "cut",
+    });
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "missing_recent_data",
+    );
+    expect(output.badges.map((badge) => badge.type)).not.toContain(
+      "pending_transition",
+    );
+  });
+
+  it("treats recent ROAS equality with break-even as recovery", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.6, {
+          input: {
+            spend: 9000,
+            recent7dRoas: TARGET_ROAS * 0.78,
+            recent7dSpend: 80,
+          },
           profile: profileWithBreakeven({
             breakEvenRoas: TARGET_ROAS * 0.78,
           }),
@@ -860,7 +1408,23 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     );
 
     expect(output.label).toBe("keep");
-    expect(output.reason.startsWith("[demote candidate]")).toBe(true);
+    expect(output.reason.startsWith("[economic recovery hold]")).toBe(true);
+  });
+
+  it("does not cut when lifetime ratio equals explicit break-even", () => {
+    const output = terminalOutput(
+      ratioZonesGate(
+        ratioContext(0.78, {
+          input: { spend: 9000, recent7dRoas: 1.2 },
+          profile: profileWithBreakeven({
+            breakEvenRoas: TARGET_ROAS * 0.78,
+          }),
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("keep");
+    expect(output.preAuthorityLabel).toBe("keep");
   });
 
   it("does not cut above breakeven when account P25 is economically too high", () => {
@@ -889,10 +1453,12 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     });
 
     expect(resolveCutBoundary(context)).toEqual({
+      legacyRatio: 0.52,
       ratio: 0.52,
       mode: "account_p25",
       accountP25: 0.52,
       breakevenRatio: null,
+      economicUpperRatio: null,
     });
   });
 
@@ -906,10 +1472,12 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     context.profile.thresholds.bottomQuartileRatio = null;
 
     expect(resolveCutBoundary(context)).toEqual({
+      legacyRatio: 0.7,
       ratio: 0.7,
       mode: "uncalibrated_commercial_stop_loss",
       accountP25: null,
       breakevenRatio: 0.78,
+      economicUpperRatio: 0.78,
     });
   });
 
@@ -924,10 +1492,12 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     context.profile.thresholds.bottomQuartileRatio = null;
 
     expect(resolveCutBoundary(context)).toEqual({
+      legacyRatio: 0.7,
       ratio: 0.6,
       mode: "uncalibrated_commercial_stop_loss",
       accountP25: null,
       breakevenRatio: 0.6,
+      economicUpperRatio: 0.6,
     });
 
     const output = terminalOutput(ratioZonesGate(context));
@@ -944,10 +1514,12 @@ describe("ratioZonesGate - below-breakeven demote-candidate branch", () => {
     });
 
     expect(resolveCutBoundary(context)).toEqual({
+      legacyRatio: 0.7,
       ratio: 0.65,
       mode: "uncalibrated_commercial_stop_loss",
       accountP25: null,
       breakevenRatio: 0.65,
+      economicUpperRatio: 0.65,
     });
   });
 });

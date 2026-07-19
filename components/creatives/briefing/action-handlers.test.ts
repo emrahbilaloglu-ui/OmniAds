@@ -7,38 +7,101 @@ import {
   executeDecisionOriginAdActionWithPreflight,
   getBriefingAdActionInputId,
   getCreativeScopeId,
-  getManualBriefingAdActionCandidateIds,
   hasNativeDecisionOriginLineage,
   isCutPrimaryAction,
   metaAdActionFailureMessage,
   pauseBriefingCard,
-  pauseBriefingCardManualLegacy,
   type DecisionOriginBriefingCard,
 } from "@/components/creatives/briefing/action-handlers";
 import type { DecisionOriginAdExecutionEvidence } from "@/lib/creative-decision-engine/execution-safety";
 
 const DECISION_HASH = "a".repeat(64);
+const INPUT_HASH = "b".repeat(64);
+const ENGINE_VERSION = "v3-ad-2026-07-18-decision-presentation-hardening-shadow";
 
 function card(
   overrides: Partial<DecisionOriginBriefingCard> = {},
 ): DecisionOriginBriefingCard {
-  return {
+  const value: DecisionOriginBriefingCard = {
     id: "creative_synth_1",
     creativeId: "creative_1",
-    realAdId: "ad_1",
+    realAdId: "100000000000001",
     providerAccountId: "act_123",
     name: "Cut Candidate",
     accountId: "act_123",
     label: "cut",
     primary: { kind: "cut", label: "Cut" },
     sourceDecisionSnapshotId: "snapshot_1",
+    sourceDecisionAuthorityStatus: "native_exact",
     sourceDecisionEvaluationId: "evaluation_1",
-    sourceDecisionSnapshotEngineVersion:
-      "v3-ad-2026-07-12-native-provenance-shadow",
+    sourceDecisionSnapshotEngineVersion: ENGINE_VERSION,
+    sourceDecisionInputHash: INPUT_HASH,
     sourceDecisionHash: DECISION_HASH,
+    sourceDecisionProviderAccountRefId: "provider_ref_1",
+    sourceDecisionJobRunId: "job_run_1",
+    sourceDecisionAuthorizedAction: "cut",
+    sourceDecisionActionEligible: true,
     sourceDecisionSnapshotMatch: "matched",
+    authorityBlocker: null,
+    blockedActionType: null,
     ...overrides,
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "canonicalDecision")) {
+    const snapshotId = value.sourceDecisionSnapshotId?.trim() ?? "";
+    const evaluationId = value.sourceDecisionEvaluationId?.trim() ?? "";
+    const engineVersion =
+      value.sourceDecisionSnapshotEngineVersion?.trim() ?? "";
+    const providerAccountId = value.providerAccountId?.trim() ?? "";
+    const adId = value.realAdId?.trim() ?? "";
+    value.canonicalDecision = {
+      contractVersion: "briefing-canonical-native-ad.v1",
+      identityGrain: "ad",
+      decisionId: "decision_1",
+      episodeId: "episode_1",
+      sourceSnapshotId: snapshotId,
+      adId,
+      creativeId: value.creativeId ?? null,
+      identityResolution: {
+        basis: "native_ad_exact",
+        adActionEligible: true,
+      },
+      classification: {
+        decisionState: "act",
+        buyerAction: "cut",
+        buyerLabel: "Cut",
+        executionAction: null,
+        heldAction: null,
+      },
+      sourceDecision: {
+        label: "cut",
+        authorityBlocker: null,
+        confidence: 0.9,
+        reason: "Canonical Cut",
+        snapshotAsOf: "2026-07-18",
+        computedAt: "2026-07-18T03:00:00.000Z",
+      },
+      sourceAuthority: {
+        status:
+          value.sourceDecisionAuthorityStatus ??
+          "demo_synthetic_review_only",
+        snapshotId,
+        evaluationId,
+        inputHash: value.sourceDecisionInputHash?.trim() ?? "",
+        decisionHash: value.sourceDecisionHash?.trim() ?? "",
+        engineVersion,
+        providerAccountRefId:
+          value.sourceDecisionProviderAccountRefId?.trim() ?? "",
+        providerAccountId,
+        realAdId: adId,
+        jobRunId: value.sourceDecisionJobRunId?.trim() ?? "",
+        authorizedAction: value.sourceDecisionAuthorizedAction ?? null,
+        actionEligible: value.sourceDecisionActionEligible === true,
+        reviewOnlyReason:
+          value.sourceDecisionActionEligible === true ? null : "review_only",
+      },
+    };
+  }
+  return value;
 }
 
 function evidence(
@@ -59,7 +122,13 @@ function evidence(
       found: true,
       businessId: "biz_1",
       providerAccountId: "act_123",
-      adId: overrides.currentAdId ?? "ad_1",
+      adId: overrides.currentAdId ?? "100000000000001",
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
       policyEligible: true,
@@ -71,12 +140,14 @@ function evidence(
       businessId: "biz_1",
       providerAccountId: "act_123",
       decisionEntityType: "ad",
-      decisionEntityId: overrides.sourceAdId ?? "ad_1",
-      adId: overrides.sourceAdId ?? "ad_1",
+      decisionEntityId: overrides.sourceAdId ?? "100000000000001",
+      adId: overrides.sourceAdId ?? "100000000000001",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
       creativeId: "creative_1",
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
-    engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+      engineVersion: ENGINE_VERSION,
       decisionHash: DECISION_HASH,
       decisionLabel: "cut",
       blockedActionType: null,
@@ -90,22 +161,12 @@ function evidence(
 describe("briefing action handlers", () => {
   it("uses only the native ad id for decision-origin input", () => {
     expect(getCreativeScopeId(card())).toBe("creative_1");
-    expect(getBriefingAdActionInputId(card())).toBe("ad_1");
+    expect(getBriefingAdActionInputId(card())).toBe("100000000000001");
     expect(
       getBriefingAdActionInputId(
         card({ realAdId: null, adId: "warehouse_ad", metaAdId: "alternate" }),
       ),
     ).toBe("");
-    expect(
-      getManualBriefingAdActionCandidateIds(
-        card({
-          realAdId: "1200",
-          metaAdId: "1200",
-          effectiveAdId: "1201",
-          adId: "row_ad",
-        }),
-      ),
-    ).toEqual(["1200", "1201", "row_ad", "creative_1", "creative_synth_1"]);
   });
 
   it("distinguishes native lineage from creative snapshot-only briefing cards", () => {
@@ -118,16 +179,36 @@ describe("briefing action handlers", () => {
         }),
       ),
     ).toBe(false);
+    expect(
+      hasNativeDecisionOriginLineage(
+        card({ sourceDecisionEvaluationId: null }),
+      ),
+    ).toBe(false);
+    expect(
+      hasNativeDecisionOriginLineage(card({ sourceDecisionHash: null })),
+    ).toBe(false);
+    expect(
+      hasNativeDecisionOriginLineage(
+        card({ sourceDecisionSnapshotMatch: "mismatch" }),
+      ),
+    ).toBe(false);
+    expect(
+      hasNativeDecisionOriginLineage(
+        card({
+          sourceDecisionAuthorityStatus: "demo_synthetic_review_only",
+        }),
+      ),
+    ).toBe(false);
   });
 
-  it("keeps server-owned cut classification behavior", () => {
+  it("keeps exact-enum Cut display behavior without parsing review copy", () => {
     expect(isCutPrimaryAction(card())).toBe(true);
     expect(
       isCutPrimaryAction(card({ primary: { kind: "pause_ad", label: "Pause ad" } })),
     ).toBe(true);
     expect(
       isCutPrimaryAction(card({ label: "scale", primary: { kind: "review", label: "Pause ad" } })),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isCutPrimaryAction(card({ primary: { kind: "demote", label: "Demote to test" } })),
     ).toBe(false);
@@ -138,22 +219,34 @@ describe("briefing action handlers", () => {
       businessId: "biz_1",
       card: card(),
       action: "pause",
-      idempotencyKey: "decision-action-1",
     });
 
     expect(request).toEqual({
       contractVersion: "meta-decision-origin-ad-execution.v1",
       businessId: "biz_1",
       providerAccountId: "act_123",
-      adId: "ad_1",
+      adId: "100000000000001",
       snapshotId: "snapshot_1",
       evaluationId: "evaluation_1",
-      engineVersion: "v3-ad-2026-07-12-native-provenance-shadow",
+      engineVersion: ENGINE_VERSION,
       decisionHash: DECISION_HASH,
       action: "pause",
-      idempotencyKey: "decision-action-1",
+      idempotencyKey: expect.stringMatching(
+        /^decision-ad-action:biz_1:act_123:100000000000001:pause:/,
+      ),
       creativeId: "creative_1",
     });
+  });
+
+  it("rejects a caller-selected native decision idempotency key", () => {
+    expect(() =>
+      buildBriefingDecisionOriginAdActionRequest({
+        businessId: "biz_1",
+        card: card(),
+        action: "pause",
+        idempotencyKey: "alternate-attempt-key",
+      }),
+    ).toThrow(/idempotency_key_mismatch/);
   });
 
   it("same creative on two ads cannot cross-target", async () => {
@@ -162,30 +255,38 @@ describe("briefing action handlers", () => {
       status: 200,
       json: async () => ({
         ok: true,
-        adId: url.includes("ad_2") ? "ad_2" : "ad_1",
+        adId: url.includes("100000000000002")
+          ? "100000000000002"
+          : "100000000000001",
         status: "PAUSED",
       }),
     })) as unknown as typeof fetch;
 
     await pauseBriefingCard({
       businessId: "biz_1",
-      card: card({ realAdId: "ad_1", creativeId: "shared_creative" }),
+      card: card({
+        realAdId: "100000000000001",
+        creativeId: "shared_creative",
+      }),
       fetchImpl,
     });
     await pauseBriefingCard({
       businessId: "biz_1",
-      card: card({ realAdId: "ad_2", creativeId: "shared_creative" }),
+      card: card({
+        realAdId: "100000000000002",
+        creativeId: "shared_creative",
+      }),
       fetchImpl,
     });
 
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
-      "/api/meta/ads/ad_1/pause",
+      "/api/meta/ads/100000000000001/pause",
       expect.objectContaining({ method: "POST" }),
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
-      "/api/meta/ads/ad_2/pause",
+      "/api/meta/ads/100000000000002/pause",
       expect.objectContaining({ method: "POST" }),
     );
     const firstBody = JSON.parse(
@@ -194,8 +295,16 @@ describe("briefing action handlers", () => {
     const secondBody = JSON.parse(
       String((vi.mocked(fetchImpl).mock.calls[1]?.[1] as RequestInit)?.body),
     );
-    expect(firstBody).toMatchObject({ adId: "ad_1", creativeId: "shared_creative" });
-    expect(secondBody).toMatchObject({ adId: "ad_2", creativeId: "shared_creative" });
+    expect(firstBody).toMatchObject({
+      adId: "100000000000001",
+      creativeId: "shared_creative",
+    });
+    expect(secondBody).toMatchObject({
+      adId: "100000000000002",
+      creativeId: "shared_creative",
+    });
+    expect(firstBody.actionOrigin).toBe("native_decision_v1");
+    expect(secondBody.actionOrigin).toBe("native_decision_v1");
   });
 
   it("does not try an alternate id after an exact-ad rejection", async () => {
@@ -213,7 +322,7 @@ describe("briefing action handlers", () => {
     ).rejects.toThrow("Exact ad was not found.");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledWith(
-      "/api/meta/ads/ad_1/pause",
+      "/api/meta/ads/100000000000001/pause",
       expect.any(Object),
     );
   });
@@ -233,39 +342,110 @@ describe("briefing action handlers", () => {
         card: card(override),
         fetchImpl,
       }),
-    ).rejects.toThrow("Decision-origin ad execution blocked");
+    ).rejects.toThrow("exact native eligible authorized Cut");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("uses the explicit manual legacy contract when briefing omitted native lineage", async () => {
-    const fetchImpl = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        ok: true,
-        adId: "ad_1",
-        status: "PAUSED",
-      }),
-    })) as unknown as typeof fetch;
+  it("rejects lineage-free briefing cards instead of falling back to manual execution", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
 
-    const result = await pauseBriefingCard({
-      businessId: "biz_1",
-      card: card({
-        sourceDecisionEvaluationId: null,
-        sourceDecisionHash: null,
+    await expect(
+      pauseBriefingCard({
+        businessId: "biz_1",
+        card: card({
+          sourceDecisionEvaluationId: null,
+          sourceDecisionHash: null,
+        }),
+        fetchImpl,
       }),
-      fetchImpl,
-    });
+    ).rejects.toThrow("exact native eligible authorized Cut");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 
-    expect(result).toMatchObject({ ok: true, attemptedIds: ["ad_1"] });
-    const body = JSON.parse(
-      String((vi.mocked(fetchImpl).mock.calls[0]?.[1] as RequestInit)?.body),
-    );
-    expect(body).toEqual({
-      businessId: "biz_1",
-      resolutionMode: "manual_legacy",
-      recIdOrigin: "creative_1",
-    });
+  it("rejects a synthetic demo decision before any provider route call", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await expect(
+      pauseBriefingCard({
+        businessId: "biz_1",
+        card: card({
+          sourceDecisionAuthorityStatus: "demo_synthetic_review_only",
+        }),
+        fetchImpl,
+      }),
+    ).rejects.toThrow("native eligible authorized Cut");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["action-ineligible", (candidate: DecisionOriginBriefingCard) => {
+      candidate.sourceDecisionActionEligible = false;
+      candidate.canonicalDecision!.sourceAuthority.actionEligible = false;
+      candidate.canonicalDecision!.sourceAuthority.authorizedAction = null;
+      candidate.canonicalDecision!.sourceAuthority.reviewOnlyReason = "review_only";
+    }],
+    ["held", (candidate: DecisionOriginBriefingCard) => {
+      candidate.blockedActionType = "cut";
+      candidate.canonicalDecision!.classification.decisionState = "blocked";
+      candidate.canonicalDecision!.classification.heldAction = "cut";
+      candidate.canonicalDecision!.classification.buyerAction = null;
+      candidate.canonicalDecision!.sourceAuthority.actionEligible = false;
+      candidate.canonicalDecision!.sourceAuthority.authorizedAction = null;
+      candidate.canonicalDecision!.sourceAuthority.reviewOnlyReason = "held";
+      candidate.sourceDecisionActionEligible = false;
+      candidate.sourceDecisionAuthorizedAction = null;
+    }],
+    ["source-blocked", (candidate: DecisionOriginBriefingCard) => {
+      candidate.authorityBlocker = "campaign_context";
+      candidate.canonicalDecision!.sourceDecision.authorityBlocker =
+        "campaign_context";
+    }],
+    ["missing flattened authority proof", (candidate: DecisionOriginBriefingCard) => {
+      candidate.authorityBlocker = undefined;
+    }],
+    ["missing flattened hold proof", (candidate: DecisionOriginBriefingCard) => {
+      candidate.blockedActionType = undefined;
+    }],
+    ["identity-ineligible", (candidate: DecisionOriginBriefingCard) => {
+      candidate.canonicalDecision!.identityResolution.adActionEligible = false;
+    }],
+    ["missing creative identity", (candidate: DecisionOriginBriefingCard) => {
+      candidate.creativeId = null;
+      candidate.canonicalDecision!.creativeId = null;
+    }],
+    ["snapshot-mismatch", (candidate: DecisionOriginBriefingCard) => {
+      candidate.canonicalDecision!.sourceSnapshotId = "other_snapshot";
+    }],
+    ["authorized-action-mismatch", (candidate: DecisionOriginBriefingCard) => {
+      candidate.sourceDecisionAuthorizedAction = "scale";
+      candidate.canonicalDecision!.sourceAuthority.authorizedAction = "scale";
+    }],
+  ])(
+    "rejects a %s canonical Cut tuple before any provider request",
+    async (_name, mutate) => {
+      const candidate = card();
+      mutate(candidate);
+      const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+      await expect(
+        pauseBriefingCard({
+          businessId: "biz_1",
+          card: candidate,
+          fetchImpl,
+        }),
+      ).rejects.toThrow("exact native eligible authorized Cut");
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects resume because the briefing builder owns only canonical Cut pause", () => {
+    expect(() =>
+      buildBriefingDecisionOriginAdActionRequest({
+        businessId: "biz_1",
+        card: card(),
+        action: "resume",
+      }),
+    ).toThrow("native_exact_eligible_authorized_cut_required");
   });
 
   it("never turns a lineage-free dry run into a live legacy write", async () => {
@@ -281,7 +461,7 @@ describe("briefing action handlers", () => {
         dryRun: true,
         fetchImpl,
       }),
-    ).rejects.toThrow("Dry run requires exact native decision lineage");
+    ).rejects.toThrow("exact native eligible authorized Cut");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -296,7 +476,10 @@ describe("briefing action handlers", () => {
     const result = await executeDecisionOriginAdActionWithPreflight({
       request,
       rereadEvidence: async () =>
-        evidence({ currentAdId: "ad_2", sourceAdId: "ad_2" }),
+        evidence({
+          currentAdId: "100000000000002",
+          sourceAdId: "100000000000002",
+        }),
       mutateProvider,
       now: new Date("2026-07-12T10:00:00.000Z"),
     });
@@ -311,46 +494,24 @@ describe("briefing action handlers", () => {
     expect(mutateProvider).not.toHaveBeenCalled();
   });
 
-  it("retains candidate fallback in the explicit manual legacy handler", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => ({ error: { code: "ad_not_found", message: "Not found." } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: true, adId: "alternate_ad", status: "PAUSED" }),
-      }) as unknown as typeof fetch;
-
-    const result = await pauseBriefingCardManualLegacy({
-      businessId: "biz_1",
-      card: card({ realAdId: "stale_ad", metaAdId: "alternate_ad" }),
-      fetchImpl,
-    });
-
-    expect(result.attemptedIds).toEqual(["stale_ad", "alternate_ad"]);
-    const firstBody = JSON.parse(
-      String((vi.mocked(fetchImpl).mock.calls[0]?.[1] as RequestInit)?.body),
-    );
-    expect(firstBody).toMatchObject({
-      businessId: "biz_1",
-      resolutionMode: "manual_legacy",
-      recIdOrigin: "creative_1",
-    });
-  });
-
   it("refuses to POST when the server card exposes review instead of cut authority", async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const reviewCard = card({
+      primary: { kind: "review", label: "Refresh evidence" },
+      sourceDecisionActionEligible: false,
+      sourceDecisionAuthorizedAction: null,
+    });
+    reviewCard.canonicalDecision!.sourceAuthority.actionEligible = false;
+    reviewCard.canonicalDecision!.sourceAuthority.authorizedAction = null;
+    reviewCard.canonicalDecision!.sourceAuthority.reviewOnlyReason =
+      "review_only";
     await expect(
       pauseBriefingCard({
         businessId: "biz_1",
-        card: card({ primary: { kind: "review", label: "Refresh evidence" } }),
+        card: reviewCard,
         fetchImpl,
       }),
-    ).rejects.toThrow("server-authorized cut action");
+    ).rejects.toThrow("exact native eligible authorized Cut");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

@@ -84,12 +84,16 @@ export type DecisionOriginAdExecutionBlocker =
   | "missing_business_id"
   | "missing_provider_account_id"
   | "missing_ad_id"
+  | "invalid_ad_id"
   | "missing_snapshot_id"
   | "missing_evaluation_id"
   | "missing_engine_version"
   | "missing_decision_hash"
   | "invalid_decision_hash"
+  | "missing_creative_id"
   | "idempotency_key_required"
+  | "idempotency_key_mismatch"
+  | "invalid_dry_run"
   | "unsupported_action"
   | "kill_switch_state_unavailable"
   | "kill_switch_engaged"
@@ -97,6 +101,9 @@ export type DecisionOriginAdExecutionBlocker =
   | "provider_account_mismatch"
   | "ad_not_found"
   | "ad_identity_mismatch"
+  | "current_hierarchy_state_unverified"
+  | "current_hierarchy_identity_mismatch"
+  | "current_hierarchy_state_incompatible"
   | "current_ad_state_unverified"
   | "current_ad_state_rejected"
   | "current_ad_state_stale"
@@ -112,11 +119,16 @@ export type DecisionOriginAdExecutionBlocker =
   | "idempotency_conflict"
   | "verification_timestamp_missing"
   | "verification_ad_mismatch"
+  | "verification_provider_account_mismatch"
+  | "verification_creative_mismatch"
+  | "verification_campaign_mismatch"
+  | "verification_adset_mismatch"
   | "verification_action_mismatch";
 
 /**
- * The execution identity is ad-owned. creativeId is deliberately optional
- * grouping metadata and is never used to resolve or authorize a provider write.
+ * The execution identity is ad-owned. creativeId does not resolve the target,
+ * but exact source/request/live creative equality is mandatory defense-in-depth
+ * before mutating that Ad.
  */
 export interface DecisionOriginAdExecutionRequest {
   contractVersion: typeof DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION;
@@ -129,7 +141,7 @@ export interface DecisionOriginAdExecutionRequest {
   decisionHash: string;
   action: string;
   idempotencyKey: string;
-  creativeId?: string | null;
+  creativeId: string;
   dryRun?: boolean;
 }
 
@@ -145,6 +157,13 @@ export interface DecisionOriginCurrentAdEvidence {
   businessId: string | null;
   providerAccountId: string | null;
   adId: string | null;
+  creativeId?: string | null;
+  campaignId: string | null;
+  campaignConfiguredStatus: string | null;
+  campaignEffectiveStatus: string | null;
+  adsetId: string | null;
+  adsetConfiguredStatus: string | null;
+  adsetEffectiveStatus: string | null;
   configuredStatus: string | null;
   effectiveStatus: string | null;
   policyEligible: boolean | null;
@@ -157,6 +176,7 @@ export interface DecisionOriginCurrentAdEvidence {
     | "current_ad_state_unverified"
     | "current_ad_state_rejected"
     | "meta_account_unresolved"
+    | "provider_account_mismatch"
   > | null;
 }
 
@@ -167,6 +187,8 @@ export interface DecisionOriginSourceDecisionEvidence {
   decisionEntityType: string | null;
   decisionEntityId: string | null;
   adId: string | null;
+  campaignId: string | null;
+  adsetId: string | null;
   creativeId: string | null;
   snapshotId: string | null;
   evaluationId: string | null;
@@ -183,6 +205,7 @@ export interface DecisionOriginIdempotencyReceipt {
   businessId: string;
   providerAccountId: string | null;
   adId: string;
+  creativeId: string | null;
   snapshotId: string | null;
   evaluationId: string | null;
   engineVersion: string | null;
@@ -193,6 +216,13 @@ export interface DecisionOriginIdempotencyReceipt {
   dryRun: boolean;
   providerVerified: boolean;
   treatmentEligible: boolean;
+  errorCode?: string | null;
+  reconciliationRequired?: boolean;
+  retryAllowed?: boolean | null;
+  reconciliationOutcome?: string | null;
+  providerMutationAttempted?: boolean | null;
+  providerMutationSucceeded?: boolean | null;
+  providerOutcomeAmbiguous?: boolean | null;
 }
 
 export interface DecisionOriginAdExecutionEvidence {
@@ -222,16 +252,35 @@ export interface DecisionOriginProviderVerificationResult {
   treatmentEligible: boolean;
   blockers: DecisionOriginAdExecutionBlocker[];
   verificationAdId: string | null;
+  verificationProviderAccountId: string | null;
+  verificationCreativeId: string | null;
+  verificationCampaignId: string | null;
+  verificationAdsetId: string | null;
   verificationStatus: string | null;
   expectedStatus: "ACTIVE" | "PAUSED" | null;
 }
 
+export interface DecisionOriginProviderVerificationLineage {
+  providerAccountId: string;
+  creativeId: string;
+  campaignId: string;
+  adsetId: string;
+}
+
 const HARD_ACTIONS = new Set<DecisionLabel>(["scale", "cut", "refresh"]);
 const DECISION_HASH_PATTERN = /^[a-f0-9]{64}$/;
+const META_PROVIDER_ENTITY_ID_PATTERN = /^\d+$/;
 
 function normalizedPart(value: string | number | null | undefined): string {
   const raw = value == null || value === "" ? "unknown" : String(value);
   return raw.replace(/[^a-zA-Z0-9_.-]+/g, "_");
+}
+
+export function isExactMetaProviderEntityId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    META_PROVIDER_ENTITY_ID_PATTERN.test(value.trim())
+  );
 }
 
 function unique<T extends string>(values: readonly T[]): T[] {
@@ -266,10 +315,15 @@ function requestContractBlockers(
   if (!trimmed(input.providerAccountId)) {
     blockers.push("missing_provider_account_id");
   }
-  if (!trimmed(input.adId)) blockers.push("missing_ad_id");
+  if (!trimmed(input.adId)) {
+    blockers.push("missing_ad_id");
+  } else if (!isExactMetaProviderEntityId(input.adId)) {
+    blockers.push("invalid_ad_id");
+  }
   if (!trimmed(input.snapshotId)) blockers.push("missing_snapshot_id");
   if (!trimmed(input.evaluationId)) blockers.push("missing_evaluation_id");
   if (!trimmed(input.engineVersion)) blockers.push("missing_engine_version");
+  if (!trimmed(input.creativeId)) blockers.push("missing_creative_id");
   if (!trimmed(input.decisionHash)) {
     blockers.push("missing_decision_hash");
   } else if (!DECISION_HASH_PATTERN.test(trimmed(input.decisionHash))) {
@@ -278,8 +332,32 @@ function requestContractBlockers(
   if (!trimmed(input.idempotencyKey)) {
     blockers.push("idempotency_key_required");
   }
+  if (
+    input.dryRun !== undefined &&
+    typeof input.dryRun !== "boolean"
+  ) {
+    blockers.push("invalid_dry_run");
+  }
   if (input.action !== "pause" && input.action !== "resume") {
     blockers.push("unsupported_action");
+  }
+  const exactTupleComplete =
+    trimmed(input.businessId) !== "" &&
+    trimmed(input.providerAccountId) !== "" &&
+    isExactMetaProviderEntityId(input.adId) &&
+    trimmed(input.snapshotId) !== "" &&
+    trimmed(input.evaluationId) !== "" &&
+    trimmed(input.engineVersion) !== "" &&
+    DECISION_HASH_PATTERN.test(trimmed(input.decisionHash)) &&
+    trimmed(input.creativeId) !== "" &&
+    (input.action === "pause" || input.action === "resume");
+  if (
+    exactTupleComplete &&
+    trimmed(input.idempotencyKey) !== "" &&
+    trimmed(input.idempotencyKey) !==
+      createDecisionOriginAdActionIdempotencyKey(input)
+  ) {
+    blockers.push("idempotency_key_mismatch");
   }
   return unique(blockers);
 }
@@ -292,6 +370,7 @@ function receiptMatchesRequest(
     receipt.businessId === trimmed(request.businessId) &&
     receipt.providerAccountId === trimmed(request.providerAccountId) &&
     receipt.adId === trimmed(request.adId) &&
+    receipt.creativeId === trimmed(request.creativeId) &&
     receipt.snapshotId === trimmed(request.snapshotId) &&
     receipt.evaluationId === trimmed(request.evaluationId) &&
     receipt.engineVersion === trimmed(request.engineVersion) &&
@@ -438,6 +517,7 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     engineVersion: trimmed(input.request.engineVersion),
     decisionHash: trimmed(input.request.decisionHash),
     idempotencyKey: trimmed(input.request.idempotencyKey),
+    creativeId: trimmed(input.request.creativeId),
   };
   const existingReceipt = input.evidence.idempotencyReceipt;
   if (existingReceipt) {
@@ -503,6 +583,12 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
       if (currentAd.adId !== request.adId) {
         blockers.push("ad_identity_mismatch");
       }
+      if (
+        request.creativeId &&
+        currentAd.creativeId !== request.creativeId
+      ) {
+        blockers.push("ad_identity_mismatch");
+      }
     }
   }
 
@@ -530,10 +616,20 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
       source.decisionEntityType !== "ad" ||
       source.decisionEntityId !== request.adId ||
       source.adId !== request.adId ||
+      (request.creativeId != null &&
+        source.creativeId !== request.creativeId) ||
       source.snapshotId !== request.snapshotId ||
       source.evaluationId !== request.evaluationId
     ) {
       blockers.push("source_decision_lineage_mismatch");
+    }
+    if (
+      source.creativeId &&
+      currentAd.found &&
+      !currentAdReadBlocker &&
+      currentAd.creativeId !== source.creativeId
+    ) {
+      blockers.push("ad_identity_mismatch");
     }
     if (source.engineVersion !== request.engineVersion) {
       blockers.push("engine_version_drift");
@@ -558,13 +654,13 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
     if (
       source.decisionLabel !== "cut" ||
       source.blockedActionType != null ||
-      (source.explicitAuthorizedAction != null &&
-        source.explicitAuthorizedAction !== "pause")
+      source.explicitAuthorizedAction !== "pause"
     ) {
       blockers.push("action_not_authorized");
     }
   } else if (request.action === "resume") {
     if (
+      source.decisionLabel !== "scale" ||
       source.blockedActionType != null ||
       source.explicitAuthorizedAction !== "resume"
     ) {
@@ -581,6 +677,42 @@ export function evaluateDecisionOriginAdExecutionPreflight(input: {
 
     const configuredStatus = upper(currentAd.configuredStatus);
     const effectiveStatus = upper(currentAd.effectiveStatus);
+    const campaignConfiguredStatus = upper(
+      currentAd.campaignConfiguredStatus,
+    );
+    const campaignEffectiveStatus = upper(currentAd.campaignEffectiveStatus);
+    const adsetConfiguredStatus = upper(currentAd.adsetConfiguredStatus);
+    const adsetEffectiveStatus = upper(currentAd.adsetEffectiveStatus);
+    const sourceCampaignId = trimmed(source.campaignId);
+    const sourceAdsetId = trimmed(source.adsetId);
+    const currentCampaignId = trimmed(currentAd.campaignId);
+    const currentAdsetId = trimmed(currentAd.adsetId);
+    const hierarchyStateUnverified =
+      !sourceCampaignId ||
+      !sourceAdsetId ||
+      !currentCampaignId ||
+      !currentAdsetId ||
+      !campaignConfiguredStatus ||
+      !campaignEffectiveStatus ||
+      !adsetConfiguredStatus ||
+      !adsetEffectiveStatus;
+    if (hierarchyStateUnverified) {
+      blockers.push("current_hierarchy_state_unverified");
+    } else if (
+      sourceCampaignId !== currentCampaignId ||
+      sourceAdsetId !== currentAdsetId
+    ) {
+      blockers.push("current_hierarchy_identity_mismatch");
+    }
+    if (
+      !hierarchyStateUnverified &&
+      (campaignConfiguredStatus !== "ACTIVE" ||
+        campaignEffectiveStatus !== "ACTIVE" ||
+        adsetConfiguredStatus !== "ACTIVE" ||
+        adsetEffectiveStatus !== "ACTIVE")
+    ) {
+      blockers.push("current_hierarchy_state_incompatible");
+    }
     if (
       (request.action === "pause" &&
         (configuredStatus !== "ACTIVE" || effectiveStatus !== "ACTIVE")) ||
@@ -645,6 +777,7 @@ export function expectedProviderStatusForDecisionOriginAction(
 
 export function validateDecisionOriginProviderVerification(input: {
   request: DecisionOriginAdExecutionRequest;
+  expectedLineage: DecisionOriginProviderVerificationLineage;
   verifiedAt: string | null | undefined;
   verificationPayload: Record<string, unknown> | null | undefined;
 }): DecisionOriginProviderVerificationResult {
@@ -656,6 +789,26 @@ export function validateDecisionOriginProviderVerification(input: {
     typeof input.verificationPayload?.id === "string"
       ? input.verificationPayload.id.trim() || null
       : null;
+  const normalizedProviderAccountId = (value: unknown) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (!normalized) return null;
+    return `act_${normalized.replace(/^act[_-]/, "")}`;
+  };
+  const nestedId = (key: "creative" | "campaign" | "adset") => {
+    const value = input.verificationPayload?.[key];
+    return value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      typeof (value as Record<string, unknown>).id === "string"
+      ? ((value as Record<string, unknown>).id as string).trim() || null
+      : null;
+  };
+  const verificationProviderAccountId = normalizedProviderAccountId(
+    input.verificationPayload?.account_id,
+  );
+  const verificationCreativeId = nestedId("creative");
+  const verificationCampaignId = nestedId("campaign");
+  const verificationAdsetId = nestedId("adset");
   const rawStatus =
     input.verificationPayload?.status ??
     input.verificationPayload?.effective_status;
@@ -669,6 +822,26 @@ export function validateDecisionOriginProviderVerification(input: {
   if (verificationAdId !== trimmed(input.request.adId)) {
     blockers.push("verification_ad_mismatch");
   }
+  if (
+    verificationProviderAccountId !==
+      normalizedProviderAccountId(input.expectedLineage.providerAccountId) ||
+    verificationProviderAccountId !==
+      normalizedProviderAccountId(input.request.providerAccountId)
+  ) {
+    blockers.push("verification_provider_account_mismatch");
+  }
+  if (
+    verificationCreativeId !== trimmed(input.expectedLineage.creativeId) ||
+    verificationCreativeId !== trimmed(input.request.creativeId)
+  ) {
+    blockers.push("verification_creative_mismatch");
+  }
+  if (verificationCampaignId !== trimmed(input.expectedLineage.campaignId)) {
+    blockers.push("verification_campaign_mismatch");
+  }
+  if (verificationAdsetId !== trimmed(input.expectedLineage.adsetId)) {
+    blockers.push("verification_adset_mismatch");
+  }
   if (expectedStatus === null || verificationStatus !== expectedStatus) {
     blockers.push("verification_action_mismatch");
   }
@@ -680,6 +853,10 @@ export function validateDecisionOriginProviderVerification(input: {
     treatmentEligible: providerVerified,
     blockers: unique(blockers),
     verificationAdId,
+    verificationProviderAccountId,
+    verificationCreativeId,
+    verificationCampaignId,
+    verificationAdsetId,
     verificationStatus,
     expectedStatus,
   };

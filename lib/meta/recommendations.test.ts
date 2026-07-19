@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildHistoricalSupport,
+  buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence,
   buildMetaRecommendations,
   buildWeightedCampaignSnapshot,
   calculateMetaStatisticalConfidence,
@@ -535,6 +536,48 @@ describe("buildMetaRecommendations", () => {
       (item) => item.type === "scale_for_volume",
     );
     expect(rec?.decisionState).toBe("act");
+  });
+
+  it("renders recommendation money evidence in the campaign account currency", () => {
+    const strong = campaign({
+      currency: "GBP",
+      roas: 3.6,
+      purchases: 32,
+      spend: 1800,
+      revenue: 6480,
+      cpa: 56.25,
+    });
+    const cumulative = (multiple: number) =>
+      campaign({
+        currency: "GBP",
+        roas: 3.6,
+        purchases: 20 * multiple,
+        spend: 1000 * multiple,
+        revenue: 3600 * multiple,
+        cpa: 50,
+      });
+
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [strong],
+        previousSelected: [],
+        last3: [cumulative(1)],
+        last7: [cumulative(2)],
+        last14: [cumulative(3)],
+        last30: [cumulative(4)],
+        last90: [cumulative(5)],
+        allHistory: [cumulative(6)],
+      },
+      breakdowns,
+      commercialTargets,
+    });
+
+    const rec = result.recommendations.find(
+      (item) => item.type === "scale_for_volume",
+    );
+    const coreCpa = rec?.evidence.find((item) => item.label === "Core CPA");
+    expect(coreCpa?.value).toContain("£");
+    expect(coreCpa?.value).not.toContain("$");
   });
 
   it("does not emit hard campaign scale or profitability actions without commercial targets", () => {
@@ -1333,7 +1376,7 @@ describe("buildMetaRecommendations", () => {
       ],
     };
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: [
           campaign({
@@ -1412,7 +1455,7 @@ describe("buildMetaRecommendations", () => {
       }),
     ];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: selectedRows,
         previousSelected: [],
@@ -1501,7 +1544,7 @@ describe("buildMetaRecommendations", () => {
       }),
     ];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: selectedRows,
         previousSelected: [],
@@ -1570,7 +1613,7 @@ describe("buildMetaRecommendations", () => {
       }),
     ];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: selectedRows,
         previousSelected: [],
@@ -1619,7 +1662,7 @@ describe("buildMetaRecommendations", () => {
       }),
     ];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: selectedRows,
         previousSelected: [],
@@ -1672,7 +1715,7 @@ describe("buildMetaRecommendations", () => {
       }),
     ];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: rows,
         previousSelected: [],
@@ -1714,7 +1757,7 @@ describe("buildMetaRecommendations", () => {
       cpa: 0,
     });
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: [purchase, reach],
         previousSelected: [],
@@ -1827,7 +1870,7 @@ describe("buildMetaRecommendations", () => {
     });
     const rows = [accountA, accountB];
 
-    const result = buildMetaRecommendations({
+    const result = buildHistoricalMetaRecommendationsWithLegacyCreativeIntelligence({
       windows: {
         selected: rows,
         previousSelected: rows,

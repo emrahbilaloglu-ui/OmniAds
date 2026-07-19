@@ -9,6 +9,7 @@ export interface CompareDrawerItem {
   name: string;
   brand?: string;
   label: DecisionLabel;
+  labelText?: string | null;
   spend?: number;
   roas?: number;
   ctr?: number;
@@ -152,7 +153,7 @@ function CompareCard({
       <div className="compare-drawer-card-head">
         <span className={["compare-drawer-chip", `compare-drawer-chip--${chipTone(item.label)}`].join(" ")}>
           <span className="compare-drawer-chip-dot" aria-hidden="true" />
-          {decisionLabelText(item.label)}
+          {item.labelText?.trim() || decisionLabelText(item.label)}
         </span>
         <span className="compare-drawer-format" title={format.detailLabel}>{format.tag}</span>
         {highlighted ? <span className="compare-drawer-winner">Best ROAS</span> : null}

@@ -211,6 +211,15 @@ function nativeActionReceipt(
     verificationEntityId: episode.adId,
     verificationStatus: "PAUSED",
     ...actionOverrides,
+    verificationLineage: actionOverrides.verificationLineage ?? {
+      sourceCreativeId: episode.creativeId,
+      sourceCampaignId: episode.sourceCampaignId,
+      sourceAdsetId: episode.sourceAdsetId,
+      verifiedProviderAccountId: episode.providerAccountId,
+      verifiedCreativeId: episode.creativeId,
+      verifiedCampaignId: episode.sourceCampaignId,
+      verifiedAdsetId: episode.sourceAdsetId,
+    },
   };
   return {
     ...actionWithoutHash,
@@ -239,7 +248,7 @@ describe("native ad decision outcome contract", () => {
     );
 
     expect(AD_DECISION_OUTCOME_CONTRACT_VERSION).toBe(
-      "engine-v3-ad-decision-outcome.v2",
+      "engine-v3-ad-decision-outcome.v3",
     );
     expect(outcome).toMatchObject({
       pre_authority_label: "scale",

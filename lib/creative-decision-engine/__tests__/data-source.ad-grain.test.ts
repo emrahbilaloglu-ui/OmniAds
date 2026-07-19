@@ -823,12 +823,12 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
-  it("prefers canonical provider identity only for current hydration", () => {
+  it("prefers cutoff-safe fact timezone and currency over current provider dimensions for hydration", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,\n    account_identity.account_timezone",
+      "account_identity.account_timezone,\n    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,\n    account_identity.account_currency",
+      "account_identity.account_currency,\n    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END",
     );
   });
 

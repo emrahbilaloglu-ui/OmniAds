@@ -1,5 +1,6 @@
 import {
   runDecisionOriginAdExecutionPreflight,
+  validateDecisionOriginAdExecutionRequest,
   type DecisionOriginAdExecutionEvidence,
   type DecisionOriginAdExecutionPreflightResult,
   type DecisionOriginAdExecutionRequest,
@@ -30,6 +31,13 @@ function unavailableEvidence(
       businessId: null,
       providerAccountId: null,
       adId: null,
+      creativeId: null,
+      campaignId: null,
+      campaignConfiguredStatus: null,
+      campaignEffectiveStatus: null,
+      adsetId: null,
+      adsetConfiguredStatus: null,
+      adsetEffectiveStatus: null,
       configuredStatus: null,
       effectiveStatus: null,
       policyEligible: null,
@@ -43,6 +51,8 @@ function unavailableEvidence(
       decisionEntityType: null,
       decisionEntityId: null,
       adId: null,
+      campaignId: null,
+      adsetId: null,
       creativeId: null,
       snapshotId: null,
       evaluationId: null,
@@ -65,12 +75,30 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
   request: DecisionOriginAdExecutionRequest;
   ctx: MetaAdsWriteContext;
   now?: Date;
+  ignorePendingReceiptActionLogId?: string;
 }): Promise<DecisionOriginAdExecutionPreflightResult> {
+  const requestBlockers =
+    validateDecisionOriginAdExecutionRequest(input.request);
+  if (requestBlockers.length > 0) {
+    return {
+      ok: false,
+      disposition: "reject",
+      shouldMutate: false,
+      blockers: requestBlockers,
+      errorCode: requestBlockers[0] ?? null,
+      duplicateReceipt: null,
+      decisionAgeHours: null,
+      currentAdStateAgeMinutes: null,
+    };
+  }
   const idempotencyReceipt = await findDecisionOriginActionByIdempotency({
     businessId: input.request.businessId,
     idempotencyKey: input.request.idempotencyKey,
   });
-  if (idempotencyReceipt) {
+  if (
+    idempotencyReceipt &&
+    idempotencyReceipt.actionLogId !== input.ignorePendingReceiptActionLogId
+  ) {
     return runDecisionOriginAdExecutionPreflight({
       request: input.request,
       rereadEvidence: async () => unavailableEvidence(idempotencyReceipt),
@@ -105,8 +133,15 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
       ? {
           found: true,
           businessId: input.ctx.businessId,
-          providerAccountId: input.ctx.providerAccountId,
+          providerAccountId: currentAd.providerAccountId,
           adId: currentAd.adId,
+          creativeId: currentAd.creativeId,
+          campaignId: currentAd.campaignId,
+          campaignConfiguredStatus: currentAd.campaignConfiguredStatus,
+          campaignEffectiveStatus: currentAd.campaignEffectiveStatus,
+          adsetId: currentAd.adsetId,
+          adsetConfiguredStatus: currentAd.adsetConfiguredStatus,
+          adsetEffectiveStatus: currentAd.adsetEffectiveStatus,
           configuredStatus: currentAd.configuredStatus,
           effectiveStatus: currentAd.effectiveStatus,
           policyEligible: currentAd.policyEligible,
@@ -118,8 +153,15 @@ export async function runServerDecisionOriginAdActionPreflight(input: {
             currentAd.preflightBlocker !== "ad_not_found" &&
             currentAd.preflightBlocker !== "meta_account_unresolved",
           businessId: input.ctx.businessId,
-          providerAccountId: input.ctx.providerAccountId,
+          providerAccountId: null,
           adId: currentAd.adId ?? input.request.adId,
+          creativeId: null,
+          campaignId: null,
+          campaignConfiguredStatus: null,
+          campaignEffectiveStatus: null,
+          adsetId: null,
+          adsetConfiguredStatus: null,
+          adsetEffectiveStatus: null,
           configuredStatus: null,
           effectiveStatus: null,
           policyEligible: null,

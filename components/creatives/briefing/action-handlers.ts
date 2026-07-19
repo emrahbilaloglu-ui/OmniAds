@@ -3,6 +3,10 @@ import type { LaunchpadOverlayMode } from "@/components/common/briefing/Launchpa
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
 import { asDecisionLabel, cardName } from "@/components/creatives/briefing/card-utils";
 import {
+  getBriefingCanonicalNativeActionAuthority,
+  hasBriefingCanonicalNativeActionAuthority,
+} from "@/components/creatives/briefing/action-authority";
+import {
   DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
   createDecisionOriginAdActionIdempotencyKey,
   runDecisionOriginAdExecutionPreflight,
@@ -36,6 +40,9 @@ export interface PauseBriefingCardResult {
 
 type FetchLike = typeof fetch;
 
+export const BRIEFING_NATIVE_DECISION_ACTION_ORIGIN =
+  "native_decision_v1" as const;
+
 export interface DecisionOriginBriefingCard extends BriefingCreativeCard {
   sourceDecisionEvaluationId?: string | null;
   sourceDecisionHash?: string | null;
@@ -59,30 +66,17 @@ export function hasNativeDecisionOriginLineage(
   card: DecisionOriginBriefingCard,
 ) {
   return Boolean(
-    nonEmptyId(card.sourceDecisionEvaluationId) ||
-      nonEmptyId(card.sourceDecisionHash),
+    card.sourceDecisionAuthorityStatus === "native_exact" &&
+      card.sourceDecisionSnapshotMatch === "matched" &&
+      nonEmptyId(card.sourceDecisionSnapshotId) &&
+      nonEmptyId(card.sourceDecisionEvaluationId) &&
+      nonEmptyId(card.sourceDecisionSnapshotEngineVersion) &&
+      nonEmptyId(card.sourceDecisionHash) &&
+      nonEmptyId(card.providerAccountId) &&
+      nonEmptyId(card.realAdId) &&
+      nonEmptyId(card.creativeId) &&
+      nonEmptyId(card.canonicalDecision?.creativeId),
   );
-}
-
-function uniqueIds(ids: Array<string | null | undefined>) {
-  const seen = new Set<string>();
-  return ids.flatMap((id) => {
-    const normalized = nonEmptyId(id);
-    if (!normalized || seen.has(normalized)) return [];
-    seen.add(normalized);
-    return [normalized];
-  });
-}
-
-export function getManualBriefingAdActionCandidateIds(card: BriefingCreativeCard) {
-  return uniqueIds([
-    card.realAdId,
-    card.metaAdId,
-    card.effectiveAdId,
-    card.adId,
-    card.creativeId,
-    card.id,
-  ]);
 }
 
 export function getBriefingAdActionInputId(card: BriefingCreativeCard) {
@@ -96,21 +90,28 @@ export function buildBriefingDecisionOriginAdActionRequest(input: {
   idempotencyKey?: string;
   dryRun?: boolean;
 }): DecisionOriginAdExecutionRequest {
+  const nativeAuthority = getBriefingCanonicalNativeActionAuthority(input.card);
+  if (
+    input.action !== "pause" ||
+    nativeAuthority?.action !== "cut"
+  ) {
+    throw new Error(
+      "Decision-origin ad execution blocked (native_exact_eligible_authorized_cut_required).",
+    );
+  }
+  const decision = nativeAuthority.decision;
+  const authority = decision.sourceAuthority;
   const requestBase = {
     contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
     businessId: input.businessId.trim(),
-    providerAccountId: input.card.providerAccountId?.trim() ?? "",
-    adId: getBriefingAdActionInputId(input.card),
-    snapshotId:
-      input.card.sourceDecisionSnapshotMatch === "matched"
-        ? input.card.sourceDecisionSnapshotId?.trim() ?? ""
-        : "",
-    evaluationId: input.card.sourceDecisionEvaluationId?.trim() ?? "",
-    engineVersion:
-      input.card.sourceDecisionSnapshotEngineVersion?.trim() ?? "",
-    decisionHash: input.card.sourceDecisionHash?.trim() ?? "",
+    providerAccountId: authority.providerAccountId,
+    adId: decision.adId,
+    snapshotId: decision.sourceSnapshotId,
+    evaluationId: authority.evaluationId,
+    engineVersion: authority.engineVersion,
+    decisionHash: authority.decisionHash,
     action: input.action,
-    creativeId: nonEmptyId(input.card.creativeId),
+    creativeId: nonEmptyId(decision.creativeId) ?? "",
     ...(input.dryRun === true ? { dryRun: true } : {}),
   };
   const request: DecisionOriginAdExecutionRequest = {
@@ -152,20 +153,13 @@ export async function executeDecisionOriginAdActionWithPreflight<T>(input: {
 
 export function isCutPrimaryAction(card: BriefingCreativeCard) {
   const primaryKind = card.primary?.kind?.trim().toLowerCase();
-  const primaryLabel = card.primary?.label?.trim().toLowerCase();
   const label = asDecisionLabel(card.label) as DecisionLabel;
   return (
     primaryKind === "cut" ||
     primaryKind === "pause" ||
-    primaryKind?.includes("pause") ||
-    primaryLabel === "cut" ||
-    primaryLabel?.includes("pause") ||
+    primaryKind === "pause_ad" ||
     (!primaryKind && label === "cut")
   );
-}
-
-function isAdNotFoundResponse(payload: { error?: { code?: string } } | null) {
-  return payload?.error?.code === "ad_not_found";
 }
 
 export function metaAdActionFailureMessage(
@@ -243,20 +237,10 @@ export async function pauseBriefingCard(input: {
   dryRun?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<PauseBriefingCardResult> {
-  if (!isCutPrimaryAction(input.card)) {
-    throw new Error("This card does not carry a server-authorized cut action.");
-  }
-  if (!hasNativeDecisionOriginLineage(input.card)) {
-    if (input.dryRun === true) {
-      throw new Error(
-        "Dry run requires exact native decision lineage for this ad.",
-      );
-    }
-    return pauseBriefingCardManualLegacy({
-      businessId: input.businessId,
-      card: input.card,
-      fetchImpl: input.fetchImpl,
-    });
+  if (!hasBriefingCanonicalNativeActionAuthority(input.card, "cut")) {
+    throw new Error(
+      "This card does not carry exact native eligible authorized Cut authority.",
+    );
   }
   const request = buildBriefingDecisionOriginAdActionRequest({
     businessId: input.businessId,
@@ -275,7 +259,10 @@ export async function pauseBriefingCard(input: {
         "Content-Type": "application/json",
       },
       cache: "no-store",
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        ...request,
+        actionOrigin: BRIEFING_NATIVE_DECISION_ACTION_ORIGIN,
+      }),
     },
   );
   const payload = (await response.json().catch(() => null)) as
@@ -285,51 +272,4 @@ export async function pauseBriefingCard(input: {
     return { ...payload, attemptedIds: [request.adId] };
   }
   throw new Error(metaAdActionFailureMessage(payload, response.status));
-}
-
-/** Explicit compatibility path for operator-selected legacy cards only. */
-export async function pauseBriefingCardManualLegacy(input: {
-  businessId: string;
-  card: BriefingCreativeCard;
-  fetchImpl?: FetchLike;
-}): Promise<PauseBriefingCardResult> {
-  if (!isCutPrimaryAction(input.card)) {
-    throw new Error("This card does not carry a server-authorized cut action.");
-  }
-  const candidateIds = getManualBriefingAdActionCandidateIds(input.card);
-  if (candidateIds.length === 0) {
-    throw new Error("No actionable Meta ad id was available for this creative.");
-  }
-  const fetcher = input.fetchImpl ?? fetch;
-  const attemptedIds: string[] = [];
-  let lastMessage = "Pause failed.";
-  for (const targetId of candidateIds) {
-    attemptedIds.push(targetId);
-    const response = await fetcher(
-      `/api/meta/ads/${encodeURIComponent(targetId)}/pause`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        body: JSON.stringify({
-          businessId: input.businessId,
-          resolutionMode: "manual_legacy",
-          recIdOrigin: getCreativeScopeId(input.card),
-        }),
-      },
-    );
-    const payload = (await response.json().catch(() => null)) as
-      | (PauseBriefingCardResult & { error?: { code?: string; message?: string } })
-      | null;
-    if (response.ok && payload?.ok) {
-      return { ...payload, attemptedIds };
-    }
-    const message = metaAdActionFailureMessage(payload, response.status);
-    lastMessage = message;
-    if (!isAdNotFoundResponse(payload)) throw new Error(message);
-  }
-  throw new Error(`${lastMessage} Tried ${attemptedIds.join(", ")}.`);
 }

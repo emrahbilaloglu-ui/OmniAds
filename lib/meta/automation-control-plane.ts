@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 
 export type MetaAutomationReadinessControlTier =
   "read_only" | "manual_review" | "backtest_candidate" | "auto_execute";
@@ -105,13 +106,15 @@ export interface MetaWriteBlockState {
   reason:
     | "META_ADS_WRITE_KILL_SWITCH"
     | "business_kill_switch"
+    | "demo_business_read_only"
     | "control_state_unavailable"
     | null;
   message: string | null;
 }
 
 type ControlDbRow = {
-  business_id: string;
+  business_id: string | null;
+  is_demo_business?: boolean | null;
   kill_switch_engaged: boolean | null;
   kill_switch_reason: string | null;
   auto_execution_enabled: boolean | null;
@@ -355,23 +358,37 @@ async function safeRead<T>(reader: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-async function readBusinessControl(businessId: string) {
+async function readBusinessControlState(businessId: string) {
   const sql = getDb();
   const rows = (await sql`
     SELECT
-      business_id,
-      kill_switch_engaged,
-      kill_switch_reason,
-      auto_execution_enabled,
-      readiness_tier,
-      guardrails_json,
-      updated_at,
-      updated_by
-    FROM meta_automation_business_controls
-    WHERE business_id = ${businessId}
+      control.business_id,
+      business.is_demo_business,
+      control.kill_switch_engaged,
+      control.kill_switch_reason,
+      control.auto_execution_enabled,
+      control.readiness_tier,
+      control.guardrails_json,
+      control.updated_at,
+      control.updated_by
+    FROM businesses business
+    LEFT JOIN meta_automation_business_controls control
+      ON control.business_id = business.id
+    WHERE business.id = ${businessId}
     LIMIT 1
   `) as ControlDbRow[];
-  return mapControlRow(rows[0], businessId);
+  return {
+    control: mapControlRow(
+      rows[0]?.business_id ? rows[0] : undefined,
+      businessId,
+    ),
+    businessFound: rows.length > 0,
+    isDemoBusiness: rows[0]?.is_demo_business === true,
+  };
+}
+
+async function readBusinessControl(businessId: string) {
+  return (await readBusinessControlState(businessId)).control;
 }
 
 async function readPromotionRecords(businessId: string) {
@@ -805,7 +822,15 @@ export async function getMetaWriteBlockState(input: {
   businessId: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<MetaWriteBlockState> {
+  const businessId = input.businessId.trim();
   const env = input.env ?? process.env;
+  if (businessId === DEMO_BUSINESS_ID) {
+    return {
+      blocked: true,
+      reason: "demo_business_read_only",
+      message: "Meta writes are disabled for synthetic demo businesses.",
+    };
+  }
   if (isGlobalMetaAdsWriteKillSwitchEngaged(env)) {
     return {
       blocked: true,
@@ -819,9 +844,9 @@ export async function getMetaWriteBlockState(input: {
     return { blocked: false, reason: null, message: null };
   }
 
-  let control: MetaAutomationBusinessControl;
+  let controlState: Awaited<ReturnType<typeof readBusinessControlState>>;
   try {
-    control = await readBusinessControl(input.businessId.trim());
+    controlState = await readBusinessControlState(businessId);
   } catch {
     return {
       blocked: true,
@@ -830,6 +855,22 @@ export async function getMetaWriteBlockState(input: {
         "Meta writes are temporarily blocked because automation control state could not be verified.",
     };
   }
+  if (!controlState.businessFound) {
+    return {
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation control state could not be verified.",
+    };
+  }
+  if (controlState.isDemoBusiness) {
+    return {
+      blocked: true,
+      reason: "demo_business_read_only",
+      message: "Meta writes are disabled for synthetic demo businesses.",
+    };
+  }
+  const control = controlState.control;
   if (!control.killSwitchEngaged) {
     return { blocked: false, reason: null, message: null };
   }

@@ -1,4 +1,5 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import {
   calculateMetaStatisticalConfidence,
@@ -88,19 +89,6 @@ function r2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "₺";
-  if (currency === "EUR") return "€";
-  return "$";
-}
-
-function fmtCurrency(value: number, currency: string | null | undefined) {
-  return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 function fmtRoas(value: number) {
   return `${value.toFixed(2)}x`;
 }
@@ -112,8 +100,8 @@ function commercialTargetEvidence(
   const evidence: MetaRecommendation["evidence"] = [];
   if (targets?.targetRoas) evidence.push({ label: "Target ROAS", value: fmtRoas(targets.targetRoas), tone: "neutral" });
   if (targets?.breakEvenRoas) evidence.push({ label: "Break-even ROAS", value: fmtRoas(targets.breakEvenRoas), tone: "neutral" });
-  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: fmtCurrency(targets.breakEvenCpa, currency), tone: "neutral" });
-  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: fmtCurrency(targets.targetCpa, currency), tone: "neutral" });
+  if (targets?.breakEvenCpa) evidence.push({ label: "Break-even CPA", value: formatMoney(targets.breakEvenCpa, currency, null), tone: "neutral" });
+  else if (targets?.targetCpa) evidence.push({ label: "Target CPA", value: formatMoney(targets.targetCpa, currency, null), tone: "neutral" });
   return evidence;
 }
 
@@ -574,7 +562,7 @@ export function maybeB1CappedBidRaise(input: CampaignScenarioInput): MetaRecomme
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
       {
         label: "Current bid",
-        value: fmtCurrency(bid / 100, row.currency),
+        value: formatMoney(bid / 100, row.currency, null),
         tone: "neutral",
       },
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
@@ -815,8 +803,8 @@ export function maybeF3BudgetPacingCooldown(input: CampaignScenarioInput): MetaR
     expectedImpact: "Prevents compounding an already overpaced spend curve.",
     evidence: [
       { label: "Pace ratio", value: `${r2(numberFromRecord(pacing, "pace_ratio") ?? 0)}x`, tone: "warning" },
-      { label: "MTD spend", value: fmtCurrency(numberFromRecord(pacing, "mtd_spend") ?? 0, row.currency), tone: "warning" },
-      { label: "Expected MTD spend", value: fmtCurrency(numberFromRecord(pacing, "expected_mtd_spend") ?? 0, row.currency), tone: "neutral" },
+      { label: "MTD spend", value: formatMoney(numberFromRecord(pacing, "mtd_spend") ?? 0, row.currency, null), tone: "warning" },
+      { label: "Expected MTD spend", value: formatMoney(numberFromRecord(pacing, "expected_mtd_spend") ?? 0, row.currency, null), tone: "neutral" },
     ],
     targetValue: pacing ?? { monthly_pacing_status: "overpaced" },
     campaignRole: input.campaignRole,
@@ -858,10 +846,10 @@ export function maybeA2StructuralRebuild(input: CampaignScenarioInput): MetaReco
     recommendedAction: "Rebuild with cleaner audience, creative, and optimization separation before adding budget.",
     expectedImpact: "Stops budget from compounding through a structurally weak setup.",
     evidence: [
-      { label: "Spend", value: fmtCurrency(row.spend, row.currency), tone: "warning" },
+      { label: "Spend", value: formatMoney(row.spend, row.currency, null), tone: "warning" },
       { label: "ROAS", value: fmtRoas(row.roas), tone: "warning" },
       { label: "ROAS p25", value: fmtRoas(roas.p25), tone: "neutral" },
-      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      { label: "Loss maturity spend", value: formatMoney(maturity.spendThreshold, row.currency, null), tone: "neutral" },
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     campaignRole: input.campaignRole,
@@ -1074,7 +1062,7 @@ export function maybeA5PostLearningUnderperformer(input: CampaignScenarioInput):
       },
       { label: "ROAS", value: fmtRoas(row.roas), tone: "warning" },
       { label: "ROAS p50", value: fmtRoas(roas.p50), tone: "neutral" },
-      { label: "Loss maturity spend", value: fmtCurrency(maturity.spendThreshold, row.currency), tone: "neutral" },
+      { label: "Loss maturity spend", value: formatMoney(maturity.spendThreshold, row.currency, null), tone: "neutral" },
       ...commercialTargetEvidence(input.commercialTargets, row.currency),
     ],
     targetValue: {
@@ -1201,7 +1189,7 @@ export function maybeF1SuddenRoasDrop(input: CampaignScenarioInput): MetaRecomme
     evidence: [
       { label: "7d ROAS", value: fmtRoas(last7.roas), tone: "warning" },
       { label: "28d ROAS", value: fmtRoas(row.roas), tone: "neutral" },
-      { label: "7d spend", value: fmtCurrency(last7.spend, row.currency), tone: "warning" },
+      { label: "7d spend", value: formatMoney(last7.spend, row.currency, null), tone: "warning" },
     ],
     targetValue: { diagnostics: ["tracking", "fatigue", "recent_edits", "auction", "seasonality"] },
     campaignRole: input.campaignRole,
@@ -1404,8 +1392,8 @@ export function maybeA1MathFloor(input: CampaignScenarioInput): MetaRecommendati
     expectedImpact: "Moves the campaign toward enough signal density to learn.",
     evidence: [
       { label: "Possible weekly conversions", value: String(r2(possibleWeeklyConversions)), tone: "warning" },
-      { label: "CPA p50", value: fmtCurrency(cpa.p50, row.currency), tone: "neutral" },
-      { label: "Daily budget", value: fmtCurrency(budget, row.currency), tone: "neutral" },
+      { label: "CPA p50", value: formatMoney(cpa.p50, row.currency, null), tone: "neutral" },
+      { label: "Daily budget", value: formatMoney(budget, row.currency, null), tone: "neutral" },
     ],
     targetValue: { current_event: row.optimizationGoal, proposed_event: "ADD_TO_CART_OR_INITIATE_CHECKOUT" },
     campaignRole: input.campaignRole,

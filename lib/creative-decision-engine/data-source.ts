@@ -1495,12 +1495,12 @@ SELECT
   assignment.provider_account_ref_id,
   cumulative.provider_account_id,
   COALESCE(
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,
-    account_identity.account_timezone
+    account_identity.account_timezone,
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END
   ) AS account_timezone,
   COALESCE(
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,
-    account_identity.account_currency
+    account_identity.account_currency,
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END
   ) AS account_currency,
   cumulative.ad_id,
   COALESCE(cumulative.ad_name, dimensions.ad_name_current) AS ad_name,

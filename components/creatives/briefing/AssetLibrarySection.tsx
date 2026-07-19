@@ -3,6 +3,10 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import {
+  formatMoney as formatCreativeMoney,
+  normalizeCurrencyCode,
+} from "@/components/creatives/money";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type { DecisionLabel } from "@/components/common/briefing/types";
 import type { BriefingCreativeCard } from "@/components/creatives/briefing/types";
@@ -59,7 +63,7 @@ type AssetMetricColumn = {
   value: (row: MetaCreativeRow) => ReactNode;
   csvValue?: (row: MetaCreativeRow) => string;
   rawValue: (row: MetaCreativeRow) => number;
-  format: (value: number) => string;
+  format: (value: number, currency?: string | null) => string;
   shareKey?: ShareLinkConfig["metrics"][number];
 };
 
@@ -283,6 +287,15 @@ const ASSET_METRIC_COLUMNS: AssetMetricColumn[] = [
   scoreMetric("score.watch", "Watch", "0-100 account-relative watch quality read from the creative scoring pipeline.", "Creative scoring · watch", "watch", "watchScore"),
 ];
 
+const MONEY_METRIC_IDS = new Set([
+  "spend",
+  "purchaseValue",
+  "cpa",
+  "cpcLink",
+  "cpm",
+  "aov",
+]);
+
 export const DEFAULT_VISIBLE_METRIC_IDS = ["spend", "purchaseValue", "roas", "purchases", "cpa", "ctrAll"];
 
 const BACKEND_DEPENDENT_METRICS: BackendDependentMetric[] = [
@@ -391,7 +404,7 @@ function metric(
   source: string,
   summaryMode: MetricSummaryMode,
   rawValue: (row: MetaCreativeRow) => number,
-  formatter: (value: number) => string,
+  formatter: (value: number, currency?: string | null) => string,
   shareKey?: ShareLinkConfig["metrics"][number],
 ): AssetMetricColumn {
   return {
@@ -404,8 +417,8 @@ function metric(
     className: "num",
     rawValue,
     format: formatter,
-    value: (row) => formatter(rawValue(row)),
-    csvValue: (row) => formatter(rawValue(row)),
+    value: (row) => formatter(rawValue(row), row.currency ?? null),
+    csvValue: (row) => formatter(rawValue(row), row.currency ?? null),
     shareKey,
   };
 }
@@ -543,7 +556,11 @@ function buildKpiSummaryCells(input: {
   return cells.slice(0, 4);
 }
 
-function summarizeMetric(column: AssetMetricColumn, rows: MetaCreativeRow[], currency: string | null) {
+function summarizeMetric(
+  column: AssetMetricColumn,
+  rows: MetaCreativeRow[],
+  _configuredBusinessCurrency: string | null,
+) {
   const count = rows.length;
   const values = rows.map((row) => column.rawValue(row)).filter((value) => Number.isFinite(value));
   const total = values.reduce((sum, value) => sum + value, 0);
@@ -557,6 +574,27 @@ function summarizeMetric(column: AssetMetricColumn, rows: MetaCreativeRow[], cur
           : Number.NaN
         : total;
   const scoreMissing = column.group === "creative_scores" && values.length === 0;
+  const isMoney = MONEY_METRIC_IDS.has(column.id);
+  const normalizedCurrencies = rows.map((row) =>
+    normalizeCurrencyCode(row.currency),
+  );
+  const knownCurrencies = new Set(
+    normalizedCurrencies.filter((value): value is string => value !== null),
+  );
+  const hasUnknownCurrency = normalizedCurrencies.some(
+    (value) => value === null,
+  );
+  const aggregateCurrency =
+    knownCurrencies.size === 1 && !hasUnknownCurrency
+      ? [...knownCurrencies][0]
+      : null;
+  const aggregateCurrencyUnsafe =
+    isMoney &&
+    count > 1 &&
+    (knownCurrencies.size !== 1 || hasUnknownCurrency);
+  const formattedValue = aggregateCurrencyUnsafe
+    ? "—"
+    : column.format(value, aggregateCurrency) || formatDecimal2(value);
   return {
     title: column.summaryMode === "sum" ? `Total ${column.label}` : `Avg ${column.label}`,
     scope: column.group === "creative_scores"
@@ -566,16 +604,22 @@ function summarizeMetric(column: AssetMetricColumn, rows: MetaCreativeRow[], cur
       : count > 0
         ? `scope · ${count}`
         : "scope",
-    value: column.format(value) || formatDecimal2(value),
+    value: formattedValue,
     sub: column.group === "creative_scores"
       ? "/ 100"
-      : column.id === "spend" || column.id === "purchaseValue" || column.id === "cpa" || column.id === "cpcLink" || column.id === "cpm" || column.id === "aov"
-      ? currency ?? "USD"
+      : isMoney
+      ? aggregateCurrencyUnsafe
+        ? knownCurrencies.size > 1
+          ? "mixed currencies"
+          : "currency unavailable"
+        : aggregateCurrency ?? "currency unavailable"
       : column.summaryMode === "sum"
         ? "total"
         : "avg",
     micro:
-      scoreMissing
+      aggregateCurrencyUnsafe
+        ? "Money total withheld because a single account currency cannot be proven"
+        : scoreMissing
         ? "scoring fields not emitted for this scope"
         : column.group === "creative_scores"
           ? "backend score average across scored creatives"
@@ -786,7 +830,9 @@ export function AssetLibrarySection({
 
   const exportCsv = () => {
     if (actionRows.length === 0) return;
-    const csv = buildAssetLibraryCsv(actionRows, visibleMetricColumns, { decisionCenterUiEnabled });
+    const csv = buildAssetLibraryCsv(actionRows, visibleMetricColumns, {
+      decisionCenterUiEnabled,
+    });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1816,12 +1862,16 @@ function readCreativeScore(row: MetaCreativeRow, key: CreativeScoreKey): number 
   return readNestedScore(source, key);
 }
 
-function formatMoney0(value: number) {
-  return `$${Math.round(value).toLocaleString()}`;
+function formatMoney0(value: number, currency?: string | null) {
+  return Number.isFinite(value)
+    ? formatCreativeMoney(Math.round(value), currency, null)
+    : "—";
 }
 
-function formatMoney2(value: number) {
-  return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function formatMoney2(value: number, currency?: string | null) {
+  return Number.isFinite(value)
+    ? formatCreativeMoney(value, currency, null)
+    : "—";
 }
 
 function formatInteger(value: number) {
@@ -1931,18 +1981,4 @@ function rowMatchesSearch(row: AssetLibraryRow, search: string) {
     row.accountName,
     ...safeStringArray(row.tags),
   ].some((value) => safeText(value).toLowerCase().includes(search));
-}
-
-function formatCurrency(value: number, currency: string | null): string {
-  if (!Number.isFinite(value) || value <= 0) return "—";
-  const isoCurrency = (currency ?? "USD").toUpperCase();
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: isoCurrency,
-      maximumFractionDigits: 0,
-    }).format(value);
-  } catch {
-    return `$${Math.round(value).toLocaleString()}`;
-  }
 }

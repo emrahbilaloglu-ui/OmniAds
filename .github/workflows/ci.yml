@@ -34,8 +34,7 @@ jobs:
           npx tsc --noEmit
 
       - name: Verify release authority preflight
-        run: >-
-          node --import tsx scripts/verify-release-authority.ts --mode=preflight
+        run: npm run release:authority:preflight
 
   test:
     runs-on: ubuntu-latest
@@ -60,6 +59,34 @@ jobs:
       - name: Creative v2 safety gate
         run: |
           npm run creative:v2:safety
+
+  database-seams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql
+          echo "EPHEMERAL_PG_BIN_DIR=$(pg_config --bindir)" >> "$GITHUB_ENV"
+
+      - name: Migrations from zero
+        run: npm run test:migrations-from-zero
+
+      - name: Native ad decision database seam
+        run: node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts
 
   build:
     if: github.event_name == 'pull_request'
@@ -200,6 +227,7 @@ jobs:
     needs:
       - typecheck
       - test
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -246,6 +274,7 @@ jobs:
     needs:
       - typecheck
       - test
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -335,6 +364,7 @@ jobs:
     needs:
       - typecheck
       - test
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     steps:

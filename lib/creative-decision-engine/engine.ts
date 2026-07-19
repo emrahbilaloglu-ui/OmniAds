@@ -12,6 +12,7 @@ import { ratioZonesGate } from "./gates/ratio-zones";
 import { scopeGate } from "./gates/scope";
 import { targetResolutionGate } from "./gates/target-resolution";
 import { zeroConvBurnerGate } from "./gates/zero-conv-burner";
+import { retainCommercialStopLossRepairOnlyForFinalCut } from "./gates/cut-policy";
 import { selectKindAwareDecisionProfile } from "./kind-aware-profile";
 import {
   enforceHardActionEligibility,
@@ -95,6 +96,15 @@ export function decideCreative(
   if (result.kind === "terminal") {
     return finalizeOutput(result.output);
   }
+
+  // The account-AOV proof is activated inside the single canonical engine
+  // pass only when the remaining gate order will end in a repaired Cut.
+  // Otherwise the immutable canonical authority is restored before any
+  // threshold consumer runs, preserving non-Cut output byte-for-byte.
+  result = {
+    kind: "advance",
+    context: retainCommercialStopLossRepairOnlyForFinalCut(result.context),
+  };
 
   result = zeroConvBurnerGate(result.context);
   if (result.kind === "terminal") {

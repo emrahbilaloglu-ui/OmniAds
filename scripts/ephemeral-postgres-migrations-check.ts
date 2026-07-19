@@ -4,8 +4,9 @@
  * Boots a throwaway PostgreSQL 16 cluster (Homebrew binaries, no Docker) in an
  * OS temp directory on a random free port, creates an empty database, runs the
  * repo's real deploy migration entry point (scripts/run-migrations.ts →
- * lib/migrations.ts runMigrations) against it twice — first run must build the
- * full schema from zero, second run must exit clean to prove idempotency —
+ * lib/migrations.ts runMigrations) against it three times — first run must
+ * build the full schema from zero, second run upgrades seeded prior-epoch
+ * constraints, and third run proves post-upgrade idempotency —
  * then asserts key Engine v3 tables/columns exist.
  *
  * Hard safety rules:
@@ -85,6 +86,8 @@ const REQUIRED_TABLES = [
   "meta_controlled_control_estimates",
   "meta_creative_briefs",
   "meta_launch_intents",
+  "meta_ads_action_mutation_attempt_events",
+  "meta_ads_action_reconciliation_events",
 ] as const;
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
@@ -217,6 +220,38 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "meta_ads_action_log", column: "decision_evaluation_id" },
   { table: "meta_ads_action_log", column: "terminal_finalized_at" },
   {
+    table: "meta_ads_action_mutation_attempt_events",
+    column: "provider_account_ref_id",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    column: "completion_outcome",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    column: "lease_deadline",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    column: "evidence_hash",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    column: "source_authority_kind",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    column: "provider_account_ref_id",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    column: "settlement_not_before",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    column: "evidence_hash",
+  },
+  {
     table: "engine_v3_ad_operator_action_receipts",
     column: "receipt_hash",
   },
@@ -254,6 +289,18 @@ const AUTHORITY_PROVENANCE_TABLES = [
   ["engine_v3_decision_outcomes_daily", "engine_v3_decision_outcomes"],
   ["engine_v3_ad_decision_snapshots_daily", "engine_v3_ad_snapshots"],
   ["engine_v3_ad_decision_outcomes_daily", "engine_v3_ad_outcomes"],
+] as const;
+
+const D060_AUTHORITY_BLOCKERS = [
+  "profile_hard_action_ineligible",
+  "source_freshness",
+  "campaign_context",
+  "native_metrics_unavailable",
+  "native_profile_unavailable",
+] as const;
+const D063_AUTHORITY_BLOCKERS = [
+  ...D060_AUTHORITY_BLOCKERS,
+  "recent_recovery_unverifiable",
 ] as const;
 
 const REQUIRED_CONSTRAINTS: ReadonlyArray<{
@@ -544,6 +591,61 @@ const REQUIRED_CONSTRAINTS: ReadonlyArray<{
     type: "f",
     deleteAction: "r",
   },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    constraint: "meta_ads_action_mutation_attempt_source_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    constraint: "meta_ads_action_mutation_attempt_account_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    constraint: "meta_ads_action_mutation_attempt_source_event_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_action_mutation_attempt_events",
+    constraint: "meta_ads_action_mutation_attempt_shape_check",
+    type: "c",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_source_action_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_attempt_event_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_account_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_source_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_resolution_geometry_check",
+    type: "c",
+  },
+  {
+    table: "meta_ads_action_reconciliation_events",
+    constraint: "meta_ads_action_reconciliation_time_check",
+    type: "c",
+  },
 ];
 const REQUIRED_INDEXES = [
   "idx_engine_v3_eval_contexts_business_scope",
@@ -576,6 +678,8 @@ const REQUIRED_INDEXES = [
   "engine_v3_ad_responses_timeline_idx",
   "idx_engine_v3_ad_outcomes_native_timeline",
   "idx_meta_ads_action_log_controlled_verified_receipt_unique",
+  "idx_meta_ads_action_mutation_attempt_business_ad",
+  "idx_meta_ads_action_reconciliation_business_ad",
 ] as const;
 
 const REQUIRED_TRIGGERS = [
@@ -585,6 +689,11 @@ const REQUIRED_TRIGGERS = [
   "trg_engine_v3_ad_outcomes_immutable",
   "trg_meta_controlled_seed_reveal_guard",
   "trg_meta_ads_action_log_controlled_verified_immutable",
+  "trg_meta_ads_action_mutation_attempt_validate",
+  "trg_meta_ads_action_mutation_attempt_immutable",
+  "trg_meta_ads_action_reconciliation_validate",
+  "trg_meta_ads_action_reconciliation_immutable",
+  "trg_manual_meta_ads_action_terminal_validate",
 ] as const;
 
 function log(message: string) {
@@ -592,12 +701,22 @@ function log(message: string) {
 }
 
 function resolvePgBinDir(): string {
-  const required = ["initdb", "pg_ctl", "postgres"];
-  const candidates = [
+  const required = ["initdb", "pg_ctl", "postgres", "createdb"];
+  const linuxVersionedDirs = fs.existsSync("/usr/lib/postgresql")
+    ? fs
+        .readdirSync("/usr/lib/postgresql", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+        .map((version) => path.join("/usr/lib/postgresql", version, "bin"))
+    : [];
+  const candidates = Array.from(new Set([
     process.env.EPHEMERAL_PG_BIN_DIR?.trim(),
     "/opt/homebrew/opt/postgresql@16/bin",
     "/opt/homebrew/bin",
-  ].filter((dir): dir is string => Boolean(dir));
+    ...linuxVersionedDirs,
+    ...(process.env.PATH ?? "").split(path.delimiter),
+  ].filter((dir): dir is string => Boolean(dir))));
 
   for (const dir of candidates) {
     if (required.every((binary) => fs.existsSync(path.join(dir, binary)))) {
@@ -606,7 +725,7 @@ function resolvePgBinDir(): string {
   }
   throw new Error(
     `PostgreSQL binaries (${required.join(", ")}) not found in any of: ${candidates.join(", ")}. ` +
-      "Install postgresql@16 via Homebrew or set EPHEMERAL_PG_BIN_DIR.",
+      "Install PostgreSQL or set EPHEMERAL_PG_BIN_DIR.",
   );
 }
 
@@ -1449,13 +1568,7 @@ async function assertDecisionAuthorityProvenance(
     "diagnose",
     "out_of_scope",
   ];
-  const blockers = [
-    "profile_hard_action_ineligible",
-    "source_freshness",
-    "campaign_context",
-    "native_metrics_unavailable",
-    "native_profile_unavailable",
-  ];
+  const blockers = D063_AUTHORITY_BLOCKERS;
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
@@ -1530,6 +1643,179 @@ async function assertDecisionAuthorityProvenance(
     );
   } finally {
     await client.query("ROLLBACK").catch(() => {});
+    await client.end();
+  }
+}
+
+async function seedD060AuthorityBlockerConstraints(
+  databaseUrl: string,
+): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    const oldValues = D060_AUTHORITY_BLOCKERS.map(
+      (value) => `'${value}'`,
+    ).join(", ");
+    for (const [table, prefix] of AUTHORITY_PROVENANCE_TABLES) {
+      const constraint = `${prefix}_authority_blocker_check`;
+      await client.query(
+        `ALTER TABLE ${table} DROP CONSTRAINT IF EXISTS ${constraint}`,
+      );
+      await client.query(
+        `ALTER TABLE ${table} ADD CONSTRAINT ${constraint}
+         CHECK (authority_blocker IS NULL OR authority_blocker IN (${oldValues}))`,
+      );
+    }
+    const { rows } = await client.query<{
+      table_name: string;
+      constraint_name: string;
+      constraint_type: string;
+      validated: boolean;
+      definition: string;
+    }>(
+      `SELECT relation.relname AS table_name,
+        constraint_row.conname AS constraint_name,
+        constraint_row.contype::text AS constraint_type,
+        constraint_row.convalidated AS validated,
+        pg_get_constraintdef(constraint_row.oid, true) AS definition
+       FROM pg_constraint constraint_row
+       INNER JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+       INNER JOIN pg_namespace namespace_row
+         ON namespace_row.oid = relation.relnamespace
+       WHERE namespace_row.nspname = current_schema()
+         AND (relation.relname, constraint_row.conname) IN (
+           SELECT * FROM unnest($1::text[], $2::text[])
+         )`,
+      [
+        AUTHORITY_PROVENANCE_TABLES.map(([table]) => table),
+        AUTHORITY_PROVENANCE_TABLES.map(
+          ([, prefix]) => `${prefix}_authority_blocker_check`,
+        ),
+      ],
+    );
+    if (rows.length !== AUTHORITY_PROVENANCE_TABLES.length) {
+      throw new Error(
+        `D060 authority constraint seed count mismatch: expected ${AUTHORITY_PROVENANCE_TABLES.length}, got ${rows.length}`,
+      );
+    }
+    for (const row of rows) {
+      const definition = row.definition.toLowerCase();
+      if (
+        row.constraint_type !== "c" ||
+        row.validated !== true ||
+        D060_AUTHORITY_BLOCKERS.some(
+          (blocker) => !definition.includes(blocker),
+        ) ||
+        definition.includes("recent_recovery_unverifiable")
+      ) {
+        throw new Error(
+          `D060 authority constraint seed is not the narrow validated CHECK: ${row.table_name}.${row.constraint_name} ${row.definition}`,
+        );
+      }
+    }
+    await client.query("COMMIT");
+    log(
+      "seeded four canonical, validated D060 authority-blocker CHECK constraints",
+    );
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+async function assertD063AuthorityBlockerConstraintUpgrade(
+  databaseUrl: string,
+  expectedOids?: ReadonlyMap<string, string>,
+): Promise<Map<string, string>> {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{
+      oid: string;
+      table_name: string;
+      constraint_name: string;
+      constraint_type: string;
+      validated: boolean;
+      definition: string;
+    }>(
+      `SELECT constraint_row.oid::text AS oid,
+        relation.relname AS table_name,
+        constraint_row.conname AS constraint_name,
+        constraint_row.contype::text AS constraint_type,
+        constraint_row.convalidated AS validated,
+        pg_get_constraintdef(constraint_row.oid, true) AS definition
+       FROM pg_constraint constraint_row
+       INNER JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+       INNER JOIN pg_namespace namespace_row
+         ON namespace_row.oid = relation.relnamespace
+       WHERE namespace_row.nspname = current_schema()
+         AND (relation.relname, constraint_row.conname) IN (
+           SELECT * FROM unnest($1::text[], $2::text[])
+         )`,
+      [
+        AUTHORITY_PROVENANCE_TABLES.map(([table]) => table),
+        AUTHORITY_PROVENANCE_TABLES.map(
+          ([, prefix]) => `${prefix}_authority_blocker_check`,
+        ),
+      ],
+    );
+    if (rows.length !== AUTHORITY_PROVENANCE_TABLES.length) {
+      throw new Error(
+        `D063 authority constraint count mismatch: expected ${AUTHORITY_PROVENANCE_TABLES.length}, got ${rows.length}`,
+      );
+    }
+    const expectedNames = new Map<string, string>(
+      AUTHORITY_PROVENANCE_TABLES.map(([table, prefix]) => [
+        table,
+        `${prefix}_authority_blocker_check`,
+      ]),
+    );
+    const actualOids = new Map<string, string>();
+    for (const row of rows) {
+      const expectedName = expectedNames.get(row.table_name);
+      const definition = row.definition.toLowerCase();
+      const identity = `${row.table_name}.${row.constraint_name}`;
+      if (
+        row.constraint_name !== expectedName ||
+        row.constraint_type !== "c" ||
+        row.validated !== true ||
+        D063_AUTHORITY_BLOCKERS.some(
+          (blocker) => !definition.includes(blocker),
+        )
+      ) {
+        throw new Error(
+          `D063 authority constraint is not the canonical validated CHECK: ${identity} type=${row.constraint_type} validated=${row.validated} ${row.definition}`,
+        );
+      }
+      if (expectedOids && expectedOids.get(identity) !== row.oid) {
+        throw new Error(
+          `D063 post-upgrade idempotency rebuilt ${identity}: expected oid=${expectedOids.get(identity) ?? "missing"}, got oid=${row.oid}`,
+        );
+      }
+      actualOids.set(identity, row.oid);
+    }
+    const temporaryNames = AUTHORITY_PROVENANCE_TABLES.map(
+      ([, prefix]) => `${prefix}_authority_blocker_check_d063`,
+    );
+    const temporary = await client.query<{ constraint_name: string }>(
+      `SELECT conname AS constraint_name
+       FROM pg_constraint
+       WHERE conname = ANY($1::text[])`,
+      [temporaryNames],
+    );
+    if (temporary.rows.length > 0) {
+      throw new Error(
+        `D063 temporary authority constraints remain installed: ${temporary.rows.map((row) => row.constraint_name).join(", ")}`,
+      );
+    }
+    log(
+      `D063 authority constraints ok: canonical names, CHECK type, validated definitions${expectedOids ? ", and stable post-upgrade OIDs" : ""}`,
+    );
+    return actualOids;
+  } finally {
     await client.end();
   }
 }
@@ -1861,7 +2147,7 @@ async function main() {
       "createdb",
     );
 
-    // Two separate child processes: lib/migrations.ts keeps module-level
+    // Three separate child processes: lib/migrations.ts keeps module-level
     // "already completed" state, so in-process re-runs would be no-ops and
     // prove nothing about idempotency.
     await runMigrationsChild(repoRoot, databaseUrl, "run 1: from zero");
@@ -1869,6 +2155,7 @@ async function main() {
     const targetHistoryCases =
       await seedTargetHistoryBackfillCases(databaseUrl);
     await seedPriorEpochOperatorConstraints(databaseUrl);
+    await seedD060AuthorityBlockerConstraints(databaseUrl);
     await runMigrationsChild(
       repoRoot,
       databaseUrl,
@@ -1876,6 +2163,19 @@ async function main() {
     );
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
+    const run2D063ConstraintOids =
+      await assertD063AuthorityBlockerConstraintUpgrade(databaseUrl);
+    await runMigrationsChild(
+      repoRoot,
+      databaseUrl,
+      "run 3: post-D063 idempotency",
+    );
+    const run3Tables = await assertSchema(databaseUrl);
+    reportConvergenceGap(run2Tables, run3Tables);
+    await assertD063AuthorityBlockerConstraintUpgrade(
+      databaseUrl,
+      run2D063ConstraintOids,
+    );
     await assertTargetHistoryBackfillCases(databaseUrl, targetHistoryCases);
     await assertNativeOperatorEpochCompatibility(databaseUrl);
     await assertDecisionEvaluationProvenance(databaseUrl);
@@ -1903,6 +2203,16 @@ async function main() {
         "ephemeral-postgres-entity-state-history-seam-child.ts",
       ),
       "entity state history DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
+      ),
+      "native-ad decision-fact ownership DB seam check",
     );
 
     // Production-seam checks against the freshly migrated schema: real

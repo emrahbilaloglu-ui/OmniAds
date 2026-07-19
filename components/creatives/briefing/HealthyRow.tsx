@@ -41,7 +41,7 @@ export function HealthyRow({
 
   const metrics: TileMetric[] = [
     { key: "roas", label: "ROAS", value: formatOptionalRoas(card.roas), tone: hasMetricValue(card.roas) ? "good" : undefined },
-    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend) },
+    { key: "spend", label: "Spend", value: formatOptionalCurrency(card.spend, card.currency) },
     {
       key: "purch",
       label: "Purch",

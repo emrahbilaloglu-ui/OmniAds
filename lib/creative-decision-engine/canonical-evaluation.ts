@@ -24,7 +24,7 @@ import type {
 } from "./types";
 
 export const CANONICAL_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-evaluation.v4" as const;
+  "engine-v3-canonical-evaluation.v5" as const;
 
 export type CanonicalJsonPrimitive = string | number | boolean | null;
 export type CanonicalJsonValue =
@@ -498,6 +498,13 @@ function normalizeAccountProfile(
       ),
     });
   }
+  const commercialStopLossCanonicalEligibility =
+    profile.commercialStopLossCanonicalHardActionEligibility;
+  const hasCommercialStopLossCanonicalEligibility =
+    commercialStopLossCanonicalEligibility !== undefined &&
+    commercialStopLossCanonicalEligibility !== null;
+  const expandedEconomicCutAuthority =
+    profile.expandedEconomicCutAuthority;
   return canonicalObject({
     businessId: profile.businessId,
     asOfDate: profile.asOfDate,
@@ -511,6 +518,30 @@ function normalizeAccountProfile(
     spendUnitEvidence: normalizeSpendUnitEvidence(profile.spendUnitEvidence),
     multipliers: profile.multipliers,
     thresholds: profile.thresholds,
+    commercialStopLossSpendUnit:
+      profile.commercialStopLossSpendUnit === undefined ||
+      profile.commercialStopLossSpendUnit === null
+        ? null
+        : normalizeSpendUnitProfile(profile.commercialStopLossSpendUnit),
+    commercialStopLossThresholds:
+      profile.commercialStopLossThresholds ?? null,
+    ...(hasCommercialStopLossCanonicalEligibility
+      ? {
+          commercialStopLossCanonicalHardActionEligibility:
+            normalizeHardActionEligibility(
+              commercialStopLossCanonicalEligibility,
+            ),
+        }
+      : {}),
+    ...(expandedEconomicCutAuthority === undefined
+      ? {}
+      : {
+          expandedEconomicCutAuthority: canonicalObject({
+            eligible: expandedEconomicCutAuthority.eligible,
+            authorityBasis: expandedEconomicCutAuthority.authorityBasis,
+            reason: expandedEconomicCutAuthority.reason,
+          }),
+        }),
     accountBaselines: normalizeAccountCalibration(profile.accountBaselines),
     funnelCalibration: normalizeFunnelCalibration(profile.funnelCalibration),
     accountBaselinesByKind: mapNullableRecord(

@@ -51,6 +51,13 @@ interface BuildDecisionOutputInput {
   labelTransform?: DecisionLabelTransform | null;
 }
 
+export interface DecisionAuthorityHold {
+  authorityBlocker: DecisionAuthorityBlocker;
+  blockedActionType: DecisionLabel;
+  label: DecisionLabel;
+  reasonPrefix: string;
+}
+
 const SCALE_READINESS_BLOCKED_BADGE: DecisionBadge = {
   type: "scale_readiness_blocked",
   label: "Scale readiness blocked",
@@ -73,6 +80,19 @@ function hasDecisionBadge(
   type: DecisionBadge["type"],
 ): boolean {
   return badges.some((badge) => badge.type === type);
+}
+
+export function formatAccountCurrencySpend(
+  spend: number,
+  accountCurrency: string | null | undefined,
+) {
+  const currency =
+    typeof accountCurrency === "string" &&
+    /^[A-Za-z]{3}$/.test(accountCurrency.trim())
+      ? accountCurrency.trim().toUpperCase()
+      : null;
+  const amount = spend.toFixed(0);
+  return currency ? `${currency} ${amount}` : `${amount} account-currency`;
 }
 
 function confidenceCapForBadges(
@@ -101,6 +121,23 @@ function isHardActionLabel(
   label: DecisionLabel,
 ): label is "scale" | "cut" | "refresh" {
   return label === "scale" || label === "cut" || label === "refresh";
+}
+
+function isEconomicallyEligibleForCutAdvisory(ctx: GateContext): boolean {
+  const breakEvenRoas = ctx.profile.spendUnitEvidence.breakEvenRoas;
+  if (
+    typeof breakEvenRoas !== "number" ||
+    !Number.isFinite(breakEvenRoas) ||
+    breakEvenRoas <= 0
+  ) {
+    return true;
+  }
+
+  return (
+    typeof ctx.input.roas === "number" &&
+    Number.isFinite(ctx.input.roas) &&
+    ctx.input.roas < breakEvenRoas
+  );
 }
 
 export function applyPostProcess(
@@ -180,6 +217,10 @@ export function applyPostProcess(
   }
 
   const ctrThreshold = ctx.profile.accountBaselines.lowCtrP10 ?? 1.0;
+  // Cut-candidate is advisory on rows that remain non-Cut, so it must stay on
+  // the canonical threshold. The account-AOV repair is allowed to affect only
+  // rows whose final action is an actual Cut.
+  const cutCandidateSpend = ctx.profile.thresholds.cutCandidateSpend;
   if (
     typeof ctx.input.ctr === "number" &&
     ctrThreshold > 0 &&
@@ -235,8 +276,9 @@ export function applyPostProcess(
     ctx.ratioToTarget != null &&
     ctx.ratioToTarget <
       Math.min(0.6, ctx.profile.thresholds.bottomQuartileRatio ?? 0.6) &&
-    ctx.profile.thresholds.cutCandidateSpend !== null &&
-    ctx.input.spend >= ctx.profile.thresholds.cutCandidateSpend &&
+    cutCandidateSpend !== null &&
+    ctx.input.spend >= cutCandidateSpend &&
+    isEconomicallyEligibleForCutAdvisory(ctx) &&
     (label === "test_more" || label === "keep") &&
     !hasDecisionBadge(badges, "cut_candidate")
   ) {
@@ -244,8 +286,9 @@ export function applyPostProcess(
       type: "cut_candidate",
       label: `Cut candidate — ROAS ${(ctx.ratioToTarget * 100).toFixed(
         0,
-      )}% of target on $${ctx.input.spend.toFixed(
-        0,
+      )}% of target on ${formatAccountCurrencySpend(
+        ctx.input.spend,
+        ctx.input.accountCurrency,
       )} spend; consider manual cut or wait for hard threshold`,
       severity: "warning",
     });
@@ -419,6 +462,7 @@ export function finalizeDecision(
   ctx: GateContext,
   label: DecisionLabel,
   reason: string,
+  authorityHold?: DecisionAuthorityHold,
 ): DecisionOutput {
   const transformed = applyTestCohortRefreshOverride({
     campaignKind: ctx.input.campaignKind,
@@ -435,8 +479,15 @@ export function finalizeDecision(
   const profileBlocksHardAuthority =
     isHardActionLabel(preAuthorityLabel) &&
     softOnly.label !== preAuthorityLabel;
-  const hardLabel = isHardActionLabel(softOnly.label)
-    ? softOnly.label
+  const requestedAuthorityHold =
+    authorityHold !== undefined &&
+    !profileBlocksHardAuthority &&
+    preAuthorityLabel === authorityHold.blockedActionType
+      ? authorityHold
+      : null;
+  const authorityLabel = requestedAuthorityHold?.label ?? softOnly.label;
+  const hardLabel = isHardActionLabel(authorityLabel)
+    ? authorityLabel
     : null;
   const freshnessUnknown =
     ctx.input.dataFreshnessHours === null ||
@@ -452,12 +503,14 @@ export function finalizeDecision(
   const finalLabel: DecisionLabel =
     freshnessBlocksHardAuthority && hardLabelNeedsFreshEvidence
       ? "keep"
-      : softOnly.label;
-  const finalReason = freshnessBlocksHardAuthority
-    ? hardLabelNeedsFreshEvidence
-      ? `[${hardLabel} verdict held - fresh data required] ${softOnly.reason}`
-      : `[stop-loss verdict visible - fresh data required before action] ${softOnly.reason}`
-    : softOnly.reason;
+      : authorityLabel;
+  const finalReason = requestedAuthorityHold
+    ? `${requestedAuthorityHold.reasonPrefix} ${softOnly.reason}`
+    : freshnessBlocksHardAuthority
+      ? hardLabelNeedsFreshEvidence
+        ? `[${hardLabel} verdict held - fresh data required] ${softOnly.reason}`
+        : `[stop-loss verdict visible - fresh data required before action] ${softOnly.reason}`
+      : softOnly.reason;
 
   let authorityBadges = [...softOnly.badges];
   if (freshnessBlocksHardAuthority) {
@@ -510,14 +563,12 @@ export function finalizeDecision(
     preAuthorityLabel,
     authorityBlocker: profileBlocksHardAuthority
       ? "profile_hard_action_ineligible"
-      : freshnessBlocksHardAuthority
-        ? "source_freshness"
-        : null,
+      : requestedAuthorityHold?.authorityBlocker ??
+        (freshnessBlocksHardAuthority ? "source_freshness" : null),
     blockedActionType: profileBlocksHardAuthority
       ? preAuthorityLabel
-      : freshnessBlocksHardAuthority
-        ? hardLabel
-        : null,
+      : requestedAuthorityHold?.blockedActionType ??
+        (freshnessBlocksHardAuthority ? hardLabel : null),
     labelTransform: transformed.labelTransform,
   });
 }

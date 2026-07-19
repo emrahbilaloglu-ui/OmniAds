@@ -410,6 +410,70 @@ describe("GET /api/creatives/briefing canonical native-ad authority", () => {
     );
   });
 
+  it("serves Cut and Main Scale together without turning monitor-only Scale into authority", async () => {
+    const mainScale = canonicalDecision({
+      adId: "ad_main_scale",
+      label: "scale",
+      buyerAction: "scale",
+      authorizedAction: null,
+      actionEligible: false,
+      decisionState: "monitor",
+      lifecycleRole: "main",
+      executionAction: "scale_budget",
+    });
+    mainScale.sourceAuthority!.reviewOnlyReason =
+      "served_decision_is_not_actionable";
+    mainScale.classification.heldAction = null;
+    mainScale.classification.resolution = null;
+    mainScale.classification.blockers = [];
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([
+        canonicalDecision({
+          adId: "ad_cut",
+          label: "cut",
+          buyerAction: "cut",
+          authorizedAction: "cut",
+          executionAction: null,
+        }),
+        mainScale,
+      ]),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/briefing?businessId=biz_1&asOf=2026-05-07",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.source.canonicalDecisionInventory).toMatchObject({
+      status: "available",
+      itemCount: 2,
+    });
+    expect(payload.actionNow).toEqual([
+      expect.objectContaining({
+        id: "ad_cut",
+        sourceDecisionAuthorizedAction: "cut",
+        sourceDecisionActionEligible: true,
+      }),
+    ]);
+    expect(payload.watching).toEqual([
+      expect.objectContaining({
+        id: "ad_main_scale",
+        campaignKind: "main",
+        sourceDecisionAuthorizedAction: null,
+        sourceDecisionActionEligible: false,
+        canonicalDecision: expect.objectContaining({
+          classification: expect.objectContaining({
+            decisionState: "monitor",
+            buyerAction: "scale",
+          }),
+        }),
+      }),
+    ]);
+  });
+
   it("keeps an exact Ad with missing creative identity review-only", async () => {
     vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
       generation([

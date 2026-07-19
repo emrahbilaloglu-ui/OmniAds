@@ -485,6 +485,42 @@ describe("Meta Decisions workspace canonical read model", () => {
     });
   });
 
+  it("keeps a native Main Scale visible as monitor-only briefing evidence", () => {
+    const model = nativeModel([
+      nativeSnapshot("120000000000000007", {
+        label: "scale",
+        raw_label: "scale",
+        authorized_action: "scale",
+        reason: "Exact Ad evidence is above the account target.",
+        ratio_to_target: 1.4,
+        roas: 2.8,
+        recent7d_roas: 2.6,
+      }),
+    ]);
+    const decision = model.queue.adCandidates?.items[0];
+
+    expect(decision?.classification).toMatchObject({
+      lifecycleRole: { value: "main" },
+      decisionState: "monitor",
+      buyerAction: "scale",
+      heldAction: null,
+    });
+    expect(decision?.sourceAuthority).toMatchObject({
+      actionEligible: false,
+      reviewOnlyReason: "served_decision_is_not_actionable",
+      authorizedAction: null,
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({ decision: decision! }),
+    ).toMatchObject({
+      lane: "watching",
+      card: {
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
+      },
+    });
+  });
+
   it("fails native action authority closed when current hierarchy state is unavailable", () => {
     const model = nativeModel([
       nativeSnapshot("120000000000000009", {
@@ -663,6 +699,45 @@ describe("Meta Decisions workspace canonical read model", () => {
       status: "unavailable",
       validationIssue: "input_hash_invalid",
     });
+    expect(
+      validate([{ ...row, blocked_action_type: "cut" }]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([{ ...row, authorized_action: null }]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([
+        {
+          ...row,
+          label: "keep",
+          authorized_action: null,
+          blocked_action_type: "cut",
+        },
+      ]),
+    ).toMatchObject({
+      status: "unavailable",
+      validationIssue: "snapshot_authority_invalid",
+    });
+    expect(
+      validate([
+        {
+          ...row,
+          label: "keep",
+          authorized_action: null,
+          blocked_action_type: "cut",
+          badges: [{ type: "pending_transition" }],
+        },
+      ]),
+    ).toMatchObject({
+      status: "available",
+      validationIssue: null,
+    });
     expect(validate([row], { manifestHash: "f".repeat(64) })).toMatchObject({
       status: "unavailable",
       validationIssue: "manifest_hash_mismatch",
@@ -671,7 +746,7 @@ describe("Meta Decisions workspace canonical read model", () => {
 
   it("fails the complete native inventory closed when one canonical projection is invalid", () => {
     const row = nativeSnapshot("120000000000000032", {
-      label: "not-a-decision-label",
+      truth_source: "not-a-truth-source",
     });
     const inventory = buildNativeMetaCanonicalDecisionInventory({
       businessId: "biz_1",

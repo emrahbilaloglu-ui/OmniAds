@@ -1841,6 +1841,7 @@ export type MetaNativeGenerationValidationIssue =
   | "snapshot_as_of_mismatch"
   | "decision_scope_mismatch"
   | "ad_identity_missing"
+  | "snapshot_authority_invalid"
   | "input_hash_invalid"
   | "decision_hash_invalid";
 
@@ -1866,6 +1867,56 @@ export interface ReadValidatedMetaNativeDecisionGenerationBundleInput {
   asOfDate?: string;
   currentAds?: readonly MetaCurrentAdStatusSourceRow[];
   currentAdSourceComplete?: boolean;
+}
+
+function nativeSnapshotHardAction(value: string | null) {
+  return value === "scale" || value === "cut" || value === "refresh"
+    ? value
+    : null;
+}
+
+function hasValidNativeSnapshotAuthority(
+  row: MetaNativeDecisionSnapshotSourceRow,
+) {
+  if (
+    !DECISION_LABELS.has(row.label as DecisionLabel) ||
+    !DECISION_LABELS.has(row.raw_label as DecisionLabel) ||
+    (row.authority_blocker !== null &&
+      !AUTHORITY_BLOCKERS.has(
+        row.authority_blocker as DecisionAuthorityBlocker,
+      ))
+  ) {
+    return false;
+  }
+  const authorizedAction = nativeSnapshotHardAction(row.authorized_action);
+  const blockedAction = nativeSnapshotHardAction(row.blocked_action_type);
+  if (
+    (row.authorized_action !== null && authorizedAction === null) ||
+    (row.blocked_action_type !== null && blockedAction === null) ||
+    (authorizedAction !== null && blockedAction !== null)
+  ) {
+    return false;
+  }
+  if (row.authority_blocker !== null) {
+    return (
+      authorizedAction === null &&
+      (nativeSnapshotHardAction(row.label) === null ||
+        row.label === row.raw_label)
+    );
+  }
+  const rawAction = nativeSnapshotHardAction(row.raw_label);
+  if (rawAction !== null) {
+    const authorized = row.label === rawAction && authorizedAction === rawAction;
+    const pending =
+      nativeSnapshotHardAction(row.label) === null &&
+      authorizedAction === null &&
+      blockedAction === rawAction &&
+      parseBadges(row.badges).codes.includes("pending_transition");
+    return authorized || pending;
+  }
+  return (
+    nativeSnapshotHardAction(row.label) === null && authorizedAction === null
+  );
 }
 
 export type MetaNativeCanonicalDecisionInventory =
@@ -1966,6 +2017,9 @@ export function validateMetaNativeDecisionGenerationBundle(input: {
       return fail("decision_scope_mismatch");
     }
     if (row.ad_id.trim() === "") return fail("ad_identity_missing");
+    if (!hasValidNativeSnapshotAuthority(row)) {
+      return fail("snapshot_authority_invalid");
+    }
     if (!isSha256(row.input_hash)) return fail("input_hash_invalid");
     if (!isSha256(row.decision_hash)) return fail("decision_hash_invalid");
   }
@@ -2154,6 +2208,7 @@ function applyNativeCanonicalDecisionAuthority(input: {
   const actionEligible =
     activeHierarchy &&
     hasExactCreativeIdentity &&
+    decision.classification.decisionState === "act" &&
     authorizedAction !== null &&
     decision.classification.buyerAction === authorizedAction;
   decision.sourceAuthority = {
@@ -2165,6 +2220,8 @@ function applyNativeCanonicalDecisionAuthority(input: {
       ? decision.deliveryScope.state === "inactive"
         ? "current_hierarchy_is_not_active"
         : "current_hierarchy_status_is_unknown"
+      : decision.classification.decisionState !== "act"
+        ? "served_decision_is_not_actionable"
       : authorizedAction !== null &&
           decision.classification.buyerAction === authorizedAction
         ? null
@@ -2176,8 +2233,7 @@ function applyNativeCanonicalDecisionAuthority(input: {
     providerAccountRefId: row.provider_account_ref_id,
     engineVersion: row.engine_version,
     realAdId: row.ad_id,
-    authorizedAction:
-      activeHierarchy && hasExactCreativeIdentity ? authorizedAction : null,
+    authorizedAction: actionEligible ? authorizedAction : null,
     jobRunId: row.job_run_id,
   };
   decision.sourceDecision.provenance = provenance({

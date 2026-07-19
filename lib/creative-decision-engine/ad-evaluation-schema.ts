@@ -35,7 +35,7 @@ END
 $$
 `;
 
-export const NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION = `(
+export const NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION = `((
   (
     calibration_row_id IS NULL AND
     label IN ('diagnose', 'out_of_scope', 'keep') AND
@@ -76,8 +76,11 @@ export const NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION = `(
         )
       )
     )
+  ) AND (
+    authorized_action IS NULL OR
+    blocked_action_type IS NULL
   )
-)`;
+) IS TRUE)`;
 
 export const CREATE_NATIVE_AD_EVALUATION_CONTEXTS_SQL = `
 CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_evaluation_contexts (
@@ -339,6 +342,9 @@ BEGIN
         AND conname = 'engine_v3_ad_snapshots_authority_check'
         AND LOWER(pg_get_constraintdef(oid, true)) LIKE '%authority_blocker%'
         AND LOWER(pg_get_constraintdef(oid, true)) LIKE '%pending_transition%'
+        AND LOWER(pg_get_constraintdef(oid, true))
+          LIKE '%authorized_action is null or blocked_action_type is null%'
+        AND LOWER(pg_get_constraintdef(oid, true)) LIKE '%is true%'
     ) THEN
     ALTER TABLE engine_v3_ad_decision_snapshots_daily
       DROP CONSTRAINT IF EXISTS engine_v3_ad_snapshots_authority_check;

@@ -2375,6 +2375,24 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     "pending hard action requires explicit hysteresis proof",
   );
 
+  const authorizedAndBlocked = await insertLineage(client, {
+    jobRunId: "00000000-0000-4000-8000-000000000937",
+    adId: "ad-authorized-and-blocked",
+    marker: "5",
+  });
+  const invalidAuthorizedAndBlocked = snapshotPayload({
+    jobRunId: "00000000-0000-4000-8000-000000000937",
+    adId: "ad-authorized-and-blocked",
+    label: "cut",
+    ...authorizedAndBlocked,
+  });
+  invalidAuthorizedAndBlocked.blocked_action_type = "cut";
+  await expectPostgresError(
+    () => upsertNativeAdDecisionSnapshots([invalidAuthorizedAndBlocked], db),
+    "23514",
+    "authorized native action cannot retain a blocked action",
+  );
+
   const blockedButAuthorized = await insertLineage(client, {
     jobRunId: "00000000-0000-4000-8000-000000000932",
     adId: "ad-invalid-blocked-authority",
@@ -2426,6 +2444,16 @@ async function verifyPruneRetryAndConstraints(client: Client, db: DbClient) {
     `ALTER TABLE engine_v3_ad_decision_snapshots_daily
      ADD CONSTRAINT engine_v3_ad_snapshots_authority_check
      CHECK ${LEGACY_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK}`,
+  );
+  await upsertNativeAdDecisionSnapshots([invalidAuthorizedAndBlocked], db);
+  await expectPostgresError(
+    () => client.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL),
+    "23514",
+    "legacy contradictory authority upgrade fails closed",
+  );
+  await client.query(
+    `DELETE FROM engine_v3_ad_decision_snapshots_daily
+     WHERE decision_entity_id = 'ad-authorized-and-blocked'`,
   );
   await client.query(ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL);
   const upgradedPending = await client.query<{
@@ -2526,7 +2554,7 @@ async function main() {
       resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, D063 held Cut authority, legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
+      "[native-ad-seam] PASS capture-axis receipt, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, D063 held Cut authority, three-valued legacy authority upgrade, FK, soft-only, and daily-fact owner fail-closed checks",
     );
   } finally {
     if (started) {

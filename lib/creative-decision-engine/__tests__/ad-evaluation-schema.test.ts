@@ -9,6 +9,7 @@ import {
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_DECISION_SCHEMA_SQL,
+  NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION,
   NATIVE_AD_DECISION_SCHEMA_SQL,
 } from "../ad-evaluation-schema";
 import {
@@ -115,5 +116,17 @@ describe("D047 native ad parallel schema SQL", () => {
     );
     expect(normalized).toContain("raw_label = label");
     expect(normalized).toContain("blocked_action_type IS NULL");
+    expect(
+      NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION.replace(/\s+/g, " "),
+    ).toContain(
+      "authorized_action IS NULL OR blocked_action_type IS NULL",
+    );
+    expect(
+      NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_EXPRESSION.replace(/\s+/g, " "),
+    ).toContain(") IS TRUE)");
+    expect(normalized).toContain(
+      "authorized_action is null or blocked_action_type is null",
+    );
+    expect(normalized).toContain("LIKE '%is true%'");
   });
 });

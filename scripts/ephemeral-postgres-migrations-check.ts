@@ -1961,6 +1961,16 @@ async function assertDecisionAuthorityProvenance(
       await client.query(
         `CREATE TEMP TABLE ${probe} (LIKE ${table} INCLUDING CONSTRAINTS) ON COMMIT DROP`,
       );
+      if (table === "engine_v3_ad_decision_snapshots_daily") {
+        // This probe isolates the two nullable provenance-domain checks. The
+        // native snapshot authority CHECK is exercised by its own real-row
+        // seam and now deliberately rejects an otherwise empty probe row
+        // instead of passing PostgreSQL UNKNOWN.
+        await client.query(
+          `ALTER TABLE ${probe}
+           DROP CONSTRAINT IF EXISTS engine_v3_ad_snapshots_authority_check`,
+        );
+      }
       const { rows: requiredColumns } = await client.query<{
         column_name: string;
       }>(

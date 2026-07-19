@@ -687,15 +687,53 @@ durable attempt receipts. Provider create/duplicate POSTs are not automatically
 retried without a provider-idempotent attempt contract; bounded retry remains
 allowed for GET verification only.
 
+Every live manual duplicate declares
+`meta-manual-ad-duplicate-attempt.v1` and persists exact preparation and start
+authority before its sole create POST. Duplicate-create rejection finality is
+narrow: only a structured, non-retryable 4xx Meta rejection whose
+`is_transient` value is the literal JSON boolean `false` is definite. A
+missing, null, or string transient flag is ambiguous. Network exceptions,
+408/425/429, 5xx, transient/retryable errors, and 2xx responses without an
+exact result identity remain ambiguous external action results and retain the
+unresolved claim. For an unverified successful 2xx, a nonblank top-level
+provider response id must equal the durable resulting Ad id; otherwise both
+cannot be persisted as one completion fact. The mutation receipt separately
+preserves the literal transport/HTTP fact: a successful received 2xx remains
+`provider_response_received`, while its missing identity produces
+`provider_response_succeeded_verification_failed`. The database enforces this
+layered geometry and does not permit either unresolved outcome to become a
+definite release. A pre-contract legacy `failure` without complete current
+journal and physical-account authority is also retry-blocking because its old
+provider finality cannot be reconstructed safely; a current journaled definite
+rejection remains retryable. Preparation/start/completion, reconciliation, and
+read-observation facts are append-only and exact-lineage bound.
+The migrated schema also rejects a pre-contract live manual duplicate insert
+before provider work, so an older application rollback disables this write
+surface instead of bypassing the journal. Only the current canonical
+non-mutating dry-run envelope is exempt; an older pre-contract dry-run may also
+fail closed. An UPDATE cannot create or reshape a contractless live manual
+duplicate envelope.
+
+Settled unresolved duplicates are recovered only by the natural scheduler's
+bounded provider-GET sweep. A known result id requires one exact point GET. A
+lost id requires a token-free cursor traversal whose append-only segments bind
+one scan cycle and cumulative exact-match set. Partial scans cannot authorize
+success. Only a complete cycle with exactly one cumulative marker/name/account/
+ad-set/creative/PAUSED match plus an exact point GET can reconcile success.
+Absence, multiple matches, incomplete reads, identity drift, or persistence
+uncertainty remain quarantined; no timeout or manual row update releases the
+claim.
+
 For native decision-origin status actions, a provider POST transport exception
 uses the pending `provider_outcome_ambiguous` reconciliation outcome above and
 creates no immutable operator-action receipt. Manual status actions retain
 terminal `silent_failure` action-log compatibility when a terminal fact can be
 persisted; a new journaled raw throw may instead remain pending with only its
 immutable start so settlement authority is not invented. Launchpad retains its
-separate terminal attempt-receipt behavior. A received provider HTTP rejection
-is a definite failure when terminal persistence succeeds. Multi-step execution
-stops after either mutation failure.
+separate terminal attempt-receipt behavior. For status mutations, a received
+provider HTTP rejection is a definite failure when terminal persistence
+succeeds; the narrower duplicate-create classification above is the explicit
+exception. Multi-step execution stops after either mutation failure.
 
 Every manual action-log completion is a pending-only compare-and-set. Repeating
 the same JSONB-normalized terminal fact is idempotent; a different terminal

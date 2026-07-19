@@ -2313,6 +2313,32 @@ async function markAdJobSkipped(
   );
 }
 
+export function persistedAdDecisionHydrationReceipt(
+  receipt: AdDecisionHydrationReceipt,
+) {
+  return {
+    contract_version: receipt.contractVersion,
+    provider_account_ref_id: receipt.providerAccountRefId,
+    provider_account_id: receipt.providerAccountId,
+    decision_cutoff: receipt.decisionCutoff,
+    source_run_id: receipt.sourceRunId,
+    source_observed_at: receipt.sourceObservedAt,
+    source_captured_at: receipt.sourceCapturedAt,
+    source_run_hash: receipt.sourceRunHash,
+    source_payload_hash: receipt.sourcePayloadHash,
+    source_expected_row_count: receipt.sourceExpectedRowCount,
+    source_persisted_row_count: receipt.sourcePersistedRowCount,
+    expected_ad_count: receipt.expectedAdCount,
+    expected_manifest_hash: receipt.expectedManifestHash,
+    hydrated_ad_count: receipt.hydratedAdCount,
+    hydrated_manifest_hash: receipt.hydratedManifestHash,
+    source_complete: receipt.sourceComplete,
+    hydration_complete: receipt.hydrationComplete,
+    authoritative_for_prune: receipt.authoritativeForPrune,
+    reason: receipt.reason,
+  };
+}
+
 async function markAdJobSuccess(
   input: {
     jobRunId: string;
@@ -2347,19 +2373,9 @@ async function markAdJobSuccess(
             input.pruneResult.authoritativeReceiptCount,
           prune_skipped_unproven_receipt_count:
             input.pruneResult.skippedUnprovenReceiptCount,
-          hydration_receipts: input.hydrationReceipts.map((receipt) => ({
-            contract_version: receipt.contractVersion,
-            provider_account_ref_id: receipt.providerAccountRefId,
-            provider_account_id: receipt.providerAccountId,
-            source_run_id: receipt.sourceRunId,
-            source_run_hash: receipt.sourceRunHash,
-            expected_ad_count: receipt.expectedAdCount,
-            expected_manifest_hash: receipt.expectedManifestHash,
-            hydrated_ad_count: receipt.hydratedAdCount,
-            hydrated_manifest_hash: receipt.hydratedManifestHash,
-            authoritative_for_prune: receipt.authoritativeForPrune,
-            reason: receipt.reason,
-          })),
+          hydration_receipts: input.hydrationReceipts.map(
+            persistedAdDecisionHydrationReceipt,
+          ),
           ...(input.pruneResult.skippedBecauseEmptyPayload
             ? { prune_skipped_empty_payload: true }
             : {}),

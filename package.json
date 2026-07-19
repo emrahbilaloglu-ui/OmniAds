@@ -21,6 +21,7 @@
     "creative:decision:native-ad-frozen-acceptance": "vitest run lib/creative-decision-engine/__tests__/jobs/native-ad-frozen-exact-replay.test.ts",
     "creative:decision:native-ad-account-aov-replay": "node --env-file-if-exists=.env.local --import tsx scripts/creative-decision-center/native-ad-account-aov-authority-replay.ts",
     "creative:decision:native-ad-account-aov-closed-window": "node --env-file-if-exists=.env.local --import tsx scripts/creative-decision-center/native-ad-account-aov-closed-window-replay.ts",
+    "creative:decision:native-ad-natural-wave-verify": "node --env-file-if-exists=.env.local --import tsx scripts/creative-decision-center/native-ad-natural-wave-operational-verifier.ts",
     "creative:decision:demo-fixture": "node --import tsx scripts/creative-decision-center/generate-demo-native-canonical-fixture.ts",
     "creative:decision:demo-fixture:check": "vitest run scripts/creative-decision-center/generate-demo-native-canonical-fixture.test.ts lib/meta/demo-native-canonical-fixture.test.ts",
     "creative:decision:exact-pit-replay": "node --env-file-if-exists=.env.local --import tsx scripts/creative-decision-center/exact-pit-confirmatory-replay.ts",

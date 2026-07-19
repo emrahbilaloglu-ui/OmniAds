@@ -19,6 +19,11 @@ import {
   type DecisionOriginSourceDecisionEvidence,
 } from "@/lib/creative-decision-engine/execution-safety";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import {
+  META_AD_DUPLICATE_ATTEMPT_CONTRACT_VERSION,
+  prepareMetaAdDuplicateAttempt,
+  type MetaAdDuplicateTarget,
+} from "@/lib/meta/duplicate-ad-reconciliation-store";
 
 export type MetaAdsActionKind =
   | "pause"
@@ -595,6 +600,13 @@ function mapActionLogRow(row: MetaAdsActionLogDbRow): MetaAdsActionLogRow {
         request: decisionOrigin,
         expectedLineage,
         verifiedAt,
+        providerCompletedAt:
+          row.verification_payload?.contractVersion ===
+          MANUAL_META_AD_STATUS_WRITE_VERIFICATION_CONTRACT_VERSION
+            ? nullableText(
+                row.verification_payload.providerCompletedAt,
+              )
+            : null,
         verificationPayload: row.verification_payload,
       })
     : null;
@@ -1300,6 +1312,11 @@ export async function hasRecentPendingMetaAdsAction(input: {
     WHERE business_id = ${input.businessId}
       AND ad_id = ${input.adId}
       AND status = 'pending'
+      AND NOT (
+        COALESCE(dry_run, FALSE)
+        OR COALESCE(payload_request->>'dry_run', 'false') = 'true'
+        OR COALESCE(payload_request->'body'->>'dry_run', 'false') = 'true'
+      )
       AND requested_at > NOW() - (${input.sinceSeconds ?? 30}::int * interval '1 second')
     LIMIT 1
   `) as Array<{ id: string }>;
@@ -1352,6 +1369,7 @@ export async function hasRecentPendingMetaAddToExistingAction(input: {
 
 export async function findRecentDuplicateActionResult(input: {
   businessId: string;
+  providerAccountId: string;
   adId: string;
   targetAdsetId: string;
   sinceMinutes?: number;
@@ -1361,25 +1379,204 @@ export async function findRecentDuplicateActionResult(input: {
     SELECT *
     FROM meta_ads_action_log
     WHERE business_id = ${input.businessId}
+      AND (
+        provider_account_id = ${input.providerAccountId}
+        OR provider_account_id IS NULL
+      )
       AND ad_id = ${input.adId}
       AND action = 'duplicate'
-      AND status IN ('success', 'silent_failure')
-      AND resulting_ad_id IS NOT NULL
+      AND (
+        status IN ('pending', 'success', 'silent_failure')
+        OR (
+          status = 'failure'
+          AND NOT COALESCE(
+            provider_account_ref_id IS NOT NULL
+            AND NULLIF(btrim(provider_account_id), '') IS NOT NULL
+            AND payload_request->>'duplicate_attempt_contract_version' =
+              ${META_AD_DUPLICATE_ATTEMPT_CONTRACT_VERSION}
+            AND payload_request->'duplicate_attempt_required'
+              IS NOT DISTINCT FROM 'true'::jsonb,
+            FALSE
+          )
+        )
+      )
+      AND NOT (
+        COALESCE(dry_run, FALSE)
+        OR COALESCE(payload_request->>'dry_run', 'false') = 'true'
+        OR COALESCE(payload_request->'body'->>'dry_run', 'false') = 'true'
+      )
       AND COALESCE(
         payload_request->'body'->>'target_adset_id',
         payload_request->>'target_adset_id'
       ) = ${input.targetAdsetId}
-      AND requested_at > NOW() - (${input.sinceMinutes ?? 10}::int * interval '1 minute')
+      AND (
+        (
+          status = 'success'
+          AND requested_at > NOW() - (${input.sinceMinutes ?? 10}::int * interval '1 minute')
+        )
+        OR status = 'pending'
+        OR status = 'silent_failure'
+        OR status = 'failure'
+      )
     ORDER BY requested_at DESC
     LIMIT 1
   `) as MetaAdsActionLogDbRow[];
   return rows[0] ? mapActionLogRow(rows[0]) : null;
 }
 
+export interface MetaAdDuplicateActionClaimInput {
+  businessId: string;
+  providerAccountId: string;
+  adId: string;
+  creativeId: string | null;
+  targetAdsetId: string;
+  dryRun: boolean;
+  requestedBy: string | null;
+  payloadRequest: Record<string, unknown>;
+  recIdOrigin: string | null;
+  marker: string;
+  canonicalAdName: string;
+  sinceMinutes?: number;
+}
+
+export type MetaAdDuplicateActionClaimResult =
+  | {
+      claimed: true;
+      log: MetaAdsActionLogRow;
+    }
+  | {
+      claimed: false;
+      existing: MetaAdsActionLogRow;
+    };
+
+function metaAdDuplicateActionClaimKey(
+  input: Pick<
+    MetaAdDuplicateActionClaimInput,
+    "businessId" | "providerAccountId" | "adId" | "targetAdsetId"
+  >,
+) {
+  return JSON.stringify([
+    "duplicate",
+    input.businessId,
+    input.providerAccountId,
+    input.adId,
+    input.targetAdsetId,
+  ]);
+}
+
+/**
+ * Serializes the exact duplicate tuple, rechecks every durable unresolved
+ * outcome, and inserts the pending row before releasing the transaction lock.
+ * The provider call intentionally remains outside this DB transaction.
+ */
+export async function claimMetaAdDuplicateAction(
+  input: MetaAdDuplicateActionClaimInput,
+): Promise<MetaAdDuplicateActionClaimResult> {
+  const identity = [
+    input.businessId,
+    input.providerAccountId,
+    input.adId,
+    input.targetAdsetId,
+  ];
+  if (identity.some((value) => value.trim() === "")) {
+    throw new TypeError(
+      "Meta Ad duplicate claims require exact business, provider-account, source-Ad, and target-ad-set identity.",
+    );
+  }
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    await sql.query(LOCK_META_AD_STATUS_ACTION_CLAIM_QUERY, [
+      metaAdDuplicateActionClaimKey(input),
+    ]);
+    const existing = input.dryRun
+      ? null
+      : await findRecentDuplicateActionResult({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          adId: input.adId,
+          targetAdsetId: input.targetAdsetId,
+          sinceMinutes: input.sinceMinutes,
+        });
+    if (existing) return { claimed: false, existing };
+    let providerAccountRefId: string | null = null;
+    let durablePayload = input.payloadRequest;
+    let duplicateTarget: MetaAdDuplicateTarget | null = null;
+    if (!input.dryRun) {
+      if (!input.creativeId?.trim()) {
+        throw new TypeError(
+          "Live Meta Ad duplicate claims require exact creative identity.",
+        );
+      }
+      const bindingRows = await sql.query<{
+        provider_account_ref_id: string;
+        binding_count: number;
+      }>(
+        `SELECT
+           max(provider_account_ref_id::text) AS provider_account_ref_id,
+           count(*)::integer AS binding_count
+         FROM business_provider_accounts
+         WHERE business_id = $1
+           AND provider = 'meta'
+           AND provider_account_id = $2`,
+        [input.businessId, input.providerAccountId],
+      );
+      if (
+        bindingRows[0]?.binding_count !== 1 ||
+        !bindingRows[0].provider_account_ref_id
+      ) {
+        throw new Error(
+          "Live Meta Ad duplicate claim has no single physical account binding.",
+        );
+      }
+      providerAccountRefId = bindingRows[0].provider_account_ref_id;
+      duplicateTarget = {
+        businessId: input.businessId,
+        providerAccountRefId,
+        providerAccountId: input.providerAccountId,
+        sourceAdId: input.adId,
+        sourceCreativeId: input.creativeId,
+        targetAdsetId: input.targetAdsetId,
+        marker: input.marker,
+        canonicalAdName: input.canonicalAdName,
+        requestedStatus: "PAUSED",
+      };
+      durablePayload = {
+        ...input.payloadRequest,
+        duplicate_attempt_contract_version:
+          META_AD_DUPLICATE_ATTEMPT_CONTRACT_VERSION,
+        duplicate_attempt_required: true,
+        duplicate_marker: input.marker,
+        duplicate_canonical_name: input.canonicalAdName,
+        duplicate_target: duplicateTarget,
+      };
+    }
+    const log = await insertMetaAdsActionLog({
+      businessId: input.businessId,
+      providerAccountRefId,
+      providerAccountId: input.providerAccountId,
+      adId: input.adId,
+      creativeId: input.creativeId,
+      action: "duplicate",
+      source: "manual_operator_v1",
+      requestedBy: input.requestedBy,
+      payloadRequest: durablePayload,
+      recIdOrigin: input.recIdOrigin,
+    });
+    if (duplicateTarget) {
+      await prepareMetaAdDuplicateAttempt({
+        sourceActionLogId: log.id,
+        target: duplicateTarget,
+      });
+    }
+    return { claimed: true, log };
+  });
+}
+
 interface CreateMetaAdsActionLogInput {
   businessId: string;
   adId: string;
   creativeId?: string | null;
+  providerAccountRefId?: string | null;
   providerAccountId?: string | null;
   action: MetaAdsActionKind;
   source?: string;
@@ -1396,6 +1593,7 @@ async function insertMetaAdsActionLog(
   const rows = (await sql`
     INSERT INTO meta_ads_action_log (
       business_id,
+      provider_account_ref_id,
       provider_account_id,
       ad_id,
       creative_id,
@@ -1409,6 +1607,7 @@ async function insertMetaAdsActionLog(
       status
     ) VALUES (
       ${input.businessId},
+      ${input.providerAccountRefId ?? null},
       ${input.providerAccountId ?? null},
       ${input.adId},
       ${input.creativeId ?? null},
@@ -4614,6 +4813,46 @@ function normalizedVerificationProviderAccountId(value: unknown) {
   return `act_${normalized.replace(/^act[_-]/, "")}`;
 }
 
+function receiptVerificationLineage(
+  payload: Record<string, unknown> | null,
+) {
+  if (
+    payload?.contractVersion ===
+    MANUAL_META_AD_STATUS_WRITE_VERIFICATION_CONTRACT_VERSION
+  ) {
+    const providerGet = jsonRecordField(payload, "providerGetEvidence");
+    return {
+      providerAccountId: providerGet?.account_id,
+      creativeId: nestedVerificationId(providerGet, "creative"),
+      campaignId: nestedVerificationId(providerGet, "campaign"),
+      adsetId: nestedVerificationId(providerGet, "adset"),
+    };
+  }
+  return {
+    providerAccountId: payload?.account_id,
+    creativeId: nestedVerificationId(payload, "creative"),
+    campaignId: nestedVerificationId(payload, "campaign"),
+    adsetId: nestedVerificationId(payload, "adset"),
+  };
+}
+
+function withPersistedProviderCompletedAt(
+  payload: Record<string, unknown> | null | undefined,
+  providerCompletedAt: string | null | undefined,
+) {
+  return payload?.contractVersion ===
+    MANUAL_META_AD_STATUS_WRITE_VERIFICATION_CONTRACT_VERSION &&
+    providerCompletedAt
+    ? {
+        ...payload,
+        providerCompletedAt: canonicalIsoTimestamp(
+          providerCompletedAt,
+          "provider_completed_at",
+        ),
+      }
+    : payload;
+}
+
 function canonicalDateOnly(value: unknown, field: string) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   const normalized = requiredText(value, field);
@@ -4711,6 +4950,9 @@ function deriveExactReceiptFromDbAuthority(input: {
       "Immutable receipt capture time does not match atomic finalization.",
     );
   }
+  const verifiedLineage = receiptVerificationLineage(
+    row.verification_payload,
+  );
   const actionWithoutHash: Omit<ExactMetaAdsActionLineage, "receiptHash"> = {
     receiptId: requiredText(input.receiptId, "receipt_id"),
     actionLogId: requiredText(row.id, "action_log_id"),
@@ -4744,24 +4986,15 @@ function deriveExactReceiptFromDbAuthority(input: {
       sourceAdsetId: episode.sourceAdsetId,
       verifiedProviderAccountId:
         normalizedVerificationProviderAccountId(
-          row.verification_payload?.account_id,
+          verifiedLineage.providerAccountId,
         ) === normalizedVerificationProviderAccountId(episode.providerAccountId)
           ? episode.providerAccountId
           : normalizedVerificationProviderAccountId(
-              row.verification_payload?.account_id,
+              verifiedLineage.providerAccountId,
             ),
-      verifiedCreativeId: nestedVerificationId(
-        row.verification_payload,
-        "creative",
-      ),
-      verifiedCampaignId: nestedVerificationId(
-        row.verification_payload,
-        "campaign",
-      ),
-      verifiedAdsetId: nestedVerificationId(
-        row.verification_payload,
-        "adset",
-      ),
+      verifiedCreativeId: verifiedLineage.creativeId,
+      verifiedCampaignId: verifiedLineage.campaignId,
+      verifiedAdsetId: verifiedLineage.adsetId,
     },
   };
   const action: ExactMetaAdsActionLineage = {
@@ -4978,6 +5211,7 @@ export async function completeDecisionOriginMetaAdsActionLog(input: {
   errorCode?: string | null;
   errorMessage?: string | null;
   durationMs?: number | null;
+  providerCompletedAt?: string | null;
   verificationPayload?: Record<string, unknown> | null;
 }): Promise<MetaAdsActionLogRow> {
   if (input.status === "pending") {
@@ -5018,11 +5252,16 @@ export async function completeDecisionOriginMetaAdsActionLog(input: {
         "Locked decision-origin creative identity does not match its episode.",
       );
     }
+    const persistedVerificationPayload = withPersistedProviderCompletedAt(
+      input.verificationPayload,
+      input.providerCompletedAt,
+    );
     const verification = validateDecisionOriginProviderVerification({
       request,
       expectedLineage,
       verifiedAt: dbNow,
-      verificationPayload: input.verificationPayload,
+      providerCompletedAt: input.providerCompletedAt,
+      verificationPayload: persistedVerificationPayload,
     });
     const verificationMismatch =
       input.status === "success" &&
@@ -5052,7 +5291,7 @@ export async function completeDecisionOriginMetaAdsActionLog(input: {
         input.durationMs ?? null,
         verification.providerVerified,
         dbNow,
-        JSON.stringify(input.verificationPayload ?? null),
+        JSON.stringify(persistedVerificationPayload ?? null),
         verification.verificationAdId,
         verification.verificationStatus,
       ],
@@ -5086,6 +5325,7 @@ export async function markDecisionOriginActionReconciliationRequired(input: {
   providerResponsePayload?: Record<string, unknown> | null;
   durationMs?: number | null;
   verificationPayload?: Record<string, unknown> | null;
+  providerCompletedAt?: string | null;
   observedAt?: string;
 }): Promise<MetaAdsActionLogRow | null> {
   const observedAt = input.observedAt ?? new Date().toISOString();
@@ -5100,6 +5340,10 @@ export async function markDecisionOriginActionReconciliationRequired(input: {
   const providerMutationSucceeded =
     outcome === "provider_response_succeeded_verification_failed" ||
     outcome === "provider_write_verified_receipt_persistence_failed";
+  const persistedVerificationPayload = withPersistedProviderCompletedAt(
+    input.verificationPayload,
+    input.providerCompletedAt,
+  );
   const reconciliationMarker = {
     reconciliation_required: true,
     retry_allowed: false,
@@ -5111,7 +5355,7 @@ export async function markDecisionOriginActionReconciliationRequired(input: {
     provider_error_code: input.providerErrorCode ?? null,
     mutation_attempt: input.mutationAttempt ?? null,
     provider_response_payload: input.providerResponsePayload ?? null,
-    verification_payload_captured: Boolean(input.verificationPayload),
+    verification_payload_captured: Boolean(persistedVerificationPayload),
     observed_at: observedAt,
   };
   const sql = getDb();
@@ -5122,8 +5366,8 @@ export async function markDecisionOriginActionReconciliationRequired(input: {
       JSON.stringify(reconciliationMarker),
       input.errorMessage,
       input.durationMs ?? null,
-      input.verificationPayload
-        ? JSON.stringify(input.verificationPayload)
+      persistedVerificationPayload
+        ? JSON.stringify(persistedVerificationPayload)
         : null,
       observedAt,
     ],

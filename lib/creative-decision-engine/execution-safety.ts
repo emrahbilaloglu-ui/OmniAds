@@ -779,14 +779,31 @@ export function validateDecisionOriginProviderVerification(input: {
   request: DecisionOriginAdExecutionRequest;
   expectedLineage: DecisionOriginProviderVerificationLineage;
   verifiedAt: string | null | undefined;
+  providerCompletedAt?: string | null | undefined;
   verificationPayload: Record<string, unknown> | null | undefined;
 }): DecisionOriginProviderVerificationResult {
   const blockers: DecisionOriginAdExecutionBlocker[] = [];
   const expectedStatus = expectedProviderStatusForDecisionOriginAction(
     input.request.action,
   );
+  const hasDeclaredVerificationContract =
+    input.verificationPayload !== null &&
+    input.verificationPayload !== undefined &&
+    Object.prototype.hasOwnProperty.call(
+      input.verificationPayload,
+      "contractVersion",
+    );
+  const usesExactStatusEnvelope =
+    input.verificationPayload?.contractVersion ===
+    "meta-ad-status-write-verification.v1";
+  const envelopeString = (key: string) => {
+    const value = input.verificationPayload?.[key];
+    return typeof value === "string" ? value.trim() || null : null;
+  };
   const verificationAdId =
-    typeof input.verificationPayload?.id === "string"
+    usesExactStatusEnvelope
+      ? envelopeString("adId")
+      : typeof input.verificationPayload?.id === "string"
       ? input.verificationPayload.id.trim() || null
       : null;
   const normalizedProviderAccountId = (value: unknown) => {
@@ -803,15 +820,42 @@ export function validateDecisionOriginProviderVerification(input: {
       ? ((value as Record<string, unknown>).id as string).trim() || null
       : null;
   };
+  const nestedRecord = (
+    value: Record<string, unknown> | null,
+    key: "creative" | "campaign" | "adset",
+  ) => {
+    const nested = value?.[key];
+    return nested &&
+      typeof nested === "object" &&
+      !Array.isArray(nested)
+      ? (nested as Record<string, unknown>)
+      : null;
+  };
+  const recordString = (
+    value: Record<string, unknown> | null,
+    key: string,
+  ) => {
+    const field = value?.[key];
+    return typeof field === "string" ? field.trim() || null : null;
+  };
   const verificationProviderAccountId = normalizedProviderAccountId(
-    input.verificationPayload?.account_id,
+    usesExactStatusEnvelope
+      ? envelopeString("providerAccountId")
+      : input.verificationPayload?.account_id,
   );
-  const verificationCreativeId = nestedId("creative");
-  const verificationCampaignId = nestedId("campaign");
-  const verificationAdsetId = nestedId("adset");
-  const rawStatus =
-    input.verificationPayload?.status ??
-    input.verificationPayload?.effective_status;
+  const verificationCreativeId = usesExactStatusEnvelope
+    ? envelopeString("creativeId")
+    : nestedId("creative");
+  const verificationCampaignId = usesExactStatusEnvelope
+    ? envelopeString("campaignId")
+    : nestedId("campaign");
+  const verificationAdsetId = usesExactStatusEnvelope
+    ? envelopeString("adsetId")
+    : nestedId("adset");
+  const rawStatus = usesExactStatusEnvelope
+    ? input.verificationPayload?.configuredStatus
+    : input.verificationPayload?.status ??
+      input.verificationPayload?.effective_status;
   const verificationStatus =
     typeof rawStatus === "string" ? rawStatus.trim().toUpperCase() || null : null;
   const verifiedTime = input.verifiedAt ? new Date(input.verifiedAt) : null;
@@ -844,6 +888,77 @@ export function validateDecisionOriginProviderVerification(input: {
   }
   if (expectedStatus === null || verificationStatus !== expectedStatus) {
     blockers.push("verification_action_mismatch");
+  }
+  if (hasDeclaredVerificationContract && !usesExactStatusEnvelope) {
+    blockers.push("verification_action_mismatch");
+  }
+  if (usesExactStatusEnvelope) {
+    const exactStatus = (key: string, expected: string) =>
+      envelopeString(key)?.toUpperCase() === expected;
+    const providerGet =
+      input.verificationPayload?.providerGetEvidence &&
+      typeof input.verificationPayload.providerGetEvidence === "object" &&
+      !Array.isArray(input.verificationPayload.providerGetEvidence)
+        ? (input.verificationPayload
+            .providerGetEvidence as Record<string, unknown>)
+        : null;
+    const providerGetCreative = nestedRecord(providerGet, "creative");
+    const providerGetCampaign = nestedRecord(providerGet, "campaign");
+    const providerGetAdset = nestedRecord(providerGet, "adset");
+    const observedAt = envelopeString("observedAt");
+    const observedAtMs = observedAt ? Date.parse(observedAt) : Number.NaN;
+    const verifiedAtMs = input.verifiedAt
+      ? Date.parse(input.verifiedAt)
+      : Number.NaN;
+    const providerCompletedAtMs = input.providerCompletedAt
+      ? Date.parse(input.providerCompletedAt)
+      : Number.NaN;
+    if (
+      !exactStatus("configuredStatus", expectedStatus ?? "") ||
+      !exactStatus("effectiveStatus", expectedStatus ?? "") ||
+      !exactStatus("campaignConfiguredStatus", "ACTIVE") ||
+      !exactStatus("campaignEffectiveStatus", "ACTIVE") ||
+      !exactStatus("adsetConfiguredStatus", "ACTIVE") ||
+      !exactStatus("adsetEffectiveStatus", "ACTIVE") ||
+      input.verificationPayload?.policyEligible !== true ||
+      !Object.prototype.hasOwnProperty.call(
+        input.verificationPayload,
+        "reviewStatus",
+      ) ||
+      input.verificationPayload.reviewStatus !== null ||
+      !Number.isFinite(observedAtMs) ||
+      !Number.isFinite(verifiedAtMs) ||
+      observedAtMs > verifiedAtMs ||
+      (input.request.dryRun !== true &&
+        (!Number.isFinite(providerCompletedAtMs) ||
+          observedAtMs < providerCompletedAtMs)) ||
+      providerGet === null ||
+      recordString(providerGet, "id") !== trimmed(input.request.adId) ||
+      normalizedProviderAccountId(recordString(providerGet, "account_id")) !==
+        normalizedProviderAccountId(input.request.providerAccountId) ||
+      recordString(providerGet, "status")?.toUpperCase() !== expectedStatus ||
+      recordString(providerGet, "effective_status")?.toUpperCase() !==
+        expectedStatus ||
+      recordString(providerGetCreative, "id") !==
+        trimmed(input.expectedLineage.creativeId) ||
+      recordString(providerGetCampaign, "id") !==
+        trimmed(input.expectedLineage.campaignId) ||
+      recordString(providerGetCampaign, "status")?.toUpperCase() !==
+        "ACTIVE" ||
+      recordString(
+        providerGetCampaign,
+        "effective_status",
+      )?.toUpperCase() !== "ACTIVE" ||
+      recordString(providerGetAdset, "id") !==
+        trimmed(input.expectedLineage.adsetId) ||
+      recordString(providerGetAdset, "status")?.toUpperCase() !== "ACTIVE" ||
+      recordString(
+        providerGetAdset,
+        "effective_status",
+      )?.toUpperCase() !== "ACTIVE"
+    ) {
+      blockers.push("verification_action_mismatch");
+    }
   }
 
   const providerVerified =

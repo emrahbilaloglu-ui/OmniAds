@@ -3290,6 +3290,7 @@ export async function POST(request: NextRequest) {
             ? manualMutationCompletion.providerResponse
             : ensureRecord(result.responsePayload),
         durationMs: Date.now() - startedAt,
+        providerCompletedAt: result.mutationAttempt?.completedAt ?? null,
         verificationPayload:
           manualMutationCompletion
             ? manualMutationCompletion.verification
@@ -3333,6 +3334,9 @@ export async function POST(request: NextRequest) {
             providerResponsePayload: ensureRecord(result.responsePayload),
             durationMs: Date.now() - startedAt,
             verificationPayload: ensureRecord(result.verificationPayload),
+            providerCompletedAt:
+              result.mutationAttempt?.completedAt ?? null,
+            mutationAttempt: result.mutationAttempt ?? null,
           }).catch(() => null);
           const reconciliationMetadata = {
             reconciliationOutcome: outcome,

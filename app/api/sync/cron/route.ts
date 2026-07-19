@@ -23,6 +23,7 @@ import {
 import { evaluateAndPersistSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { executeAutoSyncRepairPlan } from "@/lib/sync/repair-executor";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
+import { runMetaAdDuplicateReconciliationSweep } from "@/lib/meta/duplicate-ad-reconciliation";
 
 /**
  * POST /api/sync/cron
@@ -185,9 +186,34 @@ export async function POST(request: NextRequest) {
     console.error("[sync-cron] fetch_businesses_failed", err);
     return [] as Awaited<ReturnType<typeof getActiveBusinesses>>;
   });
+  // Begin the bounded GET-only sweep without delaying unrelated scheduler
+  // jobs. Capture rejection immediately, then await settlement before every
+  // response so no background work escapes the request lifecycle.
+  const duplicateAdReconciliationPromise =
+    runMetaAdDuplicateReconciliationSweep({ limit: 3 }).catch(
+      (error) => {
+        console.error(
+          "[sync-cron] duplicate_ad_reconciliation_failed",
+          error,
+        );
+        return {
+          scanned: 0,
+          reconciled: 0,
+          results: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      },
+    );
 
   if (businesses.length === 0) {
-    return NextResponse.json({ ok: true, synced: 0, message: "No active businesses." });
+    const duplicateAdReconciliation =
+      await duplicateAdReconciliationPromise;
+    return NextResponse.json({
+      ok: true,
+      synced: 0,
+      message: "No active businesses.",
+      duplicateAdReconciliation,
+    });
   }
 
   const results = await Promise.allSettled(
@@ -351,6 +377,7 @@ export async function POST(request: NextRequest) {
       }
     } catch (error) {
       console.error("[sync-cron] soak_gate_error", error);
+      await duplicateAdReconciliationPromise;
       return NextResponse.json(
         {
           ok: false,
@@ -440,6 +467,8 @@ export async function POST(request: NextRequest) {
     googleRepairPlan = googleAutoRepair.repairPlan;
   }
 
+  const duplicateAdReconciliation =
+    await duplicateAdReconciliationPromise;
   logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
@@ -471,6 +500,9 @@ export async function POST(request: NextRequest) {
     nativeAdOutcomesJobSkipped: nativeAdOutcomesJob.skipped,
     nativeAdOutcomesJobReason:
       "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
+    duplicateAdReconciliationScanned: duplicateAdReconciliation.scanned,
+    duplicateAdReconciliationReconciled:
+      duplicateAdReconciliation.reconciled,
   });
   return NextResponse.json(
     {
@@ -491,6 +523,7 @@ export async function POST(request: NextRequest) {
       nativeAdShadowJob,
       decisionOutcomesJob,
       nativeAdOutcomesJob,
+      duplicateAdReconciliation,
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

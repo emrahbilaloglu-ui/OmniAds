@@ -29,6 +29,7 @@ import {
   CONTROLLED_REGISTRY_SCHEMA_SQL,
   inspectControlledRegistryCapabilities,
 } from "@/lib/meta/controlled-experiment-registry";
+import { META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL } from "@/lib/meta/duplicate-ad-reconciliation-store";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let migrationsPromise: Promise<void> | null = null;
@@ -11955,6 +11956,7 @@ export async function runMigrations(options?: {
         options?.verifyNativeSchemaCapabilities ?? true,
       );
       await sql.query(META_AD_STATUS_RECONCILIATION_SCHEMA_SQL);
+      await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([

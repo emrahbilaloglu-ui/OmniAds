@@ -19,6 +19,7 @@ import {
   buildNativeAdDataHealth,
   computeNativeAdDecisions,
   computeSoftOnlyNativeAdDecisions,
+  persistedAdDecisionHydrationReceipt,
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
   resolveNativeAdDecisionProfileGroups,
@@ -1535,6 +1536,32 @@ function fakeDb(rows: Record<string, unknown>[]): DbClient {
 }
 
 describe("native ad producer persistence contract", () => {
+  it("persists the full hydration authority receipt needed for independent replay", () => {
+    const receipt = hydrationReceipt({ adIds: ["ad-b", "ad-a"] });
+
+    expect(persistedAdDecisionHydrationReceipt(receipt)).toEqual({
+      contract_version: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+      provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+      provider_account_id: "act-1",
+      decision_cutoff: `${AS_OF}T03:10:00.000Z`,
+      source_run_id: "00000000-0000-4000-8000-000000000749",
+      source_observed_at: `${AS_OF}T02:00:00.000Z`,
+      source_captured_at: `${AS_OF}T02:01:00.000Z`,
+      source_run_hash: "a".repeat(64),
+      source_payload_hash: "b".repeat(64),
+      source_expected_row_count: 2,
+      source_persisted_row_count: 2,
+      expected_ad_count: 2,
+      expected_manifest_hash: receipt.expectedManifestHash,
+      hydrated_ad_count: 2,
+      hydrated_manifest_hash: receipt.hydratedManifestHash,
+      source_complete: true,
+      hydration_complete: true,
+      authoritative_for_prune: true,
+      reason: null,
+    });
+  });
+
   it("rejects empty hydration unless every assigned account proves an authoritative zero set", () => {
     expect(() =>
       assertEmptyNativeAdHydrationIsAuthoritative({

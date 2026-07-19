@@ -86,74 +86,46 @@ in
 The natural 2026-07-19 03:00 UTC wave completed, but its TheSwaf Main hydration
 receipt failed the exact expected/hydrated manifest contract described above.
 Do not regenerate or stage the failed 2026-07-19 outputs as release proof.
-Wait for the first complete natural post-deploy scheduler wave and use that
-wave's actual date in the final filenames and commands. Source/test readiness
-is not a substitute for scheduler-owned anchors. Never manufacture them with a
-manual cron call or any live write.
+Those failed files and the obsolete local 2026-07-16 compact remain untracked
+diagnostics and must not be staged.
 
-The command below records the failed 2026-07-19 diagnostic shape only. For
-final release evidence, replace the operational `--as-of`, `--json-out`,
-`--compact-json-out`, and same-date sibling path with the actual successful
-post-deploy scheduler date and regenerate the focused sibling with that same
-date before staging either artifact. Keep the two explicitly repeated
-2026-07-19 paths unchanged: they are known failed, non-evidence outputs and
-must stay outside the repository-content proof even when the passing pair uses
-a later date.
+The AOV replay intentionally selects a rollback-epoch baseline and replays the
+current resolver as challenger on the same `--as-of` date. After the current
+epoch is deployed, a later natural wave does not manufacture a rollback-epoch
+anchor. Therefore a post-cutover date cannot be substituted into this replay,
+and the replay must not be weakened into a current/current comparison. It
+remains formula-parity evidence only.
 
-```bash
-npm run creative:decision:native-ad-account-aov-replay -- \
-  --as-of=2026-07-19 \
-  --audit-provider-account=172d0ab8-495b-4679-a4c6-ffa404c389d3:act_822913786458311 \
-  --audit-provider-account=f8a3b5ac-588c-462f-8702-11cd24ff3cd2:act_1087566732415606 \
-  --audit-provider-account=a7fd8563-8c9a-497a-b0d7-fd65e4248d1f:act_1054905059780305 \
-  --audit-provider-account=5dbc7147-f051-4681-a4d6-20617170074f:act_805150454596350 \
-  --json-out=/tmp/native-ad-account-aov-authority-replay-2026-07-19-population-final-full.json \
-  --compact-json-out=docs/creative-decision-center/generated/native-ad-account-aov-authority-replay-2026-07-19-all-current-population-compact.json \
-  --provenance-exclude=docs/creative-decision-center/generated/native-ad-account-aov-authority-replay-2026-07-19-compact.json \
-  --provenance-exclude=docs/creative-decision-center/generated/native-ad-account-aov-authority-replay-2026-07-16-compact.json \
-  --provenance-exclude=docs/creative-decision-center/generated/native-ad-account-aov-authority-replay-2026-07-19-compact.json \
-  --provenance-exclude=docs/creative-decision-center/generated/native-ad-account-aov-authority-replay-2026-07-19-all-current-population-compact.json \
-  --stdout=none
-```
-
-`--audit-provider-account` is an audit-only scope. It never filters the replay
-query. An unfiltered scheduler-population run requires the complete four-account
-audit scope and gates both that cohort and the full scheduler population inside
-the same repeatable-read/read-only transaction.
-
-Both commands enforce read-only transaction/runtime settings and reject a
-missing existing tunnel. The obsolete local v6 compact is explicitly excluded
-from provenance so it cannot become undeclared release evidence. The two final
-v7 artifacts must be regenerated only after every intended source, test, and
-document is staged; tracking status is part of the repository-content manifest.
-Do not stage any JSON or checksum unless both newly dated replays exit zero and
-report `releaseGate.passed=true` after the post-deploy natural wave. After both
-pass, write each adjacent checksum from `shasum -a 256`, stage the final
-JSON/checksum outputs, recompute the manifest against the staged tree, and run
-the replay provenance tests. Declaring the sibling compact JSON artifact as a
-provenance exclusion prevents later outputs from invalidating the pre-output
-repository manifest. The replay automatically expands its own output and every
-declared sibling JSON exclusion to the adjacent checksum and temporary sibling;
-callers must not list those derived paths separately, and non-JSON exclusions
-fail closed.
-
-The historical closed-window verifier requires the same scheduler date
-explicitly:
+The post-deploy natural-wave gate is the separate current-epoch operational
+verifier. Run it only after the first complete natural 03:00 UTC wave, through
+the existing read-only tunnel:
 
 ```bash
-npm run creative:decision:native-ad-account-aov-closed-window -- \
-  --authority-as-of=<successful-post-deploy-scheduler-date> \
-  --account='TheSwaf Main:act_822913786458311' \
-  --account='IwaStore:act_1087566732415606' \
-  --account='EMOLOS:act_1054905059780305' \
-  --account='Grandmix:act_805150454596350'
+npm run creative:decision:native-ad-natural-wave-verify -- \
+  --as-of=<successful-post-deploy-scheduler-date> \
+  --deploy-anchor=<exact-final-deploy-timestamp> \
+  --expected-business-count=12 \
+  --expected-provider-account-count=13 \
+  --expected-unbound=64df05ed-fd04-4274-968b-5bf122235e89 \
+  --env-default-enabled=<exact-deployed-DECISION_ENGINE_V3_ENABLED>
 ```
 
-There is no date default. The verifier derives both compact paths, both
-sidecars, and the exact repository exclusions from this one value; a mixed-date
-pair, a checksum mismatch, a pre-03:00 UTC artifact, a failed release gate, or
-an exclusion manifest that omits the obsolete 2026-07-16 and failed 2026-07-19
-outputs fails closed.
+The explicit environment default must come from the final deployed release
+authority. Runtime uses `true` only when `DECISION_ENGINE_V3_ENABLED` is absent;
+do not infer absence without release evidence.
+
+The verifier imports the production current epoch and job names, reproduces
+the scheduler population, and checks every current-wave chain, count, receipt,
+manifest, authority, lineage, timeout, and unbound-business invariant in one
+explicit repeatable-read/read-only transaction. Its deterministic JSON and
+adjacent checksum stay under `/tmp`; no post-deploy evidence commit advances
+main away from the deployed SHA. Never manufacture the wave with a manual cron
+call, provider write, live database write, or business-specific bypass.
+
+The historical closed-window verifier may be run only for a date that already
+has a valid, passing focused/population authority pair from the intended
+rollback/current overlap. It is not a substitute for the current-wave
+operational verifier, and failed or mixed-date pairs remain fail-closed.
 
 The older V2.1 spike artifacts use a separate tool:
 

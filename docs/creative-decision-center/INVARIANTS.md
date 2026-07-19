@@ -542,6 +542,37 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
 - Provider create/duplicate POSTs must not retry without provider idempotency
   bound to durable per-attempt receipts. GET-only verification may use bounded
   retry.
+- A live manual duplicate persists exact preparation and start authority before
+  its one create POST. Only a structured, non-transient and non-retryable 4xx
+  Meta rejection with literal JSON `is_transient: false` is a definite
+  duplicate-create failure; missing, null, or string transient flags are
+  ambiguous. Network exceptions, HTTP 408/425/429, 5xx, transient/retryable
+  errors, and a 2xx response without exact result identity remain ambiguous
+  external action results and keep the claim retry-blocking. An unverified 2xx
+  completion may carry a resulting Ad id only when it exactly equals the
+  nonblank top-level provider response id. A received successful 2xx remains a
+  truthful
+  `provider_response_received` mutation receipt; missing identity is recorded
+  separately as `provider_response_succeeded_verification_failed`. Neither
+  unresolved geometry can terminalize as a definite release. Duplicate
+  attempt, reconciliation, and provider-read observation facts are append-only
+  and exact-lineage bound.
+- A pre-contract legacy duplicate `failure` that lacks complete current
+  journal and physical-account authority remains retry-blocking without a time
+  release. Older failure classification is not negative provider finality.
+  Current-contract journaled definite rejections remain retryable.
+- The migrated database rejects pre-contract live manual duplicate inserts
+  before provider work. An older application rollback therefore fails this
+  write surface closed instead of bypassing the journal. Only the current
+  canonical non-mutating dry-run envelope is exempt; an older pre-contract
+  dry-run may also fail closed. UPDATE cannot create or reshape a contractless
+  live manual duplicate envelope.
+- A settled unknown-id duplicate may reconcile success only after a token-free
+  cursor traversal completes one physical-account Ads cycle with exactly one
+  cumulative marker/name/account/ad-set/creative/PAUSED match and an exact
+  point GET of that Ad. A partial scan cannot authorize success. Absence,
+  multiple matches, pagination failure/cycle, identity drift, missing
+  credentials, or persistence uncertainty never releases the claim.
 - A native decision-origin provider POST transport exception is an ambiguous
   external outcome and must remain pending as `provider_outcome_ambiguous`
   without an immutable operator-action receipt. Manual status actions retain
@@ -550,8 +581,9 @@ scope, engine epoch)`. Nullable `creative_id` is grouping evidence only and
   with only its immutable start. Launchpad retains its separate terminal
   attempt-receipt contract. A fresh attempt identity cannot bypass an
   unresolved guard, and no timeout clears it without an immutable exact-state
-  reconciliation event. A received HTTP rejection remains a definite failure
-  when terminal persistence succeeds.
+  reconciliation event. For status mutations, a received HTTP rejection
+  remains a definite failure when terminal persistence succeeds; the narrower
+  duplicate-create classification above is the explicit exception.
 - Manual action-log terminalization is a one-way `pending -> terminal`
   compare-and-set. An identical terminal replay is idempotent after JSONB
   normalization, but a different terminal outcome cannot overwrite committed

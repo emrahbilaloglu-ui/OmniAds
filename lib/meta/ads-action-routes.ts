@@ -10,13 +10,13 @@ import {
   META_AD_STATUS_RECONCILIATION_REQUIRED_CODE,
   appendManualMetaAdStatusMutationAttemptCompleted,
   appendManualMetaAdStatusMutationAttemptStarted,
+  claimMetaAdDuplicateAction,
   completeDecisionOriginMetaAdsActionLog,
   completeMetaAdsActionLog,
   createDecisionOriginMetaAdsActionLog,
   createMetaAdsActionLog,
   decisionOriginIdempotencyReceiptFromLog,
   findUnresolvedDecisionOriginPendingAction,
-  findRecentDuplicateActionResult,
   hasRecentPendingMetaAdsAction,
   listRecentMetaAdsActionLogs,
   markDecisionOriginActionReconciliationRequired,
@@ -43,6 +43,7 @@ import {
   duplicateAd,
   hasSuccessfulMetaProviderMutationAttempt,
   pauseAd,
+  redactMetaAdDuplicateProviderEvidence,
   readMetaAdExecutionState,
   readMetaEntityExecutionState,
   resumeAd,
@@ -53,6 +54,14 @@ import {
   type MetaAdsWriteFailure,
   type MetaProviderMutationAttemptReceipt,
 } from "@/lib/meta/ads-write";
+import {
+  appendMetaAdDuplicateAttemptStarted,
+  buildMetaAdDuplicateCanonicalName,
+  createMetaAdDuplicateMarker,
+  finalizeMetaAdDuplicateAttempt,
+  finalizeMetaAdDuplicatePreProviderFailure,
+  type MetaAdDuplicateMutationReceipt,
+} from "@/lib/meta/duplicate-ad-reconciliation-store";
 import {
   META_ACTION_ORIGIN_ALIAS_FIELDS,
   META_MANUAL_EXECUTION_FIELDS,
@@ -888,7 +897,7 @@ async function prepareAction(input: {
   // Pause/resume claims use the shared all-origin transactional guard below.
   // Keep this legacy pre-claim shortcut only for duplicate, which is not an Ad
   // status claim and therefore does not participate in that shared classifier.
-  if (input.action === "duplicate") {
+  if (input.action === "duplicate" && !dryRunFromBody(input.body)) {
     let reconciliationReceipt: DecisionOriginIdempotencyReceipt | null;
     try {
       reconciliationReceipt =
@@ -1042,7 +1051,7 @@ async function prepareAction(input: {
     }
   }
 
-  if (input.action === "duplicate") {
+  if (input.action === "duplicate" && !dryRunFromBody(input.body)) {
     const pending = await hasRecentPendingMetaAdsAction({
       businessId: access.membership.businessId,
       adId: targetResult.target.adId,
@@ -1248,6 +1257,39 @@ function manualMutationAttemptReceipt(
           message: receipt.transportError.message,
         }
       : null,
+  };
+}
+
+function duplicateMutationAttemptReceipt(
+  receipt: MetaProviderMutationAttemptReceipt,
+  accessToken: string,
+): MetaAdDuplicateMutationReceipt {
+  const sanitizedTransportError = receipt.transportError
+    ? redactMetaAdDuplicateProviderEvidence(
+        {
+          code: receipt.transportError.code,
+          message: receipt.transportError.message,
+        },
+        accessToken,
+      )
+    : null;
+  return {
+    attemptCount: receipt.attemptCount,
+    method: receipt.method,
+    path: receipt.path,
+    attemptedAt: receipt.attemptedAt,
+    completedAt: receipt.completedAt,
+    providerResponseReceived: receipt.providerResponseReceived,
+    ...(receipt.providerResponseSuccessful === undefined
+      ? {}
+      : {
+          providerResponseSuccessful:
+            receipt.providerResponseSuccessful,
+        }),
+    httpStatus: receipt.httpStatus,
+    outcome: receipt.outcome,
+    automaticRetryAttempted: receipt.automaticRetryAttempted,
+    transportError: sanitizedTransportError,
   };
 }
 
@@ -1819,10 +1861,12 @@ export async function handleMetaAdStatusAction(
             outcome: reconciliationOutcome,
             providerErrorCode: result.error.code,
             errorMessage: result.error.message,
-            mutationAttempt: result.mutationAttempt ?? null,
             providerResponsePayload: ensureRecord(result.responsePayload),
             durationMs: Date.now() - startedAt,
             verificationPayload: ensureRecord(result.verificationPayload),
+            providerCompletedAt:
+              result.mutationAttempt?.completedAt ?? null,
+            mutationAttempt: result.mutationAttempt ?? null,
           }).catch(() => null);
         return NextResponse.json(
           {
@@ -1962,6 +2006,7 @@ export async function handleMetaAdStatusAction(
         manualMutationCompletion?.providerResponse ??
         ensureRecord(result.responsePayload),
       durationMs: Date.now() - startedAt,
+      providerCompletedAt: result.mutationAttempt?.completedAt ?? null,
       verificationPayload:
         manualMutationCompletion?.verification ??
         ensureRecord(result.verificationPayload),
@@ -2000,6 +2045,9 @@ export async function handleMetaAdStatusAction(
             providerResponsePayload: ensureRecord(result.responsePayload),
             durationMs: Date.now() - startedAt,
             verificationPayload: ensureRecord(result.verificationPayload),
+            providerCompletedAt:
+              result.mutationAttempt?.completedAt ?? null,
+            mutationAttempt: result.mutationAttempt ?? null,
           }).catch(() => null);
         return NextResponse.json(
           {
@@ -2289,25 +2337,14 @@ export async function handleMetaAdDuplicateAction(
       `Manual duplicate preflight blocked the provider write (${duplicatePreflight.blocker}).`,
     );
   }
-  const existingDuplicate = await findRecentDuplicateActionResult({
-    businessId: prepared.businessId,
-    adId: resolvedAdId,
-    targetAdsetId,
-    sinceMinutes: 10,
-  });
-  if (existingDuplicate?.resultingAdId) {
-    return jsonError(
-      409,
-      "duplicate_already_attempted",
-      "A recent duplicate attempt already produced an ad for this source and target.",
-      { existingAdId: existingDuplicate.resultingAdId },
-    );
-  }
-
   const trimmedName =
     typeof body?.name === "string" && body.name.trim().length > 0
       ? body.name.trim()
       : undefined;
+  const duplicateMarker = createMetaAdDuplicateMarker();
+  const canonicalDuplicateName = dryRunFromBody(body)
+    ? trimmedName
+    : buildMetaAdDuplicateCanonicalName(trimmedName, duplicateMarker);
   const accountNumericId = prepared.ctx.providerAccountId.replace(/^act_/, "");
   const payloadRequest = {
     method: "POST",
@@ -2316,47 +2353,158 @@ export async function handleMetaAdDuplicateAction(
       adset_id: targetAdsetId,
       target_adset_id: targetAdsetId,
       status_option: "PAUSED",
-      name: trimmedName ?? null,
+      name: canonicalDuplicateName ?? null,
       dry_run: dryRunFromBody(body),
     },
     input_ad_id: inputAdId,
     rec_id_origin: recIdOriginFromBody(body),
     action_origin: META_AD_ACTION_ORIGINS.manualOperator,
     manual_confirmation: "explicit_operator_confirmation",
+    dry_run: dryRunFromBody(body),
   };
-  const log = await createMetaAdsActionLog({
-    businessId: prepared.businessId,
-    adId: resolvedAdId,
-    creativeId: prepared.target.creativeId,
-    action: "duplicate",
-    source: META_AD_ACTION_ORIGINS.manualOperator,
-    requestedBy: prepared.userId,
-    recIdOrigin: recIdOriginFromBody(body),
-    payloadRequest,
-  });
+  let duplicateClaim: Awaited<ReturnType<typeof claimMetaAdDuplicateAction>>;
+  try {
+    duplicateClaim = await claimMetaAdDuplicateAction({
+      businessId: prepared.businessId,
+      providerAccountId: prepared.ctx.providerAccountId,
+      adId: resolvedAdId,
+      creativeId: prepared.target.creativeId,
+      targetAdsetId,
+      dryRun: dryRunFromBody(body),
+      requestedBy: prepared.userId,
+      recIdOrigin: recIdOriginFromBody(body),
+      payloadRequest,
+      marker: duplicateMarker,
+      canonicalAdName:
+        canonicalDuplicateName ??
+        buildMetaAdDuplicateCanonicalName(null, duplicateMarker),
+      sinceMinutes: 10,
+    });
+  } catch {
+    return jsonError(
+      503,
+      "duplicate_claim_state_unavailable",
+      "The durable duplicate-action claim state is temporarily unavailable; no provider write was attempted.",
+      {
+        reconciliationRequired: true,
+        retryAllowed: false,
+      },
+    );
+  }
+  if (!duplicateClaim.claimed) {
+    const existingDuplicate = duplicateClaim.existing;
+    if (!existingDuplicate.resultingAdId) {
+      return jsonError(
+        409,
+        "duplicate_reconciliation_required",
+        "A prior duplicate attempt has unresolved durable or provider state. Reconcile it before retrying.",
+        {
+          reconciliationRequired: true,
+          retryAllowed: false,
+        },
+      );
+    }
+    return jsonError(
+      409,
+      "duplicate_already_attempted",
+      "A recent duplicate attempt already produced an ad for this source and target.",
+      { existingAdId: existingDuplicate.resultingAdId },
+    );
+  }
+  const log = duplicateClaim.log;
 
   const startedAt = Date.now();
+  let duplicateAttemptStarted = false;
   try {
     const result = await duplicateAd(prepared.ctx, {
       adId: resolvedAdId,
       targetAdsetId,
       expectedSourceCreativeId: prepared.target.creativeId ?? undefined,
-      name: trimmedName,
+      name: canonicalDuplicateName,
+      beforeMutationAttempt: dryRunFromBody(body)
+        ? undefined
+        : async () => {
+            await appendMetaAdDuplicateAttemptStarted(log.id);
+            duplicateAttemptStarted = true;
+          },
       ...(dryRunFromBody(body) ? { dryRun: true } : {}),
     });
 
     if (!result.ok) {
-      await completeFailure({
-        logId: log.id,
-        startedAt,
-        result,
-        decisionOrigin: false,
-        dryRun: dryRunFromBody(body),
-        verificationPayload: {
-          sourceIdentity: result.sourceIdentity ?? null,
-          targetVerification: ensureRecord(result.verificationPayload),
-        },
-      });
+      const terminalDurationMs = Date.now() - startedAt;
+      try {
+        if (dryRunFromBody(body)) {
+          await completeManualTerminalWithRetry(() =>
+            completeFailure({
+              logId: log.id,
+              startedAt,
+              durationMs: terminalDurationMs,
+              result,
+              decisionOrigin: false,
+              dryRun: true,
+              verificationPayload: {
+                sourceIdentity: result.sourceIdentity ?? null,
+                targetVerification: ensureRecord(
+                  result.verificationPayload,
+                ),
+              },
+            }),
+          );
+        } else if (result.mutationAttempt) {
+          await completeManualTerminalWithRetry(() =>
+            finalizeMetaAdDuplicateAttempt({
+              sourceActionLogId: log.id,
+              successful: false,
+              mutationReceipt: duplicateMutationAttemptReceipt(
+                result.mutationAttempt!,
+                prepared.ctx.accessToken,
+              ),
+              providerResponse:
+                result.mutationAttempt?.providerResponseReceived === false
+                  ? null
+                  : redactMetaAdDuplicateProviderEvidence(
+                      ensureRecord(result.responsePayload),
+                      prepared.ctx.accessToken,
+                    ),
+              verification: redactMetaAdDuplicateProviderEvidence(
+                ensureRecord(result.verificationPayload),
+                prepared.ctx.accessToken,
+              ),
+              verificationObservedAt: null,
+              resultingAdId: result.resultingAdId ?? null,
+              errorCode: result.error.code,
+              errorMessage: result.error.message,
+              durationMs: terminalDurationMs,
+            }),
+          );
+        } else {
+          await completeManualTerminalWithRetry(() =>
+            finalizeMetaAdDuplicatePreProviderFailure({
+              sourceActionLogId: log.id,
+              errorCode: result.error.code,
+              errorMessage: result.error.message,
+              durationMs: terminalDurationMs,
+            }),
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          {
+            ok: false,
+            action: "duplicate",
+            adId: resolvedAdId,
+            resultingAdId: result.resultingAdId ?? null,
+            error: {
+              code: "duplicate_terminal_persistence_failed",
+              message:
+                "The provider attempt could not be terminalized durably. Exact reconciliation is required and no retry is allowed.",
+            },
+            reconciliationRequired: true,
+            retryAllowed: false,
+          },
+          { status: 503 },
+        );
+      }
       return NextResponse.json(
         {
           ok: false,
@@ -2376,18 +2524,72 @@ export async function handleMetaAdDuplicateAction(
     }
 
     const resultingAdId = result.dryRun === true ? null : result.newAdId;
-    await completeMetaAdsActionLog({
-      id: log.id,
-      status: "success",
-      payloadResponse: ensureRecord(result.responsePayload),
-      resultingAdId,
-      durationMs: Date.now() - startedAt,
-      verifiedAt: new Date().toISOString(),
-      verificationPayload: {
-        sourceIdentity: result.sourceIdentity,
-        targetVerification: ensureRecord(result.verificationPayload),
-      },
-    });
+    const terminalDurationMs = Date.now() - startedAt;
+    const terminalVerifiedAt = new Date().toISOString();
+    try {
+      if (result.dryRun === true) {
+        await completeManualTerminalWithRetry(() =>
+          completeMetaAdsActionLog({
+            id: log.id,
+            status: "success",
+            payloadResponse: ensureRecord(result.responsePayload),
+            resultingAdId,
+            durationMs: terminalDurationMs,
+            verifiedAt: terminalVerifiedAt,
+            verificationPayload: {
+              sourceIdentity: result.sourceIdentity,
+              targetVerification: ensureRecord(
+                result.verificationPayload,
+              ),
+            },
+          }),
+        );
+      } else {
+        await completeManualTerminalWithRetry(() =>
+          finalizeMetaAdDuplicateAttempt({
+            sourceActionLogId: log.id,
+            successful: true,
+            mutationReceipt: duplicateMutationAttemptReceipt(
+              result.mutationAttempt,
+              prepared.ctx.accessToken,
+            ),
+            providerResponse: redactMetaAdDuplicateProviderEvidence(
+              ensureRecord(result.responsePayload),
+              prepared.ctx.accessToken,
+            ),
+            verification: redactMetaAdDuplicateProviderEvidence(
+              ensureRecord(result.verificationPayload),
+              prepared.ctx.accessToken,
+            ),
+            verificationObservedAt: result.verificationObservedAt,
+            resultingAdId,
+            errorCode: null,
+            errorMessage: null,
+            durationMs: terminalDurationMs,
+          }),
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          action: "duplicate",
+          adId: resolvedAdId,
+          resultingAdId,
+          error: {
+            code: "duplicate_terminal_persistence_failed",
+            message:
+              "The verified provider success could not be terminalized durably. Exact reconciliation is required and no retry is allowed.",
+          },
+          reconciliationRequired: true,
+          retryAllowed: false,
+          ...(result.dryRun === true
+            ? {}
+            : { providerMutationSucceeded: true }),
+        },
+        { status: 503 },
+      );
+    }
 
     return NextResponse.json({
       ok: true,
@@ -2401,14 +2603,46 @@ export async function handleMetaAdDuplicateAction(
     });
   } catch (error) {
     const message = sanitizeErrorMessage(error);
-    await completeMetaAdsActionLog({
-      id: log.id,
-      status: "failure",
-      errorCode: "internal_error",
-      errorMessage: message,
-      durationMs: Date.now() - startedAt,
-    }).catch(() => null);
-    return jsonError(500, "internal_error", message);
+    if (dryRunFromBody(body)) {
+      await completeManualTerminalWithRetry(() =>
+        completeMetaAdsActionLog({
+          id: log.id,
+          status: "failure",
+          errorCode: "internal_error",
+          errorMessage: message,
+          durationMs: Date.now() - startedAt,
+        }),
+      ).catch(() => null);
+      return jsonError(500, "internal_error", message);
+    }
+    if (!duplicateAttemptStarted) {
+      await completeManualTerminalWithRetry(() =>
+        finalizeMetaAdDuplicatePreProviderFailure({
+          sourceActionLogId: log.id,
+          errorCode: "duplicate_pre_provider_exception",
+          errorMessage: message,
+          durationMs: Date.now() - startedAt,
+        }),
+      ).catch(() => null);
+    }
+    // A live duplicate adapter exception cannot prove whether its one provider
+    // POST occurred. Preserve the durable pending claim so another request
+    // cannot issue a second write.
+    return NextResponse.json(
+      {
+        ok: false,
+        action: "duplicate",
+        adId: resolvedAdId,
+        error: {
+          code: "duplicate_provider_outcome_unresolved",
+          message:
+            "The live duplicate attempt ended without exact provider outcome proof. Reconciliation is required and no retry is allowed.",
+        },
+        reconciliationRequired: true,
+        retryAllowed: false,
+      },
+      { status: 503 },
+    );
   }
 }
 

@@ -2878,3 +2878,140 @@ then clears only what current provider truth proves, while preserving the
 historical failure fact and preventing duplicate writes. This changes provider
 write recovery only; it does not alter D061/D063 decision math or create a new
 decision core.
+
+## D068 - Natural Native-Ad Waves Require A Separate Current-Epoch Operational Proof
+
+Decision: the rollback-anchor AOV replay remains a baseline/challenger formula
+proof and must not be reinterpreted as post-deploy scheduler evidence. An epoch
+cutover can legitimately leave no same-day rollback anchor. The natural-wave
+release gate therefore uses a separate persisted-state verifier after the
+first post-deploy 03:00 UTC wave. It reproduces the scheduler's complete
+active, enabled, Meta-bound population; requires the current native epoch; and
+proves terminal calibration, decisions, and operator jobs, exact chronology,
+dependency, counts, receipts, manifests, authority, and lineage.
+
+Decision job `row_count` equals snapshot and evaluation counts. Evaluation
+contexts remain intentionally shared by exact scope/hash, so context coverage
+is `context_count = distinct referenced context_count` with no orphan rows,
+not `context_count = job.row_count`. Calibration may reuse an exact complete
+same-day/current-epoch batch from an earlier successful run; the selected job
+still binds every batch receipt and expected cell, while `rows_written` counts
+only batches owned by that selected run.
+
+Hydration job metadata retains the full source receipt needed to recompute an
+authoritative zero- or nonzero-Ad manifest: decision cutoff, source
+observation/capture times, source run and payload hashes, source expected and
+persisted counts, and source/hydration completeness. The verifier runs only
+through the existing local tunnel in an explicit repeatable-read, read-only
+transaction with a 30-second statement timeout and rollback. Its JSON and
+checksum stay under `/tmp`; it never triggers cron, writes a provider or
+database, changes resolver math, or advances main after deploy.
+
+Reason: formula parity and actual scheduler execution answer different
+questions. Keeping their anchors and artifacts separate prevents a missing
+rollback epoch, deduplicated context, reused calibration batch, or zero-Ad
+receipt from being misreported as either a release failure or proof that does
+not exist.
+
+## D069 - Unresolved Manual Duplicate Outcomes Remain Retry-Blocking
+
+Decision: a non-dry manual duplicate for the same business, source Ad, and
+physical provider account and target ad set is acquired under an exact
+transaction-scoped advisory lock. The unresolved-row read and pending insert
+are one database transaction; the provider call remains outside it. A live
+`pending` row, a `silent_failure` without a resulting Ad, and a pre-contract
+legacy `failure` that lacks the complete current journal/account authority
+remain blocking without the normal deduplication-window expiry because their
+provider outcome has never been reconciled. This legacy quarantine is required
+because older duplicate handling could classify an ID-less or otherwise
+unproven provider response as `failure`. A known resulting Ad returns the
+existing duplicate conflict. An ambiguous or verification-failed outcome
+without a resulting Ad returns reconciliation-required with
+`retryAllowed=false`. Current-contract journaled definite rejections remain
+retryable. Dry runs are excluded using both the durable flag and legacy nested
+request evidence.
+
+Terminal persistence uses a bounded identical retry. If a live adapter exits
+without exact outcome proof, or a provider result cannot be terminalized, the
+pending claim is preserved and must never be rewritten to a retryable generic
+failure. New duplicate logs persist the exact physical provider account.
+
+Every non-dry duplicate claim also declares
+`meta-manual-ad-duplicate-attempt.v1` and writes an immutable preparation event
+before the provider boundary. Immediately before the one allowed create POST,
+the adapter appends one exact start event. A second start for the same attempt
+is rejected rather than treated as permission to POST again. A received result
+may append one byte-equivalent completion fact; a conflicting replay is
+rejected. Preparation, start, completion, reconciliation, and provider-read
+observation journals are append-only, evidence-hashed, and bound by database
+triggers to the original business, physical account, source Ad and creative,
+target ad set, canonical marker-bearing name, requested PAUSED status, and
+single-POST receipt.
+
+Duplicate-create finality is deliberately narrower than generic status
+mutation handling. A network exception, HTTP 408/425/429, any 5xx, a transient
+or retryable Meta error, and a successful HTTP response without an exact new Ad
+identity are ambiguous external action results because none proves that Meta
+did not create the Ad. They retain a retry-blocking unresolved claim. The
+immutable mutation receipt still records the literal transport/HTTP fact: for
+example, a received successful 2xx is
+`provider_response_received` even when its missing result identity makes the
+action `provider_response_succeeded_verification_failed`. Only an exact
+structured, non-transient and non-retryable 4xx provider rejection may
+terminalize as a definite failure. “Non-transient” means the provider payload
+contains the literal JSON boolean `is_transient: false`; a missing, null, or
+string value is ambiguous. For an unverified successful 2xx, a nonblank
+top-level provider response id must exactly equal the durable resulting Ad id;
+if the response id is absent or blank, the durable resulting id must be null.
+The database enforces the corresponding layered geometry and never accepts a
+429, 5xx, identity-less 2xx, response/result-id contradiction, or transport
+exception as authority to release the claim. Provider payloads, verification
+evidence, transport diagnostics, and reconciliation evidence are recursively
+redacted before persistence. The adapter never follows a create-POST redirect
+and never retries the POST.
+
+The natural scheduler runs a provider-GET-only reconciliation sweep for
+settled unresolved duplicate attempts. A preparation whose lease expires
+without any durable start event has exact no-provider-attempt authority and may
+terminalize as a pre-provider failure. Started-only, ambiguous, and
+success-response/verification-failed attempts remain quarantined until current
+provider evidence proves the exact marker, canonical name, physical account,
+target ad set, source creative, and PAUSED status. A known result id uses an
+exact point GET. If the result id was lost, the sweep traverses the physical
+account Ads edge using a token-free opaque cursor checkpoint. Each segment is
+append-only and chained to the prior durable segment with cycle, ordinal,
+cursor-hash, page-count, observation-count, and cumulative exact-match
+authority. A partial segment can never terminalize success: only a complete
+cycle with exactly one cumulative match followed by an exact point GET can do
+so. Zero matches, multiple matches, malformed/cyclic pagination, identity
+drift, missing credentials, incomplete reads, or persistence uncertainty keep
+the claim unresolved. In particular, even a complete zero-match scan is an
+observation, not negative provider finality.
+
+The sweep is generic across businesses, sequential, backoff-scheduled, and
+fair to previously unobserved and oldest-observed candidates. It has one
+bounded provider-read admission deadline, checks it before every new candidate
+and point/scan GET, and propagates the positive remaining budget through actual
+abort signals. Database and integration work retain their independent runtime
+timeouts; no timer race leaves a provider read running in the background. Sweep
+failure is reported but cannot fail unrelated scheduler work. Rollback is the
+normal exact-SHA application rollback: removing the scheduler invocation stops
+new automatic reads, while the append-only journal and unresolved claims
+remain fail-closed. The migrated database rejects a pre-contract live manual
+duplicate insert before provider work, so rolling back to an older application
+disables that write surface rather than letting old code bypass the journal;
+only the current canonical non-mutating dry-run envelope is exempt, and an
+older pre-contract dry-run may also fail closed. The same schema guard rejects
+an UPDATE that tries to create or reshape a contractless live manual duplicate
+envelope, so changing an ordinary or legacy action row cannot bypass the
+insert-time contract. Rollback must not delete journal rows, clear claims
+manually, disable this compatibility guard, or introduce a business-specific
+bypass.
+
+Reason: an ambiguous transport result can mean Meta created the Ad even though
+the response ID was lost. A client-only `retryAllowed=false` flag does not
+prevent a concurrent or later request from issuing a second POST. The atomic
+durable claim, exact HTTP classification, and bounded GET-only recovery close
+that gap generically without claiming provider success, auto-retrying the
+provider, changing native decision math, or adding a business-specific
+exception.

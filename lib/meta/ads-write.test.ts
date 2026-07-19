@@ -3,11 +3,13 @@ import {
   duplicateAd,
   META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
   pauseAd,
+  readMetaAdDuplicateProviderObservation,
   readMetaAdExecutionState,
   readMetaEntityExecutionState,
   resumeAd,
   resumeAdset,
   resumeCampaign,
+  scanMetaAdDuplicatesByMarker,
   updateAdsetBidAmount,
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
@@ -1468,6 +1470,7 @@ describe("Meta ads write client", () => {
 
     expect(result).toMatchObject({
       ok: false,
+      providerOutcome: "outcome_ambiguous",
       error: { code: "silent_failure" },
       sourceIdentity: {
         adId: "ad_1",
@@ -1478,8 +1481,12 @@ describe("Meta ads write client", () => {
         attemptCount: 1,
         method: "POST",
         path: "act_123/ads",
+        providerResponseReceived: true,
         providerResponseSuccessful: true,
         httpStatus: 200,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
       },
     });
     expect(
@@ -1710,7 +1717,147 @@ describe("Meta ads write client", () => {
     });
   });
 
-  it("duplicateAd issues exactly one create POST after Meta rate limiting", async () => {
+  it.each([
+    {
+      label: "HTTP 408",
+      status: 408,
+      payload: {
+        error: {
+          code: 2,
+          message: "Request timeout after provider admission.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 425",
+      status: 425,
+      payload: {
+        error: {
+          code: 2,
+          message: "Provider is not ready to confirm finality.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 429",
+      status: 429,
+      payload: {
+        error: {
+          code: 17,
+          error_subcode: 2446079,
+          message: "(#17) User request limit reached",
+        },
+      },
+    },
+    {
+      label: "HTTP 500",
+      status: 500,
+      payload: {
+        error: {
+          code: 1,
+          message: "Unknown provider failure after request receipt.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "transient HTTP 400",
+      status: 400,
+      payload: {
+        error: {
+          code: 2,
+          message: "Temporary provider processing failure.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with missing is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with null is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+          is_transient: null,
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with string is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+          is_transient: "false",
+        },
+      },
+    },
+  ])(
+    "duplicateAd issues exactly one create POST after $label",
+    async ({ status, payload }) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: "ad_1",
+            name: "Source Ad",
+            adset_id: "adset_1",
+            creative: { id: "creative_1" },
+          }),
+        )
+        .mockResolvedValueOnce(jsonResponse(payload, { status }))
+        .mockResolvedValueOnce(jsonResponse({ id: "must_not_be_created" }));
+
+      const result = await duplicateAd(ctx, {
+        adId: "ad_1",
+        targetAdsetId: "adset_2",
+        expectedSourceCreativeId: "creative_1",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        httpStatus: status,
+        providerOutcome: "outcome_ambiguous",
+        error: { code: "provider_outcome_ambiguous" },
+        sourceIdentity: {
+          adId: "ad_1",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+        },
+        mutationAttempt: {
+          attemptCount: 1,
+          method: "POST",
+          path: "act_123/ads",
+          providerResponseReceived: true,
+          providerResponseSuccessful: false,
+          httpStatus: status,
+          outcome: "outcome_ambiguous",
+          automaticRetryAttempted: false,
+          transportError: null,
+        },
+      });
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("duplicateAd treats one exact structured non-transient HTTP 400 as definite rejection", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse({
@@ -1724,15 +1871,14 @@ describe("Meta ads write client", () => {
         jsonResponse(
           {
             error: {
-              code: 17,
-              error_subcode: 2446079,
-              message: "(#17) User request limit reached",
+              code: 190,
+              message: "Invalid OAuth access token.",
+              is_transient: false,
             },
           },
-          { status: 429 },
+          { status: 400 },
         ),
-      )
-      .mockResolvedValueOnce(jsonResponse({ id: "must_not_be_created" }));
+      );
 
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
@@ -1742,12 +1888,19 @@ describe("Meta ads write client", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      httpStatus: 429,
-      error: { code: "rate_limited" },
-      sourceIdentity: {
-        adId: "ad_1",
-        providerAccountId: "act_123",
-        creativeId: "creative_1",
+      httpStatus: 400,
+      providerOutcome: "definite_failure",
+      error: { code: "190" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "act_123/ads",
+        providerResponseReceived: true,
+        providerResponseSuccessful: false,
+        httpStatus: 400,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
       },
     });
     expect(
@@ -1870,5 +2023,170 @@ describe("Meta ads write client", () => {
     const body = vi.mocked(fetch).mock.calls[1]?.[1]?.body as URLSearchParams;
     expect(body.get("name")).toBe("Custom copy");
     expect(body.get("status")).toBe("PAUSED");
+  });
+
+  it("fully paginates the account Ads edge and returns one exact marker match", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "other_ad",
+              name: "Other ad",
+              account_id: "123",
+              status: "PAUSED",
+              effective_status: "PAUSED",
+              adset_id: "adset_2",
+              creative: { id: "creative_1" },
+            },
+          ],
+          paging: {
+            next:
+              "https://graph.facebook.com/v22.0/act_123/ads?access_token=secret-token&fields=id%2Cname%2Caccount_id%2Cstatus%2Ceffective_status%2Cadset_id%2Ccreative%7Bid%7D&limit=100&after=cursor_1",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "ad_copy_1",
+              name: canonicalAdName,
+              account_id: "123",
+              status: "PAUSED",
+              effective_status: "PAUSED",
+              adset_id: "adset_2",
+              creative: { id: "creative_1" },
+            },
+          ],
+        }),
+      );
+
+    const result = await scanMetaAdDuplicatesByMarker({
+      ctx,
+      target: {
+        marker,
+        canonicalAdName,
+        targetAdsetId: "adset_2",
+        creativeId: "creative_1",
+        requestedStatus: "PAUSED",
+      },
+    });
+
+    expect(result).toMatchObject({
+      complete: true,
+      blocker: null,
+      pageCount: 2,
+      observationCount: 2,
+      exactMatches: [{ id: "ad_copy_1", name: canonicalAdName }],
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(fetch).mock.calls.every(([, init]) => init?.method === "GET"),
+    ).toBe(true);
+  });
+
+  it("keeps incomplete and marker-drift scans non-authoritative", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: "drifted_ad",
+            name: canonicalAdName,
+            account_id: "123",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+            adset_id: "wrong_adset",
+            creative: { id: "wrong_creative" },
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      scanMetaAdDuplicatesByMarker({
+        ctx,
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      blocker: "provider_identity_drift",
+      exactMatches: [],
+    });
+  });
+
+  it("treats malformed pagination as incomplete drift instead of throwing or authorizing absence", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [],
+        paging: { next: "not a provider URL" },
+      }),
+    );
+
+    await expect(
+      scanMetaAdDuplicatesByMarker({
+        ctx,
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      blocker: "provider_identity_drift",
+      exactMatches: [],
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("point-GET verifies exact marker, account, ad set, creative, name, and status", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_copy_1",
+        name: canonicalAdName,
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        adset_id: "adset_2",
+        creative: { id: "creative_1" },
+      }),
+    );
+
+    await expect(
+      readMetaAdDuplicateProviderObservation({
+        ctx,
+        adId: "ad_copy_1",
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      observation: {
+        id: "ad_copy_1",
+        name: canonicalAdName,
+        status: "PAUSED",
+      },
+    });
   });
 });

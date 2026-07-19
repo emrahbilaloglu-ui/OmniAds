@@ -309,6 +309,39 @@ describe("projectCanonicalNativeAdDecisionToBriefing", () => {
     expect(projection?.lane).toBe("watching");
   });
 
+  it("clears a stale authorized action even when upstream already marked inactive authority ineligible", () => {
+    const decision = actionableCutDecision({
+      state: "inactive",
+      adStatus: "PAUSED",
+    });
+    decision.sourceAuthority = {
+      ...decision.sourceAuthority!,
+      actionEligible: false,
+      authorizedAction: "cut",
+      reviewOnlyReason: "current_hierarchy_is_not_active",
+    };
+
+    const projection = projectCanonicalNativeAdDecisionToBriefing({
+      decision,
+    });
+
+    expect(projection).not.toBeNull();
+    expect(projection).toMatchObject({
+      lane: "watching",
+      card: {
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
+        canonicalDecision: {
+          sourceAuthority: {
+            actionEligible: false,
+            authorizedAction: null,
+            reviewOnlyReason: "current_hierarchy_is_not_active",
+          },
+        },
+      },
+    });
+  });
+
   it("keeps a persisted held Cut visible and review-only without inventing buyerAction", async () => {
     const projection = projectCanonicalNativeAdDecisionToBriefing({
       decision: heldCutDecision(),

@@ -1164,7 +1164,29 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
     expect(
       actionLog.completeDecisionOriginMetaAdsActionLog,
     ).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "log_decision_1", status: "success" }),
+      expect.objectContaining({
+        id: "log_decision_1",
+        status: "success",
+        providerCompletedAt: expect.any(String),
+        verificationPayload: expect.objectContaining({
+          contractVersion: "meta-ad-status-write-verification.v1",
+          adId: "100000000000001",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+          campaignId: "campaign_1",
+          adsetId: "adset_1",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+          campaignConfiguredStatus: "ACTIVE",
+          campaignEffectiveStatus: "ACTIVE",
+          adsetConfiguredStatus: "ACTIVE",
+          adsetEffectiveStatus: "ACTIVE",
+          policyEligible: true,
+          reviewStatus: null,
+          observedAt: expect.any(String),
+          providerGetEvidence: exactProviderAdState("PAUSED"),
+        }),
+      }),
     );
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
   });
@@ -1221,6 +1243,12 @@ describe("POST /api/meta/ads/[adId]/pause", () => {
       expect.objectContaining({
         id: "log_decision_1",
         errorMessage: "receipt insert failed",
+        providerCompletedAt: expect.any(String),
+        mutationAttempt: expect.objectContaining({
+          attemptCount: 1,
+          method: "POST",
+          completedAt: expect.any(String),
+        }),
         verificationPayload: expect.objectContaining({
           contractVersion: "meta-ad-status-write-verification.v1",
           adId: "100000000000001",

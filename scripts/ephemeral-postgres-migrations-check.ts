@@ -88,6 +88,9 @@ const REQUIRED_TABLES = [
   "meta_launch_intents",
   "meta_ads_action_mutation_attempt_events",
   "meta_ads_action_reconciliation_events",
+  "meta_ads_duplicate_action_attempt_events",
+  "meta_ads_duplicate_action_reconciliation_events",
+  "meta_ads_duplicate_reconciliation_observations",
 ] as const;
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   { table: "engine_v3_decision_snapshots_daily", column: "raw_label" },
@@ -249,6 +252,90 @@ const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string }> = [
   },
   {
     table: "meta_ads_action_reconciliation_events",
+    column: "evidence_hash",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "provider_account_ref_id",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "marker",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "event_kind",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "provider_response_successful",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "verification_observed_at",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    column: "evidence_hash",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    column: "source_prepared_event_id",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    column: "resolution",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    column: "observation_count",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    column: "evidence_hash",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "attempt_ordinal",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "observation_count",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "scan_cycle_id",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "scan_segment_index",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "segment_start_after_cursor",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "segment_start_cursor_hash",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "segment_end_after_cursor",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "segment_end_cursor_hash",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "scan_cycle_complete",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    column: "next_attempt_not_before",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
     column: "evidence_hash",
   },
   {
@@ -646,6 +733,89 @@ const REQUIRED_CONSTRAINTS: ReadonlyArray<{
     constraint: "meta_ads_action_reconciliation_time_check",
     type: "c",
   },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    constraint: "meta_ads_duplicate_attempt_source_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    constraint: "meta_ads_duplicate_attempt_account_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    constraint: "meta_ads_duplicate_attempt_source_event_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    constraint: "meta_ads_duplicate_attempt_id_event_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    constraint: "meta_ads_duplicate_attempt_shape_check",
+    type: "c",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    constraint: "meta_ads_duplicate_reconciliation_source_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    constraint: "meta_ads_duplicate_reconciliation_attempt_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    constraint: "meta_ads_duplicate_reconciliation_account_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    constraint: "meta_ads_duplicate_reconciliation_source_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    constraint: "meta_ads_duplicate_reconciliation_shape_check",
+    type: "c",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    constraint: "meta_ads_duplicate_observation_source_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    constraint: "meta_ads_duplicate_observation_attempt_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    constraint: "meta_ads_duplicate_observation_account_fk",
+    type: "f",
+    deleteAction: "r",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    constraint: "meta_ads_duplicate_observation_ordinal_unique",
+    type: "u",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    constraint: "meta_ads_duplicate_observation_shape_check",
+    type: "c",
+  },
 ];
 const REQUIRED_INDEXES = [
   "idx_engine_v3_eval_contexts_business_scope",
@@ -680,6 +850,10 @@ const REQUIRED_INDEXES = [
   "idx_meta_ads_action_log_controlled_verified_receipt_unique",
   "idx_meta_ads_action_mutation_attempt_business_ad",
   "idx_meta_ads_action_reconciliation_business_ad",
+  "idx_meta_ads_duplicate_attempt_business",
+  "idx_meta_ads_duplicate_reconciliation_business",
+  "idx_meta_ads_duplicate_observation_schedule",
+  "idx_meta_ads_duplicate_open_claim_unique",
 ] as const;
 
 const REQUIRED_TRIGGERS = [
@@ -693,7 +867,61 @@ const REQUIRED_TRIGGERS = [
   "trg_meta_ads_action_mutation_attempt_immutable",
   "trg_meta_ads_action_reconciliation_validate",
   "trg_meta_ads_action_reconciliation_immutable",
+  "trg_meta_ads_duplicate_attempt_validate",
+  "trg_meta_ads_duplicate_attempt_immutable",
+  "trg_meta_ads_duplicate_reconciliation_validate",
+  "trg_meta_ads_duplicate_reconciliation_immutable",
+  "trg_meta_ads_duplicate_observation_validate",
+  "trg_meta_ads_duplicate_observation_immutable",
+  "trg_manual_meta_ads_duplicate_terminal_validate",
+  "trg_manual_meta_ads_duplicate_insert_contract",
+  "trg_manual_meta_ads_duplicate_preparation_required",
   "trg_manual_meta_ads_action_terminal_validate",
+] as const;
+
+const REQUIRED_DUPLICATE_TRIGGER_BINDINGS = [
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    trigger: "trg_meta_ads_duplicate_attempt_validate",
+  },
+  {
+    table: "meta_ads_duplicate_action_attempt_events",
+    trigger: "trg_meta_ads_duplicate_attempt_immutable",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    trigger: "trg_meta_ads_duplicate_reconciliation_validate",
+  },
+  {
+    table: "meta_ads_duplicate_action_reconciliation_events",
+    trigger: "trg_meta_ads_duplicate_reconciliation_immutable",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    trigger: "trg_meta_ads_duplicate_observation_validate",
+  },
+  {
+    table: "meta_ads_duplicate_reconciliation_observations",
+    trigger: "trg_meta_ads_duplicate_observation_immutable",
+  },
+  {
+    table: "meta_ads_action_log",
+    trigger: "trg_manual_meta_ads_duplicate_terminal_validate",
+  },
+  {
+    table: "meta_ads_action_log",
+    trigger: "trg_manual_meta_ads_duplicate_insert_contract",
+  },
+  {
+    table: "meta_ads_action_log",
+    trigger: "trg_manual_meta_ads_duplicate_preparation_required",
+  },
+] as const;
+
+const DUPLICATE_JOURNAL_TABLES = [
+  "meta_ads_duplicate_action_attempt_events",
+  "meta_ads_duplicate_action_reconciliation_events",
+  "meta_ads_duplicate_reconciliation_observations",
 ] as const;
 
 function log(message: string) {
@@ -1017,6 +1245,115 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
       }
     }
 
+    for (const { table, trigger } of REQUIRED_DUPLICATE_TRIGGER_BINDINGS) {
+      const { rows } = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM pg_trigger trigger_row
+           JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+           JOIN pg_namespace namespace_row
+             ON namespace_row.oid = relation.relnamespace
+           WHERE namespace_row.nspname = 'public'
+             AND relation.relname = $1
+             AND trigger_row.tgname = $2
+             AND NOT trigger_row.tgisinternal
+         ) AS exists`,
+        [table, trigger],
+      );
+      if (rows[0]?.exists) {
+        log(`trigger binding ok: ${table}.${trigger}`);
+      } else {
+        failures.push(`missing trigger binding: ${table}.${trigger}`);
+      }
+    }
+
+    const { rows: preparationTriggerRows } = await client.query<{
+      is_deferrable: boolean;
+      is_initially_deferred: boolean;
+    }>(
+      `SELECT trigger_row.tgdeferrable AS is_deferrable,
+              trigger_row.tginitdeferred AS is_initially_deferred
+       FROM pg_trigger trigger_row
+       JOIN pg_class relation ON relation.oid = trigger_row.tgrelid
+       JOIN pg_namespace namespace_row
+         ON namespace_row.oid = relation.relnamespace
+       WHERE namespace_row.nspname = 'public'
+         AND relation.relname = 'meta_ads_action_log'
+         AND trigger_row.tgname =
+           'trg_manual_meta_ads_duplicate_preparation_required'
+         AND NOT trigger_row.tgisinternal`,
+    );
+    if (
+      preparationTriggerRows[0]?.is_deferrable === true &&
+      preparationTriggerRows[0]?.is_initially_deferred === true
+    ) {
+      log("duplicate preparation constraint trigger deferral ok");
+    } else {
+      failures.push(
+        "duplicate preparation constraint trigger is not initially deferred",
+      );
+    }
+
+    const { rows: duplicateClaimIndexRows } = await client.query<{
+      is_unique: boolean;
+      index_definition: string;
+      predicate: string | null;
+    }>(
+      `SELECT index_row.indisunique AS is_unique,
+              pg_get_indexdef(index_row.indexrelid) AS index_definition,
+              pg_get_expr(
+                index_row.indpred,
+                index_row.indrelid
+              ) AS predicate
+       FROM pg_index index_row
+       JOIN pg_class index_relation
+         ON index_relation.oid = index_row.indexrelid
+       JOIN pg_namespace namespace_row
+         ON namespace_row.oid = index_relation.relnamespace
+       WHERE namespace_row.nspname = 'public'
+         AND index_relation.relname =
+           'idx_meta_ads_duplicate_open_claim_unique'`,
+    );
+    const duplicateClaimIndex = duplicateClaimIndexRows[0];
+    const duplicateClaimDefinition =
+      duplicateClaimIndex?.index_definition.toLowerCase() ?? "";
+    const duplicateClaimPredicate =
+      duplicateClaimIndex?.predicate?.toLowerCase() ?? "";
+    const duplicateClaimIdentityFragments = [
+      "business_id",
+      "provider_account_ref_id",
+      "provider_account_id",
+      "ad_id",
+      "targetadsetid",
+    ];
+    const duplicateClaimPredicateFragments = [
+      "action",
+      "duplicate",
+      "source",
+      "manual_operator_v1",
+      "status",
+      "pending",
+      "silent_failure",
+      "dry_run",
+      "duplicate_attempt_contract_version",
+      "duplicate_attempt_required",
+    ];
+    if (
+      duplicateClaimIndex?.is_unique === true &&
+      duplicateClaimIdentityFragments.every((fragment) =>
+        duplicateClaimDefinition.includes(fragment),
+      ) &&
+      duplicateClaimPredicateFragments.every((fragment) =>
+        duplicateClaimPredicate.includes(fragment),
+      )
+    ) {
+      log("duplicate open-claim unique-index contract ok");
+    } else {
+      failures.push(
+        "invalid duplicate open-claim unique-index columns or predicate",
+      );
+    }
+
     await assertNativeSchemaCapabilities(client, failures);
 
     const { rows: tableRows } = await client.query<{ table_name: string }>(
@@ -1035,6 +1372,52 @@ async function assertSchema(databaseUrl: string): Promise<string[]> {
   } finally {
     await client.end();
   }
+}
+
+async function readDuplicateJournalTableOids(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{
+      table_name: string;
+      table_oid: string;
+    }>(
+      `SELECT relation.relname AS table_name,
+              relation.oid::text AS table_oid
+       FROM pg_class relation
+       JOIN pg_namespace namespace_row
+         ON namespace_row.oid = relation.relnamespace
+       WHERE namespace_row.nspname = 'public'
+         AND relation.relkind = 'r'
+         AND relation.relname = ANY($1::text[])
+       ORDER BY relation.relname`,
+      [[...DUPLICATE_JOURNAL_TABLES]],
+    );
+    if (rows.length !== DUPLICATE_JOURNAL_TABLES.length) {
+      throw new Error(
+        "Duplicate journal OID snapshot is incomplete after migration.",
+      );
+    }
+    return new Map(rows.map((row) => [row.table_name, row.table_oid]));
+  } finally {
+    await client.end();
+  }
+}
+
+function assertDuplicateJournalTableOids(
+  expected: ReadonlyMap<string, string>,
+  actual: ReadonlyMap<string, string>,
+  label: string,
+) {
+  for (const table of DUPLICATE_JOURNAL_TABLES) {
+    if (actual.get(table) !== expected.get(table)) {
+      throw new Error(
+        `${label}: ${table} OID changed across migration reruns; ` +
+          "the append-only journal table was recreated.",
+      );
+    }
+  }
+  log(`${label}: duplicate journal table OIDs preserved.`);
 }
 
 type TargetHistoryBackfillCases = {
@@ -2152,6 +2535,8 @@ async function main() {
     // prove nothing about idempotency.
     await runMigrationsChild(repoRoot, databaseUrl, "run 1: from zero");
     const run1Tables = await assertSchema(databaseUrl);
+    const duplicateJournalRun1Oids =
+      await readDuplicateJournalTableOids(databaseUrl);
     const targetHistoryCases =
       await seedTargetHistoryBackfillCases(databaseUrl);
     await seedPriorEpochOperatorConstraints(databaseUrl);
@@ -2162,6 +2547,13 @@ async function main() {
       "run 2: idempotency + target backfill",
     );
     const run2Tables = await assertSchema(databaseUrl);
+    const duplicateJournalRun2Oids =
+      await readDuplicateJournalTableOids(databaseUrl);
+    assertDuplicateJournalTableOids(
+      duplicateJournalRun1Oids,
+      duplicateJournalRun2Oids,
+      "run 2",
+    );
     reportConvergenceGap(run1Tables, run2Tables);
     const run2D063ConstraintOids =
       await assertD063AuthorityBlockerConstraintUpgrade(databaseUrl);
@@ -2171,6 +2563,13 @@ async function main() {
       "run 3: post-D063 idempotency",
     );
     const run3Tables = await assertSchema(databaseUrl);
+    const duplicateJournalRun3Oids =
+      await readDuplicateJournalTableOids(databaseUrl);
+    assertDuplicateJournalTableOids(
+      duplicateJournalRun1Oids,
+      duplicateJournalRun3Oids,
+      "run 3",
+    );
     reportConvergenceGap(run2Tables, run3Tables);
     await assertD063AuthorityBlockerConstraintUpgrade(
       databaseUrl,
@@ -2213,6 +2612,16 @@ async function main() {
         "ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
       ),
       "native-ad decision-fact ownership DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
+      ),
+      "duplicate-ad reconciliation DB seam check",
     );
 
     // Production-seam checks against the freshly migrated schema: real

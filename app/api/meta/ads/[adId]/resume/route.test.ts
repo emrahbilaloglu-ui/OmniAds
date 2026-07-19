@@ -489,7 +489,29 @@ describe("POST /api/meta/ads/[adId]/resume", () => {
     expect(
       actionLog.completeDecisionOriginMetaAdsActionLog,
     ).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "log_decision_1", status: "success" }),
+      expect.objectContaining({
+        id: "log_decision_1",
+        status: "success",
+        providerCompletedAt: expect.any(String),
+        verificationPayload: expect.objectContaining({
+          contractVersion: "meta-ad-status-write-verification.v1",
+          adId: "100000000000001",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+          campaignId: "campaign_1",
+          adsetId: "adset_1",
+          configuredStatus: "ACTIVE",
+          effectiveStatus: "ACTIVE",
+          campaignConfiguredStatus: "ACTIVE",
+          campaignEffectiveStatus: "ACTIVE",
+          adsetConfiguredStatus: "ACTIVE",
+          adsetEffectiveStatus: "ACTIVE",
+          policyEligible: true,
+          reviewStatus: null,
+          observedAt: expect.any(String),
+          providerGetEvidence: exactProviderAdState("ACTIVE"),
+        }),
+      }),
     );
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
   });

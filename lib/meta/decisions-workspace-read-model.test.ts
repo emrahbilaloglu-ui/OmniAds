@@ -20,6 +20,7 @@ import {
 } from "@/lib/meta/decisions-workspace-read-model";
 import { hashAdDecisionIdentityManifest } from "@/lib/creative-decision-engine/data-source";
 import { NATIVE_AD_ENGINE_VERSION } from "@/lib/creative-decision-engine/types";
+import { projectCanonicalNativeAdDecisionToBriefing } from "@/app/api/creatives/briefing/canonical-projection";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -468,6 +469,20 @@ describe("Meta Decisions workspace canonical read model", () => {
       reviewOnlyReason: null,
       authorizedAction: "cut",
     });
+    expect(decision?.classification).toMatchObject({
+      decisionState: "act",
+      buyerAction: "cut",
+      heldAction: null,
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({ decision: decision! }),
+    ).toMatchObject({
+      lane: "action",
+      card: {
+        sourceDecisionActionEligible: true,
+        sourceDecisionAuthorizedAction: "cut",
+      },
+    });
   });
 
   it("fails native action authority closed when current hierarchy state is unavailable", () => {
@@ -494,6 +509,18 @@ describe("Meta Decisions workspace canonical read model", () => {
       sourceAuthority: {
         actionEligible: false,
         reviewOnlyReason: "current_hierarchy_status_is_unknown",
+        authorizedAction: null,
+      },
+    });
+    expect(
+      projectCanonicalNativeAdDecisionToBriefing({
+        decision: model.queue.inactiveAssets!.items[0]!,
+      }),
+    ).toMatchObject({
+      lane: "watching",
+      card: {
+        sourceDecisionActionEligible: false,
+        sourceDecisionAuthorizedAction: null,
       },
     });
   });
@@ -515,6 +542,7 @@ describe("Meta Decisions workspace canonical read model", () => {
           status: "native_exact",
           actionEligible: false,
           reviewOnlyReason: "current_hierarchy_is_not_active",
+          authorizedAction: null,
         },
       });
     },
@@ -548,6 +576,7 @@ describe("Meta Decisions workspace canonical read model", () => {
         status: "native_exact",
         actionEligible: false,
         reviewOnlyReason: "current_hierarchy_is_not_active",
+        authorizedAction: null,
       },
     });
   });

@@ -14,7 +14,21 @@ vi.mock("@/lib/db", () => ({
   runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
+vi.mock("@/lib/meta/duplicate-ad-reconciliation-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@/lib/meta/duplicate-ad-reconciliation-store")
+    >();
+  return {
+    ...actual,
+    prepareMetaAdDuplicateAttempt: vi.fn(),
+  };
+});
+
 const db = await import("@/lib/db");
+const duplicateStore = await import(
+  "@/lib/meta/duplicate-ad-reconciliation-store"
+);
 const {
   CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY,
   INSERT_IMMUTABLE_AD_OPERATOR_ACTION_RECEIPT_QUERY,
@@ -27,6 +41,7 @@ const {
   UPDATE_DECISION_ORIGIN_ACTION_TERMINAL_QUERY,
   appendManualMetaAdStatusMutationAttemptStarted,
   appendManualMetaAdStatusMutationAttemptCompleted,
+  claimMetaAdDuplicateAction,
   completeMetaAdsActionLog,
   completeDecisionOriginMetaAdsActionLog,
   createDecisionOriginMetaAdsActionLog,
@@ -726,7 +741,17 @@ describe("resolveMetaAdActionTarget", () => {
       provider_verified: false,
       terminal_finalized_at: null,
     });
-    const query = vi.fn().mockResolvedValue([]);
+    const query = vi.fn(async (text: string) =>
+      text.includes("FROM business_provider_accounts")
+        ? [
+            {
+              provider_account_ref_id:
+                "33333333-3333-4333-8333-333333333333",
+              binding_count: 1,
+            },
+          ]
+        : [],
+    );
     const sql = vi
       .fn()
       .mockResolvedValueOnce([])
@@ -780,7 +805,17 @@ describe("resolveMetaAdActionTarget", () => {
       provider_verified: false,
       terminal_finalized_at: null,
     });
-    const query = vi.fn().mockResolvedValue([]);
+    const query = vi.fn(async (text: string) =>
+      text.includes("FROM business_provider_accounts")
+        ? [
+            {
+              provider_account_ref_id:
+                "33333333-3333-4333-8333-333333333333",
+              binding_count: 1,
+            },
+          ]
+        : [],
+    );
     const sql = vi.fn().mockResolvedValueOnce([legacyPending]);
     Object.assign(sql, { query });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -1043,6 +1078,7 @@ describe("resolveMetaAdActionTarget", () => {
 
     const result = await findRecentDuplicateActionResult({
       businessId: "business_1",
+      providerAccountId: "act_123",
       adId: "source_ad_1",
       targetAdsetId: "target_adset_1",
       sinceMinutes: 10,
@@ -1052,13 +1088,183 @@ describe("resolveMetaAdActionTarget", () => {
     const querySql = String(sql.mock.calls[0]?.[0]?.join(""));
     expect(querySql).toContain("AND ad_id =");
     expect(querySql).toContain("target_adset_id");
+    expect(querySql).toContain(
+      "status IN ('pending', 'success', 'silent_failure')",
+    );
+    expect(querySql).toContain("provider_account_id =");
+    expect(querySql).toContain("COALESCE(dry_run, FALSE)");
+    expect(querySql).toContain("payload_request->'body'->>'dry_run'");
+    expect(querySql).not.toContain("resulting_ad_id IS NOT NULL");
+    expect(querySql).toContain("OR status = 'pending'");
+    expect(querySql).toContain("OR status = 'silent_failure'");
+    expect(querySql).toContain("status = 'failure'");
+    expect(querySql).toContain(
+      "NULLIF(btrim(provider_account_id), '') IS NOT NULL",
+    );
+    expect(querySql).toContain(
+      "payload_request->>'duplicate_attempt_contract_version'",
+    );
+    expect(querySql).toContain(
+      "payload_request->'duplicate_attempt_required'",
+    );
+    expect(querySql).not.toContain(
+      "status = 'silent_failure' AND resulting_ad_id IS NULL",
+    );
     expect(querySql).not.toContain("status_option");
     expect(sql.mock.calls[0]?.slice(1)).toEqual([
       "business_1",
+      "act_123",
       "source_ad_1",
+      "meta-manual-ad-duplicate-attempt.v1",
       "target_adset_1",
       10,
     ]);
+  });
+
+  it("claims an exact live duplicate tuple under one transaction lock before provider execution", async () => {
+    const pendingDuplicate = decisionLogRow({
+      id: "duplicate_claim_1",
+      source: "manual_operator_v1",
+      action: "duplicate",
+      status: "pending",
+      provider_account_ref_id: null,
+      provider_account_id: "act_123",
+      decision_contract_version: null,
+      decision_episode_key: null,
+      decision_snapshot_id: null,
+      decision_evaluation_id: null,
+      decision_engine_version: null,
+      decision_hash: null,
+      idempotency_key: null,
+      dry_run: false,
+      payload_request: {
+        dry_run: false,
+        body: { target_adset_id: "target_adset_1" },
+      },
+      verified_at: null,
+      provider_verified: false,
+      terminal_finalized_at: null,
+    });
+    const query = vi.fn(async (text: string) =>
+      text.includes("FROM business_provider_accounts")
+        ? [
+            {
+              provider_account_ref_id:
+                "33333333-3333-4333-8333-333333333333",
+              binding_count: 1,
+            },
+          ]
+        : [],
+    );
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([pendingDuplicate]);
+    Object.assign(sql, { query });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await claimMetaAdDuplicateAction({
+      businessId: "business_1",
+      providerAccountId: "act_123",
+      adId: "source_ad_1",
+      creativeId: "creative_1",
+      targetAdsetId: "target_adset_1",
+      dryRun: false,
+      requestedBy: "user_1",
+      payloadRequest: {
+        dry_run: false,
+        body: { target_adset_id: "target_adset_1" },
+      },
+      recIdOrigin: null,
+      marker: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      canonicalAdName:
+        "Duplicate [ADSECUTE_DUP:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa]",
+      sinceMinutes: 10,
+    });
+
+    expect(result).toMatchObject({
+      claimed: true,
+      log: {
+        id: "duplicate_claim_1",
+        providerAccountId: "act_123",
+        status: "pending",
+      },
+    });
+    expect(db.runDbTransaction).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith(
+      LOCK_DECISION_ORIGIN_AD_ACTION_CLAIM_QUERY,
+      [
+        JSON.stringify([
+          "duplicate",
+          "business_1",
+          "act_123",
+          "source_ad_1",
+          "target_adset_1",
+        ]),
+      ],
+    );
+    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql.mock.calls[0]).toContain("act_123");
+    expect(sql.mock.calls[1]).toContain("act_123");
+    expect(
+      duplicateStore.prepareMetaAdDuplicateAttempt,
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an old non-dry pending duplicate reconciliation-blocking and inserts no second claim", async () => {
+    const unresolved = decisionLogRow({
+      id: "old_pending_duplicate",
+      source: "manual_operator_v1",
+      action: "duplicate",
+      status: "pending",
+      provider_account_ref_id: null,
+      provider_account_id: "act_123",
+      decision_contract_version: null,
+      decision_episode_key: null,
+      decision_snapshot_id: null,
+      decision_evaluation_id: null,
+      decision_engine_version: null,
+      decision_hash: null,
+      idempotency_key: null,
+      dry_run: false,
+      requested_at: "2026-07-01T00:00:00.000Z",
+      payload_request: {
+        dry_run: false,
+        body: { target_adset_id: "target_adset_1" },
+      },
+      verified_at: null,
+      provider_verified: false,
+      terminal_finalized_at: null,
+    });
+    const query = vi.fn().mockResolvedValue([]);
+    const sql = vi.fn().mockResolvedValueOnce([unresolved]);
+    Object.assign(sql, { query });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await claimMetaAdDuplicateAction({
+      businessId: "business_1",
+      providerAccountId: "act_123",
+      adId: "source_ad_1",
+      creativeId: "creative_1",
+      targetAdsetId: "target_adset_1",
+      dryRun: false,
+      requestedBy: "user_1",
+      payloadRequest: {
+        dry_run: false,
+        body: { target_adset_id: "target_adset_1" },
+      },
+      recIdOrigin: null,
+      marker: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      canonicalAdName:
+        "Duplicate [ADSECUTE_DUP:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa]",
+      sinceMinutes: 10,
+    });
+
+    expect(result).toMatchObject({
+      claimed: false,
+      existing: { id: "old_pending_duplicate", status: "pending" },
+    });
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 
   it("returns only successful Launchpad-created ad ids for resume scope", async () => {
@@ -1351,7 +1557,10 @@ describe("resolveMetaAdActionTarget", () => {
         return [terminalRow];
       }
       if (queryText === INSERT_IMMUTABLE_AD_OPERATOR_ACTION_RECEIPT_QUERY) {
-        const payload = JSON.parse(String(params?.[0])) as Record<string, string>;
+        const payload = JSON.parse(String(params?.[0])) as Record<
+          string,
+          unknown
+        >;
         expect(payload).toMatchObject({
           source_action_log_id: "log_1",
           business_ref_id: "business_1",
@@ -1365,11 +1574,20 @@ describe("resolveMetaAdActionTarget", () => {
           operator_action: "pause",
           action_status: "success",
           provider_verified: true,
+          verification_lineage: {
+            sourceCreativeId: "creative_1",
+            sourceCampaignId: "campaign_1",
+            sourceAdsetId: "adset_1",
+            verifiedProviderAccountId: "act_123",
+            verifiedCreativeId: "creative_1",
+            verifiedCampaignId: "campaign_1",
+            verifiedAdsetId: "adset_1",
+          },
         });
         receipt = {
-          receipt_id: payload.id,
-          action_log_id: payload.source_action_log_id,
-          receipt_hash: payload.receipt_hash,
+          receipt_id: String(payload.id),
+          action_log_id: String(payload.source_action_log_id),
+          receipt_hash: String(payload.receipt_hash),
         };
         return [receipt];
       }
@@ -1383,14 +1601,40 @@ describe("resolveMetaAdActionTarget", () => {
       id: "log_1",
       status: "success",
       payloadResponse: { success: true },
+      providerCompletedAt: "2026-07-12T10:00:00.000Z",
       verificationPayload: {
-        id: "123456789012345",
-        account_id: "123",
-        status: "PAUSED",
-        effective_status: "PAUSED",
-        creative: { id: "creative_1" },
-        campaign: { id: "campaign_1" },
-        adset: { id: "adset_1" },
+        contractVersion: "meta-ad-status-write-verification.v1",
+        adId: "123456789012345",
+        providerAccountId: "act_123",
+        creativeId: "creative_1",
+        campaignId: "campaign_1",
+        adsetId: "adset_1",
+        configuredStatus: "PAUSED",
+        effectiveStatus: "PAUSED",
+        campaignConfiguredStatus: "ACTIVE",
+        campaignEffectiveStatus: "ACTIVE",
+        adsetConfiguredStatus: "ACTIVE",
+        adsetEffectiveStatus: "ACTIVE",
+        policyEligible: true,
+        reviewStatus: null,
+        observedAt: "2026-07-12T10:00:00.500Z",
+        providerGetEvidence: {
+          id: "123456789012345",
+          account_id: "123",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          creative: { id: "creative_1" },
+          campaign: {
+            id: "campaign_1",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+          },
+          adset: {
+            id: "adset_1",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+          },
+        },
       },
     });
 
@@ -1515,14 +1759,44 @@ describe("resolveMetaAdActionTarget", () => {
 
   it("durably marks a verified provider write that still needs exact receipt reconciliation", async () => {
     const observedAt = "2026-07-12T10:00:02.000Z";
+    const providerCompletedAt = "2026-07-12T10:00:00.000Z";
     const verificationPayload = {
-      id: "123456789012345",
-      account_id: "123",
-      status: "PAUSED",
-      effective_status: "PAUSED",
-      creative: { id: "creative_1" },
-      campaign: { id: "campaign_1" },
-      adset: { id: "adset_1" },
+      contractVersion: "meta-ad-status-write-verification.v1",
+      adId: "123456789012345",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T10:00:01.000Z",
+      providerGetEvidence: {
+        id: "123456789012345",
+        account_id: "123",
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        creative: { id: "creative_1" },
+        campaign: {
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+      },
+    };
+    const persistedVerificationPayload = {
+      ...verificationPayload,
+      providerCompletedAt,
     };
     const pendingRow = decisionLogRow({
       status: "pending",
@@ -1558,6 +1832,7 @@ describe("resolveMetaAdActionTarget", () => {
       errorMessage: "receipt insert failed",
       durationMs: 150,
       verificationPayload,
+      providerCompletedAt,
       observedAt,
     });
 
@@ -1581,7 +1856,7 @@ describe("resolveMetaAdActionTarget", () => {
         }),
         "receipt insert failed",
         150,
-        JSON.stringify(verificationPayload),
+        JSON.stringify(persistedVerificationPayload),
         observedAt,
       ],
     );

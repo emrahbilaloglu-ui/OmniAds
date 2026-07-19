@@ -1983,6 +1983,61 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
   });
 
   it("uses exact targets and atomic receipts for every decision-origin bulk item", async () => {
+    vi.mocked(adsWrite.pauseAd).mockReset().mockImplementation(
+      async (_ctx, adId, options) => {
+        const blocked = await runBeforeMutationAttemptHook(
+          adId,
+          options,
+        );
+        if (blocked) return blocked as never;
+        simulatedProviderPostIds.push(adId);
+        const creativeId =
+          adId === NATIVE_AD_ID_1 ? "creative_1" : "creative_2";
+        const providerGetEvidence = {
+          id: adId,
+          account_id: "123",
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          creative: { id: creativeId },
+          campaign: {
+            id: "campaign_1",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+          },
+          adset: {
+            id: "adset_1",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+          },
+        };
+        return {
+          ok: true,
+          verifiedStatus: "PAUSED",
+          responsePayload: { success: true },
+          verificationPayload: {
+            contractVersion: "meta-ad-status-write-verification.v1",
+            adId,
+            providerAccountId: "act_123",
+            creativeId,
+            campaignId: "campaign_1",
+            adsetId: "adset_1",
+            configuredStatus: "PAUSED",
+            effectiveStatus: "PAUSED",
+            campaignConfiguredStatus: "ACTIVE",
+            campaignEffectiveStatus: "ACTIVE",
+            adsetConfiguredStatus: "ACTIVE",
+            adsetEffectiveStatus: "ACTIVE",
+            policyEligible: true,
+            reviewStatus: null,
+            observedAt: "2026-07-18T14:00:03.000Z",
+            providerGetEvidence,
+          },
+          mutationAttempt: liveMutationAttempt(adId),
+          providerHttpStatus: 200,
+        } as never;
+      },
+    );
+
     const response = await POST(request(decisionBody()));
     const payload = await response.json();
 
@@ -1996,6 +2051,32 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
     expect(
       actionLog.completeDecisionOriginMetaAdsActionLog,
     ).toHaveBeenCalledTimes(2);
+    for (const [index, [completion]] of vi
+      .mocked(actionLog.completeDecisionOriginMetaAdsActionLog)
+      .mock.calls.entries()) {
+      expect(completion).toMatchObject({
+        id: `decision_log_${index + 1}`,
+        status: "success",
+        providerCompletedAt: "2026-07-18T14:00:02.000Z",
+        verificationPayload: {
+          contractVersion: "meta-ad-status-write-verification.v1",
+          adId: index === 0 ? NATIVE_AD_ID_1 : NATIVE_AD_ID_2,
+          providerAccountId: "act_123",
+          creativeId: `creative_${index + 1}`,
+          campaignId: "campaign_1",
+          adsetId: "adset_1",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+          campaignConfiguredStatus: "ACTIVE",
+          campaignEffectiveStatus: "ACTIVE",
+          adsetConfiguredStatus: "ACTIVE",
+          adsetEffectiveStatus: "ACTIVE",
+          policyEligible: true,
+          reviewStatus: null,
+          observedAt: "2026-07-18T14:00:03.000Z",
+        },
+      });
+    }
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
     expect(actionLog.completeMetaAdsActionLog).not.toHaveBeenCalled();
   });
@@ -2350,6 +2431,12 @@ describe("POST /api/launchpad/meta/bulk-ad-status", () => {
       expect.objectContaining({
         id: "decision_log_1",
         errorMessage: "terminal receipt persistence unavailable",
+        providerCompletedAt: "2026-07-18T14:00:02.000Z",
+        mutationAttempt: expect.objectContaining({
+          attemptCount: 1,
+          method: "POST",
+          completedAt: "2026-07-18T14:00:02.000Z",
+        }),
         verificationPayload: expect.objectContaining({ status: "PAUSED" }),
       }),
     );

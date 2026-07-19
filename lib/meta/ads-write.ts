@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
@@ -197,6 +198,8 @@ export type MetaAdDuplicateWriteSuccess = {
   wouldHaveWritten?: MetaAdsWouldHaveWritten;
   responsePayload?: Record<string, unknown> | null;
   verificationPayload?: Record<string, unknown> | null;
+  mutationAttempt: MetaProviderMutationAttemptReceipt;
+  verificationObservedAt: string;
 };
 
 export type MetaAdDuplicateDryRunSuccess = {
@@ -306,6 +309,47 @@ function sanitizeMetaMessage(message: string) {
   return message
     .replace(/access_token=[^&\s]+/gi, "access_token=[redacted]")
     .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer [redacted]");
+}
+
+const META_DUPLICATE_EVIDENCE_SENSITIVE_KEY =
+  /(^|_)(authorization|access_?tokens?|refresh_?tokens?|secrets?|passwords?|credentials?|cookies?|api_?keys?|appsecret_?proof)($|_)/i;
+
+function redactMetaDuplicateEvidence(
+  value: unknown,
+  accessToken: string,
+  depth = 0,
+): unknown {
+  if (depth > 20) return "[redacted-depth-limit]";
+  if (typeof value === "string") {
+    const sanitized = sanitizeMetaMessage(value);
+    return accessToken ? sanitized.split(accessToken).join("[redacted]") : sanitized;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      redactMetaDuplicateEvidence(item, accessToken, depth + 1),
+    );
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      META_DUPLICATE_EVIDENCE_SENSITIVE_KEY.test(key)
+        ? "[redacted]"
+        : redactMetaDuplicateEvidence(item, accessToken, depth + 1),
+    ]),
+  );
+}
+
+export function redactMetaAdDuplicateProviderEvidence(
+  value: Record<string, unknown> | null,
+  accessToken: string,
+) {
+  return value
+    ? (redactMetaDuplicateEvidence(value, accessToken) as Record<
+        string,
+        unknown
+      >)
+    : null;
 }
 
 function normalizeMetaPayload(value: unknown): Record<string, unknown> | null {
@@ -688,6 +732,8 @@ async function metaFetch(input: {
   method: MetaFetchMethod;
   body?: URLSearchParams;
   fields?: string;
+  redirect?: "follow" | "error";
+  timeoutMs?: number;
 }): Promise<{
   response: Response | null;
   payload: Record<string, unknown> | null;
@@ -701,8 +747,17 @@ async function metaFetch(input: {
       method: input.method,
       body: input.body,
       cache: "no-store",
-      redirect: input.method === "POST" ? "error" : "follow",
-      signal: AbortSignal.timeout(META_ADS_PROVIDER_FETCH_TIMEOUT_MS),
+      redirect:
+        input.redirect ?? (input.method === "POST" ? "error" : "follow"),
+      signal: AbortSignal.timeout(
+        Math.max(
+          1,
+          Math.min(
+            META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
+            Math.floor(input.timeoutMs ?? META_ADS_PROVIDER_FETCH_TIMEOUT_MS),
+          ),
+        ),
+      ),
     });
     const payload = await readResponseJson(response);
     return { response, payload, error: null };
@@ -735,6 +790,7 @@ async function metaFetchWriteOnce(input: {
   method: "POST";
   body?: URLSearchParams;
   beforeMutationAttempt?: () => Promise<void>;
+  uncertainHttpResponseIsAmbiguous?: boolean;
 }): Promise<{
   response: Response | null;
   payload: Record<string, unknown> | null;
@@ -778,14 +834,41 @@ async function metaFetchWriteOnce(input: {
   }
   // Provider POSTs have no provider-side idempotency contract. A transport
   // exception after request upload can hide a committed mutation, so never
-  // issue a second POST automatically. An HTTP rejection is definitive and
-  // remains an ordinary failure.
+  // issue a second POST automatically. Ordinary writes retain their existing
+  // HTTP semantics; duplicate-create applies the stricter ambiguity classifier
+  // below for retryable, transient, malformed, and missing-id responses.
   const attemptedAt = new Date().toISOString();
   const result = await metaFetch(input);
   const completedAt = new Date().toISOString();
   const providerResponseReceived = result.response != null;
   const providerResponseSuccessful = Boolean(
     result.response?.ok && !isFailureBody(result.payload),
+  );
+  const providerError = getNestedRecord(result.payload, "error");
+  const providerErrorCodeValue = providerError?.code;
+  const providerErrorCodeIsNumeric =
+    (typeof providerErrorCodeValue === "number" &&
+      Number.isInteger(providerErrorCodeValue) &&
+      providerErrorCodeValue >= 0) ||
+    (typeof providerErrorCodeValue === "string" &&
+      /^[0-9]+$/.test(providerErrorCodeValue));
+  const providerErrorCode = Number(providerErrorCodeValue);
+  const exactNonRetryableProviderRejection = Boolean(
+    result.response &&
+      result.response.status >= 400 &&
+      result.response.status < 500 &&
+      ![408, 425, 429].includes(result.response.status) &&
+      providerError &&
+      providerErrorCodeIsNumeric &&
+      ![1, 2, 4, 17, 32, 341, 613].includes(providerErrorCode) &&
+      providerError.is_transient === false &&
+      readStringField(providerError, "message"),
+  );
+  const uncertainProviderResponse = Boolean(
+    input.uncertainHttpResponseIsAmbiguous &&
+      providerResponseReceived &&
+      !providerResponseSuccessful &&
+      !exactNonRetryableProviderRejection,
   );
   return {
     ...result,
@@ -798,7 +881,7 @@ async function metaFetchWriteOnce(input: {
       providerResponseReceived,
       providerResponseSuccessful,
       httpStatus: result.response?.status ?? null,
-      outcome: providerResponseReceived
+      outcome: providerResponseReceived && !uncertainProviderResponse
         ? "provider_response_received"
         : "outcome_ambiguous",
       automaticRetryAttempted: false,
@@ -875,6 +958,23 @@ function buildWriteFailure(input: {
   verificationPayload?: Record<string, unknown> | null;
   resultingAdId?: string | null;
 }): MetaAdsWriteFailure {
+  if (input.mutationAttempt?.outcome === "outcome_ambiguous") {
+    return {
+      ok: false,
+      httpStatus: input.httpStatus,
+      providerMutationAttempted: true,
+      providerOutcome: "outcome_ambiguous",
+      mutationAttempt: input.mutationAttempt,
+      error: {
+        code: META_PROVIDER_OUTCOME_AMBIGUOUS_CODE,
+        message:
+          "Meta returned a response that does not prove the create was rejected before commit. Reconcile exact provider state before any retry.",
+      },
+      responsePayload: input.payload,
+      verificationPayload: input.verificationPayload ?? null,
+      resultingAdId: input.resultingAdId ?? null,
+    };
+  }
   return {
     ok: false,
     httpStatus: input.httpStatus,
@@ -1687,6 +1787,519 @@ async function updateEntityStatus(
   };
 }
 
+export interface MetaAdDuplicateProviderObservation {
+  id: string;
+  name: string;
+  providerAccountId: string;
+  status: string;
+  effectiveStatus: string | null;
+  targetAdsetId: string;
+  creativeId: string;
+  observedAt: string;
+  providerGetEvidence: Record<string, unknown>;
+}
+
+export type MetaAdDuplicateProviderPointRead =
+  | { ok: true; observation: MetaAdDuplicateProviderObservation }
+  | {
+      ok: false;
+      blocker: "provider_read_unavailable" | "provider_identity_drift";
+      httpStatus: number | null;
+      observedAt: string;
+      evidence: Record<string, unknown> | null;
+    };
+
+export interface MetaAdDuplicateProviderScan {
+  complete: boolean;
+  blocker:
+    | null
+    | "provider_read_unavailable"
+    | "pagination_cycle"
+    | "pagination_segment_limit"
+    | "provider_identity_drift";
+  pageCount: number;
+  observationCount: number;
+  exactMatches: MetaAdDuplicateProviderObservation[];
+  exactMatchIds: string[];
+  segmentStartAfterCursor: string | null;
+  segmentStartCursorHash: string | null;
+  segmentEndAfterCursor: string | null;
+  segmentEndCursorHash: string | null;
+  visitedCursorHashes: string[];
+  observedAt: string;
+  evidence: Record<string, unknown>;
+}
+
+interface MetaAdDuplicateLookupTarget {
+  marker: string;
+  canonicalAdName: string;
+  targetAdsetId: string;
+  creativeId: string;
+  requestedStatus: "PAUSED";
+}
+
+const META_AD_DUPLICATE_MAX_CURSOR_LENGTH = 2_048;
+
+function metaAdDuplicateCursorHash(cursor: string | null) {
+  return createHash("sha256")
+    .update(cursor == null ? "first:" : `cursor:${cursor}`, "utf8")
+    .digest("hex");
+}
+
+function normalizeMetaAdDuplicateAfterCursor(
+  value: string | null | undefined,
+  accessToken: string,
+) {
+  if (value == null) return null;
+  const cursor = value.trim();
+  if (
+    !cursor ||
+    cursor !== value ||
+    cursor.length > META_AD_DUPLICATE_MAX_CURSOR_LENGTH ||
+    /[\r\n\t\s]/.test(cursor) ||
+    /https?:\/\//i.test(cursor) ||
+    /access_?token|authorization|bearer/i.test(cursor) ||
+    (accessToken && cursor.includes(accessToken))
+  ) {
+    return null;
+  }
+  return cursor;
+}
+
+function parseMetaAdDuplicateObservation(input: {
+  payload: Record<string, unknown>;
+  ctx: MetaAdsWriteContext;
+  observedAt: string;
+}): MetaAdDuplicateProviderObservation | null {
+  const id = readStringField(input.payload, "id");
+  const name = readStringField(input.payload, "name");
+  const providerAccountId = normalizeProviderAccountId(
+    readStringField(input.payload, "account_id"),
+  );
+  if (
+    !id ||
+    !name ||
+    providerAccountId !==
+      normalizeProviderAccountId(input.ctx.providerAccountId)
+  ) {
+    return null;
+  }
+  const creative = getNestedRecord(input.payload, "creative");
+  const targetAdsetId = readStringField(input.payload, "adset_id");
+  const creativeId = readStringField(creative, "id");
+  const status = readStringField(input.payload, "status").toUpperCase();
+  if (!targetAdsetId || !creativeId || !status) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    providerAccountId,
+    status,
+    effectiveStatus:
+      readStringField(input.payload, "effective_status").toUpperCase() ||
+      null,
+    targetAdsetId,
+    creativeId,
+    observedAt: input.observedAt,
+    providerGetEvidence: redactMetaAdDuplicateProviderEvidence(
+      cloneRecord(input.payload),
+      input.ctx.accessToken,
+    )!,
+  };
+}
+
+function exactMetaAdDuplicateObservation(
+  observation: MetaAdDuplicateProviderObservation,
+  target: MetaAdDuplicateLookupTarget,
+) {
+  return (
+    observation.name === target.canonicalAdName &&
+    observation.name.includes(target.marker) &&
+    observation.targetAdsetId === target.targetAdsetId &&
+    observation.creativeId === target.creativeId &&
+    observation.status === target.requestedStatus
+  );
+}
+
+export async function readMetaAdDuplicateProviderObservation(input: {
+  ctx: MetaAdsWriteContext;
+  adId: string;
+  target: MetaAdDuplicateLookupTarget;
+  timeoutMs?: number;
+}): Promise<MetaAdDuplicateProviderPointRead> {
+  const observedAt = new Date().toISOString();
+  const result = await metaFetch({
+    ctx: input.ctx,
+    path: input.adId,
+    method: "GET",
+    fields:
+      "id,name,account_id,status,effective_status,adset_id,creative{id}",
+    redirect: "error",
+    timeoutMs: input.timeoutMs,
+  });
+  if (
+    result.error ||
+    !result.response?.ok ||
+    isFailureBody(result.payload)
+  ) {
+    return {
+      ok: false,
+      blocker: "provider_read_unavailable",
+      httpStatus: result.response?.status ?? null,
+      observedAt,
+      evidence: redactMetaAdDuplicateProviderEvidence(
+        result.payload,
+        input.ctx.accessToken,
+      ),
+    };
+  }
+  const observation = result.payload
+    ? parseMetaAdDuplicateObservation({
+        payload: result.payload,
+        ctx: input.ctx,
+        observedAt,
+      })
+    : null;
+  if (
+    !observation ||
+    observation.id !== input.adId ||
+    !exactMetaAdDuplicateObservation(observation, input.target)
+  ) {
+    return {
+      ok: false,
+      blocker: "provider_identity_drift",
+      httpStatus: result.response.status,
+      observedAt,
+      evidence: redactMetaAdDuplicateProviderEvidence(
+        result.payload,
+        input.ctx.accessToken,
+      ),
+    };
+  }
+  return { ok: true, observation };
+}
+
+/**
+ * Traverses the physical account's complete Ads edge. Interrupted, cyclic,
+ * over-limit, or malformed pagination is explicitly incomplete and therefore
+ * can never authorize an absence release.
+ */
+export async function scanMetaAdDuplicatesByMarker(input: {
+  ctx: MetaAdsWriteContext;
+  target: MetaAdDuplicateLookupTarget;
+  maxPages?: number;
+  maxDurationMs?: number;
+  afterCursor?: string | null;
+  visitedCursorHashes?: string[];
+  cumulativePageCount?: number;
+  cumulativeObservationCount?: number;
+  cumulativeExactMatchIds?: string[];
+}): Promise<MetaAdDuplicateProviderScan> {
+  const maxPages = Math.max(1, Math.min(1_000, input.maxPages ?? 250));
+  const maxDurationMs = Math.max(
+    50,
+    Math.min(60_000, input.maxDurationMs ?? 15_000),
+  );
+  const scanStartedAt = Date.now();
+  const accountNumericId = getAccountNumericId(input.ctx.providerAccountId);
+  let nextUrl: URL | null = buildGraphUrl(
+    `act_${accountNumericId}/ads`,
+    input.ctx.accessToken,
+  );
+  const providerFields =
+    "id,name,account_id,status,effective_status,adset_id,creative{id}";
+  nextUrl.searchParams.set("fields", providerFields);
+  nextUrl.searchParams.set("limit", "100");
+  const segmentStartAfterCursor = normalizeMetaAdDuplicateAfterCursor(
+    input.afterCursor,
+    input.ctx.accessToken,
+  );
+  const invalidStartCursor =
+    input.afterCursor != null && segmentStartAfterCursor == null;
+  if (segmentStartAfterCursor) {
+    nextUrl.searchParams.set("after", segmentStartAfterCursor);
+  }
+  const expectedPathname = nextUrl.pathname;
+  const allowedQueryParams = new Set([
+    "access_token",
+    "fields",
+    "limit",
+    "after",
+  ]);
+  const priorVisitedCursorHashes = input.visitedCursorHashes ?? [];
+  const invalidVisitedCursorHashes = priorVisitedCursorHashes.some(
+    (hash) => !/^[0-9a-f]{64}$/.test(hash),
+  );
+  const visitedCursorHashes = new Set(priorVisitedCursorHashes);
+  const visitedUrls = new Set<string>();
+  const exactMatches: MetaAdDuplicateProviderObservation[] = [];
+  const exactMatchIds = new Set(input.cumulativeExactMatchIds ?? []);
+  const priorPageCount = Math.max(
+    0,
+    Math.floor(input.cumulativePageCount ?? 0),
+  );
+  const priorObservationCount = Math.max(
+    0,
+    Math.floor(input.cumulativeObservationCount ?? 0),
+  );
+  const pages: Array<Record<string, unknown>> = [];
+  let pageCount = 0;
+  let successfulPageCount = 0;
+  let successfulObservationCount = 0;
+  let blocker: MetaAdDuplicateProviderScan["blocker"] = null;
+  let segmentEndAfterCursor: string | null = null;
+  const observedAt = new Date().toISOString();
+
+  if (invalidStartCursor || invalidVisitedCursorHashes) {
+    blocker = "provider_identity_drift";
+    nextUrl = null;
+  }
+
+  while (nextUrl) {
+    if (
+      nextUrl.protocol !== "https:" ||
+      nextUrl.hostname !== "graph.facebook.com" ||
+      nextUrl.port !== "" ||
+      nextUrl.username !== "" ||
+      nextUrl.password !== "" ||
+      nextUrl.hash !== "" ||
+      nextUrl.pathname !== expectedPathname ||
+      [...nextUrl.searchParams.keys()].some(
+        (key) => !allowedQueryParams.has(key),
+      ) ||
+      nextUrl.searchParams.getAll("access_token").length !== 1 ||
+      nextUrl.searchParams.get("access_token") !== input.ctx.accessToken ||
+      nextUrl.searchParams.getAll("fields").length !== 1 ||
+      nextUrl.searchParams.get("fields") !== providerFields ||
+      nextUrl.searchParams.getAll("limit").length !== 1 ||
+      !/^[1-9][0-9]*$/.test(nextUrl.searchParams.get("limit") ?? "") ||
+      nextUrl.searchParams.get("limit") !== "100" ||
+      nextUrl.searchParams.getAll("after").length > 1 ||
+      (pageCount > 0 &&
+        !(nextUrl.searchParams.get("after") ?? "").trim())
+    ) {
+      blocker = "provider_identity_drift";
+      break;
+    }
+    const pageKey = nextUrl.toString();
+    const pageAfterCursor = normalizeMetaAdDuplicateAfterCursor(
+      nextUrl.searchParams.get("after"),
+      input.ctx.accessToken,
+    );
+    const pageCursorHash = metaAdDuplicateCursorHash(pageAfterCursor);
+    if (
+      visitedUrls.has(pageKey) ||
+      visitedCursorHashes.has(pageCursorHash)
+    ) {
+      blocker = "pagination_cycle";
+      break;
+    }
+    const remainingMs = maxDurationMs - (Date.now() - scanStartedAt);
+    if (remainingMs <= 0) {
+      segmentEndAfterCursor = normalizeMetaAdDuplicateAfterCursor(
+        nextUrl.searchParams.get("after"),
+        input.ctx.accessToken,
+      );
+      blocker = segmentEndAfterCursor
+        ? "pagination_segment_limit"
+        : "provider_read_unavailable";
+      break;
+    }
+    if (pageCount >= maxPages) {
+      segmentEndAfterCursor = normalizeMetaAdDuplicateAfterCursor(
+        nextUrl.searchParams.get("after"),
+        input.ctx.accessToken,
+      );
+      blocker = segmentEndAfterCursor
+        ? "pagination_segment_limit"
+        : "provider_identity_drift";
+      break;
+    }
+    visitedUrls.add(pageKey);
+    pageCount += 1;
+    let response: Response;
+    try {
+      response = await fetch(pageKey, {
+        method: "GET",
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(
+          Math.min(META_ADS_PROVIDER_FETCH_TIMEOUT_MS, remainingMs),
+        ),
+      });
+    } catch {
+      blocker = "provider_read_unavailable";
+      segmentEndAfterCursor = pageAfterCursor;
+      break;
+    }
+    const payload = await readResponseJson(response);
+    if (!response.ok || isFailureBody(payload)) {
+      blocker = "provider_read_unavailable";
+      segmentEndAfterCursor = pageAfterCursor;
+      pages.push({ page: pageCount, httpStatus: response.status, ok: false });
+      break;
+    }
+    if (!payload || !Array.isArray(payload.data)) {
+      blocker = "provider_identity_drift";
+      break;
+    }
+    const data = payload.data;
+    let pageObservationCount = 0;
+    const pageExactMatches: MetaAdDuplicateProviderObservation[] = [];
+    for (const raw of data) {
+      if (!isRecord(raw)) {
+        blocker = "provider_identity_drift";
+        break;
+      }
+      pageObservationCount += 1;
+      const id = readStringField(raw, "id");
+      const name = readStringField(raw, "name");
+      const providerAccountId = normalizeProviderAccountId(
+        readStringField(raw, "account_id"),
+      );
+      if (
+        !id ||
+        !name ||
+        providerAccountId !==
+          normalizeProviderAccountId(input.ctx.providerAccountId)
+      ) {
+        blocker = "provider_identity_drift";
+        break;
+      }
+      const isCandidate =
+        name === input.target.canonicalAdName ||
+        name.includes(input.target.marker);
+      if (!isCandidate) {
+        continue;
+      }
+      const observation = parseMetaAdDuplicateObservation({
+        payload: raw,
+        ctx: input.ctx,
+        observedAt,
+      });
+      if (!observation) {
+        blocker = "provider_identity_drift";
+        break;
+      }
+      if (exactMetaAdDuplicateObservation(observation, input.target)) {
+        pageExactMatches.push(observation);
+      } else if (
+        observation.name === input.target.canonicalAdName ||
+        observation.name.includes(input.target.marker)
+      ) {
+        blocker = "provider_identity_drift";
+        break;
+      }
+    }
+    if (blocker) break;
+    let parsedNextUrl: URL | null = null;
+    const hasPaging = Object.prototype.hasOwnProperty.call(payload, "paging");
+    const rawPaging = payload.paging;
+    if (!hasPaging || rawPaging === null) {
+      parsedNextUrl = null;
+    } else if (!isRecord(rawPaging)) {
+      blocker = "provider_identity_drift";
+    } else {
+      const hasNext = Object.prototype.hasOwnProperty.call(
+        rawPaging,
+        "next",
+      );
+      const rawNextValue = rawPaging.next;
+      if (!hasNext || rawNextValue === null) {
+        parsedNextUrl = null;
+      } else if (
+        typeof rawNextValue !== "string" ||
+        !rawNextValue.trim() ||
+        rawNextValue !== rawNextValue.trim()
+      ) {
+        blocker = "provider_identity_drift";
+      } else {
+        try {
+          parsedNextUrl = new URL(rawNextValue);
+          const parsedAfterCursor = normalizeMetaAdDuplicateAfterCursor(
+            parsedNextUrl.searchParams.get("after"),
+            input.ctx.accessToken,
+          );
+          if (!parsedAfterCursor) {
+            blocker = "provider_identity_drift";
+            parsedNextUrl = null;
+          }
+        } catch {
+          blocker = "provider_identity_drift";
+          parsedNextUrl = null;
+        }
+      }
+    }
+    if (blocker) break;
+    visitedCursorHashes.add(pageCursorHash);
+    successfulPageCount += 1;
+    successfulObservationCount += pageObservationCount;
+    for (const observation of pageExactMatches) {
+      exactMatches.push(observation);
+      if (exactMatchIds.size < 2) exactMatchIds.add(observation.id);
+    }
+    pages.push({
+      page: pageCount,
+      httpStatus: response.status,
+      rowCount: data.length,
+      afterCursorHash: pageCursorHash,
+    });
+    nextUrl = parsedNextUrl;
+  }
+
+  const complete = blocker === null && nextUrl === null;
+  const cumulativePageCount = priorPageCount + successfulPageCount;
+  const cumulativeObservationCount =
+    priorObservationCount + successfulObservationCount;
+  const segmentStartCursorHash = segmentStartAfterCursor
+    ? metaAdDuplicateCursorHash(segmentStartAfterCursor)
+    : null;
+  const segmentEndCursorHash = segmentEndAfterCursor
+    ? metaAdDuplicateCursorHash(segmentEndAfterCursor)
+    : null;
+  return {
+    complete,
+    blocker,
+    pageCount: cumulativePageCount,
+    observationCount: cumulativeObservationCount,
+    exactMatches,
+    exactMatchIds: [...exactMatchIds],
+    segmentStartAfterCursor,
+    segmentStartCursorHash,
+    segmentEndAfterCursor,
+    segmentEndCursorHash,
+    visitedCursorHashes: [...visitedCursorHashes],
+    observedAt,
+    evidence: {
+      contractVersion: "meta-ad-duplicate-provider-scan.v1",
+      providerAccountId: normalizeProviderAccountId(
+        input.ctx.providerAccountId,
+      ),
+      marker: input.target.marker,
+      canonicalAdName: input.target.canonicalAdName,
+      targetAdsetId: input.target.targetAdsetId,
+      creativeId: input.target.creativeId,
+      requestedStatus: input.target.requestedStatus,
+      providerAdsPathname: expectedPathname,
+      maxPages,
+      maxDurationMs,
+      complete,
+      blocker,
+      pageCount: cumulativePageCount,
+      observationCount: cumulativeObservationCount,
+      exactMatchIds: [...exactMatchIds],
+      segmentPageCount: successfulPageCount,
+      segmentObservationCount: successfulObservationCount,
+      segmentStartCursorHash,
+      segmentEndCursorHash,
+      visitedCursorHashes: [...visitedCursorHashes],
+      pages,
+      observedAt,
+    },
+  };
+}
+
 async function updateAdStatus(
   ctx: MetaAdsWriteContext,
   adId: string,
@@ -2038,6 +2651,7 @@ type MetaAdDuplicateInput = {
   name?: string;
   copyMode?: MetaAdDuplicateCopyMode;
   dryRun?: boolean;
+  beforeMutationAttempt?: () => Promise<void>;
 };
 
 type MetaAdDuplicateLiveInput = Omit<MetaAdDuplicateInput, "dryRun"> & {
@@ -2074,6 +2688,7 @@ export async function duplicateAd(
       copyMode === "rebuild_creative"
         ? "id,name,account_id,status,effective_status,creative{id,name,object_type,object_story_id,effective_object_story_id,url_tags,object_story_spec{page_id,instagram_actor_id,link_data{link,message,name,description,picture,image_hash,call_to_action{type,value{link}},child_attachments{link,name,description,picture,image_hash,call_to_action{type,value{link}}}},video_data{video_id,message,title,image_url,thumbnail_url,call_to_action{type,value{link}}},photo_data{message,caption,url,image_hash,call_to_action{type,value{link}}},template_data},asset_feed_spec{bodies{text},titles{text},descriptions{text},images{hash,url,image_url,original_url},videos{video_id,thumbnail_url,image_url}}},adset_id"
         : "id,name,account_id,status,effective_status,creative{id},adset_id",
+    redirect: "error",
   });
   if (sourceAd.error) {
     return {
@@ -2261,6 +2876,8 @@ export async function duplicateAd(
     path: `act_${accountNumericId}/ads`,
     method: "POST",
     body,
+    beforeMutationAttempt: input.beforeMutationAttempt,
+    uncertainHttpResponseIsAmbiguous: true,
   });
   if (write.error) {
     return buildWriteTransportFailure({
@@ -2271,10 +2888,14 @@ export async function duplicateAd(
     });
   }
   const httpStatus = write.response?.status ?? 502;
+  const safeWritePayload = redactMetaAdDuplicateProviderEvidence(
+    write.payload,
+    ctx.accessToken,
+  );
   if (!write.response?.ok || isFailureBody(write.payload)) {
     return {
       ...buildWriteFailure({
-        payload: write.payload,
+        payload: safeWritePayload,
         httpStatus,
         fallbackCode: "meta_duplicate_failed",
         fallbackMessage: "Meta failed to create the duplicate ad.",
@@ -2289,14 +2910,14 @@ export async function duplicateAd(
     return {
       ok: false,
       httpStatus: 502,
-      providerOutcome: "definite_failure",
+      providerOutcome: "outcome_ambiguous",
       mutationAttempt: write.mutationAttempt,
       error: {
         code: "silent_failure",
         message: "Meta returned success but did not return a new ad id.",
       },
       sourceIdentity,
-      responsePayload: write.payload,
+      responsePayload: safeWritePayload,
     };
   }
 
@@ -2304,8 +2925,22 @@ export async function duplicateAd(
     ctx,
     path: newAdId,
     method: "GET",
-    fields: "id,account_id,status,effective_status,adset_id,creative{id}",
+    fields:
+      "id,name,account_id,status,effective_status,adset_id,creative{id}",
+    redirect: "error",
   });
+  const verificationObservedAt = new Date().toISOString();
+  const redactedVerificationPayload =
+    redactMetaAdDuplicateProviderEvidence(
+      verification.payload,
+      ctx.accessToken,
+    );
+  const safeVerificationPayload = redactedVerificationPayload
+    ? {
+        ...redactedVerificationPayload,
+        observedAt: verificationObservedAt,
+      }
+    : null;
   if (
     verification.error ||
     !verification.response?.ok ||
@@ -2321,14 +2956,15 @@ export async function duplicateAd(
         message: "Meta created the duplicate ad but the new ad could not be verified.",
       },
       sourceIdentity,
-      responsePayload: write.payload,
-      verificationPayload: verification.payload,
+      responsePayload: safeWritePayload,
+      verificationPayload: safeVerificationPayload,
       resultingAdId: newAdId,
     };
   }
 
   const verifiedStatus = readStringField(verification.payload, "status");
   const verifiedAdId = readStringField(verification.payload, "id");
+  const verifiedName = readStringField(verification.payload, "name");
   const verifiedProviderAccountId = normalizeProviderAccountId(
     readStringField(verification.payload, "account_id"),
   );
@@ -2337,9 +2973,11 @@ export async function duplicateAd(
     getNestedRecord(verification.payload, "creative"),
     "id",
   );
+  const requiresExactCanonicalName = name.includes("[ADSECUTE_DUP:");
   if (
     verifiedStatus !== statusOption ||
     verifiedAdId !== newAdId ||
+    (requiresExactCanonicalName && verifiedName !== name) ||
     verifiedProviderAccountId !==
       normalizeProviderAccountId(ctx.providerAccountId) ||
     verifiedAdsetId !== input.targetAdsetId ||
@@ -2352,11 +2990,11 @@ export async function duplicateAd(
       mutationAttempt: write.mutationAttempt,
       error: {
         code: "silent_failure",
-        message: "Meta created the duplicate ad but verification did not match the requested identity, account, status, ad set, or creative.",
+        message: "Meta created the duplicate ad but verification did not match the requested identity, name, account, status, ad set, or creative.",
       },
       sourceIdentity,
-      responsePayload: write.payload,
-      verificationPayload: verification.payload,
+      responsePayload: safeWritePayload,
+      verificationPayload: safeVerificationPayload,
       resultingAdId: newAdId,
     };
   }
@@ -2367,10 +3005,18 @@ export async function duplicateAd(
     newCreativeId: copyMode === "rebuild_creative" ? adCreativeId : null,
     sourceIdentity,
     verifiedStatus,
+    mutationAttempt: write.mutationAttempt!,
+    verificationObservedAt,
     responsePayload:
-      creativeResponsePayload && write.payload
-        ? { adcreative: creativeResponsePayload, ad: write.payload }
-        : write.payload,
-    verificationPayload: verification.payload,
+      creativeResponsePayload && safeWritePayload
+        ? {
+            adcreative: redactMetaAdDuplicateProviderEvidence(
+              creativeResponsePayload,
+              ctx.accessToken,
+            ),
+            ad: safeWritePayload,
+          }
+        : safeWritePayload,
+    verificationPayload: safeVerificationPayload,
   };
 }

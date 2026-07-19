@@ -320,6 +320,7 @@ export interface BuildMetaDecisionsWorkspaceReadModelInput {
   sectionLimit?: number;
   adCandidateLimit?: number;
   requireActiveHierarchy?: boolean;
+  authorityMode?: "legacy_review_only" | "native_exact";
 }
 
 function stableId(prefix: string, values: readonly unknown[]) {
@@ -1132,6 +1133,7 @@ function toDecisionOutput(input: {
 function buildCanonicalDecision(input: {
   businessId: string;
   providerAccountId: string;
+  authorityMode: "legacy_review_only" | "native_exact";
   snapshot: MetaDecisionSnapshotSourceRow;
   identity: MetaDecisionIdentitySourceRow;
   campaignContext: MetaDecisionCampaignContextSourceRow | null;
@@ -1200,6 +1202,7 @@ function buildCanonicalDecision(input: {
     // while preventing an act-state classification from contradicting the
     // legacy_review_only sourceAuthority envelope below.
     decisionState:
+      input.authorityMode === "legacy_review_only" &&
       presentation.semantics.decisionState === "act"
         ? ("monitor" as const)
         : presentation.semantics.decisionState,
@@ -1659,6 +1662,7 @@ export function buildMetaDecisionsWorkspaceReadModel(
     const result = buildCanonicalDecision({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
+      authorityMode: input.authorityMode ?? "legacy_review_only",
       snapshot,
       identity,
       campaignContext: identity.campaign_id
@@ -2147,13 +2151,14 @@ function applyNativeCanonicalDecisionAuthority(input: {
       ? row.authorized_action
       : null;
   const activeHierarchy = decision.deliveryScope.state === "active";
+  const actionEligible =
+    activeHierarchy &&
+    hasExactCreativeIdentity &&
+    authorizedAction !== null &&
+    decision.classification.buyerAction === authorizedAction;
   decision.sourceAuthority = {
     status: "native_exact",
-    actionEligible:
-      activeHierarchy &&
-      hasExactCreativeIdentity &&
-      authorizedAction !== null &&
-      decision.classification.buyerAction === authorizedAction,
+    actionEligible,
     reviewOnlyReason: !hasExactCreativeIdentity
       ? "current_creative_identity_is_missing"
       : !activeHierarchy
@@ -2171,7 +2176,8 @@ function applyNativeCanonicalDecisionAuthority(input: {
     providerAccountRefId: row.provider_account_ref_id,
     engineVersion: row.engine_version,
     realAdId: row.ad_id,
-    authorizedAction: hasExactCreativeIdentity ? authorizedAction : null,
+    authorizedAction:
+      activeHierarchy && hasExactCreativeIdentity ? authorizedAction : null,
     jobRunId: row.job_run_id,
   };
   decision.sourceDecision.provenance = provenance({
@@ -2254,6 +2260,7 @@ export function buildNativeMetaCanonicalDecisionInventory(
     const canonical = buildCanonicalDecision({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
+      authorityMode: "native_exact",
       snapshot: nativeSnapshotToInternalSnapshot(row),
       identity: nativeSnapshotToIdentity(row),
       campaignContext: row.campaign_id
@@ -2365,6 +2372,7 @@ export function buildNativeMetaDecisionsWorkspaceReadModel(
     sectionLimit: input.sectionLimit,
     adCandidateLimit: input.adCandidateLimit,
     requireActiveHierarchy: true,
+    authorityMode: "native_exact",
   });
   const nativeBySnapshot = new Map(
     input.snapshotRows.map((row) => [row.snapshot_id, row]),

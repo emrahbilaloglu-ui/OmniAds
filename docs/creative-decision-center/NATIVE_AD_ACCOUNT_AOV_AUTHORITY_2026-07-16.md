@@ -252,3 +252,32 @@ natural scheduler wave pass. Production verification remains SELECT-only and
 must prove terminal job success, exact chain order, receipt/manifest coverage,
 zero proof/lineage contradictions, expected D036 progression, and no unexpected
 Scale/Refresh or above-break-even Cut expansion.
+
+The rollback-anchor AOV replay above is formula-parity evidence, not proof that
+the post-deploy current-epoch scheduler ran. Once the epoch cutover occurs, a
+new day has no same-day rollback anchor and must not be forced into this replay.
+After the first complete natural 03:00 UTC wave, run the dedicated operational
+gate instead:
+
+```bash
+npm run creative:decision:native-ad-natural-wave-verify -- \
+  --as-of=<successful-post-deploy-scheduler-date> \
+  --deploy-anchor=<exact-final-deploy-timestamp> \
+  --expected-business-count=12 \
+  --expected-provider-account-count=13 \
+  --expected-unbound=64df05ed-fd04-4274-968b-5bf122235e89 \
+  --env-default-enabled=<exact-deployed-DECISION_ENGINE_V3_ENABLED>
+```
+
+Take the explicit environment default from the final deployed release
+authority. Runtime defaults to `true` only when
+`DECISION_ENGINE_V3_ENABLED` is absent, so absence must be proved before using
+`true` on that basis.
+
+Its JSON/checksum stay under `/tmp`. A passing result must cover the complete
+active+enabled Meta-bound population under the current epoch, independently
+recompute hydration manifests from persisted source receipts, validate
+calibration reuse, prove snapshot/evaluation/context and operator lineage, and
+show no failed, running, timeout, wrong-epoch, or unbound-business run after the
+deploy anchor. This operational proof complements rather than changes the
+historical replay or resolver.

@@ -136,9 +136,13 @@ function withExactActiveHierarchyAuthority(
         : authority,
     };
   }
+  if (!authority) return decision;
+  const exactActiveHierarchy = isExactActiveMetaDecisionDeliveryScope(
+    decision.deliveryScope,
+  );
   if (
-    !authority?.actionEligible ||
-    isExactActiveMetaDecisionDeliveryScope(decision.deliveryScope)
+    exactActiveHierarchy ||
+    (!authority.actionEligible && authority.authorizedAction === null)
   ) {
     return decision;
   }

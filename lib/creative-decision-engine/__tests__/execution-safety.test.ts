@@ -951,6 +951,160 @@ describe("exact native-ad decision execution", () => {
     });
   });
 
+  it("accepts the exact versioned Ad-status verification envelope and fails closed on hierarchy drift", () => {
+    const expectedLineage = {
+      providerAccountId: "act-1",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
+    };
+    const envelope = {
+      contractVersion: "meta-ad-status-write-verification.v1",
+      adId: "123456789012345",
+      providerAccountId: "act-1",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T10:00:00.500Z",
+      providerGetEvidence: {
+        id: "123456789012345",
+        account_id: "1",
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        creative: { id: "shared-creative" },
+        campaign: {
+          id: "campaign-1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset-1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+      },
+    };
+
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: envelope,
+      }),
+    ).toMatchObject({
+      providerVerified: true,
+      treatmentEligible: true,
+      blockers: [],
+    });
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          ...envelope,
+          adsetEffectiveStatus: "PAUSED",
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          contractVersion: "meta-ad-status-write-verification.v2",
+          id: "123456789012345",
+          account_id: "1",
+          status: "PAUSED",
+          creative: { id: "shared-creative" },
+          campaign: { id: "campaign-1" },
+          adset: { id: "adset-1" },
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    const {
+      configuredStatus: _configuredStatus,
+      ...missingConfiguredStatus
+    } = envelope;
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          ...missingConfiguredStatus,
+          effective_status: "PAUSED",
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    for (const verificationPayload of [
+      { ...envelope, reviewStatus: "IN_PROCESS" },
+      { ...envelope, observedAt: "not-a-date" },
+      {
+        ...envelope,
+        providerGetEvidence: {
+          ...envelope.providerGetEvidence,
+          id: "wrong-ad",
+        },
+      },
+    ]) {
+      expect(
+        validateDecisionOriginProviderVerification({
+          request: nativeRequest(),
+          expectedLineage,
+          verifiedAt: "2026-07-12T10:00:01.000Z",
+          providerCompletedAt: "2026-07-12T10:00:00.000Z",
+          verificationPayload,
+        }),
+      ).toMatchObject({
+        providerVerified: false,
+        treatmentEligible: false,
+        blockers: expect.arrayContaining([
+          "verification_action_mismatch",
+        ]),
+      });
+    }
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.750Z",
+        verificationPayload: envelope,
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+  });
+
   it.each([
     ["provider account", { account_id: "2" }, "verification_provider_account_mismatch"],
     [

@@ -424,6 +424,11 @@ async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
   if (!integration || integration.status !== "connected") {
     return { outcome: "skipped_no_connected_integration" };
   }
+  // The generation this loader's credential belongs to, taken from the SAME row
+  // the token came from. Reading it separately afterwards would reopen the
+  // window: a reconnect in between pairs an old token with a new generation, and
+  // the resulting account list is then stamped as current.
+  const capturedGeneration = `${integration.connection_generation ?? 1}:${integration.status}`;
 
   const liveLoader = () =>
     loadMetaProviderAccountsForSnapshot({
@@ -461,6 +466,7 @@ async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
         provider: "meta",
         freshnessMs: META_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
         reason: "worker_missing_account_snapshot",
+        expectedConnectionGeneration: capturedGeneration,
         liveLoader,
       });
       return {
@@ -490,6 +496,7 @@ async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
           ? "worker_empty_account_snapshot"
           : "worker_stale_account_snapshot",
       skipIfFresh: snapshot.accounts.length > 0,
+      expectedConnectionGeneration: capturedGeneration,
       liveLoader,
     }).catch(() => null);
     return {
@@ -572,6 +579,11 @@ async function refreshGoogleProviderAccountSnapshotIfNeeded(businessId: string) 
   if (!integration || integration.status !== "connected") {
     return { outcome: "skipped_no_connected_integration" };
   }
+  // The generation this loader's credential belongs to, taken from the SAME row
+  // the token came from. Reading it separately afterwards would reopen the
+  // window: a reconnect in between pairs an old token with a new generation, and
+  // the resulting account list is then stamped as current.
+  const capturedGeneration = `${integration.connection_generation ?? 1}:${integration.status}`;
 
   const liveLoader = () =>
     loadGoogleProviderAccountsForSnapshot({
@@ -612,6 +624,7 @@ async function refreshGoogleProviderAccountSnapshotIfNeeded(businessId: string) 
         provider: "google",
         freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
         reason: "worker_missing_account_snapshot",
+        expectedConnectionGeneration: capturedGeneration,
         liveLoader,
       });
       return {
@@ -641,6 +654,7 @@ async function refreshGoogleProviderAccountSnapshotIfNeeded(businessId: string) 
           ? "worker_empty_account_snapshot"
           : "worker_stale_account_snapshot",
       skipIfFresh: snapshot.accounts.length > 0,
+      expectedConnectionGeneration: capturedGeneration,
       liveLoader,
     }).catch(() => null);
     return {

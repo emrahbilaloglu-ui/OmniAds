@@ -69,18 +69,25 @@ export async function scheduleAfterProviderConnect(input: {
     accountIds: string[];
   }) => Promise<void>;
   growthScope: string;
+  /**
+   * The generation the grant COMMITTED under, taken from the row
+   * `upsertIntegration` returned.
+   *
+   * Read separately, it is a different fact: a second reconnect landing between
+   * the grant write and the read would hand this function the newer generation
+   * and it would schedule under a credential the grant never had.
+   */
+  grantConnectionGeneration: string | null;
 }): Promise<PostConnectScheduleResult> {
   const empty = { retainedAccountIds: [], droppedAccountIds: [] };
 
-  const grantGeneration = await readProviderConnectionGenerationToken(
-    input.businessId,
-    input.provider,
-  ).catch(() => null);
+  const grantGeneration = input.grantConnectionGeneration;
 
+  // Also not caught to null: an unreadable selection is not an empty selection.
   const previous = await getProviderAccountAssignments(
     input.businessId,
     input.provider,
-  ).catch(() => null);
+  );
   const previousIds = normalizeProviderAccountIds(previous?.account_ids ?? []);
 
   // 2. A REAL discovery. Awaited, and its failure is terminal for this pass.
@@ -197,10 +204,14 @@ export async function scheduleAfterProviderConnect(input: {
   }
 
   // 5. The generation must still be the one this whole decision was made under.
+  //
+  // NOT caught to null: an authority read that fails is "I cannot tell", and
+  // treating that as "no generation" would disable the check exactly when the
+  // database is the thing misbehaving.
   const beforeEnqueue = await readProviderConnectionGenerationToken(
     input.businessId,
     input.provider,
-  ).catch(() => null);
+  );
   if (beforeEnqueue !== grantGeneration) {
     return {
       scheduled: false,
@@ -214,6 +225,9 @@ export async function scheduleAfterProviderConnect(input: {
   }
 
   try {
+    // The enqueue receives the EXACT retained ids. A callback that ignores them
+    // and re-derives its own set from the database is scheduling something this
+    // function never decided.
     await input.enqueue({ businessId: input.businessId, accountIds: retained });
   } catch (error: unknown) {
     const refusal = describeSyncSafetyRefusal(error);

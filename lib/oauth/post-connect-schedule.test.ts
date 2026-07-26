@@ -53,6 +53,7 @@ const run = () =>
     businessId: "biz-1",
     provider: "meta",
     growthScope: "meta_oauth_post_connect",
+    grantConnectionGeneration: "2:connected",
     liveLoader,
     enqueue,
   });
@@ -137,11 +138,10 @@ describe("scheduleAfterProviderConnect", () => {
   });
 
   it("refuses when a second reconnect lands before the enqueue", async () => {
-    let reads = 0;
-    readProviderConnectionGenerationToken.mockImplementation(async () => {
-      reads += 1;
-      return reads === 1 ? "2:connected" : "3:connected";
-    });
+    // The grant generation is now supplied by the caller, taken from the row its
+    // upsert returned. A reconnect after that shows up as the pre-enqueue read
+    // disagreeing with it.
+    readProviderConnectionGenerationToken.mockResolvedValue("3:connected");
     const result = await run();
     expect(result).toMatchObject({
       scheduled: false,
@@ -203,5 +203,19 @@ describe("scheduleAfterProviderConnect", () => {
     const result = await run();
     expect(result).toMatchObject({ scheduled: false, reason: "schedule_failed" });
     expect(result.detail).toMatch(/queue write failed/);
+  });
+
+  it("propagates an unreadable selection instead of treating it as empty", async () => {
+    // `.catch(() => null)` on an authority read turns "I cannot tell" into
+    // "there is nothing selected", which reads downstream as a clean no-op.
+    getProviderAccountAssignments.mockRejectedValue(new Error("db down"));
+    await expect(run()).rejects.toThrow(/db down/);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("propagates an unreadable generation instead of disabling the check", async () => {
+    readProviderConnectionGenerationToken.mockRejectedValue(new Error("db down"));
+    await expect(run()).rejects.toThrow(/db down/);
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

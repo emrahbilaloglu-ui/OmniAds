@@ -1107,6 +1107,242 @@ async function main() {
       `G12: a refresh proceeded while another process held the claim (${claimedCalls} provider calls): ${String(claimed)}`,
     );
 
+    // ── G13-G16. Claim ownership, across real separate clients ─────────────
+    //
+    // G11/G12 exercised the in-process path. These use SEPARATE pg clients — a
+    // different backend, a different session — because the failure they cover is
+    // two PROCESSES, and an in-process test can never observe it.
+    const otherClient = new Client({ connectionString });
+    await otherClient.connect();
+    try {
+      await client.query(
+        `DELETE FROM provider_account_snapshot_runs WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      await forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_claim_base",
+        liveLoader: async () => [{ id: "claim_base", name: "Base" }],
+      });
+
+      // G13: an OLD claimant cannot commit SUCCESS over a new owner.
+      //
+      // The refresh takes a claim, another process takes it over mid-flight, and
+      // the original then tries to write its result. Without owner+epoch the old
+      // claimant's accounts land on top of the new owner's work.
+      let takeoverDone = false;
+      const oldClaimantSuccess = await forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_old_claimant",
+        liveLoader: async () => {
+          // A DIFFERENT session takes the claim while this call is in flight.
+          await otherClient.query(
+            `UPDATE provider_account_snapshot_runs
+             SET refresh_claim_owner = 'other-process',
+                 refresh_claim_epoch = refresh_claim_epoch + 1
+             WHERE business_id = $1 AND provider = 'google'`,
+            [genBusinessId],
+          );
+          takeoverDone = true;
+          return [{ id: "old_claimant_result", name: "Stale" }];
+        },
+      }).then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      );
+      assert(
+        takeoverDone && oldClaimantSuccess != null && /taken over/.test(oldClaimantSuccess),
+        `G13: an old claimant committed over a takeover: ${String(oldClaimantSuccess)}`,
+      );
+      const stale = await otherClient.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM provider_account_snapshot_items item
+         JOIN provider_account_snapshot_runs run ON run.id = item.snapshot_run_id
+         WHERE run.business_id = $1 AND item.provider_account_id = 'old_claimant_result'`,
+        [genBusinessId],
+      );
+      assert(
+        Number(stale.rows[0]!.count) === 0,
+        "G13: the taken-over claimant's account list was written anyway.",
+      );
+
+      // G14: an OLD claimant cannot commit FAILURE either. A failure commit
+      // clears refresh_in_progress and rewrites the cooldown — doing that on
+      // behalf of a claim someone else now holds corrupts the new owner's state.
+      const claimStateBefore = await otherClient.query<{
+        refresh_claim_owner: string;
+        refresh_in_progress: boolean;
+      }>(
+        `SELECT refresh_claim_owner, refresh_in_progress
+         FROM provider_account_snapshot_runs
+         WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      assert(
+        claimStateBefore.rows[0]?.refresh_claim_owner === "other-process",
+        `G14: the takeover did not stick: ${JSON.stringify(claimStateBefore.rows[0])}`,
+      );
+      // Release the durable claim so the next refresh can take one of its own —
+      // otherwise it is refused as "already in progress" and never reaches the
+      // commit path this case is about.
+      await client.query(
+        `UPDATE provider_account_snapshot_runs
+         SET refresh_in_progress = FALSE, next_refresh_after = NULL
+         WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      const oldClaimantFailure = await forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_old_claimant_failure",
+        liveLoader: async () => {
+          await otherClient.query(
+            `UPDATE provider_account_snapshot_runs
+             SET refresh_claim_owner = 'other-process-2',
+                 refresh_claim_epoch = refresh_claim_epoch + 1
+             WHERE business_id = $1 AND provider = 'google'`,
+            [genBusinessId],
+          );
+          throw new Error("provider failed after takeover");
+        },
+      }).then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      );
+      assert(oldClaimantFailure != null, "G14: the failing refresh resolved.");
+      const claimStateAfter = await otherClient.query<{
+        refresh_claim_owner: string;
+        last_error: string | null;
+      }>(
+        `SELECT refresh_claim_owner, last_error
+         FROM provider_account_snapshot_runs
+         WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      assert(
+        claimStateAfter.rows[0]?.refresh_claim_owner === "other-process-2" &&
+          !/provider failed after takeover/.test(
+            claimStateAfter.rows[0]?.last_error ?? "",
+          ),
+        `G14: an old claimant wrote its failure over the new owner's claim: ${JSON.stringify(claimStateAfter.rows[0])}`,
+      );
+
+      // G15: a failure NEVER restamps the previous account list with the current
+      // credential's authority. This is the reconnect-then-fail case: snapshot A
+      // exists, the loader reconnects to B and throws, and the failure handler
+      // writes A's accounts back — which must keep A's fingerprint.
+      await client.query(
+        `UPDATE provider_account_snapshot_runs
+         SET refresh_claim_owner = NULL, refresh_claim_epoch = 0,
+             refresh_in_progress = FALSE, next_refresh_after = NULL
+         WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      await forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_fingerprint_base",
+        liveLoader: async () => [{ id: "acct_under_A", name: "A" }],
+      });
+      const fingerprintA = (
+        await otherClient.query<{ connection_fingerprint: string }>(
+          `SELECT connection_fingerprint FROM provider_account_snapshot_runs
+           WHERE business_id = $1 AND provider = 'google'`,
+          [genBusinessId],
+        )
+      ).rows[0]!.connection_fingerprint;
+
+      await client.query(
+        `UPDATE provider_account_snapshot_runs
+         SET next_refresh_after = NULL WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      await forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_reconnect_then_fail",
+        liveLoader: async () => {
+          await upsertIntegration({
+            businessId: genBusinessId,
+            provider: "google",
+            status: "connected",
+            providerAccountId: "cust_F",
+            accessToken: "google-token-F",
+            refreshToken: "google-refresh-F",
+          });
+          throw new Error("provider failed after reconnect");
+        },
+      }).catch(() => undefined);
+      const fingerprintAfterFailure = (
+        await otherClient.query<{
+          connection_fingerprint: string;
+          accounts: string | null;
+        }>(
+          `SELECT run.connection_fingerprint,
+                  (SELECT string_agg(provider_account_id, ',' ORDER BY provider_account_id)
+                   FROM provider_account_snapshot_items
+                   WHERE snapshot_run_id = run.id) AS accounts
+           FROM provider_account_snapshot_runs run
+           WHERE run.business_id = $1 AND run.provider = 'google'`,
+          [genBusinessId],
+        )
+      ).rows[0]!;
+      assert(
+        fingerprintAfterFailure.accounts === "acct_under_A",
+        `G15: the failure changed the account list: ${JSON.stringify(fingerprintAfterFailure)}`,
+      );
+      assert(
+        fingerprintAfterFailure.connection_fingerprint === fingerprintA,
+        `G15: a failure caused by a RECONNECT restamped the previous account list with the NEW credential's authority (${fingerprintA} -> ${fingerprintAfterFailure.connection_fingerprint}); selection reads exactly that fingerprint.`,
+      );
+
+      // G16: two SEPARATE clients reading run+items while a third rewrites.
+      // One statement, one MVCC snapshot — never a mixed revision.
+      await client.query(
+        `UPDATE provider_account_snapshot_runs
+         SET next_refresh_after = NULL, refresh_claim_owner = NULL,
+             refresh_claim_epoch = 0, refresh_in_progress = FALSE
+         WHERE business_id = $1 AND provider = 'google'`,
+        [genBusinessId],
+      );
+      const readRevision = async (target: Client) =>
+        (
+          await target.query<{ accounts: string | null }>(
+            `SELECT (SELECT string_agg(provider_account_id, ',' ORDER BY provider_account_id)
+                     FROM provider_account_snapshot_items
+                     WHERE snapshot_run_id = run.id) AS accounts
+             FROM provider_account_snapshot_runs run
+             WHERE run.business_id = $1 AND run.provider = 'google'`,
+            [genBusinessId],
+          )
+        ).rows[0]?.accounts ?? null;
+      const readers = Promise.all(
+        Array.from({ length: 12 }, () => readRevision(otherClient)),
+      );
+      const rewrite = forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_cross_client_rewrite",
+        bypassCooldown: true,
+        liveLoader: async () => [{ id: "rev_x", name: "X" }],
+      }).catch(() => undefined);
+      const [readerValues] = await Promise.all([readers, rewrite]);
+      for (const value of readerValues) {
+        assert(
+          value === "acct_under_A" || value === "rev_x" || value === null,
+          `G16: a separate-client reader observed a MIXED revision: ${String(value)}`,
+        );
+      }
+
+      console.log(
+        `${LABEL} G13-G16 PASS claim ownership across processes: a taken-over claimant can commit neither its SUCCESS (0 stale accounts persisted) nor its FAILURE (the new owner's claim and last_error intact); a failure caused by a reconnect keeps the previous list's ORIGINAL fingerprint instead of relabelling it with the new credential; and 12 reads from a SEPARATE client racing a rewrite never see a mixed revision`,
+      );
+    } finally {
+      await otherClient.end().catch(() => undefined);
+    }
+
     console.log(
       `${LABEL} G4-G12 PASS credential and snapshot races: an A->B reconnect with no new refresh token CLEARS the old principal's refresh token and bumps the generation while a same-principal refresh preserves it; a reconnect clears stale error_message and disconnected_at; a write under a stale generation is refused and does not overwrite the newer grant; failure bookkeeping survives the throw and a second refresh inside the cooldown makes 0 provider calls; a reconnect during the fetch and a reconnect before the claim both refuse with 0 persisted accounts; 8 concurrent readers racing a rewrite never see a mixed revision; and a held durable claim refuses a second refresh with 0 provider calls`,
     );

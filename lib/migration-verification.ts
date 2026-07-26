@@ -245,6 +245,12 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // rather than degrade quietly — verified so it fails at migration time
   // instead.
   { table: "provider_account_snapshot_runs", column: "connection_fingerprint", dataType: "text", isNullable: true },
+  // Refresh claim ownership. Without these a timed-out claimant can still commit
+  // its result over the new owner's, including stamping the OLD account list
+  // with the NEW credential's authority.
+  { table: "provider_account_snapshot_runs", column: "refresh_claim_owner", dataType: "text", isNullable: true },
+  { table: "provider_account_snapshot_runs", column: "refresh_claim_epoch", dataType: "bigint", isNullable: false, columnDefault: "0" },
+  { table: "provider_account_snapshot_runs", column: "refresh_claim_generation", dataType: "text", isNullable: true },
   // The release-gate anti-runaway contract. Every keyed read and the coalescing
   // writer depend on these; without them the table returns to a row per
   // evaluation and a scan per read.

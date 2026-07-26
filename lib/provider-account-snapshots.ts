@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { getDb, runDbTransaction } from "@/lib/db";
 import { getIntegration, type IntegrationProviderType } from "@/lib/integrations";
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
@@ -37,6 +37,9 @@ interface ProviderAccountSnapshotRow {
    * never saw those accounts.
    */
   connection_fingerprint: string | null;
+  refresh_claim_owner: string | null;
+  refresh_claim_epoch: number;
+  refresh_claim_generation: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -62,6 +65,9 @@ interface NormalizedProviderAccountSnapshotRunRow {
   last_successful_refresh_at: string | null;
   refresh_failure_streak: number;
   connection_fingerprint: string | null;
+  refresh_claim_owner: string | null;
+  refresh_claim_epoch: string | number | null;
+  refresh_claim_generation: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -222,6 +228,9 @@ function buildLegacySnapshotRow(input: {
   lastSuccessfulRefreshAt: string | null;
   refreshFailureStreak: number;
   connectionFingerprint: string | null;
+  refreshClaimOwner: string | null;
+  refreshClaimEpoch: number;
+  refreshClaimGeneration: string | null;
   createdAt: string;
   updatedAt: string;
 }): ProviderAccountSnapshotRow {
@@ -241,6 +250,9 @@ function buildLegacySnapshotRow(input: {
     last_successful_refresh_at: input.lastSuccessfulRefreshAt,
     refresh_failure_streak: input.refreshFailureStreak,
     connection_fingerprint: input.connectionFingerprint,
+    refresh_claim_owner: input.refreshClaimOwner,
+    refresh_claim_epoch: input.refreshClaimEpoch,
+    refresh_claim_generation: input.refreshClaimGeneration,
     created_at: input.createdAt,
     updated_at: input.updatedAt,
   };
@@ -394,6 +406,9 @@ async function getSnapshotRow(
       run.last_successful_refresh_at,
       run.refresh_failure_streak,
       run.connection_fingerprint,
+      run.refresh_claim_owner,
+      run.refresh_claim_epoch,
+      run.refresh_claim_generation,
       run.created_at,
       run.updated_at,
       COALESCE(items.rows, '[]'::jsonb) AS items
@@ -444,6 +459,9 @@ async function getSnapshotRow(
     lastSuccessfulRefreshAt: run.last_successful_refresh_at,
     refreshFailureStreak: run.refresh_failure_streak,
     connectionFingerprint: run.connection_fingerprint,
+    refreshClaimOwner: run.refresh_claim_owner,
+    refreshClaimEpoch: Number(run.refresh_claim_epoch ?? 0),
+    refreshClaimGeneration: run.refresh_claim_generation,
     createdAt: run.created_at,
     updatedAt: run.updated_at,
   });
@@ -476,6 +494,18 @@ async function persistSnapshotState(input: {
   sourceReason?: string | null;
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
+  /**
+   * The exact fingerprint to stamp, or `null` to stamp none.
+   *
+   * Omit ONLY when the caller genuinely means "whatever the connection is now".
+   * A failure path must always pass the fingerprint the accounts were fetched
+   * under, or it relabels an old list with a new credential's authority.
+   */
+  connectionFingerprint?: string | null;
+  /** Claim ownership to record alongside the state. */
+  refreshClaimOwner?: string | null;
+  refreshClaimEpoch?: number | null;
+  refreshClaimGeneration?: string | null;
 }) {
   return runDbTransaction(() => persistSnapshotStateInTransaction(input));
 }
@@ -494,6 +524,18 @@ async function persistSnapshotStateInTransaction(input: {
   sourceReason?: string | null;
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
+  /**
+   * The exact fingerprint to stamp, or `null` to stamp none.
+   *
+   * Omit ONLY when the caller genuinely means "whatever the connection is now".
+   * A failure path must always pass the fingerprint the accounts were fetched
+   * under, or it relabels an old list with a new credential's authority.
+   */
+  connectionFingerprint?: string | null;
+  /** Claim ownership to record alongside the state. */
+  refreshClaimOwner?: string | null;
+  refreshClaimEpoch?: number | null;
+  refreshClaimGeneration?: string | null;
 }) {
   const sql = getDb();
   const accountsHash = computeAccountsHash(input.accounts);
@@ -501,15 +543,26 @@ async function persistSnapshotStateInTransaction(input: {
   const fetchedAt = toIso(input.fetchedAt ?? null) ?? now;
   const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const businessRefId = businessRefIds.get(input.businessId) ?? null;
-  // Stamp the connection generation this list was fetched under. A snapshot
-  // that outlives its credential must not keep authorising selection.
-  const connectionIntegration = await getIntegration(
-    input.businessId,
-    input.provider as IntegrationProviderType,
-  ).catch(() => null);
-  const connectionFingerprint = connectionIntegration
-    ? computeProviderConnectionFingerprint(connectionIntegration)
-    : null;
+  // The connection generation this list was fetched under.
+  //
+  // Taken from the CALLER when it knows, and only recomputed from the current
+  // connection when it does not. Recomputing unconditionally is what let a
+  // failure path restamp the PREVIOUS account list with a NEW credential's
+  // authority: the loader reconnected and threw, the failure handler wrote the
+  // old accounts back, and `persistSnapshotState` fingerprinted them against the
+  // connection that had just replaced the one that fetched them. Selection
+  // authority reads exactly that fingerprint.
+  const connectionFingerprint =
+    input.connectionFingerprint !== undefined
+      ? input.connectionFingerprint
+      : await getIntegration(
+          input.businessId,
+          input.provider as IntegrationProviderType,
+        )
+          .then((integration) =>
+            integration ? computeProviderConnectionFingerprint(integration) : null,
+          )
+          .catch(() => null);
   const runRows = (await sql`
     INSERT INTO provider_account_snapshot_runs (
       business_id,
@@ -527,6 +580,9 @@ async function persistSnapshotStateInTransaction(input: {
       last_successful_refresh_at,
       refresh_failure_streak,
       connection_fingerprint,
+      refresh_claim_owner,
+      refresh_claim_epoch,
+      refresh_claim_generation,
       created_at,
       updated_at
     )
@@ -546,6 +602,9 @@ async function persistSnapshotStateInTransaction(input: {
       ${toIso(input.lastSuccessfulRefreshAt ?? null)},
       ${input.refreshFailureStreak ?? 0},
       ${connectionFingerprint},
+      ${input.refreshClaimOwner ?? null},
+      ${input.refreshClaimEpoch ?? 0},
+      ${input.refreshClaimGeneration ?? null},
       ${now},
       ${now}
     )
@@ -566,6 +625,9 @@ async function persistSnapshotStateInTransaction(input: {
       last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
       refresh_failure_streak = EXCLUDED.refresh_failure_streak,
       connection_fingerprint = EXCLUDED.connection_fingerprint,
+      refresh_claim_owner = EXCLUDED.refresh_claim_owner,
+      refresh_claim_epoch = EXCLUDED.refresh_claim_epoch,
+      refresh_claim_generation = EXCLUDED.refresh_claim_generation,
       updated_at = EXCLUDED.updated_at
     RETURNING id
   `) as Array<{ id: string }>;
@@ -939,18 +1001,6 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         }
       }
 
-      await updateSnapshotLifecycle({
-        businessId: input.businessId,
-        provider: input.provider,
-        accounts: existingSnapshot?.accounts_payload ?? [],
-        fetchedAt: existingSnapshot?.fetched_at ?? null,
-        refreshRequestedAt: now,
-        lastRefreshAttemptAt: now,
-        nextRefreshAfter: null,
-        refreshInProgress: true,
-        sourceReason: reason,
-      });
-
       // The credential generation this refresh is bound to. Captured here, and
       // ALSO accepted from the caller: the caller read the access token before
       // it ever got here, so a reconnect between the caller's token read and
@@ -971,7 +1021,41 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           dueToRecentFailure: false,
         });
       }
-      return { generation: expected ?? claimedGeneration };
+      const generation = expected ?? claimedGeneration;
+
+      // OWNED claim. `refresh_in_progress = TRUE` alone identified nobody, so a
+      // claimant whose claim had timed out could still commit its result over
+      // the new owner's — including writing the OLD account list back under the
+      // NEW credential's authority. Owner plus a monotonic epoch makes every
+      // later commit a compare-and-set.
+      const claimOwner = `${process.pid}:${randomUUID()}`;
+      const claimEpoch = Number(existingSnapshot?.refresh_claim_epoch ?? 0) + 1;
+      await persistSnapshotStateInTransaction({
+        businessId: input.businessId,
+        provider: input.provider,
+        accounts: existingSnapshot?.accounts_payload ?? [],
+        fetchedAt: existingSnapshot?.fetched_at ?? null,
+        refreshRequestedAt: now,
+        lastRefreshAttemptAt: now,
+        nextRefreshAfter: null,
+        refreshInProgress: true,
+        sourceReason: reason,
+        refreshFailed: existingSnapshot?.refresh_failed ?? false,
+        lastError: existingSnapshot?.last_error ?? null,
+        lastSuccessfulRefreshAt: existingSnapshot?.last_successful_refresh_at
+          ? new Date(existingSnapshot.last_successful_refresh_at)
+          : null,
+        refreshFailureStreak: Number(existingSnapshot?.refresh_failure_streak ?? 0),
+        // The claim must NOT relabel the existing accounts. They were fetched
+        // under whatever credential fetched them, and this claim has not fetched
+        // anything yet.
+        connectionFingerprint: existingSnapshot?.connection_fingerprint ?? null,
+        refreshClaimOwner: claimOwner,
+        refreshClaimEpoch: claimEpoch,
+        refreshClaimGeneration: generation,
+      });
+
+      return { generation, claimOwner, claimEpoch };
     });
 
     // ── Phase 2: the provider call, outside any transaction ───────────────
@@ -984,6 +1068,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         provider: input.provider,
         reason,
         now,
+        claim,
         message: error instanceof Error ? error.message : String(error),
       });
       throw new ProviderAccountSnapshotRefreshError({
@@ -998,20 +1083,16 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
     // ── Phase 3: commit, under a second generation CAS ────────────────────
     try {
       await runDbTransaction(async () => {
-        const generationAfterCall = await readProviderConnectionGeneration(
-          input.businessId,
-          input.provider,
-        );
-        if (generationAfterCall !== claim.generation) {
-          throw new ProviderAccountSnapshotRefreshError({
-            provider: input.provider,
-            businessId: input.businessId,
-            message:
-              "The provider connection changed while its account list was being fetched. The result describes a credential that is no longer current.",
-            retryAfterMs: 0,
-            dueToRecentFailure: false,
-          });
-        }
+        // ONE compare-and-set covering all three facts: the connection has not
+        // moved, this process still owns the claim, and the claim is still at
+        // the epoch it took. Reading the generation and the claim separately
+        // leaves a window between them; reading them in one locked statement
+        // does not.
+        await assertSnapshotClaimStillOurs({
+          businessId: input.businessId,
+          provider: input.provider,
+          claim,
+        });
         await persistSnapshotStateInTransaction({
           businessId: input.businessId,
           provider: input.provider,
@@ -1025,6 +1106,14 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
           sourceReason: reason,
           lastSuccessfulRefreshAt: now,
           refreshFailureStreak: 0,
+          // The generation these accounts were ACTUALLY fetched under.
+          connectionFingerprint: await readConnectionFingerprintForGeneration(
+            input.businessId,
+            input.provider,
+          ),
+          refreshClaimOwner: null,
+          refreshClaimEpoch: claim.claimEpoch,
+          refreshClaimGeneration: claim.generation,
         });
       });
     } catch (error: unknown) {
@@ -1033,6 +1122,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
         provider: input.provider,
         reason,
         now,
+        claim,
         message: error instanceof Error ? error.message : String(error),
       });
       if (error instanceof ProviderAccountSnapshotRefreshError) throw error;
@@ -1056,19 +1146,112 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   await refreshPromise;
 }
 
+
+export interface SnapshotRefreshClaim {
+  generation: string | null;
+  claimOwner: string;
+  claimEpoch: number;
+}
+
+/**
+ * Compare-and-set the whole authority of an in-flight refresh, in ONE statement.
+ *
+ * Three facts have to hold together at commit time: the connection has not
+ * moved, this process still owns the claim, and the claim is still at the epoch
+ * it took. Reading them separately leaves a window between each pair — which is
+ * how a timed-out claimant could still commit over the process that took over
+ * from it. `FOR UPDATE` on the run row plus a single joined read closes it.
+ */
+async function assertSnapshotClaimStillOurs(input: {
+  businessId: string;
+  provider: string;
+  claim: SnapshotRefreshClaim;
+}): Promise<void> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT run.refresh_claim_owner,
+           run.refresh_claim_epoch::text AS refresh_claim_epoch,
+           connection.connection_generation::text AS connection_generation,
+           connection.status AS connection_status
+    FROM provider_account_snapshot_runs run
+    LEFT JOIN provider_connections connection
+      ON connection.business_id = run.business_id
+     AND connection.provider = run.provider
+    WHERE run.business_id = ${input.businessId}
+      AND run.provider = ${input.provider}
+    FOR UPDATE OF run
+  `) as Array<{
+    refresh_claim_owner: string | null;
+    refresh_claim_epoch: string;
+    connection_generation: string | null;
+    connection_status: string | null;
+  }>;
+  const row = rows[0];
+  const observedGeneration = row?.connection_generation
+    ? `${row.connection_generation}:${row.connection_status}`
+    : null;
+
+  if (observedGeneration !== input.claim.generation) {
+    throw new ProviderAccountSnapshotRefreshError({
+      provider: input.provider,
+      businessId: input.businessId,
+      message:
+        "The provider connection changed while its account list was being fetched. The result describes a credential that is no longer current.",
+      retryAfterMs: 0,
+      dueToRecentFailure: false,
+    });
+  }
+  if (
+    row?.refresh_claim_owner !== input.claim.claimOwner ||
+    Number(row?.refresh_claim_epoch ?? 0) !== input.claim.claimEpoch
+  ) {
+    throw new ProviderAccountSnapshotRefreshError({
+      provider: input.provider,
+      businessId: input.businessId,
+      message:
+        "This refresh claim was taken over by another process. Its result was discarded rather than written over the new owner's.",
+      retryAfterMs: 0,
+      dueToRecentFailure: false,
+    });
+  }
+}
+
+/** The fingerprint of the connection as it stands right now. */
+async function readConnectionFingerprintForGeneration(
+  businessId: string,
+  provider: string,
+): Promise<string | null> {
+  const integration = await getIntegration(
+    businessId,
+    provider as IntegrationProviderType,
+  ).catch(() => null);
+  return integration ? computeProviderConnectionFingerprint(integration) : null;
+}
+
 /**
  * Commit failure bookkeeping in its OWN transaction, so it survives the throw
- * that reports the failure.
+ * that reports the failure — and only if this claimant still owns the refresh.
  */
 async function commitSnapshotRefreshFailure(input: {
   businessId: string;
   provider: string;
   reason: string;
   now: Date;
+  claim: SnapshotRefreshClaim;
   message: string;
 }) {
   await runDbTransaction(async () => {
     const currentSnapshot = await getSnapshotRow(input.businessId, input.provider);
+    // A FAILURE commit is a write like any other. An old claimant whose claim
+    // timed out must not clear the new owner's `refresh_in_progress`, reset its
+    // cooldown, or — worst of all — write the previous account list back
+    // stamped with the CURRENT credential's authority.
+    if (
+      currentSnapshot?.refresh_claim_owner !== input.claim.claimOwner ||
+      Number(currentSnapshot?.refresh_claim_epoch ?? 0) !== input.claim.claimEpoch
+    ) {
+      return;
+    }
     const cooldownMs = computeFailureCooldownMs(currentSnapshot);
     const nextRefreshAfter = new Date(Date.now() + cooldownMs);
     if (currentSnapshot) {
@@ -1078,6 +1261,14 @@ async function commitSnapshotRefreshFailure(input: {
         // The previous accounts are kept: a failed refresh does not mean the
         // credential can suddenly see nothing.
         accounts: currentSnapshot.accounts_payload ?? [],
+        // ...and they keep the fingerprint they were FETCHED under. Recomputing
+        // it here is what let a failure whose cause was a reconnect relabel the
+        // old list with the new credential's authority, which selection then
+        // read as "these accounts were seen by the current connection".
+        connectionFingerprint: currentSnapshot.connection_fingerprint,
+        refreshClaimOwner: null,
+        refreshClaimEpoch: Number(currentSnapshot.refresh_claim_epoch ?? 0),
+        refreshClaimGeneration: currentSnapshot.refresh_claim_generation,
         fetchedAt: currentSnapshot.fetched_at,
         refreshFailed: true,
         lastError: input.message,

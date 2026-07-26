@@ -1,6 +1,6 @@
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getIntegration } from "@/lib/integrations";
-import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
+import { resolveGoogleAccessTokenWithGeneration } from "@/lib/google-token-refresh";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 import { classifyGoogleRequestAuditSource } from "@/lib/google-request-audit";
@@ -255,23 +255,22 @@ export async function executeGaqlQuery(params: {
     throw new Error("Google Ads integration not found or not connected");
   }
 
-  let accessToken = integration.access_token;
-
-  // Check if token needs refresh
-  if (integration.token_expires_at) {
-    const expiresAt = new Date(integration.token_expires_at);
-    const now = new Date();
-    if (now >= expiresAt && integration.refresh_token) {
-      try {
-        const refreshed = await refreshGoogleAccessToken(
-          integration.refresh_token,
-        );
-        accessToken = refreshed.accessToken;
-      } catch (error) {
-        console.error("[google-ads-gaql] token refresh failed", error);
-        throw new Error("Failed to refresh Google Ads access token");
-      }
-    }
+  // One coherent refresh flow, shared with every other Google call site.
+  //
+  // The hand-rolled version here refreshed the token and never wrote it back, so
+  // the next caller refreshed again — and it was bound to no generation at all,
+  // so a reconnect mid-request was invisible.
+  let accessToken: string;
+  try {
+    accessToken = (
+      await resolveGoogleAccessTokenWithGeneration({
+        businessId: params.businessId,
+        provider: "google",
+      })
+    ).accessToken;
+  } catch (error) {
+    console.error("[google-ads-gaql] token refresh failed", error);
+    throw new Error("Failed to refresh Google Ads access token");
   }
 
   const normalizedCustomerId = normalizeCustomerIdForRequest(params.customerId);

@@ -1,5 +1,5 @@
 import { getIntegration, type IntegrationRow } from "@/lib/integrations";
-import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
+import { resolveGoogleAccessTokenWithGeneration } from "@/lib/google-token-refresh";
 
 const SEARCH_CONSOLE_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 
@@ -71,17 +71,23 @@ export async function resolveSearchConsoleContext(params: {
     );
   }
 
-  let accessToken = googleIntegration.access_token;
-  const refreshToken = googleIntegration.refresh_token;
+  // The shared, generation-bound refresh flow. The hand-rolled version here
+  // refreshed and never persisted, so every request refreshed again, and it was
+  // bound to no generation — a reconnect mid-request was invisible.
+  let accessToken: string | null = googleIntegration.access_token;
   const expiresAt = googleIntegration.token_expires_at
     ? new Date(googleIntegration.token_expires_at).getTime()
     : null;
   const expired = typeof expiresAt === "number" && expiresAt <= Date.now();
 
-  if ((expired || !accessToken) && refreshToken) {
+  if (expired || !accessToken) {
     try {
-      const refreshed = await refreshGoogleAccessToken(refreshToken);
-      accessToken = refreshed.accessToken;
+      accessToken = (
+        await resolveGoogleAccessTokenWithGeneration({
+          businessId: params.businessId,
+          provider: "google",
+        })
+      ).accessToken;
     } catch {
       throw new SearchConsoleAuthError(
         "search_console_reconnect_required",

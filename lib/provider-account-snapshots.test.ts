@@ -24,10 +24,41 @@ describe("provider account snapshots", () => {
 
   it("writes normalized snapshot runs/items and reads them back", async () => {
     let stored = false;
+    let claimOwner: string | null = null;
+    let claimEpoch = 0;
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = strings.join(" ");
       queries.push(query);
+
+      if (query.includes("INSERT INTO provider_account_snapshot_runs")) {
+        // Record the claim this write actually took, so the compare-and-set
+        // below answers with the owner and epoch that were written rather than
+        // a fixture constant — which would make the CAS vacuous.
+        const owner = values.find(
+          (value) => typeof value === "string" && /^\d+:[0-9a-f-]{36}$/.test(value),
+        );
+        if (typeof owner === "string") claimOwner = owner;
+        const epoch = values.find(
+          (value) => typeof value === "number" && value > 0 && value < 1_000,
+        );
+        if (typeof epoch === "number") claimEpoch = epoch;
+      }
+
+      // The claim CAS. It joins the run to its connection and locks the run row,
+      // so connection generation, claim owner and claim epoch are settled in ONE
+      // statement instead of three separately-racy reads. Checked BEFORE the
+      // generic run read below, which would otherwise shadow it.
+      if (query.includes("FOR UPDATE OF run")) {
+        return [
+          {
+            refresh_claim_owner: claimOwner,
+            refresh_claim_epoch: String(claimEpoch),
+            connection_generation: null,
+            connection_status: null,
+          },
+        ];
+      }
 
       // The run and its items come back from ONE statement now: two separate
       // SELECTs let a reader see run N's metadata with run N+1's accounts, and
@@ -52,6 +83,9 @@ describe("provider account snapshots", () => {
             refresh_failure_streak: 0,
             created_at: "2026-01-01T00:00:00.000Z",
             updated_at: "2026-01-01T00:00:00.000Z",
+            refresh_claim_owner: claimOwner,
+            refresh_claim_epoch: String(claimEpoch),
+            refresh_claim_generation: null,
             items: [
               {
                 provider_account_id: "acc_1",
@@ -68,6 +102,23 @@ describe("provider account snapshots", () => {
       if (query.includes("INSERT INTO provider_account_snapshot_runs")) {
         stored = true;
         return [{ id: "run_1" }];
+      }
+      // The claim CAS. It joins the run to its connection and locks the run
+      // row, so the whole authority of an in-flight refresh — connection
+      // generation, claim owner, claim epoch — is settled in ONE statement
+      // rather than three separately-racy reads.
+      if (
+        query.includes("FROM provider_account_snapshot_runs run") &&
+        query.includes("FOR UPDATE OF run")
+      ) {
+        return [
+          {
+            refresh_claim_owner: claimOwner,
+            refresh_claim_epoch: String(claimEpoch),
+            connection_generation: null,
+            connection_status: null,
+          },
+        ];
       }
 
       if (
@@ -102,6 +153,11 @@ describe("provider account snapshots", () => {
         query.includes("FROM provider_account_snapshot_runs") && query.includes("SELECT"),
     );
     expect(readQuery).toContain("LEFT JOIN LATERAL");
+    // The claim CAS ran, and it ran against the claim this refresh actually
+    // took. An old claimant that fails this compare-and-set writes nothing.
+    expect(claimOwner).toMatch(/^\d+:[0-9a-f-]{36}$/);
+    expect(claimEpoch).toBe(1);
+    expect(queries.some((text) => text.includes("FOR UPDATE OF run"))).toBe(true);
   });
 
   it("clears canonical snapshot runs by business/provider", async () => {

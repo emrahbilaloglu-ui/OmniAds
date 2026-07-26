@@ -211,6 +211,7 @@ export async function GET(request: NextRequest) {
         businessId,
         provider: "google",
         growthScope: "google_oauth_post_connect",
+        grantConnectionGeneration: `${integration.connection_generation ?? 1}:${integration.status}`,
         liveLoader: async () => {
           const result = await fetchGoogleAdsAccounts(accessToken, {
             scopePresent: true,

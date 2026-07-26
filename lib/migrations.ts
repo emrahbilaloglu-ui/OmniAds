@@ -3846,6 +3846,20 @@ export async function runMigrations(options?: {
         // absent column would make every selection fail rather than degrade.
         sql`ALTER TABLE provider_connections
           ADD COLUMN IF NOT EXISTS connection_generation BIGINT NOT NULL DEFAULT 1`,
+        // Ownership of an in-flight discovery refresh.
+        //
+        // The claim was `refresh_in_progress = TRUE` and nothing else, so an old
+        // claimant whose claim had timed out could still commit its success or
+        // its failure over the new owner's work — including stamping the OLD
+        // account list with the NEW credential's authority. Owner plus epoch
+        // makes every commit a CAS, and the captured generation records which
+        // credential the in-flight call is actually using.
+        sql`ALTER TABLE provider_account_snapshot_runs
+          ADD COLUMN IF NOT EXISTS refresh_claim_owner TEXT`,
+        sql`ALTER TABLE provider_account_snapshot_runs
+          ADD COLUMN IF NOT EXISTS refresh_claim_epoch BIGINT NOT NULL DEFAULT 0`,
+        sql`ALTER TABLE provider_account_snapshot_runs
+          ADD COLUMN IF NOT EXISTS refresh_claim_generation TEXT`,
         sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS decision_fingerprint TEXT`,
         sql`ALTER TABLE sync_release_gates

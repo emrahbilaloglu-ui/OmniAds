@@ -72,7 +72,9 @@ export async function resolveGoogleAccessTokenWithGeneration(input: {
   if (!input.forceRefresh && !expired) {
     return {
       accessToken: integration.access_token,
-      connectionGeneration: generationAfter,
+      // Derived from the integration row the token came from, which the paired
+      // generation reads above have already proven settled.
+      connectionGeneration: `${integration.connection_generation ?? 1}:${integration.status}`,
       refreshed: false,
       scopes: integration.scopes ?? null,
     };
@@ -90,19 +92,23 @@ export async function resolveGoogleAccessTokenWithGeneration(input: {
       provider,
       status: "connected",
       accessToken: refreshed.accessToken,
-      // The SAME refresh token, named explicitly. Naming no account keeps the
-      // principal unchanged, so the existing refresh token is preserved rather
-      // than cleared.
+      // The SAME refresh token, named explicitly, and a POSITIVE declaration
+      // that this is a same-principal credential refresh. Absence of an account
+      // id is not evidence of sameness — the GSC and GA4 callbacks legitimately
+      // supply none — so only a caller that just refreshed an existing token can
+      // assert it, and this is that caller.
       refreshToken: integration.refresh_token,
+      samePrincipal: true,
       tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
       expectedConnectionGeneration: generationAfter,
     });
     return {
       accessToken: refreshed.accessToken,
-      connectionGeneration: await readProviderConnectionGenerationToken(
-        input.businessId,
-        provider,
-      ),
+      // The generation this write COMMITTED under, taken from the returned row
+      // itself. A separate read after the write reopens the exact window this
+      // helper exists to close: a reconnect landing in between would pair the
+      // token we just minted with the generation that replaced it.
+      connectionGeneration: `${updated.connection_generation ?? 1}:${updated.status}`,
       refreshed: true,
       scopes: updated.scopes ?? null,
     };
@@ -119,10 +125,9 @@ export async function resolveGoogleAccessTokenWithGeneration(input: {
     }
     return {
       accessToken: current.access_token,
-      connectionGeneration: await readProviderConnectionGenerationToken(
-        input.businessId,
-        provider,
-      ),
+      // Same rule on the conflict path: the generation comes from the row the
+      // token was read out of, not from a later read.
+      connectionGeneration: `${current.connection_generation ?? 1}:${current.status}`,
       refreshed: false,
       scopes: current.scopes ?? null,
     };

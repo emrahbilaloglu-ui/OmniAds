@@ -339,6 +339,16 @@ export async function upsertIntegration(params: {
    * is overwritten by the older refresh's result.
    */
   expectedConnectionGeneration?: string | null;
+  /**
+   * Positive declaration that this write is a credential refresh for the SAME
+   * provider principal.
+   *
+   * Only a caller that just refreshed an existing token can know this. It exists
+   * because absence of an account id is not evidence of sameness, and treating
+   * it as such preserved one principal's refresh token and metadata under
+   * another's grant.
+   */
+  samePrincipal?: boolean;
 }): Promise<IntegrationRow> {
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
@@ -416,14 +426,31 @@ export async function upsertIntegration(params: {
   // unchanged: either the caller named the same account, or it named none at
   // all (a pure token refresh for this same connection). Otherwise it is
   // cleared, and the connection must be re-granted to obtain a new one.
+  // Sameness must be PROVEN, not assumed from absence.
+  //
+  // `providerAccountId == null` was treated as "same principal", and the GSC and
+  // GA4 callbacks legitimately supply no account id at all — so a reconnect as a
+  // different Google user preserved the previous principal's refresh token,
+  // property and site metadata under the new grant. Absence proves nothing; the
+  // only positive evidence of sameness is an account id that MATCHES, or a
+  // caller that explicitly declares this a same-principal credential refresh.
   const principalUnchanged =
-    params.providerAccountId == null ||
-    current?.provider_account_id == null ||
-    params.providerAccountId === current.provider_account_id;
+    params.samePrincipal === true ||
+    (params.providerAccountId != null &&
+      current?.provider_account_id != null &&
+      params.providerAccountId === current.provider_account_id) ||
+    // Nothing to preserve: a connection with no recorded principal and no
+    // credential cannot be leaking one.
+    (current == null);
   const refreshToken =
     suppliedRefreshToken ?? (principalUnchanged ? (current?.refresh_token ?? null) : null);
   const clearedForeignRefreshToken =
     suppliedRefreshToken == null && !principalUnchanged && current?.refresh_token != null;
+  // Metadata is provider-principal evidence too — a GA4 property id, a Search
+  // Console site URL. Merging it across an unproven principal change carries
+  // principal A's property into principal B's connection, and every consumer
+  // reads it as B's.
+  const mergeMetadata = principalUnchanged;
 
   // Every authority or identity change is a new generation, not just a
   // credential replacement: changing which provider account a connection points
@@ -573,6 +600,7 @@ export async function upsertIntegration(params: {
         ELSE COALESCE(EXCLUDED.error_message, integration_credentials.error_message)
       END,
       metadata = CASE
+        WHEN NOT ${mergeMetadata} THEN EXCLUDED.metadata
         WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
         ELSE integration_credentials.metadata || EXCLUDED.metadata
       END,

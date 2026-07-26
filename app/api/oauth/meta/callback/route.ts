@@ -184,6 +184,11 @@ export async function GET(request: NextRequest) {
       businessId,
       provider: "meta",
       growthScope: "meta_oauth_post_connect",
+      // The generation this grant COMMITTED under, read off the row the upsert
+      // returned rather than from a later query — a second reconnect landing in
+      // between would otherwise hand the scheduler a credential this grant never
+      // had.
+      grantConnectionGeneration: `${integration.connection_generation ?? 1}:${integration.status}`,
       liveLoader: async () => {
         const metaResult = await fetchMetaAdAccounts(accessToken);
         if (!metaResult.ok || metaResult.body?.error) {

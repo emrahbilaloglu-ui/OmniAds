@@ -34,13 +34,37 @@ describe("database core backup contract", () => {
     expect(result.status, result.stderr).toBe(0);
   });
 
-  it("takes the whole database rather than an allowlist", () => {
-    // The allowlist is what omitted 187 of 202 tables, including every object
-    // carrying connection, credential, selection or scheduling authority.
+  it("carries every table's data, in one tier or the other, with no hand-written list", () => {
+    // The original allowlist omitted 187 of 202 tables, including every object
+    // carrying connection, credential, selection or scheduling authority. There
+    // is still no list of table names in this file: the primary dump takes
+    // everything, and the only exclusions are computed from the recovery policy
+    // — where the DEFAULT is tier A, so an unclassified table keeps its data.
     expect(script).not.toContain("CORE_TABLES");
-    expect(script).not.toMatch(/--table=/);
-    expect(script).not.toMatch(/--exclude-table[= ]/);
     expect(script).toContain("--format=custom");
+    // The per-table archive is the ONLY --table use, and it is how tier-B data
+    // is preserved rather than dropped.
+    const tableFlagUses = script.match(/--table="/g) ?? [];
+    expect(tableFlagUses).toHaveLength(1);
+    // Exclusions are generated from the policy, never literals.
+    expect(script).toContain('exclude_args+=( "--exclude-table-data=public.${t}" )');
+    expect(script).not.toMatch(/--exclude-table-data=public\.[a-z]/);
+  });
+
+  it("refuses a policy that would drop authority data or name a missing table", () => {
+    expect(script).toContain("RECOVERY_AUTHORITY_TABLES");
+    expect(script).toContain("authority_table_in_tier_b");
+    expect(script).toContain("tier_b_table_absent_from_catalog");
+    // A tier-B table must still have its SCHEMA in the primary artifact, or a
+    // tier-A restore has nowhere to replay the archive into.
+    expect(script).toContain("tier_b_table_schema_missing_from_dump");
+    // And each archive is validated on the two facts a replay depends on.
+    expect(script).toContain("tier_b_archive_missing_table_data");
+    expect(script).toContain("tier_b_archive_empty");
+  });
+
+  it("never writes the archive onto the filesystem holding the data", () => {
+    expect(script).toContain("archive_shares_filesystem_with_data");
   });
 
   it("proves at backup time that nothing was omitted", () => {

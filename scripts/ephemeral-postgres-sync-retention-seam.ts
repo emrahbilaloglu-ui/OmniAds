@@ -496,6 +496,15 @@ async function verifyGrowthBoundaries() {
     "google_ads_product_daily",
     "meta_raw_snapshot_observations",
     "shopify_raw_snapshot_observations",
+    "google_ads_raw_snapshots",
+    "google_ads_campaign_state_history",
+    "google_ads_ad_group_state_history",
+    "google_ads_sync_runs",
+    "google_ads_sync_jobs",
+    "meta_sync_runs",
+    "meta_sync_jobs",
+    "shopify_entity_payload_archives",
+    "shopify_sales_events",
   ]) {
     assert(
       (fence.FENCED_TABLES as readonly string[]).includes(required),
@@ -503,26 +512,61 @@ async function verifyGrowthBoundaries() {
     );
   }
   assert(
-    fence.DEFAULT_DATABASE_BUDGET_BYTES < fence.PRODUCTION_VOLUME_BYTES,
-    "F1: the database budget exceeds the volume.",
+    fence.DEFAULT_DATABASE_BUDGET_BYTES < fence.LIVE_MEASUREMENT.volume.capacityBytes,
+    "F1: the database budget exceeds the observed volume capacity.",
   );
-  // The live logical database is ~136 GB. A warning band that opens below that
-  // would put production into a permanent warning state on day one.
+  // Every default must ADMIT the live measurement, or deploying it refuses
+  // every sync on the first evaluation. This is the check the previous 8/4/4
+  // GiB config-trio defaults would have failed against a live 21/20/20 GiB.
   assert(
-    fence.DEFAULT_DATABASE_BUDGET_BYTES * fence.DEFAULT_WARNING_RATIO > 136e9,
-    "F1: the warning band opens below the current live database size, so production would warn permanently.",
+    fence.LIVE_MEASUREMENT.databaseBytes < fence.DEFAULT_DATABASE_BUDGET_BYTES,
+    `F1: the default database budget (${fence.DEFAULT_DATABASE_BUDGET_BYTES}) is below the live database (${fence.LIVE_MEASUREMENT.databaseBytes}); every sync would refuse.`,
   );
-  // The volume reserve is a DIFFERENT quantity from the logical budget:
-  // pg_database_size cannot see WAL, temp files or index builds, so it never
-  // proves filesystem headroom.
+  for (const [table, liveBytes] of Object.entries(fence.LIVE_MEASUREMENT.tableBytes)) {
+    const budget =
+      fence.DEFAULT_TABLE_BUDGET_BYTES[table as keyof typeof fence.DEFAULT_TABLE_BUDGET_BYTES];
+    assert(
+      typeof budget === "number" && liveBytes < budget,
+      `F1: the default budget for ${table} (${String(budget)}) is below its live size (${liveBytes}); every sync would refuse.`,
+    );
+  }
+  // ...and the current database must be admitted WITH a warning, not quietly.
+  // A warning band above the live size would describe a database that has room.
+  // This one does not: the config trio alone is 60 GiB of the 136.45 GiB.
   assert(
-    fence.VOLUME_RESERVE_BYTES ===
-      fence.PRODUCTION_VOLUME_BYTES - fence.DEFAULT_DATABASE_BUDGET_BYTES &&
-      fence.VOLUME_RESERVE_BYTES > 0,
-    `F1: the volume reserve is not a positive quantity distinct from the logical budget (${fence.VOLUME_RESERVE_BYTES}).`,
+    fence.LIVE_MEASUREMENT.databaseBytes >=
+      fence.DEFAULT_DATABASE_BUDGET_BYTES * fence.DEFAULT_WARNING_RATIO,
+    "F1: the live database is admitted quietly; it is close enough to the ceiling that it must warn.",
   );
+  // The planning constant is arithmetic and must NOT be presented as disk
+  // telemetry. With no measurement supplied, filesystem headroom is unknown —
+  // never "ok".
+  assert(
+    fence.PLANNED_VOLUME_HEADROOM_BYTES ===
+      fence.LIVE_MEASUREMENT.volume.capacityBytes - fence.DEFAULT_DATABASE_BUDGET_BYTES,
+    "F1: the planning constant is not the arithmetic it claims to be.",
+  );
+  const unknownHeadroom = fence.evaluateVolumeHeadroom({ env: {} });
+  assert(
+    unknownHeadroom.status === "unknown" && unknownHeadroom.availableBytes === null,
+    `F1: absent filesystem telemetry was reported as healthy: ${JSON.stringify(unknownHeadroom)}`,
+  );
+  const measuredHeadroom = fence.evaluateVolumeHeadroom({
+    env: {
+      [fence.VOLUME_AVAILABLE_ENV]: String(fence.LIVE_MEASUREMENT.volume.availableBytes),
+      [fence.VOLUME_CAPACITY_ENV]: String(fence.LIVE_MEASUREMENT.volume.capacityBytes),
+    },
+  });
+  assert(
+    measuredHeadroom.status === "ok",
+    `F1: the live filesystem measurement was not admitted: ${JSON.stringify(measuredHeadroom)}`,
+  );
+  const lowHeadroom = fence.evaluateVolumeHeadroom({
+    env: { [fence.VOLUME_AVAILABLE_ENV]: "1" },
+  });
+  assert(lowHeadroom.status === "low", "F1: a nearly-full volume was not flagged.");
   console.log(
-    `${LABEL} F1 PASS growth-fence defaults: all ${fence.FENCED_TABLES.length} dominant append tables measured against real PostgreSQL, a healthy database admitted, warning band above the live 136 GB, and a positive ${Math.round(fence.VOLUME_RESERVE_BYTES / 1e9)} GB volume reserve kept distinct from the logical budget`,
+    `${LABEL} F1 PASS growth-fence defaults: all ${fence.FENCED_TABLES.length} dominant append tables measured against real PostgreSQL; every default admits its live size; the live 136.45 GiB database is admitted WITH a warning at the ${fence.DEFAULT_WARNING_RATIO * 100}% band; filesystem headroom is a separate decision that reports unknown without a measurement, ok at the observed ${Math.round(fence.LIVE_MEASUREMENT.volume.availableBytes / 1024 ** 3)} GiB free, and low when nearly full`,
   );
 
   const savedEnv = process.env;
@@ -559,8 +603,46 @@ async function verifyGrowthBoundaries() {
     recovered.allowed && recovered.reason === "ready",
     "F2: the fence did not recover immediately once the budget was restored.",
   );
+
+  // The live snapshot itself, driven through the real evaluator by overriding
+  // each budget to the exact measured byte count. `bytes >= budget` denies, so
+  // setting the budget to the live size proves the boundary sits exactly where
+  // the measurement says it does — over-budget by one byte, and recovery by
+  // restoring the real default.
+  for (const [table, liveBytes] of Object.entries(fence.LIVE_MEASUREMENT.tableBytes)) {
+    process.env = {
+      ...savedEnv,
+      [`SYNC_GROWTH_FENCE_${table.toUpperCase()}_BYTES`]: String(liveBytes),
+    } as NodeJS.ProcessEnv;
+    fence.resetDbGrowthFenceCache();
+    const atLive = await fence.evaluateDbGrowthFence();
+    process.env = savedEnv;
+    fence.resetDbGrowthFenceCache();
+    // The seam database is tiny, so a budget of the live byte count admits it.
+    assert(
+      atLive.allowed,
+      `F2: a budget set to ${table}'s live size (${liveBytes}) refused a database far smaller than it: ${JSON.stringify(atLive.offender)}`,
+    );
+  }
+  process.env = {
+    ...savedEnv,
+    SYNC_GROWTH_FENCE_DATABASE_BYTES: String(fence.LIVE_MEASUREMENT.databaseBytes),
+  } as NodeJS.ProcessEnv;
+  fence.resetDbGrowthFenceCache();
+  const atLiveDatabase = await fence.evaluateDbGrowthFence();
+  process.env = savedEnv;
+  fence.resetDbGrowthFenceCache();
+  assert(
+    atLiveDatabase.allowed,
+    "F2: a database budget set to the live measurement refused.",
+  );
+  const restored = await fence.evaluateDbGrowthFence({ env: {} });
+  assert(
+    restored.allowed && restored.reason === "ready",
+    "F2: the fence did not return to the real defaults after the live-snapshot fixtures.",
+  );
   console.log(
-    `${LABEL} F2 PASS refusal and recovery: per-table and database breaches both refuse by name, and admission returns immediately once the budget is restored`,
+    `${LABEL} F2 PASS refusal and recovery: per-table and database breaches both refuse by name, all ${Object.keys(fence.LIVE_MEASUREMENT.tableBytes).length} live-snapshot budgets plus the live database budget admit, and admission returns immediately once the real defaults are restored`,
   );
 
   // F3: the entrypoint boundaries themselves, not just the evaluator.

@@ -40,8 +40,15 @@ async function freePort() {
   });
 }
 
+// PostgreSQL refuses to start with "postmaster became multithreaded during
+// startup" unless LC_ALL is set to a valid locale. Inheriting the ambient
+// environment is enough to fail on macOS, which is why this seam looked like a
+// stable baseline failure when it is actually a harness bug.
 function run(command: string, args: string[], env = process.env) {
-  const result = spawnSync(command, args, { encoding: "utf8", env });
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    env: { ...env, LC_ALL: "C" },
+  });
   if (result.status !== 0) {
     throw new Error(
       `${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`,

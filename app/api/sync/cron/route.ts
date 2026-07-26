@@ -3,6 +3,7 @@ import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
+import { describeGrowthFenceRefusal } from "@/lib/sync/db-growth-fence";
 import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
 import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
 import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
@@ -221,6 +222,25 @@ export async function POST(request: NextRequest) {
   const summary = results.map((r) =>
     r.status === "fulfilled" ? r.value : { error: String(r.reason) }
   );
+  // Promise.allSettled renders a capacity refusal as just another `{ error }`
+  // string, and this route then answered ok: true. That makes a refused sync
+  // indistinguishable from a completed one to anything reading the response —
+  // the exact reason an incident can run unnoticed. Pick the refusals back out
+  // and answer truthfully.
+  const capacityRefusals = results.flatMap((result) => {
+    if (result.status !== "rejected") return [];
+    const refusal = describeGrowthFenceRefusal(result.reason);
+    return refusal ? [refusal] : [];
+  });
+  const laneCapacityRefusals = summary.flatMap((entry) => {
+    const record = entry as Record<string, unknown>;
+    return Object.entries(record).flatMap(([lane, value]) => {
+      const refusal = describeGrowthFenceRefusal(
+        (value as { reason?: unknown })?.reason ?? value,
+      );
+      return refusal ? [{ lane, ...refusal }] : [];
+    });
+  });
   const metaSnapshotJob = await runMetaSnapshotJobIfDue().catch((error) => {
     console.error("[sync-cron] meta_snapshot_job_failed", error);
     return {
@@ -472,9 +492,17 @@ export async function POST(request: NextRequest) {
     nativeAdOutcomesJobReason:
       "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
   });
+  const capacityRefused =
+    capacityRefusals.length > 0 || laneCapacityRefusals.length > 0;
   return NextResponse.json(
     {
-      ok: true,
+      ok: !capacityRefused,
+      ...(capacityRefused
+        ? {
+            error: "capacity_refused",
+            capacityRefusals: [...capacityRefusals, ...laneCapacityRefusals],
+          }
+        : {}),
       synced: businesses.length,
       results: summary,
       ...(soakGate ? { soakGate } : {}),
@@ -492,6 +520,11 @@ export async function POST(request: NextRequest) {
       decisionOutcomesJob,
       nativeAdOutcomesJob,
     },
-    { status: soakGate?.outcome === "fail" ? 503 : 200 }
+    {
+      status:
+        soakGate?.outcome === "fail" || capacityRefused
+          ? 503
+          : 200,
+    }
   );
 }

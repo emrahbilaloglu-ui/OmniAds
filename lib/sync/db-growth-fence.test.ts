@@ -15,7 +15,13 @@ const {
   OVERRIDE_REASON_ENV,
   OVERRIDE_EXPIRES_ENV,
   DEFAULT_DATABASE_BUDGET_BYTES,
-  PRODUCTION_VOLUME_BYTES,
+  LIVE_MEASUREMENT,
+  PLANNED_VOLUME_HEADROOM_BYTES,
+  MINIMUM_VOLUME_FREE_BYTES,
+  DEFAULT_WARNING_RATIO,
+  evaluateVolumeHeadroom,
+  VOLUME_AVAILABLE_ENV,
+  VOLUME_CAPACITY_ENV,
 } = await import("@/lib/sync/db-growth-fence");
 
 const GiB = 1024 ** 3;
@@ -311,38 +317,86 @@ describe("production volume calibration", () => {
 
   const GB = 1000 ** 3;
 
-  // The defect this guards against: the previous 120 GiB default was BELOW the
-  // live 136 GB database, so shipping it would have refused every sync on a
-  // perfectly healthy deployment.
-  it("admits the current healthy 136 GB database", async () => {
-    installDb(sizes({ database_bytes: 136 * GB }));
+  // Every default must admit the live measurement. Two previous defaults were
+  // below it — the 120 GiB database budget, and 8/4/4 GiB for a config trio
+  // that is actually 21/20/20 GiB — either of which refuses every sync on a
+  // deployment that is merely large, not broken.
+  it("admits the live measurement on every default", async () => {
+    installDb(
+      sizes({
+        database_bytes: LIVE_MEASUREMENT.databaseBytes,
+        ...LIVE_MEASUREMENT.tableBytes,
+      }),
+    );
     const decision = await evaluateDbGrowthFence({ env: {} });
     expect(decision.allowed).toBe(true);
     expect(decision.reason).toBe("ready");
+    expect(decision.offender).toBeNull();
   });
 
-  it("keeps the budget under the 207 GB volume with restore headroom", () => {
-    expect(DEFAULT_DATABASE_BUDGET_BYTES).toBeLessThan(PRODUCTION_VOLUME_BYTES);
-    // At least 30 GB of volume left for WAL, temp files and index builds.
-    expect(PRODUCTION_VOLUME_BYTES - DEFAULT_DATABASE_BUDGET_BYTES).toBeGreaterThan(
-      30 * GB,
+  it("admits the live database WITH a warning rather than quietly", () => {
+    // This database is close to its ceiling: the config trio alone is 60 GiB of
+    // the 136.45 GiB. A warning band above the live size would be describing a
+    // database that has room.
+    expect(
+      LIVE_MEASUREMENT.databaseBytes,
+    ).toBeGreaterThanOrEqual(DEFAULT_DATABASE_BUDGET_BYTES * DEFAULT_WARNING_RATIO);
+    expect(LIVE_MEASUREMENT.databaseBytes).toBeLessThan(DEFAULT_DATABASE_BUDGET_BYTES);
+  });
+
+  it("emits the warning flag at the live size", async () => {
+    installDb(
+      sizes({
+        database_bytes: LIVE_MEASUREMENT.databaseBytes,
+        ...LIVE_MEASUREMENT.tableBytes,
+      }),
     );
-  });
-
-  it("warns before it refuses, and the warning band is above today's size", async () => {
-    const warnAt = DEFAULT_DATABASE_BUDGET_BYTES * 0.9;
-    expect(warnAt).toBeGreaterThan(136 * GB);
-    installDb(sizes({ database_bytes: warnAt }));
     const decision = await evaluateDbGrowthFence({ env: {} });
     expect(decision.allowed).toBe(true);
     expect(decision.warning).toBe(true);
   });
 
-  it("refuses before the volume becomes unsafe", async () => {
+  it("caps meta_entity_state_history so it cannot regrow to tens of GiB", () => {
+    // The previous 90 GiB budget would have allowed the entire regrowth that
+    // produced the incident without one refusal.
+    expect(
+      DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history,
+    ).toBeLessThanOrEqual(6 * GiB);
+    expect(
+      DEFAULT_TABLE_BUDGET_BYTES.meta_entity_state_history,
+    ).toBeGreaterThan(LIVE_MEASUREMENT.tableBytes.meta_entity_state_history);
+  });
+
+  it("refuses once the database passes the budget", async () => {
     installDb(sizes({ database_bytes: 190 * GB }));
     const decision = await evaluateDbGrowthFence({ env: {} });
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toBe("database_budget_exceeded");
+  });
+
+  it("keeps filesystem admission separate from the logical budget", () => {
+    // The planning constant is arithmetic over a point-in-time observation.
+    expect(PLANNED_VOLUME_HEADROOM_BYTES).toBe(
+      LIVE_MEASUREMENT.volume.capacityBytes - DEFAULT_DATABASE_BUDGET_BYTES,
+    );
+    // With no measurement, headroom is unknown — never "ok". Reporting an
+    // absence of evidence as health is how a logical budget gets mistaken for
+    // disk telemetry.
+    expect(evaluateVolumeHeadroom({ env: {} }).status).toBe("unknown");
+    expect(evaluateVolumeHeadroom({ env: {} }).availableBytes).toBeNull();
+    expect(
+      evaluateVolumeHeadroom({
+        env: {
+          [VOLUME_AVAILABLE_ENV]: String(LIVE_MEASUREMENT.volume.availableBytes),
+          [VOLUME_CAPACITY_ENV]: String(LIVE_MEASUREMENT.volume.capacityBytes),
+        },
+      }).status,
+    ).toBe("ok");
+    expect(
+      evaluateVolumeHeadroom({
+        env: { [VOLUME_AVAILABLE_ENV]: String(MINIMUM_VOLUME_FREE_BYTES - 1) },
+      }).status,
+    ).toBe("low");
   });
 
   it("fences every dominant append surface", () => {
@@ -352,6 +406,13 @@ describe("production volume calibration", () => {
     expect(FENCED_TABLES).toContain("meta_config_snapshots");
     expect(FENCED_TABLES).toContain("meta_campaign_config_history");
     expect(FENCED_TABLES).toContain("meta_adset_config_history");
+    // Google's surfaces were fenced only for product_daily, which left its raw
+    // payload table and every lifecycle surface growing unmeasured.
+    expect(FENCED_TABLES).toContain("google_ads_raw_snapshots");
+    expect(FENCED_TABLES).toContain("google_ads_campaign_state_history");
+    expect(FENCED_TABLES).toContain("google_ads_ad_group_state_history");
+    expect(FENCED_TABLES).toContain("google_ads_sync_runs");
+    expect(FENCED_TABLES).toContain("google_ads_sync_jobs");
     for (const table of FENCED_TABLES) {
       expect(DEFAULT_TABLE_BUDGET_BYTES[table]).toBeGreaterThan(0);
     }

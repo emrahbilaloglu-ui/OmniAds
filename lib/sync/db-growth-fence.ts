@@ -51,59 +51,182 @@ export const FENCED_TABLES = [
   // original blind spot one layer down.
   "meta_raw_snapshot_observations",
   "shopify_raw_snapshot_observations",
+  // Google's remaining unbounded append surfaces. Only google_ads_product_daily
+  // was fenced, which left the raw payload table and every Google lifecycle
+  // surface free to grow unmeasured — the exact asymmetry that let the Meta
+  // side be caught while the Google side was not.
+  "google_ads_raw_snapshots",
+  "google_ads_campaign_state_history",
+  "google_ads_ad_group_state_history",
+  "google_ads_sync_runs",
+  "google_ads_sync_jobs",
+  // Meta lifecycle surfaces, append-only per work unit for the same reason.
+  "meta_sync_runs",
+  "meta_sync_jobs",
+  // Shopify's payload archive and its event stream.
+  "shopify_entity_payload_archives",
+  "shopify_sales_events",
 ] as const;
 export type FencedTable = (typeof FENCED_TABLES)[number];
 
 /**
- * Budgets sized against the real deployment, not a round number.
+ * Read-only measurements taken from the live production database.
  *
- * The volume is 207 GB and the live logical database is ~136 GB. The previous
- * default was 120 GiB — BELOW the current healthy size — so deploying it
- * unchanged would have refused every sync immediately. A fence that bricks a
- * healthy database is not a safety feature.
- *
- * 160 GiB is 171.8 GB, leaving ~35 GB of the 207 GB volume for WAL, temp
- * files, index builds and restore margin, while still refusing well before the
- * volume itself becomes unsafe. The warning band opens at 85%, i.e. ~146 GB,
- * which is above today's 136 GB — so the current database is admitted quietly
- * and the first meaningful growth from here starts warning.
- *
- * Units are deliberately explicit: the budget is GiB and the volume is GB.
- * Mixing them is how the previous 120 GiB default ended up below a 136 GB
- * database.
+ * Kept as named constants rather than folded into the budgets, because the
+ * budgets are only defensible with the numbers they were derived from sitting
+ * next to them. Every previous budget in this file was a round number chosen
+ * without a measurement, and two of them were BELOW the live size.
  */
-export const PRODUCTION_VOLUME_BYTES = 207 * 1000 ** 3;
-export const DEFAULT_DATABASE_BUDGET_BYTES = 160 * 1024 ** 3; // 160 GiB = 171.8 GB
+export const LIVE_MEASUREMENT = {
+  databaseBytes: 146_500_598_807,
+  tableBytes: {
+    meta_config_snapshots: 22_845_751_296,
+    meta_campaign_config_history: 22_458_515_456,
+    meta_adset_config_history: 21_907_480_576,
+    meta_raw_snapshots: 19_839_328_256,
+    shopify_raw_snapshots: 13_889_986_560,
+    google_ads_product_daily: 10_712_031_232,
+    meta_creative_lineage_edges: 3_267_026_944,
+    meta_entity_state_history: 2_998_468_608,
+    sync_release_gates: 1_348_296_704,
+    google_ads_raw_snapshots: 996_720_640,
+  },
+  /**
+   * Filesystem statistics for the PostgreSQL data directory, taken at the same
+   * time. These are a POINT-IN-TIME OBSERVATION, not telemetry this process can
+   * read — the database host's filesystem is not visible from the app.
+   */
+  volume: {
+    mountPoint: "/var/lib/postgresql",
+    capacityBytes: 221_348_159_488,
+    usedBytes: 107_552_600_064,
+    availableBytes: 112_683_569_152,
+  },
+} as const;
+
+/**
+ * Budgets derived from LIVE_MEASUREMENT: tight, but admitting the database as
+ * it actually is today.
+ *
+ * The database budget is 150 GiB against a live 136.45 GiB. That admits the
+ * current database with only ~13.5 GiB of headroom, and the 85% warning band
+ * opens at 127.5 GiB — BELOW the live size — so production starts in the
+ * warning state on day one. That is deliberate and is the honest reading: this
+ * database is close to its ceiling, and the config trio is 60 GiB of it. A
+ * budget that let the current size pass quietly would be describing a database
+ * that has room, which this one does not.
+ *
+ * Units are explicit throughout. The previous 120 GiB default was below a
+ * 136 GB database precisely because GiB and GB were mixed.
+ */
+export const DEFAULT_DATABASE_BUDGET_BYTES = 150 * 1024 ** 3; // 150 GiB = 161.06 GB
 export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
-  // Live ~19.8 GB. Generous headroom while the two-layer content model and
-  // retention bring it down; still far below a runaway.
-  meta_raw_snapshots: 40 * 1024 ** 3,
-  // Live ~13.9 GB.
-  shopify_raw_snapshots: 30 * 1024 ** 3,
-  meta_entity_state_history: 90 * 1024 ** 3,
-  meta_creative_lineage_edges: 8 * 1024 ** 3,
-  // The config trio. These are amplifiers by nature, so their budgets are
-  // deliberately tight: exceeding them means the coalescing guards regressed.
-  meta_config_snapshots: 8 * 1024 ** 3,
-  meta_campaign_config_history: 4 * 1024 ** 3,
-  meta_adset_config_history: 4 * 1024 ** 3,
-  google_ads_product_daily: 20 * 1024 ** 3,
-  sync_release_gates: 4 * 1024 ** 3,
-  // Payload-free rows, so a far smaller budget still covers many times the
-  // observation rate the payload tables used to carry.
-  meta_raw_snapshot_observations: 12 * 1024 ** 3,
-  shopify_raw_snapshot_observations: 8 * 1024 ** 3,
+  // The config trio: 60 GiB between them, and every byte of it is the
+  // amplification. Budgets are just above live so any regrowth refuses almost
+  // immediately, and they must come DOWN as retention compacts them.
+  meta_config_snapshots: 24 * 1024 ** 3, // live 21.3 GiB
+  meta_campaign_config_history: 24 * 1024 ** 3, // live 20.9 GiB
+  meta_adset_config_history: 23 * 1024 ** 3, // live 20.4 GiB
+  meta_raw_snapshots: 22 * 1024 ** 3, // live 18.5 GiB
+  shopify_raw_snapshots: 16 * 1024 ** 3, // live 12.9 GiB
+  google_ads_product_daily: 12 * 1024 ** 3, // live 9.98 GiB
+  meta_creative_lineage_edges: 5 * 1024 ** 3, // live 3.04 GiB
+  // Post-compaction ceiling. The old 90 GiB budget would have let this regrow
+  // to tens of gigabytes without a single refusal, which is exactly how it got
+  // large the first time. 4 GiB against a live 2.79 GiB means any renewed
+  // per-historical-day observation writing refuses within days.
+  meta_entity_state_history: 4 * 1024 ** 3, // live 2.79 GiB
+  sync_release_gates: 3 * 1024 ** 3, // live 1.26 GiB
+  google_ads_raw_snapshots: 3 * 1024 ** 3, // live 0.93 GiB
+  // New relations: zero today. Budgets sized for the observation rate the
+  // payload tables used to carry, which is what they now absorb.
+  meta_raw_snapshot_observations: 6 * 1024 ** 3,
+  shopify_raw_snapshot_observations: 4 * 1024 ** 3,
+  // Not separately measured on the live database, so these are conservative
+  // ceilings rather than derived budgets. Stated as such: they exist to catch a
+  // runaway, not to certify a known size.
+  google_ads_campaign_state_history: 4 * 1024 ** 3,
+  google_ads_ad_group_state_history: 4 * 1024 ** 3,
+  google_ads_sync_runs: 3 * 1024 ** 3,
+  google_ads_sync_jobs: 3 * 1024 ** 3,
+  meta_sync_runs: 3 * 1024 ** 3,
+  meta_sync_jobs: 3 * 1024 ** 3,
+  shopify_entity_payload_archives: 8 * 1024 ** 3,
+  shopify_sales_events: 6 * 1024 ** 3,
 };
 
 /**
- * Volume reserve, kept DISTINCT from the logical database budget.
+ * Arithmetic planning constant. NOT disk telemetry.
  *
- * The database budget answers "is the logical database too large"; this answers
- * "is the volume itself getting close to full", which an aggregate logical
- * budget cannot substitute for — WAL, temp files and index builds consume the
- * volume without appearing in pg_database_size.
+ * This is `observed capacity − logical budget` and nothing more. It does not
+ * measure free space, it cannot see WAL, temp files or index builds, and it is
+ * stale the moment the observation above is. Admission on actual filesystem
+ * headroom is a SEPARATE decision — see `evaluateVolumeHeadroom` — and requires
+ * a measurement supplied from the database host, because this process cannot
+ * read that filesystem at all.
  */
-export const VOLUME_RESERVE_BYTES = PRODUCTION_VOLUME_BYTES - DEFAULT_DATABASE_BUDGET_BYTES;
+export const PLANNED_VOLUME_HEADROOM_BYTES =
+  LIVE_MEASUREMENT.volume.capacityBytes - DEFAULT_DATABASE_BUDGET_BYTES;
+
+/**
+ * Minimum free space on the PostgreSQL data volume before growth is unsafe.
+ *
+ * Sized for a concurrent index build plus WAL burst on the largest relations
+ * this fence covers.
+ */
+export const MINIMUM_VOLUME_FREE_BYTES = 40 * 1024 ** 3;
+
+export const VOLUME_AVAILABLE_ENV = "SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES";
+export const VOLUME_CAPACITY_ENV = "SYNC_GROWTH_FENCE_VOLUME_CAPACITY_BYTES";
+
+export type VolumeHeadroomStatus = "unknown" | "ok" | "low";
+
+export interface VolumeHeadroomDecision {
+  status: VolumeHeadroomStatus;
+  availableBytes: number | null;
+  capacityBytes: number | null;
+  minimumFreeBytes: number;
+  /** Plain-language statement of what this does and does not establish. */
+  note: string;
+}
+
+/**
+ * External filesystem admission, kept deliberately separate from the logical
+ * budget.
+ *
+ * Returns `unknown` — never `ok` — when no measurement was supplied. An absent
+ * measurement is an absence of evidence; reporting it as healthy is how a
+ * logical budget ends up being mistaken for disk headroom.
+ */
+export function evaluateVolumeHeadroom(input?: {
+  env?: Readonly<Record<string, string | undefined>>;
+}): VolumeHeadroomDecision {
+  const env = input?.env ?? process.env;
+  const parse = (raw: string | undefined) => {
+    if (raw == null || raw.trim() === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  };
+  const availableBytes = parse(env[VOLUME_AVAILABLE_ENV]);
+  const capacityBytes = parse(env[VOLUME_CAPACITY_ENV]);
+  if (availableBytes == null) {
+    return {
+      status: "unknown",
+      availableBytes: null,
+      capacityBytes,
+      minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
+      note: `No filesystem measurement supplied via ${VOLUME_AVAILABLE_ENV}. The logical database budget says nothing about free disk; treat volume headroom as unverified.`,
+    };
+  }
+  return {
+    status: availableBytes >= MINIMUM_VOLUME_FREE_BYTES ? "ok" : "low",
+    availableBytes,
+    capacityBytes,
+    minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
+    note: "Measured on the database host and supplied to this process; it is as fresh as whatever produced it.",
+  };
+}
+
 /** Warn band: still admitted, but loudly. */
 export const DEFAULT_WARNING_RATIO = 0.85;
 
@@ -392,9 +515,44 @@ export async function evaluateDbGrowthFence(input?: {
   };
 }
 
+/**
+ * Recognise a capacity refusal that has been caught and turned into a value.
+ *
+ * Routes aggregate lane results with Promise.allSettled and render rejections
+ * as `{ error }` while still answering `ok: true`. A capacity refusal reported
+ * that way is indistinguishable from success to anything reading the response,
+ * which is precisely the failure mode that let an incident run unnoticed. This
+ * lets a route pick refusals back out of an aggregated result and answer
+ * truthfully.
+ *
+ * Matches on the class first and the discriminant second, so a refusal that
+ * crossed a serialization boundary is still recognised.
+ */
+export function describeGrowthFenceRefusal(
+  error: unknown,
+): { operation: string | null; decision: DbGrowthFenceDecision } | null {
+  if (error instanceof DbGrowthFenceRefusal) {
+    return { operation: error.operation, decision: error.decision };
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "DbGrowthFenceRefusal" &&
+    typeof (error as { decision?: unknown }).decision === "object"
+  ) {
+    return {
+      operation: (error as { operation?: string | null }).operation ?? null,
+      decision: (error as { decision: DbGrowthFenceDecision }).decision,
+    };
+  }
+  return null;
+}
+
 export class DbGrowthFenceRefusal extends Error {
   readonly decision: DbGrowthFenceDecision;
-  constructor(decision: DbGrowthFenceDecision) {
+  /** Which boundary refused, so an aggregated response can name the lane. */
+  readonly operation: string | null;
+  constructor(decision: DbGrowthFenceDecision, operation?: string | null) {
     super(
       decision.offender
         ? `Sync refused: ${decision.offender.table} is ${decision.offender.bytes} bytes against a ${decision.offender.budget} byte budget (${decision.reason}).`
@@ -402,6 +560,7 @@ export class DbGrowthFenceRefusal extends Error {
     );
     this.name = "DbGrowthFenceRefusal";
     this.decision = decision;
+    this.operation = operation ?? null;
   }
 }
 
@@ -425,7 +584,7 @@ export async function assertDbGrowthFenceAdmits(
   );
   if (!decision.allowed) {
     console.error("[db-growth-fence] blocked", { operation, decision });
-    throw new DbGrowthFenceRefusal(decision);
+    throw new DbGrowthFenceRefusal(decision, operation);
   }
   return decision;
 }
@@ -522,6 +681,24 @@ export async function assertSyncGrowthBoundary(
       }),
   );
   if (decision.allowed) {
+    if (decision.warning) {
+      // An admitted-with-warning run is the only signal between "healthy" and
+      // "everything refuses". Logging it at the boundary, on every admission
+      // rather than only when the measurement is recomputed, is what makes the
+      // approach to the ceiling observable instead of a step change.
+      console.warn("[db-growth-fence] admitted with warning", {
+        operation,
+        databaseBytes: decision.databaseBytes,
+        databaseBudgetBytes: decision.databaseBudgetBytes,
+        warningRatio: DEFAULT_WARNING_RATIO,
+        nearBudgetTables: FENCED_TABLES.filter(
+          (table) =>
+            (decision.tableBytes[table] ?? 0) >=
+            DEFAULT_TABLE_BUDGET_BYTES[table] * DEFAULT_WARNING_RATIO,
+        ),
+        volumeHeadroom: evaluateVolumeHeadroom({ env }),
+      });
+    }
     store.__omniadsGrowthFence = {
       key: cacheKey,
       expiresAt: now() + ADMITTED_TTL_MS,
@@ -531,7 +708,7 @@ export async function assertSyncGrowthBoundary(
     // Never cache a refusal.
     store.__omniadsGrowthFence = undefined;
     console.error("[db-growth-fence] boundary blocked", { operation, decision });
-    throw new DbGrowthFenceRefusal(decision);
+    throw new DbGrowthFenceRefusal(decision, operation);
   }
   return decision;
 }

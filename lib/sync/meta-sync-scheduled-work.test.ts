@@ -1,5 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Narrow default-admit fence. The enqueue boundary now fails closed, and this
+// suite has no database — without the mock every case would fail on
+// fence_read_failed, which is the fence working, not the code under test.
+// Everything else in the module stays real.
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();
+  const admit = async () => ({
+    allowed: true as const,
+    reason: "ready" as const,
+    warning: false,
+    databaseBytes: 1,
+    databaseBudgetBytes: 2,
+    tableBytes: {},
+    offender: null,
+    evaluatedAt: "2026-07-26T00:00:00.000Z",
+    errorMessage: null,
+    overridden: false,
+  });
+  return {
+    ...actual,
+    assertDbGrowthFenceAdmits: vi.fn(admit),
+    assertSyncGrowthBoundary: vi.fn(admit),
+  };
+});
+
 vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials: vi.fn(),
   publishMetaBreakdownAuthoritativeSurface: vi.fn(),

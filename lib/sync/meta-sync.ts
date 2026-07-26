@@ -3008,6 +3008,7 @@ async function enqueueMetaCreativeWarehousePartitions(
 }
 
 export async function enqueueMetaScheduledWork(businessId: string) {
+  await assertSyncGrowthBoundary("meta_enqueue_scheduled_work", { fresh: true });
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
   );
@@ -3138,6 +3139,7 @@ export async function refreshMetaSyncStateForBusiness(input: {
   businessId: string;
   credentials?: MetaCredentials | null;
 }) {
+  await assertSyncGrowthBoundary("meta_refresh_sync_state", { fresh: true });
   const credentials =
     input.credentials ??
     (await resolveMetaCredentials(input.businessId).catch(() => null));
@@ -4582,6 +4584,10 @@ async function enqueueMetaRangeJob(input: {
   scopes: MetaWarehouseScope[];
   priority: number;
 }) {
+  // Every manual range, recent, today, repair and initial path funnels here,
+  // and each queues durable work across a date range. Fresh, because a cached
+  // admission would authorise a whole backfill wave.
+  await assertSyncGrowthBoundary("meta_enqueue_range_job", { fresh: true });
   const credentials = await resolveMetaCredentials(input.businessId);
   if (!credentials?.accountIds?.length) {
     return {
@@ -4704,6 +4710,8 @@ export async function recoverMetaD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
+  // Recovery requeues partitions, which is durable work that will write.
+  await assertSyncGrowthBoundary("meta_d1_finalize_recovery", { fresh: true });
   await assertDbSchemaReady({
     tables: ["meta_sync_partitions"],
     context: "meta_sync:recover_d1_finalize",

@@ -3472,6 +3472,8 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
+  // Recovery requeues partitions, which is durable work that will write.
+  await assertSyncGrowthBoundary("google_d1_finalize_recovery", { fresh: true });
   await assertDbSchemaReady({
     tables: ["google_ads_sync_partitions"],
     context: "google_ads_sync:recover_d1_finalize",
@@ -4121,6 +4123,10 @@ async function enqueueMaintenancePartitions(businessId: string) {
 }
 
 export async function enqueueGoogleAdsScheduledWork(businessId: string) {
+  // Enqueueing IS growth: every queued partition is durable work that will
+  // write. Refusing here is what keeps a full queue from being built during an
+  // incident and then draining the moment capacity is restored.
+  await assertSyncGrowthBoundary("google_enqueue_scheduled_work", { fresh: true });
   await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(() => null);
   const d1Recovery = await recoverGoogleAdsD1FinalizePartitions({
     businessId,
@@ -4248,6 +4254,9 @@ async function syncGoogleAdsDates(input: {
   triggerSource: string;
   scopes?: GoogleAdsWarehouseScope[];
 }) {
+  // Fresh, not cached. recent/today/initial all funnel here, and each expands
+  // into a multi-day wave; one cached admission would authorise the whole wave.
+  await assertSyncGrowthBoundary("google_sync_dates", { fresh: true });
   await expireStaleGoogleAdsSyncJobs({ businessId: input.businessId }).catch(
     () => null,
   );
@@ -5591,6 +5600,10 @@ async function processGoogleAdsPartition(input: {
   };
   workerId: string;
 }) {
+  // Per work unit, and before any provider call or durable claim. A refusal
+  // here propagates: the partition keeps its queued/leased state and is retried
+  // later, which is recoverable — swallowing it would mark it done undone.
+  await assertSyncGrowthBoundary("google_lifecycle_partition");
   const partitionId = input.partition.id;
   if (!partitionId) return false;
   const markRunningOk = await markGoogleAdsPartitionRunning({
@@ -6359,6 +6372,7 @@ export async function runGoogleAdsTargetedRepair(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleAdsTargetedRepairResult> {
+  await assertSyncGrowthBoundary("google_targeted_repair", { fresh: true });
   const integrityScopeRelevant =
     input.scope === "account_daily" || input.scope === "campaign_daily";
   const beforeIncidents = integrityScopeRelevant

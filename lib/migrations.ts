@@ -492,6 +492,21 @@ async function assertMigrationCapacityForHeavyStep(
 }
 
 /**
+ * Seam entrypoint for the heavy-step capacity gate.
+ *
+ * Exported so a real-PostgreSQL seam can exercise the refusal on a relation of
+ * production-like size instead of asserting it from the migration's log line.
+ */
+export async function assertMigrationCapacityForHeavyStepForSeams(input: {
+  label: string;
+  relation: string;
+  heavyBytes?: number;
+  headroomMultiplier?: number;
+}) {
+  return assertMigrationCapacityForHeavyStep(getDb(), input);
+}
+
+/**
  * Version of the legacy-import contract. Bump only to deliberately re-open every
  * sealed import; a bump makes every deployment import again.
  */

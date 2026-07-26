@@ -624,6 +624,41 @@ describe("sync release gates", () => {
       expect(merged.releaseGate).toBeNull();
     });
 
+    it("refuses to treat an unknown-environment PASS as authoritative", () => {
+      // The gate was emitted by a process that could not tell which environment
+      // it was in. A `fail` from it is still worth honouring; a `pass` says only
+      // "whatever environment that was, it looked fine" — which is exactly the
+      // reasoning a gate exists to prevent.
+      const merged = releaseGates.mergeLatestSyncGateRecords({
+        environment: "production",
+        exact: { deployGate: null, releaseGate: null },
+        fallbackByBuild: {
+          deployGate: row("unknown", "unknown-pass"),
+          releaseGate: null,
+        },
+      });
+      expect(merged.deployGate?.verdict).toBe("misconfigured");
+      expect(merged.deployGate?.summary).toMatch(/not authoritative/i);
+      // ...and it is therefore enforced, rather than quietly allowing a deploy.
+      expect(
+        releaseGates.shouldEnforceSyncGateFailure([merged.deployGate]),
+      ).toBe(true);
+    });
+
+    it("still honours an unknown-environment FAILURE", () => {
+      const failing = {
+        ...(row("unknown", "unknown-fail") as unknown as Record<string, unknown>),
+        verdict: "blocked",
+        baseResult: "fail",
+      } as never;
+      const merged = releaseGates.mergeLatestSyncGateRecords({
+        environment: "production",
+        exact: { deployGate: null, releaseGate: null },
+        fallbackByBuild: { deployGate: failing, releaseGate: null },
+      });
+      expect(merged.deployGate?.verdict).toBe("blocked");
+    });
+
     it("accepts an environment-less fallback and prefers the exact row", () => {
       expect(
         releaseGates.mergeLatestSyncGateRecords({
@@ -633,8 +668,8 @@ describe("sync release gates", () => {
             deployGate: row("unknown", "unknown-row"),
             releaseGate: null,
           },
-        }).deployGate?.id,
-      ).toBe("unknown-row");
+        }).deployGate?.verdict,
+      ).toBe("misconfigured");
       expect(
         releaseGates.mergeLatestSyncGateRecords({
           environment: "production",

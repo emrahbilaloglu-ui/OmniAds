@@ -81,6 +81,28 @@ export const SYNC_GATE_GLOBAL_PROVIDER_SCOPE = "global";
 export const SYNC_GATE_UNKNOWN_PROVIDER_SCOPE = "unknown";
 
 /**
+ * Every provider scope the deploy gate must find healthy.
+ *
+ * The gate is GLOBAL — one verdict for the deployment, read by both control
+ * planes — so measuring only Meta made a silent Google worker invisible to a
+ * PASS that the Google control plane then read as evidence about itself.
+ *
+ * Overridable so a deployment that genuinely carries one provider does not fail
+ * on the absence of the other; the default names both because both ship.
+ */
+export function resolveDeployGateProviderScopes(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const configured = env.SYNC_DEPLOY_GATE_PROVIDER_SCOPES?.trim();
+  if (!configured) return ["meta", "google_ads"];
+  const scopes = configured
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+  return scopes.length > 0 ? scopes : ["meta", "google_ads"];
+}
+
+/**
  * The environment a gate is filed under when the emitter did not know one.
  *
  * This is the ONLY cross-environment fallback that is ever consulted, and it is
@@ -522,16 +544,80 @@ export function mergeLatestSyncGateRecords(input: {
     releaseGate: SyncGateRecord | null;
   };
 }) {
-  const acceptable = (record: SyncGateRecord | null) =>
-    record != null &&
-    (record.environment === input.environment ||
-      record.environment === SYNC_GATE_UNKNOWN_ENVIRONMENT)
-      ? record
-      : null;
+  const acceptable = (record: SyncGateRecord | null) => {
+    if (record == null) return null;
+    if (record.environment === input.environment) return record;
+    if (record.environment !== SYNC_GATE_UNKNOWN_ENVIRONMENT) return null;
+    // An unknown-environment gate is EVIDENCE, not authority.
+    //
+    // It was emitted by a process that could not determine which environment it
+    // was running in. A `fail` from it is still worth honouring — something was
+    // genuinely wrong — but a `pass` says only "whatever environment that was,
+    // it looked fine", and letting it satisfy a production readiness question
+    // is precisely the reasoning a gate exists to prevent. Fail closed: the
+    // pass is reported as misconfigured, which every enforcement path already
+    // treats as blocking.
+    if (record.verdict !== "pass" && record.baseResult !== "pass") return record;
+    return {
+      ...record,
+      baseResult: "misconfigured" as const,
+      verdict: "misconfigured" as const,
+      blockerClass: "misconfigured" as const,
+      summary:
+        `${record.summary} (Recorded under an UNKNOWN environment; a pass from it is not authoritative for ` +
+        `'${input.environment}'.)`,
+    };
+  };
 
   return {
     deployGate: input.exact.deployGate ?? acceptable(input.fallbackByBuild.deployGate),
     releaseGate: input.exact.releaseGate ?? acceptable(input.fallbackByBuild.releaseGate),
+  };
+}
+
+/**
+ * Legacy gate evidence whose provider was never recorded.
+ *
+ * Preserved, inspectable and NEVER returned for a provider question. A row
+ * filed under `unknown` is real history — it says something happened — but it
+ * does not say which provider it happened to, so answering a Meta or Google
+ * question with it would be inventing the one fact it lacks. This is the
+ * surface that lets an operator see that such evidence exists without any
+ * reader silently consuming it.
+ */
+export async function readAmbiguousLegacyGateEvidence(input?: {
+  buildId?: string;
+  environment?: string;
+  limit?: number;
+}): Promise<{
+  count: number;
+  newest: SyncGateRecord | null;
+}> {
+  await assertGateTablesReady("sync_release_gates:ambiguous_legacy");
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input?.buildId,
+    environment: input?.environment,
+  });
+  const sql = getDb();
+  const rows = (await sql.query(
+    `SELECT ${SYNC_GATE_ROW_COLUMNS}
+     FROM sync_release_gates
+     WHERE build_id = $1
+       AND environment = $2
+       AND provider_scope = $3
+     ORDER BY emitted_at DESC, id DESC
+     LIMIT 1`,
+    [buildId, environment, SYNC_GATE_UNKNOWN_PROVIDER_SCOPE],
+  )) as Array<Record<string, unknown>>;
+  const counted = (await sql.query(
+    `SELECT COUNT(*)::int AS count
+     FROM sync_release_gates
+     WHERE build_id = $1 AND environment = $2 AND provider_scope = $3`,
+    [buildId, environment, SYNC_GATE_UNKNOWN_PROVIDER_SCOPE],
+  )) as Array<{ count: number }>;
+  return {
+    count: Number(counted[0]?.count ?? 0),
+    newest: rows[0] ? hydrateSyncGateRecordRow(rows[0]) : null,
   };
 }
 
@@ -1017,18 +1103,33 @@ export async function evaluateDeployGate(input?: {
     environment: input?.environment,
   });
   const mode = gateModeForKind("deploy_gate");
+  // A GLOBAL gate measures every provider the deployment carries, not Meta.
+  //
+  // The gate is filed under the `global` scope and read by the Meta AND Google
+  // control planes, but its health input was `providerScopes: ["meta"]` and a
+  // single `metaWorker.hasFreshHeartbeat`. A deployment whose Google worker had
+  // been silent for hours therefore produced a PASSING global deploy gate, and
+  // the Google control plane read that pass as evidence about itself.
+  const providerScopes = resolveDeployGateProviderScopes();
   const [registry, workerHealth] = await Promise.all([
     getRuntimeRegistryStatus({ buildId }),
     getSyncWorkerHealthSummary({
-      providerScopes: ["meta"],
+      providerScopes,
       onlineWindowMinutes: 5,
     }),
   ]);
-  const metaWorker = getProviderScopeWorkerObservation({
-    providerScope: "meta",
-    workers: workerHealth.workers,
-    staleThresholdMs: 5 * 60_000,
-  });
+  const providerObservations = providerScopes.map((providerScope) => ({
+    providerScope,
+    observation: getProviderScopeWorkerObservation({
+      providerScope,
+      workers: workerHealth.workers,
+      staleThresholdMs: 5 * 60_000,
+    }),
+  }));
+  const staleProviderScopes = providerObservations
+    .filter((entry) => !entry.observation.hasFreshHeartbeat)
+    .map((entry) => entry.providerScope);
+  const allHeartbeatsFresh = staleProviderScopes.length === 0;
   const servicesHealthy =
     registry.webPresent &&
     registry.workerPresent &&
@@ -1036,7 +1137,7 @@ export async function evaluateDeployGate(input?: {
     registry.serviceHealth.worker?.healthState === "healthy";
   const baseResult: SyncGateBaseResult =
     servicesHealthy &&
-    metaWorker.hasFreshHeartbeat &&
+    allHeartbeatsFresh &&
     registry.dbFingerprintMatch &&
     registry.configFingerprintMatch &&
     registry.contractValid
@@ -1047,7 +1148,7 @@ export async function evaluateDeployGate(input?: {
       ? "runtime_contract_invalid"
       : !servicesHealthy
         ? "service_unavailable"
-        : !metaWorker.hasFreshHeartbeat
+        : !allHeartbeatsFresh
           ? "heartbeat_missing"
           : "none";
   const record: SyncGateRecord = {
@@ -1067,7 +1168,7 @@ export async function evaluateDeployGate(input?: {
         : `Synthetic deploy gate failed: ${
             registry.issues[0] ??
             (blockerClass === "heartbeat_missing"
-              ? "meta_heartbeat_missing"
+              ? `heartbeat_missing:${staleProviderScopes.join(",")}`
               : blockerClass === "service_unavailable"
                 ? "service_unavailable"
                 : "unknown")
@@ -1076,13 +1177,24 @@ export async function evaluateDeployGate(input?: {
     overrideReason: input?.overrideReason ?? null,
     evidence: {
       buildId,
-      metaHeartbeat: {
+      // Every provider this deployment carries, named. A single `metaHeartbeat`
+      // object could not express "Google is silent", which is why it never did.
+      providerScopes,
+      staleProviderScopes,
+      providerHeartbeats: Object.fromEntries(
+        providerObservations.map((entry) => [
+          entry.providerScope,
+          {
+            workerId: entry.observation.workerId,
+            hasFreshHeartbeat: entry.observation.hasFreshHeartbeat,
+            heartbeatAgeMs: entry.observation.heartbeatAgeMs,
+          },
+        ]),
+      ),
+      workerHealth: {
         onlineWorkers: workerHealth.onlineWorkers,
         workerInstances: workerHealth.workerInstances,
         lastHeartbeatAt: workerHealth.lastHeartbeatAt,
-        workerId: metaWorker.workerId,
-        hasFreshHeartbeat: metaWorker.hasFreshHeartbeat,
-        heartbeatAgeMs: metaWorker.heartbeatAgeMs,
       },
       runtimeRegistry: registry,
     },

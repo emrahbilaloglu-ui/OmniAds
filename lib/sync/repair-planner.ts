@@ -466,10 +466,16 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
           deployGate: null,
           releaseGate: input.releaseGate,
         }
-      : await getLatestSyncGateRecords({ buildId, environment }).catch(() => ({
-          deployGate: null,
-          releaseGate: null,
-        }));
+      : // WITH the provider scope. Omitting it defaulted the read to `meta`, so
+        // Google repair planning read META's release gate and planned Google
+        // repairs from a verdict about a different provider — while the Google
+        // gate it should have read sat unexamined.
+        await getLatestSyncGateRecords({ buildId, environment, providerScope }).catch(
+          () => ({
+            deployGate: null,
+            releaseGate: null,
+          }),
+        );
   const releaseGate = input?.releaseGate ?? gateRecords.releaseGate;
   const canaries = normalizeCanaryRows(releaseGate);
   const hasGoogleAdsAccountActionRequired =

@@ -814,13 +814,83 @@ async function verifyDeterminismAndScope(client: Client) {
     environment: TARGET_ENV,
     providerScope: "meta",
   });
+  // The fallback still RESOLVES the row — but a pass recorded under an unknown
+  // environment is not authoritative for production, so it comes back
+  // downgraded rather than allowing a deploy.
   assert(
-    fallbackView.releaseGate?.summary === "UNKNOWN-ENV",
+    fallbackView.releaseGate?.summary.startsWith("UNKNOWN-ENV"),
     `A5: the environment-less fallback did not resolve: ${JSON.stringify(fallbackView.releaseGate)}`,
+  );
+  assert(
+    fallbackView.releaseGate?.verdict === "misconfigured",
+    `A5: an unknown-environment PASS came back authoritative: ${JSON.stringify(fallbackView.releaseGate)}`,
+  );
+
+  // A5b: ambiguous legacy evidence is PRESERVED and never answers a provider
+  // question. A row whose provider was genuinely unrecorded is real history —
+  // something happened — but it does not say which provider it happened to.
+  const { readAmbiguousLegacyGateEvidence } = await import("@/lib/sync/release-gates");
+  await client.query(
+    `INSERT INTO sync_release_gates (
+       build_id, environment, gate_kind, gate_scope, provider_scope,
+       decision_fingerprint, mode, base_result, verdict, summary,
+       evidence_json, emitted_at, last_seen_at, coalesced_count
+     ) VALUES ($1, $2, 'release_gate', 'release_readiness', 'unknown',
+               'ambiguous', 'block', 'pass', 'pass', 'AMBIGUOUS-LEGACY',
+               '{}'::jsonb, $3, $3, 1)`,
+    [TIE_BUILD, TARGET_ENV, "2026-07-05T00:00:00.000Z"],
+  );
+  for (const scope of ["meta", "google_ads"]) {
+    const seen = await getLatestSyncGateRecords({
+      buildId: TIE_BUILD,
+      environment: TARGET_ENV,
+      providerScope: scope,
+    });
+    assert(
+      seen.releaseGate?.summary !== "AMBIGUOUS-LEGACY",
+      `A5b: an unrecorded-provider row answered a ${scope} question.`,
+    );
+  }
+  const ambiguous = await readAmbiguousLegacyGateEvidence({
+    buildId: TIE_BUILD,
+    environment: TARGET_ENV,
+  });
+  assert(
+    ambiguous.count >= 1 && ambiguous.newest?.summary === "AMBIGUOUS-LEGACY",
+    `A5b: ambiguous legacy evidence is not inspectable: ${JSON.stringify(ambiguous)}`,
+  );
+
+  // A5c: an unknown-ENVIRONMENT pass is not authoritative. It was emitted by a
+  // process that could not tell which environment it was running in, so a pass
+  // from it says only "whatever that was, it looked fine".
+  const UNKNOWN_ENV_BUILD = "unknown-env-build";
+  await client.query(
+    `INSERT INTO sync_release_gates (
+       build_id, environment, gate_kind, gate_scope, provider_scope,
+       decision_fingerprint, mode, base_result, verdict, summary,
+       evidence_json, emitted_at, last_seen_at, coalesced_count
+     ) VALUES ($1, 'unknown', 'deploy_gate', 'service_liveness', 'global',
+               'unknown-env-pass', 'block', 'pass', 'pass', 'UNKNOWN-ENV-PASS',
+               '{}'::jsonb, $2, $2, 1)`,
+    [UNKNOWN_ENV_BUILD, "2026-07-06T00:00:00.000Z"],
+  );
+  const unknownEnvView = await getLatestSyncGateRecords({
+    buildId: UNKNOWN_ENV_BUILD,
+    environment: TARGET_ENV,
+    providerScope: "meta",
+  });
+  assert(
+    unknownEnvView.deployGate?.verdict === "misconfigured",
+    `A5c: an unknown-environment PASS was returned as authoritative: ${JSON.stringify(unknownEnvView.deployGate)}`,
+  );
+  const { shouldEnforceSyncGateFailure } = await import("@/lib/sync/release-gates");
+  assert(
+    shouldEnforceSyncGateFailure([unknownEnvView.deployGate]),
+    "A5c: the downgraded unknown-environment gate is not enforced, so it still allows a deploy.",
   );
 
   console.log(
-    `${LABEL} A4-A5 PASS identity: a same-instant tie resolves to the same row on 5 consecutive reads; google_ads and meta stay separate; ONE global deploy gate resolves identically for meta, google_ads and shopify readers; a NEWER staging row never answers a production query and a production read with only staging rows present returns nothing; the 'unknown' environment fallback still resolves`,
+    `${LABEL} A4-A5 PASS identity: a same-instant tie resolves to the same row on 5 consecutive reads; google_ads and meta stay separate; ONE global deploy gate resolves identically for meta, google_ads and shopify readers; a NEWER staging row never answers a production query and a production read with only staging rows present returns nothing; the 'unknown' environment fallback still resolves; ambiguous unrecorded-provider evidence is inspectable but answers neither meta nor google_ads; and an unknown-ENVIRONMENT pass is downgraded to misconfigured and enforced`,
   );
 }
 
@@ -1208,6 +1278,155 @@ async function verifyNegativeControls(client: Client) {
   );
 }
 
+
+// ── A9. Retention makes progress, and the heavy migration is gated ─────────
+
+async function verifyRetentionProgressAndCapacity(client: Client) {
+  const { runSyncGateRetentionPass, pruneSyncGateRecords } = await import(
+    "@/lib/sync/release-gates"
+  );
+
+  // STARVATION. `LIMIT` is applied before the "is this current evidence?"
+  // filter, so a head of the table made entirely of latest-per-key rows returns
+  // zero candidates — and without a cursor the next call re-reads exactly the
+  // same rows and returns zero again, forever. This seeds precisely that shape:
+  // many builds, each with ONE aged row, so every row in the scan window is its
+  // own key's newest.
+  await client.query(
+    `INSERT INTO sync_release_gates (
+       build_id, environment, gate_kind, gate_scope, provider_scope,
+       decision_fingerprint, mode, base_result, verdict, summary,
+       evidence_json, emitted_at, last_seen_at, coalesced_count
+     )
+     SELECT 'starve-build-' || series, 'production', 'release_gate',
+            'release_readiness', 'meta', md5('starve' || series::text),
+            'block', 'pass', 'pass', 'starve',
+            '{}'::jsonb,
+            TIMESTAMPTZ '2020-01-01 00:00:00+00' + make_interval(secs => series),
+            TIMESTAMPTZ '2020-01-01 00:00:00+00' + make_interval(secs => series), 1
+     FROM generate_series(1, 300) AS series`,
+  );
+  // ...and one build with TWO aged rows, far enough back that a cursorless scan
+  // never reaches it.
+  for (const offset of [0, 1]) {
+    await client.query(
+      `INSERT INTO sync_release_gates (
+         build_id, environment, gate_kind, gate_scope, provider_scope,
+         decision_fingerprint, mode, base_result, verdict, summary,
+         evidence_json, emitted_at, last_seen_at, coalesced_count
+       ) VALUES ('starve-deletable', 'production', 'release_gate',
+                 'release_readiness', 'meta', $1, 'block', 'pass', 'pass',
+                 'deletable', '{}'::jsonb, $2, $2, 1)`,
+      [`deletable-${offset}`, `2020-01-02T00:0${offset}:00.000Z`],
+    );
+  }
+
+  // One batch, small enough that its window is entirely latest-per-key rows.
+  const firstBatch = await pruneSyncGateRecords({ maxAgeDays: 1, limit: 50 });
+  assert(
+    firstBatch.examined === 50 && firstBatch.candidates === 0,
+    `A9: the starvation fixture is wrong — examined ${firstBatch.examined}, candidates ${firstBatch.candidates}.`,
+  );
+  assert(
+    firstBatch.nextCursor != null,
+    "A9: a batch that deleted nothing produced no cursor, so the next call re-reads the same rows forever.",
+  );
+  // The SAME call with the cursor moves on.
+  const secondBatch = await pruneSyncGateRecords({
+    maxAgeDays: 1,
+    limit: 50,
+    cursor: firstBatch.nextCursor,
+  });
+  assert(
+    secondBatch.examined > 0 &&
+      secondBatch.nextCursor?.id !== firstBatch.nextCursor?.id,
+    `A9: the cursor did not advance: ${JSON.stringify({ firstBatch, secondBatch })}`,
+  );
+
+  // The production pass finds the deletable pair the cursorless scan could not
+  // reach, and stays DRY-RUN with the retention lane off.
+  const savedLane = process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  const before = Number(
+    (
+      await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM sync_release_gates`,
+      )
+    ).rows[0]!.count,
+  );
+  const dryPass = await runSyncGateRetentionPass({
+    maxAgeDays: 1,
+    batchLimit: 50,
+    maxBatches: 50,
+  });
+  const after = Number(
+    (
+      await client.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM sync_release_gates`,
+      )
+    ).rows[0]!.count,
+  );
+  assert(
+    dryPass.mode === "dry_run" && dryPass.deleted === 0 && after === before,
+    `A9: the default-off pass deleted rows: ${JSON.stringify(dryPass)}`,
+  );
+  assert(
+    dryPass.candidates > 0,
+    `A9: the resumable pass never reached a deletable row — it starved: ${JSON.stringify(dryPass)}`,
+  );
+  assert(
+    dryPass.batches > 1,
+    `A9: the pass finished in ${dryPass.batches} batch, so resumption was never exercised.`,
+  );
+  if (savedLane == null) delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  else process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = savedLane;
+
+  // CAPACITY. The heavy release-gate migration step rewrites this relation and
+  // builds three indexes; it ran with no gate at all. With no physical sample
+  // present the gate must refuse rather than proceed blind.
+  const { assertMigrationCapacityForHeavyStepForSeams } = await import(
+    "@/lib/migrations"
+  );
+  const relationBytes = Number(
+    (
+      await client.query<{ bytes: string }>(
+        `SELECT pg_total_relation_size('sync_release_gates')::text AS bytes`,
+      )
+    ).rows[0]!.bytes,
+  );
+  assert(
+    relationBytes > 64 * 1024 * 1024,
+    `A9: the seeded relation is only ${relationBytes}B; too small to exercise the heavy-step gate.`,
+  );
+  const refused = await assertMigrationCapacityForHeavyStepForSeams({
+    label: "seam_probe",
+    relation: "sync_release_gates",
+    heavyBytes: 1,
+  }).then(
+    () => null,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  );
+  assert(
+    refused != null && /migration_capacity_refused/.test(refused),
+    `A9: the heavy-step capacity gate did not refuse without a physical sample: ${String(refused)}`,
+  );
+  // ...and it does NOT engage on a relation below the heavy threshold, which is
+  // what keeps a fresh database migratable without capacity telemetry.
+  const light = await assertMigrationCapacityForHeavyStepForSeams({
+    label: "seam_probe_light",
+    relation: "sync_release_gates",
+    heavyBytes: relationBytes * 10,
+  });
+  assert(
+    light.engaged === false,
+    `A9: the gate engaged on a relation below its threshold: ${JSON.stringify(light)}`,
+  );
+
+  console.log(
+    `${LABEL} A9 PASS retention progress and capacity: a batch whose whole window is latest-per-key returns 0 candidates and STILL advances its cursor; the resumable production pass crosses ${dryPass.batches} batches to reach ${dryPass.candidates} deletable rows and deletes 0 with the retention lane off; and the heavy-migration gate REFUSES a ${relationBytes}B relation with no physical sample while staying inert below its threshold`,
+  );
+}
+
 async function main() {
   const bin = pgBinDir();
   const port = await freePort();
@@ -1296,7 +1515,8 @@ async function main() {
     });
     await verifyDeterminismAndScope(client);
     await verifyCoalescingAndRetention(client);
-    await verifyNegativeControls(client);
+    await verifyRetentionProgressAndCapacity(client);
+  await verifyNegativeControls(client);
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

@@ -25,6 +25,7 @@ import {
   summarizeCampaignConfig,
   type MetaConfigSnapshotPayload,
 } from "@/lib/meta/configuration";
+import { decideMetaCurrentEvidence } from "@/lib/meta/current-evidence-gate";
 import {
   createMetaAuthoritativeReconciliationEvent,
   createMetaAuthoritativeSliceVersion,
@@ -2330,25 +2331,20 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     input.truthState ??
     (normalizedDay === accountToday ? "provisional" : "finalized");
   /**
-   * Canonical eligibility for persisting CURRENT Meta config as evidence.
+   * The one current-evidence decision for this work unit.
    *
-   * Campaign/adset/ad config endpoints return the account's current inventory;
-   * they are not day-scoped. Writing that inventory under a historical date
-   * fabricates history and amplifies storage by the size of the backfill wave
-   * (761 days per account in the incident). Evidence is therefore only written
-   * when this run is the account's own local today AND the caller declared it
-   * provisional. Historical, finalized, backfill, repair and replay days may
-   * still USE the inventory in memory to enrich their metric facts.
-   *
-   * This inverts the previous gate, which was `truthState === "finalized"` and
-   * therefore fired ONLY on historical days — stamping today's inventory onto
-   * every backfilled date.
-   *
-   * Declared once here, outside the fetch substage, so every current-config
-   * writer downstream shares exactly one definition and cannot drift.
+   * Declared once here, outside the fetch substage, so the config-snapshot
+   * writer, the daily writers' `appendConfigHistory`, and the entity
+   * observation writer all read the same answer and cannot drift apart. See
+   * lib/meta/current-evidence-gate.ts for why they must agree.
    */
+  const currentEvidence = decideMetaCurrentEvidence({
+    truthState,
+    normalizedDay,
+    accountToday,
+  });
   const persistsCurrentConfigEvidence =
-    truthState === "provisional" && normalizedDay === accountToday;
+    currentEvidence.persistsCurrentConfigEvidence;
   const finalizedAt =
     truthState === "finalized" ? new Date().toISOString() : null;
   const validationStatus: MetaWarehouseValidationStatus =
@@ -2791,56 +2787,66 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             },
           }),
         ]);
-      await Promise.all([
-        persistMetaStatusConfigObservation({
-          credentials: input.credentials,
-          accountId: input.accountId,
-          entityType: "campaign",
-          endpoint: "campaign_configs",
-          receipt: campaignReceipt,
-          sourceSnapshotId: campaignSnapshotId,
-          mapRow: ({ row, responseObservedAt, capturedAt }) =>
-            mapCampaignObservationState({
-              credentials: input.credentials,
-              accountId: input.accountId,
-              row,
-              responseObservedAt,
-              capturedAt,
-            }),
-        }),
-        persistMetaStatusConfigObservation({
-          credentials: input.credentials,
-          accountId: input.accountId,
-          entityType: "adset",
-          endpoint: "adset_configs",
-          receipt: adsetReceipt,
-          sourceSnapshotId: adsetSnapshotId,
-          mapRow: ({ row, responseObservedAt, capturedAt }) =>
-            mapAdSetObservationState({
-              credentials: input.credentials,
-              accountId: input.accountId,
-              row,
-              responseObservedAt,
-              capturedAt,
-            }),
-        }),
-        persistMetaStatusConfigObservation({
-          credentials: input.credentials,
-          accountId: input.accountId,
-          entityType: "ad",
-          endpoint: "ad_configs",
-          receipt: adReceipt,
-          sourceSnapshotId: adSnapshotId,
-          mapRow: ({ row, responseObservedAt, capturedAt }) =>
-            mapAdObservationState({
-              credentials: input.credentials,
-              accountId: input.accountId,
-              row,
-              responseObservedAt,
-              capturedAt,
-            }),
-        }),
-      ]);
+      // These write entity observation RUNS and STATES. The run identity
+      // includes capturedAt, which is `now()`, so every historical day of a
+      // backfill produced a brand-new run and a fresh state row per entity —
+      // dedupe only ever applied within a single run. That is the remaining
+      // source of meta_entity_state_history growth, and it is evidence about
+      // the CURRENT inventory, so it belongs only to a current provisional day.
+      // The rows above are still fetched and used in memory to enrich this
+      // day's metric facts; they are simply not recorded as observations.
+      if (currentEvidence.persistsEntityObservations) {
+        await Promise.all([
+          persistMetaStatusConfigObservation({
+            credentials: input.credentials,
+            accountId: input.accountId,
+            entityType: "campaign",
+            endpoint: "campaign_configs",
+            receipt: campaignReceipt,
+            sourceSnapshotId: campaignSnapshotId,
+            mapRow: ({ row, responseObservedAt, capturedAt }) =>
+              mapCampaignObservationState({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                row,
+                responseObservedAt,
+                capturedAt,
+              }),
+          }),
+          persistMetaStatusConfigObservation({
+            credentials: input.credentials,
+            accountId: input.accountId,
+            entityType: "adset",
+            endpoint: "adset_configs",
+            receipt: adsetReceipt,
+            sourceSnapshotId: adsetSnapshotId,
+            mapRow: ({ row, responseObservedAt, capturedAt }) =>
+              mapAdSetObservationState({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                row,
+                responseObservedAt,
+                capturedAt,
+              }),
+          }),
+          persistMetaStatusConfigObservation({
+            credentials: input.credentials,
+            accountId: input.accountId,
+            entityType: "ad",
+            endpoint: "ad_configs",
+            receipt: adReceipt,
+            sourceSnapshotId: adSnapshotId,
+            mapRow: ({ row, responseObservedAt, capturedAt }) =>
+              mapAdObservationState({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                row,
+                responseObservedAt,
+                capturedAt,
+              }),
+          }),
+        ]);
+      }
       campaignConfigs = new Map(
         campaignReceipt.rows.map((campaign) => [campaign.id, campaign]),
       );
@@ -3526,9 +3532,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             await replaceMetaCampaignDailySlice({
               rows: campaignRows,
               proof: campaignProof,
+              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           } else {
-            await upsertMetaCampaignDailyRows(campaignRows);
+            await upsertMetaCampaignDailyRows(campaignRows, {
+              appendConfigHistory: currentEvidence.appendConfigHistory,
+            });
           }
         }
       },
@@ -3554,9 +3563,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             await replaceMetaAdSetDailySlice({
               rows: adsetRows,
               proof: adsetProof,
+              appendConfigHistory: currentEvidence.appendConfigHistory,
             });
           } else if (adsetRows.length > 0) {
-            await upsertMetaAdSetDailyRows(adsetRows);
+            await upsertMetaAdSetDailyRows(adsetRows, {
+              appendConfigHistory: currentEvidence.appendConfigHistory,
+            });
           }
         }
       },
@@ -5310,9 +5322,14 @@ export async function getCampaigns(
           const accountToday = getTodayIsoForTimeZone(
             profile?.timezone ?? "UTC",
           );
+          const campaignCurrentEvidence = decideMetaCurrentEvidence({
+            truthState: "provisional",
+            normalizedDay: normalizedDate,
+            accountToday,
+          });
           if (
             isSingleDayWindow(normalizedSince, normalizedUntil) &&
-            normalizedDate === accountToday
+            campaignCurrentEvidence.persistsCurrentConfigEvidence
           ) {
             const accountCurrency = requireMetaCurrencyForWarehouseWrite(
               credentials,
@@ -5361,6 +5378,7 @@ export async function getCampaigns(
                 cpc: row.clicks > 0 ? r2(row.spend / row.clicks) : null,
                 sourceSnapshotId: null,
               })),
+              { appendConfigHistory: campaignCurrentEvidence.appendConfigHistory },
             );
             await upsertMetaAccountDailyRows([
               {
@@ -5808,7 +5826,23 @@ export async function getAdSets(
           });
         }
 
-        if (isSingleDayWindow(normalizedSince, normalizedUntil)) {
+        // A single-day window is not the same thing as the account's today.
+        // Without the second condition this live READ path wrote adset daily
+        // rows AND appended config history for any historical day a dashboard
+        // happened to request — the same fabrication as the sync path, reached
+        // through a surface whose contract is that it does not write history.
+        const adsetAccountToday = getTodayIsoForTimeZone(
+          credentials.accountProfiles[accountId]?.timezone ?? "UTC",
+        );
+        const adsetCurrentEvidence = decideMetaCurrentEvidence({
+          truthState: "provisional",
+          normalizedDay: normalizedSince,
+          accountToday: adsetAccountToday,
+        });
+        if (
+          isSingleDayWindow(normalizedSince, normalizedUntil) &&
+          adsetCurrentEvidence.persistsCurrentConfigEvidence
+        ) {
           const profile = credentials.accountProfiles[accountId];
           const normalizedDate = normalizedSince;
           const accountCurrency = requireMetaCurrencyForWarehouseWrite(
@@ -5857,10 +5891,14 @@ export async function getAdSets(
               isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
               isBidValueMixed: Boolean(row.isBidValueMixed),
             })),
+            { appendConfigHistory: adsetCurrentEvidence.appendConfigHistory },
           );
         }
 
-        if (businessId) {
+        // Config snapshots describe the CURRENT inventory these status rows
+        // came from. Recording them against a historical read is the same
+        // fabrication as the daily write-back above, so both share one gate.
+        if (businessId && adsetCurrentEvidence.persistsCurrentConfigEvidence) {
           const campaignEntityIds = campaignId
             ? [campaignId]
             : Array.from(

@@ -1362,6 +1362,229 @@ async function verifyMeta(
 // with their own clusters, alongside the code they exercise. This file proves
 // the selection/authority contract and the provider boundary.
 
+interface EvidenceCensus {
+  configSnapshots: number;
+  campaignConfigHistory: number;
+  adsetConfigHistory: number;
+  entityObservationRuns: number;
+  entityStateHistory: number;
+}
+
+async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
+  const row = await client.query<Record<string, string>>(`
+    SELECT
+      (SELECT COUNT(*)::text FROM meta_config_snapshots) AS config_snapshots,
+      (SELECT COUNT(*)::text FROM meta_campaign_config_history) AS campaign_config_history,
+      (SELECT COUNT(*)::text FROM meta_adset_config_history) AS adset_config_history,
+      (SELECT COUNT(*)::text FROM meta_entity_observation_runs) AS entity_observation_runs,
+      (SELECT COUNT(*)::text FROM meta_entity_state_history) AS entity_state_history
+  `);
+  const values = row.rows[0]!;
+  return {
+    configSnapshots: Number(values.config_snapshots),
+    campaignConfigHistory: Number(values.campaign_config_history),
+    adsetConfigHistory: Number(values.adset_config_history),
+    entityObservationRuns: Number(values.entity_observation_runs),
+    entityStateHistory: Number(values.entity_state_history),
+  };
+}
+
+/**
+ * C1-C3 — the historical amplification, measured across a backfill wave rather
+ * than a single day.
+ *
+ * A one-day test cannot distinguish "writes no current evidence" from "writes
+ * one row instead of three": the defect only becomes visible as a wave. These
+ * cases drive the REAL core sync entrypoint across many historical days and
+ * assert EXACT row deltas — zero — on every current-evidence surface, then
+ * prove the account's own today still records all of it.
+ */
+async function verifyHistoricalEvidenceAmplification(
+  client: Client,
+  stub: ProviderStub,
+) {
+  const { syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
+  const { getMetaAccountContext } = await import("@/lib/meta/account-context");
+  const context = await getMetaAccountContext(BUSINESS_ID);
+  assert(
+    context?.connected && context.accessToken,
+    "C1: no connected Meta context, so the amplification cases would be vacuous.",
+  );
+  const credentials = {
+    businessId: BUSINESS_ID,
+    accessToken: context.accessToken,
+    accountIds: [META_ACCOUNT_ID],
+    currency: "TRY",
+    accountProfiles: {
+      [META_ACCOUNT_ID]: {
+        currency: "TRY",
+        timezone: "Europe/Istanbul",
+        name: "Seam Meta Account",
+      },
+    },
+  };
+
+  const HISTORICAL_DAYS = [
+    "2026-05-01",
+    "2026-05-02",
+    "2026-05-03",
+    "2026-05-04",
+    "2026-05-05",
+    "2026-05-06",
+    "2026-05-07",
+    "2026-05-08",
+    "2026-05-09",
+    "2026-05-10",
+  ];
+
+  // Reuse the runner-lease holder: the lease is exclusive per business and
+  // provider scope, so a second worker id could never heartbeat.
+  const HISTORICAL_WORKER_ID = META_WORKER_ID;
+  // The partition lease heartbeat additionally requires a live runner lease for
+  // this worker, exactly as the production consumer holds one.
+  const { acquireSyncRunnerLease } = await import("@/lib/sync/worker-health");
+  const runnerLease = await acquireSyncRunnerLease({
+    businessId: BUSINESS_ID,
+    providerScope: "meta",
+    leaseOwner: HISTORICAL_WORKER_ID,
+    leaseMinutes: 15,
+  });
+  assert(
+    runnerLease,
+    "C1: could not renew the meta runner lease for the amplification cases.",
+  );
+  const before = await readEvidenceCensus(client);
+  const historicalErrors: string[] = [];
+  stub.reset();
+  for (const [index, day] of HISTORICAL_DAYS.entries()) {
+    const partition = await client.query<{ id: string; lease_epoch: string }>(
+      `INSERT INTO meta_sync_partitions
+         (business_id, provider_account_id, lane, scope, partition_date, status,
+          source, lease_owner, lease_expires_at)
+       VALUES ($1, $2, 'core', 'account_daily', $3::date, 'leased', 'seam', $4,
+               now() + interval '10 minutes')
+       ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+       DO UPDATE SET status = 'leased', lease_owner = EXCLUDED.lease_owner,
+                     lease_expires_at = EXCLUDED.lease_expires_at,
+                     updated_at = now()
+       RETURNING id::text AS id, lease_epoch::text AS lease_epoch`,
+      [BUSINESS_ID, META_ACCOUNT_ID, day, HISTORICAL_WORKER_ID],
+    );
+    await syncMetaAccountCoreWarehouseDay({
+      credentials,
+      accountId: META_ACCOUNT_ID,
+      day,
+      partitionId: partition.rows[0]!.id,
+      workerId: HISTORICAL_WORKER_ID,
+      leaseEpoch: Number(partition.rows[0]!.lease_epoch),
+      attemptCount: 1,
+      leaseMinutes: 15,
+      freshStart: true,
+    } as never).catch((error) => {
+      historicalErrors.push(String((error as Error)?.message ?? error));
+    });
+  }
+  assert(
+    historicalErrors.length === 0,
+    `C1: historical days failed rather than completing, so the zero-write result would be vacuous: ${JSON.stringify(historicalErrors.slice(0, 3))}`,
+  );
+  const afterHistorical = await readEvidenceCensus(client);
+
+  // C1: exact zero deltas. Not "fewer" — zero. Any non-zero number here is one
+  // row per historical day per surface, which is the incident.
+  const historicalDelta = {
+    configSnapshots: afterHistorical.configSnapshots - before.configSnapshots,
+    campaignConfigHistory:
+      afterHistorical.campaignConfigHistory - before.campaignConfigHistory,
+    adsetConfigHistory:
+      afterHistorical.adsetConfigHistory - before.adsetConfigHistory,
+    entityObservationRuns:
+      afterHistorical.entityObservationRuns - before.entityObservationRuns,
+    entityStateHistory:
+      afterHistorical.entityStateHistory - before.entityStateHistory,
+  };
+  assert(
+    Object.values(historicalDelta).every((delta) => delta === 0),
+    `C1: ${HISTORICAL_DAYS.length} historical days wrote current evidence: ${JSON.stringify(historicalDelta)}`,
+  );
+
+  // C2: the days were genuinely processed — the inventory WAS fetched and used
+  // in memory. Without this the zero above would only prove the sync did
+  // nothing at all.
+  const configCalls = stub
+    .providerCalls()
+    .filter((call) => /\/(campaigns|adsets|ads)\b/.test(call.url));
+  assert(
+    configCalls.length > 0,
+    "C2: no config inventory was fetched, so the zero-write result is vacuous — the sync did nothing rather than writing nothing.",
+  );
+  const factRows = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_campaign_daily
+     WHERE business_id = $1 AND date = ANY($2::date[])`,
+    [BUSINESS_ID, HISTORICAL_DAYS],
+  );
+  assert(
+    Number(factRows.rows[0]!.count) > 0,
+    "C2: the historical days produced no metric facts, so the zero-evidence result is vacuous.",
+  );
+  console.log(
+    `${LABEL} C1-C2 PASS historical amplification: ${HISTORICAL_DAYS.length} historical days produced ${factRows.rows[0]!.count} metric fact rows from ${configCalls.length} inventory fetches and EXACTLY 0 config snapshots, 0 campaign/adset config history rows, 0 entity observation runs and 0 entity state rows`,
+  );
+
+  // C3: the account's own today is real current evidence and must still be
+  // recorded, or the fix would have silently disabled current-state tracking.
+  const accountToday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+  }).format(new Date());
+  const todayPartition = await client.query<{ id: string; lease_epoch: string }>(
+    `INSERT INTO meta_sync_partitions
+       (business_id, provider_account_id, lane, scope, partition_date, status,
+        source, lease_owner, lease_expires_at)
+     VALUES ($1, $2, 'core', 'account_daily', $3::date, 'leased', 'seam', $4,
+             now() + interval '10 minutes')
+     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+     DO UPDATE SET status = 'leased', lease_owner = EXCLUDED.lease_owner,
+                   lease_expires_at = EXCLUDED.lease_expires_at,
+                   updated_at = now()
+     RETURNING id::text AS id, lease_epoch::text AS lease_epoch`,
+    [BUSINESS_ID, META_ACCOUNT_ID, accountToday, HISTORICAL_WORKER_ID],
+  );
+  const beforeToday = await readEvidenceCensus(client);
+  await syncMetaAccountCoreWarehouseDay({
+    credentials,
+    accountId: META_ACCOUNT_ID,
+    day: accountToday,
+    partitionId: todayPartition.rows[0]!.id,
+    workerId: HISTORICAL_WORKER_ID,
+    leaseEpoch: Number(todayPartition.rows[0]!.lease_epoch),
+    attemptCount: 1,
+    leaseMinutes: 15,
+    freshStart: true,
+  } as never).catch(() => undefined);
+  const afterToday = await readEvidenceCensus(client);
+  assert(
+    afterToday.entityObservationRuns > beforeToday.entityObservationRuns &&
+      afterToday.entityStateHistory > beforeToday.entityStateHistory,
+    `C3: the account's own today recorded no entity observation, so current-state tracking is broken: ${JSON.stringify({ beforeToday, afterToday })}`,
+  );
+  // Config snapshots coalesce on unchanged content, so an unchanged fixture
+  // legitimately adds no row. What must be true is that today REACHED the
+  // writer: a snapshot for today's date exists. This is deliberately weaker
+  // than the entity assertion above and is called out as such.
+  const todaySnapshot = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_config_snapshots
+     WHERE business_id = $1 AND account_id = $2 AND snapshot_date = $3::date`,
+    [BUSINESS_ID, META_ACCOUNT_ID, accountToday],
+  );
+  assert(
+    Number(todaySnapshot.rows[0]!.count) > 0,
+    `C3: no config snapshot exists for the account's own today, so the current-config writer was never reached: ${JSON.stringify({ beforeToday, afterToday })}`,
+  );
+  console.log(
+    `${LABEL} C3 PASS current evidence preserved: the account's own today added ${afterToday.entityObservationRuns - beforeToday.entityObservationRuns} observation runs and ${afterToday.entityStateHistory - beforeToday.entityStateHistory} entity state rows, and holds ${todaySnapshot.rows[0]!.count} config snapshots for today (unchanged config legitimately coalesces rather than appending)`,
+  );
+}
+
 interface SnapshotObservation {
   id: string;
   payload_hash: string;
@@ -2092,6 +2315,7 @@ async function main() {
 
     const shared = await verifyGoogle(client);
     await verifyMeta(client, shared);
+    await verifyHistoricalEvidenceAmplification(client, shared.stub);
     await verifyRawSnapshotModel(client);
     await verifyShopifyRawSnapshotModel(client);
     void shared;

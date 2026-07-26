@@ -1,7 +1,6 @@
 import { assertGoogleAdsAccountAuthority } from "@/lib/google-ads/account-authority";
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
-import { getIntegration, upsertIntegration } from "@/lib/integrations";
-import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
+import { resolveGoogleAccessTokenWithGeneration } from "@/lib/google-token-refresh";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { fetchWithTimeout } from "@/lib/http-fetch-with-timeout";
 
@@ -66,29 +65,14 @@ function normalizeCustomerId(value: string) {
 }
 
 async function resolveGoogleAccessToken(businessId: string) {
-  const integration = await getIntegration(businessId, "google");
-  if (!integration?.access_token) {
-    throw new Error("Google Ads integration not found or not connected.");
-  }
-
-  let accessToken = integration.access_token;
-  if (integration.token_expires_at) {
-    const expiresAt = new Date(integration.token_expires_at);
-    if (new Date() >= expiresAt && integration.refresh_token) {
-      const refreshed = await refreshGoogleAccessToken(integration.refresh_token);
-      await upsertIntegration({
-        businessId,
-        provider: "google",
-        status: "connected",
-        accessToken: refreshed.accessToken,
-        refreshToken: integration.refresh_token,
-        tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
-      });
-      accessToken = refreshed.accessToken;
-    }
-  }
-
-  return accessToken;
+  // Generation-bound. The hand-rolled version wrote the refreshed token back
+  // with no expected generation, so a refresh racing an OAuth reconnect
+  // overwrote the user's new credential with one minted from the old grant.
+  const resolved = await resolveGoogleAccessTokenWithGeneration({
+    businessId,
+    provider: "google",
+  });
+  return resolved;
 }
 
 async function loginCustomerIdCandidates(businessId: string, accountId: string) {
@@ -122,7 +106,9 @@ async function googleAdsMutateRequest(input: {
     businessId: input.businessId,
     accountId: input.accountId,
   });
-  const accessToken = await resolveGoogleAccessToken(input.businessId);
+  const { accessToken, connectionGeneration } = await resolveGoogleAccessToken(
+    input.businessId,
+  );
   const accountId = normalizeCustomerId(input.accountId);
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/${input.path}`;
   let lastError: string | null = null;
@@ -138,6 +124,9 @@ async function googleAdsMutateRequest(input: {
     await assertGoogleAdsAccountAuthority({
       businessId: input.businessId,
       accountId: input.accountId,
+      // The exact credential generation this request will carry. Selection can
+      // be unchanged while the connection behind it has been replaced.
+      expectedConnectionGeneration: connectionGeneration,
     });
     const response = await fetchWithTimeout(
       url,
@@ -165,9 +154,35 @@ async function googleAdsMutateRequest(input: {
           ? (payload.error as Record<string, unknown>).message ?? response.statusText
           : response.statusText
       ) || (input.validateOnly ? "Google Ads validate-only request failed." : "Google Ads mutate request failed.");
+
+    // AMBIGUOUS failures stop the loop.
+    //
+    // `mutate` is not idempotent: a 5xx or a timeout means the operation may
+    // have been applied and the response lost. Retrying it through the next
+    // manager candidate is a second create, a second budget change, a second
+    // pause — and the caller is told about one. Only a failure that PROVES the
+    // request was rejected before it took effect may be retried through another
+    // login-customer-id, and a validate-only request is safe by construction.
+    if (!input.validateOnly && !isUnambiguouslyRejectedGoogleMutate(response.status)) {
+      throw new Error(
+        `${lastError} (Google Ads returned an ambiguous failure; the mutation may have been applied, so it was NOT retried through another manager account.)`,
+      );
+    }
   }
 
   throw new Error(lastError ?? (input.validateOnly ? "Google Ads validate-only request failed." : "Google Ads mutate request failed."));
+}
+
+/**
+ * True only for statuses that prove the mutation did NOT take effect.
+ *
+ * 401/403 is an authorization refusal — the wrong login-customer-id — and
+ * 400/404 is a rejected or unroutable request. Those are safe to retry through a
+ * different manager account. Everything else, and in particular 429/5xx and any
+ * transport error, leaves the outcome unknown.
+ */
+function isUnambiguouslyRejectedGoogleMutate(status: number) {
+  return status === 400 || status === 401 || status === 403 || status === 404;
 }
 
 async function googleAdsSearchRequest(input: {
@@ -183,7 +198,9 @@ async function googleAdsSearchRequest(input: {
     businessId: input.businessId,
     accountId: input.accountId,
   });
-  const accessToken = await resolveGoogleAccessToken(input.businessId);
+  const { accessToken, connectionGeneration } = await resolveGoogleAccessToken(
+    input.businessId,
+  );
   const accountId = normalizeCustomerId(input.accountId);
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/googleAds:search`;
   let lastError: string | null = null;
@@ -193,6 +210,7 @@ async function googleAdsSearchRequest(input: {
     await assertGoogleAdsAccountAuthority({
       businessId: input.businessId,
       accountId: input.accountId,
+      expectedConnectionGeneration: connectionGeneration,
     });
     const response = await fetchWithTimeout(
       url,

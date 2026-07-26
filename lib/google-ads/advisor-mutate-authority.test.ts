@@ -30,9 +30,15 @@ vi.mock("@/lib/provider-account-assignments", async (importOriginal) => {
 
 vi.mock("@/lib/http-fetch-with-timeout", () => ({ fetchWithTimeout }));
 
+const readProviderConnectionGenerationToken = vi.fn(async () => "1:connected");
+
 vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, readProviderAccountSnapshot: vi.fn(async () => null) };
+  return {
+    ...actual,
+    readProviderAccountSnapshot: vi.fn(async () => null),
+    readProviderConnectionGenerationToken,
+  };
 });
 
 const {
@@ -50,6 +56,8 @@ describe("Google Ads account authority", () => {
     vi.clearAllMocks();
     getIntegration.mockResolvedValue({ status: "connected", access_token: "token" });
     getProviderAccountAssignments.mockResolvedValue({ account_ids: ["123-456-7890"] });
+    readProviderConnectionGenerationToken.mockResolvedValue("1:connected");
+    process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "dev-token";
     fetchWithTimeout.mockResolvedValue(
       new Response(JSON.stringify({ results: [] }), { status: 200 }),
     );
@@ -143,6 +151,77 @@ describe("Google Ads account authority", () => {
     expect(outcome).not.toBeNull();
     expect(isGoogleAdsAccountAuthorityError(outcome)).toBe(true);
     expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the connection generation moved after the token was read", async () => {
+    // Selection is unchanged the whole time — the ACCOUNT is still selected.
+    // What changed is who the connection belongs to: the user reconnected
+    // Google as a different principal. The token captured before that reconnect
+    // must not be POSTed to a live account.
+    let reads = 0;
+    readProviderConnectionGenerationToken.mockImplementation(async () => {
+      reads += 1;
+      // Reads 1-2 resolve the credential (before/after the read). The next read
+      // is the one at the literal pre-request boundary, by which time a
+      // reconnect has landed.
+      return reads <= 2 ? "1:connected" : "2:connected";
+    });
+
+    const outcome = await advisor
+      .executeAdvisorMutation({
+        businessId: "biz-1",
+        accountId: "123-456-7890",
+        action: {
+          actionType: "add_negative_keyword",
+          payload: {
+            campaignId: "c-1",
+            negativeKeywords: ["bad"],
+            matchType: "EXACT",
+          },
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(isGoogleAdsAccountAuthorityError(outcome)).toBe(true);
+    expect(String((outcome as Error).message)).toMatch(/connection changed/i);
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an AMBIGUOUS mutate failure through another manager account", async () => {
+    // `mutate` is not idempotent. A 500 means the operation may have been
+    // applied and only the response lost; retrying it through the next
+    // login-customer-id is a second create, and the caller is told about one.
+    fetchWithTimeout.mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "backend error" } }), {
+        status: 500,
+      }),
+    );
+
+    const outcome = await advisor
+      .executeAdvisorMutation({
+        businessId: "biz-1",
+        accountId: "123-456-7890",
+        action: {
+          actionType: "add_negative_keyword",
+          payload: {
+            campaignId: "c-1",
+            negativeKeywords: ["bad"],
+            matchType: "EXACT",
+          },
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(outcome).not.toBeNull();
+    expect(String((outcome as Error).message)).toMatch(/ambiguous failure/i);
+    // Exactly one attempt. Not one per manager candidate.
+    expect(fetchWithTimeout).toHaveBeenCalledTimes(1);
   });
 
   describe("advisor writeback makes zero provider calls without authority", () => {

@@ -113,6 +113,13 @@ export function reconcileAssignments(
 export async function resolveProviderDiscoveryPayload(input: {
   businessId: string;
   provider: "meta" | "google";
+  /**
+   * Read-only path. A refresh is a WRITE and this module is on the GET side, so
+   * `refreshRequested` is not honoured here and callers must not pretend it is:
+   * a caller that wants a real refresh calls `refreshProviderDiscoveryPayload`
+   * from a write-capable route. Kept in the signature so the value stays
+   * explicit at every call site rather than silently absent.
+   */
   refreshRequested: boolean;
   liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
   missingSnapshotNotice: string;
@@ -120,6 +127,12 @@ export async function resolveProviderDiscoveryPayload(input: {
   unavailableNotice: string;
   quotaNotice?: (retryAfterAt: string | null) => string;
   freshnessMs?: number;
+  /**
+   * The connection generation the caller read the credential under. Threaded to
+   * the refresh so an old-token result is refused rather than stamped with a
+   * generation it does not belong to.
+   */
+  expectedConnectionGeneration?: string | null;
 }): Promise<ProviderDiscoveryPayload> {
   const freshnessMs = input.freshnessMs ?? DEFAULT_FRESHNESS_MS;
   const assignmentRow = await getProviderAccountAssignments(input.businessId, input.provider).catch(

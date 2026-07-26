@@ -667,6 +667,358 @@ async function main() {
       `${LABEL} G1-G3 PASS connection generation: a disconnect-reconnect with UNCHANGED token bytes advances the generation and changes the fingerprint, a rotation advances it again, and no connection exists without its credential`,
     );
 
+    // ── G4-G12. Credential and snapshot races, against real PostgreSQL ──────
+    const {
+      ProviderConnectionGenerationConflictError,
+    } = await import("@/lib/integrations");
+    const {
+      forceProviderAccountSnapshotRefresh,
+      requestProviderAccountSnapshotRefresh,
+      readProviderConnectionGenerationToken,
+      readProviderAccountSnapshot,
+      ProviderAccountSnapshotRefreshError,
+    } = await import("@/lib/provider-account-snapshots");
+
+    // G4: principal A -> principal B. The provider returns a new access token
+    // and NO refresh token, which is what Google does on re-consent. Preserving
+    // A's refresh token would leave the connection holding two halves of two
+    // different grants, and the next silent refresh would mint a token for A
+    // while everything downstream believed it was talking to B.
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_A",
+      accessToken: "google-token-A",
+      refreshToken: "google-refresh-A",
+    });
+    const principalA = await getIntegration(genBusinessId, "google");
+    assert(
+      principalA?.refresh_token === "google-refresh-A",
+      `G4: principal A's refresh token was not stored: ${JSON.stringify(principalA?.refresh_token)}`,
+    );
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_B",
+      accessToken: "google-token-B",
+    });
+    const principalB = await getIntegration(genBusinessId, "google");
+    assert(
+      principalB?.access_token === "google-token-B" && principalB.refresh_token == null,
+      `G4: principal B's access token was combined with principal A's refresh token: ${JSON.stringify({ access: principalB?.access_token, refresh: principalB?.refresh_token })}`,
+    );
+    assert(
+      (principalB.connection_generation ?? 1) > (principalA.connection_generation ?? 1),
+      "G4: changing the provider account did not advance the connection generation.",
+    );
+
+    // G5: a pure token refresh — same principal, no account named — PRESERVES
+    // the refresh token. Clearing it here would force a reconnect after every
+    // silent refresh.
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_B",
+      accessToken: "google-token-B",
+      refreshToken: "google-refresh-B",
+    });
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      accessToken: "google-token-B2",
+      refreshToken: "google-refresh-B",
+    });
+    const refreshedSamePrincipal = await getIntegration(genBusinessId, "google");
+    assert(
+      refreshedSamePrincipal?.refresh_token === "google-refresh-B" &&
+        refreshedSamePrincipal.access_token === "google-token-B2",
+      `G5: a same-principal token refresh lost its refresh token: ${JSON.stringify({ access: refreshedSamePrincipal?.access_token, refresh: refreshedSamePrincipal?.refresh_token })}`,
+    );
+
+    // G6: a reconnect CLEARS stale failure and disconnect state.
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "disconnected",
+      errorMessage: "invalid_grant",
+    });
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_B",
+      accessToken: "google-token-B3",
+      refreshToken: "google-refresh-B",
+    });
+    const reconnectedClean = await client.query<{
+      error_message: string | null;
+      disconnected_at: string | null;
+    }>(
+      `SELECT credential.error_message, connection.disconnected_at::text AS disconnected_at
+       FROM provider_connections connection
+       JOIN integration_credentials credential
+         ON credential.provider_connection_id = connection.id
+       WHERE connection.business_id = $1 AND connection.provider = 'google'`,
+      [genBusinessId],
+    );
+    assert(
+      reconnectedClean.rows[0]?.error_message == null &&
+        reconnectedClean.rows[0]?.disconnected_at == null,
+      `G6: a reconnect left stale failure state behind: ${JSON.stringify(reconnectedClean.rows[0])}`,
+    );
+
+    // G7: the generation CAS. A write computed under an OLD generation — an
+    // in-flight token refresh that started before an OAuth reconnect — must be
+    // refused, not applied over the newer grant.
+    const staleGeneration = await readProviderConnectionGenerationToken(
+      genBusinessId,
+      "google",
+    );
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_C",
+      accessToken: "google-token-C",
+      refreshToken: "google-refresh-C",
+    });
+    const casConflict = await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      accessToken: "stale-refresh-result",
+      expectedConnectionGeneration: staleGeneration,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      casConflict instanceof ProviderConnectionGenerationConflictError,
+      `G7: a write under a stale generation was ACCEPTED: ${String(casConflict)}`,
+    );
+    const afterCas = await getIntegration(genBusinessId, "google");
+    assert(
+      afterCas?.access_token === "google-token-C",
+      `G7: the stale write overwrote the newer reconnect: ${JSON.stringify(afterCas?.access_token)}`,
+    );
+
+    // G8: failure bookkeeping SURVIVES the throw that reports it, and a second
+    // refresh observes the cooldown and makes ZERO provider calls.
+    let providerCalls = 0;
+    const failingRefresh = () =>
+      forceProviderAccountSnapshotRefresh({
+        businessId: genBusinessId,
+        provider: "google",
+        reason: "seam_failure",
+        liveLoader: async () => {
+          providerCalls += 1;
+          throw new Error("provider exploded");
+        },
+      });
+    const firstFailure = await failingRefresh().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      firstFailure instanceof ProviderAccountSnapshotRefreshError,
+      `G8: the failing refresh did not report a structured error: ${String(firstFailure)}`,
+    );
+    const cooldownRow = await client.query<{
+      refresh_failed: boolean;
+      refresh_failure_streak: number;
+      next_refresh_after: string | null;
+      refresh_in_progress: boolean;
+      last_error: string | null;
+    }>(
+      `SELECT refresh_failed, refresh_failure_streak, next_refresh_after::text AS next_refresh_after,
+              refresh_in_progress, last_error
+       FROM provider_account_snapshot_runs
+       WHERE business_id = $1 AND provider = 'google'`,
+      [genBusinessId],
+    );
+    assert(
+      cooldownRow.rows[0]?.refresh_failed === true &&
+        Number(cooldownRow.rows[0]?.refresh_failure_streak) >= 1 &&
+        cooldownRow.rows[0]?.next_refresh_after != null &&
+        cooldownRow.rows[0]?.refresh_in_progress === false &&
+        /provider exploded/.test(cooldownRow.rows[0]?.last_error ?? ""),
+      `G8: failure bookkeeping did not survive the throw that reported it: ${JSON.stringify(cooldownRow.rows[0])}`,
+    );
+    const callsAfterFirst = providerCalls;
+    // The ordinary refresh path, not the forced one: `force` deliberately
+    // bypasses cooldown. What must hold is that a normal request inside the
+    // cooldown window makes no provider call at all.
+    await requestProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_cooldown_probe",
+      liveLoader: async () => {
+        providerCalls += 1;
+        return [];
+      },
+    });
+    assert(
+      providerCalls === callsAfterFirst,
+      `G8: a second refresh inside the cooldown made ${providerCalls - callsAfterFirst} more provider calls; the cooldown is not being observed.`,
+    );
+
+    // G9: a reconnect DURING the provider call makes the result ineligible. The
+    // accounts that came back describe a credential the user has replaced.
+    await client.query(
+      `DELETE FROM provider_account_snapshot_runs WHERE business_id = $1 AND provider = 'google'`,
+      [genBusinessId],
+    );
+    const raced = await forceProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_race",
+      liveLoader: async () => {
+        // The reconnect lands while the "provider call" is in flight.
+        await upsertIntegration({
+          businessId: genBusinessId,
+          provider: "google",
+          status: "connected",
+          providerAccountId: "cust_D",
+          accessToken: "google-token-D",
+          refreshToken: "google-refresh-D",
+        });
+        return [{ id: "stale_account", name: "Stale" }];
+      },
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      raced instanceof ProviderAccountSnapshotRefreshError &&
+        /no longer current/.test(raced.message),
+      `G9: an account list fetched under a superseded credential was ACCEPTED: ${String(raced)}`,
+    );
+    const staleAccounts = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM provider_account_snapshot_items item
+       JOIN provider_account_snapshot_runs run ON run.id = item.snapshot_run_id
+       WHERE run.business_id = $1 AND item.provider_account_id = 'stale_account'`,
+      [genBusinessId],
+    );
+    assert(
+      Number(staleAccounts.rows[0]!.count) === 0,
+      "G9: the superseded account list was persisted anyway.",
+    );
+
+    // G10: the CALLER's generation. A reconnect that lands BEFORE the refresh
+    // even starts is invisible to a generation captured at claim time, because
+    // by then it is already the new one. The caller supplies what it read the
+    // token under.
+    const callerGeneration = await readProviderConnectionGenerationToken(
+      genBusinessId,
+      "google",
+    );
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "google",
+      status: "connected",
+      providerAccountId: "cust_E",
+      accessToken: "google-token-E",
+      refreshToken: "google-refresh-E",
+    });
+    let calledWithOldToken = 0;
+    const staleCaller = await forceProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_stale_caller",
+      expectedConnectionGeneration: callerGeneration,
+      liveLoader: async () => {
+        calledWithOldToken += 1;
+        return [{ id: "old_token_account", name: "Old" }];
+      },
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      staleCaller instanceof ProviderAccountSnapshotRefreshError && calledWithOldToken === 0,
+      `G10: a refresh bound to a superseded credential ran anyway (${calledWithOldToken} provider calls): ${String(staleCaller)}`,
+    );
+
+    // G11: run and items are ONE revision. Two separate SELECTs let a reader see
+    // run N's metadata with run N+1's accounts; the read is one statement now,
+    // so a reader concurrent with a rewrite sees one or the other, never a mix.
+    await client.query(
+      `DELETE FROM provider_account_snapshot_runs WHERE business_id = $1 AND provider = 'google'`,
+      [genBusinessId],
+    );
+    await forceProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_revision_a",
+      liveLoader: async () => [
+        { id: "rev_a_1", name: "A1" },
+        { id: "rev_a_2", name: "A2" },
+      ],
+    });
+    const readers = Promise.all(
+      Array.from({ length: 8 }, () =>
+        readProviderAccountSnapshot({ businessId: genBusinessId, provider: "google" }),
+      ),
+    );
+    const rewrite = forceProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_revision_b",
+      bypassCooldown: true,
+      liveLoader: async () => [{ id: "rev_b_1", name: "B1" }],
+    });
+    const [readerResults] = await Promise.all([readers, rewrite.catch(() => undefined)]);
+    for (const result of readerResults) {
+      const ids = (result?.accounts ?? []).map((account) => account.id).sort();
+      const isRevisionA =
+        ids.length === 2 && ids[0] === "rev_a_1" && ids[1] === "rev_a_2";
+      const isRevisionB = ids.length === 1 && ids[0] === "rev_b_1";
+      const isEmpty = ids.length === 0;
+      assert(
+        isRevisionA || isRevisionB || isEmpty,
+        `G11: a reader observed a MIXED revision: ${JSON.stringify(ids)}`,
+      );
+    }
+
+    // G12: multi-process serialisation. The in-process map is bypassed by using
+    // separate keys is not possible here, so this exercises the durable claim
+    // directly: with a claim held, a second refresh is refused rather than
+    // making a second provider call.
+    await client.query(
+      `UPDATE provider_account_snapshot_runs
+       SET refresh_in_progress = TRUE, last_refresh_attempt_at = now(),
+           next_refresh_after = NULL
+       WHERE business_id = $1 AND provider = 'google'`,
+      [genBusinessId],
+    );
+    let claimedCalls = 0;
+    const claimed = await forceProviderAccountSnapshotRefresh({
+      businessId: genBusinessId,
+      provider: "google",
+      reason: "seam_claimed",
+      liveLoader: async () => {
+        claimedCalls += 1;
+        return [];
+      },
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      claimed instanceof ProviderAccountSnapshotRefreshError &&
+        /already in progress/.test(claimed.message) &&
+        claimedCalls === 0,
+      `G12: a refresh proceeded while another process held the claim (${claimedCalls} provider calls): ${String(claimed)}`,
+    );
+
+    console.log(
+      `${LABEL} G4-G12 PASS credential and snapshot races: an A->B reconnect with no new refresh token CLEARS the old principal's refresh token and bumps the generation while a same-principal refresh preserves it; a reconnect clears stale error_message and disconnected_at; a write under a stale generation is refused and does not overwrite the newer grant; failure bookkeeping survives the throw and a second refresh inside the cooldown makes 0 provider calls; a reconnect during the fetch and a reconnect before the claim both refuse with 0 persisted accounts; 8 concurrent readers racing a rewrite never see a mixed revision; and a held durable claim refuses a second refresh with 0 provider calls`,
+    );
+
     console.log(`${LABEL} PASS`);
   } catch (error) {
     if (fs.existsSync(logFile)) {

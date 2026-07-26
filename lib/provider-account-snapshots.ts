@@ -118,6 +118,17 @@ interface ResolveProviderAccountSnapshotInput {
   freshnessMs?: number;
   reason?: string;
   bypassCooldown?: boolean;
+  /**
+   * The connection generation the caller read the access token under, from
+   * `readProviderConnectionGenerationToken`.
+   *
+   * The caller reads the token before calling here, so a reconnect between that
+   * read and the start of the refresh is invisible from inside this module: a
+   * generation captured at claim time would already be the NEW one, and the
+   * result of an old-token call would be stamped with it. Supplying the
+   * caller's generation makes that window a refusal instead.
+   */
+  expectedConnectionGeneration?: string | null;
 }
 
 const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
@@ -346,6 +357,21 @@ function computeFailureCooldownMs(row: ProviderAccountSnapshotRow | null) {
   return MAX_FAILURE_COOLDOWN_MS;
 }
 
+/**
+ * Read the run and its items in ONE statement.
+ *
+ * These were two separate SELECTs. `persistSnapshotState` replaces a run's items
+ * by DELETE-then-INSERT, so a reader that landed between the two statements got
+ * run N with zero items, and a reader that landed between the run upsert and the
+ * item replacement got run N+1's metadata with run N's accounts. Selection
+ * authority reads exactly this shape: "these accounts, fetched under this
+ * credential, at this time". Half of one revision and half of another is not a
+ * snapshot of anything.
+ *
+ * A single statement sees one MVCC snapshot, so the run and its items are always
+ * the same revision. The items come back as an aggregate keyed on the immutable
+ * `snapshot_run_id`, which is also what makes the pairing checkable.
+ */
 async function getSnapshotRow(
   businessId: string,
   provider: string
@@ -353,51 +379,54 @@ async function getSnapshotRow(
   const sql = getDb();
   const rows = (await sql`
     SELECT
-      id,
-      business_id,
-      provider,
-      fetched_at,
-      refresh_failed,
-      last_error,
-      refresh_requested_at,
-      last_refresh_attempt_at,
-      next_refresh_after,
-      refresh_in_progress,
-      accounts_hash,
-      source_reason,
-      last_successful_refresh_at,
-      refresh_failure_streak,
-      connection_fingerprint,
-      created_at,
-      updated_at
-    FROM provider_account_snapshot_runs
-    WHERE business_id = ${businessId}
-      AND provider = ${provider}
+      run.id,
+      run.business_id,
+      run.provider,
+      run.fetched_at,
+      run.refresh_failed,
+      run.last_error,
+      run.refresh_requested_at,
+      run.last_refresh_attempt_at,
+      run.next_refresh_after,
+      run.refresh_in_progress,
+      run.accounts_hash,
+      run.source_reason,
+      run.last_successful_refresh_at,
+      run.refresh_failure_streak,
+      run.connection_fingerprint,
+      run.created_at,
+      run.updated_at,
+      COALESCE(items.rows, '[]'::jsonb) AS items
+    FROM provider_account_snapshot_runs run
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+               jsonb_build_object(
+                 'provider_account_id', item.provider_account_id,
+                 'provider_account_name', item.provider_account_name,
+                 'currency', item.currency,
+                 'timezone', item.timezone,
+                 'is_manager', item.is_manager
+               )
+               ORDER BY item.position ASC, item.created_at ASC
+             ) AS rows
+      FROM provider_account_snapshot_items item
+      WHERE item.snapshot_run_id = run.id
+    ) AS items ON TRUE
+    WHERE run.business_id = ${businessId}
+      AND run.provider = ${provider}
     LIMIT 1
-  `) as Array<NormalizedProviderAccountSnapshotRunRow>;
+  `) as Array<
+    NormalizedProviderAccountSnapshotRunRow & {
+      items: Array<Record<string, unknown>>;
+    }
+  >;
 
   const run = rows[0];
   if (!run) {
     return null;
   }
 
-  const items = (await sql`
-    SELECT
-      snapshot_run_id,
-      provider_account_ref_id,
-      provider_account_id,
-      provider_account_name,
-      currency,
-      timezone,
-      is_manager,
-      position,
-      raw_payload,
-      created_at,
-      updated_at
-    FROM provider_account_snapshot_items
-    WHERE snapshot_run_id = ${run.id}
-    ORDER BY position ASC, created_at ASC
-  `) as Array<NormalizedProviderAccountSnapshotItemRow>;
+  const items = (run.items ?? []) as unknown as NormalizedProviderAccountSnapshotItemRow[];
 
   return buildLegacySnapshotRow({
     businessId: run.business_id,
@@ -420,7 +449,38 @@ async function getSnapshotRow(
   });
 }
 
+/**
+ * Write a run and its items as ONE revision.
+ *
+ * The run upsert, the item DELETE and the item INSERT were three separate
+ * implicit transactions when this ran outside one. Wrapping them means a reader
+ * never observes the intermediate states — no items at all, or the previous
+ * revision's items under the new revision's metadata — and a failure part-way
+ * through leaves the previous revision whole instead of an empty account list
+ * that reads as "this credential can see nothing".
+ *
+ * `runDbTransaction` joins an outer transaction when one is already open, so
+ * callers that need a wider atomic unit still get one.
+ */
 async function persistSnapshotState(input: {
+  businessId: string;
+  provider: string;
+  accounts: ProviderAccountSnapshotItem[];
+  fetchedAt?: Date | string | null;
+  refreshRequestedAt?: Date | null;
+  lastRefreshAttemptAt?: Date | null;
+  nextRefreshAfter?: Date | null;
+  refreshInProgress?: boolean;
+  refreshFailed?: boolean;
+  lastError?: string | null;
+  sourceReason?: string | null;
+  lastSuccessfulRefreshAt?: Date | null;
+  refreshFailureStreak?: number;
+}) {
+  return runDbTransaction(() => persistSnapshotStateInTransaction(input));
+}
+
+async function persistSnapshotStateInTransaction(input: {
   businessId: string;
   provider: string;
   accounts: ProviderAccountSnapshotItem[];
@@ -743,6 +803,20 @@ async function readProviderConnectionGeneration(
   return row ? `${row.generation}:${row.status}` : null;
 }
 
+/**
+ * The generation token a caller must capture at the same moment it reads the
+ * access token, and hand back as `expectedConnectionGeneration`.
+ *
+ * Exported because the binding has to be made by whoever reads the credential —
+ * doing it inside the refresh is exactly one reconnect too late.
+ */
+export async function readProviderConnectionGenerationToken(
+  businessId: string,
+  provider: string,
+): Promise<string | null> {
+  return readProviderConnectionGeneration(businessId, provider);
+}
+
 export async function readProviderAccountSnapshot(input: {
   businessId: string;
   provider: string;
@@ -772,151 +846,273 @@ export async function readProviderAccountSnapshot(input: {
  */
 const SNAPSHOT_REFRESH_LOCK_NAMESPACE = 0x53524643;
 
+/**
+ * How long a claimed refresh may run before another process may take it over.
+ *
+ * The claim is durable state, not a lock held on a connection, so it needs an
+ * expiry: a container that dies mid-refresh must not leave the business unable
+ * to refresh forever.
+ */
+const SNAPSHOT_REFRESH_CLAIM_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Refresh in three bounded phases, each its own transaction.
+ *
+ * The whole refresh used to run inside ONE transaction that ended by throwing.
+ * The failure bookkeeping — `refresh_failed`, `last_error`, the cooldown and the
+ * failure streak — was written and then rolled back by the very throw that
+ * reported it. A provider outage therefore left no cooldown at all, so the next
+ * caller called the provider again immediately, and the "exponential backoff"
+ * never advanced past its first step.
+ *
+ * It also held a pooled connection open across a network call to the provider.
+ *
+ * So:
+ *   1. CLAIM   — advisory lock, cooldown check, durable in-progress claim, and
+ *                the credential generation this refresh is bound to. Committed.
+ *   2. FETCH   — the provider call, outside any transaction, under the exact
+ *                credential generation captured in phase 1.
+ *   3. COMMIT  — success: re-read the generation, CAS, and write run+items
+ *                atomically. Failure: write failure/cooldown for that same
+ *                generation in its OWN transaction, commit it, and only then
+ *                throw the structured error.
+ */
 async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   const key = getSnapshotKey(input.businessId, input.provider);
   const locks = getRefreshLocks();
   const existingRequest = locks.get(key);
   if (existingRequest) {
-    await existingRequest;
+    // Local coalescing only. It is a cheap short-circuit for two callers in the
+    // SAME process; the durable claim below is what serialises the web container
+    // against the worker container. A rejected in-flight refresh must not
+    // poison later callers, so its rejection is absorbed here.
+    await existingRequest.catch(() => undefined);
     return;
   }
 
-  const refreshPromise = runDbTransaction(async () => {
-    // Database-coordinated serialisation. Two containers refreshing the same
-    // business at once would otherwise both call the provider and both write,
-    // and the loser's older list could land last.
-    const sql = getDb();
-    await sql`
-      SELECT pg_advisory_xact_lock(
-        ${SNAPSHOT_REFRESH_LOCK_NAMESPACE}::int,
-        hashtext(${`provider_account_snapshot_refresh:${input.provider}:${input.businessId}`})
-      )
-    `;
-    const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
-    const retryAfterMs = getRetryAfterMs(existingSnapshot);
-    const failureClass = classifyProviderSnapshotFailure(existingSnapshot?.last_error);
-    if (
-      retryAfterMs > 0 &&
-      (!input.bypassCooldown || failureClass === "quota")
-    ) {
-      throw new ProviderAccountSnapshotRefreshError({
-        provider: input.provider,
-        businessId: input.businessId,
-        message:
-          existingSnapshot?.last_error ??
-          "Provider account refresh is temporarily cooling down.",
-        retryAfterMs,
-        dueToRecentFailure: true,
-      });
-    }
-
+  const refreshPromise = (async () => {
     const now = new Date();
-    await updateSnapshotLifecycle({
-      businessId: input.businessId,
-      provider: input.provider,
-      accounts: existingSnapshot?.accounts_payload ?? [],
-      fetchedAt: existingSnapshot?.fetched_at ?? null,
-      refreshRequestedAt: now,
-      lastRefreshAttemptAt: now,
-      nextRefreshAfter: null,
-      refreshInProgress: true,
-      sourceReason: input.reason ?? "manual_refresh",
-    });
+    const reason = input.reason ?? "manual_refresh";
 
-    // The generation this refresh is being performed UNDER, captured BEFORE the
-    // provider call. If a reconnect or a rotation happens while the call is in
-    // flight, the accounts that come back describe a credential that is no
-    // longer current, and binding them to the new generation would launder a
-    // stale list into current authority.
-    const generationBeforeCall = await readProviderConnectionGeneration(
-      input.businessId,
-      input.provider,
-    );
-
-    try {
-      const accounts = await input.liveLoader();
-      const generationAfterCall = await readProviderConnectionGeneration(
-        input.businessId,
-        input.provider,
-      );
-      if (generationAfterCall !== generationBeforeCall) {
+    // ── Phase 1: claim ────────────────────────────────────────────────────
+    const claim = await runDbTransaction(async () => {
+      const sql = getDb();
+      // Serialises the check-and-claim itself, including the case where no run
+      // row exists yet and two processes would both INSERT one.
+      await sql`
+        SELECT pg_advisory_xact_lock(
+          ${SNAPSHOT_REFRESH_LOCK_NAMESPACE}::int,
+          hashtext(${`provider_account_snapshot_refresh:${input.provider}:${input.businessId}`})
+        )
+      `;
+      const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
+      const retryAfterMs = getRetryAfterMs(existingSnapshot);
+      const failureClass = classifyProviderSnapshotFailure(existingSnapshot?.last_error);
+      if (retryAfterMs > 0 && (!input.bypassCooldown || failureClass === "quota")) {
         throw new ProviderAccountSnapshotRefreshError({
           provider: input.provider,
           businessId: input.businessId,
           message:
-            "The provider connection changed while its account list was being fetched. The result describes a credential that is no longer current.",
+            existingSnapshot?.last_error ??
+            "Provider account refresh is temporarily cooling down.",
+          retryAfterMs,
+          dueToRecentFailure: true,
+        });
+      }
+
+      // A claim held by ANOTHER process. Durable, so it survives the phase
+      // boundary that a transaction-scoped advisory lock cannot.
+      if (existingSnapshot?.refresh_in_progress) {
+        const claimedAtMs = existingSnapshot.last_refresh_attempt_at
+          ? new Date(existingSnapshot.last_refresh_attempt_at).getTime()
+          : 0;
+        const claimAgeMs = Date.now() - claimedAtMs;
+        if (Number.isFinite(claimAgeMs) && claimAgeMs < SNAPSHOT_REFRESH_CLAIM_TIMEOUT_MS) {
+          throw new ProviderAccountSnapshotRefreshError({
+            provider: input.provider,
+            businessId: input.businessId,
+            message:
+              "A provider account refresh for this business is already in progress.",
+            retryAfterMs: SNAPSHOT_REFRESH_CLAIM_TIMEOUT_MS - claimAgeMs,
+            dueToRecentFailure: false,
+          });
+        }
+      }
+
+      await updateSnapshotLifecycle({
+        businessId: input.businessId,
+        provider: input.provider,
+        accounts: existingSnapshot?.accounts_payload ?? [],
+        fetchedAt: existingSnapshot?.fetched_at ?? null,
+        refreshRequestedAt: now,
+        lastRefreshAttemptAt: now,
+        nextRefreshAfter: null,
+        refreshInProgress: true,
+        sourceReason: reason,
+      });
+
+      // The credential generation this refresh is bound to. Captured here, and
+      // ALSO accepted from the caller: the caller read the access token before
+      // it ever got here, so a reconnect between the caller's token read and
+      // this claim is invisible from inside this function. When the caller
+      // supplies the generation it captured, that one wins.
+      const claimedGeneration = await readProviderConnectionGeneration(
+        input.businessId,
+        input.provider,
+      );
+      const expected = input.expectedConnectionGeneration ?? null;
+      if (expected != null && expected !== claimedGeneration) {
+        throw new ProviderAccountSnapshotRefreshError({
+          provider: input.provider,
+          businessId: input.businessId,
+          message:
+            "The provider connection changed between reading its credential and starting the refresh. The credential this refresh would use is no longer current.",
           retryAfterMs: 0,
           dueToRecentFailure: false,
         });
       }
-      await upsertSnapshotRow({
+      return { generation: expected ?? claimedGeneration };
+    });
+
+    // ── Phase 2: the provider call, outside any transaction ───────────────
+    let accounts: ProviderAccountSnapshotItem[];
+    try {
+      accounts = await input.liveLoader();
+    } catch (error: unknown) {
+      await commitSnapshotRefreshFailure({
         businessId: input.businessId,
         provider: input.provider,
-        accounts,
-        refreshFailed: false,
-        lastError: null,
-        refreshRequestedAt: now,
-        lastRefreshAttemptAt: now,
-        nextRefreshAfter: null,
-        refreshInProgress: false,
-        sourceReason: input.reason ?? "manual_refresh",
-        lastSuccessfulRefreshAt: now,
-        refreshFailureStreak: 0,
+        reason,
+        now,
+        message: error instanceof Error ? error.message : String(error),
       });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      const currentSnapshot = await getSnapshotRow(input.businessId, input.provider);
-      const cooldownMs = computeFailureCooldownMs(currentSnapshot);
-      const nextRefreshAfter = new Date(Date.now() + cooldownMs);
-
-      if (currentSnapshot) {
-        await upsertSnapshotRow({
-          businessId: input.businessId,
-          provider: input.provider,
-          accounts: currentSnapshot.accounts_payload ?? [],
-          refreshFailed: true,
-          lastError: message,
-          refreshRequestedAt: currentSnapshot.refresh_requested_at
-            ? new Date(currentSnapshot.refresh_requested_at)
-            : now,
-          lastRefreshAttemptAt: now,
-          nextRefreshAfter,
-          refreshInProgress: false,
-          sourceReason: input.reason ?? "manual_refresh",
-          lastSuccessfulRefreshAt: currentSnapshot.last_successful_refresh_at
-            ? new Date(currentSnapshot.last_successful_refresh_at)
-            : null,
-          refreshFailureStreak: Number(currentSnapshot.refresh_failure_streak ?? 0) + 1,
-        });
-      } else {
-        await updateSnapshotLifecycle({
-          businessId: input.businessId,
-          provider: input.provider,
-          refreshRequestedAt: now,
-          lastRefreshAttemptAt: now,
-          nextRefreshAfter,
-          refreshInProgress: false,
-          refreshFailed: true,
-          lastError: message,
-          sourceReason: input.reason ?? "manual_refresh",
-          refreshFailureStreak: 1,
-        });
-      }
-
       throw new ProviderAccountSnapshotRefreshError({
         provider: input.provider,
         businessId: input.businessId,
-        message,
-        retryAfterMs: cooldownMs,
+        message: error instanceof Error ? error.message : String(error),
+        retryAfterMs: await readSnapshotRetryAfterMs(input.businessId, input.provider),
         dueToRecentFailure: false,
       });
-    } finally {
-      locks.delete(key);
     }
+
+    // ── Phase 3: commit, under a second generation CAS ────────────────────
+    try {
+      await runDbTransaction(async () => {
+        const generationAfterCall = await readProviderConnectionGeneration(
+          input.businessId,
+          input.provider,
+        );
+        if (generationAfterCall !== claim.generation) {
+          throw new ProviderAccountSnapshotRefreshError({
+            provider: input.provider,
+            businessId: input.businessId,
+            message:
+              "The provider connection changed while its account list was being fetched. The result describes a credential that is no longer current.",
+            retryAfterMs: 0,
+            dueToRecentFailure: false,
+          });
+        }
+        await persistSnapshotStateInTransaction({
+          businessId: input.businessId,
+          provider: input.provider,
+          accounts,
+          refreshFailed: false,
+          lastError: null,
+          refreshRequestedAt: now,
+          lastRefreshAttemptAt: now,
+          nextRefreshAfter: null,
+          refreshInProgress: false,
+          sourceReason: reason,
+          lastSuccessfulRefreshAt: now,
+          refreshFailureStreak: 0,
+        });
+      });
+    } catch (error: unknown) {
+      await commitSnapshotRefreshFailure({
+        businessId: input.businessId,
+        provider: input.provider,
+        reason,
+        now,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      if (error instanceof ProviderAccountSnapshotRefreshError) throw error;
+      throw new ProviderAccountSnapshotRefreshError({
+        provider: input.provider,
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+        retryAfterMs: await readSnapshotRetryAfterMs(input.businessId, input.provider),
+        dueToRecentFailure: false,
+      });
+    }
+  })().finally(() => {
+    // Always released, including on the cooldown and claim-conflict paths. The
+    // previous version deleted the key only inside the provider-call try/finally,
+    // so a cooldown rejection left a rejected promise in the map and every later
+    // refresh in that process awaited and rethrew it — forever.
+    locks.delete(key);
   });
 
   locks.set(key, refreshPromise);
   await refreshPromise;
+}
+
+/**
+ * Commit failure bookkeeping in its OWN transaction, so it survives the throw
+ * that reports the failure.
+ */
+async function commitSnapshotRefreshFailure(input: {
+  businessId: string;
+  provider: string;
+  reason: string;
+  now: Date;
+  message: string;
+}) {
+  await runDbTransaction(async () => {
+    const currentSnapshot = await getSnapshotRow(input.businessId, input.provider);
+    const cooldownMs = computeFailureCooldownMs(currentSnapshot);
+    const nextRefreshAfter = new Date(Date.now() + cooldownMs);
+    if (currentSnapshot) {
+      await persistSnapshotStateInTransaction({
+        businessId: input.businessId,
+        provider: input.provider,
+        // The previous accounts are kept: a failed refresh does not mean the
+        // credential can suddenly see nothing.
+        accounts: currentSnapshot.accounts_payload ?? [],
+        fetchedAt: currentSnapshot.fetched_at,
+        refreshFailed: true,
+        lastError: input.message,
+        refreshRequestedAt: currentSnapshot.refresh_requested_at
+          ? new Date(currentSnapshot.refresh_requested_at)
+          : input.now,
+        lastRefreshAttemptAt: input.now,
+        nextRefreshAfter,
+        refreshInProgress: false,
+        sourceReason: input.reason,
+        lastSuccessfulRefreshAt: currentSnapshot.last_successful_refresh_at
+          ? new Date(currentSnapshot.last_successful_refresh_at)
+          : null,
+        refreshFailureStreak: Number(currentSnapshot.refresh_failure_streak ?? 0) + 1,
+      });
+    } else {
+      await persistSnapshotStateInTransaction({
+        businessId: input.businessId,
+        provider: input.provider,
+        accounts: [],
+        refreshRequestedAt: input.now,
+        lastRefreshAttemptAt: input.now,
+        nextRefreshAfter,
+        refreshInProgress: false,
+        refreshFailed: true,
+        lastError: input.message,
+        sourceReason: input.reason,
+        refreshFailureStreak: 1,
+      });
+    }
+  });
+}
+
+async function readSnapshotRetryAfterMs(businessId: string, provider: string) {
+  return getRetryAfterMs(await getSnapshotRow(businessId, provider));
 }
 
 export async function scheduleProviderAccountSnapshotRefresh(

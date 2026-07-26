@@ -29,6 +29,9 @@ describe("provider account snapshots", () => {
       const query = strings.join(" ");
       queries.push(query);
 
+      // The run and its items come back from ONE statement now: two separate
+      // SELECTs let a reader see run N's metadata with run N+1's accounts, and
+      // selection authority reads exactly that pairing.
       if (query.includes("SELECT") && query.includes("FROM provider_account_snapshot_runs")) {
         if (!stored) return [];
         return [
@@ -49,25 +52,15 @@ describe("provider account snapshots", () => {
             refresh_failure_streak: 0,
             created_at: "2026-01-01T00:00:00.000Z",
             updated_at: "2026-01-01T00:00:00.000Z",
-          },
-        ];
-      }
-
-      if (query.includes("SELECT") && query.includes("FROM provider_account_snapshot_items")) {
-        if (!stored) return [];
-        return [
-          {
-            snapshot_run_id: "run_1",
-            provider_account_ref_id: "provider-account-1",
-            provider_account_id: "acc_1",
-            provider_account_name: "Account 1",
-            currency: "USD",
-            timezone: "UTC",
-            is_manager: false,
-            position: 0,
-            raw_payload: { id: "acc_1", name: "Account 1" },
-            created_at: "2026-01-01T00:00:00.000Z",
-            updated_at: "2026-01-01T00:00:00.000Z",
+            items: [
+              {
+                provider_account_id: "acc_1",
+                provider_account_name: "Account 1",
+                currency: "USD",
+                timezone: "UTC",
+                is_manager: false,
+              },
+            ],
           },
         ];
       }
@@ -102,6 +95,13 @@ describe("provider account snapshots", () => {
     expect(queries.join("\n")).toContain("provider_account_snapshot_runs");
     expect(queries.join("\n")).toContain("provider_account_snapshot_items");
     expect(queries.join("\n")).toContain("business_ref_id");
+    // The read is ONE statement joining the items laterally, so the run and its
+    // accounts always come from a single MVCC snapshot.
+    const readQuery = queries.find(
+      (query) =>
+        query.includes("FROM provider_account_snapshot_runs") && query.includes("SELECT"),
+    );
+    expect(readQuery).toContain("LEFT JOIN LATERAL");
   });
 
   it("clears canonical snapshot runs by business/provider", async () => {

@@ -93,7 +93,45 @@ export async function resolveGoogleAdsAccountAuthority(
 export async function assertGoogleAdsAccountAuthority(input: {
   businessId: string;
   accountId: string;
+  /**
+   * The `generation:status` token the access token about to be sent was read
+   * under.
+   *
+   * Selection alone is not authority. A user can reconnect Google as a different
+   * principal while an account stays selected by id, and the token captured
+   * before that reconnect would still be POSTed — writing to an account through
+   * a credential the user has already replaced. Checking the generation at the
+   * literal pre-request boundary makes that a refusal.
+   */
+  expectedConnectionGeneration?: string | null;
 }): Promise<void> {
+  if (input.expectedConnectionGeneration != null) {
+    const { readProviderConnectionGenerationToken } = await import(
+      "@/lib/provider-account-snapshots"
+    );
+    const current = await readProviderConnectionGenerationToken(
+      input.businessId,
+      "google",
+    ).catch(() => undefined);
+    if (current === undefined) {
+      throw new GoogleAdsAccountAuthorityError({
+        code: GOOGLE_ADS_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
+        httpStatus: 503,
+        accountId: input.accountId,
+        message:
+          "Could not verify which Google connection this credential belongs to. No provider request was made.",
+      });
+    }
+    if (current !== input.expectedConnectionGeneration) {
+      throw new GoogleAdsAccountAuthorityError({
+        code: GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE,
+        httpStatus: 409,
+        accountId: input.accountId,
+        message:
+          "The Google connection changed after this credential was read. The request was refused rather than sent with a superseded token.",
+      });
+    }
+  }
   const authority = await resolveGoogleAdsAccountAuthority(
     input.businessId,
     input.accountId,

@@ -7,6 +7,38 @@ import {
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import { recomputeBusinessDerivedTimezone } from "@/lib/business-timezone";
 
+/**
+ * A write computed under one connection generation, refused because the
+ * connection has moved on.
+ *
+ * Its own class so callers can tell "the user reconnected while I was working"
+ * from a provider error or a database failure. Recoverable: the caller re-reads
+ * and retries under the new generation, or reports a reconnect to the user.
+ */
+export class ProviderConnectionGenerationConflictError extends Error {
+  readonly businessId: string;
+  readonly provider: string;
+  readonly expected: string | null;
+  readonly observed: string | null;
+  constructor(input: {
+    businessId: string;
+    provider: string;
+    expected: string | null;
+    observed: string | null;
+  }) {
+    super(
+      `Provider connection generation changed for ${input.provider}: expected ${
+        input.expected ?? "none"
+      }, observed ${input.observed ?? "none"}.`,
+    );
+    this.name = "ProviderConnectionGenerationConflictError";
+    this.businessId = input.businessId;
+    this.provider = input.provider;
+    this.expected = input.expected;
+    this.observed = input.observed;
+  }
+}
+
 export type IntegrationProviderType =
   | "shopify"
   | "meta"
@@ -297,11 +329,21 @@ export async function upsertIntegration(params: {
   scopes?: string;
   errorMessage?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * The `connection_generation:status` token the caller read its inputs under,
+   * from `readProviderConnectionGenerationToken`.
+   *
+   * Supplied by anything that computed its write from a previous read — a token
+   * refresh in particular, which reads a refresh token, calls Google, and then
+   * writes back. Without the CAS, an OAuth reconnect that lands during that call
+   * is overwritten by the older refresh's result.
+   */
+  expectedConnectionGeneration?: string | null;
 }): Promise<IntegrationRow> {
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
   const accessToken = encryptIntegrationSecret(params.accessToken ?? null);
-  const refreshToken = encryptIntegrationSecret(params.refreshToken ?? null);
+  const suppliedRefreshToken = encryptIntegrationSecret(params.refreshToken ?? null);
   // A supplied credential is a replacement, and a replacement is a new
   // generation whether or not the bytes changed — an OAuth re-grant frequently
   // returns the same token.
@@ -317,6 +359,88 @@ export async function upsertIntegration(params: {
   // write roll the connection change back with it.
   const integration = await runDbTransaction(async () => {
   const sql = getDb();
+
+  // The row this write is REPLACING, locked so nothing changes underneath the
+  // decisions below. Everything about principal identity, generation and which
+  // stale state to clear depends on knowing the previous row exactly.
+  const currentRows = (await sql`
+    SELECT connection.id,
+           connection.status,
+           connection.provider_account_id,
+           connection.connection_generation::text AS connection_generation,
+           credential.refresh_token,
+           credential.scopes
+    FROM provider_connections connection
+    LEFT JOIN integration_credentials credential
+      ON credential.provider_connection_id = connection.id
+    WHERE connection.business_id = ${params.businessId}
+      AND connection.provider = ${params.provider}
+    FOR UPDATE OF connection
+  `) as Array<{
+    id: string;
+    status: string;
+    provider_account_id: string | null;
+    connection_generation: string;
+    refresh_token: string | null;
+    scopes: string | null;
+  }>;
+  const current = currentRows[0] ?? null;
+
+  // Generation CAS. The caller read its inputs under a specific generation; if
+  // the connection has moved since, this write is describing a credential that
+  // is no longer current and must not land.
+  if (params.expectedConnectionGeneration != null) {
+    const observed = current
+      ? `${current.connection_generation}:${current.status}`
+      : null;
+    if (observed !== params.expectedConnectionGeneration) {
+      throw new ProviderConnectionGenerationConflictError({
+        businessId: params.businessId,
+        provider: params.provider,
+        expected: params.expectedConnectionGeneration,
+        observed,
+      });
+    }
+  }
+
+  // Whose account is this, before and after.
+  //
+  // `COALESCE(EXCLUDED.refresh_token, existing.refresh_token)` combined
+  // principal B's freshly-granted access token with principal A's refresh token
+  // whenever the provider declined to return a new one — which Google does
+  // routinely on re-consent. The connection then held two halves of two
+  // different grants, and the next silent refresh minted an access token for A
+  // while everything downstream believed it was talking to B.
+  //
+  // A refresh token is preserved ONLY when the provider principal is provably
+  // unchanged: either the caller named the same account, or it named none at
+  // all (a pure token refresh for this same connection). Otherwise it is
+  // cleared, and the connection must be re-granted to obtain a new one.
+  const principalUnchanged =
+    params.providerAccountId == null ||
+    current?.provider_account_id == null ||
+    params.providerAccountId === current.provider_account_id;
+  const refreshToken =
+    suppliedRefreshToken ?? (principalUnchanged ? (current?.refresh_token ?? null) : null);
+  const clearedForeignRefreshToken =
+    suppliedRefreshToken == null && !principalUnchanged && current?.refresh_token != null;
+
+  // Every authority or identity change is a new generation, not just a
+  // credential replacement: changing which provider account a connection points
+  // at, or which scopes it holds, changes what it is allowed to do.
+  const authorityChanged =
+    replacesCredential ||
+    clearedForeignRefreshToken ||
+    (current != null && params.status !== current.status) ||
+    (params.providerAccountId != null &&
+      params.providerAccountId !== current?.provider_account_id) ||
+    (params.scopes != null && params.scopes !== current?.scopes);
+
+  // A reconnect CLEARS stale failure state. `COALESCE(EXCLUDED.error_message,
+  // existing)` meant a connection that had failed kept reporting the old error
+  // after a successful reconnect, and `disconnected_at` was never cleared, so
+  // the row read as connected-and-also-disconnected.
+  const isReconnect = params.status === "connected" && authorityChanged;
 
   let providerAccountRefId: string | null = null;
   if (params.providerAccountId) {
@@ -385,20 +509,19 @@ export async function upsertIntegration(params: {
       disconnected_at = CASE
         WHEN EXCLUDED.status = 'disconnected'
           THEN COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at, now())
+        -- A reconnect clears it. Leaving it set made the row read as connected
+        -- and disconnected at the same time, and every consumer picked one.
+        WHEN ${isReconnect} THEN NULL
         ELSE provider_connections.disconnected_at
       END,
-      -- A reconnect or a credential replacement is a NEW generation. Without
-      -- this the row is byte-identical to the previous connection —
-      -- connected_at is COALESCEd to the original — so evidence bound to "the
-      -- connection it was captured under" kept validating across a disconnect,
-      -- a reconnect by a different user, and a rotation.
+      -- A reconnect, a credential replacement, an account change or a scope
+      -- change is a NEW generation. Without this the row is byte-identical to
+      -- the previous connection — connected_at is COALESCEd to the original —
+      -- so evidence bound to "the connection it was captured under" kept
+      -- validating across a disconnect, a reconnect by a different user, and a
+      -- rotation.
       connection_generation = provider_connections.connection_generation +
-        CASE
-          WHEN ${replacesCredential}
-            OR EXCLUDED.status IS DISTINCT FROM provider_connections.status
-          THEN 1
-          ELSE 0
-        END,
+        CASE WHEN ${authorityChanged} THEN 1 ELSE 0 END,
       updated_at = EXCLUDED.updated_at
     RETURNING *
   `) as NormalizedIntegrationConnectionRow[];
@@ -431,10 +554,24 @@ export async function upsertIntegration(params: {
     )
     ON CONFLICT (provider_connection_id) DO UPDATE SET
       access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
-      refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
-      token_expires_at = COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at),
+      -- Written EXPLICITLY, never COALESCEd against whatever was there. The
+      -- value was already decided above from the previous row and the principal
+      -- identity, so a cleared foreign refresh token stays cleared.
+      refresh_token = EXCLUDED.refresh_token,
+      -- A new access token brings its own expiry. COALESCE kept the OLD expiry
+      -- when a provider returned a token without one, so a fresh token looked
+      -- expired (or an expired one looked fresh) depending on which way the
+      -- previous value pointed.
+      token_expires_at = CASE
+        WHEN ${params.accessToken != null} THEN EXCLUDED.token_expires_at
+        ELSE COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at)
+      END,
       scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
-      error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
+      error_message = CASE
+        -- A successful reconnect clears the failure that preceded it.
+        WHEN ${isReconnect} THEN EXCLUDED.error_message
+        ELSE COALESCE(EXCLUDED.error_message, integration_credentials.error_message)
+      END,
       metadata = CASE
         WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
         ELSE integration_credentials.metadata || EXCLUDED.metadata

@@ -14,6 +14,7 @@ export async function refreshProviderDiscoveryPayload(input: {
   liveLoader: () => Promise<ProviderAccountSnapshotItem[]>;
   freshnessMs?: number;
   reason?: string;
+  expectedConnectionGeneration?: string | null;
 }): Promise<ProviderDiscoveryPayload> {
   const assignmentRow = await getProviderAccountAssignments(input.businessId, input.provider).catch(
     () => null,
@@ -24,6 +25,7 @@ export async function refreshProviderDiscoveryPayload(input: {
     liveLoader: input.liveLoader,
     freshnessMs: input.freshnessMs,
     reason: input.reason ?? "assignment_drawer_manual_refresh",
+    expectedConnectionGeneration: input.expectedConnectionGeneration,
   });
 
   // A manual refresh is the strongest evidence available: it just asked the

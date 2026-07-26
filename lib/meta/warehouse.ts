@@ -7777,7 +7777,27 @@ export async function upsertMetaAccountDailyRows(
   }
 }
 
-export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) {
+/**
+ * Explicit, fail-closed control over current-config history side effects.
+ *
+ * `upsertMetaCampaignDailyRows` / `upsertMetaAdSetDailyRows` append the row's
+ * CURRENT config payload into `meta_*_config_history` after every daily upsert.
+ * That is correct for a current-day caller, but a historical backfill writes the
+ * same current inventory under each backfilled effective date, fabricating
+ * config history and amplifying storage by the size of the wave.
+ *
+ * Historical fact writers pass `appendConfigHistory: false` to keep metrics and
+ * dimension enrichment while suppressing the false history append. The default
+ * stays `true`, so every existing caller is unchanged.
+ */
+export interface MetaDailyWriteOptions {
+  appendConfigHistory?: boolean;
+}
+
+export async function upsertMetaCampaignDailyRows(
+  rows: MetaCampaignDailyRow[],
+  options?: MetaDailyWriteOptions,
+) {
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -8032,12 +8052,17 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
     await sql.query(query, values);
     await Promise.all([
       upsertMetaCampaignDimensionRows(chunk, referenceContext),
-      appendMetaCampaignConfigHistoryRows(chunk, referenceContext),
+      ...(options?.appendConfigHistory === false
+        ? []
+        : [appendMetaCampaignConfigHistoryRows(chunk, referenceContext)]),
     ]);
   }
 }
 
-export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
+export async function upsertMetaAdSetDailyRows(
+  rows: MetaAdSetDailyRow[],
+  options?: MetaDailyWriteOptions,
+) {
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -8299,7 +8324,9 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
     await sql.query(query, values);
     await Promise.all([
       upsertMetaAdSetDimensionRows(chunk, referenceContext),
-      appendMetaAdSetConfigHistoryRows(chunk, referenceContext),
+      ...(options?.appendConfigHistory === false
+        ? []
+        : [appendMetaAdSetConfigHistoryRows(chunk, referenceContext)]),
     ]);
   }
 }

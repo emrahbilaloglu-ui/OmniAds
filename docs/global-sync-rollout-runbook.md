@@ -16,16 +16,29 @@ otherwise cause.
 **The production host has psql, docker and docker compose. It has no Node, no
 npm and no `node_modules`.** So `npm run rollout:enable` cannot be run there, and
 any instruction to do so is an instruction that cannot be followed. Everything
-below is driven by `.github/scripts/hetzner-sync-cutover.sh`, which uses only
-what the host has and reaches the repository's TypeScript by executing it inside
-the already-pinned worker image with `/var/www/adsecute` bind-mounted.
+below is driven by the cutover wrapper, which uses only what the host has and
+reaches the repository's TypeScript by executing it inside the already-pinned
+worker image with `/var/www/adsecute` bind-mounted.
+
+**The path you type on the host is not the repository path.** The wrapper lives
+at `.github/scripts/hetzner-sync-cutover.sh` in this repository, but `.github/`
+is excluded from the image, so it is DELIVERED to the host during
+`prepare_runtime` and installed at:
+
+```
+/var/www/adsecute/cutover/hetzner-sync-cutover.sh
+```
+
+Every command below is run from that installed copy. It re-hashes itself against
+the delivered SHA-256 manifest before every phase, including `status`, so a copy
+edited on the host refuses rather than running.
 
 It takes an `flock`, records each completed phase in a durable state file under
 `/var/lib/adsecute-cutover`, and refuses to repeat a completed phase. An
 interrupted cutover resumes; it does not restart.
 
 ```bash
-DEPLOY_SHA=<exact commit sha> ./.github/scripts/hetzner-sync-cutover.sh preflight
+DEPLOY_SHA=<exact commit sha> /var/www/adsecute/cutover/hetzner-sync-cutover.sh preflight
 ```
 
 Phases, in order: `preflight`, `quiesce`, `fingerprint-pre`, `migrate`,
@@ -167,7 +180,7 @@ Run it from the pinned image — there is no `npm run migrate`, and no npm on th
 host:
 
 ```bash
-DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh migrate
+DEPLOY_SHA=<sha> /var/www/adsecute/cutover/hetzner-sync-cutover.sh migrate
 ```
 
 Watch for, in order:
@@ -293,7 +306,7 @@ Use the wrapper rather than hand-editing. It preserves every unrelated key in
 then recreates both containers from that same configuration:
 
 ```bash
-DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh enable
+DEPLOY_SHA=<sha> /var/www/adsecute/cutover/hetzner-sync-cutover.sh enable
 ```
 
 **The file change is not the runtime change.** A temp-file rename makes the FILE
@@ -311,7 +324,7 @@ turned up enabled.
 Re-enable the external scheduler LAST, once both processes are proven:
 
 ```bash
-DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh resume-scheduler
+DEPLOY_SHA=<sha> /var/www/adsecute/cutover/hetzner-sync-cutover.sh resume-scheduler
 ```
 
 Then verify durable results, not just the absence of errors:
@@ -360,7 +373,7 @@ To roll back:
 1. Stop everything:
 
    ```bash
-   ./.github/scripts/hetzner-sync-cutover.sh emergency-disable
+   /var/www/adsecute/cutover/hetzner-sync-cutover.sh emergency-disable
    ```
 
    It disables the scheduler and stops autoheal, web and worker — autoheal

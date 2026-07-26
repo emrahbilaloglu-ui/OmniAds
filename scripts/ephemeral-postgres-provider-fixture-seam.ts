@@ -1362,6 +1362,470 @@ async function verifyMeta(
 // with their own clusters, alongside the code they exercise. This file proves
 // the selection/authority contract and the provider boundary.
 
+interface SnapshotObservation {
+  id: string;
+  payload_hash: string;
+  status: string;
+  fetched_at: string;
+  first_observed_at: string | null;
+  last_observed_at: string | null;
+  observation_count: string | null;
+}
+
+async function readSnapshotObservations(
+  client: Client,
+  endpoint: string,
+): Promise<SnapshotObservation[]> {
+  const rows = await client.query<SnapshotObservation>(
+    `SELECT id::text AS id, payload_hash, status, fetched_at::text AS fetched_at,
+            first_observed_at::text AS first_observed_at,
+            last_observed_at::text AS last_observed_at,
+            observation_count::text AS observation_count
+     FROM meta_raw_snapshots
+     WHERE endpoint_name = $1
+     ORDER BY fetched_at, id`,
+    [endpoint],
+  );
+  return rows.rows;
+}
+
+/**
+ * R1-R4 / V1-V8 — the two-layer content + observation model against real
+ * PostgreSQL.
+ *
+ * R covers the heartbeat: exact repeats must collapse to one canonical row
+ * while first-observation time, failure cadence and change boundaries survive.
+ * V covers what content sharing must NOT destroy: per-partition provenance,
+ * arbitrary point-in-time, concurrent convergence, inbound FK protection,
+ * legacy rows, content-layer purity, partition-scoped deletion, and supersede
+ * as an appended event rather than an in-place rewrite.
+ */
+async function verifyRawSnapshotModel(client: Client) {
+  const { persistMetaRawSnapshot } = await import("@/lib/meta/warehouse");
+  const ENDPOINT = "seam_heartbeat_probe";
+
+  const observe = (
+    payloadHash: string,
+    status: "fetched" | "partial" | "failed",
+    fetchedAt: string,
+  ) =>
+    persistMetaRawSnapshot({
+      businessId: BUSINESS_ID,
+      providerAccountId: META_ACCOUNT_ID,
+      partitionId: null,
+      endpointName: ENDPOINT,
+      entityScope: "campaign",
+      pageIndex: null,
+      startDate: "2026-07-26",
+      endDate: "2026-07-26",
+      accountTimezone: "Europe/Istanbul",
+      accountCurrency: "TRY",
+      payloadJson: { hash: payloadHash },
+      payloadHash,
+      requestContext: {},
+      responseHeaders: {},
+      providerHttpStatus: 200,
+      status,
+      fetchedAt,
+    } as never);
+
+  // Three identical observations, then a failure, then a genuine change.
+  const t0 = "2026-07-26T08:00:00.000Z";
+  const t1 = "2026-07-26T09:00:00.000Z";
+  const t2 = "2026-07-26T10:00:00.000Z";
+  const firstId = await observe("hash-a", "fetched", t0);
+  const secondId = await observe("hash-a", "fetched", t1);
+  const thirdId = await observe("hash-a", "fetched", t2);
+
+  // R1: identical observations coalesce onto one row.
+  assert(
+    firstId === secondId && secondId === thirdId,
+    `R1: identical observations produced different rows (${firstId}, ${secondId}, ${thirdId}) — the amplification is not stopped.`,
+  );
+  const rows = await readSnapshotObservations(client, ENDPOINT);
+  assert(
+    rows.length === 1,
+    `R1: ${rows.length} canonical rows for one distinct payload; identical content still duplicates.`,
+  );
+
+  // R2: the coalesced row carries real observation evidence, and the FIRST
+  // observation time is preserved rather than overwritten.
+  const heartbeat = rows[0]!;
+  assert(
+    Number(heartbeat.observation_count) === 3,
+    `R2: observation_count is ${heartbeat.observation_count}, expected 3.`,
+  );
+  assert(
+    new Date(heartbeat.first_observed_at!).toISOString() === t0,
+    `R2: first_observed_at was overwritten (${heartbeat.first_observed_at}, expected ${t0}) — point-in-time visibility would be lost.`,
+  );
+  assert(
+    new Date(heartbeat.last_observed_at!).toISOString() === t2,
+    `R2: last_observed_at did not advance to the newest observation (${heartbeat.last_observed_at}).`,
+  );
+  assert(
+    new Date(heartbeat.fetched_at).toISOString() === t0,
+    `R2: fetched_at was overwritten instead of preserving the first observation (${heartbeat.fetched_at}).`,
+  );
+
+  // R3: failure cadence stays visible. Status is a lifecycle fact about an
+  // OBSERVATION, not part of content identity, so identical bytes observed
+  // during a failure share the canonical row — but must produce their own
+  // receipt. Folding the failure into the successful receipt is what would make
+  // an outage invisible.
+  const failedId = await observe("hash-a", "failed", t2);
+  assert(
+    failedId === firstId,
+    "R3: identical content was duplicated because the observation failed; status must not be part of content identity.",
+  );
+  const failureReceipts = await client.query<{ status: string; count: string }>(
+    `SELECT status, COUNT(*)::text AS count FROM meta_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid GROUP BY status ORDER BY status`,
+    [firstId],
+  );
+  assert(
+    failureReceipts.rows.some((row) => row.status === "failed") &&
+      failureReceipts.rows.some((row) => row.status === "fetched"),
+    `R3: failure cadence not preserved on the receipt timeline: ${JSON.stringify(failureReceipts.rows)}`,
+  );
+
+  // R4: a genuine change appends a new row and never mutates the earlier one,
+  // so [first_observed_at, last_observed_at] windows remain exact.
+  const changedId = await observe("hash-b", "fetched", t2);
+  assert(
+    changedId !== firstId,
+    "R4: a changed payload was coalesced into the previous state.",
+  );
+  const afterChange = await readSnapshotObservations(client, ENDPOINT);
+  const original = afterChange.find((row) => row.id === firstId);
+  // 4, not 3: the failed observation in R3 is a fourth observation of the same
+  // content. What must not change is first_observed_at.
+  assert(
+    original != null &&
+      new Date(original.first_observed_at!).toISOString() === t0 &&
+      Number(original.observation_count) === 4,
+    `R4: the earlier observation was mutated by a later change: ${JSON.stringify(original)}`,
+  );
+  console.log(
+    `${LABEL} R1-R4 PASS raw-snapshot heartbeat: 3 identical observations coalesce to 1 row with first=${t0} last=${t2} count=3; a failed observation stays separate; a changed payload appends without mutating the earlier window`,
+  );
+
+  // ── V1. Per-partition provenance survives content sharing. Two DIFFERENT
+  // partitions observing byte-identical content must share ONE canonical row
+  // and keep TWO receipts — this is the case that killed the previous design.
+  const partitionA = await client.query<{ id: string }>(
+    `INSERT INTO meta_sync_partitions
+       (business_id, provider_account_id, lane, scope, partition_date, status, source)
+     VALUES ($1, $2, 'core', 'account_daily', DATE '2026-03-01', 'running', 'seam')
+     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+     DO UPDATE SET updated_at = now() RETURNING id::text AS id`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  const partitionB = await client.query<{ id: string }>(
+    `INSERT INTO meta_sync_partitions
+       (business_id, provider_account_id, lane, scope, partition_date, status, source)
+     VALUES ($1, $2, 'core', 'account_daily', DATE '2026-03-02', 'running', 'seam')
+     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+     DO UPDATE SET updated_at = now() RETURNING id::text AS id`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  const pidA = partitionA.rows[0]!.id;
+  const pidB = partitionB.rows[0]!.id;
+
+  const observeIn = (
+    partitionId: string | null,
+    payloadHash: string,
+    fetchedAt: string,
+    runId?: string | null,
+  ) =>
+    persistMetaRawSnapshot({
+      businessId: BUSINESS_ID,
+      providerAccountId: META_ACCOUNT_ID,
+      partitionId,
+      runId: runId ?? null,
+      endpointName: "seam_two_layer",
+      entityScope: "campaign",
+      pageIndex: null,
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+      accountTimezone: "Europe/Istanbul",
+      accountCurrency: "TRY",
+      payloadJson: { hash: payloadHash },
+      payloadHash,
+      requestContext: {},
+      responseHeaders: {},
+      providerHttpStatus: 200,
+      status: "fetched",
+      fetchedAt,
+    } as never);
+
+  const sharedA = await observeIn(pidA, "content-x", "2026-03-01T08:00:00.000Z");
+  const sharedB = await observeIn(pidB, "content-x", "2026-03-01T09:00:00.000Z");
+  assert(
+    sharedA === sharedB,
+    `V1: identical content in two partitions produced two canonical rows (${sharedA}, ${sharedB}).`,
+  );
+  const { readMetaRawSnapshotReceiptsForPartition, readMetaRawSnapshotAsOf } =
+    await import("@/lib/meta/raw-snapshot-observations");
+  const receiptsA = await readMetaRawSnapshotReceiptsForPartition({ partitionId: pidA });
+  const receiptsB = await readMetaRawSnapshotReceiptsForPartition({ partitionId: pidB });
+  assert(
+    receiptsA.length === 1 && receiptsB.length === 1,
+    `V1: per-partition completion evidence was lost: A=${JSON.stringify(receiptsA)} B=${JSON.stringify(receiptsB)}`,
+  );
+  assert(
+    receiptsA[0]!.snapshotId === sharedA && receiptsB[0]!.snapshotId === sharedA,
+    "V1: receipts do not point at the shared canonical content row.",
+  );
+  console.log(
+    `${LABEL} V1 PASS per-partition provenance: 1 canonical row shared by 2 partitions, each keeping its own receipt`,
+  );
+
+  // ── V2. A→B→A point in time. Reading the canonical row's fetched_at would
+  // answer B here, because A's canonical row is the older one.
+  await observeIn(pidA, "state-a", "2026-03-10T01:00:00.000Z");
+  await observeIn(pidA, "state-b", "2026-03-10T02:00:00.000Z");
+  await observeIn(pidA, "state-a", "2026-03-10T03:00:00.000Z");
+  const asOfT3 = await readMetaRawSnapshotAsOf({
+    businessId: BUSINESS_ID,
+    providerAccountId: META_ACCOUNT_ID,
+    endpointName: "seam_two_layer",
+    entityScope: "campaign",
+    asOf: "2026-03-10T03:30:00.000Z",
+  });
+  assert(
+    asOfT3?.payloadHash === "state-a",
+    `V2: as-of t3 read ${asOfT3?.payloadHash} instead of the re-observed state A — PIT is coming from canonical fetched_at, not the receipt timeline.`,
+  );
+  const asOfT2 = await readMetaRawSnapshotAsOf({
+    businessId: BUSINESS_ID,
+    providerAccountId: META_ACCOUNT_ID,
+    endpointName: "seam_two_layer",
+    entityScope: "campaign",
+    asOf: "2026-03-10T02:30:00.000Z",
+  });
+  assert(
+    asOfT2?.payloadHash === "state-b",
+    `V2: as-of t2 read ${asOfT2?.payloadHash} instead of state B.`,
+  );
+  const canonicalA = await client.query<{ fetched_at: string; observation_count: string }>(
+    `SELECT fetched_at::text AS fetched_at, observation_count::text AS observation_count
+     FROM meta_raw_snapshots WHERE payload_hash = 'state-a' AND content_key IS NOT NULL`,
+  );
+  assert(
+    canonicalA.rowCount === 1 &&
+      new Date(canonicalA.rows[0]!.fetched_at).toISOString() ===
+        "2026-03-10T01:00:00.000Z" &&
+      Number(canonicalA.rows[0]!.observation_count) === 2,
+    `V2: state A canonical content is not immutable-with-heartbeat: ${JSON.stringify(canonicalA.rows)}`,
+  );
+  console.log(
+    `${LABEL} V2 PASS A->B->A PIT: as-of t3 reads A, as-of t2 reads B, and A's canonical row keeps its first fetched_at with observation_count 2`,
+  );
+
+  // ── V3. Concurrent same-content / different-partition.
+  const concurrentIds = await Promise.all([
+    observeIn(pidA, "content-concurrent", "2026-03-11T01:00:00.000Z", null),
+    observeIn(pidB, "content-concurrent", "2026-03-11T01:00:00.000Z", null),
+    observeIn(null, "content-concurrent", "2026-03-11T01:00:00.000Z", null),
+  ]);
+  assert(
+    new Set(concurrentIds).size === 1,
+    `V3: concurrent identical content did not converge: ${JSON.stringify(concurrentIds)}`,
+  );
+  const concurrentReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid`,
+    [concurrentIds[0]],
+  );
+  assert(
+    Number(concurrentReceipts.rows[0]!.count) === 3,
+    `V3: ${concurrentReceipts.rows[0]!.count} receipts for 3 distinct observers — a distinct partition receipt was lost.`,
+  );
+  console.log(
+    `${LABEL} V3 PASS concurrent same-content/different-partition: 1 canonical row, all 3 distinct receipts kept`,
+  );
+
+  // ── V4. Inbound FKs. The receipt FK must be RESTRICT, so canonical content
+  // that still has receipts cannot be deleted and no provenance can silently
+  // become NULL.
+  const fkRule = await client.query<{ confdeltype: string }>(
+    `SELECT confdeltype FROM pg_constraint
+     WHERE conrelid = 'meta_raw_snapshot_observations'::regclass
+       AND confrelid = 'meta_raw_snapshots'::regclass AND contype = 'f'`,
+  );
+  assert(
+    fkRule.rowCount === 1 && ["r", "a"].includes(fkRule.rows[0]!.confdeltype),
+    `V4: the receipt FK is not RESTRICT/NO ACTION: ${JSON.stringify(fkRule.rows)}`,
+  );
+  const deleteBlocked = await client
+    .query(`DELETE FROM meta_raw_snapshots WHERE id = $1::uuid`, [sharedA])
+    .then(
+      () => false,
+      () => true,
+    );
+  assert(
+    deleteBlocked,
+    "V4: canonical content with live receipts was deletable — provenance could be destroyed silently.",
+  );
+  console.log(
+    `${LABEL} V4 PASS inbound FKs: receipt FK is RESTRICT and deleting referenced canonical content is refused`,
+  );
+
+  // ── V5. Legacy compatibility. A pre-model row has no receipts and no
+  // content_key; it must still be readable as a self-observation at its own
+  // fetched_at, without being rewritten.
+  const legacy = await client.query<{ id: string }>(
+    `INSERT INTO meta_raw_snapshots
+       (business_id, provider_account_id, endpoint_name, entity_scope,
+        start_date, end_date, payload_json, payload_hash, status, fetched_at)
+     VALUES ($1, $2, 'seam_legacy', 'campaign', DATE '2026-02-01', DATE '2026-02-01',
+             '{}'::jsonb, 'legacy-hash', 'fetched', TIMESTAMPTZ '2026-02-01T05:00:00Z')
+     RETURNING id::text AS id`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  const legacyRead = await readMetaRawSnapshotAsOf({
+    businessId: BUSINESS_ID,
+    providerAccountId: META_ACCOUNT_ID,
+    endpointName: "seam_legacy",
+    entityScope: "campaign",
+    asOf: "2026-02-02T00:00:00.000Z",
+  });
+  assert(
+    legacyRead?.snapshotId === legacy.rows[0]!.id &&
+      legacyRead.legacySelfObservation === true,
+    `V5: a legacy row is not readable as a self-observation: ${JSON.stringify(legacyRead)}`,
+  );
+  const legacyUntouched = await client.query<{ content_key: string | null }>(
+    `SELECT content_key FROM meta_raw_snapshots WHERE id = $1::uuid`,
+    [legacy.rows[0]!.id],
+  );
+  assert(
+    legacyUntouched.rows[0]!.content_key === null,
+    "V5: the legacy row was rewritten with a content_key; legacy data must not be reinterpreted.",
+  );
+  console.log(
+    `${LABEL} V5 PASS legacy compatibility: a pre-model row reads as a self-observation and is never rewritten`,
+  );
+
+  // ── V6. Content-layer purity. Observation-scoped provenance must be absent
+  // from every NEW canonical row — that is what stops one partition's deletion
+  // from cascading away content another partition still references.
+  const impure = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshots
+     WHERE content_key IS NOT NULL
+       AND (partition_id IS NOT NULL OR checkpoint_id IS NOT NULL
+            OR run_id IS NOT NULL OR provider_cursor IS NOT NULL)`,
+  );
+  assert(
+    Number(impure.rows[0]!.count) === 0,
+    `V6: ${impure.rows[0]!.count} new canonical rows still carry observation-scoped provenance.`,
+  );
+  // Seed a legacy-shaped row that DOES carry a partition, so "legacy is left
+  // untouched" is tested against real data rather than an empty set.
+  await client.query(
+    `INSERT INTO meta_raw_snapshots
+       (business_id, provider_account_id, partition_id, endpoint_name, entity_scope,
+        start_date, end_date, payload_json, payload_hash, status, fetched_at)
+     VALUES ($1, $2, $3::uuid, 'seam_legacy_partitioned', 'campaign',
+             DATE '2026-01-05', DATE '2026-01-05', '{}'::jsonb, 'legacy-part-hash',
+             'fetched', TIMESTAMPTZ '2026-01-05T05:00:00Z')`,
+    [BUSINESS_ID, META_ACCOUNT_ID, pidA],
+  );
+  const legacyKept = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshots
+     WHERE content_key IS NULL AND partition_id IS NOT NULL`,
+  );
+  assert(
+    Number(legacyKept.rows[0]!.count) > 0,
+    "V6: no legacy partition-carrying rows exist, so 'legacy untouched' is untestable.",
+  );
+  console.log(
+    `${LABEL} V6 PASS content-layer purity: 0 new canonical rows carry partition/checkpoint/run/cursor; ${legacyKept.rows[0]!.count} legacy rows keep theirs`,
+  );
+
+  // ── V7. Partition deletion removes only that partition's receipts. Shared
+  // content and the other partition's evidence must survive.
+  const beforeDelete = await readMetaRawSnapshotReceiptsForPartition({ partitionId: pidB });
+  assert(beforeDelete.length > 0, "V7: partition B has no receipts to lose.");
+  await client.query(`DELETE FROM meta_sync_partitions WHERE id = $1::uuid`, [pidA]);
+  const survivingContent = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshots WHERE id = $1::uuid`,
+    [sharedA],
+  );
+  assert(
+    Number(survivingContent.rows[0]!.count) === 1,
+    "V7: deleting one partition destroyed shared canonical content.",
+  );
+  const afterDelete = await readMetaRawSnapshotReceiptsForPartition({ partitionId: pidB });
+  assert(
+    afterDelete.length === beforeDelete.length,
+    `V7: deleting partition A removed partition B's evidence (${beforeDelete.length} -> ${afterDelete.length}).`,
+  );
+  const orphanReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshot_observations
+     WHERE partition_id = $1::uuid`,
+    [pidA],
+  );
+  assert(
+    Number(orphanReceipts.rows[0]!.count) === 0,
+    `V7: partition A's own receipts were not removed with it (${orphanReceipts.rows[0]!.count} left).`,
+  );
+  console.log(
+    `${LABEL} V7 PASS partition deletion: only partition A's receipts are removed; shared content and partition B's evidence survive`,
+  );
+
+  // ── V8. Supersede is an EVENT, not a mutation. Earlier point-in-time truth
+  // must still be readable after superseding.
+  const { supersedeMetaRawSnapshotsForPartition } = await import("@/lib/meta/warehouse");
+  const beforeSupersede = await readMetaRawSnapshotAsOf({
+    businessId: BUSINESS_ID,
+    providerAccountId: META_ACCOUNT_ID,
+    endpointName: "seam_two_layer",
+    entityScope: "campaign",
+    asOf: "2026-03-10T03:30:00.000Z",
+    status: "fetched",
+  });
+  const payloadsBefore = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshots WHERE content_key IS NOT NULL`,
+  );
+  const superseded = await supersedeMetaRawSnapshotsForPartition({ partitionId: pidB });
+  assert(superseded > 0, "V8: supersede reported no work for a partition that has receipts.");
+  const payloadsAfter = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshots WHERE content_key IS NOT NULL`,
+  );
+  assert(
+    payloadsBefore.rows[0]!.count === payloadsAfter.rows[0]!.count,
+    "V8: superseding changed canonical content rows.",
+  );
+  const afterSupersede = await readMetaRawSnapshotAsOf({
+    businessId: BUSINESS_ID,
+    providerAccountId: META_ACCOUNT_ID,
+    endpointName: "seam_two_layer",
+    entityScope: "campaign",
+    asOf: "2026-03-10T03:30:00.000Z",
+    status: "fetched",
+  });
+  assert(
+    afterSupersede?.payloadHash === beforeSupersede?.payloadHash,
+    `V8: superseding rewrote earlier point-in-time truth (${beforeSupersede?.payloadHash} -> ${afterSupersede?.payloadHash}).`,
+  );
+  const supersedeEvents = await client.query<{ count: string; observed_at: string }>(
+    `SELECT COUNT(*)::text AS count, MAX(observed_at)::text AS observed_at
+     FROM meta_raw_snapshot_observations
+     WHERE partition_id = $1::uuid AND status = 'superseded'`,
+    [pidB],
+  );
+  assert(
+    Number(supersedeEvents.rows[0]!.count) > 0 &&
+      supersedeEvents.rows[0]!.observed_at != null,
+    "V8: superseding recorded no receipt event at its actual time.",
+  );
+  console.log(
+    `${LABEL} V8 PASS supersede as event: ${superseded} receipt events appended, canonical content untouched, earlier PIT truth preserved`,
+  );
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1422,6 +1886,7 @@ async function main() {
 
     const shared = await verifyGoogle(client);
     await verifyMeta(client, shared);
+    await verifyRawSnapshotModel(client);
     void shared;
 
     console.log(`${LABEL} PASS`);

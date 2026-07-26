@@ -175,6 +175,17 @@ export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummar
     )
     SELECT COUNT(*)::int AS count FROM deleted
   `);
+  // Receipts reference canonical content with ON DELETE RESTRICT, so the
+  // observation layer has to be cleared first or the content delete below
+  // aborts the whole reset. Order, not a weaker FK: RESTRICT is what stops a
+  // retention path from silently orphaning provenance.
+  await execCount(sql`
+    WITH deleted AS (
+      DELETE FROM meta_raw_snapshot_observations
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS count FROM deleted
+  `);
   const metaRawSnapshotsDeleted = await execCount(sql`
     WITH deleted AS (
       DELETE FROM meta_raw_snapshots

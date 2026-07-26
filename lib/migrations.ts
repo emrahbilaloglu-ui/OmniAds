@@ -3580,6 +3580,117 @@ export async function runMigrations(options?: {
           ON meta_raw_snapshots (partition_id, run_id, endpoint_name, page_index)`.catch(
           () => {},
         ),
+        // ── Two-layer content + observation model ──────────────────────────
+        //
+        // The snapshot table records the SAME payload thousands of times. It is
+        // the single largest table in the database, and collapsing repeats to
+        // one row per distinct observed payload is only safe if that row still
+        // answers everything the duplicates answered: when the content was
+        // FIRST seen, when it was LAST seen, and how many times. Overwriting
+        // `fetched_at` would destroy first-observation time and with it exact
+        // point-in-time visibility, so `fetched_at` is never touched after
+        // insert and the new columns carry the heartbeat instead.
+        sql`ALTER TABLE meta_raw_snapshots
+          ADD COLUMN IF NOT EXISTS first_observed_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots
+          ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots
+          ADD COLUMN IF NOT EXISTS observation_count INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        // Deliberately NOT backfilled. An UPDATE across the whole table would
+        // rewrite every heap page of the largest relation in the database for
+        // no read benefit. Legacy rows keep NULL observation columns and are
+        // read through the legacy-compatibility path, which treats a row with
+        // no receipts as a single self-observation at its own `fetched_at` —
+        // exactly what such a row already was.
+        //
+        // Layer 1: one immutable canonical row per distinct payload CONTENT.
+        // Its identity deliberately excludes partition_id, run_id and
+        // checkpoint_id — those describe an observation, not the content — but
+        // includes every scope field needed to stop cross-business, account,
+        // endpoint, date or page collisions.
+        //
+        // `content_key` is set only by NEW writes. Legacy rows keep NULL, so
+        // the partial unique index cannot collide with the existing duplicate
+        // rows and no table rewrite is required. Legacy cleanup stays a
+        // separate, blocked, dry-run-only concern.
+        sql`ALTER TABLE meta_raw_snapshots
+          ADD COLUMN IF NOT EXISTS content_key TEXT`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS meta_raw_snapshots_content_identity
+          ON meta_raw_snapshots (content_key)
+          WHERE content_key IS NOT NULL`.catch(() => {}),
+        //
+        // Layer 2: the append-only observation receipt. This is what preserves
+        // per-partition completion evidence once content is shared. The FK to
+        // canonical content is RESTRICT, never SET NULL: content that still has
+        // receipts must not be deletable, and provenance must never silently
+        // become NULL.
+        sql`CREATE TABLE IF NOT EXISTS meta_raw_snapshot_observations (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          snapshot_id          UUID NOT NULL
+                               REFERENCES meta_raw_snapshots(id) ON DELETE RESTRICT,
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          -- CASCADE, not SET NULL: deleting a partition removes only ITS
+          -- receipts. Shared canonical content and every other partition's
+          -- evidence survive. SET NULL would additionally collide two receipts
+          -- that differ only by partition onto one identity.
+          partition_id         UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
+          -- TEXT to match meta_raw_snapshots.run_id, which is TEXT. A UUID
+          -- column here would fail on any non-UUID run id already in use.
+          run_id               TEXT,
+          checkpoint_id        UUID,
+          endpoint_name        TEXT NOT NULL,
+          entity_scope         TEXT NOT NULL,
+          page_index           INTEGER,
+          provider_cursor      TEXT,
+          status               TEXT NOT NULL,
+          provider_http_status INTEGER,
+          request_context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          response_headers     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          observed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          first_observed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_observed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          observation_count    INTEGER NOT NULL DEFAULT 1,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        // Receipt identity includes observed_at, so every distinct observation
+        // INSTANT is its own row. That is what makes arbitrary point-in-time
+        // exact: with content A observed at t1, B at t2 and A again at t3,
+        // collapsing the two A observations into one receipt would leave the
+        // timeline unable to answer t1.5 and t3.5 differently. Receipts carry
+        // no payload, so this is bounded — the bulk is payload content, which
+        // is now shared.
+        //
+        // A genuine duplicate — the same observation replayed at the same
+        // instant, e.g. a retried write — still heartbeats instead of
+        // appending.
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS meta_raw_snapshot_observations_identity
+          ON meta_raw_snapshot_observations (
+            snapshot_id,
+            COALESCE(partition_id, '00000000-0000-0000-0000-000000000000'::uuid),
+            COALESCE(run_id, ''),
+            COALESCE(checkpoint_id, '00000000-0000-0000-0000-000000000000'::uuid),
+            COALESCE(page_index, -1),
+            COALESCE(provider_cursor, ''),
+            status,
+            observed_at
+          )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshot_observations_retention
+          ON meta_raw_snapshot_observations (observed_at ASC, id ASC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshot_observations_timeline
+          ON meta_raw_snapshot_observations (
+            business_id, provider_account_id, endpoint_name, observed_at DESC
+          )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshot_observations_snapshot
+          ON meta_raw_snapshot_observations (snapshot_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshot_observations_partition
+          ON meta_raw_snapshot_observations (partition_id, run_id, endpoint_name, page_index)
+          WHERE partition_id IS NOT NULL`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_account_daily (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

@@ -5833,21 +5833,49 @@ export async function listMetaRawSnapshotsForRun(input: {
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  // Resume reads the receipt timeline for new rows and falls back to the
+  // legacy column for pre-model ones. New canonical content carries no
+  // partition_id — attribution lives on the receipt — so a partition-column
+  // lookup alone would silently find nothing and report the run as having no
+  // durable page, which surfaces as a checkpoint/raw mismatch and re-fetches
+  // work that was already done.
+  //
+  // The receipt supplies the observation-scoped fields (page, cursor, status,
+  // http status, request context) and the canonical row supplies the payload,
+  // which is exactly how the two layers divide. The legacy arm is restricted to
+  // `content_key IS NULL` so a new row can never be counted twice.
   return (sql`
     SELECT
-      id,
-      page_index,
-      payload_json,
-      response_headers,
-      provider_cursor,
-      request_context,
-      provider_http_status,
-      status,
-      fetched_at
-    FROM meta_raw_snapshots
-    WHERE partition_id = ${input.partitionId}
-      AND run_id = ${input.runId}
-      AND endpoint_name = ${input.endpointName}
+      snapshot.id,
+      receipt.page_index,
+      snapshot.payload_json,
+      receipt.response_headers,
+      receipt.provider_cursor,
+      receipt.request_context,
+      receipt.provider_http_status,
+      receipt.status,
+      receipt.observed_at AS fetched_at
+    FROM meta_raw_snapshot_observations receipt
+    JOIN meta_raw_snapshots snapshot ON snapshot.id = receipt.snapshot_id
+    WHERE receipt.partition_id = ${input.partitionId}::uuid
+      AND receipt.run_id = ${input.runId}
+      AND receipt.endpoint_name = ${input.endpointName}
+    UNION ALL
+    SELECT
+      legacy.id,
+      legacy.page_index,
+      legacy.payload_json,
+      legacy.response_headers,
+      legacy.provider_cursor,
+      legacy.request_context,
+      legacy.provider_http_status,
+      legacy.status,
+      legacy.fetched_at
+    FROM meta_raw_snapshots legacy
+    WHERE legacy.content_key IS NULL
+      AND legacy.partition_id = ${input.partitionId}::uuid
+      AND legacy.run_id = ${input.runId}
+      AND legacy.endpoint_name = ${input.endpointName}
     ORDER BY fetched_at ASC, id ASC
   ` as unknown) as Array<{
     id: string;
@@ -5862,21 +5890,75 @@ export async function listMetaRawSnapshotsForRun(input: {
   }>;
 }
 
+/**
+ * Supersede a partition's raw evidence.
+ *
+ * Under the two-layer model this is an EVENT, not a mutation: a new
+ * `superseded` receipt is appended at the time it actually happened. Canonical
+ * payload content is never touched, so
+ *  - content shared with other partitions is unaffected;
+ *  - earlier point-in-time truth is preserved — asking "what did this partition
+ *    hold at t" before the supersede still answers correctly, which an in-place
+ *    status flip would have destroyed.
+ *
+ * Legacy rows (written before the model, `content_key IS NULL`, carrying their
+ * own `partition_id`) keep the original in-place behaviour, because they have
+ * no receipts to append to. Both halves run, so a partition spanning the
+ * cutover is fully superseded.
+ */
 export async function supersedeMetaRawSnapshotsForPartition(input: {
   partitionId: string;
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
-  const sql = getDb();
-  const rows = await sql`
-    UPDATE meta_raw_snapshots
-    SET
-      status = 'superseded',
-      updated_at = now()
-    WHERE partition_id = ${input.partitionId}::uuid
-      AND status <> 'superseded'
-    RETURNING id
-  ` as Array<{ id: string }>;
-  return rows.length;
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    const receiptRows = await sql`
+      INSERT INTO meta_raw_snapshot_observations (
+        snapshot_id, business_id, provider_account_id, partition_id, run_id,
+        checkpoint_id, endpoint_name, entity_scope, page_index, provider_cursor,
+        status, provider_http_status, request_context, response_headers,
+        observed_at, first_observed_at, last_observed_at
+      )
+      -- DISTINCT ON: two receipts for the same page that differ only in status
+      -- both collapse to one 'superseded' identity, and ON CONFLICT cannot
+      -- arbitrate rows produced within a single statement.
+      SELECT DISTINCT ON (
+        source.snapshot_id, source.partition_id, source.run_id,
+        source.checkpoint_id, source.page_index, source.provider_cursor
+      )
+        source.snapshot_id, source.business_id, source.provider_account_id,
+        source.partition_id, source.run_id, source.checkpoint_id,
+        source.endpoint_name, source.entity_scope, source.page_index,
+        source.provider_cursor, 'superseded', source.provider_http_status,
+        source.request_context, source.response_headers,
+        now(), now(), now()
+      FROM meta_raw_snapshot_observations source
+      WHERE source.partition_id = ${input.partitionId}::uuid
+        AND source.status <> 'superseded'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM meta_raw_snapshot_observations already
+          WHERE already.snapshot_id = source.snapshot_id
+            AND already.partition_id = source.partition_id
+            AND already.status = 'superseded'
+        )
+      ON CONFLICT DO NOTHING
+      RETURNING id
+    ` as Array<{ id: string }>;
+
+    // Legacy rows have no receipts; keep the original in-place semantics for
+    // them and only for them.
+    const legacyRows = await sql`
+      UPDATE meta_raw_snapshots
+      SET status = 'superseded', updated_at = now()
+      WHERE partition_id = ${input.partitionId}::uuid
+        AND content_key IS NULL
+        AND status <> 'superseded'
+      RETURNING id
+    ` as Array<{ id: string }>;
+
+    return receiptRows.length + legacyRows.length;
+  });
 }
 
 export async function deleteMetaSyncCheckpointsForPartition(input: {
@@ -6014,69 +6096,225 @@ export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
   `;
 }
 
+/**
+ * The canonical CONTENT identity of a raw snapshot.
+ *
+ * Deliberately excludes partition, run, checkpoint and cursor: those describe
+ * WHO observed the payload, not what the payload is. It includes every scope
+ * field that would otherwise collide across businesses, accounts, endpoints,
+ * dates or pages, so two different things can never share one canonical row.
+ *
+ * Built in TypeScript and stored, rather than recomputed in SQL, for the same
+ * reason the lineage hash is: jsonb reorders keys and JSON.stringify escaping
+ * is not reproducible in PL/pgSQL, so a SQL-side rebuild would silently mis-key
+ * some rows.
+ */
+export function buildMetaRawSnapshotContentKey(input: {
+  businessId: string;
+  providerAccountId: string;
+  endpointName: string;
+  entityScope: string;
+  startDate: string;
+  endDate: string;
+  pageIndex?: number | null;
+  payloadHash: string;
+}): string {
+  return [
+    input.businessId,
+    input.providerAccountId,
+    input.endpointName,
+    input.entityScope,
+    normalizeDate(input.startDate),
+    normalizeDate(input.endDate),
+    String(input.pageIndex ?? -1),
+    input.payloadHash,
+    // Unit separator: a byte that cannot occur in any of the joined fields, so
+    // adjacent components can never be re-partitioned into a different tuple
+    // that hashes to the same key.
+  ].join(String.fromCharCode(0x1f));
+}
+
+/**
+ * Two-layer write: one immutable canonical content row, plus one append-only
+ * observation receipt per (partition, run, checkpoint, page, cursor, status,
+ * instant).
+ *
+ * Both happen in ONE transaction so a caller can never end up with content it
+ * cannot attribute, or a receipt pointing at content that was rolled back. The
+ * canonical content id is what is returned, because every existing typed
+ * `source_snapshot_id` FK points at `meta_raw_snapshots(id)` and must keep
+ * resolving unchanged.
+ *
+ * Concurrent identical content converges on one canonical row (the content
+ * unique index arbitrates) while each distinct partition still records its own
+ * receipt — that is what makes per-partition completion evidence survive
+ * content sharing.
+ */
 export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
-  const sql = getDb();
   const refs = await resolveMetaRecordReferenceContext({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
     accountCurrency: input.accountCurrency ?? null,
     accountTimezone: input.accountTimezone ?? null,
   });
-  const rows = await sql`
-    INSERT INTO meta_raw_snapshots (
-      business_id,
-      business_ref_id,
-      provider_account_id,
-      provider_account_ref_id,
-      partition_id,
-      checkpoint_id,
-      run_id,
-      endpoint_name,
-      entity_scope,
-      page_index,
-      provider_cursor,
-      start_date,
-      end_date,
-      account_timezone,
-      account_currency,
-      payload_json,
-      payload_hash,
-      request_context,
-      response_headers,
-      provider_http_status,
-      status,
-      fetched_at,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${refs.businessRefId},
-      ${input.providerAccountId},
-      ${refs.providerAccountRefId},
-      ${input.partitionId ?? null},
-      ${input.checkpointId ?? null},
-      ${input.runId ?? null},
-      ${input.endpointName},
-      ${input.entityScope},
-      ${input.pageIndex ?? null},
-      ${input.providerCursor ?? null},
-      ${normalizeDate(input.startDate)},
-      ${normalizeDate(input.endDate)},
-      ${input.accountTimezone},
-      ${input.accountCurrency},
-      ${JSON.stringify(input.payloadJson)}::jsonb,
-      ${input.payloadHash},
-      ${JSON.stringify(input.requestContext ?? {})}::jsonb,
-      ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
-      ${input.providerHttpStatus},
-      ${input.status},
-      COALESCE(${input.fetchedAt ?? null}, now()),
-      now()
-    )
-    RETURNING id
-  ` as Array<{ id: string }>;
-  return rows[0]?.id ?? null;
+  const contentKey = buildMetaRawSnapshotContentKey({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    endpointName: input.endpointName,
+    entityScope: input.entityScope,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    pageIndex: input.pageIndex ?? null,
+    payloadHash: input.payloadHash,
+  });
+  const observedAt = input.fetchedAt ?? null;
+
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    const contentRows = await sql`
+      INSERT INTO meta_raw_snapshots (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        partition_id,
+        checkpoint_id,
+        run_id,
+        endpoint_name,
+        entity_scope,
+        page_index,
+        provider_cursor,
+        start_date,
+        end_date,
+        account_timezone,
+        account_currency,
+        payload_json,
+        payload_hash,
+        content_key,
+        request_context,
+        response_headers,
+        provider_http_status,
+        status,
+        fetched_at,
+        first_observed_at,
+        last_observed_at,
+        updated_at
+      )
+      VALUES (
+        ${input.businessId},
+        ${refs.businessRefId},
+        ${input.providerAccountId},
+        ${refs.providerAccountRefId},
+        -- Observation-scoped provenance is NULL on the content layer by
+        -- construction. partition/checkpoint/run/cursor describe WHO observed
+        -- this content and belong exclusively to the receipt; leaving them here
+        -- would make shared content cascade-deletable from any one partition.
+        NULL,
+        NULL,
+        NULL,
+        ${input.endpointName},
+        ${input.entityScope},
+        ${input.pageIndex ?? null},
+        NULL,
+        ${normalizeDate(input.startDate)},
+        ${normalizeDate(input.endDate)},
+        ${input.accountTimezone},
+        ${input.accountCurrency},
+        ${JSON.stringify(input.payloadJson)}::jsonb,
+        ${input.payloadHash},
+        ${contentKey},
+        ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+        ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
+        ${input.providerHttpStatus},
+        -- First-observation mirror only, kept so legacy column readers still
+        -- see a status. It never participates in content identity and is never
+        -- updated, so it is not lifecycle authority — the receipt timeline is.
+        ${input.status},
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now()),
+        now()
+      )
+      ON CONFLICT (content_key) WHERE content_key IS NOT NULL
+      DO UPDATE SET
+        -- Content is immutable. fetched_at, first_observed_at and payload_json
+        -- are never touched, so first-observation time survives and the
+        -- canonical row keeps an exact earliest-known-at.
+        last_observed_at = GREATEST(
+          meta_raw_snapshots.last_observed_at,
+          COALESCE(${observedAt}::timestamptz, now())
+        ),
+        observation_count = meta_raw_snapshots.observation_count + 1,
+        updated_at = now()
+      RETURNING id
+    ` as Array<{ id: string }>;
+    const snapshotId = contentRows[0]?.id ?? null;
+    if (!snapshotId) return null;
+
+    // The receipt. A repeat of the SAME observation heartbeats; a different
+    // partition, run or instant is a distinct receipt and is never folded into
+    // another.
+    await sql`
+      INSERT INTO meta_raw_snapshot_observations (
+        snapshot_id,
+        business_id,
+        provider_account_id,
+        partition_id,
+        run_id,
+        checkpoint_id,
+        endpoint_name,
+        entity_scope,
+        page_index,
+        provider_cursor,
+        status,
+        provider_http_status,
+        request_context,
+        response_headers,
+        observed_at,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${snapshotId}::uuid,
+        ${input.businessId},
+        ${input.providerAccountId},
+        ${input.partitionId ?? null},
+        ${input.runId ?? null},
+        ${input.checkpointId ?? null},
+        ${input.endpointName},
+        ${input.entityScope},
+        ${input.pageIndex ?? null},
+        ${input.providerCursor ?? null},
+        ${input.status},
+        ${input.providerHttpStatus},
+        ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+        ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now())
+      )
+      ON CONFLICT (
+        snapshot_id,
+        COALESCE(partition_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(run_id, ''),
+        COALESCE(checkpoint_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(page_index, -1),
+        COALESCE(provider_cursor, ''),
+        status,
+        observed_at
+      )
+      DO UPDATE SET
+        last_observed_at = GREATEST(
+          meta_raw_snapshot_observations.last_observed_at,
+          COALESCE(${observedAt}::timestamptz, now())
+        ),
+        observation_count = meta_raw_snapshot_observations.observation_count + 1,
+        updated_at = now()
+    `;
+
+    return snapshotId;
+  });
 }
 
 export async function getLatestMetaSyncHealth(input: {

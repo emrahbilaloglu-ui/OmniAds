@@ -550,7 +550,10 @@ export async function resolveMetaCredentials(
   const context = await getMetaAccountContext(businessId).catch(() => null);
   const accessToken = context?.accessToken;
   const accountIds = context?.accountIds ?? [];
-  if (!accessToken || accountIds.length === 0) return null;
+  // A disconnected integration keeps its credential row, so checking only for a
+  // token would let sync keep calling Meta after the user disconnected. The
+  // connection status is the authority; the token is merely the means.
+  if (!context?.connected || !accessToken || accountIds.length === 0) return null;
 
   return {
     businessId,

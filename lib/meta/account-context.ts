@@ -82,6 +82,7 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
   ]);
 
   const accessToken = integration?.access_token ?? null;
+  const connected = integration?.status === "connected";
   const accountIds = assignments?.account_ids ?? [];
   const snapshotProfiles = new Map(
     (snapshot?.accounts ?? []).map((account) => [
@@ -104,7 +105,10 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
         ) {
           return [accountId, snapshotProfile] as const;
         }
-        if (!accessToken) {
+        // A disconnected integration keeps its credential row. Enriching from
+        // the live API here would keep calling Meta for a workspace the user
+        // has disconnected, so fall back to whatever the snapshot already knows.
+        if (!accessToken || !connected) {
           return [
             accountId,
             snapshotProfile ?? {
@@ -145,6 +149,36 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
       : null,
     accountProfiles,
   };
+}
+
+/**
+ * Uncached authority check for one account, for use at a work-unit boundary.
+ *
+ * `getMetaAccountContext` is memoised for up to a minute and a long batch
+ * resolves credentials once, so a deselection or disconnect made during the
+ * batch would otherwise stay invisible and the worker would keep fetching a
+ * revoked account. This reads the SAME two sources `loadMetaAccountContext`
+ * reads — connection status and the selected binding — so the batch gate and
+ * the unit gate cannot diverge.
+ *
+ * Fails closed: any read error means "not authorised".
+ */
+export async function isMetaAccountStillAuthorized(
+  businessId: string,
+  providerAccountId: string
+): Promise<boolean> {
+  try {
+    const [integration, assignments] = await Promise.all([
+      getIntegration(businessId, "meta"),
+      getProviderAccountAssignments(businessId, "meta"),
+    ]);
+    if (integration?.status !== "connected" || !integration.access_token) {
+      return false;
+    }
+    return (assignments?.account_ids ?? []).includes(providerAccountId);
+  } catch {
+    return false;
+  }
 }
 
 export async function getMetaAccountContext(

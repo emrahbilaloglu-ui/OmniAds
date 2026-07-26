@@ -3844,6 +3844,36 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
   return rows[0] ?? null;
 }
 
+/**
+ * Cancels every non-terminal partition for an account whose selection or
+ * connection was revoked. Cancellation — not failure — is the truthful record:
+ * the work did not fail, it is no longer authorised, and a failed row would be
+ * retried against an account we may no longer touch.
+ */
+export async function cancelMetaPartitionsForRevokedAccount(input: {
+  businessId: string;
+  providerAccountId: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE meta_sync_partitions
+    SET
+      status = 'cancelled',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = 'meta_account_selection_revoked',
+      finished_at = COALESCE(finished_at, now()),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND status IN ('queued', 'leased', 'running', 'failed')
+    RETURNING id
+  `) as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}
+
 export async function cancelObsoleteMetaCoreScopePartitions(input: {
   businessId: string;
   canonicalScope?: MetaWarehouseScope;

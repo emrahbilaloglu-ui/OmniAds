@@ -4,6 +4,20 @@ vi.mock("@/lib/meta/creatives-warehouse", () => ({
   syncMetaCreativesWarehouseDay: vi.fn(),
 }));
 
+// These fixtures exercise lease/scheduling logic against a stubbed database, so
+// the per-unit authority read has nothing real to read and would fail closed on
+// every partition. Default-authorised here; revocation behaviour itself is
+// proven end-to-end in the real-PostgreSQL provider seam.
+// Deliberately NOT a blanket mock — the rest of the module stays real.
+vi.mock("@/lib/meta/account-context", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/meta/account-context")>();
+  return {
+    ...actual,
+    isMetaAccountStillAuthorized: vi.fn(async () => true),
+  };
+});
+
 vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials: vi.fn(),
   syncMetaAccountCoreWarehouseDay: vi.fn(),

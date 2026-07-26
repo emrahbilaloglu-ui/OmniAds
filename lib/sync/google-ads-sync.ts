@@ -4313,6 +4313,30 @@ async function syncGoogleAdsAccountDay(input: {
   leaseEpoch?: number;
   attemptCount?: number;
 }) {
+  // Selection authority is revalidated per account-day, not once per batch.
+  // `syncGoogleAdsDates` resolves the account list before the first day, so a
+  // long historical wave would otherwise keep fetching an account that was
+  // deselected — or whose connection was revoked — hours earlier. Placing the
+  // check here rather than in the loop also covers the partition consumer,
+  // which calls this function directly. It reuses the SAME authority the batch
+  // gate uses, so the two can never diverge.
+  //
+  // Revocation returns "not synced" instead of throwing: no job row, no
+  // provider call, no success receipt, and the caller's normal skip accounting
+  // stays truthful.
+  const stillAuthorized = await getConnectedAssignedGoogleAccounts(
+    input.businessId,
+  );
+  if (!stillAuthorized.includes(input.providerAccountId)) {
+    console.warn("[google-ads-sync] account_selection_revoked", {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      date: input.date,
+      partitionId: input.partitionId ?? null,
+    });
+    return false;
+  }
+
   const scopes = new Set<GoogleAdsWarehouseScope>(
     input.scopes ?? [
       "account_daily",

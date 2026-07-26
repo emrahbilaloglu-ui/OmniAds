@@ -15,7 +15,9 @@ import {
   META_RUNTIME_STATE_SCOPES,
   isMetaProductCoreCoverageScope,
 } from "@/lib/meta/core-config";
+import { isMetaAccountStillAuthorized } from "@/lib/meta/account-context";
 import {
+  cancelMetaPartitionsForRevokedAccount,
   backfillMetaRunningRunsForTerminalPartition,
   cancelObsoleteMetaCoreScopePartitions,
   cleanupMetaPartitionOrchestration,
@@ -1884,7 +1886,56 @@ type MetaPartitionDayResult = {
 
 type MetaPartitionProcessResult = {
   outcome: "succeeded" | "failed" | "requeued";
+  failureClass?: string | null;
+  stopBatch?: boolean;
 };
+
+/**
+ * Per-work-unit authority revalidation, shared by the queue consumer and the
+ * lifecycle entrypoint so the two can never disagree.
+ *
+ * Credentials are resolved once before a whole batch is leased, and the account
+ * context is memoised on top of that, so without this a deselection or
+ * disconnect made mid-batch stays invisible and the worker keeps fetching a
+ * revoked account. The check is uncached and reads the same authority the batch
+ * gate reads.
+ *
+ * Returns `null` when the unit may proceed, or the refusal result when it may
+ * not. Refusal is "requeued", never "failed": the unit did not fail, it lost
+ * authority — and `stopBatch` keeps the account's remaining leased partitions
+ * away from the provider entirely.
+ */
+async function refuseRevokedMetaPartition(partition: {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  scope: MetaWarehouseScope;
+  partitionDate: string;
+}): Promise<MetaPartitionProcessResult | null> {
+  const stillAuthorized = await isMetaAccountStillAuthorized(
+    partition.businessId,
+    partition.providerAccountId,
+  );
+  if (stillAuthorized) return null;
+
+  const cancelled = await cancelMetaPartitionsForRevokedAccount({
+    businessId: partition.businessId,
+    providerAccountId: partition.providerAccountId,
+  }).catch(() => [] as string[]);
+  console.warn("[meta-sync] partition_account_selection_revoked", {
+    businessId: partition.businessId,
+    providerAccountId: partition.providerAccountId,
+    partitionId: partition.id ?? null,
+    scope: partition.scope,
+    partitionDate: partition.partitionDate,
+    cancelledPartitions: cancelled.length,
+  });
+  return {
+    outcome: "requeued",
+    stopBatch: true,
+    failureClass: "meta_account_selection_revoked",
+  } satisfies MetaPartitionProcessResult;
+}
 
 class MetaAuthoritativeExecutorError extends Error {
   constructor(
@@ -3583,6 +3634,8 @@ async function processMetaPartition(input: {
   workerId: string;
 }): Promise<MetaPartitionProcessResult> {
   const partitionId = input.partition.id;
+  const revoked = await refuseRevokedMetaPartition(input.partition);
+  if (revoked) return revoked;
   if (!partitionId) return { outcome: "failed" };
   const markRunningOk = await markMetaPartitionRunning({
     partitionId,
@@ -4137,6 +4190,11 @@ export async function processMetaLifecyclePartition(input: {
   };
   workerId: string;
 }) {
+  // Authority first: a revoked account must be refused as a loss of authority,
+  // not surface as an unavailable-credentials failure.
+  const revoked = await refuseRevokedMetaPartition(input.partition);
+  if (revoked) return revoked.outcome !== "failed";
+
   const credentials = await resolveMetaCredentials(
     input.partition.businessId,
   ).catch(() => null);

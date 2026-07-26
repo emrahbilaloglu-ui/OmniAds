@@ -1142,7 +1142,6 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
       COALESCE(${input.triggeredAt ?? null}, now()),
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
-      ${getCurrentSchedulingAttemptId()},
       now()
     )
     ON CONFLICT (

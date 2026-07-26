@@ -3621,7 +3621,6 @@ export async function createMetaSyncJob(input: MetaSyncJobRecord) {
       COALESCE(${input.triggeredAt ?? null}, now()),
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
-      ${getCurrentSchedulingAttemptId()},
       now()
     )
     RETURNING id

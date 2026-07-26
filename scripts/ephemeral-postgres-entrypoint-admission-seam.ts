@@ -502,6 +502,88 @@ async function main() {
       `E3: a refused replay changed partition statuses — the work is no longer recoverable in the state it was left.\nbefore=${JSON.stringify(deadLetterBefore.rows)}\nafter=${JSON.stringify(deadLetterAfter.rows)}`,
     );
 
+    // ── E5. The scheduling receipt, against the real schema ────────────────
+    //
+    // This exists because the mocked suite could not see the defect it catches.
+    // Both partition upserts listed `scheduling_attempt_id` in the column list
+    // with no corresponding expression — 19 columns, 18 values — so every
+    // partition INSERT would have failed on any real database. 6186 mocked
+    // tests were green through it.
+    //
+    // Two facts, both from PostgreSQL: the statement executes at all, and the
+    // attempt id it stamps is the one that was in scope. Work created outside an
+    // attempt must be NULL, because a receipt that stamps everything cannot
+    // distinguish "this operation scheduled it" from "it was already there".
+    for (const entry of paths) {
+      for (const lane of entry.lanes) process.env[lane] = "enabled";
+    }
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    const { withSchedulingAttempt } = await import("@/lib/sync/scheduling-attempt");
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    const googleWarehouse = await import("@/lib/google-ads/warehouse");
+
+    const upsertBoth = async (partitionDate: string) => {
+      await metaWarehouse.queueMetaSyncPartition({
+        businessId: BUSINESS_ID,
+        providerAccountId: META_ACCOUNT,
+        lane: "core",
+        scope: "campaign_daily",
+        partitionDate,
+        status: "queued",
+        priority: 100,
+        source: "recent",
+        attemptCount: 0,
+      });
+      await googleWarehouse.queueGoogleAdsSyncPartition({
+        businessId: BUSINESS_ID,
+        providerAccountId: GOOGLE_ACCOUNT,
+        lane: "core",
+        scope: "campaign_daily",
+        partitionDate,
+        status: "queued",
+        priority: 100,
+        source: "recent",
+        attemptCount: 0,
+      });
+    };
+
+    const { attemptId } = await withSchedulingAttempt(async () => {
+      await upsertBoth("2026-06-01");
+    });
+    // ...and the same two statements with no attempt in scope.
+    await upsertBoth("2026-06-02");
+
+    const stamped = await client.query<{ table_name: string; stamped: string }>(
+      `SELECT 'meta' AS table_name, COUNT(*)::text AS stamped
+         FROM meta_sync_partitions
+        WHERE business_id = $1 AND scheduling_attempt_id = $2::uuid
+       UNION ALL
+       SELECT 'google', COUNT(*)::text
+         FROM google_ads_sync_partitions
+        WHERE business_id = $1 AND scheduling_attempt_id = $2::uuid
+       ORDER BY table_name`,
+      [BUSINESS_ID, attemptId],
+    );
+    assert(
+      stamped.rows.length === 2 && stamped.rows.every((row) => Number(row.stamped) === 1),
+      `E5: the scheduling attempt did not land on exactly one partition per provider: ${JSON.stringify(stamped.rows)}`,
+    );
+    const unstamped = await client.query<{ nulls: string }>(
+      `SELECT (
+         (SELECT COUNT(*) FROM meta_sync_partitions
+           WHERE business_id = $1 AND partition_date = '2026-06-02'
+             AND scheduling_attempt_id IS NULL)
+       + (SELECT COUNT(*) FROM google_ads_sync_partitions
+           WHERE business_id = $1 AND partition_date = '2026-06-02'
+             AND scheduling_attempt_id IS NULL)
+       )::text AS nulls`,
+      [BUSINESS_ID],
+    );
+    assert(
+      Number(unstamped.rows[0]?.nulls) === 2,
+      `E5: work created outside any scheduling attempt was stamped anyway (${unstamped.rows[0]?.nulls} of 2 were NULL); a receipt that stamps everything proves nothing.`,
+    );
+
     // ── E4. A refusal is never flattened ────────────────────────────────────
     for (const [name, outcome] of Object.entries(globalOffOutcomes)) {
       assert(
@@ -511,7 +593,7 @@ async function main() {
     }
 
     console.log(
-      `${LABEL} E1-E4 PASS real-database admission: ${paths.length} REAL exported entrypoints called against a migrated PostgreSQL with ${Object.keys(baseline).length} census tables, ${baseline.business_provider_accounts} selected bindings and live dead-letter work. Under global-off ${refusedNames.length} raise SyncLaneDisabledError with a byte-identical census and 0 provider calls; with capacity unprovable ${capacityRefusals} raise DbGrowthFenceRefusal, again with an identical census and 0 provider calls; a refused replay leaves every partition in exactly the status it was in; and no refusal is flattened into success`,
+      `${LABEL} E1-E4 PASS real-database admission: ${paths.length} REAL exported entrypoints called against a migrated PostgreSQL with ${Object.keys(baseline).length} census tables, ${baseline.business_provider_accounts} selected bindings and live dead-letter work. Under global-off ${refusedNames.length} raise SyncLaneDisabledError with a byte-identical census and 0 provider calls; with capacity unprovable ${capacityRefusals} raise DbGrowthFenceRefusal, again with an identical census and 0 provider calls; a refused replay leaves every partition in exactly the status it was in; no refusal is flattened into success, and a scheduling attempt stamps exactly the partitions it created while work created outside one stays NULL`,
     );
     console.log(`${LABEL} PASS`);
   } catch (error) {

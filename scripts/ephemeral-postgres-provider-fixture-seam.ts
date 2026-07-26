@@ -2415,6 +2415,30 @@ async function main() {
 
     client = new Client({ connectionString });
     await client.connect();
+
+    // The growth fence now refuses every write without a fresh host capacity
+    // sample. Seed one: this seam exercises provider behaviour, and the physical
+    // admission contract is proven end-to-end in the sync-retention seam
+    // (F1b), which seeds missing/stale/low/malformed rows and asserts each
+    // refusal by name.
+    await client.query(
+      `INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
+       VALUES ('db_host_healthcheck', 'fixture-seam-host', clock_timestamp(),
+               jsonb_build_object(
+                 'hostname', 'fixture-seam-host',
+                 'database', jsonb_build_object('name', current_database()),
+                 'disks', jsonb_build_array(jsonb_build_object(
+                   'path', '/var/lib/postgresql',
+                   'totalBytes', $1::bigint,
+                   'usedBytes', $2::bigint,
+                   'availableBytes', $3::bigint
+                 ))
+               ))`,
+      // Sized well above whatever logical budget this seam sets, so physical
+      // admission never becomes the thing under test here.
+      [8 * 1024 ** 4, 1 * 1024 ** 4, 7 * 1024 ** 4],
+    );
+
     await seed(client);
 
     const shared = await verifyGoogle(client);

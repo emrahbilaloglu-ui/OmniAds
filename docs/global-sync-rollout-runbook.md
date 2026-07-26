@@ -11,6 +11,27 @@ replaces it is the ability to stop everything, verify, and resume in one
 action. Every step below exists because of a specific failure this change could
 otherwise cause.
 
+## How this is actually run
+
+**The production host has psql, docker and docker compose. It has no Node, no
+npm and no `node_modules`.** So `npm run rollout:enable` cannot be run there, and
+any instruction to do so is an instruction that cannot be followed. Everything
+below is driven by `.github/scripts/hetzner-sync-cutover.sh`, which uses only
+what the host has and reaches the repository's TypeScript by executing it inside
+the already-pinned worker image with `/var/www/adsecute` bind-mounted.
+
+It takes an `flock`, records each completed phase in a durable state file under
+`/var/lib/adsecute-cutover`, and refuses to repeat a completed phase. An
+interrupted cutover resumes; it does not restart.
+
+```bash
+DEPLOY_SHA=<exact commit sha> ./.github/scripts/hetzner-sync-cutover.sh preflight
+```
+
+Phases, in order: `preflight`, `quiesce`, `fingerprint-pre`, `migrate`,
+`fingerprint-post`, `deploy-disabled`, `enable`, `resume-scheduler`. Plus
+`emergency-disable` and `status`, which need no predecessor.
+
 ## Preconditions
 
 - The branch is `codex/sync-reliability-isolated`, built from `c46d91c2a`.
@@ -88,23 +109,34 @@ SELECT count(*) FROM shopify_raw_snapshots;
 SELECT count(*), count(*) FILTER (WHERE is_selected) FROM business_provider_accounts;
 ```
 
-Preflight the host. The application cannot see the database host's filesystem,
-so this has to be read on the host itself:
+Physical headroom is no longer something you transcribe. `adsecute-db-healthcheck.timer`
+samples `/var/lib/postgresql` every 15 minutes into `system_capacity_snapshots`,
+and the growth fence reads that row **in the same statement** as the logical
+sizes. There is no environment variable to set, and there is no way to assert
+free space the fence cannot check for itself.
+
+Confirm the sampler is running and its latest row is fresh — the fence refuses
+every write without one:
 
 ```bash
-df -B1 /var/lib/postgresql
-du -sb /var/lib/postgresql/*/main/pg_wal
+systemctl status adsecute-db-healthcheck.timer
 ```
 
-Free space must exceed 40 GiB — the concurrent index builds on the 19.8 GB and
-13.9 GB relations need room, and WAL will grow during them. Pass the measured
-value to the application so the fence stops reporting volume headroom as
-unknown:
+```sql
+SELECT id, sampled_at, now() - sampled_at AS age,
+       payload->'database'->>'name' AS db,
+       jsonb_path_query_first(payload, '$.disks[*] ? (@.path == "/var/lib/postgresql")') AS data_disk
+FROM system_capacity_snapshots
+WHERE source = 'db_host_healthcheck'
+ORDER BY sampled_at DESC, id DESC
+LIMIT 1;
+```
 
-```
-SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES=<bytes from df>
-SYNC_GROWTH_FENCE_VOLUME_CAPACITY_BYTES=<bytes from df>
-```
+Required: age under 35 minutes, `db` equal to the database the app connects to,
+and `availableBytes` above 40 GiB — the concurrent index builds on the 19.8 GB
+and 13.9 GB relations need room and WAL grows during them. The fence additionally
+refuses if consuming the remaining logical budget would take free space below
+that floor, so a raised budget cannot authorise growth the disk cannot hold.
 
 ## 4. Migrate
 
@@ -112,8 +144,11 @@ The migration is expand-only: additive columns, two new tables, new indexes.
 Nothing is dropped, renamed, backfilled or rewritten, which is what makes it
 safe to run while the old build could still theoretically read.
 
+Run it from the pinned image — there is no `npm run migrate`, and no npm on the
+host:
+
 ```bash
-npm run migrate
+DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh migrate
 ```
 
 Watch for, in order:
@@ -123,7 +158,7 @@ Watch for, in order:
 - `CREATE INDEX CONCURRENTLY` on the two content-identity indexes. These are the
   long steps. They take SHARE UPDATE EXCLUSIVE, not ACCESS EXCLUSIVE, so reads
   and writes continue — but they can take a long time on 19.8 GB.
-- `migrations_schema_verified` with `verifiedObjects: 22`.
+- `migrations_schema_verified` with `verifiedObjects: 24`.
 - `migrations_completed`.
 
 If it fails, it fails loudly and completion is not announced. Re-run it: the
@@ -234,20 +269,33 @@ before refusal.
 
 Enable every sync lane in one action (retention stays off):
 
-Use the script rather than hand-editing — it preserves every unrelated key in
-`.env.production`, takes a checksummed backup, and writes all six lanes or none:
+Use the wrapper rather than hand-editing. It preserves every unrelated key in
+`.env.production`, takes a checksummed backup, writes all six lanes or none, and
+then recreates both containers from that same configuration:
 
 ```bash
-npm run rollout:enable
+DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh enable
 ```
 
-It refuses if any precondition fails, and it never enables retention. Then
-recreate web and worker from that same configuration: **the file change is not
-the runtime change** — both processes read their environment at container
-creation.
+**The file change is not the runtime change.** A temp-file rename makes the FILE
+change atomic; it does nothing for the runtime, because web and worker read their
+environment when the container is created. The recreate is the runtime change,
+and it is not atomic either — the two containers come up one after the other.
+What makes that safe is that both are already running the new build with every
+lane off, so the interval between them is two disabled processes rather than a
+half-migrated one.
 
-Re-enable the external cron trigger. Then verify durable results, not just the
-absence of errors:
+The wrapper then reads the EFFECTIVE container environment back (key presence
+only, never values) to prove the recreate took effect, and refuses if retention
+turned up enabled.
+
+Re-enable the external scheduler LAST, once both processes are proven:
+
+```bash
+DEPLOY_SHA=<sha> ./.github/scripts/hetzner-sync-cutover.sh resume-scheduler
+```
+
+Then verify durable results, not just the absence of errors:
 
 ```sql
 -- New writes are two-layer, and legacy rows are untouched.
@@ -290,8 +338,18 @@ all. A deselected account is invisible to a build that does not know
 
 To roll back:
 
-1. Turn off every lane (the kill switch alone is the fastest safe action, and is
-   usually enough — it stops the writing without touching the schema).
+1. Stop everything:
+
+   ```bash
+   ./.github/scripts/hetzner-sync-cutover.sh emergency-disable
+   ```
+
+   It disables the scheduler and stops autoheal, web and worker — autoheal
+   first, because it restarts unhealthy containers and would otherwise bring a
+   stopped worker back. It reports success only after LIVE state is confirmed
+   stopped; a command that returned 0 is not the same as nothing running. It
+   needs no state file and no database, so it works when the cutover is
+   half-done and when the database is unreachable.
 2. If you must revert code, revert to a build that understands `is_selected`
    and receipts. If no such earlier build exists, the rollback is
    forward-only: fix and redeploy.

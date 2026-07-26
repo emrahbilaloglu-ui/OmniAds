@@ -11,6 +11,10 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  // The whole delete is one transaction now: a failure partway through used to
+  // leave memberships gone — so nobody could reach the business to retry —
+  // while the business, its connections and its bindings survived.
+  runDbTransaction: vi.fn(async (run: () => Promise<unknown>) => run()),
 }));
 
 vi.mock("@/lib/db-schema-readiness", () => ({
@@ -46,12 +50,32 @@ describe("DELETE /api/businesses/[businessId]", () => {
       membership: {} as never,
     });
     vi.mocked(demoBusiness.isDemoBusinessId).mockReturnValue(false);
+    // Business deletion is the widest selection mutation there is, so it runs
+    // under the assignment lane like every other one.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
     vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
       ready: true,
       missingTables: [],
       checkedAt: "2026-04-09T00:00:00.000Z",
     });
     vi.mocked(db.getDb).mockReturnValue(vi.fn().mockResolvedValue([]) as never);
+  });
+
+  it("refuses while the assignment lane is disabled, before any delete", async () => {
+    delete process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED;
+    const sql = vi.fn().mockResolvedValue([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const request = new NextRequest("http://localhost/api/businesses/biz", {
+      method: "DELETE",
+    });
+    const response = await DELETE(request, {
+      params: Promise.resolve({ businessId: "biz" }),
+    });
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { error?: string }).error).toBe("lane_disabled");
+    expect(sql).not.toHaveBeenCalled();
   });
 
   it("fails fast when delete tables are not ready", async () => {
@@ -94,7 +118,9 @@ describe("DELETE /api/businesses/[businessId]", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toEqual({ status: "ok" });
-    expect(sql).toHaveBeenCalledTimes(9);
+    // Nine deletes plus the advisory lock that serialises this against ordinary
+    // selection mutation.
+    expect(sql).toHaveBeenCalledTimes(10);
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

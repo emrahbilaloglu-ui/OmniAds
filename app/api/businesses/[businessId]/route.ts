@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateBusinessSettings } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDb } from "@/lib/db";
+import { PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE } from "@/lib/provider-account-assignments";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { resolveRequestLanguage } from "@/lib/request-language";
@@ -116,24 +118,55 @@ export async function DELETE(
       { status: 503 },
     );
   }
-  const sql = getDb();
+  // Business deletion removes `business_provider_accounts` outright — the widest
+  // possible selection mutation — and it did so outside every switch and every
+  // lock. It therefore belongs to the same lane as ordinary selection changes,
+  // so a quiesced cutover cannot have canonical bindings deleted underneath it.
+  try {
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message:
+          language === "tr"
+            ? "Business silme işlemi şu anda devre dışı."
+            : "Business deletion is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
 
-  await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM invites WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM provider_account_snapshot_runs WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
-  await sql`
-    DELETE FROM creative_share_snapshots
-    WHERE payload->>'businessId' = ${businessId}
-  `;
-  await sql`DELETE FROM businesses WHERE id = ${businessId}`;
-  await sql`
-    UPDATE sessions
-    SET active_business_id = NULL
-    WHERE active_business_id = ${businessId}
-  `;
+  // One transaction, under the same advisory locks selection mutation takes, in
+  // the same order. Previously each DELETE committed on its own: a failure
+  // partway through left memberships gone — so nobody could reach the business
+  // to retry — while the business, its connections and its bindings survived.
+  await runDbTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        ${PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE}::int,
+        hashtext(${`provider_account_selection:business:${businessId}`})
+      )
+    `;
+    await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;
+    await sql`DELETE FROM invites WHERE business_id = ${businessId}`;
+    await sql`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
+    await sql`DELETE FROM provider_account_snapshot_runs WHERE business_id = ${businessId}`;
+    await sql`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
+    await sql`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
+    await sql`
+      DELETE FROM creative_share_snapshots
+      WHERE payload->>'businessId' = ${businessId}
+    `;
+    await sql`DELETE FROM businesses WHERE id = ${businessId}`;
+    await sql`
+      UPDATE sessions
+      SET active_business_id = NULL
+      WHERE active_business_id = ${businessId}
+    `;
+  });
 
   return NextResponse.json({ status: "ok" });
 }

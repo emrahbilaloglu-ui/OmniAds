@@ -54,7 +54,7 @@ async function readAssignmentRowsByBusiness(
  *   2. business+provider, held EXCLUSIVE, so two concurrent replacements for
  *      the same business serialise.
  */
-const PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE = 0x50415353;
+export const PROVIDER_ACCOUNT_SELECTION_LOCK_NAMESPACE = 0x50415353;
 
 function buildProviderLockKey(provider: IntegrationProviderType) {
   return `provider_account_selection:${provider}`;

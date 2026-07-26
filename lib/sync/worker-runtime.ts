@@ -826,6 +826,65 @@ export async function runDurableWorkerRuntime(
             },
             force: true,
           }).catch(() => null);
+          // OUTER admission, before the runner lease.
+          //
+          // The tick-level guard added earlier sits inside
+          // runAdapterLifecycleTick, which is already past the runner lease,
+          // auto-heal, the lease plan and — critically — past the point where an
+          // attempted=0 result routes into the unrestricted consumeBusiness
+          // fallback. So a disabled lane or a full database still took a lease,
+          // still ran auto-heal, and then still ran the fallback, which writes.
+          //
+          // `fresh: true`: a business cycle is a coarse boundary and a cached
+          // admission from a previous business is not evidence about this one.
+          const admission = await (async () => {
+            try {
+              assertSyncLaneEnabled(ADAPTER_LANE[adapter.providerScope]);
+              await assertSyncGrowthBoundary(
+                `${adapter.providerScope}_business_cycle`,
+                { fresh: true },
+              );
+              return null;
+            } catch (error) {
+              return describeSyncSafetyRefusal(error) ?? {
+                kind: "sync_admission_refused" as const,
+                scope: adapter.providerScope,
+                message: error instanceof Error ? error.message : String(error),
+                detail: null,
+              };
+            }
+          })();
+          if (admission) {
+            console.error("[durable-worker] business_cycle_refused", {
+              businessId: business.id,
+              providerScope: adapter.providerScope,
+              refusal: admission,
+            });
+            await heartbeat({
+              providerScope: adapter.providerScope,
+              status: "idle",
+              lastBusinessId: business.id,
+              metaJson: {
+                workerBuildId,
+                workerStartedAt,
+                providerScope: adapter.providerScope,
+                batchBusinessIds,
+                currentBusinessId: business.id,
+                consumeStage: "admission_refused",
+                consumeOutcome: "admission_refused",
+                // The ORIGINAL refusal identity, preserved rather than
+                // flattened into a generic failure string — and the fallback
+                // below is unreachable from here, so a refusal cannot be
+                // followed by an unrestricted consumeBusiness for this tick.
+                consumeReason: admission.kind,
+                safetyRefusal: admission,
+                consumeFinishedAt: new Date().toISOString(),
+              },
+              force: true,
+            }).catch(() => null);
+            return;
+          }
+
           const leased = await acquireSyncRunnerLease({
             businessId: business.id,
             providerScope: adapter.providerScope,
@@ -999,7 +1058,14 @@ export async function runDurableWorkerRuntime(
               "lifecycle_tick";
             if (
               lifecycleResult.attempted === 0 &&
-              lifecycleResult.failed === 0
+              lifecycleResult.failed === 0 &&
+              // A refusal produces attempted=0 AND failed=0 — the exact shape
+              // that used to route into the unrestricted fallback. "Nothing was
+              // attempted because we were told not to" and "nothing was
+              // attempted because there was no work" are different facts, and
+              // only the second is a reason to look harder. A refusal
+              // permanently suppresses the fallback for this tick.
+              lifecycleResult.safetyRefusal == null
             ) {
               executionMode = "consume_business_fallback";
               const fallbackKey = `${adapter.providerScope}:${business.id}`;

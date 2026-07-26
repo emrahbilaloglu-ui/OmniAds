@@ -10,6 +10,20 @@ const executeGoogleAdsRetentionPolicy = vi.fn();
 const executeMetaRetentionPolicy = vi.fn();
 const getLatestSyncGateRecords = vi.fn();
 
+// The business cycle is now admitted BEFORE the runner lease, so these tests
+// have to state which admission they run under. Default-admit; refusal is
+// proven in lib/sync/worker-tick-admission.test.ts.
+const growthFenceMocks = vi.hoisted(() => ({
+  assertSyncGrowthBoundary: vi.fn(async () => ({ allowed: true, reason: "ready" })),
+}));
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertSyncGrowthBoundary: growthFenceMocks.assertSyncGrowthBoundary,
+  };
+});
+
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses,
 }));
@@ -40,6 +54,15 @@ vi.mock("@/lib/sync/release-gates", () => ({
 describe("worker runtime heartbeat repair metadata", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // The business cycle is admitted before the runner lease.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED = "enabled";
+    growthFenceMocks.assertSyncGrowthBoundary.mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
     getActiveBusinesses.mockResolvedValue([{ id: "biz-1", name: "Biz 1" }]);
     acquireSyncRunnerLease.mockResolvedValue(true);
     renewSyncRunnerLease.mockResolvedValue(true);

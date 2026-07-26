@@ -204,6 +204,37 @@ describe("worker tick admission", () => {
       expect(result.safetyRefusal).toMatchObject({ kind: "capacity_refused" });
     }));
 
+  it("suppresses the consumeBusiness fallback for a refused tick", () =>
+    withEnv(LANE_ON, async () => {
+      // A refusal produces attempted=0 AND failed=0 — the exact shape the outer
+      // runtime used to read as "no work found, look harder" and route into the
+      // unrestricted consumeBusiness fallback, which writes. "Nothing was
+      // attempted because we were told not to" is not that.
+      assertSyncGrowthBoundary.mockRejectedValue(
+        new DbGrowthFenceRefusal(
+          {
+            allowed: false,
+            reason: "physical_snapshot_stale",
+            warning: false,
+            databaseBytes: 1,
+            databaseBudgetBytes: 2,
+            tableBytes: {},
+            offender: null,
+            evaluatedAt: new Date(0).toISOString(),
+            errorMessage: "sampler stopped",
+            overridden: false,
+            physical: null,
+          },
+          "meta_worker_tick",
+        ),
+      );
+      const result = await run([]);
+      expect(result.attempted).toBe(0);
+      expect(result.failed).toBe(0);
+      // The discriminator the outer runtime reads to tell the two cases apart.
+      expect(result.safetyRefusal).not.toBeNull();
+    }));
+
   it("runs the full lifecycle once admitted", () =>
     withEnv(LANE_ON, async () => {
       const calls: string[] = [];

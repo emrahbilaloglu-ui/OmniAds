@@ -2329,6 +2329,26 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   const truthState =
     input.truthState ??
     (normalizedDay === accountToday ? "provisional" : "finalized");
+  /**
+   * Canonical eligibility for persisting CURRENT Meta config as evidence.
+   *
+   * Campaign/adset/ad config endpoints return the account's current inventory;
+   * they are not day-scoped. Writing that inventory under a historical date
+   * fabricates history and amplifies storage by the size of the backfill wave
+   * (761 days per account in the incident). Evidence is therefore only written
+   * when this run is the account's own local today AND the caller declared it
+   * provisional. Historical, finalized, backfill, repair and replay days may
+   * still USE the inventory in memory to enrich their metric facts.
+   *
+   * This inverts the previous gate, which was `truthState === "finalized"` and
+   * therefore fired ONLY on historical days — stamping today's inventory onto
+   * every backfilled date.
+   *
+   * Declared once here, outside the fetch substage, so every current-config
+   * writer downstream shares exactly one definition and cannot drift.
+   */
+  const persistsCurrentConfigEvidence =
+    truthState === "provisional" && normalizedDay === accountToday;
   const finalizedAt =
     truthState === "finalized" ? new Date().toISOString() : null;
   const validationStatus: MetaWarehouseValidationStatus =
@@ -3647,7 +3667,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     stage: "syncMetaAccountCoreWarehouseDay.persist_campaign_config_snapshots",
     run: async () => {
       persistedCampaignConfigCount =
-        truthState === "finalized"
+        persistsCurrentConfigEvidence
           ? await persistMetaCampaignConfigSnapshots({
               businessId: input.credentials.businessId,
               accountId: input.accountId,
@@ -3708,7 +3728,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           };
         })
         .filter((row): row is NonNullable<typeof row> => Boolean(row));
-      if (truthState === "finalized" && adsetSnapshotRows.length > 0) {
+      // Same inversion as campaign snapshots above: current adset inventory
+      // must not be appended as config history for a historical effective day.
+      if (persistsCurrentConfigEvidence && adsetSnapshotRows.length > 0) {
         await appendMetaConfigSnapshots(adsetSnapshotRows);
       }
     },

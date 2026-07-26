@@ -504,7 +504,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     ).toBe(false);
   });
 
-  it("persists campaign config snapshots during core warehouse sync", async () => {
+  it("writes no current config evidence for a historical core warehouse day", async () => {
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
 
     const fetchMock = vi.fn(async (url: string) => {
@@ -578,16 +578,14 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    expect(configSnapshots.appendMetaConfigSnapshots).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          businessId: "biz-1",
-          accountId: "act_1",
-          entityLevel: "campaign",
-          entityId: "cmp-1",
-        }),
-      ]),
-    );
+    // 2026-04-03 is a HISTORICAL day. Campaign/adset/ad config endpoints return
+    // the account's CURRENT inventory, so persisting it here would stamp
+    // today's configuration onto a backfilled date — the amplification that
+    // wrote current inventory once per day across a 761-day wave. The gate used
+    // to be `truthState === "finalized"`, i.e. exactly inverted, so it fired
+    // only on historical days. The day is still fetched and still enriches its
+    // metric facts in memory; it just writes no config evidence.
+    expect(configSnapshots.appendMetaConfigSnapshots).not.toHaveBeenCalled();
     expect(
       fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type")),
     ).toBe(true);

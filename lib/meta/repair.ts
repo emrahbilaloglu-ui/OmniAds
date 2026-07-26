@@ -104,6 +104,12 @@ export async function repairMetaWarehouseTruthRange(input: {
     const sample = rows[0]!;
     await replaceMetaCampaignDailySlice({
       rows,
+      // Repair replays HISTORICAL days. The config payload carried on these
+      // rows is the account's current inventory, so appending it as config
+      // history would stamp today's configuration onto every repaired date —
+      // the same amplification the backfill path suppresses. Metrics and
+      // dimension enrichment are unaffected.
+      appendConfigHistory: false,
       proof: createMetaFinalizationCompletenessProof({
         businessId: sample.businessId,
         providerAccountId: sample.providerAccountId,
@@ -127,6 +133,9 @@ export async function repairMetaWarehouseTruthRange(input: {
     const sample = rows[0]!;
     await replaceMetaAdSetDailySlice({
       rows,
+      // Same as the campaign slice above: a repaired historical day must not
+      // inherit today's adset configuration as its history.
+      appendConfigHistory: false,
       proof: createMetaFinalizationCompletenessProof({
         businessId: sample.businessId,
         providerAccountId: sample.providerAccountId,

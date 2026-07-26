@@ -8382,6 +8382,8 @@ export async function replaceMetaAccountDailySlice(input: {
 export async function replaceMetaCampaignDailySlice(input: {
   rows: MetaCampaignDailyRow[];
   proof: MetaFinalizationCompletenessProof;
+  /** See MetaDailyWriteOptions: historical replays must not append config history. */
+  appendConfigHistory?: boolean;
 }) {
   if (input.rows.length === 0) return;
   const slice = {
@@ -8393,7 +8395,9 @@ export async function replaceMetaCampaignDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaCampaignDailyRows(input.rows);
+    await upsertMetaCampaignDailyRows(input.rows, {
+      appendConfigHistory: input.appendConfigHistory,
+    });
     const campaignIds = input.rows.map((row) => row.campaignId);
     await sql`
       DELETE FROM meta_campaign_daily
@@ -8408,6 +8412,8 @@ export async function replaceMetaCampaignDailySlice(input: {
 export async function replaceMetaAdSetDailySlice(input: {
   rows: MetaAdSetDailyRow[];
   proof: MetaFinalizationCompletenessProof;
+  /** See MetaDailyWriteOptions: historical replays must not append config history. */
+  appendConfigHistory?: boolean;
 }) {
   if (input.rows.length === 0) return;
   const slice = {
@@ -8419,7 +8425,9 @@ export async function replaceMetaAdSetDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaAdSetDailyRows(input.rows);
+    await upsertMetaAdSetDailyRows(input.rows, {
+      appendConfigHistory: input.appendConfigHistory,
+    });
     const adsetIds = input.rows.map((row) => row.adsetId);
     await sql`
       DELETE FROM meta_adset_daily

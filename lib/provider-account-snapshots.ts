@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { getIntegration, type IntegrationProviderType } from "@/lib/integrations";
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import { computeProviderConnectionFingerprint } from "@/lib/provider-connection-fingerprint";
@@ -722,6 +722,27 @@ function toSnapshotMeta(input: {
   };
 }
 
+/**
+ * The connection generation, read without touching secrets.
+ *
+ * Returns null when there is no connection at all, which is itself a change
+ * worth failing a refresh on.
+ */
+async function readProviderConnectionGeneration(
+  businessId: string,
+  provider: string,
+): Promise<string | null> {
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT connection_generation::text AS generation, status
+    FROM provider_connections
+    WHERE business_id = ${businessId} AND provider = ${provider}
+    LIMIT 1
+  `) as Array<{ generation: string; status: string }>;
+  const row = rows[0];
+  return row ? `${row.generation}:${row.status}` : null;
+}
+
 export async function readProviderAccountSnapshot(input: {
   businessId: string;
   provider: string;
@@ -740,6 +761,17 @@ export async function readProviderAccountSnapshot(input: {
   };
 }
 
+/**
+ * Advisory-lock namespace for discovery refresh.
+ *
+ * The in-process map below coalesces concurrent refreshes WITHIN one process.
+ * It says nothing about the web container and the worker container refreshing
+ * the same business at the same moment, which is the case that actually
+ * happens — so the database lock is the real serialisation and the map is only
+ * a cheap local short-circuit.
+ */
+const SNAPSHOT_REFRESH_LOCK_NAMESPACE = 0x53524643;
+
 async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
   const key = getSnapshotKey(input.businessId, input.provider);
   const locks = getRefreshLocks();
@@ -749,7 +781,17 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
     return;
   }
 
-  const refreshPromise = (async () => {
+  const refreshPromise = runDbTransaction(async () => {
+    // Database-coordinated serialisation. Two containers refreshing the same
+    // business at once would otherwise both call the provider and both write,
+    // and the loser's older list could land last.
+    const sql = getDb();
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        ${SNAPSHOT_REFRESH_LOCK_NAMESPACE}::int,
+        hashtext(${`provider_account_snapshot_refresh:${input.provider}:${input.businessId}`})
+      )
+    `;
     const existingSnapshot = await getSnapshotRow(input.businessId, input.provider);
     const retryAfterMs = getRetryAfterMs(existingSnapshot);
     const failureClass = classifyProviderSnapshotFailure(existingSnapshot?.last_error);
@@ -781,8 +823,32 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
       sourceReason: input.reason ?? "manual_refresh",
     });
 
+    // The generation this refresh is being performed UNDER, captured BEFORE the
+    // provider call. If a reconnect or a rotation happens while the call is in
+    // flight, the accounts that come back describe a credential that is no
+    // longer current, and binding them to the new generation would launder a
+    // stale list into current authority.
+    const generationBeforeCall = await readProviderConnectionGeneration(
+      input.businessId,
+      input.provider,
+    );
+
     try {
       const accounts = await input.liveLoader();
+      const generationAfterCall = await readProviderConnectionGeneration(
+        input.businessId,
+        input.provider,
+      );
+      if (generationAfterCall !== generationBeforeCall) {
+        throw new ProviderAccountSnapshotRefreshError({
+          provider: input.provider,
+          businessId: input.businessId,
+          message:
+            "The provider connection changed while its account list was being fetched. The result describes a credential that is no longer current.",
+          retryAfterMs: 0,
+          dueToRecentFailure: false,
+        });
+      }
       await upsertSnapshotRow({
         businessId: input.businessId,
         provider: input.provider,
@@ -847,7 +913,7 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
     } finally {
       locks.delete(key);
     }
-  })();
+  });
 
   locks.set(key, refreshPromise);
   await refreshPromise;

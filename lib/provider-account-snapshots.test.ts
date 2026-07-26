@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
+  // Discovery refresh is serialised in the DATABASE now: the in-process map
+  // says nothing about the web and worker containers refreshing at once.
+  runDbTransaction: vi.fn(async (run: () => Promise<unknown>) => run()),
   getDb: vi.fn(),
 }));
 

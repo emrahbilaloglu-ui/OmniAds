@@ -63,7 +63,9 @@ jobs:
 
   database-seams:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Raised with the DR restore, grant-race and context-access seams: each
+    # starts its own PostgreSQL and the DR one migrates two databases.
+    timeout-minutes: 75
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,6 +92,16 @@ jobs:
 
       - name: Migrations from zero
         run: npm run test:migrations-from-zero
+
+      # Disaster recovery, end to end and for real: the ACTUAL daily backup
+      # script runs against a migrated database, the artifact is restored into
+      # an empty one, and the restored copy must match on every row count, have
+      # every foreign key re-validated by PostgreSQL itself, carry byte-identical
+      # authority (generations, selections, claims, fingerprints, scheduling
+      # receipts), and be something migrations and the schema contract accept.
+      # The old daily backup covered 15 of 202 tables and none of that authority.
+      - name: Disaster-recovery backup and restore seam
+        run: npm run test:dr-restore-seam
 
       - name: Native ad decision database seam
         run: node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts
@@ -184,6 +196,13 @@ jobs:
       # must stop the remaining calls and must not produce a success receipt.
       - name: Shopify grant race seam
         run: npm run test:shopify-grant-race-seam
+
+      # A pending Shopify install context is a live shop grant. Proves the read
+      # is exclusive under concurrency, that twelve distinct bearer/foreign/
+      # expired/cross-business shapes are refused with byte-identical state, and
+      # that the legitimate Shopify-initiated install still binds and finalizes.
+      - name: Shopify install-context read authority seam
+        run: npm run test:shopify-context-access-seam
 
       # Fail-closed proof for the ORDINARY deploy path: a release carrying
       # deploy/CUTOVER_REQUIRED must not be migratable outside the cutover lock.

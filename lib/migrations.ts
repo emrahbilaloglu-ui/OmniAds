@@ -7261,29 +7261,50 @@ export async function runMigrations(options?: {
           ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(
           () => {},
         ),
-        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
-          ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(
-          () => {},
-        ),
-        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint
-          ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(
-          () => {},
-        ),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(
-          () => {},
-        ),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES google_ads_sync_checkpoints(id) ON DELETE SET NULL`.catch(
-          () => {},
-        ),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(
-          () => {},
-        ),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(
-          () => {},
-        ),
-        sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
-          () => {},
-        ),
+        // The columns, THEN the indexes that name them — as thunks.
+        //
+        // Both indexes reference `partition_id` and `page_index` and were
+        // issued BEFORE the ALTER TABLEs that add them, with the failure
+        // swallowed, so on a database built from zero neither index existed
+        // until migrations happened to run a second time. Reordering the array
+        // alone would not have fixed it: every `sql\`…\`` in a batch starts
+        // executing when the array literal is evaluated, so
+        // `runMigrationBatchSequentially` awaits in order but ISSUES all at
+        // once. Only thunks defer the issue itself.
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES google_ads_sync_partitions(id) ON DELETE CASCADE`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES google_ads_sync_checkpoints(id) ON DELETE SET NULL`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(
+              () => {},
+            ),
+          () =>
+            sql`ALTER TABLE google_ads_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+              () => {},
+            ),
+          // CONCURRENTLY needs its own transaction, which is exactly what a
+          // thunk in this runner gets.
+          () =>
+            sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
+              ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_google_ads_raw_snapshots_partition_endpoint
+              ON google_ads_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(
+              () => {},
+            ),
+        ]),
         sql
           .query(buildGoogleAdsWarehouseTableQuery("google_ads_account_daily"))
           .catch(() => {}),

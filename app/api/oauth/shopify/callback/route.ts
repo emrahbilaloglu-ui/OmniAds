@@ -5,6 +5,11 @@ import { updateBusinessCurrency } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { createShopifyInstallContext } from "@/lib/shopify/install-context";
+import {
+  SHOPIFY_INSTALL_PROOF_COOKIE,
+  SHOPIFY_INSTALL_PROOF_COOKIE_MAX_AGE_SECONDS,
+  buildShopifyInstallProof,
+} from "@/lib/shopify/install-context-access";
 import { getSessionFromRequest } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
@@ -229,6 +234,25 @@ export async function GET(request: NextRequest) {
       maxAge: 0,
       path: "/",
     });
+
+    // A Shopify-initiated install records no session and no user — the merchant
+    // has not signed in yet — so the context row has no identity to check a
+    // later reader against. This is the identity: an HMAC of the context token
+    // that only this response carries, so the first authenticated view can bind
+    // the context to a browser that provably completed the Shopify redirect
+    // rather than to whoever presents the token first. See
+    // `lib/shopify/install-context-access.ts`. The context token travels in the
+    // URL; this does not, and cannot be derived from it.
+    const installProof = buildShopifyInstallProof(context.token);
+    if (installProof) {
+      response.cookies.set(SHOPIFY_INSTALL_PROOF_COOKIE, installProof, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: SHOPIFY_INSTALL_PROOF_COOKIE_MAX_AGE_SECONDS,
+        path: "/",
+      });
+    }
     return response;
   } catch (err: unknown) {
     const message =

@@ -2730,63 +2730,79 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           input.credentials.accessToken,
         ),
       ]);
+      // Current inventory, recorded ONLY on a current provisional day.
+      //
+      // These three endpoints have no date filter: they return the account's
+      // CURRENT campaigns, ad sets and ads. Recording them with
+      // since = until = the historical day being backfilled invented a
+      // date-scoped identity for content that has no date. Raw content identity
+      // includes the window, so a 365-day backfill wrote 1,095 canonical rows
+      // per account whose payloads were byte-identical — the same amplification
+      // the observation gate below already closed, one layer down in the raw
+      // tables the evidence census did not cover.
+      //
+      // The rows are still FETCHED and used in memory to enrich this day's
+      // metric facts. What stops is treating a historical partition as evidence
+      // about today's inventory.
       const [campaignSnapshotId, adsetSnapshotId, adSnapshotId] =
-        await Promise.all([
-          recordMetaRawSnapshot({
-            credentials: input.credentials,
-            accountId: input.accountId,
-            endpointName: "campaign_configs",
-            entityScope: "campaign",
-            since: normalizedDay,
-            until: normalizedDay,
-            payload: campaignReceipt.rows,
-            status: campaignReceipt.complete ? "fetched" : "failed",
-            providerHttpStatus: campaignReceipt.complete
-              ? 200
-              : (campaignReceipt.failure?.httpStatus ?? null),
-            requestContext: {
-              fields: META_CAMPAIGN_CONFIG_FIELDS,
-              source: "bulk_core_sync",
-              pagination: paginationReceiptContext(campaignReceipt),
-            },
-          }),
-          recordMetaRawSnapshot({
-            credentials: input.credentials,
-            accountId: input.accountId,
-            endpointName: "adset_configs",
-            entityScope: "adset",
-            since: normalizedDay,
-            until: normalizedDay,
-            payload: adsetReceipt.rows,
-            status: adsetReceipt.complete ? "fetched" : "failed",
-            providerHttpStatus: adsetReceipt.complete
-              ? 200
-              : (adsetReceipt.failure?.httpStatus ?? null),
-            requestContext: {
-              fields: META_ADSET_CONFIG_FIELDS,
-              source: "bulk_core_sync",
-              pagination: paginationReceiptContext(adsetReceipt),
-            },
-          }),
-          recordMetaRawSnapshot({
-            credentials: input.credentials,
-            accountId: input.accountId,
-            endpointName: "ad_configs",
-            entityScope: "ad",
-            since: normalizedDay,
-            until: normalizedDay,
-            payload: adReceipt.rows,
-            status: adReceipt.complete ? "fetched" : "failed",
-            providerHttpStatus: adReceipt.complete
-              ? 200
-              : (adReceipt.failure?.httpStatus ?? null),
-            requestContext: {
-              fields: META_AD_CONFIG_FIELDS,
-              source: "bulk_core_sync",
-              pagination: paginationReceiptContext(adReceipt),
-            },
-          }),
-        ]);
+        !currentEvidence.persistsEntityObservations
+          ? [null, null, null]
+          : await Promise.all([
+              recordMetaRawSnapshot({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                endpointName: "campaign_configs",
+                entityScope: "campaign",
+                since: normalizedDay,
+                until: normalizedDay,
+                payload: campaignReceipt.rows,
+                status: campaignReceipt.complete ? "fetched" : "failed",
+                providerHttpStatus: campaignReceipt.complete
+                  ? 200
+                  : (campaignReceipt.failure?.httpStatus ?? null),
+                requestContext: {
+                  fields: META_CAMPAIGN_CONFIG_FIELDS,
+                  source: "bulk_core_sync",
+                  pagination: paginationReceiptContext(campaignReceipt),
+                },
+              }),
+              recordMetaRawSnapshot({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                endpointName: "adset_configs",
+                entityScope: "adset",
+                since: normalizedDay,
+                until: normalizedDay,
+                payload: adsetReceipt.rows,
+                status: adsetReceipt.complete ? "fetched" : "failed",
+                providerHttpStatus: adsetReceipt.complete
+                  ? 200
+                  : (adsetReceipt.failure?.httpStatus ?? null),
+                requestContext: {
+                  fields: META_ADSET_CONFIG_FIELDS,
+                  source: "bulk_core_sync",
+                  pagination: paginationReceiptContext(adsetReceipt),
+                },
+              }),
+              recordMetaRawSnapshot({
+                credentials: input.credentials,
+                accountId: input.accountId,
+                endpointName: "ad_configs",
+                entityScope: "ad",
+                since: normalizedDay,
+                until: normalizedDay,
+                payload: adReceipt.rows,
+                status: adReceipt.complete ? "fetched" : "failed",
+                providerHttpStatus: adReceipt.complete
+                  ? 200
+                  : (adReceipt.failure?.httpStatus ?? null),
+                requestContext: {
+                  fields: META_AD_CONFIG_FIELDS,
+                  source: "bulk_core_sync",
+                  pagination: paginationReceiptContext(adReceipt),
+                },
+              }),
+            ]);
       // These write entity observation RUNS and STATES. The run identity
       // includes capturedAt, which is `now()`, so every historical day of a
       // backfill produced a brand-new run and a fresh state row per entity —
@@ -4995,24 +5011,29 @@ export async function fetchMetaCampaignConfigs(
   credentials: MetaCredentials,
   accountId: string,
   accessToken: string,
+  options?: { recordRawSnapshots?: boolean },
 ): Promise<Map<string, RawCampaign>> {
   const receipt = await fetchMetaCampaignConfigsReceipt(accountId, accessToken);
   const today = new Date().toISOString().slice(0, 10);
-  await recordMetaRawSnapshot({
-    credentials,
-    accountId,
-    endpointName: "campaign_configs",
-    entityScope: "campaign",
-    since: today,
-    until: today,
-    payload: receipt.rows,
-    status: receipt.complete ? "fetched" : "failed",
-    providerHttpStatus: receipt.failure?.httpStatus ?? null,
-    requestContext: {
-      fields: META_CAMPAIGN_CONFIG_FIELDS,
-      pagination: paginationReceiptContext(receipt),
-    },
-  });
+  // Capture by default, because the sync path uses this to capture. A read-only
+  // caller passes false: this is current inventory keyed by today, and appending
+  // it on every page load is a write the caller did not ask for.
+  if (options?.recordRawSnapshots !== false)
+    await recordMetaRawSnapshot({
+      credentials,
+      accountId,
+      endpointName: "campaign_configs",
+      entityScope: "campaign",
+      since: today,
+      until: today,
+      payload: receipt.rows,
+      status: receipt.complete ? "fetched" : "failed",
+      providerHttpStatus: receipt.failure?.httpStatus ?? null,
+      requestContext: {
+        fields: META_CAMPAIGN_CONFIG_FIELDS,
+        pagination: paginationReceiptContext(receipt),
+      },
+    });
   if (!receipt.complete) {
     throw new Error(`meta_campaign_configs_incomplete:${receipt.termination}`);
   }
@@ -5537,7 +5558,21 @@ export async function getAdSets(
   businessId?: string,
   includePrev = false,
   providerAccountIds?: string[] | null,
+  options?: {
+    /**
+     * Whether this call is a capture that should leave raw evidence.
+     *
+     * Default TRUE, because the sync path uses this function to capture. The
+     * read-only live fallback passes FALSE: it exists to answer a screen for a
+     * historical range, and recording `adset_statuses` and `adset_insights`
+     * under that range attributes CURRENT provider state to a past date — the
+     * same fabricated date-keyed identity the historical core path had, reached
+     * from a read.
+     */
+    recordRawSnapshots?: boolean;
+  },
 ): Promise<MetaAdSetData[]> {
+  const recordRawSnapshots = options?.recordRawSnapshots !== false;
   const normalizedSince = normalizeMetaApiDate(since);
   const normalizedUntil = normalizeMetaApiDate(until);
   const results: MetaAdSetData[] = [];
@@ -5603,6 +5638,7 @@ export async function getAdSets(
             credentials,
             accountId,
             credentials.accessToken,
+            { recordRawSnapshots },
           ),
         ]);
 
@@ -5612,34 +5648,36 @@ export async function getAdSets(
         const insightJson = insightRes.ok
           ? ((await insightRes.json()) as { data?: RawAdSetInsight[] })
           : { data: [] as RawAdSetInsight[] };
-        await recordMetaRawSnapshot({
-          credentials,
-          accountId,
-          endpointName: "adset_statuses",
-          entityScope: "adset",
-          since: normalizedSince,
-          until: normalizedUntil,
-          payload: statusJson.data ?? [],
-          status: statusRes.ok ? "fetched" : "failed",
-          providerHttpStatus: statusRes.status,
-          requestContext: {
-            campaignId,
-            fields:
-              "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
-          },
-        });
-        await recordMetaRawSnapshot({
-          credentials,
-          accountId,
-          endpointName: "adset_insights",
-          entityScope: "adset",
-          since: normalizedSince,
-          until: normalizedUntil,
-          payload: insightJson.data ?? [],
-          status: insightRes.ok ? "fetched" : "failed",
-          providerHttpStatus: insightRes.status,
-          requestContext: { campaignId: campaignId ?? null, level: "adset" },
-        });
+        if (recordRawSnapshots)
+          await recordMetaRawSnapshot({
+            credentials,
+            accountId,
+            endpointName: "adset_statuses",
+            entityScope: "adset",
+            since: normalizedSince,
+            until: normalizedUntil,
+            payload: statusJson.data ?? [],
+            status: statusRes.ok ? "fetched" : "failed",
+            providerHttpStatus: statusRes.status,
+            requestContext: {
+              campaignId,
+              fields:
+                "id,name,campaign_id,effective_status,status,updated_time,daily_budget,lifetime_budget,optimization_goal,promoted_object{pixel_id,custom_event_type,custom_conversion_id},bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+            },
+          });
+        if (recordRawSnapshots)
+          await recordMetaRawSnapshot({
+            credentials,
+            accountId,
+            endpointName: "adset_insights",
+            entityScope: "adset",
+            since: normalizedSince,
+            until: normalizedUntil,
+            payload: insightJson.data ?? [],
+            status: insightRes.ok ? "fetched" : "failed",
+            providerHttpStatus: insightRes.status,
+            requestContext: { campaignId: campaignId ?? null, level: "adset" },
+          });
         const allStatusRows = statusJson.paging?.next
           ? await fetchPagedCollection<RawAdSet>(statusUrl.toString())
           : (statusJson.data ?? []);

@@ -528,7 +528,14 @@ export async function getMetaCurrentDayLiveAvailability(input: {
 
 /**
  * Fetch today's ad set data directly from Meta Graph API.
- * Delegates to getAdSets() which fetches live without warehouse writes.
+ * Delegates to getAdSets() with raw-snapshot recording OFF.
+ *
+ * That flag is the whole point. This is a READ: a screen asking what the ad sets
+ * look like for a range. getAdSets defaults to capturing, and it recorded
+ * `adset_statuses` and `adset_insights` keyed by the requested window — so
+ * viewing a historical range attributed CURRENT provider state to a past date
+ * and appended raw rows on every page load. The comment here used to claim
+ * "without warehouse writes", which was simply false.
  */
 export async function getMetaLiveAdSets(input: {
   businessId: string;
@@ -549,5 +556,6 @@ export async function getMetaLiveAdSets(input: {
     input.businessId,
     input.includePrev ?? false,
     input.providerAccountIds,
+    { recordRawSnapshots: false },
   );
 }

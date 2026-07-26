@@ -1378,6 +1378,8 @@ interface EvidenceCensus {
   adsetConfigHistory: number;
   entityObservationRuns: number;
   entityStateHistory: number;
+  inventoryRawSnapshots: number;
+  inventoryRawObservations: number;
 }
 
 async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
@@ -1387,7 +1389,19 @@ async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
       (SELECT COUNT(*)::text FROM meta_campaign_config_history) AS campaign_config_history,
       (SELECT COUNT(*)::text FROM meta_adset_config_history) AS adset_config_history,
       (SELECT COUNT(*)::text FROM meta_entity_observation_runs) AS entity_observation_runs,
-      (SELECT COUNT(*)::text FROM meta_entity_state_history) AS entity_state_history
+      (SELECT COUNT(*)::text FROM meta_entity_state_history) AS entity_state_history,
+      -- The RAW layer. The census omitted it, which is exactly how the three
+      -- current-inventory snapshots per historical day went unnoticed: raw
+      -- content identity includes the date window, so a 365-day backfill wrote
+      -- 1,095 byte-identical canonical rows per account and every surface the
+      -- census DID measure stayed at zero.
+      (SELECT COUNT(*)::text FROM meta_raw_snapshots
+        WHERE endpoint_name IN ('campaign_configs', 'adset_configs', 'ad_configs')
+      ) AS inventory_raw_snapshots,
+      (SELECT COUNT(*)::text FROM meta_raw_snapshot_observations o
+        JOIN meta_raw_snapshots s ON s.id = o.snapshot_id
+        WHERE s.endpoint_name IN ('campaign_configs', 'adset_configs', 'ad_configs')
+      ) AS inventory_raw_observations
   `);
   const values = row.rows[0]!;
   return {
@@ -1396,6 +1410,8 @@ async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
     adsetConfigHistory: Number(values.adset_config_history),
     entityObservationRuns: Number(values.entity_observation_runs),
     entityStateHistory: Number(values.entity_state_history),
+    inventoryRawSnapshots: Number(values.inventory_raw_snapshots),
+    inventoryRawObservations: Number(values.inventory_raw_observations),
   };
 }
 
@@ -1512,6 +1528,10 @@ async function verifyHistoricalEvidenceAmplification(
       afterHistorical.entityObservationRuns - before.entityObservationRuns,
     entityStateHistory:
       afterHistorical.entityStateHistory - before.entityStateHistory,
+    inventoryRawSnapshots:
+      afterHistorical.inventoryRawSnapshots - before.inventoryRawSnapshots,
+    inventoryRawObservations:
+      afterHistorical.inventoryRawObservations - before.inventoryRawObservations,
   };
   assert(
     Object.values(historicalDelta).every((delta) => delta === 0),
@@ -1538,7 +1558,20 @@ async function verifyHistoricalEvidenceAmplification(
     "C2: the historical days produced no metric facts, so the zero-evidence result is vacuous.",
   );
   console.log(
-    `${LABEL} C1-C2 PASS historical amplification: ${HISTORICAL_DAYS.length} historical days produced ${factRows.rows[0]!.count} metric fact rows from ${configCalls.length} inventory fetches and EXACTLY 0 config snapshots, 0 campaign/adset config history rows, 0 entity observation runs and 0 entity state rows`,
+    `${LABEL} C1-C2 PASS historical amplification: ${HISTORICAL_DAYS.length} historical days produced ${factRows.rows[0]!.count} metric fact rows from ${configCalls.length} inventory fetches and EXACTLY 0 config snapshots, 0 campaign/adset config history rows, 0 entity observation runs, 0 entity state rows, 0 inventory raw snapshots and 0 inventory raw observations`,
+  );
+
+  // C2b: the provider-call count is bounded and stated rather than assumed.
+  // Current inventory is still FETCHED per historical partition — the rows
+  // enrich that day's metric facts — so this records the real cost instead of
+  // implying it is zero. What is now zero is the DURABLE cost.
+  const inventoryFetchesPerDay = configCalls.length / HISTORICAL_DAYS.length;
+  assert(
+    Number.isFinite(inventoryFetchesPerDay) && inventoryFetchesPerDay <= 6,
+    `C2b: inventory fetches per historical day is ${inventoryFetchesPerDay}, above the 6 this path should ever need.`,
+  );
+  console.log(
+    `${LABEL} C2b PASS provider-call cost: ${configCalls.length} inventory fetches across ${HISTORICAL_DAYS.length} historical days (${inventoryFetchesPerDay.toFixed(1)}/day), all in-memory — zero durable rows`,
   );
 
   // C3: the account's own today is real current evidence and must still be

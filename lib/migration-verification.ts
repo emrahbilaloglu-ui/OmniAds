@@ -56,7 +56,115 @@ interface IndexSpec {
   name: string;
   table: string;
   unique: boolean;
-  definitionMustContain: readonly string[];
+  definitionMustContain?: readonly string[];
+  /**
+   * The exact ordered key expressions, rendered the way `pg_get_indexdef`
+   * renders them (including `DESC`, quoting and casts).
+   *
+   * Substring matching is not verification. An index named
+   * `sync_repair_plans_scope_mode_identity` on `(build_id)` alone contains the
+   * fragment "build_id", passes a `definitionMustContain` check, and then makes
+   * every `ON CONFLICT (build_id, environment, provider_scope, plan_mode)`
+   * write fail with 42P10 at runtime. Order matters as much as membership: an
+   * index on `(gate_kind, emitted_at DESC, provider_scope)` has the same
+   * columns as the one the keyed read needs and cannot serve it.
+   */
+  keyExpressions?: readonly string[];
+  /**
+   * The exact partial predicate as rendered after `WHERE `, or `null` to
+   * require that the index has NO predicate. Omitted means "not asserted".
+   *
+   * A partial index is a different object from a total one with the same name:
+   * it can be inferred by a matching `ON CONFLICT ... WHERE` and not by a plain
+   * one, and it silently excludes rows from uniqueness.
+   */
+  predicate?: string | null;
+  /** Default btree. A hash index has the same name and cannot serve ORDER BY. */
+  accessMethod?: string;
+}
+
+interface ParsedIndexDefinition {
+  accessMethod: string | null;
+  keyExpressions: string[];
+  predicate: string | null;
+}
+
+/**
+ * Split `pg_get_indexdef` output into the parts a contract can assert on.
+ *
+ * Written by hand rather than by regex because both the key list and the
+ * predicate contain parentheses, commas and quoted literals —
+ * `(COALESCE(provider_scope, 'meta'::text))` is one key expression, not two —
+ * so top-level commas have to be found with a real depth and quote scan.
+ */
+export function parseIndexDefinition(definition: string): ParsedIndexDefinition {
+  const usingMatch = /\sUSING\s+(\w+)\s*\(/.exec(definition);
+  if (!usingMatch) {
+    return { accessMethod: null, keyExpressions: [], predicate: null };
+  }
+  const accessMethod = usingMatch[1] ?? null;
+  const open = usingMatch.index + usingMatch[0].length - 1;
+
+  let depth = 0;
+  let inQuote: '"' | "'" | null = null;
+  let close = -1;
+  for (let i = open; i < definition.length; i += 1) {
+    const char = definition[i]!;
+    if (inQuote) {
+      if (char === inQuote) inQuote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      inQuote = char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    }
+  }
+  if (close < 0) {
+    return { accessMethod, keyExpressions: [], predicate: null };
+  }
+
+  const inner = definition.slice(open + 1, close);
+  const keyExpressions: string[] = [];
+  let current = "";
+  depth = 0;
+  inQuote = null;
+  for (const char of inner) {
+    if (inQuote) {
+      current += char;
+      if (char === inQuote) inQuote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      inQuote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      keyExpressions.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim().length > 0) keyExpressions.push(current.trim());
+
+  const tail = definition.slice(close + 1);
+  const whereMatch = /\sWHERE\s+([\s\S]+)$/.exec(tail);
+  return {
+    accessMethod,
+    keyExpressions,
+    predicate: whereMatch ? whereMatch[1]!.trim() : null,
+  };
 }
 
 /** Columns this change adds. */
@@ -79,7 +187,10 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // The release-gate anti-runaway contract. Every keyed read and the coalescing
   // writer depend on these; without them the table returns to a row per
   // evaluation and a scan per read.
-  { table: "sync_release_gates", column: "provider_scope", dataType: "text", isNullable: true },
+  // Backfilled and NOT NULL. While it was nullable every read had to say
+  // COALESCE(provider_scope, 'meta'), which relabelled legacy Google rows as
+  // Meta and made global deploy gates unreachable from a Google reader.
+  { table: "sync_release_gates", column: "provider_scope", dataType: "text", isNullable: false, columnDefault: "'unknown'" },
   { table: "sync_release_gates", column: "decision_fingerprint", dataType: "text", isNullable: true },
   { table: "sync_release_gates", column: "last_seen_at", dataType: "timestamp with time zone", isNullable: false },
   { table: "sync_release_gates", column: "coalesced_count", dataType: "integer", isNullable: false, columnDefault: "1" },
@@ -154,22 +265,34 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     definitionMustContain: ["observed_at", "id"],
   },
   {
+    // Asserted key-for-key. "contains WHERE is_selected" was satisfied by a
+    // drifted `(id) WHERE is_selected`, which is a valid partial index that
+    // cannot serve the ordered current-selection read at all — the exact drift
+    // the negative controls now exercise.
     name: "idx_business_provider_accounts_selected",
     table: "business_provider_accounts",
     unique: false,
-    definitionMustContain: ["WHERE is_selected"],
+    accessMethod: "btree",
+    keyExpressions: ["business_id", "provider", '"position"', "id"],
+    predicate: "is_selected",
   },
   {
     // The ON CONFLICT arbiter for repair-plan writes. It used to be provided
     // only by the table's inline UNIQUE, whose auto-generated name is 67
     // characters and is truncated to 63 — so the DROP that named the untruncated
-    // form matched nothing and the arbiter survived by accident. Verified by
-    // name now, because losing it means every repair-plan write fails with
-    // 42P10.
+    // form matched nothing and the arbiter survived by accident.
+    //
+    // Name plus fragments was not enough: a same-name UNIQUE index on a SUBSET
+    // of the four columns contains every asserted fragment and still makes every
+    // production write fail with 42P10. Keys are asserted exactly, in order, with
+    // no predicate — a partial arbiter cannot be inferred by the unqualified
+    // `ON CONFLICT` the writer issues.
     name: "sync_repair_plans_scope_mode_identity",
     table: "sync_repair_plans",
     unique: true,
-    definitionMustContain: ["build_id", "environment", "provider_scope", "plan_mode"],
+    accessMethod: "btree",
+    keyExpressions: ["build_id", "environment", "provider_scope", "plan_mode"],
+    predicate: null,
   },
   {
     name: "idx_meta_entity_observation_runs_semantic_latest",
@@ -188,16 +311,54 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
   {
     // The keyed latest read for gate evaluation and /build-info. Without it both
     // fall back to ordering a multi-gigabyte relation to return one row.
+    //
+    // Keyed on the plain `provider_scope` column, not on
+    // `COALESCE(provider_scope, 'meta')`. The COALESCE form silently relabelled
+    // every legacy NULL row — including Google ones — as Meta; the column is now
+    // backfilled and NOT NULL, so the honest predicate is equality and the index
+    // matches it exactly.
     name: "idx_sync_release_gates_key_latest",
     table: "sync_release_gates",
     unique: false,
-    definitionMustContain: ["build_id", "environment", "gate_kind", "COALESCE(provider_scope", "emitted_at DESC", "id DESC"],
+    accessMethod: "btree",
+    keyExpressions: [
+      "build_id",
+      "environment",
+      "gate_kind",
+      "provider_scope",
+      "emitted_at DESC",
+      "id DESC",
+    ],
+    predicate: null,
   },
   {
+    // `environment` is a key column, not a filter. Without it the diagnostic
+    // read walks the kind's whole history in emitted_at order discarding rows
+    // from other environments, which is unbounded work for a one-row question.
     name: "idx_sync_release_gates_kind_latest",
     table: "sync_release_gates",
     unique: false,
-    definitionMustContain: ["gate_kind", "COALESCE(provider_scope", "emitted_at DESC", "id DESC"],
+    accessMethod: "btree",
+    keyExpressions: [
+      "gate_kind",
+      "provider_scope",
+      "environment",
+      "emitted_at DESC",
+      "id DESC",
+    ],
+    predicate: null,
+  },
+  {
+    // Retention's candidate scan. It walks the oldest rows in `(emitted_at, id)`
+    // order with a LIMIT, so the work it does is bounded by the batch size and
+    // not by how much history exists. The previous `DISTINCT ON` over the whole
+    // relation bounded only the DELETE.
+    name: "idx_sync_release_gates_retention_scan",
+    table: "sync_release_gates",
+    unique: false,
+    accessMethod: "btree",
+    keyExpressions: ["emitted_at", "id"],
+    predicate: null,
   },
   {
     // The growth fence refuses every write it cannot back with a fresh host
@@ -323,23 +484,29 @@ export async function verifyMigrationSchemaContract(input?: {
   const indexRows = (await sql.query(
     `SELECT index_class.relname AS index_name,
             table_class.relname AS table_name,
+            table_namespace.nspname AS schema_name,
             index_catalog.indisunique AS is_unique,
             index_catalog.indisvalid AS is_valid,
             index_catalog.indisready AS is_ready,
             index_catalog.indislive AS is_live,
+            index_catalog.indnkeyatts AS key_attribute_count,
             pg_get_indexdef(index_class.oid) AS definition
      FROM pg_class index_class
      JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
      JOIN pg_class table_class ON table_class.oid = index_catalog.indrelid
-     WHERE index_class.relname = ANY($1::text[])`,
+     JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+     WHERE index_class.relname = ANY($1::text[])
+       AND table_namespace.nspname = current_schema()`,
     [VERIFIED_INDEXES.map((spec) => spec.name)],
   )) as Array<{
     index_name: string;
     table_name: string;
+    schema_name: string;
     is_unique: boolean;
     is_valid: boolean;
     is_ready: boolean;
     is_live: boolean;
+    key_attribute_count: number;
     definition: string;
   }>;
   for (const spec of VERIFIED_INDEXES) {
@@ -370,7 +537,7 @@ export async function verifyMigrationSchemaContract(input?: {
         detail: `unique=${found.is_unique}, expected ${spec.unique}`,
       });
     }
-    for (const fragment of spec.definitionMustContain) {
+    for (const fragment of spec.definitionMustContain ?? []) {
       if (!found.definition.includes(fragment)) {
         failures.push({
           kind: "index",
@@ -378,6 +545,45 @@ export async function verifyMigrationSchemaContract(input?: {
           detail: `definition missing '${fragment}': ${found.definition}`,
         });
       }
+    }
+
+    const parsed = parseIndexDefinition(found.definition);
+    if (spec.accessMethod != null && parsed.accessMethod !== spec.accessMethod) {
+      failures.push({
+        kind: "index",
+        object: spec.name,
+        detail: `access method is ${String(parsed.accessMethod)}, expected ${spec.accessMethod}: ${found.definition}`,
+      });
+    }
+    if (spec.keyExpressions != null) {
+      const actual = parsed.keyExpressions.join(", ");
+      const expected = spec.keyExpressions.join(", ");
+      if (actual !== expected) {
+        failures.push({
+          kind: "index",
+          object: spec.name,
+          detail: `key expressions are (${actual}), expected exactly (${expected}): ${found.definition}`,
+        });
+      }
+      // INCLUDE columns are not key columns and cannot serve an arbiter or an
+      // ORDER BY, so a definition whose key count disagrees with the parsed key
+      // list is a different index from the one asserted.
+      if (Number(found.key_attribute_count) !== spec.keyExpressions.length) {
+        failures.push({
+          kind: "index",
+          object: spec.name,
+          detail: `indnkeyatts is ${found.key_attribute_count}, expected ${spec.keyExpressions.length}: ${found.definition}`,
+        });
+      }
+    }
+    if (spec.predicate !== undefined && parsed.predicate !== spec.predicate) {
+      failures.push({
+        kind: "index",
+        object: spec.name,
+        detail: `predicate is ${parsed.predicate == null ? "absent" : `'${parsed.predicate}'`}, expected ${
+          spec.predicate == null ? "absent" : `'${spec.predicate}'`
+        }: ${found.definition}`,
+      });
     }
   }
 
@@ -408,6 +614,45 @@ export async function verifyMigrationSchemaContract(input?: {
     );
     await sql.query(
       `SELECT 1 FROM business_provider_accounts WHERE is_selected LIMIT 1`,
+    );
+    // The repair-plan arbiter, in the exact unqualified shape `persistRepairPlan`
+    // issues. Catalog assertions prove an index with those four keys exists;
+    // only this proves PostgreSQL will INFER it for this statement. A partial or
+    // subset index passes every catalog check and raises 42P10 here.
+    await sql.query(
+      `INSERT INTO sync_repair_plans
+         (build_id, environment, provider_scope, plan_mode, eligible, summary, payload_json)
+       VALUES ('__verify__', '__verify__', '__verify__', 'dry_run', FALSE, 'verify', '{}'::jsonb)
+       ON CONFLICT (build_id, environment, provider_scope, plan_mode)
+       DO UPDATE SET summary = EXCLUDED.summary`,
+    );
+    // The release-gate keyed read and the retention candidate, in their exact
+    // production shapes. `provider_scope = $n` only parses once the column is
+    // NOT NULL-backfilled; the retention candidate only parses with the
+    // row-comparison the bounded plan depends on.
+    await sql.query(
+      `SELECT id FROM sync_release_gates
+       WHERE build_id = '__verify__' AND environment = '__verify__'
+         AND gate_kind = 'deploy_gate' AND provider_scope = 'global'
+       ORDER BY emitted_at DESC, id DESC LIMIT 1`,
+    );
+    await sql.query(
+      `WITH aged AS (
+         SELECT id, build_id, environment, gate_kind, provider_scope, emitted_at
+         FROM sync_release_gates
+         WHERE emitted_at < now() - make_interval(days => 3650)
+         ORDER BY emitted_at ASC, id ASC
+         LIMIT 1
+       )
+       SELECT aged.id FROM aged
+       WHERE EXISTS (
+         SELECT 1 FROM sync_release_gates newer
+         WHERE newer.build_id = aged.build_id
+           AND newer.environment = aged.environment
+           AND newer.gate_kind = aged.gate_kind
+           AND newer.provider_scope = aged.provider_scope
+           AND (newer.emitted_at, newer.id) > (aged.emitted_at, aged.id)
+       )`,
     );
     // The growth fence's physical-capacity read, in the exact shape it uses.
     // Catalog assertions above prove the table and index exist; this proves the

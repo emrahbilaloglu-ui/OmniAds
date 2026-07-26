@@ -1,6 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import type { SyncGateRecord } from "@/lib/sync/release-gates";
+import {
+  resolveSyncGateReadProviderScope,
+  type SyncGateRecord,
+} from "@/lib/sync/release-gates";
 import {
   resolveSyncControlPlaneKey,
   type SyncControlPlaneKey,
@@ -112,16 +115,23 @@ function toGateIdentity(record: SyncGateRecord | null): SyncGateIdentity | null 
 /**
  * One gate row for exactly one key.
  *
- * `buildId: null` means "newest for this kind and scope anywhere", which is the
- * diagnostic the previous unkeyed `LIMIT 100` scan was trying to answer.
- * `environment: null` narrows only to the build. Both are still index-keyed and
- * still return at most one row.
+ * `buildId: null` means "newest for this kind, scope and environment", which is
+ * the diagnostic the previous unkeyed `LIMIT 100` scan was trying to answer. It
+ * is served by `idx_sync_release_gates_kind_latest`, whose leading columns are
+ * `(gate_kind, provider_scope, environment)` exactly so that this predicate is a
+ * prefix rather than a filter applied while walking history.
+ *
+ * `environment` is never optional. Every tier here — exact, build fallback and
+ * global-latest — constrains it, so a staging evaluation cannot be reported as
+ * this production process's control-plane state. The build fallback constrains
+ * it to the literal `'unknown'`, which is what an emitter that could not
+ * determine an environment writes; it is not "any environment".
  */
 async function readKeyedGateRow(
   sql: ReturnType<typeof getDb>,
   input: {
     buildId: string | null;
-    environment: string | null;
+    environment: string;
     gateKind: "deploy_gate" | "release_gate";
     providerScope: string;
   },
@@ -129,15 +139,15 @@ async function readKeyedGateRow(
   const columns = `id, build_id, environment, gate_kind, verdict, emitted_at,
     gate_scope, mode, base_result, blocker_class, summary, break_glass,
     override_reason, evidence_json`;
-  const predicates: string[] = ["gate_kind = $1", "COALESCE(provider_scope, 'meta') = $2"];
-  const values: unknown[] = [input.gateKind, input.providerScope];
+  const predicates: string[] = [
+    "gate_kind = $1",
+    "provider_scope = $2",
+    "environment = $3",
+  ];
+  const values: unknown[] = [input.gateKind, input.providerScope, input.environment];
   if (input.buildId != null) {
     values.push(input.buildId);
     predicates.push(`build_id = $${values.length}`);
-  }
-  if (input.environment != null) {
-    values.push(input.environment);
-    predicates.push(`environment = $${values.length}`);
   }
   const rows = (await sql.query(
     `SELECT ${columns}
@@ -182,6 +192,17 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
   // hundred. Each read below is keyed on exactly what it answers and returns at
   // most one row, with the same `emitted_at DESC, id DESC` tie-break the index
   // carries so two readers cannot disagree about the current verdict.
+  // A deploy gate is a property of the DEPLOYMENT, not of a provider. Reading it
+  // under `identity.providerScope` meant the Google control plane asked for
+  // `google_ads` and found no deploy gate at all — reported as "missing", which
+  // reads identically to "never evaluated".
+  const deployScope = resolveSyncGateReadProviderScope({ gateKind: "deploy_gate" });
+  const releaseScope = resolveSyncGateReadProviderScope({
+    gateKind: "release_gate",
+    providerScope: identity.providerScope,
+  });
+  const UNKNOWN_ENVIRONMENT = "unknown";
+
   const [
     exactDeploy,
     exactRelease,
@@ -197,37 +218,37 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
       buildId: identity.buildId,
       environment: identity.environment,
       gateKind: "deploy_gate",
-      providerScope: identity.providerScope,
+      providerScope: deployScope,
     }),
     readKeyedGateRow(sql, {
       buildId: identity.buildId,
       environment: identity.environment,
       gateKind: "release_gate",
-      providerScope: identity.providerScope,
+      providerScope: releaseScope,
     }),
     readKeyedGateRow(sql, {
       buildId: identity.buildId,
-      environment: null,
+      environment: UNKNOWN_ENVIRONMENT,
       gateKind: "deploy_gate",
-      providerScope: identity.providerScope,
+      providerScope: deployScope,
     }),
     readKeyedGateRow(sql, {
       buildId: identity.buildId,
-      environment: null,
+      environment: UNKNOWN_ENVIRONMENT,
       gateKind: "release_gate",
-      providerScope: identity.providerScope,
+      providerScope: releaseScope,
     }),
     readKeyedGateRow(sql, {
       buildId: null,
-      environment: null,
+      environment: identity.environment,
       gateKind: "deploy_gate",
-      providerScope: identity.providerScope,
+      providerScope: deployScope,
     }),
     readKeyedGateRow(sql, {
       buildId: null,
-      environment: null,
+      environment: identity.environment,
       gateKind: "release_gate",
-      providerScope: identity.providerScope,
+      providerScope: releaseScope,
     }),
     sql`
       SELECT id, build_id, environment, provider_scope, eligible, emitted_at
@@ -242,6 +263,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
       SELECT id, build_id, environment, provider_scope, eligible, emitted_at
       FROM sync_repair_plans
       WHERE build_id = ${identity.buildId}
+        AND environment = ${UNKNOWN_ENVIRONMENT}
         AND provider_scope = ${identity.providerScope}
       ORDER BY emitted_at DESC, id DESC
       LIMIT 1
@@ -250,6 +272,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
       SELECT id, build_id, environment, provider_scope, eligible, emitted_at
       FROM sync_repair_plans
       WHERE provider_scope = ${identity.providerScope}
+        AND environment = ${identity.environment}
       ORDER BY emitted_at DESC, id DESC
       LIMIT 1
     ` as Promise<Array<Record<string, unknown>>>,

@@ -347,6 +347,31 @@ async function runMigrationBatchSequentially(queries: MigrationBatchQuery[]) {
   }
 }
 
+/**
+ * A group of statements whose ORDER is load-bearing.
+ *
+ * Every `sql\`…\`` in a batch array starts executing the moment the array
+ * literal is evaluated — `getDb()` returns a function that calls the pool
+ * immediately and hands back a live Promise.
+ * `runMigrationBatchSequentially` awaits them in order but does not ISSUE them
+ * in order. For a list of independent `CREATE TABLE IF NOT EXISTS` statements
+ * that distinction never matters. For "add the column, backfill it, then make it
+ * NOT NULL" it is the difference between a migration and a coin flip.
+ *
+ * Steps are passed as thunks so nothing runs until its turn, and each runs in
+ * its own implicit transaction — which is also what `CREATE INDEX CONCURRENTLY`
+ * requires.
+ */
+function orderedMigrationSteps(
+  steps: Array<() => Promise<unknown>>,
+): MigrationBatchQuery {
+  return (async () => {
+    for (const step of steps) {
+      await step();
+    }
+  })();
+}
+
 function assertMigrationIdentifier(identifier: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
     throw new Error(`Unsafe migration identifier: ${identifier}`);
@@ -1211,7 +1236,9 @@ export async function runMigrations(options?: {
         // an invalid one left by an interrupted CONCURRENTLY build — would be
         // silently accepted. Drop that case first, then verify the definition
         // rather than swallowing the failure.
-        sql`
+        orderedMigrationSteps([
+          () =>
+            sql`
           DO $business_provider_accounts_selected_index_repair$
           DECLARE
             existing_definition TEXT;
@@ -1232,27 +1259,51 @@ export async function runMigrations(options?: {
           END
           $business_provider_accounts_selected_index_repair$
         `,
-        sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_selected
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_selected
           ON business_provider_accounts (business_id, provider, position, id)
           WHERE is_selected`,
-        sql`
+          // Asserted key-for-key, not "has a predicate".
+          //
+          // `(id) WHERE is_selected` is a perfectly valid partial index that
+          // passes a `LIKE '%WHERE is_selected%'` check and cannot serve the
+          // ordered current-selection read at all — the selection path then
+          // sorts every selected row of every business on every request. Access
+          // method matters for the same reason: a hash index on the same columns
+          // has no ordering.
+          () =>
+            sql`
           DO $business_provider_accounts_selected_index_contract$
           DECLARE
             actual_definition TEXT;
+            actual_method TEXT;
           BEGIN
-            SELECT pg_get_indexdef(index_class.oid)
-              INTO actual_definition
+            SELECT pg_get_indexdef(index_class.oid), access_method.amname
+              INTO actual_definition, actual_method
             FROM pg_class index_class
             JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+            JOIN pg_am access_method ON access_method.oid = index_class.relam
             WHERE index_class.relname = 'idx_business_provider_accounts_selected'
+              AND index_catalog.indisunique = FALSE
               AND index_catalog.indisvalid
               AND index_catalog.indisready
-              AND index_catalog.indislive;
+              AND index_catalog.indislive
+              AND index_catalog.indnkeyatts = 4;
             IF actual_definition IS NULL THEN
               RAISE EXCEPTION
-                'idx_business_provider_accounts_selected is missing or not valid/ready/live';
+                'idx_business_provider_accounts_selected is missing, unique, not valid/ready/live, or does not have exactly 4 key columns';
             END IF;
-            IF actual_definition NOT LIKE '%WHERE is_selected%' THEN
+            IF actual_method <> 'btree' THEN
+              RAISE EXCEPTION
+                'idx_business_provider_accounts_selected uses access method %, expected btree',
+                actual_method;
+            END IF;
+            IF actual_definition NOT LIKE '%(business_id, provider, "position", id)%' THEN
+              RAISE EXCEPTION
+                'idx_business_provider_accounts_selected does not key exactly (business_id, provider, position, id): %',
+                actual_definition;
+            END IF;
+            IF actual_definition NOT LIKE '%WHERE is_selected' THEN
               RAISE EXCEPTION
                 'idx_business_provider_accounts_selected lost its is_selected predicate: %',
                 actual_definition;
@@ -1260,6 +1311,7 @@ export async function runMigrations(options?: {
           END
           $business_provider_accounts_selected_index_contract$
         `,
+        ]),
         sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_runs (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,
@@ -3540,8 +3592,12 @@ export async function runMigrations(options?: {
           ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(
           () => {},
         ),
-        sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_emitted
-          ON sync_release_gates (emitted_at DESC)`.catch(() => {}),
+        // `idx_sync_release_gates_emitted (emitted_at DESC)` is deliberately NOT
+        // created here any more, and is dropped in the ordered group below. Every
+        // production read is keyed on (build_id|gate_kind, …), and the only
+        // remaining emitted_at-ordered query is retention's ASCENDING keyset —
+        // which this DESC index served only by scanning backwards and then
+        // applying an Incremental Sort for the id tie-break.
         //
         // Anti-runaway contract for sync_release_gates.
         //
@@ -3567,77 +3623,163 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE provider_connections
           ADD COLUMN IF NOT EXISTS connection_generation BIGINT NOT NULL DEFAULT 1`,
         sql`ALTER TABLE sync_release_gates
-          ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
-        sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS decision_fingerprint TEXT`,
         sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
         sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS coalesced_count INTEGER NOT NULL DEFAULT 1`,
-        // provider_scope is deliberately NULLABLE with no default and no
-        // backfill. Legacy rows encode the scope inside evidence_json, where
-        // absent has always meant "meta"; an UPDATE across a multi-gigabyte
-        // table to materialise that would be a rewrite, and a DEFAULT 'meta'
-        // would silently relabel existing google_ads rows. Every read and the
-        // indexes below use COALESCE(provider_scope, 'meta') instead, which is
-        // exactly the old semantics expressed as a single indexable predicate.
-        sql.query(
-          buildInvalidIndexRepairQuery({
-            indexName: "idx_sync_release_gates_key_latest",
-            definitionMustContain: [
-              "build_id",
-              "environment",
-              "gate_kind",
-              "COALESCE(provider_scope",
-              "emitted_at DESC",
-              "id DESC",
-            ],
-          }),
-        ),
-        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_key_latest
-          ON sync_release_gates (
-            build_id, environment, gate_kind,
-            (COALESCE(provider_scope, 'meta')), emitted_at DESC, id DESC
-          )`.catch(() => {}),
-        sql.query(
-          buildIndexContractQuery({
-            indexName: "idx_sync_release_gates_key_latest",
-            definitionMustContain: [
-              "build_id",
-              "environment",
-              "gate_kind",
-              "COALESCE(provider_scope",
-              "emitted_at DESC",
-              "id DESC",
-            ],
-          }),
-        ),
-        sql.query(
-          buildInvalidIndexRepairQuery({
-            indexName: "idx_sync_release_gates_kind_latest",
-            definitionMustContain: [
-              "gate_kind",
-              "COALESCE(provider_scope",
-              "emitted_at DESC",
-              "id DESC",
-            ],
-          }),
-        ),
-        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_kind_latest
-          ON sync_release_gates (
-            gate_kind, (COALESCE(provider_scope, 'meta')), emitted_at DESC, id DESC
-          )`.catch(() => {}),
-        sql.query(
-          buildIndexContractQuery({
-            indexName: "idx_sync_release_gates_kind_latest",
-            definitionMustContain: [
-              "gate_kind",
-              "COALESCE(provider_scope",
-              "emitted_at DESC",
-              "id DESC",
-            ],
-          }),
-        ),
+        //
+        // The release-gate provider-scope contract, in an ORDER that is
+        // load-bearing: the column must exist before it is backfilled, be
+        // backfilled before it is made NOT NULL, and be NOT NULL before an index
+        // keyed on plain equality means anything.
+        //
+        // `COALESCE(provider_scope, 'meta')` was a lie about two different kinds
+        // of row. A deploy gate is global — one verdict for the deployment, not
+        // a Meta fact — so labelling it 'meta' made it unreachable from the
+        // Google control plane, which asks for 'google_ads' and got nothing back
+        // at all. And a legacy release gate whose provider was never recorded is
+        // not a Meta verdict; calling it one lets it answer Meta questions and
+        // files it in the Meta retention group.
+        //
+        // Each row is labelled by what is actually known about it:
+        //   deploy gates    -> 'global'   (true by construction of the gate)
+        //   release gates   -> evidence_json->>'providerScope' when present
+        //   everything else -> 'unknown'  (explicit, never silently Meta)
+        //
+        // evidence_json is never rewritten, so the ambiguity stays inspectable.
+        orderedMigrationSteps([
+          () =>
+            sql`ALTER TABLE sync_release_gates
+              ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
+          // 20k-row chunks, each its own transaction: bounded lock duration and
+          // bounded WAL per statement instead of one rewrite-sized transaction
+          // over a multi-gigabyte relation.
+          async () => {
+            for (;;) {
+              const touched = (await sql.query(
+                `UPDATE sync_release_gates
+                 SET provider_scope = CASE
+                       WHEN gate_kind = 'deploy_gate' THEN 'global'
+                       WHEN NULLIF(TRIM(COALESCE(evidence_json->>'providerScope', '')), '')
+                            IS NOT NULL
+                         THEN TRIM(evidence_json->>'providerScope')
+                       ELSE 'unknown'
+                     END
+                 WHERE id IN (
+                   SELECT id FROM sync_release_gates
+                   WHERE provider_scope IS NULL
+                   LIMIT 20000
+                 )
+                 RETURNING id`,
+              )) as Array<{ id: string }>;
+              if (touched.length === 0) break;
+            }
+          },
+          // Deploy-gate rows written by the previous revision of this change
+          // went in as 'meta'. They are global gates mislabelled by code, not
+          // evidence about a provider, so the same by-kind rule applies.
+          () =>
+            sql.query(
+              `UPDATE sync_release_gates
+               SET provider_scope = 'global'
+               WHERE gate_kind = 'deploy_gate' AND provider_scope IS DISTINCT FROM 'global'`,
+            ),
+          () =>
+            sql`ALTER TABLE sync_release_gates
+              ALTER COLUMN provider_scope SET DEFAULT 'unknown'`,
+          () =>
+            sql`ALTER TABLE sync_release_gates
+              ALTER COLUMN provider_scope SET NOT NULL`,
+          // The expression indexes on COALESCE(provider_scope, 'meta') encode
+          // the semantics this change removes and cannot serve the plain
+          // equality predicate that replaced it. Dropped rather than left as
+          // dead weight on a multi-gigabyte relation.
+          () =>
+            sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_key_latest`.catch(
+              () => {},
+            ),
+          () =>
+            sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_kind_latest`.catch(
+              () => {},
+            ),
+          () =>
+            sql.query(
+              buildInvalidIndexRepairQuery({
+                indexName: "idx_sync_release_gates_key_latest",
+                definitionMustContain: [
+                  "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
+                ],
+              }),
+            ),
+          () =>
+            sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_key_latest
+              ON sync_release_gates (
+                build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC
+              )`.catch(() => {}),
+          () =>
+            sql.query(
+              buildIndexContractQuery({
+                indexName: "idx_sync_release_gates_key_latest",
+                definitionMustContain: [
+                  "build_id, environment, gate_kind, provider_scope, emitted_at DESC, id DESC",
+                ],
+              }),
+            ),
+          () =>
+            sql.query(
+              buildInvalidIndexRepairQuery({
+                indexName: "idx_sync_release_gates_kind_latest",
+                definitionMustContain: [
+                  "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
+                ],
+              }),
+            ),
+          // `environment` is a KEY column here, not a filter: the diagnostic
+          // read constrains it, and without it in the index that read walks the
+          // kind's whole history discarding other environments.
+          () =>
+            sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_kind_latest
+              ON sync_release_gates (
+                gate_kind, provider_scope, environment, emitted_at DESC, id DESC
+              )`.catch(() => {}),
+          () =>
+            sql.query(
+              buildIndexContractQuery({
+                indexName: "idx_sync_release_gates_kind_latest",
+                definitionMustContain: [
+                  "gate_kind, provider_scope, environment, emitted_at DESC, id DESC",
+                ],
+              }),
+            ),
+          // Retention's candidate scan walks the OLDEST rows ascending and stops
+          // at the batch limit. `idx_sync_release_gates_emitted` is DESC-only,
+          // so it cannot serve that keyset without walking the newest rows
+          // first — which is the whole table, every tick.
+          () =>
+            sql.query(
+              buildInvalidIndexRepairQuery({
+                indexName: "idx_sync_release_gates_retention_scan",
+                definitionMustContain: ["emitted_at, id"],
+              }),
+            ),
+          () =>
+            sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_retention_scan
+              ON sync_release_gates (emitted_at, id)`.catch(() => {}),
+          // Dropped only AFTER the replacement exists, so there is no window
+          // where retention has no usable index at all.
+          () =>
+            sql`DROP INDEX CONCURRENTLY IF EXISTS idx_sync_release_gates_emitted`.catch(
+              () => {},
+            ),
+          () =>
+            sql.query(
+              buildIndexContractQuery({
+                indexName: "idx_sync_release_gates_retention_scan",
+                definitionMustContain: ["emitted_at, id"],
+              }),
+            ),
+        ]),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id            TEXT NOT NULL,
@@ -3674,20 +3816,28 @@ export async function runMigrations(options?: {
         // dropping whatever auto-named constraint covers exactly the same
         // columns — found by COLUMN SET, never by a guessed name — then verify.
         // The arbiter is never absent at any point in that order.
+        // Ordered, because "repair, create, adopt, verify" only means anything in
+        // that order — and a batch array issues its statements concurrently.
+        orderedMigrationSteps([
+        () =>
         sql.query(
+          // Asserted as ONE contiguous fragment, not four separate substrings.
+          // A same-name UNIQUE index on `(build_id)` alone contains "build_id",
+          // "environment" (nowhere), ... — in practice a subset index passed the
+          // per-fragment check whenever the missing columns appeared elsewhere in
+          // the definition text, and then every production write failed 42P10.
           buildInvalidIndexRepairQuery({
             indexName: "sync_repair_plans_scope_mode_identity",
             definitionMustContain: [
               "UNIQUE",
-              "build_id",
-              "environment",
-              "provider_scope",
-              "plan_mode",
+              "(build_id, environment, provider_scope, plan_mode)",
             ],
           }),
         ),
+        () =>
         sql`CREATE UNIQUE INDEX IF NOT EXISTS sync_repair_plans_scope_mode_identity
           ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)`,
+        () =>
         sql`DO $sync_repair_plans_adopt_arbiter$
           DECLARE
             legacy_constraint TEXT;
@@ -3712,18 +3862,42 @@ export async function runMigrations(options?: {
             END IF;
           END
           $sync_repair_plans_adopt_arbiter$`,
+        () =>
         sql.query(
           buildIndexContractQuery({
             indexName: "sync_repair_plans_scope_mode_identity",
             definitionMustContain: [
               "UNIQUE",
-              "build_id",
-              "environment",
-              "provider_scope",
-              "plan_mode",
+              "(build_id, environment, provider_scope, plan_mode)",
             ],
           }),
         ),
+        // Proof that PostgreSQL will actually INFER this arbiter for the exact
+        // unqualified `ON CONFLICT` the writer issues. Catalog shape and arbiter
+        // inference are different questions: a partial unique index satisfies
+        // every catalog assertion and raises 42P10 here. Rolled back, so it
+        // writes nothing.
+        () =>
+          sql.query(
+            `DO $sync_repair_plans_arbiter_readback$
+             BEGIN
+               BEGIN
+                 INSERT INTO sync_repair_plans
+                   (build_id, environment, provider_scope, plan_mode, eligible, summary, payload_json)
+                 VALUES ('__arbiter_probe__', '__arbiter_probe__', '__arbiter_probe__',
+                         'dry_run', FALSE, 'probe', '{}'::jsonb)
+                 ON CONFLICT (build_id, environment, provider_scope, plan_mode)
+                 DO UPDATE SET summary = EXCLUDED.summary;
+               EXCEPTION WHEN OTHERS THEN
+                 RAISE EXCEPTION
+                   'sync_repair_plans arbiter is not inferable for ON CONFLICT (build_id, environment, provider_scope, plan_mode): % (%)',
+                   SQLERRM, SQLSTATE;
+               END;
+               DELETE FROM sync_repair_plans WHERE build_id = '__arbiter_probe__';
+             END
+             $sync_repair_plans_arbiter_readback$`,
+          ),
+        ]),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
           ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(
           () => {},

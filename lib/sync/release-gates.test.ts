@@ -545,6 +545,109 @@ describe("sync release gates", () => {
     expect(verdict.evidence).not.toHaveProperty("canaries");
   });
 
+  describe("gate scope identity", () => {
+    it("files a deploy gate under the GLOBAL scope, never under a provider", () => {
+      // A deploy gate measures the runtime contract and service liveness — one
+      // verdict for the deployment. Filing it as 'meta' made it invisible to the
+      // Google control plane, which asks for 'google_ads' and received no deploy
+      // gate at all: reported as absent, which reads as "never evaluated".
+      expect(
+        releaseGates.resolveSyncGateProviderScope({
+          gateKind: "deploy_gate",
+          evidence: { providerScope: "google_ads" },
+        }),
+      ).toBe("global");
+    });
+
+    it("keeps a release gate on the provider its evidence records", () => {
+      expect(
+        releaseGates.resolveSyncGateProviderScope({
+          gateKind: "release_gate",
+          evidence: { providerScope: "google_ads" },
+        }),
+      ).toBe("google_ads");
+      expect(
+        releaseGates.resolveSyncGateProviderScope({
+          gateKind: "release_gate",
+          evidence: {},
+        }),
+      ).toBe("meta");
+    });
+
+    it("resolves the same deploy gate for every provider reader", () => {
+      for (const providerScope of ["meta", "google_ads", "shopify", undefined]) {
+        expect(
+          releaseGates.resolveSyncGateReadProviderScope({
+            gateKind: "deploy_gate",
+            providerScope,
+          }),
+        ).toBe("global");
+      }
+      expect(
+        releaseGates.resolveSyncGateReadProviderScope({
+          gateKind: "release_gate",
+          providerScope: "google_ads",
+        }),
+      ).toBe("google_ads");
+    });
+  });
+
+  describe("environment merge", () => {
+    const row = (environment: string, id: string) =>
+      ({
+        id,
+        gateKind: "deploy_gate",
+        gateScope: "service_liveness",
+        buildId: "b",
+        environment,
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: id,
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-01-01T00:00:00.000Z",
+      }) as never;
+
+    it("refuses a staging fallback for a production read", () => {
+      const merged = releaseGates.mergeLatestSyncGateRecords({
+        environment: "production",
+        exact: { deployGate: null, releaseGate: null },
+        fallbackByBuild: {
+          deployGate: row("staging", "staging-row"),
+          releaseGate: row("staging", "staging-release"),
+        },
+      });
+      expect(merged.deployGate).toBeNull();
+      expect(merged.releaseGate).toBeNull();
+    });
+
+    it("accepts an environment-less fallback and prefers the exact row", () => {
+      expect(
+        releaseGates.mergeLatestSyncGateRecords({
+          environment: "production",
+          exact: { deployGate: null, releaseGate: null },
+          fallbackByBuild: {
+            deployGate: row("unknown", "unknown-row"),
+            releaseGate: null,
+          },
+        }).deployGate?.id,
+      ).toBe("unknown-row");
+      expect(
+        releaseGates.mergeLatestSyncGateRecords({
+          environment: "production",
+          exact: { deployGate: row("production", "exact-row"), releaseGate: null },
+          fallbackByBuild: {
+            deployGate: row("unknown", "unknown-row"),
+            releaseGate: null,
+          },
+        }).deployGate?.id,
+      ).toBe("exact-row");
+    });
+  });
+
   it("enforces only blocked or misconfigured verdicts", () => {
     expect(
       releaseGates.shouldEnforceSyncGateFailure([

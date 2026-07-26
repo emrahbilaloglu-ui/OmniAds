@@ -56,11 +56,58 @@ export interface SyncGateRecord {
   emittedAt: string;
 }
 
+/**
+ * A deploy gate is not a Meta fact.
+ *
+ * `evaluateDeployGate` measures the runtime contract, service liveness and the
+ * build fingerprint — one verdict for the whole deployment, not per provider.
+ * Writing it under `provider_scope='meta'` made it invisible to the Google
+ * control plane, which asks for `google_ads` and got no deploy gate at all: not
+ * "blocked", not "stale", but absent, which reads as "no gate configured".
+ *
+ * So global identity gets its own scope value that no provider ever requests,
+ * and every reader resolves a deploy gate to it regardless of which provider it
+ * is asking about.
+ */
+export const SYNC_GATE_GLOBAL_PROVIDER_SCOPE = "global";
+
+/**
+ * Legacy rows whose provider is genuinely unrecorded.
+ *
+ * Explicitly unknown, never silently Meta. `COALESCE(provider_scope, 'meta')`
+ * asserted a fact about rows that never carried one, so a legacy Google verdict
+ * answered Meta questions and both landed in the same retention group.
+ */
+export const SYNC_GATE_UNKNOWN_PROVIDER_SCOPE = "unknown";
+
+/**
+ * The environment a gate is filed under when the emitter did not know one.
+ *
+ * This is the ONLY cross-environment fallback that is ever consulted, and it is
+ * still an equality predicate — a staging row can never answer a production
+ * question, because `'staging' <> 'production'` and `'staging' <> 'unknown'`.
+ */
+const SYNC_GATE_UNKNOWN_ENVIRONMENT = "unknown";
+
 function normalizeRequestedReleaseGateProviderScope(
   providerScope?: string | null,
 ) {
   const normalized = providerScope?.trim();
   return normalized && normalized.length > 0 ? normalized : "meta";
+}
+
+/**
+ * The scope a READER must use for a gate kind.
+ *
+ * Deploy gates are global, so a Google reader and a Meta reader resolve the
+ * same row; release gates are per provider, so they never do.
+ */
+export function resolveSyncGateReadProviderScope(input: {
+  gateKind: SyncGateKind;
+  providerScope?: string | null;
+}): string {
+  if (input.gateKind === "deploy_gate") return SYNC_GATE_GLOBAL_PROVIDER_SCOPE;
+  return normalizeRequestedReleaseGateProviderScope(input.providerScope);
 }
 
 function readReleaseGateProviderScope(
@@ -177,18 +224,18 @@ function gateCoalesceKey(input: {
 }
 
 /**
- * Exact provider scope for a gate row.
+ * Exact provider scope for a gate row at WRITE time.
  *
- * Deploy gates have never carried one; release gates carry it inside evidence,
- * where absent has always meant "meta". Normalising it into a column at write
- * time is what makes the keyed read a single indexable predicate instead of a
- * scan-and-filter-in-JavaScript.
+ * Deploy gates are global. Release gates carry their provider inside evidence,
+ * where absent has always meant "meta" for a row this code wrote — that default
+ * is safe here precisely because it applies to rows being written now, whose
+ * emitter we control, and not to legacy rows whose provider was never recorded.
  */
 export function resolveSyncGateProviderScope(input: {
   gateKind: SyncGateKind;
   evidence?: Record<string, unknown> | null;
 }): string {
-  if (input.gateKind === "deploy_gate") return "meta";
+  if (input.gateKind === "deploy_gate") return SYNC_GATE_GLOBAL_PROVIDER_SCOPE;
   return (
     readReleaseGateProviderScope(input.evidence) ??
     normalizeRequestedReleaseGateProviderScope(null)
@@ -295,7 +342,7 @@ export async function upsertSyncGateRecord(
       WHERE build_id = ${input.buildId}
         AND environment = ${input.environment}
         AND gate_kind = ${input.gateKind}
-        AND COALESCE(provider_scope, 'meta') = ${providerScope}
+        AND provider_scope = ${providerScope}
       ORDER BY emitted_at DESC, id DESC
       LIMIT 1
       FOR UPDATE
@@ -453,6 +500,17 @@ export function selectLatestSyncGateRecords(
   };
 }
 
+/**
+ * Prefer the exact-environment row; accept an environment-less one only if
+ * there is no exact row at all.
+ *
+ * The fallback is already an equality read on `environment = 'unknown'`, so
+ * this merge cannot admit a foreign environment even if it wanted to. The
+ * previous shape ran an unconstrained-environment query unconditionally and
+ * then filtered in JavaScript, which meant a staging evaluation was fetched on
+ * every production read and — for the deploy gate, which had no filter at all —
+ * could be returned.
+ */
 export function mergeLatestSyncGateRecords(input: {
   environment: string;
   exact: {
@@ -464,16 +522,16 @@ export function mergeLatestSyncGateRecords(input: {
     releaseGate: SyncGateRecord | null;
   };
 }) {
-  const fallbackReleaseGate =
-    input.fallbackByBuild.releaseGate != null &&
-    (input.fallbackByBuild.releaseGate.environment === input.environment ||
-      input.fallbackByBuild.releaseGate.environment === "unknown")
-      ? input.fallbackByBuild.releaseGate
+  const acceptable = (record: SyncGateRecord | null) =>
+    record != null &&
+    (record.environment === input.environment ||
+      record.environment === SYNC_GATE_UNKNOWN_ENVIRONMENT)
+      ? record
       : null;
 
   return {
-    deployGate: input.exact.deployGate ?? input.fallbackByBuild.deployGate,
-    releaseGate: input.exact.releaseGate ?? fallbackReleaseGate,
+    deployGate: input.exact.deployGate ?? acceptable(input.fallbackByBuild.deployGate),
+    releaseGate: input.exact.releaseGate ?? acceptable(input.fallbackByBuild.releaseGate),
   };
 }
 
@@ -490,24 +548,50 @@ export async function getLatestSyncGateRecords(input?: {
     buildId: input?.buildId,
     environment: input?.environment,
   });
-  const providerScope = normalizeRequestedReleaseGateProviderScope(
-    input?.providerScope,
-  );
+  // Deploy gates resolve globally; release gates resolve to the caller's
+  // provider. Both are equality predicates, so neither can bleed into the other.
+  const deployScope = resolveSyncGateReadProviderScope({ gateKind: "deploy_gate" });
+  const releaseScope = resolveSyncGateReadProviderScope({
+    gateKind: "release_gate",
+    providerScope: input?.providerScope,
+  });
 
-  // Four keyed LIMIT 1 reads instead of two unbounded scans.
-  //
-  // The previous version selected EVERY row for a build (and every row for a
-  // build+environment) ordered by emitted_at, then picked the first of each kind
-  // in JavaScript. On a table that grew a row per evaluation that is a scan of
-  // the whole build's history to answer a question about one row, and it got
-  // slower exactly as the runaway got worse.
-  const [deployExact, releaseExact, deployFallback, releaseFallback] =
-    await Promise.all([
-      readLatestSyncGateRow({ buildId, environment, gateKind: "deploy_gate", providerScope }),
-      readLatestSyncGateRow({ buildId, environment, gateKind: "release_gate", providerScope }),
-      readLatestSyncGateRow({ buildId, environment: null, gateKind: "deploy_gate", providerScope }),
-      readLatestSyncGateRow({ buildId, environment: null, gateKind: "release_gate", providerScope }),
-    ]);
+  // Two keyed LIMIT 1 reads instead of two unbounded scans, and the two
+  // environment-less fallbacks are issued ONLY for a kind that had no exact row.
+  // A healthy deployment therefore issues exactly two queries per call.
+  const [deployExact, releaseExact] = await Promise.all([
+    readLatestSyncGateRow({
+      buildId,
+      environment,
+      gateKind: "deploy_gate",
+      providerScope: deployScope,
+    }),
+    readLatestSyncGateRow({
+      buildId,
+      environment,
+      gateKind: "release_gate",
+      providerScope: releaseScope,
+    }),
+  ]);
+
+  const [deployFallback, releaseFallback] = await Promise.all([
+    deployExact
+      ? Promise.resolve(null)
+      : readLatestSyncGateRow({
+          buildId,
+          environment: SYNC_GATE_UNKNOWN_ENVIRONMENT,
+          gateKind: "deploy_gate",
+          providerScope: deployScope,
+        }),
+    releaseExact
+      ? Promise.resolve(null)
+      : readLatestSyncGateRow({
+          buildId,
+          environment: SYNC_GATE_UNKNOWN_ENVIRONMENT,
+          gateKind: "release_gate",
+          providerScope: releaseScope,
+        }),
+  ]);
 
   return mergeLatestSyncGateRecords({
     environment,
@@ -545,44 +629,15 @@ const SYNC_GATE_ROW_COLUMNS = `
  * two readers could disagree about the current verdict. The index carries the
  * same ordering, so this is a one-row index scan.
  *
- * `environment: null` means "any environment for this build", used only as the
- * fallback when no exact row exists. It is still keyed and still LIMIT 1.
+ * `environment` is ALWAYS an equality predicate. There is no "any environment"
+ * mode: the only fallback is the literal `'unknown'` environment, which is what
+ * an emitter that could not determine one writes. That keeps every read on the
+ * same four-column index prefix and makes a staging row structurally incapable
+ * of answering a production question.
  */
 async function readLatestSyncGateRow(input: {
   buildId: string;
-  environment: string | null;
-  gateKind: SyncGateKind;
-  providerScope: string;
-}): Promise<SyncGateRecord | null> {
-  const sql = getDb();
-  const rows = (input.environment == null
-    ? await sql.query(
-        `SELECT ${SYNC_GATE_ROW_COLUMNS}
-         FROM sync_release_gates
-         WHERE build_id = $1
-           AND gate_kind = $2
-           AND COALESCE(provider_scope, 'meta') = $3
-         ORDER BY emitted_at DESC, id DESC
-         LIMIT 1`,
-        [input.buildId, input.gateKind, input.providerScope],
-      )
-    : await sql.query(
-        `SELECT ${SYNC_GATE_ROW_COLUMNS}
-         FROM sync_release_gates
-         WHERE build_id = $1
-           AND environment = $2
-           AND gate_kind = $3
-           AND COALESCE(provider_scope, 'meta') = $4
-         ORDER BY emitted_at DESC, id DESC
-         LIMIT 1`,
-        [input.buildId, input.environment, input.gateKind, input.providerScope],
-      )) as Array<Record<string, unknown>>;
-  const row = rows[0];
-  return row ? hydrateSyncGateRecordRow(row) : null;
-}
-
-/** Keyed newest row for a gate kind regardless of build. Diagnostics only. */
-export async function readLatestSyncGateRowForKind(input: {
+  environment: string;
   gateKind: SyncGateKind;
   providerScope: string;
 }): Promise<SyncGateRecord | null> {
@@ -590,11 +645,39 @@ export async function readLatestSyncGateRowForKind(input: {
   const rows = (await sql.query(
     `SELECT ${SYNC_GATE_ROW_COLUMNS}
      FROM sync_release_gates
-     WHERE gate_kind = $1
-       AND COALESCE(provider_scope, 'meta') = $2
+     WHERE build_id = $1
+       AND environment = $2
+       AND gate_kind = $3
+       AND provider_scope = $4
      ORDER BY emitted_at DESC, id DESC
      LIMIT 1`,
-    [input.gateKind, input.providerScope],
+    [input.buildId, input.environment, input.gateKind, input.providerScope],
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row ? hydrateSyncGateRecordRow(row) : null;
+}
+
+/**
+ * Keyed newest row for a gate kind regardless of build. Diagnostics only.
+ *
+ * Still environment-constrained: a diagnostic that reports a staging verdict on
+ * a production status page is a wrong answer, not a weaker one.
+ */
+export async function readLatestSyncGateRowForKind(input: {
+  gateKind: SyncGateKind;
+  environment: string;
+  providerScope: string;
+}): Promise<SyncGateRecord | null> {
+  const sql = getDb();
+  const rows = (await sql.query(
+    `SELECT ${SYNC_GATE_ROW_COLUMNS}
+     FROM sync_release_gates
+     WHERE gate_kind = $1
+       AND provider_scope = $2
+       AND environment = $3
+     ORDER BY emitted_at DESC, id DESC
+     LIMIT 1`,
+    [input.gateKind, input.providerScope, input.environment],
   )) as Array<Record<string, unknown>>;
   const row = rows[0];
   return row ? hydrateSyncGateRecordRow(row) : null;
@@ -630,22 +713,43 @@ export async function pruneSyncGateRecords(input?: {
   });
   const sql = getDb();
 
-  // `latest` is the newest row per key. Anything in it is current evidence and
-  // is excluded from deletion by identity, not by age — a build that has not
-  // been evaluated for a year still has a readable verdict.
+  // Bounded by construction, in two steps.
+  //
+  // `aged` walks the OLDEST rows in `(emitted_at, id)` order straight off
+  // `idx_sync_release_gates_retention_scan` and stops at `limit`. That is the
+  // only scan, and its cost is the batch size — not the size of the table.
+  //
+  // Then each of those (at most `limit`) rows asks one keyed question: "does a
+  // newer row exist for my exact key?" If yes, this row is not current evidence
+  // and may be deleted. That EXISTS is a single index probe on
+  // `idx_sync_release_gates_key_latest`, whose leading four columns are exactly
+  // the key and whose trailing `(emitted_at DESC, id DESC)` serves the row
+  // comparison.
+  //
+  // The previous shape computed `DISTINCT ON` over the WHOLE relation to build a
+  // latest-per-key set before applying any limit, so retention read every one of
+  // the 1.35 GB on every tick and the LIMIT bounded only the DELETE. It also
+  // grouped on `COALESCE(provider_scope, 'meta')`, which put legacy Google rows
+  // in the Meta retention group.
   const candidateSql = `
-    WITH latest AS (
-      SELECT DISTINCT ON (build_id, environment, gate_kind, COALESCE(provider_scope, 'meta'))
-             id
+    WITH aged AS (
+      SELECT id, build_id, environment, gate_kind, provider_scope, emitted_at
       FROM sync_release_gates
-      ORDER BY build_id, environment, gate_kind,
-               COALESCE(provider_scope, 'meta'), emitted_at DESC, id DESC
+      WHERE emitted_at < now() - make_interval(days => $1)
+      ORDER BY emitted_at ASC, id ASC
+      LIMIT $2
     )
-    SELECT id FROM sync_release_gates
-    WHERE emitted_at < now() - make_interval(days => $1)
-      AND id NOT IN (SELECT id FROM latest)
-    ORDER BY emitted_at ASC, id ASC
-    LIMIT $2
+    SELECT aged.id
+    FROM aged
+    WHERE EXISTS (
+      SELECT 1
+      FROM sync_release_gates newer
+      WHERE newer.build_id = aged.build_id
+        AND newer.environment = aged.environment
+        AND newer.gate_kind = aged.gate_kind
+        AND newer.provider_scope = aged.provider_scope
+        AND (newer.emitted_at, newer.id) > (aged.emitted_at, aged.id)
+    )
   `;
   const candidates = (await sql.query(candidateSql, [maxAgeDays, limit])) as Array<{
     id: string;

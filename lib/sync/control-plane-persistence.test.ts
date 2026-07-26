@@ -131,11 +131,14 @@ describe("sync control-plane persistence", () => {
     expect(result.exact.repairPlan?.id).toBe("rp-1");
   });
 
-  it("reports build-only fallback rows when exact environment rows are missing", async () => {
+  it("reports environment-less fallback rows when exact environment rows are missing", async () => {
     installDb((query) => {
       if (isGateQuery(query)) {
-        // Only the build-scoped read (no environment value) answers.
+        // Only the `environment = 'unknown'` read answers. Note that this is
+        // still an equality predicate — there is no "any environment" read left
+        // that a staging row could satisfy.
         if (query.values.includes("production")) return [];
+        if (!query.values.includes("unknown")) return [];
         if (!query.values.includes("build-1")) return [];
         const isDeploy = query.values.includes("deploy_gate");
         return [
@@ -146,26 +149,19 @@ describe("sync control-plane persistence", () => {
           }),
         ];
       }
-      if (
-        query.text.includes("FROM sync_repair_plans") &&
-        query.text.includes("AND environment =")
-      ) {
-        return [];
-      }
-      if (
-        query.text.includes("FROM sync_repair_plans") &&
-        query.text.includes("WHERE build_id =")
-      ) {
-        return [
-          {
-            id: "rp-fallback",
-            build_id: "build-1",
-            environment: "unknown",
-            provider_scope: "meta",
-            eligible: true,
-            emitted_at: "2026-04-15T12:00:02.000Z",
-          },
-        ];
+      if (query.text.includes("FROM sync_repair_plans")) {
+        return query.values.includes("unknown")
+          ? [
+              {
+                id: "rp-fallback",
+                build_id: "build-1",
+                environment: "unknown",
+                provider_scope: "meta",
+                eligible: true,
+                emitted_at: "2026-04-15T12:00:02.000Z",
+              },
+            ]
+          : [];
       }
       return [];
     });
@@ -183,7 +179,7 @@ describe("sync control-plane persistence", () => {
     expect(result.fallbackByBuild.repairPlan?.environment).toBe("unknown");
   });
 
-  it("reads one row per key and never scans", async () => {
+  it("reads one row per key, always constrains environment, and never scans", async () => {
     const observed = installDb(() => []);
 
     await controlPlanePersistence.getSyncControlPlanePersistenceStatus({
@@ -202,19 +198,63 @@ describe("sync control-plane persistence", () => {
       // Every read narrows to a gate kind and a provider scope, so no query can
       // return rows it then has to sift through.
       expect(query.text).toContain("gate_kind = $1");
-      expect(query.text).toContain("COALESCE(provider_scope, 'meta') = $2");
+      // Plain equality, not COALESCE(provider_scope, 'meta'): the COALESCE form
+      // relabelled every legacy NULL — including Google rows — as Meta.
+      expect(query.text).toContain("provider_scope = $2");
+      expect(query.text).not.toContain("COALESCE(provider_scope");
+      // EVERY tier constrains environment. There is no read left that a staging
+      // row can satisfy while a production process is asking.
+      expect(query.text).toContain("environment = $3");
       // Deterministic tie-break: two evaluations in the same millisecond must
       // not resolve to different rows for two readers.
       expect(query.text).toContain("ORDER BY emitted_at DESC, id DESC");
       expect(query.values[0]).toMatch(/^(deploy|release)_gate$/);
+      expect(query.values[2]).toMatch(/^(production|unknown)$/);
+    }
+
+    // A deploy gate is GLOBAL. Asking as google_ads must still resolve it, or
+    // the Google control plane reports "no deploy gate" where a verdict exists.
+    const deployQueries = gateQueries.filter((query) =>
+      query.values.includes("deploy_gate"),
+    );
+    expect(deployQueries).toHaveLength(3);
+    for (const query of deployQueries) {
+      expect(query.values[1]).toBe("global");
+    }
+    const releaseQueries = gateQueries.filter((query) =>
+      query.values.includes("release_gate"),
+    );
+    expect(releaseQueries).toHaveLength(3);
+    for (const query of releaseQueries) {
       expect(query.values[1]).toBe("google_ads");
     }
 
-    // The exact reads carry build AND environment; the fallback carries build
-    // only; the global carries neither. None is unkeyed on kind+scope.
+    // Exact and global reads carry the caller's environment; the fallback
+    // carries the literal 'unknown'. Two of the six omit build_id (the global
+    // latest tier) and every one of them still has three key predicates.
     const keyed = gateQueries.map((query) => query.values.length);
-    expect(keyed.filter((count) => count === 4)).toHaveLength(2);
+    expect(keyed.filter((count) => count === 4)).toHaveLength(4);
     expect(keyed.filter((count) => count === 3)).toHaveLength(2);
-    expect(keyed.filter((count) => count === 2)).toHaveLength(2);
+  });
+
+  it("never lets a staging row answer a production question", async () => {
+    // The DB is asked with `environment = $3` on every tier, so a fake that
+    // returns rows ONLY for staging must produce nothing at all.
+    installDb((query) =>
+      isGateQuery(query) && query.values.includes("staging")
+        ? [gateRow({ id: "staging-row", environment: "staging" })]
+        : [],
+    );
+
+    const result = await controlPlanePersistence.getSyncControlPlanePersistenceStatus({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+    });
+
+    expect(result.exact.deployGate).toBeNull();
+    expect(result.fallbackByBuild.deployGate).toBeNull();
+    expect(result.latest.deployGate).toBeNull();
+    expect(result.missingExact).toEqual(["deployGate", "releaseGate", "repairPlan"]);
   });
 });

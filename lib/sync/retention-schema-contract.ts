@@ -173,11 +173,12 @@ export const SYNC_RETENTION_EXECUTION_INDEX_SPECS: readonly SyncRetentionExecuti
         ascendingKey("instance_id"),
       ],
     ),
-    btreeIndex(
-      "idx_shopify_sync_execution_receipts_retention",
-      "shopify_sync_execution_receipts",
-      [ascendingKey("expires_at"), ascendingKey("id")],
-    ),
+    // NOTE: `shopify_sync_execution_receipts` is deliberately absent. Its
+    // sweep does not exist here, and neither does the relation, so declaring
+    // an index for it would leave the gate permanently closed — which is not
+    // fail-closed, it is never-open, and a gate that can never pass carries no
+    // signal about real drift. `assertSyncRetentionExecutionSpecsAreResolvable`
+    // is what keeps this from being reintroduced by accident.
     btreeIndex(
       "idx_sync_runner_leases_owner_expiry",
       "sync_runner_leases",

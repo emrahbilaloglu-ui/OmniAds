@@ -246,6 +246,42 @@ function equalStringArrays(
   );
 }
 
+/**
+ * Every declared spec must name a relation that actually exists.
+ *
+ * A spec for a table this deployment does not have can never be satisfied, so
+ * the readiness gate would refuse forever. That is not fail-closed — it is
+ * never-open, and it hides genuine drift behind a permanent failure. This turns
+ * that mistake into a loud, specific error at the schema boundary instead of an
+ * indefinitely refused sweep.
+ */
+export async function assertSyncRetentionExecutionSpecsAreResolvable(input?: {
+  timeoutMs?: number;
+}) {
+  const timeoutMs = Math.max(1, Math.min(10_000, input?.timeoutMs ?? 5_000));
+  const sql = getDbWithTimeout(timeoutMs);
+  const tables = [
+    ...new Set(SYNC_RETENTION_EXECUTION_INDEX_SPECS.map((spec) => spec.table)),
+  ];
+  const rows = await sql.query<{ table_name: string }>(
+    `SELECT requested.table_name
+     FROM UNNEST($1::text[]) AS requested(table_name)
+     WHERE to_regclass('public.' || requested.table_name) IS NULL`,
+    [tables],
+  );
+  const unresolvable = (Array.isArray(rows) ? rows : [])
+    .map((row) => row.table_name)
+    .filter((name): name is string => typeof name === "string");
+  if (unresolvable.length > 0) {
+    throw new Error(
+      `sync retention execution contract declares indexes on relations that do not exist: ${unresolvable
+        .sort()
+        .join(", ")}`,
+    );
+  }
+  return tables.length;
+}
+
 export async function assertSyncRetentionExecutionReady(input?: {
   timeoutMs?: number;
 }) {

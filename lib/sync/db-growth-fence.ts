@@ -44,6 +44,13 @@ export const FENCED_TABLES = [
   // Google warehouse table unmeasured while every Meta surface is fenced.
   "google_ads_product_daily",
   "sync_release_gates",
+  // The observation receipts. Content sharing moved the row volume, not the
+  // row COUNT: every observation that used to append a full payload row now
+  // appends a receipt. They are small per row but they are append-only and
+  // grow at exactly the old rate, so leaving them unfenced would recreate the
+  // original blind spot one layer down.
+  "meta_raw_snapshot_observations",
+  "shopify_raw_snapshot_observations",
 ] as const;
 export type FencedTable = (typeof FENCED_TABLES)[number];
 
@@ -82,6 +89,10 @@ export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
   meta_adset_config_history: 4 * 1024 ** 3,
   google_ads_product_daily: 20 * 1024 ** 3,
   sync_release_gates: 4 * 1024 ** 3,
+  // Payload-free rows, so a far smaller budget still covers many times the
+  // observation rate the payload tables used to carry.
+  meta_raw_snapshot_observations: 12 * 1024 ** 3,
+  shopify_raw_snapshot_observations: 8 * 1024 ** 3,
 };
 
 /**

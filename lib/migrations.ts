@@ -10651,6 +10651,186 @@ export async function runMigrations(options?: {
         ]);
       }
 
+      // ── Retention execution schema ────────────────────────────────────────
+      //
+      // Every index the fail-closed retention contract declares by name. The
+      // contract refuses the destructive sweep unless each exists with its
+      // declared method, ordered keys, predicate, uniqueness and key count and
+      // is valid/ready/live — so without these, retention is permanently
+      // refused rather than silently running a sequential scan while deleting.
+      //
+      // CONCURRENTLY, because these are built against live tables and a
+      // blocking index build on the largest relations is its own incident.
+      await runMigrationBatchSequentially([
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_raw_snapshots_retention
+          ON google_ads_raw_snapshots (fetched_at ASC, id ASC, partition_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_runner_leases_owner_expiry
+          ON google_ads_runner_leases (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_checkpoints_owner_expiry
+          ON google_ads_sync_checkpoints (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_checkpoints_raw_snapshot_ids
+          ON google_ads_sync_checkpoints USING GIN (raw_snapshot_ids)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_jobs_retention_active
+          ON google_ads_sync_jobs (
+            business_id,
+            provider_account_id,
+            scope,
+            start_date,
+            end_date
+          )
+          WHERE status IN ('pending', 'running')`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_partitions_owner_expiry
+          ON google_ads_sync_partitions (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_runs_partition_updated_retention
+          ON google_ads_sync_runs (partition_id, updated_at DESC, id DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_runs_retention
+          ON google_ads_sync_runs (status, updated_at ASC, id, partition_id)
+          WHERE finished_at IS NOT NULL
+            AND status IN ('succeeded', 'cancelled', 'failed')`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_google_ads_sync_runs_worker_status
+          ON google_ads_sync_runs (worker_id, status)
+          WHERE worker_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_authoritative_day_state_active_partition
+          ON meta_authoritative_day_state (active_partition_id)
+          WHERE active_partition_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_authoritative_day_state_last_run
+          ON meta_authoritative_day_state (last_run_id)
+          WHERE last_run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_authoritative_publication_pointers_run_retention
+          ON meta_authoritative_publication_pointers (published_by_run_id)
+          WHERE published_by_run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_authoritative_slice_versions_source_run_retention
+          ON meta_authoritative_slice_versions (source_run_id)
+          WHERE source_run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_raw_snapshots_run_retention
+          ON meta_raw_snapshots (run_id)
+          WHERE run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_source_manifests_raw_watermark
+          ON meta_authoritative_source_manifests (raw_snapshot_watermark)
+          WHERE raw_snapshot_watermark IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_checkpoints_owner_expiry
+          ON meta_sync_checkpoints (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_checkpoints_run_retention
+          ON meta_sync_checkpoints (run_id)
+          WHERE run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_jobs_retention_active
+          ON meta_sync_jobs (
+            business_id,
+            provider_account_id,
+            scope,
+            start_date,
+            end_date
+          )
+          WHERE status IN ('pending', 'running')`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_partitions_owner_expiry
+          ON meta_sync_partitions (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_phase_timings_run_retention
+          ON meta_sync_phase_timings (run_id)
+          WHERE run_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_runs_partition_updated_retention
+          ON meta_sync_runs (partition_id, updated_at DESC, id DESC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_runs_retention
+          ON meta_sync_runs (status, updated_at ASC, id, partition_id)
+          WHERE finished_at IS NOT NULL
+            AND status IN ('succeeded', 'cancelled', 'failed')`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_sync_runs_worker_status
+          ON meta_sync_runs (worker_id, status)
+          WHERE worker_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_provider_sync_jobs_owner_expiry
+          ON provider_sync_jobs (lock_owner, lock_expires_at)
+          WHERE lock_owner IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_sync_jobs_retention_due
+          ON provider_sync_jobs (completed_at, triggered_at)
+          WHERE business_id = '__sync_retention__'
+            AND provider = 'maintenance'
+            AND report_type = 'lifecycle_retention'
+            AND date_range_key = 'v1'`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_worker_heartbeats_retention
+          ON sync_worker_heartbeats (last_heartbeat_at ASC, worker_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_worker_heartbeats_partition_activity
+          ON sync_worker_heartbeats (last_partition_id, last_heartbeat_at DESC)
+          WHERE last_partition_id IS NOT NULL`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_reclaim_events_retention
+          ON sync_reclaim_events (created_at ASC, id)`.catch(() => {}),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_runtime_instances_retention
+          ON sync_runtime_instances (last_seen_at ASC, build_id, service, instance_id)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_runner_leases_owner_expiry
+          ON sync_runner_leases (lease_owner, lease_expires_at)
+          WHERE lease_owner IS NOT NULL`.catch(() => {}),
+        // Provenance back-references. Retention has to answer, per candidate,
+        // whether any typed warehouse row still points at it; without these the
+        // guard degrades to a sequential scan of every warehouse table on a
+        // destructive path.
+        ...[
+          "google_ads_account_daily",
+          "google_ads_campaign_daily",
+          "google_ads_ad_group_daily",
+          "google_ads_ad_daily",
+          "google_ads_keyword_daily",
+          "google_ads_search_term_daily",
+          "google_ads_asset_group_daily",
+          "google_ads_asset_daily",
+          "google_ads_audience_daily",
+          "google_ads_geo_daily",
+          "google_ads_device_daily",
+          "google_ads_product_daily",
+          "google_ads_campaign_state_history",
+          "google_ads_ad_group_state_history",
+          "google_ads_search_query_hot_daily",
+          "meta_account_daily",
+          "meta_campaign_daily",
+          "meta_adset_daily",
+          "meta_ad_daily",
+          "meta_creative_daily",
+          "meta_breakdown_daily",
+          "meta_campaign_config_history",
+          "meta_adset_config_history",
+        ].map((tableName) =>
+          sql
+            .query(
+              `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_source_snapshot_retention ON ${tableName} (source_snapshot_id) WHERE source_snapshot_id IS NOT NULL`,
+            )
+            .catch(() => {}),
+        ),
+        ...[
+          "meta_account_daily",
+          "meta_campaign_daily",
+          "meta_adset_daily",
+          "meta_ad_daily",
+          "meta_creative_daily",
+          "meta_breakdown_daily",
+          "meta_creative_media",
+        ].map((tableName) =>
+          sql
+            .query(
+              `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_${tableName}_source_run_retention ON ${tableName} (source_run_id) WHERE source_run_id IS NOT NULL`,
+            )
+            .catch(() => {}),
+        ),
+      ]);
+      // Declared by the retention column contract: the sweep reads job progress
+      // to decide what is resumable rather than re-claiming completed work.
+      await sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS progress_json JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
+        () => {},
+      );
+
       // ── Seed superadmin ───────────────────────────────────────────────────
       await sql`UPDATE users SET is_superadmin = true WHERE lower(email) = 'emrahbilaloglu@gmail.com'`;
 

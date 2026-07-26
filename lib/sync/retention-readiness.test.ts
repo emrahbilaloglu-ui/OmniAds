@@ -190,7 +190,7 @@ describe("sync retention execution readiness", () => {
         is_unique: true,
       }),
       // wrong key count
-      driftRow(indexRows, "idx_shopify_sync_execution_receipts_retention", {
+      driftRow(indexRows, "idx_shopify_raw_snapshot_observations_retention", {
         key_count: 1,
       }),
       // the observation-retention index is under the same contract as every

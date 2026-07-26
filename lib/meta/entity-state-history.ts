@@ -801,8 +801,19 @@ async function persistMetaObservationLineage(
     providerAccountId: string;
     entityType: MetaEntityType;
     completeness: MetaObservationCompleteness;
+    /** The RUN's clocks. The composite foreign key pins the edge to these. */
     observedAt: string;
     capturedAt: string;
+    /**
+     * When the relationship was ACTUALLY observed.
+     *
+     * On the coalesced path this is the current observation, not the kept run's
+     * original instant — otherwise an as-of read at the run's time returns an
+     * edge nobody had seen yet. Defaults to the run's clocks on the appending
+     * path, where they are the same thing.
+     */
+    relationshipObservedAt?: string;
+    relationshipCapturedAt?: string;
     states: ReadonlyArray<{
       entityId: string;
       adId?: string | null;
@@ -811,6 +822,8 @@ async function persistMetaObservationLineage(
     adCreativeRelationships?: MetaObservedAdCreativeRelationship[] | null;
   },
 ): Promise<number> {
+  const relationshipObservedAt = options.relationshipObservedAt ?? options.observedAt;
+  const relationshipCapturedAt = options.relationshipCapturedAt ?? options.capturedAt;
     let lineageCount = 0;
   if (options.entityType === "ad" && options.completeness !== "failed") {
     const verifiedRows = await sql<MetaVerifiedDuplicateLineageDbRow>`
@@ -875,7 +888,8 @@ async function persistMetaObservationLineage(
           observation_run_id, observation_run_entity_type,
           observation_run_completeness, action_log_id, action_type,
           action_status, action_verified_at, evidence_json, observed_at,
-          captured_at, lineage_hash, logical_lineage_key
+          captured_at, lineage_hash, logical_lineage_key,
+          relationship_observed_at, relationship_captured_at
         ) VALUES (
           ${options.binding.business_ref_id}, ${options.businessId},
           ${options.binding.provider_account_ref_id}, ${options.providerAccountId},
@@ -885,7 +899,8 @@ async function persistMetaObservationLineage(
           'duplicate', 'success', ${edge.action_verified_at}::timestamptz,
           ${JSON.stringify({ receipt: "meta_ads_action_log", matchedObservedAds: true })}::jsonb,
           ${options.observedAt}::timestamptz, ${options.capturedAt}::timestamptz, ${lineageHash},
-          ${logicalKey}
+          ${logicalKey},
+          ${relationshipObservedAt}::timestamptz, ${relationshipCapturedAt}::timestamptz
         )
         ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
           WHERE logical_lineage_key IS NOT NULL
@@ -960,7 +975,8 @@ async function persistMetaObservationLineage(
             target_ad_id, target_creative_id, lineage_type, evidence_source,
             observation_run_id, observation_run_entity_type,
             observation_run_completeness, evidence_json, observed_at,
-            captured_at, lineage_hash, logical_lineage_key
+            captured_at, lineage_hash, logical_lineage_key,
+            relationship_observed_at, relationship_captured_at
           ) VALUES (
             ${options.binding.business_ref_id}, ${options.businessId},
             ${options.binding.provider_account_ref_id}, ${options.providerAccountId},
@@ -973,7 +989,8 @@ async function persistMetaObservationLineage(
               targetProviderCreatedAt: target.createdAt,
             })}::jsonb,
             ${options.observedAt}::timestamptz, ${options.capturedAt}::timestamptz,
-            ${lineageHash}, ${logicalKey}
+            ${lineageHash}, ${logicalKey},
+            ${relationshipObservedAt}::timestamptz, ${relationshipCapturedAt}::timestamptz
           )
           ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
             WHERE logical_lineage_key IS NOT NULL
@@ -1168,13 +1185,18 @@ export async function persistMetaEntityObservation(
           providerAccountId,
           entityType,
           completeness: input.completeness,
-          // The KEPT run's clocks, not this call's. `meta_creative_lineage_edges`
-          // carries a composite foreign key onto
-          // (observation_run_id, …, observed_at, captured_at, completeness), so
+          // The KEPT run's clocks, because `meta_creative_lineage_edges` carries
+          // a composite foreign key onto
+          // (observation_run_id, …, observed_at, captured_at, completeness) and
           // an edge attached to the coalesced run must describe that run's
           // identity exactly or the write is rejected outright.
           observedAt: currentRun.observed_at,
           capturedAt: currentRun.captured_at,
+          // ...but the relationship was observed NOW. Recording the run's t1 as
+          // the observation time made an as-of read at t1 return an edge that
+          // did not exist until t2.
+          relationshipObservedAt: observedAt,
+          relationshipCapturedAt: capturedAt,
           states,
           adCreativeRelationships: input.adCreativeRelationships,
         });
@@ -1674,40 +1696,73 @@ export async function readMetaCreativeLineageAsOf(input: {
   const cutoff = normalizeCutoff(input.cutoff);
   const creativeId = input.creativeId?.trim() || null;
   const limit = normalizeLimit(input.limit);
-  const rows = creativeId
-    ? await sql<MetaCreativeLineageDbRow>`
-        SELECT
-          id, business_ref_id, business_id, provider_account_ref_id, provider_account_id,
-          source_ad_id, source_creative_id, target_ad_id, target_creative_id, lineage_type,
-          evidence_source, observation_run_id, observation_run_entity_type,
-          observation_run_completeness, action_log_id, action_type, action_status,
-          action_verified_at::text AS action_verified_at, evidence_json,
-          observed_at::text AS observed_at, captured_at::text AS captured_at, lineage_hash
-        FROM meta_creative_lineage_edges
-        WHERE business_id = ${businessId}
-          AND provider_account_id = ${providerAccountId}
-          AND (source_creative_id = ${creativeId} OR target_creative_id = ${creativeId})
-          AND observed_at <= ${cutoff}::timestamptz
-          AND captured_at <= ${cutoff}::timestamptz
-        ORDER BY observed_at DESC, captured_at DESC, id DESC
-        LIMIT ${limit}
-      `
-    : await sql<MetaCreativeLineageDbRow>`
-        SELECT
-          id, business_ref_id, business_id, provider_account_ref_id, provider_account_id,
-          source_ad_id, source_creative_id, target_ad_id, target_creative_id, lineage_type,
-          evidence_source, observation_run_id, observation_run_entity_type,
-          observation_run_completeness, action_log_id, action_type, action_status,
-          action_verified_at::text AS action_verified_at, evidence_json,
-          observed_at::text AS observed_at, captured_at::text AS captured_at, lineage_hash
-        FROM meta_creative_lineage_edges
-        WHERE business_id = ${businessId}
-          AND provider_account_id = ${providerAccountId}
-          AND observed_at <= ${cutoff}::timestamptz
-          AND captured_at <= ${cutoff}::timestamptz
-        ORDER BY observed_at DESC, captured_at DESC, id DESC
-        LIMIT ${limit}
-      `;
+  // DEDUPLICATED BY LOGICAL IDENTITY.
+  //
+  // `lineage_hash` used to include `observationRunId`, so the same logical fact
+  // — this ad reuses that creative — got a new row on every observation. The
+  // table is ~3.27 GB of those, and the collapse pass deliberately deletes
+  // nothing, so the duplicates are still there and will remain there. A reader
+  // that returns them all reports one relationship dozens of times and makes a
+  // `LIMIT` return one relationship's history instead of many relationships.
+  //
+  // `DISTINCT ON` over the logical identity — the same tuple
+  // `buildMetaCreativeLineageLogicalKey` hashes — returns the OLDEST observation
+  // of each fact, which is what lineage means: when the relationship was first
+  // seen. The physical rows stay untouched, so nothing is lost and the read
+  // stops depending on a compaction that may never run.
+  const dedupedColumns = `
+    DISTINCT ON (
+      lineage_type, source_ad_id, source_creative_id, target_ad_id,
+      target_creative_id, evidence_source, action_log_id
+    )
+    id, business_ref_id, business_id, provider_account_ref_id, provider_account_id,
+    source_ad_id, source_creative_id, target_ad_id, target_creative_id, lineage_type,
+    evidence_source, observation_run_id, observation_run_entity_type,
+    observation_run_completeness, action_log_id, action_type, action_status,
+    action_verified_at::text AS action_verified_at, evidence_json,
+    -- The EFFECTIVE observation instant. An edge recorded on a coalesced run
+    -- carries that run's clocks for the foreign key's sake, so reading
+    -- observed_at directly reports a relationship as seen at the kept run's t1
+    -- when it was not observed until t2.
+    COALESCE(relationship_observed_at, observed_at)::text AS observed_at,
+    COALESCE(relationship_captured_at, captured_at)::text AS captured_at,
+    lineage_hash
+  `;
+  const dedupedOrder = `
+    ORDER BY lineage_type, source_ad_id, source_creative_id, target_ad_id,
+             target_creative_id, evidence_source, action_log_id,
+             COALESCE(relationship_observed_at, observed_at) ASC,
+             COALESCE(relationship_captured_at, captured_at) ASC, id ASC
+  `;
+  const rows = (await sql.query(
+    creativeId
+      ? `SELECT * FROM (
+           SELECT ${dedupedColumns}
+           FROM meta_creative_lineage_edges
+           WHERE business_id = $1
+             AND provider_account_id = $2
+             AND (source_creative_id = $3 OR target_creative_id = $3)
+             AND COALESCE(relationship_observed_at, observed_at) <= $4::timestamptz
+             AND COALESCE(relationship_captured_at, captured_at) <= $4::timestamptz
+           ${dedupedOrder}
+         ) deduped
+         ORDER BY observed_at DESC, captured_at DESC, id DESC
+         LIMIT $5`
+      : `SELECT * FROM (
+           SELECT ${dedupedColumns}
+           FROM meta_creative_lineage_edges
+           WHERE business_id = $1
+             AND provider_account_id = $2
+             AND COALESCE(relationship_observed_at, observed_at) <= $3::timestamptz
+             AND COALESCE(relationship_captured_at, captured_at) <= $3::timestamptz
+           ${dedupedOrder}
+         ) deduped
+         ORDER BY observed_at DESC, captured_at DESC, id DESC
+         LIMIT $4`,
+    creativeId
+      ? [businessId, providerAccountId, creativeId, cutoff, limit]
+      : [businessId, providerAccountId, cutoff, limit],
+  )) as MetaCreativeLineageDbRow[];
   return rows.map((row): MetaCreativeLineageEdge => ({
     id: row.id,
     businessRefId: row.business_ref_id,

@@ -8667,59 +8667,144 @@ export async function upsertMetaAdSetDailyRows(
  * indistinguishable from one that had nothing to write, which is exactly how
  * this surface stayed empty without anyone noticing.
  */
+/**
+ * Advisory-lock namespace for config-history transitions.
+ *
+ * The decision "is this a new configuration?" is a read-then-insert. Two
+ * observations of the same entity arriving concurrently both read the same
+ * latest fingerprint, so an A -> B -> A sequence could lose the revert entirely:
+ * the B writer and the second A writer both see A as latest, B is written, and
+ * the return to A is skipped as unchanged. Serialising per ENTITY — not per
+ * account, which would make a large account's writes single-file — makes the
+ * decision and the insert one atomic step.
+ */
+const META_CONFIG_HISTORY_TRANSITION_LOCK_NAMESPACE = 0x4d434648;
+
+/** A config receipt that is complete enough to record a transition from. */
+export interface MetaConfigReceiptEvidence {
+  /** The provider returned every page for this level. */
+  complete: boolean;
+  /** When THIS level's response was observed. */
+  observedAt: string;
+}
+
 export async function appendMetaCurrentConfigHistory(input: {
   campaignRows: MetaCampaignDailyRow[];
   adsetRows: MetaAdSetDailyRow[];
-  /** When the provider actually returned this configuration. */
-  observedAt: string;
-}): Promise<{ campaignRowsWritten: number; adsetRowsWritten: number }> {
-  const observedAt = normalizeTimestamp(input.observedAt);
-  if (!observedAt) {
+  /**
+   * The campaign receipt. Its `observedAt` stamps campaign rows only.
+   *
+   * Campaign and adset configuration come from two separate provider responses,
+   * observed at two different instants. Stamping the campaign receipt's
+   * timestamp onto adset history recorded when the CAMPAIGNS were fetched as
+   * when the AD SETS were — and `captured_at` is part of the arbiter, so the
+   * error decides whether a genuine adset transition coalesces or appends.
+   */
+  campaignReceipt: MetaConfigReceiptEvidence;
+  /** The adset receipt. Its `observedAt` stamps adset rows only. */
+  adsetReceipt: MetaConfigReceiptEvidence;
+}): Promise<{
+  campaignRowsWritten: number;
+  adsetRowsWritten: number;
+  campaignSkippedIncompleteReceipt: boolean;
+  adsetSkippedIncompleteReceipt: boolean;
+}> {
+  const campaignObservedAt = normalizeTimestamp(input.campaignReceipt.observedAt);
+  const adsetObservedAt = normalizeTimestamp(input.adsetReceipt.observedAt);
+  if (!campaignObservedAt || !adsetObservedAt) {
     throw new Error(
-      `meta_current_config_history_requires_observed_at: ${String(input.observedAt)}`,
+      `meta_current_config_history_requires_observed_at: campaign=${String(
+        input.campaignReceipt.observedAt,
+      )} adset=${String(input.adsetReceipt.observedAt)}`,
     );
   }
   if (input.campaignRows.length === 0 && input.adsetRows.length === 0) {
-    return { campaignRowsWritten: 0, adsetRowsWritten: 0 };
+    return {
+      campaignRowsWritten: 0,
+      adsetRowsWritten: 0,
+      campaignSkippedIncompleteReceipt: false,
+      adsetSkippedIncompleteReceipt: false,
+    };
   }
   await assertMetaMutationTablesReady("meta_warehouse");
 
-  const campaignRows = input.campaignRows.map((row) => ({
-    ...row,
-    configObservedAt: observedAt,
-  }));
-  const adsetRows = input.adsetRows.map((row) => ({
-    ...row,
-    configObservedAt: observedAt,
-  }));
+  // A PARTIAL receipt is not evidence of a configuration change.
+  //
+  // If the provider returned three of five pages, the entities on the missing
+  // pages are absent from `rows` — and absence is indistinguishable from
+  // deletion to anything reading this history later. Worse, a partial page set
+  // whose entities happen to be unchanged writes nothing and looks identical to
+  // a complete unchanged observation. Config history therefore records only
+  // complete observations, and says so when it declines.
+  const campaignRows = input.campaignReceipt.complete
+    ? input.campaignRows.map((row) => ({ ...row, configObservedAt: campaignObservedAt }))
+    : [];
+  const adsetRows = input.adsetReceipt.complete
+    ? input.adsetRows.map((row) => ({ ...row, configObservedAt: adsetObservedAt }))
+    : [];
 
   let campaignRowsWritten = 0;
   for (const chunk of chunkRows(campaignRows, 200)) {
-    const referenceContext = await resolveMetaChunkReferenceContext(
-      chunk.map((row) => ({
-        businessId: row.businessId,
-        providerAccountId: row.providerAccountId,
-        accountCurrency: row.accountCurrency,
-        accountTimezone: row.accountTimezone,
-      })),
-    );
-    await appendMetaCampaignConfigHistoryRows(chunk, referenceContext);
-    campaignRowsWritten += chunk.length;
+    campaignRowsWritten += await runDbTransaction(async () => {
+      await lockMetaConfigHistoryEntities(
+        chunk.map((row) => `campaign:${row.businessId}:${row.providerAccountId}:${row.campaignId}`),
+      );
+      const referenceContext = await resolveMetaChunkReferenceContext(
+        chunk.map((row) => ({
+          businessId: row.businessId,
+          providerAccountId: row.providerAccountId,
+          accountCurrency: row.accountCurrency,
+          accountTimezone: row.accountTimezone,
+        })),
+      );
+      // EXACT count, from RETURNING. Reporting `chunk.length` counted rows the
+      // arbiter rejected as though they had been written, so a surface that
+      // never appended anything still reported progress.
+      return appendMetaCampaignConfigHistoryRows(chunk, referenceContext);
+    });
   }
   let adsetRowsWritten = 0;
   for (const chunk of chunkRows(adsetRows, 200)) {
-    const referenceContext = await resolveMetaChunkReferenceContext(
-      chunk.map((row) => ({
-        businessId: row.businessId,
-        providerAccountId: row.providerAccountId,
-        accountCurrency: row.accountCurrency,
-        accountTimezone: row.accountTimezone,
-      })),
-    );
-    await appendMetaAdSetConfigHistoryRows(chunk, referenceContext);
-    adsetRowsWritten += chunk.length;
+    adsetRowsWritten += await runDbTransaction(async () => {
+      await lockMetaConfigHistoryEntities(
+        chunk.map((row) => `adset:${row.businessId}:${row.providerAccountId}:${row.adsetId}`),
+      );
+      const referenceContext = await resolveMetaChunkReferenceContext(
+        chunk.map((row) => ({
+          businessId: row.businessId,
+          providerAccountId: row.providerAccountId,
+          accountCurrency: row.accountCurrency,
+          accountTimezone: row.accountTimezone,
+        })),
+      );
+      return appendMetaAdSetConfigHistoryRows(chunk, referenceContext);
+    });
   }
-  return { campaignRowsWritten, adsetRowsWritten };
+  return {
+    campaignRowsWritten,
+    adsetRowsWritten,
+    campaignSkippedIncompleteReceipt: !input.campaignReceipt.complete,
+    adsetSkippedIncompleteReceipt: !input.adsetReceipt.complete,
+  };
+}
+
+/**
+ * Take one transaction-scoped advisory lock per entity, in a stable order.
+ *
+ * Sorted so two writers holding overlapping entity sets acquire them in the
+ * same sequence and cannot deadlock against each other.
+ */
+async function lockMetaConfigHistoryEntities(keys: string[]) {
+  const sql = getDb();
+  const ordered = Array.from(new Set(keys)).sort();
+  for (const key of ordered) {
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        ${META_CONFIG_HISTORY_TRANSITION_LOCK_NAMESPACE}::int,
+        hashtext(${key})
+      )
+    `;
+  }
 }
 
 export async function replaceMetaAccountDailySlice(input: {
@@ -9098,9 +9183,10 @@ async function appendMetaCampaignConfigHistoryRows(
     businessRefIds: Map<string, string>;
     providerAccountRefIds: Map<string, string>;
   },
-) {
-  if (rows.length === 0) return;
+): Promise<number> {
+  if (rows.length === 0) return 0;
   const sql = getDb();
+  let inserted = 0;
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
     const filtered = chunk
@@ -9159,7 +9245,7 @@ async function appendMetaCampaignConfigHistoryRows(
       .join(", ");
 
     if (!placeholders) continue;
-    await sql.query(
+    const insertedRows = (await sql.query(
       `
         INSERT INTO meta_campaign_config_history (
           business_id,
@@ -9191,10 +9277,13 @@ async function appendMetaCampaignConfigHistoryRows(
         )
         VALUES ${placeholders}
         ON CONFLICT (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at) DO NOTHING
+        RETURNING id
       `,
       values,
-    );
+    )) as Array<{ id: string }> | undefined;
+    inserted += Array.isArray(insertedRows) ? insertedRows.length : 0;
   }
+  return inserted;
 }
 
 async function upsertMetaAdSetDimensionRows(
@@ -9271,9 +9360,10 @@ async function appendMetaAdSetConfigHistoryRows(
     businessRefIds: Map<string, string>;
     providerAccountRefIds: Map<string, string>;
   },
-) {
-  if (rows.length === 0) return;
+): Promise<number> {
+  if (rows.length === 0) return 0;
   const sql = getDb();
+  let inserted = 0;
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
     const filtered = chunk
@@ -9349,7 +9439,7 @@ async function appendMetaAdSetConfigHistoryRows(
     }).join(", ");
 
     if (!placeholders) continue;
-    await sql.query(
+    const insertedRows = (await sql.query(
       `
         INSERT INTO meta_adset_config_history (
           business_id,
@@ -9383,10 +9473,13 @@ async function appendMetaAdSetConfigHistoryRows(
         )
         VALUES ${placeholders}
         ON CONFLICT (business_id, provider_account_id, adset_id, config_fingerprint, captured_at) DO NOTHING
+        RETURNING id
       `,
       values,
-    );
+    )) as Array<{ id: string }> | undefined;
+    inserted += Array.isArray(insertedRows) ? insertedRows.length : 0;
   }
+  return inserted;
 }
 
 async function upsertMetaAdDimensionRows(

@@ -91,9 +91,12 @@ vi.mock("@/lib/meta/warehouse", () => ({
   upsertMetaAdDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaAdSetDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaCampaignDailyRows: vi.fn().mockResolvedValue(undefined),
-  appendMetaCurrentConfigHistory: vi
-    .fn()
-    .mockResolvedValue({ campaignRowsWritten: 0, adsetRowsWritten: 0 }),
+  appendMetaCurrentConfigHistory: vi.fn().mockResolvedValue({
+    campaignRowsWritten: 0,
+    adsetRowsWritten: 0,
+    campaignSkippedIncompleteReceipt: false,
+    adsetSkippedIncompleteReceipt: false,
+  }),
   updateMetaAuthoritativeSliceVersion: vi
     .fn()
     .mockImplementation(async (input) => input),
@@ -332,6 +335,8 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.appendMetaCurrentConfigHistory).mockResolvedValue({
       campaignRowsWritten: 0,
       adsetRowsWritten: 0,
+      campaignSkippedIncompleteReceipt: false,
+      adsetSkippedIncompleteReceipt: false,
     });
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
       new Map(),
@@ -586,6 +591,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -711,6 +740,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -767,12 +820,22 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     const currentConfigCall = vi.mocked(warehouse.appendMetaCurrentConfigHistory)
       .mock.calls[0]![0];
     expect(currentConfigCall.campaignRows.length).toBeGreaterThan(0);
-    // A REAL observation timestamp from the receipt, not a synthetic midnight
-    // and not a clock read at write time. captured_at is part of the arbiter.
-    expect(currentConfigCall.observedAt).toMatch(
+    // A REAL observation timestamp from EACH level's own receipt, not a
+    // synthetic midnight, not a clock read at write time, and not one level's
+    // timestamp stamped onto the other. captured_at is part of the arbiter.
+    expect(currentConfigCall.campaignReceipt.observedAt).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
     );
-    expect(currentConfigCall.observedAt).not.toContain("T00:00:00.000Z");
+    expect(currentConfigCall.campaignReceipt.observedAt).not.toContain(
+      "T00:00:00.000Z",
+    );
+    expect(currentConfigCall.adsetReceipt.observedAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    );
+    // Completeness travels with the receipt: a partial page set is missing
+    // entities, and absence reads as deletion to anything downstream.
+    expect(currentConfigCall.campaignReceipt.complete).toBe(true);
+    expect(currentConfigCall.adsetReceipt.complete).toBe(true);
     const campaignObservationCall = vi
       .mocked(entityStateHistory.persistMetaEntityObservation)
       .mock.calls.map(([call]) => call)
@@ -848,6 +911,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           JSON.stringify({
             data: [
               { id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
             ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -1069,6 +1156,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -1155,6 +1266,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         });
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
@@ -1266,6 +1401,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         });
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
@@ -1397,6 +1556,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -1475,6 +1658,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         });
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
       }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
@@ -1583,6 +1790,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 optimization_goal: "omni_purchase",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
                 bid_amount: "5.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
               },
             ],
           }),
@@ -1748,6 +1979,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -1870,6 +2125,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -1984,6 +2263,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -2081,6 +2384,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 daily_budget: "25",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
                 bid_amount: "7.5",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
               },
             ],
           }),
@@ -2215,6 +2542,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -2321,6 +2672,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 status: "ACTIVE",
                 daily_budget: "10",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
               },
             ],
           }),
@@ -2463,6 +2838,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
         // Current inventory is fetched as ONE account-current unit: campaigns,
         // ad sets and ads together. A fixture that answers only two of the three
@@ -2574,6 +2973,30 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
                 status: "ACTIVE",
                 daily_budget: "25",
                 bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
               },
             ],
           }),
@@ -2702,6 +3125,30 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
                 actions: [],
                 action_values: [],
                 purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        // The ad-set leg of the account-current unit. Without it the adset
+        // receipt is INCOMPLETE, and an incomplete receipt is not evidence of a
+        // configuration — the fixture would be testing the refusal path while
+        // claiming to test the write path.
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                updated_time: "2026-07-01T09:30:00.000Z",
+                daily_budget: "25",
+                optimization_goal: "OFFSITE_CONVERSIONS",
+                bid_strategy: "LOWEST_COST_WITHOUT_CAP",
               },
             ],
           }),

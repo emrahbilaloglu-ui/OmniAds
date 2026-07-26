@@ -1,8 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbWithTimeout = vi.fn();
+const getDb = vi.fn();
 
-vi.mock("@/lib/db", () => ({ getDbWithTimeout }));
+/**
+ * A transaction helper that behaves like the real one: it pins ONE client for
+ * the callback, commits on resolve and rolls back on throw.
+ *
+ * The probe used to run `BEGIN`, the INSERTs and `ROLLBACK` through the POOLED
+ * executor, where each statement may land on a different backend — so the
+ * INSERTs autocommitted and the BEGIN leaked. Modelling commit/rollback here is
+ * what lets the tests below assert that the probe can never commit.
+ */
+const transactionLog: string[] = [];
+const runDbTransaction = vi.fn(async (run: () => Promise<unknown>) => {
+  transactionLog.push("BEGIN");
+  try {
+    const result = await run();
+    transactionLog.push("COMMIT");
+    return result;
+  } catch (error) {
+    transactionLog.push("ROLLBACK");
+    throw error;
+  }
+});
+
+vi.mock("@/lib/db", () => ({ getDbWithTimeout, getDb, runDbTransaction }));
 
 const {
   verifyMigrationSchemaContract,
@@ -125,12 +148,16 @@ function healthyCatalog(damage: {
     return [];
   });
   getDbWithTimeout.mockReturnValue({ query } as never);
+  // The SAME query function, so "pinned client" is modelled honestly: anything
+  // the probe issues is visible on the one connection the transaction owns.
+  getDb.mockReturnValue({ query } as never);
   return query;
 }
 
 describe("verifyMigrationSchemaContract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    transactionLog.length = 0;
   });
 
   it("passes on a schema that satisfies every declared contract", async () => {
@@ -201,12 +228,33 @@ describe("verifyMigrationSchemaContract", () => {
     );
   });
 
-  it("rolls back the compatibility write even when it fails", async () => {
-    const query = healthyCatalog({ writerThrows: true });
-    await verifyMigrationSchemaContract().catch(() => undefined);
-    expect(query.mock.calls.some(([text]) => String(text).includes("ROLLBACK"))).toBe(
-      true,
+  it("runs the compatibility probe on a PINNED client and never commits it", async () => {
+    // Success path. The probe writes `__verify__` rows into three production
+    // tables; the only thing that keeps them out of the database is that the
+    // transaction rolls back, so a COMMIT here is residue in production.
+    healthyCatalog();
+    await verifyMigrationSchemaContract();
+    expect(runDbTransaction).toHaveBeenCalledTimes(1);
+    expect(transactionLog).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(transactionLog).not.toContain("COMMIT");
+  });
+
+  it("still rolls back when a probe statement fails, and reports the failure", async () => {
+    healthyCatalog({ writerThrows: true });
+    await expect(verifyMigrationSchemaContract()).rejects.toThrow(
+      /writer_compatibility/,
     );
+    expect(transactionLog).toEqual(["BEGIN", "ROLLBACK"]);
+  });
+
+  it("issues no bare BEGIN/ROLLBACK through the pooled executor", async () => {
+    // The exact defect: `sql.query("BEGIN")` on a pool opens a transaction on
+    // whichever backend answered and leaves it there.
+    const query = healthyCatalog();
+    await verifyMigrationSchemaContract();
+    const statements = query.mock.calls.map(([text]) => String(text).trim());
+    expect(statements.some((text) => /^BEGIN\b/i.test(text))).toBe(false);
+    expect(statements.some((text) => /^ROLLBACK\b/i.test(text))).toBe(false);
   });
 
   it("refuses a same-name repair-plan arbiter keyed on a SUBSET of the columns", async () => {

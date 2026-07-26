@@ -2,6 +2,7 @@ import { getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { assertSyncRetentionExecutionReady } from "@/lib/sync/retention-readiness";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { runSyncGateRetentionPass } from "@/lib/sync/release-gates";
 import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
@@ -203,6 +204,22 @@ export interface SyncRetentionSummary {
   metaCheckpointsDeleted: number;
   workerHeartbeatsDeleted: number;
   reclaimEventsDeleted: number;
+  /**
+   * The `sync_release_gates` containment pass.
+   *
+   * Reported separately because it has its OWN dry-run/execute decision — it
+   * proposes candidates and reports them even while the retention lane keeps it
+   * from deleting anything, which is the only way to see whether the table's
+   * growth is actually contained before enabling deletion.
+   */
+  releaseGates: {
+    mode: "execute" | "dry_run";
+    batches: number;
+    examined: number;
+    candidates: number;
+    deleted: number;
+    completed: boolean;
+  };
   skippedDueToActiveLease?: boolean;
 }
 
@@ -227,6 +244,14 @@ function emptyRetentionSummary(
     metaCheckpointsDeleted: 0,
     workerHeartbeatsDeleted: 0,
     reclaimEventsDeleted: 0,
+    releaseGates: {
+      mode: "dry_run",
+      batches: 0,
+      examined: 0,
+      candidates: 0,
+      deleted: 0,
+      completed: true,
+    },
     skippedDueToActiveLease: false,
     ...input,
   };
@@ -542,6 +567,22 @@ export async function pruneSyncLifecycleData(input?: {
       batchSize,
     );
 
+    // The release-gate containment pass. `pruneSyncGateRecords` had no caller at
+    // all, so the 1.35 GB stayed 1.35 GB however correct the batch logic was.
+    // It runs here, under the retention lease that already serialises this
+    // sweep, and it makes its own dry-run/execute decision — so with the
+    // retention lane off it reports what it WOULD remove and removes nothing.
+    const releaseGates = await runSyncGateRetentionPass({
+      maxAgeDays: envNumber("SYNC_RELEASE_GATE_RETENTION_DAYS", 90),
+      batchLimit: envNumber("SYNC_RELEASE_GATE_RETENTION_BATCH", 2_000),
+      maxBatches: envNumber("SYNC_RELEASE_GATE_RETENTION_MAX_BATCHES", 20),
+    }).catch((error: unknown) => {
+      console.error("[sync-retention] release_gate_pass_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+
     return emptyRetentionSummary({
       googleRawSnapshotsDeleted,
       googleCheckpointsDeleted,
@@ -552,6 +593,18 @@ export async function pruneSyncLifecycleData(input?: {
       metaCheckpointsDeleted,
       workerHeartbeatsDeleted,
       reclaimEventsDeleted,
+      ...(releaseGates
+        ? {
+            releaseGates: {
+              mode: releaseGates.mode,
+              batches: releaseGates.batches,
+              examined: releaseGates.examined,
+              candidates: releaseGates.candidates,
+              deleted: releaseGates.deleted,
+              completed: releaseGates.completed,
+            },
+          }
+        : {}),
     });
   } finally {
     await releaseSyncRunnerLease({

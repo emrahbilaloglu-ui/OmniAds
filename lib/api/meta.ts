@@ -2717,7 +2717,14 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
    * ever set from a real receipt; there is no fallback, because a fabricated
    * timestamp is precisely the fact this table exists to record.
    */
-  let currentConfigObservedAt: string | null = null;
+  let currentCampaignConfigReceipt: {
+    complete: boolean;
+    observedAt: string;
+  } | null = null;
+  let currentAdsetConfigReceipt: {
+    complete: boolean;
+    observedAt: string;
+  } | null = null;
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -2898,15 +2905,23 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           }),
         ]);
       }
-      // The real observation time of this configuration, taken from the receipt
-      // rather than from a clock at write time. `lastResponseObservedAt` is when
-      // the final page came back; `completedAt` is the receipt's own completion.
-      currentConfigObservedAt =
-        campaignReceipt.lastResponseObservedAt ??
-        campaignReceipt.completedAt ??
-        adsetReceipt.lastResponseObservedAt ??
-        adsetReceipt.completedAt ??
-        null;
+      // The real observation time of EACH level's configuration, taken from its
+      // OWN receipt. Campaign and adset config come from two separate responses
+      // observed at two different instants; stamping the campaign receipt's
+      // timestamp onto adset history recorded when the campaigns were fetched as
+      // when the ad sets were, and `captured_at` is part of the arbiter.
+      //
+      // Completeness travels with it: a partial page set is missing entities,
+      // and absence is indistinguishable from deletion to a later reader.
+      currentCampaignConfigReceipt = {
+        complete: campaignReceipt.complete,
+        observedAt:
+          campaignReceipt.lastResponseObservedAt ?? campaignReceipt.completedAt,
+      };
+      currentAdsetConfigReceipt = {
+        complete: adsetReceipt.complete,
+        observedAt: adsetReceipt.lastResponseObservedAt ?? adsetReceipt.completedAt,
+      };
       campaignConfigs = new Map(
         campaignReceipt.rows.map((campaign) => [campaign.id, campaign]),
       );
@@ -3820,7 +3835,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   // The write is driven off the same rows the daily path builds and stamped with
   // the receipt's real observation time, so it shares the daily path's canonical
   // semantic records and fingerprint. Failures propagate.
-  let currentConfigHistoryWritten = { campaignRowsWritten: 0, adsetRowsWritten: 0 };
+  let currentConfigHistoryWritten = {
+    campaignRowsWritten: 0,
+    adsetRowsWritten: 0,
+    campaignSkippedIncompleteReceipt: false,
+    adsetSkippedIncompleteReceipt: false,
+  };
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -3832,7 +3852,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     stage: "syncMetaAccountCoreWarehouseDay.append_current_config_history",
     run: async () => {
       if (!currentEvidence.persistsCurrentConfigEvidence) return;
-      if (!currentConfigObservedAt) {
+      if (!currentCampaignConfigReceipt || !currentAdsetConfigReceipt) {
         // Current evidence was permitted but no receipt recorded an observation
         // time. That is a contradiction, not a reason to invent one.
         throw new Error(
@@ -3843,7 +3863,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       currentConfigHistoryWritten = await appendMetaCurrentConfigHistory({
         campaignRows,
         adsetRows,
-        observedAt: currentConfigObservedAt,
+        campaignReceipt: currentCampaignConfigReceipt,
+        adsetReceipt: currentAdsetConfigReceipt,
       });
     },
   });

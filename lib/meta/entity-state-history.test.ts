@@ -32,7 +32,17 @@ function createSqlMock(rows: unknown[] = []) {
       queries.push(joinTemplate(strings, values));
       return rows;
     }),
-    { query: vi.fn(), queries },
+    {
+      // Parameterised form. The lineage as-of read is parameterised because it
+      // deduplicates on logical identity, and a template-only mock would make
+      // that read silently return nothing.
+      query: vi.fn(async (text: string, params?: unknown[]) => {
+        queries.push(text);
+        void params;
+        return rows;
+      }),
+      queries,
+    },
   );
   return sql;
 }
@@ -346,11 +356,37 @@ describe("Meta entity state history", () => {
       actionVerifiedAt: null,
     });
     const query = sql.queries.join("\n");
-    expect(query).toContain("provider_account_id = act_1");
+    // Parameterised now, so identity is asserted on the predicate shape and the
+    // bound values rather than on interpolated text.
+    expect(query).toContain("provider_account_id = $2");
     expect(query).toContain(
-      "source_creative_id = creative_1 OR target_creative_id = creative_1",
+      "source_creative_id = $3 OR target_creative_id = $3",
     );
-    expect(query).toContain("LIMIT 20");
+    expect(sql.query.mock.calls[0]?.[1]).toEqual([
+      "biz_1",
+      "act_1",
+      "creative_1",
+      "2026-07-12T04:00:00.000Z",
+      20,
+    ]);
+    // The logical-identity dedupe. ~3.27 GB of this table is the same fact
+    // recorded once per observation, and the collapse pass deliberately deletes
+    // nothing — so a reader that returns them all reports one relationship
+    // dozens of times and spends its LIMIT on a single fact.
+    expect(query).toContain("DISTINCT ON");
+    expect(query).toContain("lineage_type, source_ad_id, source_creative_id");
+    // The OLDEST observation of each fact survives: lineage records when a
+    // relationship was first seen.
+    expect(query).toContain(
+      "COALESCE(relationship_observed_at, observed_at) ASC",
+    );
+    // The EFFECTIVE observation instant, not the run's. An edge recorded on a
+    // coalesced run carries that run's clocks for the foreign key's sake, so a
+    // cutoff read on `observed_at` alone reveals a relationship at the kept
+    // run's t1 that was not observed until t2.
+    expect(query).toContain(
+      "COALESCE(relationship_observed_at, observed_at) <= $4::timestamptz",
+    );
   });
 
   it("rejects invalid cutoff and limits before a DB query", async () => {

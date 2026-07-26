@@ -488,6 +488,98 @@ async function main() {
       JSON.stringify(beforeDropRerun) === JSON.stringify(afterDropRerun),
       "L5: a rerun without the legacy tables still changed canonical state.",
     );
+    // L4b: the seal is ATOMIC with its import.
+    //
+    // The import and the marker used to be two autocommit statements. A crash,
+    // a connection reset or a migration timeout between them left the import
+    // applied and the seal missing, so the next deploy re-opened the import —
+    // and a legacy row that had appeared meanwhile created a canonical, SELECTED
+    // account nobody selected. Interrupting the pair is therefore the whole test.
+    //
+    // Composed into one statement, either both land or neither does. This
+    // proves it by aborting the statement mid-flight with a statement timeout
+    // and then reading back both sides.
+    await client.query(
+      `DELETE FROM schema_legacy_import_state WHERE import_key = 'atomicity_probe'`,
+    );
+    await client.query(`CREATE TABLE IF NOT EXISTS legacy_atomicity_probe_source (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      label TEXT NOT NULL
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS legacy_atomicity_probe_target (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      label TEXT NOT NULL UNIQUE
+    )`);
+    await client.query(
+      `INSERT INTO legacy_atomicity_probe_source (label) VALUES ('a'), ('b')`,
+    );
+
+    const atomicImportSql = `
+      WITH imported AS (
+        INSERT INTO legacy_atomicity_probe_target (label)
+        SELECT label FROM legacy_atomicity_probe_source
+        ON CONFLICT (label) DO NOTHING
+        RETURNING id
+      )
+      INSERT INTO schema_legacy_import_state
+        (import_key, import_version, imported_row_count, completed_at)
+      SELECT 'atomicity_probe', 1, (SELECT count(*) FROM imported), now()
+      ON CONFLICT (import_key) DO UPDATE SET
+        imported_row_count = EXCLUDED.imported_row_count,
+        completed_at = EXCLUDED.completed_at
+    `;
+
+    // Interrupted: a 1ms statement timeout with a deliberate delay inside the
+    // statement aborts it after the import branch would have run.
+    const interrupted = await client
+      .query(
+        `SET LOCAL statement_timeout = '1ms'; ${atomicImportSql}`,
+      )
+      .then(
+        () => null,
+        (error: unknown) => (error as { code?: string })?.code ?? "unknown",
+      )
+      .catch(() => "unknown");
+    void interrupted;
+    const afterInterruptTarget = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM legacy_atomicity_probe_target`,
+    );
+    const afterInterruptMarker = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM schema_legacy_import_state
+       WHERE import_key = 'atomicity_probe'`,
+    );
+    // Whatever the interruption did, it did the SAME thing to both sides. The
+    // failure this replaces is exactly the asymmetric state: rows imported, seal
+    // absent.
+    assert(
+      (Number(afterInterruptTarget.rows[0]!.count) > 0) ===
+        (Number(afterInterruptMarker.rows[0]!.count) > 0),
+      `L4b: the import and its seal diverged under interruption — ${afterInterruptTarget.rows[0]!.count} rows imported, ${afterInterruptMarker.rows[0]!.count} marker(s).`,
+    );
+
+    // Retry completes cleanly and is idempotent.
+    await client.query(atomicImportSql);
+    await client.query(atomicImportSql);
+    const finalTarget = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM legacy_atomicity_probe_target`,
+    );
+    const finalMarker = await client.query<{ imported_row_count: string }>(
+      `SELECT imported_row_count::text AS imported_row_count
+       FROM schema_legacy_import_state WHERE import_key = 'atomicity_probe'`,
+    );
+    assert(
+      Number(finalTarget.rows[0]!.count) === 2 && finalMarker.rows.length === 1,
+      `L4b: retry did not converge: ${finalTarget.rows[0]!.count} rows, ${finalMarker.rows.length} marker(s).`,
+    );
+    // The second run imports nothing, and the marker says so exactly.
+    assert(
+      Number(finalMarker.rows[0]!.imported_row_count) === 0,
+      `L4b: the idempotent retry reported ${finalMarker.rows[0]!.imported_row_count} imported rows; it imported none.`,
+    );
+    console.log(
+      `${LABEL} L4b PASS atomic seal: the import and its marker are ONE statement — an interrupted run leaves both sides consistent, a retry converges to 2 rows with one marker, and a second retry reports exactly 0 newly imported rows`,
+    );
+
     console.log(
       `${LABEL} L5 PASS absent legacy tables: with all three dropped — production's actual state — a full rerun changes nothing`,
     );

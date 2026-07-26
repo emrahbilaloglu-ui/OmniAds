@@ -693,15 +693,25 @@ export async function readLatestSyncGateRowForKind(input: {
  *   - it deletes at most `limit` rows per call, so a first run on a table with
  *     millions of stale rows cannot become an unbounded delete.
  */
+export interface SyncGateRetentionCursor {
+  emittedAt: string;
+  id: string;
+}
+
 export async function pruneSyncGateRecords(input?: {
   maxAgeDays?: number;
   limit?: number;
   forceExecute?: boolean;
   env?: Readonly<Record<string, string | undefined>>;
+  /** Resume point from a previous batch's `nextCursor`. */
+  cursor?: SyncGateRetentionCursor | null;
 }): Promise<{
   mode: "execute" | "dry_run";
+  /** Rows the scan looked at, whether or not they were deletable. */
+  examined: number;
   candidates: number;
   deleted: number;
+  nextCursor: SyncGateRetentionCursor | null;
   laneReason: string;
 }> {
   await assertGateTablesReady("sync_release_gates:prune");
@@ -731,35 +741,59 @@ export async function pruneSyncGateRecords(input?: {
   // the 1.35 GB on every tick and the LIMIT bounded only the DELETE. It also
   // grouped on `COALESCE(provider_scope, 'meta')`, which put legacy Google rows
   // in the Meta retention group.
+  // ...and it makes deterministic PROGRESS even when a batch deletes nothing.
+  //
+  // `LIMIT` is applied BEFORE the "is this current evidence?" filter, so a batch
+  // whose oldest N rows all happen to be the newest row for their own key
+  // returns zero candidates. Without a cursor the next call re-reads exactly the
+  // same N rows and returns zero again — retention starves permanently at the
+  // head of the table, which on this table is precisely the shape a build with
+  // one evaluation produces. The scan therefore resumes from the last row it
+  // EXAMINED, not from the last row it deleted.
   const candidateSql = `
     WITH aged AS (
       SELECT id, build_id, environment, gate_kind, provider_scope, emitted_at
       FROM sync_release_gates
       WHERE emitted_at < now() - make_interval(days => $1)
+        AND ($3::timestamptz IS NULL OR (emitted_at, id) > ($3::timestamptz, $4::uuid))
       ORDER BY emitted_at ASC, id ASC
       LIMIT $2
     )
-    SELECT aged.id
+    SELECT aged.id,
+           aged.emitted_at::text AS emitted_at,
+           EXISTS (
+             SELECT 1
+             FROM sync_release_gates newer
+             WHERE newer.build_id = aged.build_id
+               AND newer.environment = aged.environment
+               AND newer.gate_kind = aged.gate_kind
+               AND newer.provider_scope = aged.provider_scope
+               AND (newer.emitted_at, newer.id) > (aged.emitted_at, aged.id)
+           ) AS superseded
     FROM aged
-    WHERE EXISTS (
-      SELECT 1
-      FROM sync_release_gates newer
-      WHERE newer.build_id = aged.build_id
-        AND newer.environment = aged.environment
-        AND newer.gate_kind = aged.gate_kind
-        AND newer.provider_scope = aged.provider_scope
-        AND (newer.emitted_at, newer.id) > (aged.emitted_at, aged.id)
-    )
+    ORDER BY aged.emitted_at ASC, aged.id ASC
   `;
-  const candidates = (await sql.query(candidateSql, [maxAgeDays, limit])) as Array<{
-    id: string;
-  }>;
+  const examined = (await sql.query(candidateSql, [
+    maxAgeDays,
+    limit,
+    input?.cursor?.emittedAt ?? null,
+    input?.cursor?.id ?? null,
+  ])) as Array<{ id: string; emitted_at: string; superseded: boolean }>;
+
+  const candidates = examined.filter((row) => row.superseded);
+  const last = examined[examined.length - 1];
+  const nextCursor =
+    examined.length === limit && last
+      ? { emittedAt: last.emitted_at, id: last.id }
+      : null;
 
   if (decision.mode !== "execute" || candidates.length === 0) {
     return {
       mode: decision.mode,
+      examined: examined.length,
       candidates: candidates.length,
       deleted: 0,
+      nextCursor,
       laneReason: decision.laneAdmission.reason,
     };
   }
@@ -770,9 +804,97 @@ export async function pruneSyncGateRecords(input?: {
   )) as Array<{ id: string }>;
   return {
     mode: decision.mode,
+    examined: examined.length,
     candidates: candidates.length,
     deleted: deleted.length,
+    nextCursor,
     laneReason: decision.laneAdmission.reason,
+  };
+}
+
+/**
+ * The production retention pass for `sync_release_gates`.
+ *
+ * `pruneSyncGateRecords` had no caller at all: the table's containment existed
+ * as a function nothing invoked, so the 1.35 GB stayed 1.35 GB no matter how
+ * correct the single-batch logic was. This is the loop that actually runs it,
+ * and it is the only thing that ever will.
+ *
+ * Bounded (a batch cap and a row cap per call), resumable (an explicit keyset
+ * cursor carried between batches so a pass that stops mid-table resumes exactly
+ * where it left off), and DEFAULT-OFF: `resolveDestructiveRetentionMode` keeps
+ * every batch in dry-run while the retention lane is disabled, so the caller
+ * below reports what it WOULD delete and deletes nothing.
+ */
+export async function runSyncGateRetentionPass(input?: {
+  maxAgeDays?: number;
+  batchLimit?: number;
+  maxBatches?: number;
+  forceExecute?: boolean;
+  env?: Readonly<Record<string, string | undefined>>;
+}): Promise<{
+  mode: "execute" | "dry_run";
+  batches: number;
+  examined: number;
+  candidates: number;
+  deleted: number;
+  completed: boolean;
+  nextCursor: SyncGateRetentionCursor | null;
+  laneReason: string;
+}> {
+  const maxBatches = Math.max(1, Math.min(1_000, input?.maxBatches ?? 20));
+  let cursor: SyncGateRetentionCursor | null = null;
+  let batches = 0;
+  let examined = 0;
+  let candidates = 0;
+  let deleted = 0;
+  let mode: "execute" | "dry_run" = "dry_run";
+  let laneReason = "not_evaluated";
+
+  for (; batches < maxBatches; batches += 1) {
+    const batch = await pruneSyncGateRecords({
+      maxAgeDays: input?.maxAgeDays,
+      limit: input?.batchLimit,
+      forceExecute: input?.forceExecute,
+      env: input?.env,
+      cursor,
+    });
+    mode = batch.mode;
+    laneReason = batch.laneReason;
+    examined += batch.examined;
+    candidates += batch.candidates;
+    deleted += batch.deleted;
+
+    // In EXECUTE mode a deleted batch shrinks the head of the table, so the
+    // cursor is deliberately not advanced past rows that are now gone: the next
+    // scan starts from the same place and finds what moved into it. In dry-run
+    // nothing is removed, so the cursor is the only thing that can make
+    // progress — which is exactly the starvation case.
+    const advance = batch.mode === "execute" && batch.deleted > 0 ? null : batch.nextCursor;
+    if (advance == null) {
+      return {
+        mode,
+        batches: batches + 1,
+        examined,
+        candidates,
+        deleted,
+        completed: batch.nextCursor == null,
+        nextCursor: null,
+        laneReason,
+      };
+    }
+    cursor = advance;
+  }
+
+  return {
+    mode,
+    batches,
+    examined,
+    candidates,
+    deleted,
+    completed: false,
+    nextCursor: cursor,
+    laneReason,
   };
 }
 

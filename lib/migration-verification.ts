@@ -1,4 +1,4 @@
-import { getDbWithTimeout } from "@/lib/db";
+import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 
 /**
  * Post-migration proof that this change's schema actually landed.
@@ -18,7 +18,14 @@ import { getDbWithTimeout } from "@/lib/db";
  */
 
 export interface MigrationVerificationFailure {
-  kind: "column" | "table" | "foreign_key" | "index" | "default" | "readback";
+  kind:
+    | "column"
+    | "table"
+    | "foreign_key"
+    | "index"
+    | "default"
+    | "readback"
+    | "trigger";
   object: string;
   detail: string;
 }
@@ -167,6 +174,60 @@ export function parseIndexDefinition(definition: string): ParsedIndexDefinition 
   };
 }
 
+/**
+ * Sentinel that turns a successful probe into a ROLLBACK.
+ *
+ * `runDbTransaction` commits when its callback resolves. The probe must never
+ * commit, and "never" has to be structural rather than a `ROLLBACK` statement
+ * issued afterwards — which is exactly what failed before, because the
+ * statement went to a different pooled connection than the `BEGIN` had.
+ */
+const PROBE_ROLLBACK = Symbol("migration_probe_rollback");
+
+interface ProbeClient {
+  query: (text: string, params?: unknown[]) => Promise<unknown>;
+}
+
+/**
+ * Run the writer-compatibility probes on ONE pinned connection and roll back.
+ *
+ * Returns the failures rather than throwing them, so a probe error is reported
+ * alongside the catalog failures instead of replacing them.
+ */
+async function runProbeAndRollback(
+  probe: (tx: ProbeClient) => Promise<void>,
+): Promise<MigrationVerificationFailure[]> {
+  const failures: MigrationVerificationFailure[] = [];
+  try {
+    await runDbTransaction(async () => {
+      // Inside `runDbTransaction`, `getDb()` returns the PINNED client for this
+      // transaction — the whole point of the AsyncLocalStorage the helper sets
+      // up. Every probe statement therefore lands on the same backend as the
+      // implicit BEGIN, and the rollback below undoes all of them.
+      const tx = getDb() as unknown as ProbeClient;
+      try {
+        await probe(tx);
+      } catch (error) {
+        failures.push({
+          kind: "readback",
+          object: "writer_compatibility",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw PROBE_ROLLBACK;
+    });
+  } catch (error) {
+    if (error !== PROBE_ROLLBACK) {
+      failures.push({
+        kind: "readback",
+        object: "writer_compatibility_transaction",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return failures;
+}
+
 /** Columns this change adds. */
 export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "business_provider_accounts", column: "is_selected", dataType: "boolean", isNullable: false, columnDefault: "false" },
@@ -203,7 +264,26 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "meta_entity_observation_runs", column: "last_checkpoint_at", dataType: "timestamp with time zone", isNullable: true },
   // Stable logical identity for lineage edges.
   { table: "meta_creative_lineage_edges", column: "logical_lineage_key", dataType: "text", isNullable: true },
+  // The real observation clocks of a relationship recorded on a COALESCED run.
+  // The edge's own observed_at/captured_at are pinned to the run's by a
+  // composite foreign key, so without these an as-of read at the kept run's
+  // instant returns an edge that had not been observed yet.
+  { table: "meta_creative_lineage_edges", column: "relationship_observed_at", dataType: "timestamp with time zone", isNullable: true },
+  { table: "meta_creative_lineage_edges", column: "relationship_captured_at", dataType: "timestamp with time zone", isNullable: true },
   { table: "provider_connections", column: "connection_generation", dataType: "bigint", isNullable: false, columnDefault: "1" },
+];
+
+/**
+ * Triggers that must NOT exist.
+ *
+ * Each was a BEFORE INSERT read-then-insert with no per-entity serialisation, so
+ * concurrent or out-of-order observations of one entity could lose a genuine
+ * A -> B -> A transition. The decision moved into a serialized application
+ * writer; a surviving trigger would silently discard rows that writer kept.
+ */
+export const FORBIDDEN_TRIGGERS: readonly string[] = [
+  "trg_skip_unchanged_meta_campaign_config_history",
+  "trg_skip_unchanged_meta_adset_config_history",
 ];
 
 /** Tables this change adds. */
@@ -481,6 +561,34 @@ export async function verifyMigrationSchemaContract(input?: {
     }
   }
 
+  // Trigger contract.
+  //
+  // The config-history triggers were created by a swallowed `CREATE OR REPLACE`
+  // whose presence nothing checked, and their contract — read the latest
+  // fingerprint, skip if unchanged — was a read-then-insert with no per-entity
+  // serialisation. `appendMetaCurrentConfigHistory` now owns that decision under
+  // an advisory lock, so the triggers must be ABSENT: a surviving one silently
+  // discards rows the serialized writer already decided to keep, and no test of
+  // the writer would ever see it.
+  const triggerRows = (await sql.query(
+    `SELECT trigger_class.tgname AS trigger_name
+     FROM pg_trigger trigger_class
+     JOIN pg_class table_class ON table_class.oid = trigger_class.tgrelid
+     JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
+     WHERE NOT trigger_class.tgisinternal
+       AND table_namespace.nspname = current_schema()
+       AND trigger_class.tgname = ANY($1::text[])`,
+    [[...FORBIDDEN_TRIGGERS]],
+  )) as Array<{ trigger_name: string }>;
+  for (const row of triggerRows) {
+    failures.push({
+      kind: "trigger",
+      object: row.trigger_name,
+      detail:
+        "present, but the serialized application writer owns this decision; a surviving trigger silently drops rows it already decided to keep",
+    });
+  }
+
   const indexRows = (await sql.query(
     `SELECT index_class.relname AS index_name,
             table_class.relname AS table_name,
@@ -590,11 +698,22 @@ export async function verifyMigrationSchemaContract(input?: {
   // Writer/read compatibility. A schema can satisfy every catalog assertion
   // above and still reject the exact statement shapes the application uses —
   // the ON CONFLICT arbiters in particular, which need the partial unique
-  // indexes to be inferable. These run inside a rolled-back transaction so the
-  // check writes nothing.
-  try {
-    await sql.query("BEGIN");
-    await sql.query(
+  // indexes to be inferable.
+  //
+  // These MUST run on one pinned connection. `getDbWithTimeout` hands back a
+  // POOLED executor: every `query` may land on a different backend. Issuing
+  // `BEGIN`, then the probe INSERTs, then `ROLLBACK` through it meant the BEGIN
+  // opened a transaction on one connection and left it there, the INSERTs ran
+  // on other connections in autocommit — and COMMITTED — and the ROLLBACK
+  // rolled back a connection that had done nothing. The check that promised to
+  // write nothing wrote `__verify__` rows into three production tables and
+  // leaked an idle-in-transaction backend on every run.
+  //
+  // `runDbTransaction` pins one client for the whole callback. Rollback is
+  // requested by throwing a sentinel, which is the only way to get a
+  // guaranteed ROLLBACK out of a helper whose success path commits.
+  const probeFailures = await runProbeAndRollback(async (tx) => {
+    await tx.query(
       `INSERT INTO meta_raw_snapshots
          (business_id, provider_account_id, endpoint_name, entity_scope,
           start_date, end_date, payload_json, payload_hash, content_key, status)
@@ -603,7 +722,7 @@ export async function verifyMigrationSchemaContract(input?: {
        ON CONFLICT (content_key) WHERE content_key IS NOT NULL
        DO UPDATE SET observation_count = meta_raw_snapshots.observation_count + 1`,
     );
-    await sql.query(
+    await tx.query(
       `INSERT INTO shopify_raw_snapshots
          (business_id, provider_account_id, endpoint_name, entity_scope,
           payload_json, payload_hash, content_key, status)
@@ -612,14 +731,14 @@ export async function verifyMigrationSchemaContract(input?: {
        ON CONFLICT (content_key) WHERE content_key IS NOT NULL
        DO UPDATE SET observation_count = shopify_raw_snapshots.observation_count + 1`,
     );
-    await sql.query(
+    await tx.query(
       `SELECT 1 FROM business_provider_accounts WHERE is_selected LIMIT 1`,
     );
     // The repair-plan arbiter, in the exact unqualified shape `persistRepairPlan`
     // issues. Catalog assertions prove an index with those four keys exists;
     // only this proves PostgreSQL will INFER it for this statement. A partial or
     // subset index passes every catalog check and raises 42P10 here.
-    await sql.query(
+    await tx.query(
       `INSERT INTO sync_repair_plans
          (build_id, environment, provider_scope, plan_mode, eligible, summary, payload_json)
        VALUES ('__verify__', '__verify__', '__verify__', 'dry_run', FALSE, 'verify', '{}'::jsonb)
@@ -630,13 +749,13 @@ export async function verifyMigrationSchemaContract(input?: {
     // production shapes. `provider_scope = $n` only parses once the column is
     // NOT NULL-backfilled; the retention candidate only parses with the
     // row-comparison the bounded plan depends on.
-    await sql.query(
+    await tx.query(
       `SELECT id FROM sync_release_gates
        WHERE build_id = '__verify__' AND environment = '__verify__'
          AND gate_kind = 'deploy_gate' AND provider_scope = 'global'
        ORDER BY emitted_at DESC, id DESC LIMIT 1`,
     );
-    await sql.query(
+    await tx.query(
       `WITH aged AS (
          SELECT id, build_id, environment, gate_kind, provider_scope, emitted_at
          FROM sync_release_gates
@@ -658,7 +777,7 @@ export async function verifyMigrationSchemaContract(input?: {
     // Catalog assertions above prove the table and index exist; this proves the
     // statement the fence actually issues parses and runs, including the
     // clock_timestamp() age arithmetic that decides staleness.
-    await sql.query(
+    await tx.query(
       `WITH measured AS (SELECT clock_timestamp() AS at)
        SELECT s.id::text,
               s.sampled_at,
@@ -669,15 +788,8 @@ export async function verifyMigrationSchemaContract(input?: {
        ORDER BY s.sampled_at DESC, s.id DESC
        LIMIT 1`,
     );
-  } catch (error) {
-    failures.push({
-      kind: "readback",
-      object: "writer_compatibility",
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  } finally {
-    await sql.query("ROLLBACK").catch(() => undefined);
-  }
+  });
+  failures.push(...probeFailures);
 
   if (failures.length > 0) {
     throw new MigrationVerificationError(failures);

@@ -373,6 +373,125 @@ function orderedMigrationSteps(
 }
 
 /**
+ * Refuse a HEAVY migration step that the host cannot afford.
+ *
+ * The release-gate step rewrites `provider_scope` across every row of a
+ * multi-gigabyte relation and then builds three indexes concurrently. On the
+ * production table that is roughly the relation's size again in new tuples,
+ * plus the index builds, plus WAL — and it ran with no capacity check at all.
+ * The post-migration TypeScript verification notices a full disk only after the
+ * damage is done, and the cutover's `df` gate does not protect a migration
+ * started any other way.
+ *
+ * OLD-SCHEMA SAFE by construction:
+ *   - every catalog lookup goes through `to_regclass`, so a table this
+ *     migration has not created yet is simply absent rather than an error;
+ *   - the gate only ENGAGES when the work is actually heavy. On a fresh
+ *     database the relation is empty, there is nothing to rewrite, and the
+ *     step proceeds. That keeps migrations-from-zero honest instead of
+ *     requiring capacity telemetry that only production has.
+ *
+ * When the work IS heavy the physical sample is mandatory. "No sample" is a
+ * refusal, not a pass: an unmeasurable host is exactly the case where a
+ * multi-gigabyte rewrite must not start.
+ */
+async function assertMigrationCapacityForHeavyStep(
+  sql: DbClientLike,
+  input: {
+    label: string;
+    /** Relation whose rewrite/index build this step performs. */
+    relation: string;
+    /** Bytes below which the step is not heavy enough to gate. */
+    heavyBytes?: number;
+    /** Multiple of the relation size the host must have free. */
+    headroomMultiplier?: number;
+  },
+): Promise<{ engaged: boolean; detail: string }> {
+  const heavyBytes = input.heavyBytes ?? 256 * 1024 * 1024;
+  const headroomMultiplier = input.headroomMultiplier ?? 3;
+
+  const sizeRows = (await sql.query(
+    `SELECT COALESCE(pg_total_relation_size(to_regclass($1)), 0)::bigint AS relation_bytes,
+            pg_database_size(current_database())::bigint AS database_bytes`,
+    [input.relation],
+  )) as Array<{ relation_bytes: string; database_bytes: string }>;
+  const relationBytes = Number(sizeRows[0]?.relation_bytes ?? 0);
+  const databaseBytes = Number(sizeRows[0]?.database_bytes ?? 0);
+
+  if (!Number.isFinite(relationBytes) || relationBytes < heavyBytes) {
+    return {
+      engaged: false,
+      detail: `${input.relation} is ${relationBytes}B; below the ${heavyBytes}B heavy threshold, so no capacity gate applies`,
+    };
+  }
+
+  const override = process.env.ADSECUTE_MIGRATION_CAPACITY_OVERRIDE?.trim();
+  const requiredBytes = relationBytes * headroomMultiplier;
+
+  // The physical sample, read exactly the way the growth fence reads it:
+  // freshest row for the healthcheck source, for THIS database, for the data
+  // path — never the root filesystem.
+  const sampleRows = (await sql.query(
+    `SELECT s.payload,
+            EXTRACT(EPOCH FROM (clock_timestamp() - s.sampled_at)) AS age_seconds
+     FROM (SELECT to_regclass('system_capacity_snapshots') AS present) probe
+     JOIN system_capacity_snapshots s ON probe.present IS NOT NULL
+     WHERE s.source = $1
+     ORDER BY s.sampled_at DESC, s.id DESC
+     LIMIT 1`,
+    ["db_host_healthcheck"],
+  ).catch(() => [])) as Array<{ payload: unknown; age_seconds: string | number }>;
+
+  const sample = sampleRows[0];
+  const payload =
+    sample && typeof sample.payload === "object" && sample.payload != null
+      ? (sample.payload as Record<string, unknown>)
+      : null;
+  const disks = Array.isArray(payload?.disks) ? (payload!.disks as unknown[]) : [];
+  const disk = disks
+    .map((entry) => (typeof entry === "object" && entry != null ? (entry as Record<string, unknown>) : null))
+    .find((entry) => entry && String(entry.path ?? "") === "/var/lib/postgresql");
+  const availableBytes = Number(disk?.availableBytes ?? Number.NaN);
+  const ageSeconds = Number(sample?.age_seconds ?? Number.NaN);
+
+  const problem =
+    sample == null
+      ? "no db_host_healthcheck sample exists"
+      : !Number.isFinite(ageSeconds) || ageSeconds > 900
+        ? `the newest db_host_healthcheck sample is ${ageSeconds}s old`
+        : !Number.isFinite(availableBytes)
+          ? "the sample does not report free bytes for /var/lib/postgresql"
+          : availableBytes < requiredBytes
+            ? `only ${availableBytes}B free, ${requiredBytes}B required`
+            : null;
+
+  if (problem == null) {
+    return {
+      engaged: true,
+      detail: `${input.relation} is ${relationBytes}B in a ${databaseBytes}B database; ${availableBytes}B free covers the ${requiredBytes}B required`,
+    };
+  }
+  if (override) {
+    logStartupEvent("migration_capacity_override", {
+      step: input.label,
+      relation: input.relation,
+      relationBytes,
+      requiredBytes,
+      problem,
+      reason: override,
+    });
+    return {
+      engaged: true,
+      detail: `capacity unproven (${problem}) but overridden: ${override}`,
+    };
+  }
+  throw new Error(
+    `migration_capacity_refused:${input.label}: ${input.relation} is ${relationBytes}B and needs ${requiredBytes}B free, but ${problem}. ` +
+      `Confirm adsecute-db-healthcheck.timer is running on the database host, or set ADSECUTE_MIGRATION_CAPACITY_OVERRIDE with a reason.`,
+  );
+}
+
+/**
  * Version of the legacy-import contract. Bump only to deliberately re-open every
  * sealed import; a bump makes every deployment import again.
  */
@@ -398,7 +517,13 @@ async function runSealedLegacyImport(
   sql: DbClientLike,
   input: {
     importKey: string;
-    run: () => Promise<unknown>;
+    /**
+     * The import statement itself, ending in `RETURNING <col>`.
+     *
+     * Passed as TEXT rather than as a thunk because it is composed into the
+     * same statement as the marker write — see below.
+     */
+    importSql: string;
   },
 ): Promise<"imported" | "sealed"> {
   const existing = (await sql.query(
@@ -408,17 +533,34 @@ async function runSealedLegacyImport(
   )) as Array<{ import_key: string }>;
   if (existing.length > 0) return "sealed";
 
-  const result = (await input.run()) as unknown;
-  const importedRowCount = Array.isArray(result) ? result.length : 0;
+  // The import and its seal are ONE statement.
+  //
+  // They used to be two autocommit statements: the import ran, then the marker
+  // was written. A crash, a connection reset or a migration timeout between
+  // them left the import applied and the seal missing — so the next deploy
+  // re-opened the import and a legacy row that had appeared in the meantime
+  // created a canonical, SELECTED account nobody selected. That is the exact
+  // failure the seal exists to prevent, reachable by simply interrupting it.
+  //
+  // A single statement is atomic in PostgreSQL, so there is no instant at which
+  // one has happened and the other has not. The data-modifying CTE also cannot
+  // be skipped or reordered: the outer INSERT reads its count.
+  //
+  // Concurrency needs nothing extra. Two deployments racing both execute this;
+  // each import's own arbiter makes the loser's rows a no-op, and the marker's
+  // primary key makes the loser's seal an idempotent upsert.
   await sql.query(
-    `INSERT INTO schema_legacy_import_state
+    `WITH imported AS (
+       ${input.importSql}
+     )
+     INSERT INTO schema_legacy_import_state
        (import_key, import_version, imported_row_count, completed_at)
-     VALUES ($1, $2, $3, now())
+     SELECT $1, $2, (SELECT count(*) FROM imported), now()
      ON CONFLICT (import_key) DO UPDATE SET
        import_version = EXCLUDED.import_version,
        imported_row_count = EXCLUDED.imported_row_count,
        completed_at = EXCLUDED.completed_at`,
-    [input.importKey, LEGACY_IMPORT_VERSION, importedRowCount],
+    [input.importKey, LEGACY_IMPORT_VERSION],
   );
   return "imported";
 }
@@ -610,65 +752,33 @@ function buildMetaConfigGrowthGuardSql() {
     END;
     $$;
 
-    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_campaign_config_history()
-    RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-      latest_fingerprint text;
-    BEGIN
-      SELECT existing.config_fingerprint
-      INTO latest_fingerprint
-      FROM public.meta_campaign_config_history existing
-      WHERE existing.business_id = NEW.business_id
-        AND existing.provider_account_id = NEW.provider_account_id
-        AND existing.campaign_id = NEW.campaign_id
-      ORDER BY existing.captured_at DESC
-      LIMIT 1;
 
-      IF FOUND AND latest_fingerprint = NEW.config_fingerprint THEN
-        RETURN NULL;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$;
-
-    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_adset_config_history()
-    RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-      latest_fingerprint text;
-    BEGIN
-      SELECT existing.config_fingerprint
-      INTO latest_fingerprint
-      FROM public.meta_adset_config_history existing
-      WHERE existing.business_id = NEW.business_id
-        AND existing.provider_account_id = NEW.provider_account_id
-        AND existing.adset_id = NEW.adset_id
-      ORDER BY existing.captured_at DESC
-      LIMIT 1;
-
-      IF FOUND AND latest_fingerprint = NEW.config_fingerprint THEN
-        RETURN NULL;
-      END IF;
-
-      RETURN NEW;
-    END;
-    $$;
 
     CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_config_snapshot
     BEFORE INSERT ON public.meta_config_snapshots
     FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_config_snapshot();
 
-    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_campaign_config_history
-    BEFORE INSERT ON public.meta_campaign_config_history
-    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_campaign_config_history();
-
-    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_adset_config_history
-    BEFORE INSERT ON public.meta_adset_config_history
-    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_adset_config_history();
+    -- The two config-history triggers are DROPPED, not created.
+    --
+    -- Each was a BEFORE INSERT read-then-insert: it read the latest fingerprint
+    -- for the entity and returned NULL when unchanged. With no per-entity
+    -- serialisation two concurrent observations both read the same "latest", so
+    -- an A -> B -> A sequence could lose the revert entirely — B is written and
+    -- the return to A is dropped as unchanged. Its ORDER BY captured_at DESC
+    -- had no id tie-break either, so two rows at the same instant made the
+    -- decision nondeterministic.
+    --
+    -- The transition decision now lives in appendMetaCurrentConfigHistory,
+    -- inside one transaction that holds a per-entity advisory lock, so the read
+    -- and the insert are one atomic step and the inserted count is exact.
+    -- Leaving the trigger in place would silently discard rows that writer had
+    -- already decided to keep.
+    DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_campaign_config_history
+      ON public.meta_campaign_config_history;
+    DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_adset_config_history
+      ON public.meta_adset_config_history;
+    DROP FUNCTION IF EXISTS public.skip_unchanged_meta_campaign_config_history();
+    DROP FUNCTION IF EXISTS public.skip_unchanged_meta_adset_config_history();
   `;
 }
 
@@ -2043,7 +2153,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "provider_accounts_seed",
-                  run: () => sql.query(`
+                  importSql: `
           INSERT INTO provider_accounts (
             provider,
             external_account_id,
@@ -2079,7 +2189,7 @@ export async function runMigrations(options?: {
           -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
           ON CONFLICT (provider, external_account_id) DO NOTHING
           RETURNING id
-        `),
+        `,
                 }),
             ]
           : []),
@@ -2088,7 +2198,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "provider_connections_from_integrations",
-                  run: () => sql`
+                  importSql: `
           INSERT INTO provider_connections (
             business_id,
             provider,
@@ -2137,7 +2247,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "integration_credentials_from_integrations",
-                  run: () => sql`
+                  importSql: `
           INSERT INTO integration_credentials (
             provider_connection_id,
             access_token,
@@ -2183,7 +2293,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "business_provider_accounts_from_assignments",
-                  run: () => sql`
+                  importSql: `
           INSERT INTO business_provider_accounts (
             business_id,
             provider,
@@ -2235,7 +2345,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "snapshot_runs_from_snapshots",
-                  run: () => sql`
+                  importSql: `
           INSERT INTO provider_account_snapshot_runs (
             business_id,
             provider,
@@ -2291,7 +2401,7 @@ export async function runMigrations(options?: {
               () =>
                 runSealedLegacyImport(sql, {
                   importKey: "snapshot_items_from_snapshots",
-                  run: () => sql`
+                  importSql: `
           INSERT INTO provider_account_snapshot_items (
             snapshot_run_id,
             provider_account_ref_id,
@@ -3748,6 +3858,18 @@ export async function runMigrations(options?: {
         //
         // evidence_json is never rewritten, so the ambiguity stays inspectable.
         orderedMigrationSteps([
+          // Capacity FIRST. Everything below rewrites or rebuilds a relation
+          // that is ~1.35 GB in production, and it ran with no gate at all.
+          async () => {
+            const decision = await assertMigrationCapacityForHeavyStep(sql, {
+              label: "sync_release_gates_provider_scope",
+              relation: "sync_release_gates",
+            });
+            logStartupEvent("migration_capacity_checked", {
+              step: "sync_release_gates_provider_scope",
+              ...decision,
+            });
+          },
           () =>
             sql`ALTER TABLE sync_release_gates
               ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
@@ -5499,6 +5621,23 @@ export async function runMigrations(options?: {
         // effect.
         sql`ALTER TABLE meta_creative_lineage_edges
           ADD COLUMN IF NOT EXISTS logical_lineage_key TEXT`,
+        // The clocks of the observation that ACTUALLY saw the relationship.
+        //
+        // An edge's (observed_at, captured_at) are forced to equal its run's by
+        // meta_creative_lineage_observation_account_fk. When a relationship
+        // becomes available on a LATER observation whose state payload
+        // coalesces, the edge is attached to the kept run and therefore carries
+        // that run's ORIGINAL clocks — so an as-of read at t1 already returns an
+        // edge nobody had observed yet.
+        //
+        // These columns carry the real observation instant alongside the run
+        // identity the foreign key needs. NOT swallowed: the as-of reader
+        // depends on them, and an absent column would silently restore the
+        // premature edge.
+        sql`ALTER TABLE meta_creative_lineage_edges
+          ADD COLUMN IF NOT EXISTS relationship_observed_at TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_creative_lineage_edges
+          ADD COLUMN IF NOT EXISTS relationship_captured_at TIMESTAMPTZ`,
         sql.query(
           buildInvalidIndexRepairQuery({
             indexName: "meta_creative_lineage_logical_identity",

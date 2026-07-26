@@ -119,7 +119,8 @@
     "test:provider-fixture-seam": "node --import tsx scripts/ephemeral-postgres-provider-fixture-seam.ts",
     "test:release-gate-plan-seam": "node --import tsx scripts/ephemeral-postgres-release-gate-plan-seam.ts",
     "test:legacy-replay-seam": "node --import tsx scripts/ephemeral-postgres-legacy-replay-seam.ts",
-    "test:cutover-harness": "bash scripts/cutover-state-machine-harness.sh"
+    "test:cutover-harness": "bash scripts/cutover-state-machine-harness.sh",
+    "test:entrypoint-admission-seam": "node --import tsx scripts/ephemeral-postgres-entrypoint-admission-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

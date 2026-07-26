@@ -133,6 +133,13 @@ jobs:
       - name: Entrypoint admission refusal seam
         run: npx vitest run lib/sync/entrypoint-admission.test.ts
 
+      # The unit table proves the guard is reached; it cannot prove a refused
+      # entrypoint left the database untouched, because a mocked client has no
+      # rows to leave. This calls the REAL exports against a migrated PostgreSQL
+      # and requires a byte-identical census and zero provider calls.
+      - name: Entrypoint admission real-database seam
+        run: npm run test:entrypoint-admission-seam
+
       # Fail-closed proof for the ORDINARY deploy path: a release carrying
       # deploy/CUTOVER_REQUIRED must not be migratable outside the cutover lock.
       - name: Ordinary deploy refuses a cutover-required release

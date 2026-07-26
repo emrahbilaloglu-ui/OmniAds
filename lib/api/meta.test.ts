@@ -2424,6 +2424,11 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
+    // The config snapshot write sat ABOVE the today-only gate and ran
+    // unconditionally, so every historical window a dashboard requested
+    // persisted the account's CURRENT campaign inventory — the same
+    // fabrication as the sync path, through a read surface.
+    expect(configSnapshots.appendMetaConfigSnapshots).not.toHaveBeenCalled();
   });
 });
 

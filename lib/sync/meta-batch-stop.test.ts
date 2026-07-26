@@ -135,4 +135,56 @@ describe("Meta leased partition batch stop-loss", () => {
       retryDelayMinutes: 0,
     });
   });
+
+  it("stops the remaining leased units after exactly one stop-loss unit", async () => {
+    // The tri-state contract has three stop causes: a provider stop-loss
+    // (quota / circuit breaker), a confirmed revocation, and unreadable
+    // authority. All three must halt the rest of the batch after the unit that
+    // raised them — the consumer previously walked every remaining partition
+    // straight into the same wall.
+    for (const stop of [
+      { failureClass: "quota", outcome: "failed" as const },
+      {
+        failureClass: "meta_account_selection_revoked",
+        outcome: "requeued" as const,
+      },
+      {
+        failureClass: "meta_account_authority_unknown",
+        outcome: "requeued" as const,
+      },
+    ]) {
+      const processed: string[] = [];
+      const result = await runMetaLeasedPartitionBatch({
+        partitions: ["p1", "p2", "p3", "p4", "p5"],
+        processPartition: async (partition) => {
+          processed.push(partition);
+          return partition === "p1"
+            ? { outcome: stop.outcome, stopBatch: true, failureClass: stop.failureClass }
+            : { outcome: "succeeded" as const };
+        },
+      });
+      expect(processed).toEqual(["p1"]);
+      expect(result.attempted).toBe(1);
+      expect(result.stopReason).toBe(stop.failureClass);
+    }
+  });
+
+  it("does not stop the batch for an ordinary failure", () => {
+    // Only stop-loss stops. A single bad partition must not halt the queue.
+    const processed: string[] = [];
+    return runMetaLeasedPartitionBatch({
+      partitions: ["p1", "p2", "p3"],
+      processPartition: async (partition) => {
+        processed.push(partition);
+        return partition === "p1"
+          ? { outcome: "failed" as const }
+          : { outcome: "succeeded" as const };
+      },
+    }).then((result) => {
+      expect(processed).toEqual(["p1", "p2", "p3"]);
+      expect(result.stopReason).toBeNull();
+      expect(result.failed).toBe(1);
+      expect(result.succeeded).toBe(2);
+    });
+  });
 });

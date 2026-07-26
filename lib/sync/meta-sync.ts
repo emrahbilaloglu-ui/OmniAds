@@ -17,7 +17,10 @@ import {
 } from "@/lib/meta/core-config";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
-import { runMetaLeasedPartitionBatch } from "@/lib/sync/meta-batch-stop";
+import {
+  isMetaProviderStopLossFailure,
+  runMetaLeasedPartitionBatch,
+} from "@/lib/sync/meta-batch-stop";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import {
   cancelMetaPartitionsForRevokedAccount,
@@ -1891,6 +1894,8 @@ type MetaPartitionProcessResult = {
   outcome: "succeeded" | "failed" | "requeued";
   failureClass?: string | null;
   stopBatch?: boolean;
+  /** Backoff the batch runner applies when this unit stopped the batch. */
+  retryDelayMinutes?: number;
 };
 
 /**
@@ -3661,6 +3666,13 @@ async function processMetaPartition(input: {
   };
   workerId: string;
 }): Promise<MetaPartitionProcessResult> {
+  // The real work-unit boundary. The consumer calls THIS function directly, so
+  // the gate on processMetaLifecyclePartition never ran for queued work — a
+  // long batch could cross the capacity budget unchecked, one partition at a
+  // time. It has to be here, before authority, before mark-running, and before
+  // any provider call or state mutation.
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_process_partition");
   const partitionId = input.partition.id;
   const revoked = await refuseRevokedMetaPartition(input.partition);
   if (revoked) return revoked;
@@ -4200,7 +4212,26 @@ async function processMetaPartition(input: {
       errorClass: classified.errorClass,
       message,
     });
-    return { outcome: "failed" };
+    // Provider stop-loss. isMetaProviderStopLossFailure existed and was never
+    // consulted here, so a quota wall or an open circuit breaker failed one
+    // partition and the batch walked straight into the same wall for every
+    // remaining leased unit. Signalling stopBatch is what makes the tri-state
+    // contract whole: confirmed revocation and unknown authority already stop
+    // the batch from refuseRevokedMetaPartition; this is the third case.
+    const stopBatch = isMetaProviderStopLossFailure({
+      error,
+      errorClass: classified.errorClass,
+    });
+    return {
+      outcome: "failed",
+      ...(stopBatch
+        ? {
+            stopBatch: true,
+            failureClass: classified.errorClass || "meta_provider_stop_loss",
+            retryDelayMinutes: classified.retryDelayMinutes,
+          }
+        : {}),
+    };
   }
 }
 

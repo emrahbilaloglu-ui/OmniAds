@@ -3,7 +3,10 @@ import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
-import { describeGrowthFenceRefusal } from "@/lib/sync/db-growth-fence";
+import {
+  describeLaneOutcome,
+  describeSyncSafetyRefusal,
+} from "@/lib/sync/safety-refusal";
 import { runMetaSnapshotJobIfDue } from "@/lib/meta/scheduled";
 import { runMetaDecisionIgnoredMarkerIfDue } from "@/lib/meta/decision-responses";
 import { runMetaOutcomeAccrualIfDue } from "@/lib/meta/outcome-accrual";
@@ -203,44 +206,55 @@ export async function POST(request: NextRequest) {
           : Promise.resolve({ skipped: true, reason: "disabled" }),
       ]);
 
+      // Classify each lane while the rejection is still an OBJECT. Stringifying
+      // first is lossy in exactly the wrong direction: a capacity refusal, a
+      // disabled lane and an unreadable authority all become an ordinary
+      // message and the route answers 200.
+      const lanes = {
+        googleAds: describeLaneOutcome(gads),
+        ga4: describeLaneOutcome(ga4),
+        searchConsole: describeLaneOutcome(sc),
+        meta: describeLaneOutcome(metaScheduled),
+        shopify: describeLaneOutcome(shopify),
+      };
       return {
         businessId: business.id,
         businessName: business.name,
-        googleAds: gads.status === "fulfilled" ? gads.value : { error: String((gads as PromiseRejectedResult).reason) },
-        ga4: ga4.status === "fulfilled" ? ga4.value : { error: String((ga4 as PromiseRejectedResult).reason) },
-        searchConsole: sc.status === "fulfilled" ? sc.value : { error: String((sc as PromiseRejectedResult).reason) },
-        meta: metaScheduled.status === "fulfilled"
-          ? metaScheduled.value
-          : { error: String((metaScheduled as PromiseRejectedResult).reason) },
-        shopify: shopify.status === "fulfilled"
-          ? shopify.value
-          : { error: String((shopify as PromiseRejectedResult).reason) },
+        googleAds: lanes.googleAds.value,
+        ga4: lanes.ga4.value,
+        searchConsole: lanes.searchConsole.value,
+        meta: lanes.meta.value,
+        shopify: lanes.shopify.value,
+        safetyRefusals: Object.entries(lanes).flatMap(([lane, outcome]) =>
+          outcome.refusal ? [{ lane, businessId: business.id, ...outcome.refusal }] : [],
+        ),
       };
     }),
   );
 
   const summary = results.map((r) =>
-    r.status === "fulfilled" ? r.value : { error: String(r.reason) }
+    r.status === "fulfilled"
+      ? r.value
+      : {
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+          ...(describeSyncSafetyRefusal(r.reason)
+            ? { safetyRefusal: describeSyncSafetyRefusal(r.reason) }
+            : {}),
+        },
   );
-  // Promise.allSettled renders a capacity refusal as just another `{ error }`
-  // string, and this route then answered ok: true. That makes a refused sync
-  // indistinguishable from a completed one to anything reading the response —
-  // the exact reason an incident can run unnoticed. Pick the refusals back out
-  // and answer truthfully.
-  const capacityRefusals = results.flatMap((result) => {
-    if (result.status !== "rejected") return [];
-    const refusal = describeGrowthFenceRefusal(result.reason);
-    return refusal ? [refusal] : [];
-  });
-  const laneCapacityRefusals = summary.flatMap((entry) => {
-    const record = entry as Record<string, unknown>;
-    return Object.entries(record).flatMap(([lane, value]) => {
-      const refusal = describeGrowthFenceRefusal(
-        (value as { reason?: unknown })?.reason ?? value,
-      );
-      return refusal ? [{ lane, ...refusal }] : [];
-    });
-  });
+  // Refusals are collected from the STRUCTURED classification carried on each
+  // per-business result, plus any whole-business rejection. Nothing is
+  // recovered by re-parsing a string.
+  const safetyRefusals = [
+    ...results.flatMap((result) => {
+      if (result.status === "rejected") {
+        const refusal = describeSyncSafetyRefusal(result.reason);
+        return refusal ? [{ lane: "business", ...refusal }] : [];
+      }
+      const entry = result.value as { safetyRefusals?: unknown };
+      return Array.isArray(entry?.safetyRefusals) ? entry.safetyRefusals : [];
+    }),
+  ] as Array<Record<string, unknown>>;
   const metaSnapshotJob = await runMetaSnapshotJobIfDue().catch((error) => {
     console.error("[sync-cron] meta_snapshot_job_failed", error);
     return {
@@ -492,15 +506,14 @@ export async function POST(request: NextRequest) {
     nativeAdOutcomesJobReason:
       "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
   });
-  const capacityRefused =
-    capacityRefusals.length > 0 || laneCapacityRefusals.length > 0;
+  const safetyRefused = safetyRefusals.length > 0;
   return NextResponse.json(
     {
-      ok: !capacityRefused,
-      ...(capacityRefused
+      ok: !safetyRefused,
+      ...(safetyRefused
         ? {
-            error: "capacity_refused",
-            capacityRefusals: [...capacityRefusals, ...laneCapacityRefusals],
+            error: "sync_safety_refused",
+            safetyRefusals,
           }
         : {}),
       synced: businesses.length,
@@ -522,7 +535,7 @@ export async function POST(request: NextRequest) {
     },
     {
       status:
-        soakGate?.outcome === "fail" || capacityRefused
+        soakGate?.outcome === "fail" || safetyRefused
           ? 503
           : 200,
     }

@@ -5247,11 +5247,24 @@ export async function getCampaigns(
           const profile = credentials.accountProfiles[accountId];
           const normalizedDate = normalizedSince;
 
-          await persistMetaCampaignConfigSnapshots({
-            businessId: credentials.businessId,
-            accountId,
-            campaignConfigs,
+          // The current-evidence decision has to be made HERE, before the
+          // config snapshot write — not further down next to the daily
+          // write-back. This call was unconditional, so every historical
+          // window a dashboard requested persisted the account's CURRENT
+          // campaign inventory, which is the same fabrication the sync path
+          // was fixed for, reached through a read surface.
+          const campaignCurrentEvidence = decideMetaCurrentEvidence({
+            truthState: "provisional",
+            normalizedDay: normalizedDate,
+            accountToday: getTodayIsoForTimeZone(profile?.timezone ?? "UTC"),
           });
+          if (campaignCurrentEvidence.persistsCurrentConfigEvidence) {
+            await persistMetaCampaignConfigSnapshots({
+              businessId: credentials.businessId,
+              accountId,
+              campaignConfigs,
+            });
+          }
 
           for (const insight of insights) {
             const campaignId = insight.campaign_id ?? "";
@@ -5319,14 +5332,6 @@ export async function getCampaigns(
             });
           }
 
-          const accountToday = getTodayIsoForTimeZone(
-            profile?.timezone ?? "UTC",
-          );
-          const campaignCurrentEvidence = decideMetaCurrentEvidence({
-            truthState: "provisional",
-            normalizedDay: normalizedDate,
-            accountToday,
-          });
           if (
             isSingleDayWindow(normalizedSince, normalizedUntil) &&
             campaignCurrentEvidence.persistsCurrentConfigEvidence

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { describeGrowthFenceRefusal } from "@/lib/sync/db-growth-fence";
+import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
@@ -715,13 +715,15 @@ export async function POST(request: NextRequest) {
     });
     // A capacity refusal is not an internal error and must not be reported as
     // one: it is a truthful, recoverable "not now" that an operator can act on.
-    const capacityRefusal = describeGrowthFenceRefusal(err);
-    if (capacityRefusal) {
+    // Capacity, a disabled lane and unreadable authority are all truthful,
+    // recoverable "not now" answers — not internal errors.
+    const safetyRefusal = describeSyncSafetyRefusal(err);
+    if (safetyRefusal) {
       return NextResponse.json(
         {
-          error: "capacity_refused",
-          message: "Sync refresh refused: database capacity boundary.",
-          capacityRefusal,
+          error: safetyRefusal.kind,
+          message: safetyRefusal.message,
+          safetyRefusal,
         },
         { status: 503 },
       );
@@ -743,14 +745,14 @@ export async function POST(request: NextRequest) {
     explicitMetaRangeRefresh &&
     isAcceptedMetaHistoricalRefreshResult(syncResult.result);
   let inlineConsumeCapacityRefusal: ReturnType<
-    typeof describeGrowthFenceRefusal
+    typeof describeSyncSafetyRefusal
   > = null;
   if (explicitSingleDayMetaRefresh && !metaConsumerRunning) {
     await Promise.resolve(consumeMetaQueuedWork(businessId)).catch((error) => {
       // The inline consumer used to swallow every failure into a warn and the
       // route still answered 202 ok. A capacity refusal reported that way is
       // indistinguishable from work that ran.
-      inlineConsumeCapacityRefusal = describeGrowthFenceRefusal(error);
+      inlineConsumeCapacityRefusal = describeSyncSafetyRefusal(error);
       console.warn("[sync-refresh] meta_inline_consume_failed", {
         businessId,
         provider,
@@ -771,9 +773,9 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(
       {
-        error: "capacity_refused",
-        message: "Sync refresh refused: database capacity boundary.",
-        capacityRefusal: inlineConsumeCapacityRefusal,
+        error: (inlineConsumeCapacityRefusal as { kind: string }).kind,
+        message: (inlineConsumeCapacityRefusal as { message: string }).message,
+        safetyRefusal: inlineConsumeCapacityRefusal,
       },
       { status: 503 },
     );

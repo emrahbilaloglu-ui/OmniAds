@@ -22,6 +22,13 @@ vi.mock("@/lib/meta/account-context", () => ({
   normalizeMetaCurrencyCode: vi.fn((value: unknown) =>
     typeof value === "string" && /^[A-Z]{3}$/.test(value) ? value : null,
   ),
+  // Campaign and ad-set actions now prove current selection at route admission
+  // AND again immediately before the POST. Default-admit here; refusal is
+  // proven in lib/meta/write-authority-toctou.test.ts.
+  resolveMetaAccountAuthority: vi.fn(async () => ({
+    state: "authorized",
+    errorMessage: null,
+  })),
 }));
 
 vi.mock("@/lib/meta/ads-action-log", () => ({

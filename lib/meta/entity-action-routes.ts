@@ -7,6 +7,7 @@ import { rejectIfReviewerReadOnly } from "@/lib/meta/reviewer-write-guard";
 import {
   getMetaAccountContext,
   normalizeMetaCurrencyCode,
+  resolveMetaAccountAuthority,
 } from "@/lib/meta/account-context";
 import {
   completeMetaAdsActionLog,
@@ -212,6 +213,40 @@ async function resolveWriteContext(input: {
       ),
     };
   }
+  // Campaign and ad-set pause, resume and bid changes reached the provider with
+  // a connected token and no current-selection check at all — only the ad-level
+  // routes had one. The entity target is resolved from warehouse dimensions,
+  // which SURVIVE deselection by design, so a deselected account resolved
+  // cleanly here and the write went out.
+  //
+  // Tri-state: an unreadable authority refuses as uncertain (retryable), never
+  // as revoked (terminal). This is the route-admission check; ads-write re-reads
+  // it again immediately before the POST, which is what closes the window
+  // between the two.
+  const authority = await resolveMetaAccountAuthority(
+    input.businessId,
+    providerAccountId,
+  );
+  if (authority.state === "unknown_error") {
+    return {
+      ok: false,
+      response: jsonError(
+        503,
+        "meta_account_authority_unknown",
+        "Could not verify that this Meta ad account is currently selected. No provider write was attempted.",
+      ),
+    };
+  }
+  if (authority.state !== "authorized") {
+    return {
+      ok: false,
+      response: jsonError(
+        409,
+        "meta_account_not_selected",
+        "This Meta ad account is not currently selected for this business. Historical data remains readable; provider writes are refused.",
+      ),
+    };
+  }
   return {
     ok: true,
     ctx: {
@@ -221,6 +256,32 @@ async function resolveWriteContext(input: {
     },
   };
 }
+
+/**
+ * Test seam for the entity write-context guard.
+ *
+ * Every campaign and ad-set action — pause, resume and bid — goes through
+ * `resolveWriteContext`, so this is the one place the contract can be exercised
+ * without standing up each route.
+ */
+export const __testResolveEntityWriteContext = resolveWriteContext;
+
+function failureLogStatus(
+  result: MetaAdsWriteFailure,
+): Exclude<MetaAdsActionStatus, "pending" | "success"> {
+  return result.error.code === "silent_failure" ||
+    hasSuccessfulMetaProviderMutationAttempt(result) ||
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+    ? "silent_failure"
+    : "failure";
+}
+
+function isProviderOutcomeAmbiguous(result: MetaAdsWriteFailure) {
+  return (
+    result.error.code === "provider_outcome_ambiguous" ||
+    result.providerOutcome === "outcome_ambiguous"
+  );
 
 function failureLogStatus(result: MetaAdsWriteFailure): MetaAdsActionStatus {
   return result.error.code === "silent_failure" ? "silent_failure" : "failure";

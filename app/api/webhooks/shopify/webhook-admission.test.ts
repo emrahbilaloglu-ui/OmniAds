@@ -20,6 +20,14 @@ vi.mock("@/lib/db", () => ({
   }),
 }));
 
+const assertSyncGrowthBoundary = vi.fn();
+
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();
+  return { ...actual, assertSyncGrowthBoundary };
+});
+
 const upsertShopifyWebhookDelivery = vi.fn();
 const upsertShopifyRepairIntent = vi.fn();
 const upsertShopifyCustomerEvents = vi.fn();
@@ -57,6 +65,9 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 describe("Shopify webhook admission", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    assertSyncGrowthBoundary.mockResolvedValue({ allowed: true, reason: "ready" });
     delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
     delete process.env.ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED;
   });
@@ -108,5 +119,65 @@ describe("Shopify webhook admission", () => {
     expect(body.received).toBe(false);
     expect(body.retryable).toBe(true);
     expect(upsertShopifyCustomerEvents).not.toHaveBeenCalled();
+  });
+
+  describe("an unclassified guard failure still refuses", () => {
+    /**
+     * `describeSyncSafetyRefusal` returns null for anything it does not
+     * recognise. Both routes tested only that value, so a timeout, a connection
+     * reset, or a bug inside the fence produced "no refusal" and the handler
+     * carried on and persisted. The guard permitted on its own failure.
+     */
+    beforeEach(() => {
+      process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+      process.env.ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED = "enabled";
+      assertSyncGrowthBoundary.mockRejectedValue(
+        new Error("ETIMEDOUT: connection to the database timed out"),
+      );
+    });
+
+    it("refuses the sync webhook and writes nothing", async () => {
+      const { POST } = await import("@/app/api/webhooks/shopify/sync/route");
+      const response = await POST(
+        new Request("https://example.test/api/webhooks/shopify/sync", {
+          method: "POST",
+          headers: {
+            "x-shopify-topic": "orders/create",
+            "x-shopify-shop-domain": "seam.myshopify.com",
+            "x-shopify-webhook-id": "wh-2",
+          },
+          body: JSON.stringify({ id: 1 }),
+        }) as never,
+      );
+      expect(response.status).toBe(503);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.received).toBe(false);
+      expect(body.retryable).toBe(true);
+      expect(body.error).toBe("capacity_check_failed");
+      expect(upsertShopifyWebhookDelivery).not.toHaveBeenCalled();
+      expect(syncShopifyCommerceReports).not.toHaveBeenCalled();
+    });
+
+    it("refuses the customer-events webhook and writes nothing", async () => {
+      const { POST } = await import(
+        "@/app/api/webhooks/shopify/customer-events/route"
+      );
+      const response = await POST(
+        new Request("https://example.test/api/webhooks/shopify/customer-events", {
+          method: "POST",
+          headers: {
+            "x-shopify-topic": "customers/update",
+            "x-shopify-shop-domain": "seam.myshopify.com",
+          },
+          body: JSON.stringify({ id: 1 }),
+        }) as never,
+      );
+      expect(response.status).toBe(503);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.received).toBe(false);
+      expect(body.retryable).toBe(true);
+      expect(body.error).toBe("capacity_check_failed");
+      expect(upsertShopifyCustomerEvents).not.toHaveBeenCalled();
+    });
   });
 });

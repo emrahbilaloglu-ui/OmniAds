@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
@@ -128,25 +130,97 @@ function killSwitchFailure(): MetaAdsWriteFailure {
   };
 }
 
+export const META_ACCOUNT_NOT_SELECTED_CODE = "meta_account_not_selected";
+export const META_ACCOUNT_AUTHORITY_UNKNOWN_CODE = "meta_account_authority_unknown";
+
+/**
+ * A refusal that must stop the rest of a batch rather than be retried per item.
+ *
+ * Deselection does not un-happen between two items of a loop, and an unreadable
+ * authority will not become readable by asking again immediately. Continuing
+ * either way means more provider calls that must not happen.
+ */
+export function isMetaWriteAuthorityFailure(
+  error: Pick<MetaAdsWriteError, "code"> | null | undefined,
+): boolean {
+  return (
+    error?.code === META_ACCOUNT_NOT_SELECTED_CODE ||
+    error?.code === META_ACCOUNT_AUTHORITY_UNKNOWN_CODE
+  );
+}
+
+/**
+ * The last thing that runs before any Meta provider POST.
+ *
+ * Route admission checks selection once, at the start of a request. Everything
+ * that happens after it — resolving an entity, reading a journal, taking a
+ * baseline, iterating a batch, retrying — is time in which the account can be
+ * deselected or the integration disconnected. Launchpad in particular resolves
+ * its assignment near admission and then performs campaign, ad-set and ad POSTs
+ * much later and across a batch.
+ *
+ * So the re-read lives HERE, in the single hook every write path passes through
+ * immediately before the request goes out, rather than in each caller. Callers
+ * cannot forget it and a new caller inherits it.
+ *
+ * Tri-state, because the two failures need different answers: an unreadable
+ * authority is 503 and retryable; a confirmed deselection is 409 and is not.
+ */
 export async function getMetaAdsWriteBlockFailure(
   ctx: MetaAdsWriteContext,
 ): Promise<MetaAdsWriteFailure | null> {
   const block = await getMetaWriteBlockState({ businessId: ctx.businessId });
-  if (!block.blocked) return null;
-  return {
-    ok: false,
-    httpStatus: 503,
-    error: {
-      code: "kill_switch_engaged",
-      message: block.message ?? "Meta writes are disabled by kill switch.",
-    },
-    responsePayload: null,
-    verificationPayload: null,
-  };
+  if (block.blocked) {
+    return {
+      ok: false,
+      httpStatus: 503,
+      error: {
+        code: "kill_switch_engaged",
+        message: block.message ?? "Meta writes are disabled by kill switch.",
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    };
+  }
+
+  const authority = await resolveMetaAccountAuthority(
+    ctx.businessId,
+    ctx.providerAccountId,
+  );
+  if (authority.state === "unknown_error") {
+    return {
+      ok: false,
+      httpStatus: 503,
+      error: {
+        code: META_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
+        message:
+          "Could not verify that this Meta ad account is currently selected. No provider write was attempted.",
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    };
+  }
+  if (authority.state !== "authorized") {
+    return {
+      ok: false,
+      httpStatus: 409,
+      error: {
+        code: META_ACCOUNT_NOT_SELECTED_CODE,
+        message:
+          "This Meta ad account is not currently selected for this business. Historical data remains readable; provider writes are refused.",
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    };
+  }
+  return null;
 }
 
 function metaWriteErrorStatus(error: MetaAdsWriteError) {
-  return error.code === "kill_switch_engaged" ? 503 : 502;
+  if (error.code === "kill_switch_engaged") return 503;
+  if (error.code === META_ACCOUNT_AUTHORITY_UNKNOWN_CODE) return 503;
+  if (error.code === META_ACCOUNT_NOT_SELECTED_CODE) return 409;
+  return 502;
 }
 
 function dryRunPayload(wouldHaveWritten: MetaAdsWouldHaveWritten) {

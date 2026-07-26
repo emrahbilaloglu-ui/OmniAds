@@ -119,11 +119,19 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+    // ANY failure of the guard refuses. Previously only a RECOGNISED refusal
+    // did: `describeSyncSafetyRefusal` returns null for an unclassified error,
+    // so a timeout, a connection reset, or a bug inside the fence produced
+    // `capacity = null` and the handler carried on and persisted. A guard that
+    // permits on its own failure is not a guard.
     const capacity = await assertSyncGrowthBoundary("shopify_customer_events", {
       fresh: true,
     }).then(
       () => null,
-      (error: unknown) => describeSyncSafetyRefusal(error),
+      (error: unknown) => ({
+        refusal: describeSyncSafetyRefusal(error),
+        message: error instanceof Error ? error.message : String(error),
+      }),
     );
     if (capacity) {
       console.error("[shopify-customer-events] refused: capacity", {
@@ -133,9 +141,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           received: false,
-          error: capacity.kind,
+          error: capacity.refusal?.kind ?? "capacity_check_failed",
           retryable: true,
-          safetyRefusal: capacity,
+          safetyRefusal: capacity.refusal,
+          detail: capacity.message,
         },
         { status: 503 },
       );

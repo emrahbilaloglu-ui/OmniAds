@@ -13,6 +13,22 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaWriteBlockState: vi.fn(),
 }));
 
+// Current-selection authority is re-read immediately before every provider
+// POST, so these write-client tests must state which authority they run under.
+// Default-admit here; the deselection and unknown-authority paths are proven in
+// lib/meta/ads-action-selection.test.ts and
+// lib/meta/write-authority-toctou.test.ts.
+vi.mock("@/lib/meta/account-context", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    resolveMetaAccountAuthority: vi.fn(async () => ({
+      state: "authorized",
+      errorMessage: null,
+    })),
+  };
+});
+
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 
 const ctx: MetaAdsWriteContext = {

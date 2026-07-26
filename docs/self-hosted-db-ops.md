@@ -83,8 +83,84 @@ Inspect latest backup:
 ```bash
 ls -lah /var/backups/adsecute-postgres/latest
 cat /var/backups/adsecute-postgres/latest/manifest.txt
-cat /var/backups/adsecute-postgres/latest/SHA256SUMS
+(cd /var/backups/adsecute-postgres/latest && sha256sum -c SHA256SUMS)
 ```
+
+## Large-table restore fingerprint
+
+Use the bounded runner to prove that a UUID-keyed table and its isolated restore
+have the same full-row multiset. It reads the heap in at most 65,536-block
+(512 MiB at the production 8 KiB block size) CTID ranges and reduces every
+range into 256 UUID first-byte buckets. CTIDs are only progress boundaries, so
+the source and restore may have different physical layouts and block counts.
+The runner uses `/usr/bin/python3` and the Python standard library already
+installed on both production hosts; Node.js and Docker are not required.
+
+The production `meta_entity_state_history` heap is about 36.29 GB, or 4.43
+million blocks. The default therefore produces about 68 resumable chunks, not
+256 table scans. Each database query has a zero-byte temp-file budget.
+
+Prerequisites:
+
+- All application, worker, cron, webhook, OAuth, and direct SQL writers for the
+  target table are frozen.
+- The output directory is on the app/backup volume, not the PostgreSQL volume.
+- The latest `db_host_healthcheck` capacity snapshot is no more than 30 minutes
+  old.
+- The incident backup is already complete and independently checksummed.
+
+Run from the off-volume host using normal libpq connection variables:
+
+```bash
+export PGHOST=db-host
+export PGPORT=5432
+export PGUSER=postgres
+export DB_NAME=adsecute_prod
+
+bash deploy/db/adsecute-table-fingerprint-runner.sh \
+  --table meta_entity_state_history \
+  --output-dir /var/backups/adsecute-incident/SOURCE/fingerprint-state-history \
+  --writers-frozen "GLOBAL WRITERS FROZEN" \
+  --off-volume-ack "OUTPUT IS OFF DB VOLUME"
+```
+
+The runner refuses stale/missing capacity data, target-table counter or
+relfilenode drift, PostgreSQL restart/stat reset, DB free space below 20 GiB,
+DB/root usage above 89%, output free space below 30 GiB, `pg_wal` above 4 GiB,
+or WAL growth above 1 GiB. Threshold environment overrides can only make those
+limits stricter.
+
+Before the first chunk it runs a 32 MiB `EXPLAIN ANALYZE` preflight. Acceptance
+requires `Tid Range Scan`, single-batch `HashAggregate`, no disk-backed sort or
+hash, and no change in database temp counters. Every chunk also sets
+`temp_file_limit=0`; a query that tries to spill fails before its part is
+finalized. Because `pg_stat_database` counters include other sessions, a
+concurrent temp-counter increase stops the runner before the next chunk but is
+not attributed to this query. A successfully validated backend-clean part is
+retained, so the stop does not force another 512 MiB read.
+
+Completed `part-START-END.csv` files are immutable resume checkpoints. Re-run
+the same command after resolving a stop condition; the runner validates and
+skips complete parts. Failed or suspect partials are quarantined rather than
+accepted. `manifest.tsv`, `preflight.plan`, and `progress.tsv` record the resume
+contract and safety evidence.
+
+Run the same process against the isolated restore in a different off-volume
+directory, then compare the canonical results:
+
+```bash
+cmp -s \
+  /var/backups/adsecute-incident/SOURCE/fingerprint-state-history/fingerprint.csv \
+  /var/backups/adsecute-incident/RESTORE/fingerprint-state-history/fingerprint.csv
+sha256sum \
+  /var/backups/adsecute-incident/SOURCE/fingerprint-state-history/fingerprint.csv \
+  /var/backups/adsecute-incident/RESTORE/fingerprint-state-history/fingerprint.csv
+```
+
+An exact `cmp` match is the acceptance result. A mismatch identifies one or
+more UUID first-byte buckets for exact primary-key drilldown. Do not use a
+fingerprint, row count, or successful decode alone as authorization to delete
+production data.
 
 ## Restore outline
 

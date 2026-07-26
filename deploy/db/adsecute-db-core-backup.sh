@@ -17,6 +17,10 @@ CORE_TABLES=(
   public.businesses
   public.memberships
   public.invites
+  public.provider_accounts
+  public.provider_connections
+  public.integration_credentials
+  public.business_provider_accounts
   public.business_cost_models
   public.business_target_packs
   public.business_country_economics
@@ -44,8 +48,10 @@ runuser -u postgres -- pg_dump \
   --format=custom \
   --compress=9 \
   --data-only \
+  --strict-names \
   --no-owner \
   --no-privileges \
+  --no-tablespaces \
   "${table_args[@]}" > "$TMP_DIR/core-data.dump"
 
 runuser -u postgres -- pg_dump \
@@ -72,8 +78,11 @@ table_count=${#CORE_TABLES[@]}
 tables=$(printf '%s,' "${CORE_TABLES[@]}" | sed 's/,$//')
 EOF
 
-sha256sum "$TMP_DIR/core-data.dump" "$TMP_DIR/schema.sql" "$TMP_DIR/globals.sql" \
-  "$TMP_DIR/database_size_bytes.txt" "$TMP_DIR/manifest.txt" > "$TMP_DIR/SHA256SUMS"
+(
+  cd "$TMP_DIR"
+  sha256sum core-data.dump schema.sql globals.sql \
+    database_size_bytes.txt manifest.txt > SHA256SUMS
+)
 
 mv "$TMP_DIR" "$TARGET_DIR"
 ln -sfn "$TARGET_DIR" "$BACKUP_ROOT/latest"

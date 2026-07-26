@@ -3557,6 +3557,15 @@ export async function runMigrations(options?: {
         // NOT swallowed. These columns and indexes are the contract every read
         // and write below depends on; a migration that "completed" without them
         // has left the runaway in place while reporting success.
+        // Monotonic generation of a provider connection. A reconnect used to be
+        // invisible — connected_at is COALESCEd to the original value, so
+        // disconnect-then-reconnect produced a byte-identical row and any
+        // evidence bound to "the connection it was captured under" kept
+        // validating. NOT swallowed: selection authority refuses when a
+        // discovery snapshot is not bound to the current generation, so an
+        // absent column would make every selection fail rather than degrade.
+        sql`ALTER TABLE provider_connections
+          ADD COLUMN IF NOT EXISTS connection_generation BIGINT NOT NULL DEFAULT 1`,
         sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
         sql`ALTER TABLE sync_release_gates

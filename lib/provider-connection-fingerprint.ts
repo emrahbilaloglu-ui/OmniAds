@@ -22,7 +22,13 @@ import type { IntegrationRow } from "@/lib/integrations";
 export function computeProviderConnectionFingerprint(
   integration: Pick<
     IntegrationRow,
-    "id" | "provider" | "status" | "provider_account_id" | "access_token" | "connected_at"
+    | "id"
+    | "provider"
+    | "status"
+    | "provider_account_id"
+    | "access_token"
+    | "connected_at"
+    | "connection_generation"
   >,
 ): string {
   const token = integration.access_token ?? "";
@@ -37,6 +43,12 @@ export function computeProviderConnectionFingerprint(
         integration.status ?? "",
         integration.provider_account_id ?? "",
         integration.connected_at ?? "",
+        // The generation is what makes a RECONNECT visible. connected_at is
+        // COALESCEd to the original value on reconnect, and an OAuth re-grant
+        // often returns the same token bytes, so without this a
+        // disconnect-reconnect cycle produced an identical fingerprint and a
+        // snapshot captured under the old credential kept validating.
+        String(integration.connection_generation ?? 1),
         tokenDigest,
       ].join(""),
     )

@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
@@ -33,6 +33,23 @@ export interface IntegrationRow {
   metadata: Record<string, unknown>;
   connected_at: string | null;
   disconnected_at: string | null;
+  /**
+   * Monotonic, nonsecret generation of this provider connection.
+   *
+   * A reconnect used to be invisible: `connected_at` is COALESCEd to the
+   * ORIGINAL value, so disconnecting and reconnecting — even as a different
+   * user — produced a connection that looked byte-identical to the previous
+   * one. Anything binding evidence to "the connection it was captured under"
+   * therefore kept validating across a reconnect. This increments on every
+   * reconnect and every credential replacement, so a snapshot taken under the
+   * old credential can be recognised as such without ever comparing secrets.
+   *
+   * Optional in the type because the column is additive and rows read from a
+   * catalog that predates it have no value; the hydrator always populates it,
+   * and every consumer reads it as `?? 1`, which is the correct meaning of "this
+   * connection has never been re-established".
+   */
+  connection_generation?: number;
   created_at: string;
   updated_at: string;
 }
@@ -79,6 +96,7 @@ interface NormalizedIntegrationConnectionRow {
   provider_account_name: string | null;
   connected_at: string | null;
   disconnected_at: string | null;
+  connection_generation: number | string | null;
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +130,7 @@ function hydrateIntegrationRowFromNormalized(input: {
     metadata: input.credentials?.metadata ?? {},
     connected_at: input.connection.connected_at,
     disconnected_at: input.connection.disconnected_at,
+    connection_generation: Number(input.connection.connection_generation ?? 1),
     created_at: input.connection.created_at,
     updated_at: input.connection.updated_at,
   });
@@ -133,6 +152,7 @@ async function readIntegrationRowsByBusiness(
           pc.provider_account_name,
           pc.connected_at,
           pc.disconnected_at,
+          pc.connection_generation,
           pc.created_at,
           pc.updated_at,
           ic.access_token,
@@ -158,6 +178,7 @@ async function readIntegrationRowsByBusiness(
           pc.provider_account_name,
           pc.connected_at,
           pc.disconnected_at,
+          pc.connection_generation,
           pc.created_at,
           pc.updated_at,
           ic.access_token,
@@ -277,11 +298,25 @@ export async function upsertIntegration(params: {
   errorMessage?: string;
   metadata?: Record<string, unknown>;
 }): Promise<IntegrationRow> {
-  const sql = getDb();
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
   const accessToken = encryptIntegrationSecret(params.accessToken ?? null);
   const refreshToken = encryptIntegrationSecret(params.refreshToken ?? null);
+  // A supplied credential is a replacement, and a replacement is a new
+  // generation whether or not the bytes changed — an OAuth re-grant frequently
+  // returns the same token.
+  const replacesCredential = params.accessToken != null || params.refreshToken != null;
+
+  // ONE transaction for identity, connection and credential.
+  //
+  // These were three separate statements, so a reader between the second and
+  // third saw the NEW provider account with the OLD token — account B under
+  // credential A — and a credential write that failed left the connection
+  // already pointing at the new account with no way back. Committing them
+  // together makes a mixed generation unobservable and makes a failed credential
+  // write roll the connection change back with it.
+  const integration = await runDbTransaction(async () => {
+  const sql = getDb();
 
   let providerAccountRefId: string | null = null;
   if (params.providerAccountId) {
@@ -352,6 +387,18 @@ export async function upsertIntegration(params: {
           THEN COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at, now())
         ELSE provider_connections.disconnected_at
       END,
+      -- A reconnect or a credential replacement is a NEW generation. Without
+      -- this the row is byte-identical to the previous connection —
+      -- connected_at is COALESCEd to the original — so evidence bound to "the
+      -- connection it was captured under" kept validating across a disconnect,
+      -- a reconnect by a different user, and a rotation.
+      connection_generation = provider_connections.connection_generation +
+        CASE
+          WHEN ${replacesCredential}
+            OR EXCLUDED.status IS DISTINCT FROM provider_connections.status
+          THEN 1
+          ELSE 0
+        END,
       updated_at = EXCLUDED.updated_at
     RETURNING *
   `) as NormalizedIntegrationConnectionRow[];
@@ -396,10 +443,14 @@ export async function upsertIntegration(params: {
     RETURNING *
   `) as Array<NormalizedIntegrationCredentialRow>;
 
-  const integration = hydrateIntegrationRowFromNormalized({
+  return hydrateIntegrationRowFromNormalized({
     connection,
     credentials: credentials[0] ?? null,
   });
+  });
+
+  // Outside the transaction: a derived-timezone recompute is bookkeeping, and
+  // failing it must not roll back a completed connection change.
   if (params.provider === "shopify" || params.provider === "ga4") {
     await recomputeBusinessDerivedTimezone(params.businessId).catch((error: unknown) => {
       console.warn("[integrations] business_timezone_recompute_failed", {

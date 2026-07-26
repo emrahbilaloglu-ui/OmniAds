@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  // Identity, connection and credential now commit together: a reader between
+  // the connection write and the credential write used to see the NEW provider
+  // account under the OLD token.
+  runDbTransaction: vi.fn(async (run: () => Promise<unknown>) => run()),
 }));
 
 vi.mock("@/lib/provider-account-reference-store", () => ({

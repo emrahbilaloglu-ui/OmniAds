@@ -499,6 +499,98 @@ async function main() {
       `${LABEL} L6 PASS repair-plan arbiter: the explicit unique index exists and enforces, a missing arbiter raises 42P10 instead of duplicating, and a migration rerun restores it`,
     );
 
+    // G1-G3: connection generation. A reconnect used to be invisible —
+    // connected_at is COALESCEd to the ORIGINAL value and an OAuth re-grant
+    // often returns the same token bytes — so a discovery snapshot captured
+    // under the old credential kept validating across a disconnect and a
+    // reconnect by a different user.
+    const { upsertIntegration, getIntegration } = await import("@/lib/integrations");
+    const { computeProviderConnectionFingerprint } = await import(
+      "@/lib/provider-connection-fingerprint"
+    );
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
+      process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY ??
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    const genBusiness = await client.query<{ id: string }>(
+      `INSERT INTO businesses (name, owner_id) VALUES ('Generation seam', $1::uuid)
+       RETURNING id::text AS id`,
+      [owner.rows[0]!.id],
+    );
+    const genBusinessId = genBusiness.rows[0]!.id;
+
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "meta",
+      status: "connected",
+      providerAccountId: "act_gen",
+      providerAccountName: "Generation",
+      accessToken: "token-A",
+    });
+    const first = await getIntegration(genBusinessId, "meta");
+    assert(first != null, "G1: no integration after the first connect.");
+    const firstFingerprint = computeProviderConnectionFingerprint(first);
+
+    // Disconnect, then reconnect with the SAME token bytes. This is the exact
+    // case the fingerprint used to miss.
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "meta",
+      status: "disconnected",
+    });
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "meta",
+      status: "connected",
+      providerAccountId: "act_gen",
+      providerAccountName: "Generation",
+      accessToken: "token-A",
+    });
+    const reconnected = await getIntegration(genBusinessId, "meta");
+    assert(reconnected != null, "G1: no integration after reconnect.");
+    assert(
+      (reconnected.connection_generation ?? 1) >
+        (first.connection_generation ?? 1),
+      `G1: a reconnect did not advance the connection generation (${first.connection_generation} -> ${reconnected.connection_generation}).`,
+    );
+    assert(
+      computeProviderConnectionFingerprint(reconnected) !== firstFingerprint,
+      "G1: a disconnect-reconnect cycle with unchanged token bytes produced an identical fingerprint, so evidence from the old connection would still validate.",
+    );
+
+    // G2: a rotation with different bytes also advances it.
+    const beforeRotation = reconnected.connection_generation ?? 1;
+    await upsertIntegration({
+      businessId: genBusinessId,
+      provider: "meta",
+      status: "connected",
+      providerAccountId: "act_gen",
+      accessToken: "token-B",
+    });
+    const rotated = await getIntegration(genBusinessId, "meta");
+    assert(
+      (rotated?.connection_generation ?? 1) > beforeRotation,
+      "G2: a credential rotation did not advance the connection generation.",
+    );
+
+    // G3: no mixed generation is observable. The connection and its credential
+    // commit together, so the account and the token always belong to the same
+    // generation.
+    const mixed = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM provider_connections pc
+       LEFT JOIN integration_credentials ic ON ic.provider_connection_id = pc.id
+       WHERE pc.business_id = $1 AND ic.provider_connection_id IS NULL`,
+      [genBusinessId],
+    );
+    assert(
+      Number(mixed.rows[0]!.count) === 0,
+      "G3: a connection exists with no credential row, so the two did not commit together.",
+    );
+    console.log(
+      `${LABEL} G1-G3 PASS connection generation: a disconnect-reconnect with UNCHANGED token bytes advances the generation and changes the fingerprint, a rotation advances it again, and no connection exists without its credential`,
+    );
+
     console.log(`${LABEL} PASS`);
   } catch (error) {
     if (fs.existsSync(logFile)) {

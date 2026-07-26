@@ -92,6 +92,7 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "meta_entity_observation_runs", column: "last_checkpoint_at", dataType: "timestamp with time zone", isNullable: true },
   // Stable logical identity for lineage edges.
   { table: "meta_creative_lineage_edges", column: "logical_lineage_key", dataType: "text", isNullable: true },
+  { table: "provider_connections", column: "connection_generation", dataType: "bigint", isNullable: false, columnDefault: "1" },
 ];
 
 /** Tables this change adds. */

@@ -105,21 +105,46 @@ export const LIVE_MEASUREMENT = {
 } as const;
 
 /**
- * Budgets derived from LIVE_MEASUREMENT: tight, but admitting the database as
- * it actually is today.
+ * Aggregate budget: 160 GiB. Derived, not chosen.
  *
- * The database budget is 150 GiB against a live 136.45 GiB. That admits the
- * current database with only ~13.5 GiB of headroom, and the 85% warning band
- * opens at 127.5 GiB — BELOW the live size — so production starts in the
- * warning state on day one. That is deliberate and is the honest reading: this
- * database is close to its ceiling, and the config trio is 60 GiB of it. A
- * budget that let the current size pass quietly would be describing a database
- * that has room, which this one does not.
+ * The constraint set is:
+ *   - live logical database          136.44 GiB
+ *   - volume capacity                206.15 GiB
+ *   - volume free                    104.94 GiB
+ *   - host free-space floor           40.00 GiB
+ *   - warning band                    85% of the budget
+ *
+ * The binding requirement is that the fence must still WARN today. The warning
+ * band is what gives any notice at all before refusal, and a budget whose band
+ * sits above the live size starts silent. 160 GiB puts the band at 136.00 GiB,
+ * just below the live 136.44 GiB — so it warns now. 165 GiB and above do not
+ * (bands at 140.3 GiB and up), which is why they are rejected despite the extra
+ * headroom.
+ *
+ * Among the budgets that still warn, take the largest. 150 GiB warns too, but
+ * leaves only 13.56 GiB of headroom, and there is currently NO way to reclaim
+ * space: the ~63 GiB Meta config trio has verified backups but cannot be
+ * logically deleted or compacted safely, and the cleanup planner deliberately
+ * ships no executor. A budget that assumes that space will come back is
+ * depending on work that does not exist. 160 GiB gives 23.56 GiB of headroom
+ * against real growth without that assumption.
+ *
+ * Disk safety holds at 160 GiB: consuming the entire remaining budget adds
+ * 23.56 GiB, which against 104.94 GiB free leaves ~81 GiB — far above the
+ * 40 GiB floor. That calculation deliberately assumes one logical byte costs
+ * one filesystem byte, which is conservative: measured filesystem usage
+ * (100.17 GiB) is currently BELOW the logical database size, and the reason for
+ * that gap is not established here, so the pessimistic direction is the one to
+ * assume.
+ *
+ * The per-table ceilings sum to 180 GiB, above this aggregate on purpose. The
+ * aggregate binds first and catches total growth; the per-table ceilings exist
+ * to catch a single relation running away inside it.
  *
  * Units are explicit throughout. The previous 120 GiB default was below a
  * 136 GB database precisely because GiB and GB were mixed.
  */
-export const DEFAULT_DATABASE_BUDGET_BYTES = 150 * 1024 ** 3; // 150 GiB = 161.06 GB
+export const DEFAULT_DATABASE_BUDGET_BYTES = 160 * 1024 ** 3; // 160 GiB = 171.80 GB
 export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
   // The config trio: 60 GiB between them, and every byte of it is the
   // amplification. Budgets are just above live so any regrowth refuses almost

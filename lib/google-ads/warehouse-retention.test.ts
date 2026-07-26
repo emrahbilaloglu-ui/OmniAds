@@ -285,7 +285,10 @@ describe("Google Ads warehouse retention policy", () => {
     // under GOOGLE_ADS_RETENTION_EXECUTION_ENABLED, so the lane has to sit
     // outside that flag and outside forceExecute for "lane off stops all
     // deletion" to be true.
-    const sqlQuery = vi.fn(async () => [{ count: 0 }]);
+    const sqlQuery = vi.fn(async (text: string) => {
+      void text;
+      return [{ count: 0 }];
+    });
     getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
 
     for (const env of [
@@ -306,7 +309,7 @@ describe("Google Ads warehouse retention policy", () => {
         env: env as unknown as NodeJS.ProcessEnv,
       });
       expect(result.mode).toBe("dry_run");
-      const issued = sqlQuery.mock.calls.map(([text]) => String(text));
+      const issued = sqlQuery.mock.calls.map((call) => String(call[0]));
       expect(issued.some((text) => /DELETE\s+FROM/i.test(text))).toBe(false);
     }
   });

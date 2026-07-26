@@ -930,6 +930,141 @@ async function verifySelectionQueries(client: Client) {
   );
 }
 
+// ── R1-R3. The rollout orchestration, EXECUTED ─────────────────────────────
+
+/**
+ * The rollout was documented and not executable, which is the same class of gap
+ * as a declared kill-switch lane with no call to it. These run the real script
+ * against this database.
+ */
+async function verifyRolloutOrchestration(client: Client) {
+  const { spawnSync: spawnRollout } = await import("node:child_process");
+  const laneFile = path.join(os.tmpdir(), `adsecute-rollout-lanes-${process.pid}.env`);
+  const runRollout = (command: string, extraEnv: Record<string, string> = {}) =>
+    spawnRollout(
+      process.execPath,
+      ["--import", "tsx", "scripts/global-sync-rollout.ts", command],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SYNC_LANE_ENV_FILE: laneFile,
+          // The script must judge the lane state from the environment, not from
+          // whatever this seam turned on for its own cases.
+          ADSECUTE_SYNC_GLOBAL_ENABLED: "",
+          ADSECUTE_SYNC_LANE_META_SYNC_ENABLED: "",
+          ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED: "",
+          ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED: "",
+          ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED: "",
+          ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED: "",
+          ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "",
+          ...extraEnv,
+        },
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+
+  try {
+    // R1: a live lease must abort. Nothing is written.
+    await client.query(
+      `INSERT INTO sync_runner_leases
+         (business_id, provider_scope, lease_owner, lease_expires_at)
+       VALUES ('__rollout_probe__', 'meta', 'rollout-probe', now() + interval '5 minutes')
+       ON CONFLICT (business_id, provider_scope)
+       DO UPDATE SET lease_owner = EXCLUDED.lease_owner,
+                     lease_expires_at = EXCLUDED.lease_expires_at`,
+    );
+    const blocked = runRollout("enable");
+    assert(
+      blocked.status !== 0,
+      `R1: enable succeeded while a runner lease was live:\n${blocked.stdout}`,
+    );
+    assert(
+      /ABORTED/.test(blocked.stderr) && /runner_leases/.test(blocked.stdout),
+      `R1: the abort did not name the failed precondition:\n${blocked.stdout}\n${blocked.stderr}`,
+    );
+    assert(
+      !fs.existsSync(laneFile),
+      "R1: a refused enable still wrote the lane file; a partial enable is possible.",
+    );
+    console.log(
+      `${LABEL} R1 PASS rollout abort: a live runner lease refuses enable, names the failed check, and writes nothing`,
+    );
+
+    // R2: with the database actually quiesced, enable succeeds and writes ALL
+    // sync lanes at once — with retention still off. Everything below is
+    // residue from the selection cases above; the script was right to refuse
+    // while it was there, which is R1's point.
+    await client.query(`DELETE FROM sync_runner_leases`);
+    await client.query(
+      `UPDATE google_ads_sync_partitions
+       SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL
+       WHERE lease_owner IS NOT NULL`,
+    );
+    await client.query(
+      `UPDATE meta_sync_partitions
+       SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL
+       WHERE lease_owner IS NOT NULL`,
+    );
+    await client.query(
+      `UPDATE provider_sync_jobs SET status = 'failed' WHERE status = 'running'`,
+    );
+    const enabled = runRollout("enable", {
+      // Supplied filesystem measurement; without it headroom is "unknown" and
+      // the script correctly refuses.
+      SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES: String(200 * 1024 ** 3),
+      SYNC_GROWTH_FENCE_VOLUME_CAPACITY_BYTES: String(210 * 1024 ** 3),
+    });
+    assert(
+      enabled.status === 0,
+      `R2: enable failed on a quiesced database:\n${enabled.stdout}\n${enabled.stderr}`,
+    );
+    const laneContents = fs.readFileSync(laneFile, "utf8");
+    for (const lane of [
+      "META_SYNC",
+      "GOOGLE_SYNC",
+      "SHOPIFY_SYNC",
+      "CRON_ENQUEUE",
+      "ASSIGNMENT_MUTATION",
+    ]) {
+      assert(
+        laneContents.includes(`ADSECUTE_SYNC_LANE_${lane}_ENABLED=enabled`),
+        `R2: ${lane} was not enabled; a partial enable is exactly what this must prevent.`,
+      );
+    }
+    assert(
+      laneContents.includes("ADSECUTE_SYNC_LANE_RETENTION_ENABLED=\n") ||
+        laneContents.includes("ADSECUTE_SYNC_LANE_RETENTION_ENABLED="),
+      "R2: retention appears in the enabled set.",
+    );
+    assert(
+      !/ADSECUTE_SYNC_LANE_RETENTION_ENABLED=enabled/.test(laneContents),
+      "R2: retention was ENABLED by the rollout script; it must never be.",
+    );
+    console.log(
+      `${LABEL} R2 PASS atomic enable: all 5 sync lanes written in one action with retention left disabled`,
+    );
+
+    // R3: disable always works and clears everything, including retention.
+    const disabled = runRollout("disable");
+    assert(disabled.status === 0, `R3: disable failed:\n${disabled.stderr}`);
+    const afterDisable = fs.readFileSync(laneFile, "utf8");
+    assert(
+      !/=enabled/.test(afterDisable),
+      `R3: disable left something enabled:\n${afterDisable}`,
+    );
+    console.log(
+      `${LABEL} R3 PASS unconditional disable: every lane cleared, including retention`,
+    );
+  } finally {
+    await client
+      .query(`DELETE FROM sync_runner_leases WHERE business_id = '__rollout_probe__'`)
+      .catch(() => undefined);
+    fs.rmSync(laneFile, { force: true });
+  }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1001,6 +1136,7 @@ async function main() {
     await verifyGrowthBoundaries();
     await verifyReleaseBoundary(client);
     await verifySelectionQueries(client);
+    await verifyRolloutOrchestration(client);
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

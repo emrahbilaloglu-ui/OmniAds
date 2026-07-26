@@ -4,6 +4,40 @@ import {
   shouldAutoWarmShopifyOverviewSnapshot,
 } from "@/lib/sync/report-warmer-boundaries";
 
+vi.mock("@/lib/sync/global-kill-switch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/global-kill-switch")>();
+  return {
+    ...actual,
+    // Lanes default to OFF. Admission has its own suite
+    // (shopify-lane-admission.test.ts); this one is about what runs behind it.
+    assertSyncLaneEnabled: vi.fn(() => ({
+      lane: "shopify_sync" as const,
+      enabled: true,
+      reason: "enabled" as const,
+    })),
+  };
+});
+
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();
+  return {
+    ...actual,
+    assertSyncGrowthBoundary: vi.fn(async () => ({
+      allowed: true as const,
+      reason: "ready" as const,
+      warning: false,
+      databaseBytes: 1,
+      databaseBudgetBytes: 2,
+      tableBytes: {},
+      offender: null,
+      evaluatedAt: "2026-07-26T00:00:00.000Z",
+      errorMessage: null,
+      overridden: false,
+    })),
+  };
+});
 vi.mock("@/lib/shopify/admin", () => ({
   resolveShopifyAdminCredentials: vi.fn(),
   hasShopifyScope: vi.fn((scopes: string | null | undefined, scope: string) =>

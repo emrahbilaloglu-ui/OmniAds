@@ -335,13 +335,45 @@ describe("production volume calibration", () => {
   });
 
   it("admits the live database WITH a warning rather than quietly", () => {
-    // This database is close to its ceiling: the config trio alone is 60 GiB of
-    // the 136.45 GiB. A warning band above the live size would be describing a
-    // database that has room.
+    // The warning band is the only notice before refusal. A budget whose band
+    // sits above the live size starts silent.
     expect(
       LIVE_MEASUREMENT.databaseBytes,
     ).toBeGreaterThanOrEqual(DEFAULT_DATABASE_BUDGET_BYTES * DEFAULT_WARNING_RATIO);
     expect(LIVE_MEASUREMENT.databaseBytes).toBeLessThan(DEFAULT_DATABASE_BUDGET_BYTES);
+  });
+
+  it("is the largest budget that still warns today", () => {
+    // Why 160 and not 165+: the next steps up put the band above the live size
+    // and the fence goes quiet. Why not 150: it warns, but leaves ~13.5 GiB of
+    // headroom, and there is currently no way to reclaim space — the config
+    // trio cannot be compacted and the cleanup planner ships no executor. A
+    // tighter budget would be depending on work that does not exist.
+    const bandAtNextStep = (DEFAULT_DATABASE_BUDGET_BYTES + 5 * GiB) * DEFAULT_WARNING_RATIO;
+    expect(bandAtNextStep).toBeGreaterThan(LIVE_MEASUREMENT.databaseBytes);
+    const headroom = DEFAULT_DATABASE_BUDGET_BYTES - LIVE_MEASUREMENT.databaseBytes;
+    expect(headroom).toBeGreaterThan(20 * GiB);
+  });
+
+  it("cannot drive the volume below the host free-space floor", () => {
+    // Conservative on purpose: one logical byte is assumed to cost one
+    // filesystem byte. Measured filesystem usage is currently BELOW the logical
+    // database size and the reason is not established, so the pessimistic
+    // direction is the one to assume.
+    const growthAllowed =
+      DEFAULT_DATABASE_BUDGET_BYTES - LIVE_MEASUREMENT.databaseBytes;
+    const freeAfter = LIVE_MEASUREMENT.volume.availableBytes - growthAllowed;
+    expect(freeAfter).toBeGreaterThan(MINIMUM_VOLUME_FREE_BYTES);
+  });
+
+  it("keeps per-table ceilings above the aggregate so the aggregate binds first", () => {
+    const perTableSum = FENCED_TABLES.reduce(
+      (sum, table) => sum + DEFAULT_TABLE_BUDGET_BYTES[table],
+      0,
+    );
+    // Deliberate: the aggregate catches total growth, the per-table ceilings
+    // catch one relation running away inside it.
+    expect(perTableSum).toBeGreaterThan(DEFAULT_DATABASE_BUDGET_BYTES);
   });
 
   it("emits the warning flag at the live size", async () => {

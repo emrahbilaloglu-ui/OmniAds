@@ -632,7 +632,10 @@ describe("Meta warehouse retention policy", () => {
     // invokes THIS policy directly, and it carries its own execution flag plus
     // a forceExecute argument — so unless the lane sits outside both, that
     // claim is false.
-    const sqlQuery = vi.fn(async () => [{ count: 0 }]);
+    const sqlQuery = vi.fn(async (text: string) => {
+      void text;
+      return [{ count: 0 }];
+    });
     getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
 
     for (const env of [
@@ -657,7 +660,7 @@ describe("Meta warehouse retention policy", () => {
       });
       expect(result.mode).toBe("dry_run");
       expect(result.executionDisposition).toBe("dry_run");
-      const issued = sqlQuery.mock.calls.map(([text]) => String(text));
+      const issued = sqlQuery.mock.calls.map((call) => String(call[0]));
       expect(issued.some((text) => /DELETE\s+FROM/i.test(text))).toBe(false);
     }
   });

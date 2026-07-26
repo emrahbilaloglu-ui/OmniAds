@@ -1,3 +1,5 @@
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { mergeIntegrationMetadata } from "@/lib/integrations";
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
@@ -301,6 +303,12 @@ export async function syncShopifyCommerceReports(
     materializeOverviewState?: boolean;
   }
 ) {
+  // Admission BEFORE credentials, before any database read or write, before any
+  // provider call. Shopify declared a kill-switch lane and had no call to it,
+  // and it bypassed the growth fence entirely — its raw snapshot table is
+  // 13.9 GB, the second-largest append surface in the database.
+  assertSyncLaneEnabled("shopify_sync");
+  await assertSyncGrowthBoundary("shopify_commerce_sync", { fresh: true });
   const logValidationPhase = (phase: string, summary?: Record<string, unknown>) => {
     if (input?.triggerReason !== "runtime_validation") {
       return;
@@ -1056,6 +1064,10 @@ export async function ensureShopifyProviderReady(input: {
   runHistoricalBootstrap?: boolean;
   triggerReason?: string;
 }) {
+  // Readiness bootstraps a provider and writes progress metadata, so it is a
+  // work unit in its own right rather than a read.
+  assertSyncLaneEnabled("shopify_sync");
+  await assertSyncGrowthBoundary("shopify_provider_readiness", { fresh: true });
   const startedAt = new Date().toISOString();
   const recentWindowDays = Math.max(1, input.recentWindowDays ?? 30);
   const visibleWindowDays = Math.max(

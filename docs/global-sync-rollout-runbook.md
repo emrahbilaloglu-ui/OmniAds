@@ -165,9 +165,13 @@ Then check readiness with lanes still off — the growth fence and the retention
 readiness contract both evaluate without any lane being enabled:
 
 - The fence must report `allowed: true` with `warning: true`. **Warning is
-  expected**: the live database is 136.45 GiB against a 150 GiB budget and the
-  85% band opens at 127.5 GiB. A quiet admission here would mean the budget is
-  wrong, not that the database is healthy.
+  expected**: the live database is 136.44 GiB against a 160 GiB budget whose
+  85% band opens at 136.00 GiB. A quiet admission here would mean the budget is
+  wrong, not that the database is healthy. 160 GiB is the largest budget whose
+  band still fires today; anything larger starts silent, and anything smaller
+  would be assuming the ~63 GiB config trio can be reclaimed, which it
+  currently cannot — it has verified backups but no safe compaction path, and
+  the cleanup planner ships no executor.
 - Retention readiness must report ready.
 
 Enable every sync lane in one action (retention stays off):

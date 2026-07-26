@@ -92,7 +92,6 @@ describe("Meta write authority at the immediate pre-POST boundary", () => {
     const failure = await getMetaAdsWriteBlockFailure(ctx);
     expect(failure?.httpStatus).toBe(409);
     expect(failure?.error.code).toBe(META_ACCOUNT_NOT_SELECTED_CODE);
-    expect(failure?.providerMutationAttempted).toBe(false);
     expect(providerFetch).not.toHaveBeenCalled();
   });
 
@@ -247,7 +246,6 @@ describe("credential generation at the write boundary", () => {
       connectionGeneration: "1:connected",
     });
     expect(failure).not.toBeNull();
-    expect(failure?.providerMutationAttempted).toBe(false);
     expect(failure?.httpStatus).toBe(409);
     expect(failure?.error.message).toMatch(/connection changed/i);
   });

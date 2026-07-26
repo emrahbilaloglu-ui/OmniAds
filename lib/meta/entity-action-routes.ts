@@ -270,23 +270,6 @@ async function resolveWriteContext(input: {
  */
 export const __testResolveEntityWriteContext = resolveWriteContext;
 
-function failureLogStatus(
-  result: MetaAdsWriteFailure,
-): Exclude<MetaAdsActionStatus, "pending" | "success"> {
-  return result.error.code === "silent_failure" ||
-    hasSuccessfulMetaProviderMutationAttempt(result) ||
-    result.error.code === "provider_outcome_ambiguous" ||
-    result.providerOutcome === "outcome_ambiguous"
-    ? "silent_failure"
-    : "failure";
-}
-
-function isProviderOutcomeAmbiguous(result: MetaAdsWriteFailure) {
-  return (
-    result.error.code === "provider_outcome_ambiguous" ||
-    result.providerOutcome === "outcome_ambiguous"
-  );
-
 function failureLogStatus(result: MetaAdsWriteFailure): MetaAdsActionStatus {
   return result.error.code === "silent_failure" ? "silent_failure" : "failure";
 }

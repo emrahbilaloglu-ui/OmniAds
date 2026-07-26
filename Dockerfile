@@ -9,6 +9,8 @@ RUN npm ci
 FROM deps AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DISABLE_WEBPACK_CACHE=1
+# The default heap is not enough for this tree; the build OOMs without it.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY . .
 RUN npm run build
 

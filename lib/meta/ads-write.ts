@@ -216,7 +216,6 @@ export async function getMetaAdsWriteBlockFailure(
     return {
       ok: false,
       httpStatus: atomicAuthority.httpStatus,
-      providerMutationAttempted: false,
       error: {
         code:
           atomicAuthority.httpStatus === 503

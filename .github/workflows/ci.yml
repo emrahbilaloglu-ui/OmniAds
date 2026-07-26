@@ -385,6 +385,11 @@ jobs:
     needs:
       - typecheck
       - test
+      # The real-database seams are the only proof the migration, admission,
+      # authority and DR paths behave against PostgreSQL rather than a mock.
+      # Publishing an image without them means a green pipeline can ship a
+      # release whose schema and cutover proofs never ran.
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -431,6 +436,11 @@ jobs:
     needs:
       - typecheck
       - test
+      # The real-database seams are the only proof the migration, admission,
+      # authority and DR paths behave against PostgreSQL rather than a mock.
+      # Publishing an image without them means a green pipeline can ship a
+      # release whose schema and cutover proofs never ran.
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -520,6 +530,11 @@ jobs:
     needs:
       - typecheck
       - test
+      # The real-database seams are the only proof the migration, admission,
+      # authority and DR paths behave against PostgreSQL rather than a mock.
+      # Publishing an image without them means a green pipeline can ship a
+      # release whose schema and cutover proofs never ran.
+      - database-seams
       - detect-runtime-changes
     runs-on: ubuntu-latest
     steps:

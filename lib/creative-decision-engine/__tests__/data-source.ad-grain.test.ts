@@ -910,6 +910,18 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
+  it("skips compacted positive-row runs while preserving legitimate empty runs", () => {
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "run.row_count = 0",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "retained_state.run_id = run.id",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "OR EXISTS (",
+    );
+  });
+
   it("uses capture time rather than provider update time for receipt membership", () => {
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
       "state.captured_at >= run.source_captured_at",

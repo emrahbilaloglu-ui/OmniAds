@@ -498,6 +498,8 @@ async function createHydrationSourceSchema(client: Client) {
 
 async function verifyHydrationReceiptCaptureAxis(client: Client) {
   const sourceRunId = "00000000-0000-4000-8000-000000000904";
+  const compactedDuplicateRunId = "00000000-0000-4000-8000-000000000905";
+  const emptyRunId = "00000000-0000-4000-8000-000000000906";
   const sourceObservedAt = `${AS_OF}T03:00:00.000Z`;
   const sourceCapturedAt = `${AS_OF}T03:00:05.000Z`;
   await client.query(
@@ -569,6 +571,80 @@ async function verifyHydrationReceiptCaptureAxis(client: Client) {
     JSON.stringify(receipt.rows[0]?.expected_ad_ids) ===
       JSON.stringify(["ad-old-provider-update"]),
     "Hydration receipt dropped an old provider update or ignored a later tombstone.",
+  );
+
+  await client.query(
+    `INSERT INTO meta_entity_observation_runs (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, endpoint, observed_at, captured_at,
+       completeness, page_count, row_count, payload_hash, run_hash, created_at
+     ) VALUES ($1, $2::uuid, $2::text, $3, $4, 'ad', 'ad_configs', $5, $6,
+       'complete', 1, 2, $7, $8, $6)`,
+    [
+      compactedDuplicateRunId,
+      BUSINESS_ID,
+      ACCOUNT_REF_ID,
+      ACCOUNT_ID,
+      `${AS_OF}T03:10:00.000Z`,
+      `${AS_OF}T03:10:05.000Z`,
+      "b".repeat(64),
+      "c".repeat(64),
+    ],
+  );
+  const afterCompactedDuplicate = await client.query<{
+    source_run_id: string;
+    source_expected_row_count: number;
+    source_persisted_row_count: number;
+  }>(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY, [
+    BUSINESS_ID,
+    AS_OF,
+    CUTOFF,
+    [],
+    false,
+  ]);
+  assert(
+    afterCompactedDuplicate.rows[0]?.source_run_id === sourceRunId &&
+      afterCompactedDuplicate.rows[0]?.source_expected_row_count === 2 &&
+      afterCompactedDuplicate.rows[0]?.source_persisted_row_count === 2,
+    "Compacted duplicate run without retained state caused a receipt mismatch.",
+  );
+
+  await client.query(
+    `INSERT INTO meta_entity_observation_runs (
+       id, business_ref_id, business_id, provider_account_ref_id,
+       provider_account_id, entity_type, endpoint, observed_at, captured_at,
+       completeness, page_count, row_count, payload_hash, run_hash, created_at
+     ) VALUES ($1, $2::uuid, $2::text, $3, $4, 'ad', 'ad_configs', $5, $6,
+       'complete', 1, 0, $7, $8, $6)`,
+    [
+      emptyRunId,
+      BUSINESS_ID,
+      ACCOUNT_REF_ID,
+      ACCOUNT_ID,
+      `${AS_OF}T03:12:00.000Z`,
+      `${AS_OF}T03:12:05.000Z`,
+      "d".repeat(64),
+      "e".repeat(64),
+    ],
+  );
+  const emptyReceipt = await client.query<{
+    source_run_id: string;
+    source_expected_row_count: number;
+    source_persisted_row_count: number;
+    expected_ad_ids: string[];
+  }>(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY, [
+    BUSINESS_ID,
+    AS_OF,
+    CUTOFF,
+    [],
+    false,
+  ]);
+  assert(
+    emptyReceipt.rows[0]?.source_run_id === emptyRunId &&
+      emptyReceipt.rows[0]?.source_expected_row_count === 0 &&
+      emptyReceipt.rows[0]?.source_persisted_row_count === 0 &&
+      emptyReceipt.rows[0]?.expected_ad_ids.length === 0,
+    "Legitimate zero-row complete run was not selected as an empty receipt.",
   );
 }
 
@@ -1958,7 +2034,7 @@ async function main() {
       resetDbClientCache();
     }
     console.log(
-      "[native-ad-seam] PASS capture-axis receipt, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
+      "[native-ad-seam] PASS capture-axis and compaction-aware receipts, generation-bound 501-row hydration, second-event-batch rollback, tombstone, historical cutoff, first-write linkage, receipt prune, retry, account-identity reuse, legacy authority upgrade, FK and soft-only checks",
     );
   } finally {
     if (started) {

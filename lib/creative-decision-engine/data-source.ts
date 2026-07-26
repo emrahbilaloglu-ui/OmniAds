@@ -1856,6 +1856,23 @@ WITH assigned_accounts AS (
       AND run.observed_at >= $2::date
       AND run.observed_at <= $3::timestamptz
       AND run.captured_at <= $3::timestamptz
+      -- Compaction may retain a duplicate run receipt while removing its
+      -- redundant state rows. Skip only fully removed positive-row runs;
+      -- base_counts still exposes partially retained sets as a mismatch.
+      AND (
+        run.row_count = 0
+        OR EXISTS (
+          SELECT 1
+          FROM meta_entity_state_history retained_state
+          WHERE retained_state.run_id = run.id
+            AND retained_state.business_ref_id = run.business_ref_id
+            AND retained_state.business_id = run.business_id
+            AND retained_state.provider_account_ref_id =
+              run.provider_account_ref_id
+            AND retained_state.provider_account_id = run.provider_account_id
+            AND retained_state.entity_type = run.entity_type
+        )
+      )
     ORDER BY run.observed_at DESC, run.captured_at DESC, run.created_at DESC, run.id DESC
     LIMIT 1
   ) run ON true

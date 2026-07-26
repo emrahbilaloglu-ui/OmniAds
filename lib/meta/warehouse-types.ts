@@ -192,6 +192,18 @@ export interface MetaWarehouseBaseRow extends MetaWarehouseMetricSet {
   finalizedAt?: string | null;
   validationStatus?: MetaWarehouseValidationStatus;
   sourceRunId?: string | null;
+  /**
+   * When the CONFIGURATION carried by this row was actually observed.
+   *
+   * Distinct from `date` (the metric day) and from `finalizedAt` (when the
+   * metrics were sealed). Config history is keyed partly on captured_at, and the
+   * old fallback of `${date}T00:00:00Z` was a synthetic midnight that had never
+   * been an observation — it collapsed two genuine same-day observations into
+   * one and backdated a 14:00 configuration to the start of the day. Rows
+   * without a real observation time are excluded from config history rather
+   * than given an invented one.
+   */
+  configObservedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -342,6 +354,18 @@ export interface MetaCreativeMediaRow {
   imageHash?: string | null;
   payloadJson?: unknown;
   sourceRunId?: string | null;
+  /**
+   * When the CONFIGURATION carried by this row was actually observed.
+   *
+   * Distinct from `date` (the metric day) and from `finalizedAt` (when the
+   * metrics were sealed). Config history is keyed partly on captured_at, and the
+   * old fallback of `${date}T00:00:00Z` was a synthetic midnight that had never
+   * been an observation — it collapsed two genuine same-day observations into
+   * one and backdated a 14:00 configuration to the start of the day. Rows
+   * without a real observation time are excluded from config history rather
+   * than given an invented one.
+   */
+  configObservedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

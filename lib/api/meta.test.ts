@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Current inventory is now a separately admitted account-current unit, so the
+// path crosses the growth fence. Default-admit here; refusal is proven in
+// lib/sync/db-growth-fence.test.ts and the retention seam.
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertSyncGrowthBoundary: vi.fn(async () => ({ allowed: true, reason: "ready" })),
+  };
+});
+
 vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
 }));
@@ -568,6 +579,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -599,17 +619,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     // only on historical days. The day is still fetched and still enriches its
     // metric facts in memory; it just writes no config evidence.
     expect(configSnapshots.appendMetaConfigSnapshots).not.toHaveBeenCalled();
+    // ZERO current-inventory provider calls. These endpoints have no date
+    // filter, so asking them from a historical partition spends three calls per
+    // backfilled day AND enriches that day with configuration that did not
+    // exist then. Suppressing only the durable writes fixed the storage half and
+    // none of the rest.
     expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("buying_type")),
-    ).toBe(true);
-    // The metric facts are still written — only the CURRENT-inventory evidence
-    // is withheld — and the daily writer must be told not to append config
-    // history for a historical day.
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("buying_type")),
+    ).toHaveLength(0);
+    // The metric facts are still written, with NO configuration attached: a past
+    // day genuinely has no current config, and null is the truthful answer.
     expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
           campaignId: "cmp-1",
-          buyingType: "AUCTION",
+          buyingType: null,
         }),
       ]),
       expect.objectContaining({ appendConfigHistory: false }),
@@ -679,6 +703,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -797,6 +830,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -1005,6 +1047,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1078,6 +1129,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         });
       }
       if (url.includes("/adsets")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -1180,6 +1240,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         );
       }
       if (url.includes("/adsets")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -1306,6 +1375,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1376,6 +1454,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1406,7 +1493,12 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     ).rejects.toThrow("meta_finalization_proof_incomplete");
   });
 
-  it("writes normalized config fields into campaign_daily and adset_daily rows during core sync", async () => {
+  it("attaches no current configuration to a historical core warehouse day", async () => {
+    // Daily fact rows are written on FINALIZED days, and current inventory is
+    // fetched only on the account's own provisional today — so a finalized day
+    // has, correctly, no configuration to attach. This used to write today's
+    // objective, bid strategy and budgets onto a day months in the past.
+    const accountToday = "2026-04-03";
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
 
     const fetchMock = vi.fn(async (url: string) => {
@@ -1475,6 +1567,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1490,7 +1591,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         },
       },
       accountId: "act_1",
-      day: "2026-04-03",
+      day: accountToday,
       partitionId: "partition-3",
       workerId: "worker-1",
       leaseEpoch: 19,
@@ -1498,43 +1599,43 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const adsetRows =
-      vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
-    const campaignRows =
-      vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+    // Across ALL calls: the current-day path writes in more than one pass, so
+    // pinning to calls[0] would assert against whichever pass happened to be
+    // first rather than against what was written.
+    const adsetRows = vi
+      .mocked(warehouse.upsertMetaAdSetDailyRows)
+      .mock.calls.flatMap((call) => call[0] ?? []);
+    const campaignRows = vi
+      .mocked(warehouse.upsertMetaCampaignDailyRows)
+      .mock.calls.flatMap((call) => call[0] ?? []);
 
-    expect(adsetRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adsetId: "adset-1",
-          optimizationGoal: "omni_purchase",
-          bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
-          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
-          manualBidAmount: 5.5,
-          bidValue: 5.5,
-          bidValueFormat: "currency",
-          dailyBudget: 10,
-          lifetimeBudget: null,
-          isBudgetMixed: false,
-          isConfigMixed: false,
-        }),
-      ]),
-    );
+    // The metric facts land; the configuration columns are null, because no
+    // configuration was observed for that day and inventing one from today would
+    // be a fabricated historical truth.
     expect(campaignRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           campaignId: "cmp-1",
-          dailyBudget: 25,
-          optimizationGoal: "omni_purchase",
-          bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
-          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
+          dailyBudget: null,
+          optimizationGoal: null,
+          bidStrategyType: null,
         }),
       ]),
     );
+    for (const row of adsetRows) {
+      expect(row.bidStrategyType).toBeNull();
+      expect(row.dailyBudget).toBeNull();
+    }
     expect(configuration.summarizeCampaignConfig).toHaveBeenCalled();
   });
 
-  it("synthesizes zero-metric campaign and ad set rows from config when insights omit them", async () => {
+  it("synthesizes no rows from configuration on a historical day", async () => {
+    // Synthesis fills in entities that configuration knows about and insights
+    // omitted. On a historical day there is no current configuration — by
+    // design — so there is nothing to synthesize from, and inventing rows from
+    // today's inventory would put entities into a past day that were not
+    // running then.
+    const accountToday = "2026-04-04";
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
 
     const fetchMock = vi.fn(async (url: string) => {
@@ -1625,6 +1726,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1640,7 +1750,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         },
       },
       accountId: "act_1",
-      day: "2026-04-04",
+      day: accountToday,
       partitionId: "partition-4",
       workerId: "worker-1",
       leaseEpoch: 20,
@@ -1648,44 +1758,28 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       leaseMinutes: 15,
     });
 
-    const adsetRows =
-      vi.mocked(warehouse.upsertMetaAdSetDailyRows).mock.calls[0]?.[0] ?? [];
-    const campaignRows =
-      vi.mocked(warehouse.upsertMetaCampaignDailyRows).mock.calls[0]?.[0] ?? [];
+    // Across ALL calls: the current-day path writes in more than one pass, so
+    // pinning to calls[0] would assert against whichever pass happened to be
+    // first rather than against what was written.
+    const adsetRows = vi
+      .mocked(warehouse.upsertMetaAdSetDailyRows)
+      .mock.calls.flatMap((call) => call[0] ?? []);
+    const campaignRows = vi
+      .mocked(warehouse.upsertMetaCampaignDailyRows)
+      .mock.calls.flatMap((call) => call[0] ?? []);
 
-    expect(campaignRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          campaignId: "cmp-2",
-          campaignNameCurrent: "Campaign 2",
-          spend: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          revenue: 0,
-          objective: "OUTCOME_SALES",
-          dailyBudget: 40,
-          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
-        }),
-      ]),
-    );
-    expect(adsetRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adsetId: "adset-2",
-          campaignId: "cmp-2",
-          adsetNameCurrent: "Adset 2",
-          spend: 0,
-          impressions: 0,
-          clicks: 0,
-          conversions: 0,
-          revenue: 0,
-          optimizationGoal: "omni_purchase",
-          dailyBudget: 15,
-          bidStrategyLabel: "LOWEST_COST_WITH_BID_CAP",
-        }),
-      ]),
-    );
+    // cmp-2 and adset-2 exist only in the CURRENT inventory; insights for that
+    // past day never mentioned them. They must not appear: a campaign created
+    // last week did not run on a day in April, and synthesizing a zero-metric
+    // row for it would assert that it did.
+    expect(
+      campaignRows.some((row) => row.campaignId === "cmp-2"),
+    ).toBe(false);
+    expect(adsetRows.some((row) => row.adsetId === "adset-2")).toBe(false);
+    // The entities the day's insights actually reported are still written.
+    expect(
+      campaignRows.some((row) => row.campaignId === "cmp-1"),
+    ).toBe(true);
   });
 
   it("writes normalized config fields in the single-day adset warehouse write-back path", async () => {
@@ -1753,6 +1847,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -1859,6 +1962,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1953,6 +2065,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1983,6 +2104,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
   });
 
   it("fails core sync when required config truth is still missing", async () => {
+    // Config truth is only required where config is fetched — the account's own
+    // today.
+    const accountToday = new Date().toISOString().slice(0, 10);
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
     vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation(
       (input) => ({
@@ -2069,6 +2193,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -2085,7 +2218,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           },
         },
         accountId: "act_1",
-        day: "2026-04-03",
+        day: accountToday,
         partitionId: "partition-1",
         workerId: "worker-1",
         leaseEpoch: 11,
@@ -2171,6 +2304,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -2298,6 +2440,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           headers: { "content-type": "application/json" },
         });
       }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -2405,6 +2556,15 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });
@@ -2524,6 +2684,15 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (url.includes("/ads?") || /\/ads($|[?&])/.test(url)) {
+        // Current inventory is fetched as ONE account-current unit: campaigns,
+        // ad sets and ads together. A fixture that answers only two of the three
+        // would fail on the third rather than on the behaviour under test.
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       throw new Error(`Unexpected fetch URL: ${url}`);
     });

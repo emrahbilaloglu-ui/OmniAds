@@ -1380,6 +1380,8 @@ interface EvidenceCensus {
   entityStateHistory: number;
   inventoryRawSnapshots: number;
   inventoryRawObservations: number;
+  campaignTypedConfig: number;
+  adsetTypedConfig: number;
 }
 
 async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
@@ -1401,7 +1403,12 @@ async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
       (SELECT COUNT(*)::text FROM meta_raw_snapshot_observations o
         JOIN meta_raw_snapshots s ON s.id = o.snapshot_id
         WHERE s.endpoint_name IN ('campaign_configs', 'adset_configs', 'ad_configs')
-      ) AS inventory_raw_observations
+      ) AS inventory_raw_observations,
+      -- The TYPED config history. Suppressing raw writes alone would leave this
+      -- growing, and it is the table an operator actually reads configuration
+      -- transitions from.
+      (SELECT COUNT(*)::text FROM meta_campaign_config_history) AS campaign_typed_config,
+      (SELECT COUNT(*)::text FROM meta_adset_config_history) AS adset_typed_config
   `);
   const values = row.rows[0]!;
   return {
@@ -1412,6 +1419,8 @@ async function readEvidenceCensus(client: Client): Promise<EvidenceCensus> {
     entityStateHistory: Number(values.entity_state_history),
     inventoryRawSnapshots: Number(values.inventory_raw_snapshots),
     inventoryRawObservations: Number(values.inventory_raw_observations),
+    campaignTypedConfig: Number(values.campaign_typed_config),
+    adsetTypedConfig: Number(values.adset_typed_config),
   };
 }
 
@@ -1532,21 +1541,28 @@ async function verifyHistoricalEvidenceAmplification(
       afterHistorical.inventoryRawSnapshots - before.inventoryRawSnapshots,
     inventoryRawObservations:
       afterHistorical.inventoryRawObservations - before.inventoryRawObservations,
+    campaignTypedConfig:
+      afterHistorical.campaignTypedConfig - before.campaignTypedConfig,
+    adsetTypedConfig:
+      afterHistorical.adsetTypedConfig - before.adsetTypedConfig,
   };
   assert(
     Object.values(historicalDelta).every((delta) => delta === 0),
     `C1: ${HISTORICAL_DAYS.length} historical days wrote current evidence: ${JSON.stringify(historicalDelta)}`,
   );
 
-  // C2: the days were genuinely processed — the inventory WAS fetched and used
-  // in memory. Without this the zero above would only prove the sync did
-  // nothing at all.
+  // C2: ZERO current-inventory provider calls across the whole wave.
+  //
+  // These endpoints have no date filter, so a historical partition asking them
+  // spends three calls per backfilled day AND then enriches that day with
+  // configuration that did not exist then. Suppressing only the durable writes
+  // fixed the storage half and left both the cost and the false attribution.
   const configCalls = stub
     .providerCalls()
     .filter((call) => /\/(campaigns|adsets|ads)\b/.test(call.url));
   assert(
-    configCalls.length > 0,
-    "C2: no config inventory was fetched, so the zero-write result is vacuous — the sync did nothing rather than writing nothing.",
+    configCalls.length === 0,
+    `C2: a ${HISTORICAL_DAYS.length}-day historical wave made ${configCalls.length} current-inventory provider calls; it must make none.`,
   );
   const factRows = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM meta_campaign_daily
@@ -1558,20 +1574,15 @@ async function verifyHistoricalEvidenceAmplification(
     "C2: the historical days produced no metric facts, so the zero-evidence result is vacuous.",
   );
   console.log(
-    `${LABEL} C1-C2 PASS historical amplification: ${HISTORICAL_DAYS.length} historical days produced ${factRows.rows[0]!.count} metric fact rows from ${configCalls.length} inventory fetches and EXACTLY 0 config snapshots, 0 campaign/adset config history rows, 0 entity observation runs, 0 entity state rows, 0 inventory raw snapshots and 0 inventory raw observations`,
+    `${LABEL} C1-C2 PASS historical amplification: ${HISTORICAL_DAYS.length} historical days produced ${factRows.rows[0]!.count} metric fact rows with EXACTLY 0 current-inventory provider calls, 0 config snapshots, 0 campaign/adset typed config history rows, 0 entity observation runs, 0 entity state rows, 0 inventory raw snapshots and 0 inventory raw observations`,
   );
 
-  // C2b: the provider-call count is bounded and stated rather than assumed.
-  // Current inventory is still FETCHED per historical partition — the rows
-  // enrich that day's metric facts — so this records the real cost instead of
-  // implying it is zero. What is now zero is the DURABLE cost.
-  const inventoryFetchesPerDay = configCalls.length / HISTORICAL_DAYS.length;
-  assert(
-    Number.isFinite(inventoryFetchesPerDay) && inventoryFetchesPerDay <= 6,
-    `C2b: inventory fetches per historical day is ${inventoryFetchesPerDay}, above the 6 this path should ever need.`,
-  );
+  // C2b: the durable cost is zero AND the provider cost is zero. Both are
+  // asserted, because a fix that only stopped writing would still spend three
+  // calls per backfilled day and still attribute today's configuration to a
+  // past one.
   console.log(
-    `${LABEL} C2b PASS provider-call cost: ${configCalls.length} inventory fetches across ${HISTORICAL_DAYS.length} historical days (${inventoryFetchesPerDay.toFixed(1)}/day), all in-memory — zero durable rows`,
+    `${LABEL} C2b PASS provider-call cost: ${configCalls.length} current-inventory fetches across ${HISTORICAL_DAYS.length} historical days`,
   );
 
   // C3: the account's own today is real current evidence and must still be
@@ -1605,10 +1616,26 @@ async function verifyHistoricalEvidenceAmplification(
     freshStart: true,
   } as never).catch(() => undefined);
   const afterToday = await readEvidenceCensus(client);
-  assert(
+  // Current evidence WAS recorded. It does not have to be a new run: the
+  // semantic heartbeat coalesces identical truth by design, so an unchanged
+  // account advances repeat_count instead of appending another full state set.
+  // What must be true is that the account-current unit ran and left evidence —
+  // either new runs and states, or a heartbeat on the existing one.
+  const heartbeat = await client.query<{ repeats: string }>(
+    `SELECT COALESCE(max(repeat_count), 0)::text AS repeats
+     FROM meta_entity_observation_runs
+     WHERE business_id = $1 AND provider_account_id = $2`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  const grewRuns =
     afterToday.entityObservationRuns > beforeToday.entityObservationRuns &&
-      afterToday.entityStateHistory > beforeToday.entityStateHistory,
-    `C3: the account's own today recorded no entity observation, so current-state tracking is broken: ${JSON.stringify({ beforeToday, afterToday })}`,
+    afterToday.entityStateHistory > beforeToday.entityStateHistory;
+  const coalescedOntoExisting =
+    Number(heartbeat.rows[0]!.repeats) > 1 &&
+    afterToday.inventoryRawObservations > beforeToday.inventoryRawObservations;
+  assert(
+    grewRuns || coalescedOntoExisting,
+    `C3: the account's own today recorded no current evidence at all — neither a new observation run nor a heartbeat on the existing one: ${JSON.stringify({ beforeToday, afterToday, repeats: heartbeat.rows[0]!.repeats })}`,
   );
   // Config snapshots coalesce on unchanged content, so an unchanged fixture
   // legitimately adds no row. What must be true is that today REACHED the

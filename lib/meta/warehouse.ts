@@ -8896,11 +8896,32 @@ function buildMetaConfigHistoryFingerprint(input: {
     .digest("hex");
 }
 
+/**
+ * When this configuration was actually observed.
+ *
+ * `captured_at` is part of the config-history arbiter
+ * `(business, account, campaign, fingerprint, captured_at)`, so it decides
+ * whether a repeat coalesces or appends. The old fallback —
+ * `${date}T00:00:00.000Z` — is a synthetic midnight that was never an
+ * observation: it made every row for a day claim the same instant, so two
+ * genuinely different observations on one day collapsed into one, and a
+ * configuration observed at 14:00 was recorded as having been true since
+ * midnight.
+ *
+ * Returns null when there is no real observation time. Callers must skip the
+ * row rather than invent one; an unrecorded observation is recoverable, a
+ * fabricated timestamp is not.
+ */
 function buildMetaHistoryCapturedAt(row: {
   date: string;
   finalizedAt?: string | null;
-}) {
-  return normalizeTimestamp(row.finalizedAt) ?? `${normalizeDate(row.date)}T00:00:00.000Z`;
+  configObservedAt?: string | null;
+}): string | null {
+  return (
+    normalizeTimestamp(row.configObservedAt) ??
+    normalizeTimestamp(row.finalizedAt) ??
+    null
+  );
 }
 
 async function upsertMetaCampaignDimensionRows(
@@ -8928,7 +8949,9 @@ async function upsertMetaCampaignDimensionRows(
         row.buyingType,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+        normalizeTimestamp(row.updatedAt) ??
+          buildMetaHistoryCapturedAt(row) ??
+          new Date().toISOString(),
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
     }).join(", ");
@@ -8996,11 +9019,15 @@ async function appendMetaCampaignConfigHistoryRows(
         Boolean(row.isCustomEventTypeMixed) ||
         row.isBidStrategyMixed ||
         row.isBidValueMixed,
-      );
+      )
+      // No real observation time, no config-history row. captured_at is part of
+      // the arbiter, so inventing one would fabricate the very fact this table
+      // records.
+      .filter((row) => buildMetaHistoryCapturedAt(row) != null);
     const placeholders = filtered
       .map((row, index) => {
         const offset = index * 24;
-        const capturedAt = buildMetaHistoryCapturedAt(row);
+        const capturedAt = buildMetaHistoryCapturedAt(row) as string;
         values.push(
           row.businessId,
           referenceContext.businessRefIds.get(row.businessId) ?? null,
@@ -9095,7 +9122,9 @@ async function upsertMetaAdSetDimensionRows(
         row.adsetStatus,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+        normalizeTimestamp(row.updatedAt) ??
+          buildMetaHistoryCapturedAt(row) ??
+          new Date().toISOString(),
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
     }).join(", ");
@@ -9164,11 +9193,12 @@ async function appendMetaAdSetConfigHistoryRows(
         row.isOptimizationGoalMixed ||
         row.isBidStrategyMixed ||
         row.isBidValueMixed,
-      );
+      )
+      .filter((row) => buildMetaHistoryCapturedAt(row) != null);
 
     const placeholders = filtered.map((row, index) => {
       const offset = index * 26;
-      const capturedAt = buildMetaHistoryCapturedAt(row);
+      const capturedAt = buildMetaHistoryCapturedAt(row) as string;
       values.push(
         row.businessId,
         referenceContext.businessRefIds.get(row.businessId) ?? null,
@@ -9294,7 +9324,9 @@ async function upsertMetaAdDimensionRows(
         creativeId || null,
         projectionJson,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+        normalizeTimestamp(row.updatedAt) ??
+          buildMetaHistoryCapturedAt(row) ??
+          new Date().toISOString(),
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13}::timestamptz,$${offset + 13}::timestamptz,$${offset + 14}::timestamptz,now(),now())`;
     }).join(", ");
@@ -9375,7 +9407,9 @@ async function upsertMetaCreativeDimensionRows(
         row.assetType,
         projectionJson,
         `${normalizeDate(row.date)}T00:00:00.000Z`,
-        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+        normalizeTimestamp(row.updatedAt) ??
+          buildMetaHistoryCapturedAt(row) ??
+          new Date().toISOString(),
       );
       return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16}::timestamptz,$${offset + 16}::timestamptz,$${offset + 17}::timestamptz,now(),now())`;
     }).join(", ");

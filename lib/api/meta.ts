@@ -93,6 +93,7 @@ import {
   normalizeMetaCurrencyCode,
 } from "@/lib/meta/account-context";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 
 // ── Core metric interface ─────────────────────────────────────────────────────
 
@@ -2716,6 +2717,29 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     day: normalizedDay,
     stage: "syncMetaAccountCoreWarehouseDay.fetch_remote_configs",
     run: async () => {
+      // Current inventory is an ACCOUNT-CURRENT unit, not a per-day one.
+      //
+      // These three endpoints have no date filter: they return what the account
+      // looks like NOW. A historical partition asking them does two wrong things
+      // at once — it spends three provider calls per backfilled day, and it then
+      // enriches that day's facts with configuration that did not exist then.
+      // Suppressing only the durable writes fixed the second half of the storage
+      // problem and none of the rest.
+      //
+      // So on any day that is not the account's own provisional today —
+      // historical, finalized, backfill, repair, replay — this makes ZERO
+      // provider calls and leaves the config maps empty. Downstream enrichment
+      // already treats a missing config as null, which is the truthful answer
+      // for a past day.
+      if (!currentEvidence.persistsEntityObservations) {
+        return;
+      }
+      // The account-current unit gets its own capacity admission. It is the only
+      // place current inventory is fetched, and it writes the raw evidence,
+      // observations and typed config history that follow from it.
+      await assertSyncGrowthBoundary("meta_account_current_inventory", {
+        fresh: true,
+      });
       const [campaignReceipt, adsetReceipt, adReceipt] = await Promise.all([
         fetchMetaCampaignConfigsReceipt(
           input.accountId,
@@ -3707,6 +3731,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   });
   if (
     truthState === "finalized" &&
+    persistsCurrentConfigEvidence &&
     campaignRows.length > 0 &&
     persistedCampaignConfigCount === 0
   ) {

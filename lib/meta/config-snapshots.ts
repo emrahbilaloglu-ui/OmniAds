@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
-import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  assertDbSchemaReady,
+  getDbSchemaReadiness,
+  isMissingRelationError,
+} from "@/lib/db-schema-readiness";
 import {
   deriveManualBidAmount,
   formatBidStrategyLabel,
@@ -433,10 +437,23 @@ export async function appendMetaConfigSnapshots(
       WHERE latest.payload IS DISTINCT FROM item.payload
     `;
   } catch (error) {
-    console.warn("[meta-config-snapshots] append_failed", {
+    // A schema that is not ready yet is a deployment state, not a failure: the
+    // migration has not run, and skipping is the correct behaviour.
+    if (isMissingRelationError(error, ["meta_config_snapshots"])) {
+      console.warn("[meta-config-snapshots] append_skipped_schema_not_ready", {
+        rowCount: rows.length,
+      });
+      return;
+    }
+    // Everything else propagates. This used to warn and return, so a write that
+    // silently failed left the caller believing configuration evidence had been
+    // recorded — and every later comparison against "the previous config" was
+    // then made against a row that was never written.
+    console.error("[meta-config-snapshots] append_failed", {
       rowCount: rows.length,
       message: error instanceof Error ? error.message : String(error),
     });
+    throw error;
   }
 }
 

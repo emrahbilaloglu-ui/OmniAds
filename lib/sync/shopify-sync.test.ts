@@ -51,6 +51,19 @@ vi.mock("@/lib/shopify/admin", () => ({
 
 vi.mock("@/lib/integrations", () => ({
   mergeIntegrationMetadata: vi.fn(),
+  // The readiness pass re-observes the Shopify grant immediately before it
+  // MUTATES webhooks, so this connection is part of the fixture rather than a
+  // detail of the credential resolver.
+  getIntegration: vi.fn(async () => ({
+    id: "int-shopify",
+    business_id: "biz_1",
+    provider: "shopify",
+    status: "connected",
+    provider_account_id: "shop_1",
+    access_token: "token_1",
+    connection_generation: 4,
+    metadata: {},
+  })),
 }));
 
 vi.mock("@/lib/shopify/read-adapter", () => ({
@@ -687,6 +700,82 @@ describe("syncShopifyCommerceReports", () => {
     );
 
     infoSpy.mockRestore();
+  });
+
+  it("refuses to MUTATE webhooks when the Shopify grant moved mid-pass", async () => {
+    // `credentials` is resolved at the top of a long readiness pass; everything
+    // after it is provider round trips and warehouse writes. A reconnect inside
+    // that window used to leave this registering webhooks under a credential
+    // that had already been replaced, pointing another shop's order events at
+    // this business.
+    const connected = (over: Record<string, unknown>) => ({
+      id: "int-shopify",
+      business_id: "biz_1",
+      provider: "shopify",
+      status: "connected",
+      provider_account_id: "test-shop.myshopify.com",
+      access_token: "shpat_test",
+      connection_generation: 4,
+      metadata: {},
+      ...over,
+    });
+    vi.mocked(integrations.getIntegration)
+      // The pass starts under generation 4...
+      .mockResolvedValueOnce(connected({}) as never)
+      // ...and a reconnect as a different shop lands before the webhook calls.
+      .mockResolvedValue(
+        connected({
+          provider_account_id: "someone-elses-shop.myshopify.com",
+          access_token: "shpat_someone_else",
+          connection_generation: 9,
+        }) as never,
+      );
+
+    const result = await ensureShopifyProviderReady({
+      businessId: "biz_1",
+      recentWindowDays: 30,
+      preferredVisibleWindowDays: 90,
+      runHistoricalBootstrap: false,
+      triggerReason: "admin:run_recent_bootstrap",
+    });
+
+    // Zero provider mutations, and zero provider reads under the stale token.
+    expect(webhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
+    expect(webhooks.verifyShopifySyncWebhooks).not.toHaveBeenCalled();
+    // The refusal is recorded rather than swallowed...
+    expect(integrations.mergeIntegrationMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          shopifyProviderReadiness: expect.objectContaining({
+            steps: expect.arrayContaining([
+              expect.objectContaining({
+                step: "webhooks_verify",
+                status: "failed",
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+    // ...and the rest of the pass, which resolves its own credential, still runs.
+    expect(result.webhookCoverage).toBeNull();
+  });
+
+  it("refuses when the Shopify connection cannot be read at all", async () => {
+    // "I could not tell" must not read as "unchanged": that would restore the
+    // unbound behaviour exactly when the database is the thing misbehaving.
+    vi.mocked(integrations.getIntegration).mockRejectedValue(new Error("db down"));
+
+    await ensureShopifyProviderReady({
+      businessId: "biz_1",
+      recentWindowDays: 30,
+      preferredVisibleWindowDays: 90,
+      runHistoricalBootstrap: false,
+      triggerReason: "admin:run_recent_bootstrap",
+    });
+
+    expect(webhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
+    expect(webhooks.verifyShopifySyncWebhooks).not.toHaveBeenCalled();
   });
 
   it("orchestrates provider readiness and persists readiness summary", async () => {

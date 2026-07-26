@@ -132,15 +132,30 @@ PG_STARTED=1
 "${PGBIN}/createdb" -h 127.0.0.1 -p "${PGPORT}" -U postgres "${DB_NAME}" >/dev/null 2>&1 \
   || { printf '%s FAIL createdb failed\n' "${LABEL}" >&2; exit 1; }
 
-psql_direct() {
-  "${PGBIN}/psql" -h 127.0.0.1 -p "${PGPORT}" -U postgres --dbname="${DB_NAME}" \
+psql_on() {
+  local database="$1"
+  shift
+  "${PGBIN}/psql" -h 127.0.0.1 -p "${PGPORT}" -U postgres --dbname="${database}" \
     -v ON_ERROR_STOP=1 --tuples-only --no-align "$@"
 }
+
+psql_direct() { psql_on "${DB_NAME}" "$@"; }
 
 # The PRE-migration schema. `business_provider_accounts` deliberately has no
 # `is_selected` column: that column is what the migration under test adds, and
 # the pre-fingerprint has to be takeable without it.
-psql_direct --quiet --command "
+#
+# Each scenario that has to traverse the whole graph gets its OWN database,
+# because the migration is idempotent: replaying it against an already-migrated
+# database advances nothing, and fingerprint-post would then correctly refuse a
+# release whose schema did not move.
+seed_database() {
+  local database="$1"
+  if [ "${database}" != "${DB_NAME}" ]; then
+    "${PGBIN}/createdb" -h 127.0.0.1 -p "${PGPORT}" -U postgres "${database}" >/dev/null 2>&1 \
+      || { printf '%s FAIL createdb %s failed\n' "${LABEL}" "${database}" >&2; exit 1; }
+  fi
+  psql_on "${database}" --quiet --command "
   CREATE TABLE business_provider_accounts (
     id serial PRIMARY KEY,
     business_id text NOT NULL,
@@ -188,6 +203,9 @@ psql_direct --quiet --command "
   INSERT INTO google_ads_raw_snapshots (payload) SELECT '{}'::jsonb FROM generate_series(1, 3);
   INSERT INTO sync_release_gates (build_id, mode) VALUES ('older-build', 'observe');
 " >/dev/null
+}
+
+seed_database "${DB_NAME}"
 
 # ── The DB host: the only place with PostgreSQL binaries ───────────────────
 
@@ -273,8 +291,11 @@ CRONTAB
   printf 'running\n' > "${host}/runtime/state.web"
   printf 'running\n' > "${host}/runtime/state.worker"
   printf 'running\n' > "${host}/runtime/state.autoheal"
-  printf '2026-07-01T00:00:00Z\n' > "${host}/runtime/started.web"
-  printf '2026-07-01T00:00:00Z\n' > "${host}/runtime/started.worker"
+  # Docker reports StartedAt with nanosecond precision, and the wrapper feeds
+  # that value straight into a `timestamptz` literal. Emitting a rounder format
+  # here would make the harness pass on a string production never produces.
+  printf '2026-07-01T00:00:00.000000000Z\n' > "${host}/runtime/started.web"
+  printf '2026-07-01T00:00:00.000000000Z\n' > "${host}/runtime/started.worker"
 
   # ssh: the ONLY route to the database. It records every invocation, refuses a
   # host it was not told about, and runs the command with the DB host's PATH.
@@ -388,13 +409,13 @@ service_of() { printf '%s' "\${1#container-}"; }
 
 db_sql_via_shim() {
   printf '%s\n' "\$1" | ssh -o BatchMode=yes root@db-host \\
-    "runuser -u postgres -- psql --dbname=${DB_NAME} -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
+    "runuser -u postgres -- psql --dbname=\${DB_NAME:-adsecute_prod} -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
 }
 
 recreate_service() {
   local svc="\$1"
   printf 'running\n' > "\${RUNTIME}/state.\${svc}"
-  printf '%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "\${RUNTIME}/started.\${svc}"
+  printf '%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%S).000000000Z" > "\${RUNTIME}/started.\${svc}"
   # A container freezes its environment when it is created. Snapshotting the env
   # file at recreate time is what makes "the file changed but the runtime did
   # not" observable instead of assumed.
@@ -515,7 +536,7 @@ case "\$1" in
     case "\${fmt}" in
       '{{.State.Status}}') cat "\${RUNTIME}/state.\${svc}" 2>/dev/null || printf 'absent\n' ;;
       '{{.Config.Image}}') printf 'ghcr.io/erhanrdn/omniads-%s:%s\n' "\${svc}" "\${DEPLOY_SHA}" ;;
-      '{{.State.StartedAt}}') cat "\${RUNTIME}/started.\${svc}" 2>/dev/null || printf '2026-07-01T00:00:00Z\n' ;;
+      '{{.State.StartedAt}}') cat "\${RUNTIME}/started.\${svc}" 2>/dev/null || printf '2026-07-01T00:00:00.000000000Z\n' ;;
       *) printf '\n' ;;
     esac
     exit 0 ;;
@@ -643,11 +664,21 @@ expect_ok() {
   local out
   if out="$(run_phase "${host}" "${phase}" "$@")"; then
     pass "${what}"
-    printf '%s' "${out}"
     return 0
   fi
   fail "${what} — phase '${phase}' failed: ${out}"
   return 1
+}
+
+# The digest the wrapper computes over a DB-host file, which reads it through a
+# command substitution and therefore never sees the trailing newline. A harness
+# that hashed the file itself would compare two different things.
+sha256_of_content() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$(cat "$1")" | sha256sum | awk '{print $1}'
+  else
+    printf '%s' "$(cat "$1")" | shasum -a 256 | awk '{print $1}'
+  fi
 }
 
 expect_refusal() {
@@ -714,8 +745,8 @@ host="$(new_host main)"
 mkdir -p "${host}/tmp-work"
 MAIN_HOST="${host}"
 
-preflight_out="$(expect_ok "${host}" preflight \
-  "P1 preflight completes on the OLD schema: images, env, scheduler, capacity, database identity" || true)"
+expect_ok "${host}" preflight \
+  "P1 preflight completes on the OLD schema: images, env, scheduler, capacity, database identity" || true
 
 # The rollback artifact is real: a full pg_dump that was restored into a scratch
 # database and read back.
@@ -780,7 +811,7 @@ else
 fi
 
 expect_ok "${host}" quiesce \
-  "P6 quiesce stops the scheduler, autoheal, web and worker and proves the database is quiescent" >/dev/null || true
+  "P6 quiesce stops the scheduler, autoheal, web and worker and proves the database is quiescent" || true
 
 # Root crontab: the managed block is gone, every unrelated line is untouched.
 if ! grep -q 'adsecute-sync-tick' "${host}/state/crontab" &&
@@ -794,7 +825,7 @@ else
 fi
 
 expect_ok "${host}" fingerprint-pre \
-  "P8 fingerprint-pre runs against the real pre-migration schema, before is_selected exists" >/dev/null || true
+  "P8 fingerprint-pre runs against the real pre-migration schema, before is_selected exists" || true
 
 if grep -q '^selected_binding_hash=[0-9a-f]\{64\}$' "${host}/state/cutover/fingerprint-pre" &&
   grep -q '^connection_generation_hash=[0-9a-f]\{64\}$' "${host}/state/cutover/fingerprint-pre" &&
@@ -817,7 +848,7 @@ else
 fi
 
 expect_ok "${host}" migrate \
-  "P11 migrate applies the real migration (is_selected added and backfilled, an index and a table created) from the pinned image" >/dev/null || true
+  "P11 migrate applies the real migration (is_selected added and backfilled, an index and a table created) from the pinned image" || true
 
 if [ "$(psql_direct --command "SELECT count(*) FROM information_schema.columns WHERE table_name='business_provider_accounts' AND column_name='is_selected';" | tr -d '[:space:]')" = "1" ]; then
   pass "P12 the migration really ran against the real database: business_provider_accounts.is_selected now exists"
@@ -826,10 +857,10 @@ else
 fi
 
 expect_ok "${host}" verify-contract \
-  "P13 verify-contract runs the POST-migration schema contract, which preflight could not have run" >/dev/null || true
+  "P13 verify-contract runs the POST-migration schema contract, which preflight could not have run" || true
 
 expect_ok "${host}" fingerprint-post \
-  "P14 fingerprint-post: every count and every identity/generation hash is byte-identical across the migration, and the schema identity advanced" >/dev/null || true
+  "P14 fingerprint-post: every count and every identity/generation hash is byte-identical across the migration, and the schema identity advanced" || true
 
 pre_sel="$(awk -F= '$1=="selected_binding_hash"{print $2}' "${host}/state/cutover/fingerprint-pre")"
 post_sel="$(awk -F= '$1=="selected_binding_hash"{print $2}' "${host}/state/cutover/fingerprint-post")"
@@ -842,7 +873,7 @@ else
 fi
 
 expect_ok "${host}" deploy-disabled \
-  "P16 deploy-disabled brings both processes up on the pinned build with every lane off and proves a fresh worker registration" >/dev/null || true
+  "P16 deploy-disabled brings both processes up on the pinned build with every lane off and proves a fresh worker registration" || true
 
 # ══ N: a partial recreate failure during enable ════════════════════════════
 
@@ -870,10 +901,10 @@ expect_refusal "${host}" enable "has not completed in this cutover" \
   "N8 after the rollback, enable refuses until the runtime proof is re-established" || true
 
 expect_ok "${host}" deploy-disabled \
-  "P17 a clean retry is permitted: deploy-disabled re-establishes the runtime proof and clears the invalidation" >/dev/null || true
+  "P17 a clean retry is permitted: deploy-disabled re-establishes the runtime proof and clears the invalidation" || true
 
 expect_ok "${host}" enable \
-  "P18 enable updates only the managed lane keys, recreates both containers, and verifies every enabled lane in BOTH, retention off, exact images, build id and fresh meta/google_ads/shopify registrations" >/dev/null || true
+  "P18 enable updates only the managed lane keys, recreates both containers, and verifies every enabled lane in BOTH, retention off, exact images, build id and fresh meta/google_ads/shopify registrations" || true
 
 if grep -q '^enabled_lanes=.*ADSECUTE_SYNC_LANE_META_ENABLED' "${host}/state/cutover/state" &&
   grep -q '^enabled_lanes=.*ADSECUTE_SYNC_LANE_SHOPIFY_ENABLED' "${host}/state/cutover/state" &&
@@ -886,7 +917,7 @@ else
 fi
 
 expect_ok "${host}" resume-scheduler \
-  "P20 resume-scheduler restores the root crontab block last, after both processes are proven" >/dev/null || true
+  "P20 resume-scheduler restores the root crontab block last, after both processes are proven" || true
 
 if cmp -s "${host}/state/crontab.original" "${host}/state/crontab"; then
   pass "P21 the root crontab is byte-identical to what it was before the cutover: the managed block came back in its original position and nothing else moved"
@@ -897,15 +928,18 @@ fi
 # ══ P/N: emergency-disable invalidates the enable and resume proofs ════════
 
 expect_ok "${host}" emergency-disable \
-  "P22 emergency-disable stops the scheduler and all runtime and CONFIRMS live state" >/dev/null || true
+  "P22 emergency-disable stops the scheduler and all runtime and CONFIRMS live state" || true
 
 expect_refusal "${host}" resume-scheduler "has not completed in this cutover" \
   "N9 enable -> emergency-disable -> resume-scheduler REFUSES: the emergency stop invalidated the enable proof" || true
 
 # ══ N: stale state, stale/foreign backup, retag ════════════════════════════
 
-expect_refusal "${host}" status "One state directory cannot hold two releases" \
-  "N10 a state record opened for another DEPLOY_SHA refuses" \
+host="$(new_host stalestate)"
+mkdir -p "${host}/tmp-work"
+run_phase "${host}" preflight >/dev/null 2>&1 || true
+expect_refusal "${host}" quiesce "One state directory cannot hold two releases" \
+  "N10 a state record opened for one release refuses every phase of another: one state directory cannot hold two cutovers" \
   DEPLOY_SHA=00000000000000000000000000000000deadbeef || true
 
 host="$(new_host retag)"
@@ -934,7 +968,7 @@ foreign_manifest="$(awk -F= '$1=="backup_manifest_path"{print $2}' "${host}/stat
 if [ -n "${foreign_manifest}" ]; then
   sed 's/^db_system_identifier=.*/db_system_identifier=7777777777777777777/' "${foreign_manifest}" > "${foreign_manifest}.edited"
   mv "${foreign_manifest}.edited" "${foreign_manifest}"
-  new_sha="$(sha256_of "${foreign_manifest}")"
+  new_sha="$(sha256_of_content "${foreign_manifest}")"
   # The state record is repointed at the edited manifest's digest so the refusal
   # under test is the FOREIGN-DATABASE one, not the tamper one already covered.
   sed "s/^backup_manifest_sha256=.*/backup_manifest_sha256=${new_sha}/" \
@@ -948,19 +982,25 @@ fi
 
 # ══ N: the root crontab is not restored over somebody else's edit ══════════
 
+# Its own database: this scenario has to reach `enable`, and `enable` is only
+# reachable through a migration that actually advances the schema.
+seed_database adsecute_cronedit
 host="$(new_host cronedit)"
 mkdir -p "${host}/tmp-work"
-run_phase "${host}" preflight >/dev/null 2>&1 || true
-run_phase "${host}" quiesce >/dev/null 2>&1 || true
+for phase in preflight quiesce; do
+  run_phase "${host}" "${phase}" DB_NAME=adsecute_cronedit >/dev/null 2>&1 || true
+done
 printf '0 5 * * * /usr/local/bin/added-by-somebody-else\n' >> "${host}/state/crontab"
-run_phase "${host}" fingerprint-pre >/dev/null 2>&1 || true
-run_phase "${host}" migrate >/dev/null 2>&1 || true
-run_phase "${host}" verify-contract >/dev/null 2>&1 || true
-run_phase "${host}" fingerprint-post >/dev/null 2>&1 || true
-run_phase "${host}" deploy-disabled >/dev/null 2>&1 || true
-run_phase "${host}" enable >/dev/null 2>&1 || true
-expect_refusal "${host}" resume-scheduler "unrelated root crontab lines changed while the Sync block was out" \
-  "N14 resume-scheduler refuses when somebody else edited the root crontab during the cutover, instead of overwriting their entry" || true
+for phase in fingerprint-pre migrate verify-contract fingerprint-post deploy-disabled enable; do
+  run_phase "${host}" "${phase}" DB_NAME=adsecute_cronedit >/dev/null 2>&1 || true
+done
+if grep -q '^phase_chain=.*enable' "${host}/state/cutover/state"; then
+  expect_refusal "${host}" resume-scheduler "unrelated root crontab lines changed while the Sync block was out" \
+    "N14 resume-scheduler refuses when somebody else edited the root crontab during the cutover, instead of overwriting their entry" \
+    DB_NAME=adsecute_cronedit || true
+else
+  fail "N14 the cronedit scenario never reached enable: $(grep phase_chain "${host}/state/cutover/state")"
+fi
 
 # ══ The split-host invariant ═══════════════════════════════════════════════
 

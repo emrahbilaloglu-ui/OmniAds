@@ -119,11 +119,25 @@ jobs:
       - name: Legacy import replay seam
         run: npm run test:legacy-replay-seam
 
+      # The wrapper the app host receives is extracted from the worker image, so
+      # the packaged copy under scripts/ is what actually ships. This refuses a
+      # commit that edits the cutover script without repackaging, which would
+      # otherwise deploy a wrapper one release behind the release it drives.
+      - name: Cutover wrapper package is current
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/hetzner-sync-cutover.sh
+          bash -n scripts/cutover-wrapper-package.sh
+          bash -n scripts/cutover-real-postgres-harness.sh
+          npm run test:cutover-wrapper-package
+
       # bash -n proves the cutover script parses. It says nothing about whether
       # the phase graph can be traversed, whether the two-host split holds, or
-      # whether a failed phase resumes — which is what was actually wrong. This
-      # runs the real script against stub hosts.
-      - name: Cutover state-machine harness
+      # whether a failed phase resumes — and a harness with canned SQL answers
+      # cannot say whether the fingerprint queries are even valid SQL. This runs
+      # every phase, plus the negative controls, against a REAL ephemeral
+      # PostgreSQL and a split app-host/DB-host command surface.
+      - name: Cutover state-machine harness (real PostgreSQL)
         run: npm run test:cutover-harness
 
       # Admission over the REAL exported entrypoints, not a source scan. Both

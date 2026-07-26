@@ -349,6 +349,26 @@ export async function upsertIntegration(params: {
    * another's grant.
    */
   samePrincipal?: boolean;
+  /**
+   * A SECOND connection whose generation must also be unchanged, for writes
+   * whose authority is derived from a different provider than the one they
+   * write.
+   *
+   * Search Console is the case this exists for. Its selection is stored on the
+   * `search_console` connection, but the listing that validated the selection —
+   * and every later sync — runs on the GOOGLE token. A plain Google reconnect
+   * bumps only the Google generation, and the Search Console upsert the connect
+   * flow performs changes neither status nor account, so it does not bump the
+   * Search Console generation either. The write's own compare-and-set therefore
+   * cannot see a Google principal change at all.
+   *
+   * Checked inside this transaction, under the same row lock, so it is a real
+   * compare-and-set rather than a check-then-act the reconnect can land between.
+   */
+  expectedDerivedAuthority?: {
+    provider: IntegrationProviderType;
+    connectionGeneration: string;
+  } | null;
 }): Promise<IntegrationRow> {
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
@@ -409,6 +429,34 @@ export async function upsertIntegration(params: {
         provider: params.provider,
         expected: params.expectedConnectionGeneration,
         observed,
+      });
+    }
+  }
+
+  // The DERIVED authority CAS, in the same transaction and under the same lock.
+  //
+  // A separate pre-write read of the Google connection is a check-then-act: the
+  // reconnect commits between the check and this write and the selection lands
+  // anyway, storing a property only the previous principal can see.
+  if (params.expectedDerivedAuthority) {
+    const derivedRows = (await sql`
+      SELECT connection.status,
+             connection.connection_generation::text AS connection_generation
+      FROM provider_connections connection
+      WHERE connection.business_id = ${params.businessId}
+        AND connection.provider = ${params.expectedDerivedAuthority.provider}
+      FOR UPDATE OF connection
+    `) as Array<{ status: string; connection_generation: string }>;
+    const derived = derivedRows[0] ?? null;
+    const observedDerived = derived
+      ? `${derived.connection_generation}:${derived.status}`
+      : null;
+    if (observedDerived !== params.expectedDerivedAuthority.connectionGeneration) {
+      throw new ProviderConnectionGenerationConflictError({
+        businessId: params.businessId,
+        provider: params.expectedDerivedAuthority.provider,
+        expected: params.expectedDerivedAuthority.connectionGeneration,
+        observed: observedDerived,
       });
     }
   }

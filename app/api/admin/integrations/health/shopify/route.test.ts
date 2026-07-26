@@ -252,4 +252,60 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     expect(payload.action).toBe("run_recent_bootstrap");
     expect(shopifySync.ensureShopifyProviderReady).toHaveBeenCalled();
   });
+
+  it("refuses a webhook action when the Shopify grant moved during the request", async () => {
+    // An operator opens the panel, a reconnect lands, and the action registers
+    // webhooks under a credential nobody looked at — pointing a different shop's
+    // order events at this business.
+    const connected = (over: Record<string, unknown>) => ({
+      provider_account_id: "test-shop.myshopify.com",
+      access_token: "token",
+      scopes: "read_orders,read_returns",
+      metadata: {},
+      status: "connected",
+      connection_generation: 3,
+      ...over,
+    });
+    vi.mocked(integrations.getIntegration)
+      .mockResolvedValueOnce(connected({}) as never)
+      .mockResolvedValue(
+        connected({
+          provider_account_id: "someone-else.myshopify.com",
+          access_token: "other_token",
+          connection_generation: 8,
+        }) as never,
+      );
+
+    const request = new NextRequest(
+      "http://localhost:3000/api/admin/integrations/health/shopify",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ businessId: "biz_1", action: "register_webhooks" }),
+      },
+    );
+
+    const response = await PATCH(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toBe("shopify_connection_changed");
+    expect(shopifyWebhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
+  });
+
+  it("treats an unreadable connection as retryable, not as unchanged", async () => {
+    vi.mocked(integrations.getIntegration).mockRejectedValue(new Error("db down"));
+
+    const request = new NextRequest(
+      "http://localhost:3000/api/admin/integrations/health/shopify",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ businessId: "biz_1", action: "register_webhooks" }),
+      },
+    );
+
+    const response = await PATCH(request as never);
+
+    expect(shopifyWebhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
+    expect([400, 503]).toContain(response.status);
+  });
 });

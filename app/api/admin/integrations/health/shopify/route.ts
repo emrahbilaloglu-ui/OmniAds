@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  readShopifyGrantAuthority,
+  assertShopifyGrantUnchanged,
+} from "@/lib/shopify/install-context";
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { getIntegration, mergeIntegrationMetadata } from "@/lib/integrations";
@@ -361,6 +365,22 @@ export async function PATCH(request: NextRequest) {
     if (!businessId) {
       return NextResponse.json({ error: "businessId is required." }, { status: 400 });
     }
+
+    // The grant this request will act under, captured BEFORE the metadata and
+    // override writes below.
+    //
+    // Captured here rather than next to the provider call, because an authority
+    // read taken immediately before its own re-read agrees with itself by
+    // construction and proves nothing. The window worth defending is the whole
+    // request: an operator opens the panel, a reconnect lands, and the action
+    // then registers webhooks under a credential nobody looked at — pointing a
+    // different shop's order events at this business.
+    const grantAuthorityAtStart = action
+      ? await getIntegration(businessId, "shopify")
+          .then((row) => (row ? readShopifyGrantAuthority(row) : null))
+          .catch(() => null)
+      : null;
+
     if (productionMode) {
       if (!["disabled", "auto", "force_live", "force_warehouse"].includes(productionMode)) {
         return NextResponse.json(
@@ -420,6 +440,34 @@ export async function PATCH(request: NextRequest) {
       ) {
         return NextResponse.json({ error: "shopify_not_connected" }, { status: 400 });
       }
+      // The grant captured at the top of the request must still be the current
+      // one. Not caught to a falsy value: "I could not tell" is retryable, and
+      // treating it as "unchanged" would disable the check exactly when the
+      // database is the thing misbehaving.
+      const stillOurs = grantAuthorityAtStart
+        ? await assertShopifyGrantUnchanged({
+            businessId,
+            authority: grantAuthorityAtStart,
+          })
+        : ({
+            ok: false,
+            code: "shopify_authority_unknown",
+            detail:
+              "The Shopify connection could not be read when this request started.",
+          } as const);
+      if (!stillOurs.ok) {
+        return NextResponse.json(
+          {
+            error: stillOurs.code,
+            message:
+              "The Shopify connection changed while this action was starting. Nothing was sent to Shopify.",
+            detail: stillOurs.detail,
+          },
+          // "I could not tell" is retryable; "it moved" is a conflict.
+          { status: stillOurs.code === "shopify_authority_unknown" ? 503 : 409 },
+        );
+      }
+
       switch (action) {
         case "register_webhooks":
           actionResult = await registerShopifySyncWebhooks({

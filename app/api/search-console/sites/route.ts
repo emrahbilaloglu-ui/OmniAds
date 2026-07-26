@@ -336,6 +336,14 @@ export async function POST(request: NextRequest) {
       providerAccountId: verifiedSiteUrl,
       providerAccountName: verifiedSiteUrl,
       expectedConnectionGeneration: searchConsoleGenerationAtCapture,
+      // The Google generation is now asserted INSIDE the write transaction,
+      // under the same row lock, so the re-observation above is a fast refusal
+      // rather than the only defence. A reconnect landing between that read and
+      // this write is refused by the compare-and-set itself.
+      expectedDerivedAuthority:
+        googleGenerationAtCapture == null
+          ? null
+          : { provider: "google", connectionGeneration: googleGenerationAtCapture },
       metadata: {
         ...metadata,
         siteUrl: verifiedSiteUrl,

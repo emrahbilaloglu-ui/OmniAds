@@ -141,6 +141,24 @@ describe("Search Console sites selection authority", () => {
             observed,
           });
         }
+        // The derived-authority compare-and-set the real implementation runs in
+        // the same transaction, modelled so a Google reconnect is refused by the
+        // WRITE and not only by the route's re-observation.
+        const derived = params.expectedDerivedAuthority as
+          | { provider: string; connectionGeneration: string }
+          | null
+          | undefined;
+        if (derived) {
+          const observedGoogle = `${google.generation}:${google.status}`;
+          if (derived.connectionGeneration !== observedGoogle) {
+            throw new ProviderConnectionGenerationConflictError({
+              businessId: BUSINESS_ID,
+              provider: "google",
+              expected: derived.connectionGeneration,
+              observed: observedGoogle,
+            });
+          }
+        }
         writes.push(params);
         return {
           id: "int-sc",
@@ -185,6 +203,14 @@ describe("Search Console sites selection authority", () => {
       // The generation captured from the connection row read before the listing,
       // which is what makes the compare-and-set cover the round trip.
       expectedConnectionGeneration: "3:connected",
+      // Search Console authority DERIVES from the Google connection, so the
+      // write compare-and-sets both generations inside one transaction. A
+      // separate pre-write read of Google is a check-then-act the reconnect can
+      // land between.
+      expectedDerivedAuthority: {
+        provider: "google",
+        connectionGeneration: "11:connected",
+      },
       metadata: {
         unrelatedExistingKey: "kept",
         siteUrl: PROVIDER_SITE,

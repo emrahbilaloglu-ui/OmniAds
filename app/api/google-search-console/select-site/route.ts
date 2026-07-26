@@ -3,12 +3,16 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSearchConsoleSiteAccessible } from "@/lib/search-console-site-selection-authority";
-import { upsertIntegration } from "@/lib/integrations";
-import {  } from "@/lib/demo-business";
+import {
+  upsertIntegration,
+  ProviderConnectionGenerationConflictError,
+} from "@/lib/integrations";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
+  type SearchConsoleContext,
 } from "@/lib/search-console";
 
 function normalizeSiteUrl(value: unknown): string | null {
@@ -87,6 +91,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Resolved ONCE, BEFORE the listing, because this single read produces both
+  // things the rest of the request depends on: the Google credential the listing
+  // runs under, and the Search Console row the write lands on.
+  //
+  // This writer read it AFTER the listing and passed no expected generation at
+  // all, so a reconnect during the round trip committed unconditionally — the
+  // exact window the compare-and-set exists to close, left wide open in the
+  // second of the two Search Console selection writers.
+  let context: SearchConsoleContext;
+  try {
+    context = await resolveSearchConsoleContext({
+      businessId,
+      requireSite: false,
+    });
+  } catch (error) {
+    if (error instanceof SearchConsoleAuthError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
+        { status: error.status },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: "search_console_select_site_failed",
+        message: "Could not read the Search Console connection. Nothing was changed.",
+      },
+      { status: 500 },
+    );
+  }
+  const searchConsoleGenerationAtCapture =
+    connectionGenerationTokenFromIntegration(context.integration);
+  const googleGenerationAtCapture = connectionGenerationTokenFromIntegration(
+    context.googleIntegration,
+  );
+
   // Membership in the CONNECTED token's live accessible-site set. Both writers
   // previously accepted any syntactically valid URL and wrote it onto the
   // canonical connection, so a typo or a third-party domain became the selected
@@ -121,12 +160,22 @@ export async function POST(request: NextRequest) {
   }
   const verifiedSiteUrl = accessible.siteUrl;
 
+  // Re-check the lane AFTER the slow accessibility listing: a cutover quiesce
+  // that begins inside the round trip must stop this writer too.
   try {
-    const context = await resolveSearchConsoleContext({
-      businessId,
-      requireSite: false,
-    });
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message: "Property selection is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
 
+  try {
     const existingMetadata =
       context.integration.metadata && typeof context.integration.metadata === "object"
         ? (context.integration.metadata as Record<string, unknown>)
@@ -138,6 +187,15 @@ export async function POST(request: NextRequest) {
       status: "connected",
       providerAccountId: verifiedSiteUrl,
       providerAccountName: verifiedSiteUrl,
+      // Both generations, compare-and-set inside the write transaction. The
+      // selection is stored on `search_console` but its authority derives from
+      // the GOOGLE connection, which the Search Console generation cannot see
+      // change.
+      expectedConnectionGeneration: searchConsoleGenerationAtCapture,
+      expectedDerivedAuthority:
+        googleGenerationAtCapture == null
+          ? null
+          : { provider: "google", connectionGeneration: googleGenerationAtCapture },
       metadata: {
         ...existingMetadata,
         siteUrl: verifiedSiteUrl,
@@ -162,6 +220,17 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof ProviderConnectionGenerationConflictError) {
+      return NextResponse.json(
+        {
+          error: "connection_changed",
+          message:
+            "The connection changed while this property was being validated. Nothing was saved; try again.",
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
     if (error instanceof SearchConsoleAuthError) {
       return NextResponse.json(
         { error: error.code, message: error.message },

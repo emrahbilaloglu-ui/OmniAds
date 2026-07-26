@@ -1,6 +1,10 @@
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
-import { mergeIntegrationMetadata } from "@/lib/integrations";
+import { getIntegration, mergeIntegrationMetadata } from "@/lib/integrations";
+import {
+  readShopifyGrantAuthority,
+  assertShopifyGrantUnchanged,
+} from "@/lib/shopify/install-context";
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
 import {
@@ -1113,6 +1117,16 @@ export async function ensureShopifyProviderReady(input: {
     return { success: false as const, reason: "not_connected" };
   }
 
+  // The grant this pass is running under, captured at the SAME point the
+  // credential was resolved. Captured here and not next to the webhook calls:
+  // an authority read taken immediately before its own re-read agrees with
+  // itself by construction and proves nothing. The window that matters is this
+  // one — from credential resolution, through every provider round trip and
+  // warehouse write below, to the webhook mutation.
+  const grantAuthorityAtStart = await getIntegration(input.businessId, "shopify")
+    .then((row) => (row ? readShopifyGrantAuthority(row) : null))
+    .catch(() => null);
+
   const steps: Array<Record<string, unknown>> = [];
   steps.push(
     orchestrationStamp("auth", "succeeded", {
@@ -1122,32 +1136,65 @@ export async function ensureShopifyProviderReady(input: {
     })
   );
 
-  const webhookVerification = await verifyShopifySyncWebhooks({
-    shopId: credentials.shopId,
-    accessToken: credentials.accessToken,
-  }).catch((error) => ({
-    callbackUrl: null,
-    desiredTopics: [] as string[],
-    existingTopics: [] as string[],
-    missingTopics: [] as string[],
-    extraTopics: [] as string[],
-    error: error instanceof Error ? error.message : String(error),
-  }));
-  if ("error" in webhookVerification) {
-    steps.push(orchestrationStamp("webhooks_verify", "failed", { error: webhookVerification.error }));
+  // Re-observe the grant immediately before the webhook calls.
+  //
+  // A reconnect during the window above — a different shop, or the same shop
+  // re-granted by another user — would otherwise leave this registering webhooks
+  // under a credential that has already been replaced, pointing another shop's
+  // order events at this business. This is the widest unbound window of the
+  // Shopify mutation sites.
+  //
+  // A refusal is not a hard failure of the whole readiness pass: the sync below
+  // resolves its own credential and is safe to attempt. What must not happen is
+  // a webhook MUTATION under a credential nothing verified.
+  type ShopifyWebhookVerification =
+    | Awaited<ReturnType<typeof verifyShopifySyncWebhooks>>
+    | { error: string };
+  const grantStillOurs: { ok: true } | { ok: false; code: string; detail: string } =
+    grantAuthorityAtStart
+      ? await assertShopifyGrantUnchanged({
+          businessId: input.businessId,
+          authority: grantAuthorityAtStart,
+        })
+      : {
+          ok: false,
+          code: "shopify_authority_unknown",
+          detail: "The Shopify connection could not be read before registering webhooks.",
+        };
+
+  let webhookVerification: ShopifyWebhookVerification = grantStillOurs.ok
+    ? await verifyShopifySyncWebhooks({
+        shopId: credentials.shopId,
+        accessToken: credentials.accessToken,
+      }).catch((error) => ({
+        error: error instanceof Error ? error.message : String(error),
+      }))
+    : { error: grantStillOurs.code };
+
+  if (!grantStillOurs.ok) {
+    steps.push(
+      orchestrationStamp("webhooks_verify", "failed", {
+        error: grantStillOurs.code,
+        detail: grantStillOurs.detail,
+      }),
+    );
+  } else if ("error" in webhookVerification) {
+    steps.push(
+      orchestrationStamp("webhooks_verify", "failed", { error: webhookVerification.error }),
+    );
   } else {
     const registration = await registerShopifySyncWebhooks({
       shopId: credentials.shopId,
       accessToken: credentials.accessToken,
     }).catch((error) => ({
-      ...webhookVerification,
+      ...(webhookVerification as Awaited<ReturnType<typeof verifyShopifySyncWebhooks>>),
       created: [] as string[],
       error: error instanceof Error ? error.message : String(error),
     }));
     steps.push(
       "error" in registration
         ? orchestrationStamp("webhooks_register", "failed", { error: registration.error })
-        : orchestrationStamp("webhooks_register", "succeeded", registration)
+        : orchestrationStamp("webhooks_register", "succeeded", registration),
     );
   }
 

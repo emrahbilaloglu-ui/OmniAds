@@ -4334,9 +4334,23 @@ async function syncGoogleAdsAccountDay(input: {
   // Revocation returns "not synced" instead of throwing: no job row, no
   // provider call, no success receipt, and the caller's normal skip accounting
   // stays truthful.
+  //
+  // Uncertainty is NOT revocation: if the authority cannot be READ, this throws
+  // rather than returning false. A caught-and-collapsed read error would be
+  // indistinguishable from a genuine deselection and would report the day as
+  // cleanly skipped when nothing was actually checked.
   const stillAuthorized = await getConnectedAssignedGoogleAccounts(
     input.businessId,
-  );
+  ).catch((error) => {
+    console.error("[google-ads-sync] account_authority_unknown", {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      date: input.date,
+      partitionId: input.partitionId ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  });
   if (!stillAuthorized.includes(input.providerAccountId)) {
     console.warn("[google-ads-sync] account_selection_revoked", {
       businessId: input.businessId,

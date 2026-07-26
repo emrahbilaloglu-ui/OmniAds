@@ -1418,7 +1418,12 @@ async function createEphemeralSchema(pool: Pool) {
       business_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
-      provider_account_id TEXT NOT NULL
+      provider_account_id TEXT NOT NULL,
+      -- The production column, with the production post-cutover default. The
+      -- calibration listings filter on it, so a fixture without it would either
+      -- fail to run or silently exercise a query the production schema does not
+      -- have.
+      is_selected BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE engine_v3_job_runs (
       id UUID PRIMARY KEY,
@@ -1512,9 +1517,9 @@ async function createEphemeralSchema(pool: Pool) {
       'Europe/Istanbul', 'USD'
     );
     INSERT INTO business_provider_accounts (
-      business_id, provider, provider_account_ref_id, provider_account_id
+      business_id, provider, provider_account_ref_id, provider_account_id, is_selected
     ) VALUES (
-      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}', '${PROVIDER_ACCOUNT_ID}'
+      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}', '${PROVIDER_ACCOUNT_ID}', TRUE
     );
     INSERT INTO engine_v3_job_runs (
       id, job_name, business_ref_id, business_id, as_of_date,

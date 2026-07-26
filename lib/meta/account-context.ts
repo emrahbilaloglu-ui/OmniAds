@@ -163,22 +163,65 @@ async function loadMetaAccountContext(businessId: string): Promise<MetaAccountCo
  *
  * Fails closed: any read error means "not authorised".
  */
-export async function isMetaAccountStillAuthorized(
+/**
+ * Three outcomes, because two are not enough.
+ *
+ * `confirmed_revoked` means the authority sources were READ and they say the
+ * account is not authorised. `unknown_error` means they could not be read at
+ * all — a database outage, a schema that is mid-migration, a timeout. Those are
+ * opposite situations that a boolean collapsed into the same `false`, and the
+ * caller then cancelled valid partitions terminally because a database was
+ * briefly unreachable.
+ */
+export type MetaAccountAuthorityState =
+  | "authorized"
+  | "confirmed_revoked"
+  | "unknown_error";
+
+export interface MetaAccountAuthorityDecision {
+  state: MetaAccountAuthorityState;
+  /** Present only for unknown_error, for logs and for the requeue reason. */
+  errorMessage: string | null;
+}
+
+export async function resolveMetaAccountAuthority(
   businessId: string,
-  providerAccountId: string
-): Promise<boolean> {
+  providerAccountId: string,
+): Promise<MetaAccountAuthorityDecision> {
   try {
     const [integration, assignments] = await Promise.all([
       getIntegration(businessId, "meta"),
       getProviderAccountAssignments(businessId, "meta"),
     ]);
     if (integration?.status !== "connected" || !integration.access_token) {
-      return false;
+      return { state: "confirmed_revoked", errorMessage: null };
     }
-    return (assignments?.account_ids ?? []).includes(providerAccountId);
-  } catch {
-    return false;
+    return (assignments?.account_ids ?? []).includes(providerAccountId)
+      ? { state: "authorized", errorMessage: null }
+      : { state: "confirmed_revoked", errorMessage: null };
+  } catch (error) {
+    // Still fails closed — the caller must not proceed — but it fails closed as
+    // "I could not tell", which is requeueable, not as "revoked", which is
+    // terminal.
+    return {
+      state: "unknown_error",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
   }
+}
+
+/**
+ * Boolean form, kept for callers that genuinely only need "may I proceed".
+ *
+ * It answers false for BOTH revocation and uncertainty, so it must never be
+ * used to decide whether to cancel anything.
+ */
+export async function isMetaAccountStillAuthorized(
+  businessId: string,
+  providerAccountId: string
+): Promise<boolean> {
+  const decision = await resolveMetaAccountAuthority(businessId, providerAccountId);
+  return decision.state === "authorized";
 }
 
 export async function getMetaAccountContext(

@@ -197,6 +197,37 @@ export async function replaceProviderAccountSelection(input: {
         AND NOT (provider_account_id = ANY(${accountIds}::TEXT[]))
     `;
 
+    // Physical identity, verified in-transaction on exactly the four parts that
+    // define it: business, provider, the binding's ref id, and the external
+    // account id that ref id resolves to. The upsert arbitrates on
+    // (business_id, provider, provider_account_ref_id) only, so an existing row
+    // whose provider_account_id no longer matches what its ref id resolves to
+    // would survive DO UPDATE untouched — and every historical reference
+    // resolving through that binding would silently point at another account.
+    const mismatched = (await sql`
+      SELECT bpa.provider_account_id AS bound_account_id,
+             pa.external_account_id AS identity_account_id
+      FROM business_provider_accounts bpa
+      INNER JOIN provider_accounts pa
+        ON pa.id = bpa.provider_account_ref_id
+      WHERE bpa.business_id = ${input.businessId}
+        AND bpa.provider = ${input.provider}
+        AND bpa.is_selected
+        AND (pa.provider <> ${input.provider}
+             OR pa.external_account_id IS DISTINCT FROM bpa.provider_account_id)
+    `) as Array<{ bound_account_id: string; identity_account_id: string }>;
+    if (mismatched.length > 0) {
+      throw new ProviderAccountSelectionError(
+        "identity_mismatch",
+        `Selected bindings do not match their provider account identity: ${mismatched
+          .map(
+            (row) =>
+              `${row.bound_account_id} bound to identity ${row.identity_account_id}`,
+          )
+          .join(", ")}`,
+      );
+    }
+
     // Exact readback inside the same transaction: what the caller is told was
     // selected is what is durably selected, in order.
     const readback = (await sql`

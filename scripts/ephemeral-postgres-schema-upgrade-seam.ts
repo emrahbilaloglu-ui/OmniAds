@@ -35,6 +35,7 @@ const LABEL = "[schema-upgrade-seam]";
 const BUSINESS_ID = "33333333-3333-4333-8333-333333333333";
 const META_ACCOUNT_ID = "act_505050505";
 const KEPT_ACCOUNT_ID = "act_606060606";
+const LEGACY_ASSIGNMENT_ACCOUNT_ID = "act_707070707";
 const SHOP_ID = "upgrade-seam.myshopify.com";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -151,6 +152,19 @@ async function rewindToPreChangeSchema(client: Client) {
     `ALTER TABLE business_provider_accounts DROP COLUMN IF EXISTS is_selected`,
   );
   await client.query(`ALTER TABLE provider_sync_jobs DROP COLUMN IF EXISTS progress_json`);
+  // The legacy assignment table, as it exists on deployments that predate the
+  // normalized binding table. Production no longer has it, but the migration
+  // must remain correct for one that does — and the backfill it feeds runs
+  // AFTER the is_selected default has already switched to FALSE.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS provider_account_assignments (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id  TEXT NOT NULL,
+      provider     TEXT NOT NULL,
+      account_ids  TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
   // The retention-execution indexes this branch adds.
   const indexes = await client.query<{ indexname: string }>(
     `SELECT indexname FROM pg_indexes
@@ -210,6 +224,20 @@ async function seedLegacyData(client: Client) {
       [BUSINESS_ID, providerAccount.rows[0]!.id, account, index],
     );
   }
+
+  // A legacy-only selection: present in provider_account_assignments and NOT in
+  // business_provider_accounts, so the upgrade has to create the binding.
+  await client.query(
+    `INSERT INTO provider_account_assignments (business_id, provider, account_ids)
+     VALUES ($1, 'meta', ARRAY[$2, $3]::TEXT[])`,
+    [BUSINESS_ID, LEGACY_ASSIGNMENT_ACCOUNT_ID, META_ACCOUNT_ID],
+  );
+  await client.query(
+    `INSERT INTO provider_accounts (provider, external_account_id)
+     VALUES ('meta', $1)
+     ON CONFLICT (provider, external_account_id) DO UPDATE SET updated_at = now()`,
+    [LEGACY_ASSIGNMENT_ACCOUNT_ID],
+  );
 
   const partition = await client.query<{ id: string }>(
     `INSERT INTO meta_sync_partitions
@@ -426,9 +454,11 @@ async function main() {
               COUNT(*) FILTER (WHERE is_selected)::text AS selected
        FROM business_provider_accounts`,
     );
+    // Bindings may INCREASE — the legacy assignment table is imported — but
+    // never decrease: a binding is historical identity and is never deleted.
     assert(
-      selection.rows[0]!.total === bindingsBefore.rows[0]!.count,
-      "U3: the upgrade added or removed selection bindings.",
+      Number(selection.rows[0]!.total) >= Number(bindingsBefore.rows[0]!.count),
+      `U3: the upgrade removed selection bindings (${bindingsBefore.rows[0]!.count} -> ${selection.rows[0]!.total}).`,
     );
     assert(
       selection.rows[0]!.selected === selection.rows[0]!.total,
@@ -444,8 +474,51 @@ async function main() {
       defaultRow.rows[0]?.column_default === "false",
       `U3: the final default is ${String(defaultRow.rows[0]?.column_default)}, not false; a new binding would be born selected.`,
     );
+    // The legacy assignment table's accounts must have been imported AS
+    // SELECTED. That backfill runs after the default is already FALSE, so
+    // relying on the default would import every legacy assignment deselected
+    // and silently stop syncing accounts that were active.
+    const legacyImported = await client.query<{ is_selected: boolean }>(
+      `SELECT is_selected FROM business_provider_accounts
+       WHERE business_id = $1 AND provider = 'meta' AND provider_account_id = $2`,
+      [BUSINESS_ID, LEGACY_ASSIGNMENT_ACCOUNT_ID],
+    );
+    assert(
+      legacyImported.rowCount === 1,
+      `U3: the legacy assignment account was not imported into business_provider_accounts (${legacyImported.rowCount} rows).`,
+    );
+    assert(
+      legacyImported.rows[0]!.is_selected === true,
+      "U3: a legacy provider_account_assignments account was imported DESELECTED; it would silently stop syncing.",
+    );
+    const identityMismatches = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM business_provider_accounts bpa
+       JOIN provider_accounts pa ON pa.id = bpa.provider_account_ref_id
+       WHERE bpa.is_selected
+         AND (pa.provider <> bpa.provider
+              OR pa.external_account_id IS DISTINCT FROM bpa.provider_account_id)`,
+    );
+    assert(
+      Number(identityMismatches.rows[0]!.count) === 0,
+      `U3: ${identityMismatches.rows[0]!.count} selected bindings do not match their provider account identity.`,
+    );
+    const selectedIndex = await client.query<{
+      indexdef: string;
+      indisvalid: boolean;
+    }>(
+      `SELECT pg_get_indexdef(c.oid) AS indexdef, i.indisvalid
+       FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+       WHERE c.relname = 'idx_business_provider_accounts_selected'`,
+    );
+    assert(
+      selectedIndex.rowCount === 1 &&
+        selectedIndex.rows[0]!.indisvalid &&
+        selectedIndex.rows[0]!.indexdef.includes("WHERE is_selected"),
+      `U3: the selected-index definition is wrong or invalid: ${JSON.stringify(selectedIndex.rows)}`,
+    );
     console.log(
-      `${LABEL} U3 PASS selection cutover: all ${selection.rows[0]!.total} legacy bindings admitted as selected, and the final column default is false`,
+      `${LABEL} U3 PASS selection cutover: all ${selection.rows[0]!.total} bindings admitted as selected including the legacy assignment-table import, the final column default is false, 0 identity mismatches, and the partial selected index is valid with its exact predicate`,
     );
 
     // ── U4. Old readers and new readers agree ─────────────────────────────

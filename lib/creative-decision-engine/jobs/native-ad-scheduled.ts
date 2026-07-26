@@ -191,6 +191,9 @@ WITH latest_target_history AS (
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
+    -- Current selection: the scheduled job compares against the accounts it is
+    -- supposed to be calibrating NOW, not every account ever bound.
+    AND binding.is_selected
 )
 SELECT CASE
   WHEN calibration_receipt.batch_count <> calibration_batches.batch_count THEN FALSE
@@ -312,6 +315,8 @@ export async function listNativeAdMetaEligibleBusinessIds(
     FROM business_provider_accounts binding
     WHERE binding.provider = 'meta'
       AND binding.business_id = ANY($1::text[])
+      -- A business whose every Meta account is deselected is not eligible.
+      AND binding.is_selected
     ORDER BY binding.business_id
     `,
     [normalized],

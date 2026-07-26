@@ -43,6 +43,14 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   return {
     ...actual,
     isMetaAccountStillAuthorized: vi.fn(async () => true),
+    // Default-authorised. The tri-state is what the partition refusal actually
+    // reads now; leaving only the boolean would silently exercise the real
+    // implementation against no database and report every case as
+    // unknown_error.
+    resolveMetaAccountAuthority: vi.fn(async () => ({
+      state: "authorized" as const,
+      errorMessage: null,
+    })),
   };
 });
 

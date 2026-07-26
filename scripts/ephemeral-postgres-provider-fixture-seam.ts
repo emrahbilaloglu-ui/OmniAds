@@ -1125,10 +1125,20 @@ async function verifyMeta(
     revokedError.rows.every((row) => row.last_error === "meta_account_selection_revoked"),
     `M5: cancellation is not attributed to revocation: ${JSON.stringify(revokedError.rows)}`,
   );
+  // The batch must have STOPPED, not merely cancelled after processing every
+  // partition. The consumer used to ignore stopBatch entirely and ran the whole
+  // leased set, so a revoked account still saw every remaining partition
+  // attempt. Provider calls after the revocation instant are the observable
+  // signal: exactly one call may be in flight when the revocation lands.
+  const revocationCalls = stub.providerCalls().length;
+  assert(
+    revocationCalls <= 2,
+    `M5: the batch kept going after revocation — ${revocationCalls} provider calls, so stopBatch was ignored.`,
+  );
   await setMetaSelected(true);
   clearMetaContextCache();
   console.log(
-    `${LABEL} M5 PASS mid-batch revocation: ${cancelledCount} partitions cancelled as revoked, none stuck leased, no false failure`,
+    `${LABEL} M5 PASS mid-batch revocation: ${cancelledCount} partitions cancelled as revoked, the batch stopped after ${revocationCalls} provider calls rather than draining the leased set, none stuck leased, no false failure`,
   );
 
   // ── M6. Retry revalidation: re-processing a leased partition for a revoked

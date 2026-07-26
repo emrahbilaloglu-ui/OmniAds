@@ -1037,10 +1037,60 @@ export async function runMigrations(options?: {
           $business_provider_accounts_selection_default$
         `,
         // Current-selection lookups always filter is_selected, so the index is
-        // partial on exactly that predicate.
+        // partial on exactly that predicate. IF NOT EXISTS matches on NAME
+        // alone, so a same-name index with a different definition — including
+        // an invalid one left by an interrupted CONCURRENTLY build — would be
+        // silently accepted. Drop that case first, then verify the definition
+        // rather than swallowing the failure.
+        sql`
+          DO $business_provider_accounts_selected_index_repair$
+          DECLARE
+            existing_definition TEXT;
+            existing_valid BOOLEAN;
+          BEGIN
+            SELECT pg_get_indexdef(index_class.oid), index_catalog.indisvalid
+              INTO existing_definition, existing_valid
+            FROM pg_class index_class
+            JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+            WHERE index_class.relname = 'idx_business_provider_accounts_selected';
+            IF existing_definition IS NOT NULL AND (
+              existing_valid IS NOT TRUE
+              OR existing_definition NOT LIKE '%business_id, provider, "position", id%'
+              OR existing_definition NOT LIKE '%WHERE is_selected%'
+            ) THEN
+              EXECUTE 'DROP INDEX idx_business_provider_accounts_selected';
+            END IF;
+          END
+          $business_provider_accounts_selected_index_repair$
+        `,
         sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_selected
           ON business_provider_accounts (business_id, provider, position, id)
-          WHERE is_selected`.catch(() => {}),
+          WHERE is_selected`,
+        sql`
+          DO $business_provider_accounts_selected_index_contract$
+          DECLARE
+            actual_definition TEXT;
+          BEGIN
+            SELECT pg_get_indexdef(index_class.oid)
+              INTO actual_definition
+            FROM pg_class index_class
+            JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+            WHERE index_class.relname = 'idx_business_provider_accounts_selected'
+              AND index_catalog.indisvalid
+              AND index_catalog.indisready
+              AND index_catalog.indislive;
+            IF actual_definition IS NULL THEN
+              RAISE EXCEPTION
+                'idx_business_provider_accounts_selected is missing or not valid/ready/live';
+            END IF;
+            IF actual_definition NOT LIKE '%WHERE is_selected%' THEN
+              RAISE EXCEPTION
+                'idx_business_provider_accounts_selected lost its is_selected predicate: %',
+                actual_definition;
+            END IF;
+          END
+          $business_provider_accounts_selected_index_contract$
+        `,
         sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_runs (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,
@@ -1824,6 +1874,12 @@ export async function runMigrations(options?: {
             provider_account_ref_id,
             provider_account_id,
             position,
+            -- EXPLICITLY TRUE. This backfill runs after the is_selected cutover
+            -- has already switched the column default to FALSE, so relying on
+            -- the default here would import every legacy assignment as
+            -- deselected and silently stop syncing accounts that were active.
+            -- A row in provider_account_assignments WAS the selection.
+            is_selected,
             created_at,
             updated_at
           )
@@ -1833,6 +1889,7 @@ export async function runMigrations(options?: {
             pa.id,
             pa.external_account_id,
             ordinality - 1,
+            TRUE,
             a.created_at,
             a.updated_at
           FROM provider_account_assignments a
@@ -1843,6 +1900,9 @@ export async function runMigrations(options?: {
           ON CONFLICT (business_id, provider, provider_account_ref_id) DO UPDATE SET
             provider_account_id = EXCLUDED.provider_account_id,
             position = EXCLUDED.position,
+            -- An existing binding that the legacy table still lists is selected.
+            -- Never downgrade: OR, not assignment.
+            is_selected = business_provider_accounts.is_selected OR EXCLUDED.is_selected,
             updated_at = EXCLUDED.updated_at
         `,
             ]

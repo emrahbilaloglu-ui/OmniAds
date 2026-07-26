@@ -128,6 +128,8 @@ WITH exact_binding AS (
   WHERE binding.business_id = $1
     AND binding.provider = 'meta'
     AND binding.provider_account_id = $2
+    -- Current selection; the JOIN already pins physical identity.
+    AND binding.is_selected
 ), latest_batch AS (
   SELECT batch.*
   FROM ${NATIVE_AD_CALIBRATION_BATCH_TABLE} batch

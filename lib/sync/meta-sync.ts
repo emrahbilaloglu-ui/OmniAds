@@ -16,7 +16,8 @@ import {
   isMetaProductCoreCoverageScope,
 } from "@/lib/meta/core-config";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
-import { isMetaAccountStillAuthorized } from "@/lib/meta/account-context";
+import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
+import { runMetaLeasedPartitionBatch } from "@/lib/sync/meta-batch-stop";
 import {
   cancelMetaPartitionsForRevokedAccount,
   backfillMetaRunningRunsForTerminalPartition,
@@ -1913,11 +1914,32 @@ async function refuseRevokedMetaPartition(partition: {
   scope: MetaWarehouseScope;
   partitionDate: string;
 }): Promise<MetaPartitionProcessResult | null> {
-  const stillAuthorized = await isMetaAccountStillAuthorized(
+  const authority = await resolveMetaAccountAuthority(
     partition.businessId,
     partition.providerAccountId,
   );
-  if (stillAuthorized) return null;
+  if (authority.state === "authorized") return null;
+
+  // Uncertainty is NOT revocation. A database outage, a timeout, or a schema
+  // caught mid-migration used to collapse to the same `false` as a real
+  // revocation, and this path then cancelled every partition for the account
+  // terminally. Requeue instead, and stop the batch so the worker does not
+  // keep hammering an unreadable authority — but cancel nothing.
+  if (authority.state === "unknown_error") {
+    console.error("[meta-sync] partition_authority_unknown", {
+      businessId: partition.businessId,
+      providerAccountId: partition.providerAccountId,
+      partitionId: partition.id ?? null,
+      scope: partition.scope,
+      partitionDate: partition.partitionDate,
+      errorMessage: authority.errorMessage,
+    });
+    return {
+      outcome: "requeued",
+      stopBatch: true,
+      failureClass: "meta_account_authority_unknown",
+    } satisfies MetaPartitionProcessResult;
+  }
 
   const cancelled = await cancelMetaPartitionsForRevokedAccount({
     businessId: partition.businessId,
@@ -4472,32 +4494,61 @@ export async function consumeMetaQueuedWork(
       };
     }
 
-    let attempted = partitions.length;
-    let succeeded = 0;
-    let failed = 0;
-    for (const partition of partitions) {
-      if (hasLeaseConflict()) {
-        failed += 1;
-        break;
-      }
-      const result = await processMetaPartition({
-        credentials,
-        partition: {
-          id: partition.id,
-          businessId: partition.businessId,
-          providerAccountId: partition.providerAccountId,
-          lane: partition.lane,
-          scope: partition.scope,
-          partitionDate: partition.partitionDate,
-          priority: partition.priority,
-          attemptCount: partition.attemptCount,
-          leaseEpoch: partition.leaseEpoch ?? 0,
-          source: partition.source,
-        },
+    // The batch runner, not a bare loop. `stopBatch` exists precisely so a
+    // revocation or a provider stop-loss halts the REST of this worker's leased
+    // partitions; the previous loop ignored it and processed all of them, which
+    // meant a revoked account still saw every remaining partition attempt and a
+    // quota stop-loss kept pushing into the same wall.
+    const batch = await runMetaLeasedPartitionBatch({
+      partitions,
+      beforePartition: () =>
+        hasLeaseConflict()
+          ? {
+              stopReason: "meta_runner_lease_lost",
+              countAsFailure: true,
+            }
+          : null,
+      processPartition: (partition) =>
+        processMetaPartition({
+          credentials,
+          partition: {
+            id: partition.id,
+            businessId: partition.businessId,
+            providerAccountId: partition.providerAccountId,
+            lane: partition.lane,
+            scope: partition.scope,
+            partitionDate: partition.partitionDate,
+            priority: partition.priority,
+            attemptCount: partition.attemptCount,
+            leaseEpoch: partition.leaseEpoch ?? 0,
+            source: partition.source,
+          },
+          workerId,
+        }),
+    });
+    let attempted = batch.attempted;
+    const succeeded = batch.succeeded;
+    const failed = batch.failed;
+    if (batch.stopReason) {
+      // Whatever this worker still holds must go back to the queue rather than
+      // sitting leased until the lease expires. Revoked partitions were already
+      // cancelled by the refusal itself, so this only releases the ones that are
+      // still legitimately pending.
+      const released = await releaseMetaLeasedPartitionsForWorker({
+        businessId,
         workerId,
+        retryDelayMinutes: batch.retryDelayMinutes,
+        lastError: `batch stopped: ${batch.stopReason}`,
+      }).catch(() => 0);
+      logRuntimeInfo("meta-sync", "meta_consume_batch_stopped", {
+        businessId,
+        workerId,
+        stopReason: batch.stopReason,
+        retryDelayMinutes: batch.retryDelayMinutes,
+        leasedPartitions: partitions.length,
+        attempted: batch.attempted,
+        releasedPartitions: released,
       });
-      if (result.outcome === "succeeded") succeeded += 1;
-      else if (result.outcome === "failed") failed += 1;
     }
 
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(

@@ -16,6 +16,7 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
 }));
 
 const db = await import("@/lib/db");
+const assignments = await import("@/lib/provider-account-assignments");
 
 describe("provider account assignments", () => {
   beforeEach(() => {
@@ -35,6 +36,12 @@ describe("provider account assignments", () => {
           { id: "pa-1", external_account_id: "acc_1" },
           { id: "pa-2", external_account_id: "acc_2" },
         ];
+      }
+      // Physical identity audit of the selected bindings. Returning no rows
+      // means every binding's ref id resolves to the external account id it
+      // claims; the negative case has its own test below.
+      if (query.includes("IS DISTINCT FROM bpa.provider_account_id")) {
+        return [];
       }
       // Exact in-transaction readback of the selected set, in order. Keyed on
       // the absence of ARRAY_AGG so it cannot shadow the aggregate reader,
@@ -112,5 +119,36 @@ describe("provider account assignments", () => {
       updated_at: "2026-01-01T00:00:00.000Z",
     });
     expect(queries.join("\n")).toContain("(ARRAY_AGG(bpa.id ORDER BY bpa.position, bpa.id))[1] AS id");
+  });
+
+  it("refuses a binding whose ref id resolves to a different account", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM provider_accounts")) {
+        return [{ id: "pa-1", external_account_id: "acc_1" }];
+      }
+      if (query.includes("IS DISTINCT FROM bpa.provider_account_id")) {
+        // The binding claims acc_1 but its ref id resolves to acc_other. Every
+        // historical reference through this binding would point at the wrong
+        // account, and the upsert's ON CONFLICT arbitrates on the ref id alone,
+        // so DO UPDATE would leave it in place.
+        return [
+          { bound_account_id: "acc_1", identity_account_id: "acc_other" },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.runDbTransaction).mockImplementation(
+      async (fn: () => Promise<unknown>) => fn(),
+    );
+
+    await expect(
+      assignments.replaceProviderAccountSelection({
+        businessId: "biz_1",
+        provider: "google",
+        accountIds: ["acc_1"],
+      }),
+    ).rejects.toMatchObject({ code: "identity_mismatch" });
   });
 });

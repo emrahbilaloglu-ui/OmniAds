@@ -1057,6 +1057,11 @@ JOIN provider_accounts account
  AND account.external_account_id = binding.provider_account_id
 WHERE binding.business_id = $1
   AND binding.provider = 'meta'
+  -- Current selection. The JOIN above already enforces physical identity:
+  -- the binding's ref id and its external account id must be the SAME
+  -- provider_accounts row, so a ref id cannot be paired with another
+  -- account's external id.
+  AND binding.is_selected
 ORDER BY provider_account_ref_id, provider_account_id
 `;
 
@@ -1072,6 +1077,7 @@ WHERE binding.business_id = $1
   AND binding.provider = 'meta'
   AND binding.provider_account_ref_id = $2::uuid
   AND binding.provider_account_id = $3
+  AND binding.is_selected
 `;
 
 export const READ_EXISTING_NATIVE_AD_CALIBRATION_BATCH_BY_CONTENT_SQL = `

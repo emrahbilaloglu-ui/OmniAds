@@ -1,3 +1,4 @@
+import { assertGoogleAdsAccountAuthority } from "@/lib/google-ads/account-authority";
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
@@ -110,6 +111,17 @@ async function googleAdsMutateRequest(input: {
   body: Record<string, unknown>;
   validateOnly?: boolean;
 }) {
+  // The lowest common boundary of every advisor writeback: apply, batch apply,
+  // rollback and validate-only all arrive here, with an `accountId` taken
+  // straight from the request body and the shared business credential. Without
+  // this, any customer that credential could reach was writable.
+  //
+  // Validate-only is guarded too: it is still a provider call against an account
+  // that may no longer be selected.
+  await assertGoogleAdsAccountAuthority({
+    businessId: input.businessId,
+    accountId: input.accountId,
+  });
   const accessToken = await resolveGoogleAccessToken(input.businessId);
   const accountId = normalizeCustomerId(input.accountId);
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/${input.path}`;
@@ -152,6 +164,14 @@ async function googleAdsSearchRequest(input: {
   accountId: string;
   query: string;
 }) {
+  // Rollback and preflight read current provider state through this helper
+  // before deciding what to write, so it needs the same authority as the mutate
+  // path — otherwise a deselected account is still readable through a live
+  // credential from an execution surface.
+  await assertGoogleAdsAccountAuthority({
+    businessId: input.businessId,
+    accountId: input.accountId,
+  });
   const accessToken = await resolveGoogleAccessToken(input.businessId);
   const accountId = normalizeCustomerId(input.accountId);
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/googleAds:search`;

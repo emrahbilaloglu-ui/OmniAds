@@ -13,6 +13,7 @@ import {
   type GA4ResolvedAnalyticsContext,
 } from "@/lib/google-analytics-reporting";
 import { requireBusinessAccess } from "@/lib/access";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 function normalizeGa4PropertyId(value: string): string {
@@ -67,6 +68,22 @@ export async function POST(request: NextRequest) {
     minRole: "collaborator",
   });
   if ("error" in access) return access.error;
+
+  // Selection mutation is quiesced with every other writer during a cutover. A
+  // GA4 property decides what every later source-ingest run reads, so it belongs
+  // to the same lane as ad-account selection rather than outside every switch.
+  try {
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message: "Property selection is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
 
   if (await isDemoBusiness(businessId)) {
     const normalizedPropertyId = normalizeGa4PropertyId(propertyId);

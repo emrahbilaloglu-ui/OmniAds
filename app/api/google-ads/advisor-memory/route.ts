@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { isGoogleAdsAccountAuthorityError } from "@/lib/google-ads/account-authority";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import {
   executeActionCluster,
@@ -929,6 +930,15 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({ ...result, ok: true });
     } catch (error) {
+      // A selection-authority refusal is not a bad request. 409 says the
+      // account is no longer selected and retrying will not help; 503 says the
+      // answer could not be read and retrying might.
+      if (isGoogleAdsAccountAuthorityError(error)) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.httpStatus },
+        );
+      }
       return NextResponse.json({ error: error instanceof Error ? error.message : "Mutate failed." }, { status: 400 });
     }
   }
@@ -948,6 +958,12 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({ ...result, ok: true });
     } catch (error) {
+      if (isGoogleAdsAccountAuthorityError(error)) {
+        return NextResponse.json(
+          { error: error.message, code: error.code },
+          { status: error.httpStatus },
+        );
+      }
       return NextResponse.json({ error: error instanceof Error ? error.message : "Rollback failed." }, { status: 400 });
     }
   }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSearchConsoleSiteAccessible } from "@/lib/search-console-site-selection-authority";
 import { upsertIntegration } from "@/lib/integrations";
 import {  } from "@/lib/demo-business";
 import {
@@ -69,6 +71,56 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Selection mutation is quiesced with every other writer during a cutover,
+  // and a Search Console property is exactly as load-bearing as an ad account:
+  // it decides what every later sync reads.
+  try {
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message: "Property selection is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
+
+  // Membership in the CONNECTED token's live accessible-site set. Both writers
+  // previously accepted any syntactically valid URL and wrote it onto the
+  // canonical connection, so a typo or a third-party domain became the selected
+  // property and every later sync failed against a site the token cannot see.
+  const accessible = await assertSearchConsoleSiteAccessible({
+    businessId,
+    siteUrl,
+  }).catch((error: unknown) => ({
+    ok: false as const,
+    refusal: {
+      kind: "listing_failed" as const,
+      status: 502,
+      detail: error instanceof Error ? error.message : String(error),
+    },
+  }));
+  if (!accessible.ok) {
+    return NextResponse.json(
+      accessible.refusal.kind === "not_accessible"
+        ? {
+            error: "search_console_site_not_accessible",
+            message:
+              "This Search Console property is not available to the connected account. Refresh the property list and choose one of the listed properties.",
+          }
+        : {
+            error: "search_console_sites_fetch_failed",
+            message:
+              "Could not confirm which Search Console properties this connection can access. Nothing was changed.",
+            detail: accessible.refusal.detail,
+          },
+      { status: accessible.refusal.kind === "not_accessible" ? 400 : 503 },
+    );
+  }
+  const verifiedSiteUrl = accessible.siteUrl;
+
   try {
     const context = await resolveSearchConsoleContext({
       businessId,
@@ -84,13 +136,13 @@ export async function POST(request: NextRequest) {
       businessId,
       provider: "search_console",
       status: "connected",
-      providerAccountId: siteUrl,
-      providerAccountName: siteUrl,
+      providerAccountId: verifiedSiteUrl,
+      providerAccountName: verifiedSiteUrl,
       metadata: {
         ...existingMetadata,
-        siteUrl,
-        siteType: getSearchConsoleSiteType(siteUrl),
-        propertyName: siteUrl,
+        siteUrl: verifiedSiteUrl,
+        siteType: getSearchConsoleSiteType(verifiedSiteUrl),
+        propertyName: verifiedSiteUrl,
         connectedAt:
           context.integration.connected_at ?? new Date().toISOString(),
       },

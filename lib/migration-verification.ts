@@ -137,6 +137,17 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     unique: false,
     definitionMustContain: ["WHERE is_selected"],
   },
+  {
+    // The growth fence refuses every write it cannot back with a fresh host
+    // capacity sample, and it reads that sample with
+    // ORDER BY sampled_at DESC, id DESC. Without the id tiebreak two samples
+    // written in the same millisecond resolve non-deterministically. Verified
+    // rather than hoped for, because the failure is a quietly weaker gate.
+    name: "idx_system_capacity_snapshots_source_sampled_id",
+    table: "system_capacity_snapshots",
+    unique: false,
+    definitionMustContain: ["source", "sampled_at DESC", "id DESC"],
+  },
 ];
 
 export async function verifyMigrationSchemaContract(input?: {
@@ -335,6 +346,21 @@ export async function verifyMigrationSchemaContract(input?: {
     );
     await sql.query(
       `SELECT 1 FROM business_provider_accounts WHERE is_selected LIMIT 1`,
+    );
+    // The growth fence's physical-capacity read, in the exact shape it uses.
+    // Catalog assertions above prove the table and index exist; this proves the
+    // statement the fence actually issues parses and runs, including the
+    // clock_timestamp() age arithmetic that decides staleness.
+    await sql.query(
+      `WITH measured AS (SELECT clock_timestamp() AS at)
+       SELECT s.id::text,
+              s.sampled_at,
+              EXTRACT(EPOCH FROM ((SELECT at FROM measured) - s.sampled_at)) AS age_seconds,
+              s.payload
+       FROM system_capacity_snapshots s
+       WHERE s.source = 'db_host_healthcheck'
+       ORDER BY s.sampled_at DESC, s.id DESC
+       LIMIT 1`,
     );
   } catch (error) {
     failures.push({

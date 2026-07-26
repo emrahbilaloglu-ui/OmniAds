@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Database host healthcheck AND capacity sampler.
+#
+# These are two independent jobs that used to be one, in a way that made the
+# capacity sample the first casualty of an unrelated failure:
+#
+#   - backup discovery ran FIRST and called fail() on a missing or stale backup,
+#     so the script exited before any disk measurement was taken;
+#   - the INSERT was `>/dev/null 2>&1 || true`, so a broken statement, a missing
+#     table or a permissions problem produced silence indistinguishable from
+#     success.
+#
+# The application now REFUSES to write when this sample is missing or older than
+# 35 minutes, which turns both of those into an outage rather than a gap in a
+# dashboard. So capacity sampling is now unconditional and its failure is loud,
+# while backup health is reported separately and no longer suppresses it.
+#
+# The row's `sampled_at` is the DATABASE's own clock_timestamp(), not this host's
+# clock. The reader computes age against clock_timestamp() too, so freshness is
+# decided by one clock and cannot drift. The host's wall time is still recorded
+# inside the payload, where a disagreement between the two is diagnostic rather
+# than load-bearing.
+
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/adsecute-postgres}"
 DB_NAME="${DB_NAME:-adsecute_prod}"
 MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-30}"
@@ -8,6 +30,10 @@ DISK_WARN_PCT="${DISK_WARN_PCT:-85}"
 DISK_FAIL_PCT="${DISK_FAIL_PCT:-95}"
 DISK_CHECK_PATH="${DISK_CHECK_PATH:-/var/lib/postgresql}"
 ROOT_DISK_CHECK_PATH="${ROOT_DISK_CHECK_PATH:-/}"
+# Keeps this telemetry small without coupling it to the application's retention
+# lane, which is deliberately disabled. The table is host-owned: a handful of
+# rows per hour, pruned here, never touched by application retention.
+CAPACITY_SNAPSHOT_RETENTION_DAYS="${CAPACITY_SNAPSHOT_RETENTION_DAYS:-90}"
 
 fail() {
   echo "status=fail reason=$1"
@@ -38,13 +64,18 @@ EOF
 insert_capacity_snapshot() {
   local hostname_value
   hostname_value="$(hostname)"
+  # ON_ERROR_STOP=1: without it psql exits 0 after a failed statement, which is
+  # how a broken INSERT could have gone unnoticed indefinitely.
   runuser -u postgres -- psql \
     --dbname="$DB_NAME" \
+    -v ON_ERROR_STOP=1 \
+    --quiet \
     --set=hostname="$hostname_value" \
-    --set=sampled_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --set=host_sampled_at="$host_sampled_at" \
     --set=db_name="$DB_NAME" \
     --set=db_size_bytes="$db_size_bytes" \
     --set=db_size_pretty="$db_size_pretty" \
+    --set=backup_status="$backup_status" \
     --set=backup_age_hours="$backup_age_hours" \
     --set=backup_path="$latest_backup_dir" \
     --set=data_path="$DISK_CHECK_PATH" \
@@ -60,14 +91,15 @@ insert_capacity_snapshot() {
     --set=root_total_bytes="$root_total_bytes" \
     --set=root_used_bytes="$root_used_bytes" \
     --set=root_available_bytes="$root_available_bytes" \
-    --set=root_used_percent="$root_used_percent" <<'SQL'
+    --set=root_used_percent="$root_used_percent" \
+    --set=retention_days="$CAPACITY_SNAPSHOT_RETENTION_DAYS" <<'SQL'
 INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
 VALUES (
   'db_host_healthcheck',
   :'hostname',
-  :'sampled_at'::timestamptz,
+  clock_timestamp(),
   jsonb_build_object(
-    'sampledAt', :'sampled_at',
+    'sampledAt', :'host_sampled_at',
     'hostname', :'hostname',
     'database', jsonb_build_object(
       'name', :'db_name',
@@ -75,6 +107,7 @@ VALUES (
       'sizePretty', :'db_size_pretty'
     ),
     'backup', jsonb_build_object(
+      'status', :'backup_status',
       'latestAgeHours', :backup_age_hours,
       'latestPath', :'backup_path'
     ),
@@ -100,28 +133,62 @@ VALUES (
     )
   )
 );
+
+DELETE FROM system_capacity_snapshots
+WHERE source = 'db_host_healthcheck'
+  AND sampled_at < clock_timestamp() - make_interval(days => :retention_days);
 SQL
 }
 
 runuser -u postgres -- pg_isready -h 127.0.0.1 -p 5432 -d "$DB_NAME" >/dev/null 2>&1 \
   || fail "postgres_not_ready"
 
-latest_backup_dir="$(find "$BACKUP_ROOT/daily" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)"
-[ -n "$latest_backup_dir" ] || fail "missing_backup_dir"
+host_sampled_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-now_epoch="$(date +%s)"
-backup_epoch="$(stat -c %Y "$latest_backup_dir")"
-backup_age_hours="$(( (now_epoch - backup_epoch) / 3600 ))"
-[ "$backup_age_hours" -le "$MAX_BACKUP_AGE_HOURS" ] || fail "backup_too_old"
+# Backup health is EVALUATED here but not acted on until after the sample is
+# written. A missing or stale backup is a real problem; it is not a reason to
+# stop knowing how much disk is left.
+backup_status="ok"
+backup_age_hours="-1"
+latest_backup_dir="$(find "$BACKUP_ROOT/daily" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)"
+if [ -z "$latest_backup_dir" ]; then
+  backup_status="missing_backup_dir"
+else
+  now_epoch="$(date +%s)"
+  backup_epoch="$(stat -c %Y "$latest_backup_dir")"
+  backup_age_hours="$(( (now_epoch - backup_epoch) / 3600 ))"
+  if [ "$backup_age_hours" -gt "$MAX_BACKUP_AGE_HOURS" ]; then
+    backup_status="backup_too_old"
+  fi
+fi
 
 read_df_stats "$DISK_CHECK_PATH" data
 read_df_stats "$ROOT_DISK_CHECK_PATH" root
 disk_pct="$data_used_percent"
 root_disk_pct="$root_used_percent"
-db_size_bytes="$(runuser -u postgres -- psql --dbname=postgres --tuples-only --no-align --command="SELECT pg_database_size('$DB_NAME');" | tr -d '\n')"
-db_size_pretty="$(runuser -u postgres -- psql --dbname=postgres --tuples-only --no-align --command="SELECT pg_size_pretty(pg_database_size('$DB_NAME'));" | tr -d '\n')"
+db_size_bytes="$(runuser -u postgres -- psql --dbname=postgres -v ON_ERROR_STOP=1 --tuples-only --no-align --command="SELECT pg_database_size('$DB_NAME');" | tr -d '\n')"
+db_size_pretty="$(runuser -u postgres -- psql --dbname=postgres -v ON_ERROR_STOP=1 --tuples-only --no-align --command="SELECT pg_size_pretty(pg_database_size('$DB_NAME'));" | tr -d '\n')"
 
-insert_capacity_snapshot >/dev/null 2>&1 || true
+# Loud on failure. The application refuses to write when this row is missing or
+# stale, so a silent insert failure is an outage waiting on a timer.
+capacity_insert_status="ok"
+if capacity_insert_output="$(insert_capacity_snapshot 2>&1)"; then
+  echo "capacity_snapshot_insert=ok"
+else
+  capacity_insert_status="failed"
+  echo "capacity_snapshot_insert=failed detail=${capacity_insert_output}" >&2
+fi
+
+# Backup problems are reported now, after the sample is durable.
+if [ "$backup_status" = "missing_backup_dir" ]; then
+  fail "missing_backup_dir capacity_snapshot_insert=${capacity_insert_status}"
+fi
+if [ "$backup_status" = "backup_too_old" ]; then
+  fail "backup_too_old latest_backup_age_h=${backup_age_hours} capacity_snapshot_insert=${capacity_insert_status}"
+fi
+if [ "$capacity_insert_status" != "ok" ]; then
+  fail "capacity_snapshot_insert_failed"
+fi
 
 if [ "$disk_pct" -ge "$DISK_FAIL_PCT" ]; then
   fail "disk_usage_critical disk_path=$DISK_CHECK_PATH disk_pct=$disk_pct root_disk_path=$ROOT_DISK_CHECK_PATH root_disk_pct=$root_disk_pct"

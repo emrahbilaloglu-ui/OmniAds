@@ -485,9 +485,29 @@ async function verifyRetentionSweep(client: Client) {
 
 // ── F1-F3. Growth fence defaults, refusal and recovery ─────────────────────
 
-async function verifyGrowthBoundaries() {
+async function verifyGrowthBoundaries(client: Client) {
   const fence = await import("@/lib/sync/db-growth-fence");
   fence.resetDbGrowthFenceCache();
+
+  // Physical admission is a precondition of reaching the logical budgets at
+  // all, so the logical cases need a healthy host sample present. F1b below
+  // then removes it, ages it, corrupts it and re-seeds it to prove each
+  // failure mode independently.
+  await client.query(
+    `INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
+     VALUES ('db_host_healthcheck', 'seam-db-host', clock_timestamp(),
+             jsonb_build_object(
+               'hostname', 'seam-db-host',
+               'database', jsonb_build_object('name', current_database()),
+               'disks', jsonb_build_array(jsonb_build_object(
+                 'path', '/var/lib/postgresql',
+                 'totalBytes', $1::bigint,
+                 'usedBytes', $2::bigint,
+                 'availableBytes', $3::bigint
+               ))
+             ))`,
+    [400 * 1024 ** 3, 190 * 1024 ** 3, 210 * 1024 ** 3],
+  );
 
   const defaults = await fence.evaluateDbGrowthFence({ env: {} });
   assert(
@@ -561,27 +581,190 @@ async function verifyGrowthBoundaries() {
       fence.LIVE_MEASUREMENT.volume.capacityBytes - fence.DEFAULT_DATABASE_BUDGET_BYTES,
     "F1: the planning constant is not the arithmetic it claims to be.",
   );
-  const unknownHeadroom = fence.evaluateVolumeHeadroom({ env: {} });
-  assert(
-    unknownHeadroom.status === "unknown" && unknownHeadroom.availableBytes === null,
-    `F1: absent filesystem telemetry was reported as healthy: ${JSON.stringify(unknownHeadroom)}`,
-  );
-  const measuredHeadroom = fence.evaluateVolumeHeadroom({
-    env: {
-      [fence.VOLUME_AVAILABLE_ENV]: String(fence.LIVE_MEASUREMENT.volume.availableBytes),
-      [fence.VOLUME_CAPACITY_ENV]: String(fence.LIVE_MEASUREMENT.volume.capacityBytes),
-    },
-  });
-  assert(
-    measuredHeadroom.status === "ok",
-    `F1: the live filesystem measurement was not admitted: ${JSON.stringify(measuredHeadroom)}`,
-  );
-  const lowHeadroom = fence.evaluateVolumeHeadroom({
-    env: { [fence.VOLUME_AVAILABLE_ENV]: "1" },
-  });
-  assert(lowHeadroom.status === "low", "F1: a nearly-full volume was not flagged.");
   console.log(
-    `${LABEL} F1 PASS growth-fence defaults: all ${fence.FENCED_TABLES.length} dominant append tables measured against real PostgreSQL; every default admits its live size; the live 136.45 GiB database is admitted WITH a warning at the ${fence.DEFAULT_WARNING_RATIO * 100}% band; filesystem headroom is a separate decision that reports unknown without a measurement, ok at the observed ${Math.round(fence.LIVE_MEASUREMENT.volume.availableBytes / 1024 ** 3)} GiB free, and low when nearly full`,
+    `${LABEL} F1 PASS growth-fence defaults: all ${fence.FENCED_TABLES.length} dominant append tables measured against real PostgreSQL; every default admits its live size; the live 136.45 GiB database is admitted WITH a warning at the ${fence.DEFAULT_WARNING_RATIO * 100}% band`,
+  );
+
+  /* ---------------------------------------------------------------- F1b --- *
+   * Physical capacity admission, driven by REAL rows in the REAL telemetry
+   * table, read through the real fence in the same statement as the logical
+   * sizes.
+   *
+   * The previous design took free space from an environment variable, which is
+   * a number an operator types once and which then never ages, never
+   * disagrees, and never fails. Every case below writes an actual
+   * system_capacity_snapshots row and asserts the exact reason the fence
+   * produces — including the two that no env value could ever express: a stale
+   * sampler, and a budget the disk cannot absorb.
+   * ------------------------------------------------------------------------ */
+  const currentDatabaseName = (
+    await client.query<{ name: string }>("SELECT current_database() AS name")
+  ).rows[0]!.name;
+
+  const seedCapacity = async (input: {
+    ageSeconds: number;
+    availableBytes?: number;
+    totalBytes?: number;
+    dataPath?: string;
+    databaseName?: string;
+    disks?: unknown;
+  }) => {
+    await client.query(
+      `DELETE FROM system_capacity_snapshots WHERE source = 'db_host_healthcheck'`,
+    );
+    const totalBytes = input.totalBytes ?? 400 * 1024 ** 3;
+    const availableBytes = input.availableBytes ?? 210 * 1024 ** 3;
+    const payload = {
+      sampledAt: new Date().toISOString(),
+      hostname: "seam-db-host",
+      database: { name: input.databaseName ?? currentDatabaseName, sizeBytes: 1 },
+      disks:
+        input.disks ??
+        [
+          {
+            path: input.dataPath ?? fence.PHYSICAL_DATA_PATH,
+            filesystem: "/dev/seam",
+            mountedOn: input.dataPath ?? fence.PHYSICAL_DATA_PATH,
+            totalBytes,
+            usedBytes: totalBytes - availableBytes,
+            availableBytes,
+          },
+        ],
+    };
+    await client.query(
+      `INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
+       VALUES ('db_host_healthcheck', 'seam-db-host',
+               clock_timestamp() - make_interval(secs => $1), $2::jsonb)`,
+      [input.ageSeconds, JSON.stringify(payload)],
+    );
+  };
+
+  const evaluateWithCapacity = async (input: Parameters<typeof seedCapacity>[0]) => {
+    await seedCapacity(input);
+    fence.resetDbGrowthFenceCache();
+    return fence.evaluateDbGrowthFence();
+  };
+
+  // Missing: no row at all. The fence must refuse rather than assume health.
+  await client.query(
+    `DELETE FROM system_capacity_snapshots WHERE source = 'db_host_healthcheck'`,
+  );
+  fence.resetDbGrowthFenceCache();
+  const noSample = await fence.evaluateDbGrowthFence();
+  assert(
+    !noSample.allowed && noSample.reason === "physical_snapshot_missing",
+    `F1b: an absent host capacity sample was not refused: ${JSON.stringify(noSample)}`,
+  );
+
+  // Fresh and roomy: admitted, and it reports what it actually saw.
+  const freshSample = await evaluateWithCapacity({ ageSeconds: 120 });
+  assert(
+    freshSample.allowed && freshSample.physical?.reason === "ok",
+    `F1b: a fresh healthy sample was not admitted: ${JSON.stringify(freshSample)}`,
+  );
+  assert(
+    freshSample.physical?.availableBytes === 210 * 1024 ** 3 &&
+      freshSample.physical?.snapshotId != null &&
+      typeof freshSample.physical?.ageSeconds === "number",
+    `F1b: the admitted decision did not carry the readback: ${JSON.stringify(freshSample.physical)}`,
+  );
+
+  // Low: below the 40 GiB floor.
+  const lowSample = await evaluateWithCapacity({
+    ageSeconds: 60,
+    availableBytes: fence.MINIMUM_VOLUME_FREE_BYTES - 1,
+  });
+  assert(
+    !lowSample.allowed && lowSample.reason === "physical_free_space_low",
+    `F1b: a nearly-full data volume was not refused: ${JSON.stringify(lowSample)}`,
+  );
+
+  // Stale: the sampler stopped. Nothing knows the disk state, so nothing writes.
+  const staleSample = await evaluateWithCapacity({
+    ageSeconds: fence.PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000 + 60,
+  });
+  assert(
+    !staleSample.allowed && staleSample.reason === "physical_snapshot_stale",
+    `F1b: a stale sample was accepted: ${JSON.stringify(staleSample)}`,
+  );
+
+  // Future-dated: would otherwise never age out.
+  const futureSample = await evaluateWithCapacity({ ageSeconds: -3600 });
+  assert(
+    !futureSample.allowed && futureSample.reason === "physical_snapshot_future_dated",
+    `F1b: a future-dated sample was accepted: ${JSON.stringify(futureSample)}`,
+  );
+
+  // Malformed: a disks array that is not one.
+  const malformedSample = await evaluateWithCapacity({
+    ageSeconds: 60,
+    disks: "not-an-array",
+  });
+  assert(
+    !malformedSample.allowed && malformedSample.reason === "physical_snapshot_malformed",
+    `F1b: a malformed payload was accepted: ${JSON.stringify(malformedSample)}`,
+  );
+
+  // Wrong path: the root filesystem is not the data directory.
+  const wrongPathSample = await evaluateWithCapacity({ ageSeconds: 60, dataPath: "/" });
+  assert(
+    !wrongPathSample.allowed && wrongPathSample.reason === "physical_data_path_missing",
+    `F1b: a sample without the data path was accepted: ${JSON.stringify(wrongPathSample)}`,
+  );
+
+  // Wrong database: a sample from another host says nothing about this one.
+  const wrongDbSample = await evaluateWithCapacity({
+    ageSeconds: 60,
+    databaseName: "some_other_database",
+  });
+  assert(
+    !wrongDbSample.allowed && wrongDbSample.reason === "physical_database_identity_mismatch",
+    `F1b: a sample for a different database was accepted: ${JSON.stringify(wrongDbSample)}`,
+  );
+
+  // The projected floor: a 3 TiB budget on a disk with 210 GiB free must refuse
+  // even though the disk is healthy today and the database is tiny.
+  await seedCapacity({ ageSeconds: 60 });
+  const savedProjectionEnv = process.env;
+  process.env = {
+    ...process.env,
+    SYNC_GROWTH_FENCE_DATABASE_BYTES: String(3 * 1024 ** 4),
+  } as NodeJS.ProcessEnv;
+  fence.resetDbGrowthFenceCache();
+  const projected = await fence.evaluateDbGrowthFence();
+  process.env = savedProjectionEnv;
+  fence.resetDbGrowthFenceCache();
+  assert(
+    !projected.allowed && projected.reason === "physical_projected_free_space_low",
+    `F1b: an unabsorbable budget was admitted: ${JSON.stringify(projected)}`,
+  );
+
+  // ...and the emergency override cannot reach past any of it.
+  await seedCapacity({ ageSeconds: 60, availableBytes: 1024 });
+  const savedOverrideEnv = process.env;
+  process.env = {
+    ...process.env,
+    [fence.OVERRIDE_ENV_FLAG]: fence.OVERRIDE_ENV_VALUE,
+    [fence.OVERRIDE_REASON_ENV]: "seam proves this cannot admit",
+    [fence.OVERRIDE_EXPIRES_ENV]: new Date(Date.now() + 60 * 60_000).toISOString(),
+  } as NodeJS.ProcessEnv;
+  fence.resetDbGrowthFenceCache();
+  const overriddenPhysical = await fence.evaluateDbGrowthFence();
+  process.env = savedOverrideEnv;
+  fence.resetDbGrowthFenceCache();
+  assert(
+    !overriddenPhysical.allowed &&
+      !overriddenPhysical.overridden &&
+      overriddenPhysical.reason === "physical_free_space_low",
+    `F1b: the emergency override admitted past a physical refusal: ${JSON.stringify(overriddenPhysical)}`,
+  );
+
+  // Leave a healthy sample behind so the remaining cases measure logical
+  // budgets rather than tripping on physical admission.
+  await seedCapacity({ ageSeconds: 60 });
+  fence.resetDbGrowthFenceCache();
+  console.log(
+    `${LABEL} F1b PASS physical capacity: 9 real telemetry rows (missing/fresh/low/stale/future/malformed/wrong-path/wrong-database/unabsorbable-budget) evaluated through the real fence against real PostgreSQL; every failure mode refuses with its own reason and none is reachable by the emergency override`,
   );
 
   const savedEnv = process.env;
@@ -1089,12 +1272,28 @@ async function verifyRolloutOrchestration(client: Client) {
     await client.query(
       `UPDATE provider_sync_jobs SET status = 'failed' WHERE status = 'running'`,
     );
-    const enabled = runRollout("enable", {
-      // Supplied filesystem measurement; without it headroom is "unknown" and
-      // the script correctly refuses.
-      SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES: String(200 * 1024 ** 3),
-      SYNC_GROWTH_FENCE_VOLUME_CAPACITY_BYTES: String(210 * 1024 ** 3),
-    });
+    // A fresh host capacity sample must exist for the rollout's readiness check
+    // to admit. That is the point: the cutover cannot be enabled while nothing
+    // knows how much disk is left. No environment variable can substitute.
+    await client.query(
+      `DELETE FROM system_capacity_snapshots WHERE source = 'db_host_healthcheck'`,
+    );
+    await client.query(
+      `INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
+       VALUES ('db_host_healthcheck', 'seam-db-host', clock_timestamp(),
+               jsonb_build_object(
+                 'hostname', 'seam-db-host',
+                 'database', jsonb_build_object('name', current_database()),
+                 'disks', jsonb_build_array(jsonb_build_object(
+                   'path', '/var/lib/postgresql',
+                   'totalBytes', $1::bigint,
+                   'usedBytes', $2::bigint,
+                   'availableBytes', $3::bigint
+                 ))
+               ))`,
+      [400 * 1024 ** 3, 190 * 1024 ** 3, 210 * 1024 ** 3],
+    );
+    const enabled = runRollout("enable", {});
     assert(
       enabled.status === 0,
       `R2: enable failed on a quiesced database:\n${enabled.stdout}\n${enabled.stderr}`,
@@ -1245,7 +1444,7 @@ async function main() {
     await verifyReadinessContract(client);
     await verifyDriftRefusal(client);
     await verifyRetentionSweep(client);
-    await verifyGrowthBoundaries();
+    await verifyGrowthBoundaries(client);
     await verifyReleaseBoundary(client);
     await verifyLegacyRetentionLaneOff(client);
     await verifySelectionQueries(client);

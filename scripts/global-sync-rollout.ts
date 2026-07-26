@@ -174,12 +174,18 @@ async function verifyReadiness(results: CheckResult[]) {
     true,
   );
 
-  const headroom = fence.evaluateVolumeHeadroom();
+  // Physical headroom is decided from the database host's own telemetry, in the
+  // same roundtrip as the logical sizes above. It is reported separately here
+  // because "the fence admitted" and "the disk is fine" are different claims and
+  // an operator needs to see both.
+  const physical = decision.physical;
   record(
     results,
-    "readiness:volume_headroom",
-    headroom.status === "ok",
-    `${headroom.status} available=${String(headroom.availableBytes)} (${headroom.note})`,
+    "readiness:physical_capacity",
+    physical?.admitted === true,
+    physical
+      ? `${physical.reason} path=${physical.dataPath} free=${String(physical.availableBytes)} projectedFree=${String(physical.projectedFreeBytes)} sampledAt=${String(physical.sampledAt)} ageSeconds=${String(physical.ageSeconds)} — ${physical.detail}`
+      : "no physical decision was produced",
   );
 
   const retention = await import("@/lib/sync/retention-readiness");
@@ -195,7 +201,7 @@ async function verifyReadiness(results: CheckResult[]) {
           columns: readiness.missingColumns.slice(0, 5),
         }),
   );
-  return admitted && retentionOk && headroom.status === "ok";
+  return admitted && retentionOk && physical?.admitted === true;
 }
 
 async function verifyLanesCurrentlyOff(results: CheckResult[]) {

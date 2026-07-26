@@ -3770,6 +3770,16 @@ export async function runMigrations(options?: {
           ON system_capacity_snapshots (source, sampled_at DESC)`.catch(
           () => {},
         ),
+        // Deterministic ordering for the growth fence's physical-capacity read.
+        // The fence orders by (sampled_at DESC, id DESC) so two samples written
+        // in the same millisecond resolve to ONE row rather than to whichever
+        // the planner returns; the weaker (source, sampled_at DESC) index cannot
+        // supply that tiebreak. Deliberately NOT `.catch(() => {})`: the fence
+        // refuses to admit any write without this read, so a silently missing
+        // index is a silently degraded safety gate. It is also asserted by
+        // `verifyMigrationSchemaContract`.
+        sql`CREATE INDEX IF NOT EXISTS idx_system_capacity_snapshots_source_sampled_id
+          ON system_capacity_snapshots (source, sampled_at DESC, id DESC)`,
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(
           () => {},
         ),

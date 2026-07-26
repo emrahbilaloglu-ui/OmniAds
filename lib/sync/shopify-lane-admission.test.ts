@@ -113,6 +113,7 @@ describe("Shopify lane admission", () => {
             databaseBudgetBytes: 1,
             tableBytes: {},
             offender: { table: "shopify_raw_snapshots", bytes: 2, budget: 1 },
+            physical: null,
             evaluatedAt: "2026-07-26T00:00:00.000Z",
             errorMessage: null,
             overridden: false,

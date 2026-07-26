@@ -313,6 +313,14 @@ export async function clearProviderAccountAssignments(
 export async function clearAllProviderAccountAssignmentsForProvider(
   provider: IntegrationProviderType
 ): Promise<void> {
+  // The widest selection mutation there is: it deselects every account of a
+  // provider across every business in one statement. It does not go through
+  // replaceProviderAccountSelection, so it did not inherit that function's lane
+  // admission — leaving the stated "no selection changes while the lane is off"
+  // contract with a bypass. Guarded here whether or not a caller currently
+  // reaches it, because the contract is about what is possible, not about what
+  // is called today.
+  assertSyncLaneEnabled("assignment_mutation");
   await runDbTransaction(async () => {
     const sql = getDb();
     await sql`

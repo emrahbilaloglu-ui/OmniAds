@@ -6,14 +6,16 @@ import {
   PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
   upsertProviderAccountAssignments,
 } from "@/lib/provider-account-assignments";
+import { PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES } from "@/lib/provider-account-snapshots";
 import {
-  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
-  readProviderAccountSnapshot,
-} from "@/lib/provider-account-snapshots";
+  ASSIGNMENT_SNAPSHOT_FRESHNESS_MS,
+  authorizeAssignmentMutation,
+  validateRequestedProviderAccounts,
+} from "@/lib/provider-assignment-authorization";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
-const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = ASSIGNMENT_SNAPSHOT_FRESHNESS_MS;
 
 /**
  * POST /businesses/:businessId/google/assign-accounts
@@ -37,6 +39,13 @@ export async function POST(
       { status: 400 },
     );
   }
+
+  // FIRST, before the demo check, before any integration or credential read,
+  // before any database or provider work. An empty selection here deselects
+  // every account for the business, so even the "harmless" payload is a
+  // destructive cross-tenant action without this.
+  const authorized = await authorizeAssignmentMutation({ request, businessId });
+  if (!authorized.ok) return authorized.response;
 
   if (await isDemoBusiness(businessId)) {
     const body = await request.json().catch(() => null);
@@ -103,30 +112,27 @@ export async function POST(
     new Set(accountIds.map((id) => id.trim()).filter(Boolean)),
   );
 
-  const snapshot = await readProviderAccountSnapshot({
+  const validation = await validateRequestedProviderAccounts({
     businessId,
     provider: "google",
+    requestedIds: cleaned,
     freshnessMs: GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS,
   });
-
-  if (!snapshot) {
-    return NextResponse.json(
-      {
-        error: "google_accounts_not_loaded",
-        message:
-          "Google Ads accounts must be loaded before assignments can be saved. Refresh the account list and try again.",
-      },
-      { status: 409 }
-    );
-  }
-
-  const validAccountIds = new Set(snapshot.accounts.map((account) => account.id));
-  const invalidIds = cleaned.filter((id) => !validAccountIds.has(id));
-  if (invalidIds.length > 0) {
+  if (!validation.ok) {
+    if (validation.refusal.kind === "snapshot_missing") {
+      return NextResponse.json(
+        {
+          error: "google_accounts_not_loaded",
+          message:
+            "Google Ads accounts must be loaded before assignments can be saved. Refresh the account list and try again.",
+        },
+        { status: 409 }
+      );
+    }
     console.warn("[google-assign-accounts] rejected unknown account ids", {
       businessId,
-      invalidIds,
-      snapshotCount: snapshot.accounts.length,
+      invalidIds: validation.refusal.invalidIds,
+      snapshotCount: validation.refusal.snapshotCount,
     });
     return NextResponse.json(
       {

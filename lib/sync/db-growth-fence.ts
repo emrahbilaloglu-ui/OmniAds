@@ -186,8 +186,8 @@ export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
  * This is `observed capacity − logical budget` and nothing more. It does not
  * measure free space, it cannot see WAL, temp files or index builds, and it is
  * stale the moment the observation above is. Admission on actual filesystem
- * headroom is a SEPARATE decision — see `evaluateVolumeHeadroom` — and requires
- * a measurement supplied from the database host, because this process cannot
+ * headroom is a SEPARATE decision — see `evaluatePhysicalCapacity` — and is
+ * taken from the database host's own telemetry, because this process cannot
  * read that filesystem at all.
  */
 export const PLANNED_VOLUME_HEADROOM_BYTES =
@@ -201,54 +201,300 @@ export const PLANNED_VOLUME_HEADROOM_BYTES =
  */
 export const MINIMUM_VOLUME_FREE_BYTES = 40 * 1024 ** 3;
 
-export const VOLUME_AVAILABLE_ENV = "SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES";
-export const VOLUME_CAPACITY_ENV = "SYNC_GROWTH_FENCE_VOLUME_CAPACITY_BYTES";
+/* ------------------------------------------------------------------------- *
+ * Physical capacity admission
+ * ------------------------------------------------------------------------- */
 
-export type VolumeHeadroomStatus = "unknown" | "ok" | "low";
+/**
+ * Physical headroom is decided from the database host's own telemetry, not from
+ * a value someone typed into the environment.
+ *
+ * The previous design took `SYNC_GROWTH_FENCE_VOLUME_AVAILABLE_BYTES` from the
+ * environment. That is a number an operator transcribes once during a cutover
+ * and then never again: it is unfalsifiable, it never ages, and it keeps
+ * reporting a healthy volume for as long as the process lives. Worse, it made
+ * physical safety an OPTIONAL input — absent it, the fence admitted on the
+ * logical budget alone.
+ *
+ * `adsecute-db-healthcheck.timer` already samples `/var/lib/postgresql` every 15
+ * minutes on the database host and writes it to `system_capacity_snapshots`.
+ * That is a real, dated, host-produced measurement, and it is read in the SAME
+ * statement as the logical sizes, so the physical and logical halves of one
+ * decision can never come from two different moments.
+ *
+ * Every uncertainty refuses, and none of these refusals can be overridden. The
+ * emergency override exists to let an operator push past a LOGICAL budget they
+ * chose; it was never meant to authorise writing into a full disk.
+ */
+export const PHYSICAL_TELEMETRY_SOURCE = "db_host_healthcheck";
 
-export interface VolumeHeadroomDecision {
-  status: VolumeHeadroomStatus;
+/** The PostgreSQL data directory. An exact path match, never a prefix. */
+export const PHYSICAL_DATA_PATH = "/var/lib/postgresql";
+
+/**
+ * Freshness window: 35 minutes against a 15-minute sampler.
+ *
+ * Two samples may be missed before the fence closes, which absorbs a single
+ * failed run and a restart without flapping. A third miss means the sampler is
+ * not running, and at that point nothing knows the disk state.
+ */
+export const PHYSICAL_SNAPSHOT_MAX_AGE_MS = 35 * 60_000;
+
+/**
+ * Tolerance for a sample dated slightly in the future.
+ *
+ * After the producer fix the row's `sampled_at` is the DATABASE's
+ * `clock_timestamp()` and so is the age computed here, which makes skew
+ * structurally impossible. The tolerance covers rows written by the previous
+ * producer, which stamped host time. It is three orders of magnitude below the
+ * freshness window, so it cannot mask a stale sample.
+ */
+export const PHYSICAL_FUTURE_SKEW_TOLERANCE_MS = 60_000;
+
+export type PhysicalCapacityReason =
+  | "ok"
+  | "telemetry_unavailable"
+  | "snapshot_missing"
+  | "snapshot_malformed"
+  | "snapshot_future_dated"
+  | "snapshot_stale"
+  | "data_path_missing"
+  | "database_identity_mismatch"
+  | "free_space_low"
+  | "projected_free_space_low";
+
+export interface PhysicalCapacityDecision {
+  admitted: boolean;
+  reason: PhysicalCapacityReason;
+  snapshotId: string | null;
+  sampledAt: string | null;
+  ageSeconds: number | null;
+  maxAgeSeconds: number;
+  dataPath: string;
+  totalBytes: number | null;
+  usedBytes: number | null;
   availableBytes: number | null;
-  capacityBytes: number | null;
   minimumFreeBytes: number;
-  /** Plain-language statement of what this does and does not establish. */
-  note: string;
+  /**
+   * Free bytes that would remain if the logical budget were consumed in full:
+   * `available − max(budget − current, 0)`. This is what stops a raised budget
+   * from authorising growth the volume cannot hold.
+   */
+  projectedFreeBytes: number | null;
+  detail: string;
+}
+
+/** Raw shape as read from `system_capacity_snapshots`. */
+export interface PhysicalCapacitySnapshotRow {
+  id: string | null;
+  sampledAt: string | null;
+  ageSeconds: number | null;
+  payload: unknown;
+}
+
+function physicalDenied(
+  reason: Exclude<PhysicalCapacityReason, "ok">,
+  detail: string,
+  partial?: Partial<PhysicalCapacityDecision>,
+): PhysicalCapacityDecision {
+  return {
+    admitted: false,
+    reason,
+    snapshotId: null,
+    sampledAt: null,
+    ageSeconds: null,
+    maxAgeSeconds: PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000,
+    dataPath: PHYSICAL_DATA_PATH,
+    totalBytes: null,
+    usedBytes: null,
+    availableBytes: null,
+    minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
+    projectedFreeBytes: null,
+    detail,
+    ...partial,
+  };
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /**
- * External filesystem admission, kept deliberately separate from the logical
- * budget.
+ * A byte count is only usable if it is a finite, non-negative, exact integer.
  *
- * Returns `unknown` — never `ok` — when no measurement was supplied. An absent
- * measurement is an absence of evidence; reporting it as healthy is how a
- * logical budget ends up being mistaken for disk headroom.
+ * `Number("12abc")` is NaN and `Number(null)` is 0 — the second is the dangerous
+ * one, because a missing field would otherwise read as "zero bytes used" and
+ * quietly pass a comparison. Strings of digits are accepted because JSON numbers
+ * beyond 2^53 arrive as text from some drivers, and rejected the moment they
+ * lose precision.
  */
-export function evaluateVolumeHeadroom(input?: {
-  env?: Readonly<Record<string, string | undefined>>;
-}): VolumeHeadroomDecision {
-  const env = input?.env ?? process.env;
-  const parse = (raw: string | undefined) => {
-    if (raw == null || raw.trim() === "") return null;
-    const value = Number(raw);
-    return Number.isFinite(value) && value >= 0 ? value : null;
-  };
-  const availableBytes = parse(env[VOLUME_AVAILABLE_ENV]);
-  const capacityBytes = parse(env[VOLUME_CAPACITY_ENV]);
-  if (availableBytes == null) {
-    return {
-      status: "unknown",
-      availableBytes: null,
-      capacityBytes,
-      minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
-      note: `No filesystem measurement supplied via ${VOLUME_AVAILABLE_ENV}. The logical database budget says nothing about free disk; treat volume headroom as unverified.`,
-    };
+function readByteCount(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === "boolean") return null;
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  if (!Number.isSafeInteger(parsed)) return null;
+  if (parsed < 0) return null;
+  return parsed;
+}
+
+/**
+ * Decide physical admission from one host telemetry row.
+ *
+ * Pure, so the real-PostgreSQL seam can seed fresh/low/stale/malformed/missing
+ * rows and assert the exact reason each produces without mocking anything.
+ */
+export function evaluatePhysicalCapacity(input: {
+  telemetryAvailable: boolean;
+  snapshot: PhysicalCapacitySnapshotRow | null;
+  databaseName: string | null;
+  databaseBytes: number;
+  databaseBudgetBytes: number;
+}): PhysicalCapacityDecision {
+  if (!input.telemetryAvailable) {
+    return physicalDenied(
+      "telemetry_unavailable",
+      `system_capacity_snapshots is not readable; physical headroom for ${PHYSICAL_DATA_PATH} is unknown.`,
+    );
   }
-  return {
-    status: availableBytes >= MINIMUM_VOLUME_FREE_BYTES ? "ok" : "low",
+  const snapshot = input.snapshot;
+  if (!snapshot || snapshot.sampledAt == null) {
+    return physicalDenied(
+      "snapshot_missing",
+      `No '${PHYSICAL_TELEMETRY_SOURCE}' sample exists. Confirm adsecute-db-healthcheck.timer is running on the database host.`,
+    );
+  }
+
+  const payload = readObject(snapshot.payload);
+  if (!payload) {
+    return physicalDenied("snapshot_malformed", "Snapshot payload is not an object.", {
+      snapshotId: snapshot.id,
+      sampledAt: snapshot.sampledAt,
+      ageSeconds: snapshot.ageSeconds,
+    });
+  }
+
+  const base: Partial<PhysicalCapacityDecision> = {
+    snapshotId: snapshot.id,
+    sampledAt: snapshot.sampledAt,
+    ageSeconds: snapshot.ageSeconds,
+  };
+
+  // Identity: a sample from a different database is a sample from a different
+  // host, and its free space says nothing about this one.
+  const database = readObject(payload.database);
+  const snapshotDatabaseName =
+    typeof database?.name === "string" ? database.name.trim() : "";
+  if (!snapshotDatabaseName || snapshotDatabaseName !== (input.databaseName ?? "")) {
+    return physicalDenied(
+      "database_identity_mismatch",
+      `Snapshot is for database '${snapshotDatabaseName || "unknown"}' but this process is connected to '${input.databaseName ?? "unknown"}'.`,
+      base,
+    );
+  }
+
+  const ageSeconds = snapshot.ageSeconds;
+  if (ageSeconds == null || !Number.isFinite(ageSeconds)) {
+    return physicalDenied(
+      "snapshot_malformed",
+      "Snapshot age could not be computed from sampled_at.",
+      base,
+    );
+  }
+  if (ageSeconds < -(PHYSICAL_FUTURE_SKEW_TOLERANCE_MS / 1000)) {
+    return physicalDenied(
+      "snapshot_future_dated",
+      `Snapshot is dated ${Math.abs(ageSeconds).toFixed(0)}s in the future; a future-dated row would never age out.`,
+      base,
+    );
+  }
+  if (ageSeconds > PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000) {
+    return physicalDenied(
+      "snapshot_stale",
+      `Snapshot is ${ageSeconds.toFixed(0)}s old, past the ${PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000}s window. The sampler is not running.`,
+      base,
+    );
+  }
+
+  const disks = Array.isArray(payload.disks) ? payload.disks : null;
+  if (!disks) {
+    return physicalDenied("snapshot_malformed", "Snapshot payload has no disks array.", base);
+  }
+  const disk = disks
+    .map((entry) => readObject(entry))
+    .find((entry) => entry != null && entry.path === PHYSICAL_DATA_PATH);
+  if (!disk) {
+    return physicalDenied(
+      "data_path_missing",
+      `Snapshot does not include the data path ${PHYSICAL_DATA_PATH}; the root filesystem is not a substitute for it.`,
+      base,
+    );
+  }
+
+  const totalBytes = readByteCount(disk.totalBytes);
+  const usedBytes = readByteCount(disk.usedBytes);
+  const availableBytes = readByteCount(disk.availableBytes);
+  if (totalBytes == null || usedBytes == null || availableBytes == null) {
+    return physicalDenied(
+      "snapshot_malformed",
+      `Disk measurement is not a set of non-negative integers (total=${String(disk.totalBytes)} used=${String(disk.usedBytes)} available=${String(disk.availableBytes)}).`,
+      base,
+    );
+  }
+  if (totalBytes <= 0 || usedBytes > totalBytes || availableBytes > totalBytes) {
+    return physicalDenied(
+      "snapshot_malformed",
+      `Disk measurement is internally inconsistent (total=${totalBytes} used=${usedBytes} available=${availableBytes}).`,
+      { ...base, totalBytes, usedBytes, availableBytes },
+    );
+  }
+
+  const measured: Partial<PhysicalCapacityDecision> = {
+    ...base,
+    totalBytes,
+    usedBytes,
     availableBytes,
-    capacityBytes,
+  };
+
+  if (availableBytes < MINIMUM_VOLUME_FREE_BYTES) {
+    return physicalDenied(
+      "free_space_low",
+      `${availableBytes} bytes free on ${PHYSICAL_DATA_PATH}, below the ${MINIMUM_VOLUME_FREE_BYTES} byte floor.`,
+      { ...measured, projectedFreeBytes: availableBytes },
+    );
+  }
+
+  // The projected floor. Without it a raised logical budget — 300 GiB on a
+  // volume with 100 GiB free — would authorise growth the disk cannot hold, and
+  // the fence would keep admitting right up to the moment PostgreSQL stops.
+  const remainingBudget = Math.max(input.databaseBudgetBytes - input.databaseBytes, 0);
+  const projectedFreeBytes = availableBytes - remainingBudget;
+  if (projectedFreeBytes < MINIMUM_VOLUME_FREE_BYTES) {
+    return physicalDenied(
+      "projected_free_space_low",
+      `Consuming the remaining ${remainingBudget} bytes of logical budget would leave ${projectedFreeBytes} bytes free, below the ${MINIMUM_VOLUME_FREE_BYTES} byte floor. Lower the budget or add disk; do not raise the budget.`,
+      { ...measured, projectedFreeBytes },
+    );
+  }
+
+  return {
+    admitted: true,
+    reason: "ok",
+    snapshotId: snapshot.id,
+    sampledAt: snapshot.sampledAt,
+    ageSeconds,
+    maxAgeSeconds: PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000,
+    dataPath: PHYSICAL_DATA_PATH,
+    totalBytes,
+    usedBytes,
+    availableBytes,
     minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
-    note: "Measured on the database host and supplied to this process; it is as fresh as whatever produced it.",
+    projectedFreeBytes,
+    detail: `${availableBytes} bytes free on ${PHYSICAL_DATA_PATH}, sampled ${ageSeconds.toFixed(0)}s ago.`,
   };
 }
 
@@ -261,7 +507,36 @@ export type DbGrowthFenceReason =
   | "table_budget_exceeded"
   | "measurement_missing"
   | "measurement_invalid"
-  | "fence_read_failed";
+  | "fence_read_failed"
+  | "physical_telemetry_unavailable"
+  | "physical_snapshot_missing"
+  | "physical_snapshot_malformed"
+  | "physical_snapshot_future_dated"
+  | "physical_snapshot_stale"
+  | "physical_data_path_missing"
+  | "physical_database_identity_mismatch"
+  | "physical_free_space_low"
+  | "physical_projected_free_space_low";
+
+const PHYSICAL_FENCE_REASON: Record<
+  Exclude<PhysicalCapacityReason, "ok">,
+  DbGrowthFenceReason
+> = {
+  telemetry_unavailable: "physical_telemetry_unavailable",
+  snapshot_missing: "physical_snapshot_missing",
+  snapshot_malformed: "physical_snapshot_malformed",
+  snapshot_future_dated: "physical_snapshot_future_dated",
+  snapshot_stale: "physical_snapshot_stale",
+  data_path_missing: "physical_data_path_missing",
+  database_identity_mismatch: "physical_database_identity_mismatch",
+  free_space_low: "physical_free_space_low",
+  projected_free_space_low: "physical_projected_free_space_low",
+};
+
+/** Refusals no emergency override may admit past. */
+export const NON_OVERRIDABLE_FENCE_REASONS: ReadonlySet<DbGrowthFenceReason> = new Set(
+  Object.values(PHYSICAL_FENCE_REASON),
+);
 
 export interface DbGrowthFenceDecision {
   allowed: boolean;
@@ -276,6 +551,8 @@ export interface DbGrowthFenceDecision {
   errorMessage: string | null;
   /** True when an audited emergency override admitted an otherwise-denied run. */
   overridden: boolean;
+  /** Host-volume admission, measured in the same roundtrip. Never overridable. */
+  physical: PhysicalCapacityDecision | null;
 }
 
 export const OVERRIDE_ENV_FLAG = "SYNC_GROWTH_FENCE_OVERRIDE";
@@ -290,18 +567,21 @@ function denied(input: {
   budget: number;
   errorMessage?: string | null;
   evaluatedAt: string;
+  databaseBytes?: number | null;
+  physical?: PhysicalCapacityDecision | null;
 }): DbGrowthFenceDecision {
   return {
     allowed: false,
     reason: input.reason,
     warning: false,
-    databaseBytes: null,
+    databaseBytes: input.databaseBytes ?? null,
     databaseBudgetBytes: input.budget,
     tableBytes: {},
     offender: null,
     evaluatedAt: input.evaluatedAt,
     errorMessage: input.errorMessage ?? null,
     overridden: false,
+    physical: input.physical ?? null,
   };
 }
 
@@ -374,25 +654,73 @@ export async function evaluateDbGrowthFence(input?: {
   let rows: Array<Record<string, unknown>>;
   try {
     const sql = getDbWithTimeout(input?.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS);
+    // ONE statement. The logical sizes and the host's physical telemetry are
+    // read together against one connection at one instant, so the two halves of
+    // the decision can never describe different moments or different databases.
+    // `measured` is referenced twice, so PostgreSQL materialises it and
+    // clock_timestamp() is evaluated exactly once for the whole row set.
     rows = (await sql.query(
       `
+      WITH measured AS (SELECT clock_timestamp() AS at),
+      fenced AS (
+        SELECT
+          t.table_name,
+          CASE
+            WHEN to_regclass('public.' || t.table_name) IS NULL THEN NULL
+            ELSE pg_total_relation_size(to_regclass('public.' || t.table_name))::bigint
+          END AS table_bytes
+        FROM unnest($1::text[]) AS t(table_name)
+      ),
+      latest_capacity AS (
+        SELECT s.id, s.sampled_at, s.payload
+        FROM system_capacity_snapshots s
+        WHERE s.source = $2
+        ORDER BY s.sampled_at DESC, s.id DESC
+        LIMIT 1
+      )
       SELECT
         pg_database_size(current_database())::bigint AS database_bytes,
-        t.table_name,
+        current_database() AS database_name,
+        fenced.table_name,
+        fenced.table_bytes,
+        capacity.id::text AS capacity_id,
+        capacity.sampled_at AS capacity_sampled_at,
         CASE
-          WHEN to_regclass('public.' || t.table_name) IS NULL THEN NULL
-          ELSE pg_total_relation_size(to_regclass('public.' || t.table_name))::bigint
-        END AS table_bytes
-      FROM unnest($1::text[]) AS t(table_name)
+          WHEN capacity.sampled_at IS NULL THEN NULL
+          ELSE EXTRACT(EPOCH FROM ((SELECT at FROM measured) - capacity.sampled_at))
+        END AS capacity_age_seconds,
+        capacity.payload AS capacity_payload
+      FROM fenced
+      LEFT JOIN latest_capacity capacity ON TRUE
     `,
-      [[...FENCED_TABLES]],
+      [[...FENCED_TABLES], PHYSICAL_TELEMETRY_SOURCE],
     )) as Array<Record<string, unknown>>;
   } catch (error) {
-    // An unreadable fence is not permission to write.
+    // An unreadable fence is not permission to write. A missing telemetry table
+    // is called out separately because the remedy is different: the sampler
+    // needs deploying, not the database investigating. The statement is parsed
+    // as a whole, so an absent relation surfaces here rather than as a value.
+    const code = (error as { code?: unknown } | null)?.code;
+    const message = error instanceof Error ? error.message : String(error);
+    if (code === "42P01" && message.includes("system_capacity_snapshots")) {
+      return denied({
+        reason: "physical_telemetry_unavailable",
+        budget: databaseBudget,
+        errorMessage: message,
+        evaluatedAt,
+        physical: evaluatePhysicalCapacity({
+          telemetryAvailable: false,
+          snapshot: null,
+          databaseName: null,
+          databaseBytes: 0,
+          databaseBudgetBytes: databaseBudget,
+        }),
+      });
+    }
     return denied({
       reason: "fence_read_failed",
       budget: databaseBudget,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: message,
       evaluatedAt,
     });
   }
@@ -439,6 +767,53 @@ export async function evaluateDbGrowthFence(input?: {
       });
     }
     tableBytes[name] = bytes;
+  }
+
+  // Physical admission, from the same row set. Evaluated BEFORE the logical
+  // budget so that a refusal here cannot be reached by the emergency override
+  // below: that override exists to push past a budget an operator chose, not to
+  // authorise writing into a full disk.
+  const head = rows[0] ?? {};
+  const rawSampledAt = head.capacity_sampled_at;
+  const physical = evaluatePhysicalCapacity({
+    telemetryAvailable: true,
+    snapshot:
+      head.capacity_id == null && rawSampledAt == null
+        ? null
+        : {
+            id: head.capacity_id == null ? null : String(head.capacity_id),
+            sampledAt:
+              rawSampledAt instanceof Date
+                ? rawSampledAt.toISOString()
+                : rawSampledAt == null
+                  ? null
+                  : String(rawSampledAt),
+            ageSeconds:
+              head.capacity_age_seconds == null
+                ? null
+                : Number(head.capacity_age_seconds),
+            payload: head.capacity_payload,
+          },
+    databaseName: head.database_name == null ? null : String(head.database_name),
+    databaseBytes,
+    databaseBudgetBytes: databaseBudget,
+  });
+  if (!physical.admitted) {
+    const reason = PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">];
+    console.error("[db-growth-fence] refused on physical capacity", {
+      reason,
+      detail: physical.detail,
+      sampledAt: physical.sampledAt,
+      ageSeconds: physical.ageSeconds,
+    });
+    return denied({
+      reason,
+      budget: databaseBudget,
+      errorMessage: physical.detail,
+      evaluatedAt,
+      databaseBytes,
+      physical,
+    });
   }
 
   // Resolve every table budget ONCE. The warning band must use the same
@@ -497,6 +872,7 @@ export async function evaluateDbGrowthFence(input?: {
         evaluatedAt,
         errorMessage: null,
         overridden: true,
+        physical,
       };
     }
     console.error("[db-growth-fence] refused new sync work", {
@@ -515,6 +891,7 @@ export async function evaluateDbGrowthFence(input?: {
       evaluatedAt,
       errorMessage: null,
       overridden: false,
+      physical,
     };
   }
 
@@ -537,6 +914,7 @@ export async function evaluateDbGrowthFence(input?: {
     evaluatedAt,
     errorMessage: null,
     overridden: false,
+    physical,
   };
 }
 
@@ -721,7 +1099,7 @@ export async function assertSyncGrowthBoundary(
             (decision.tableBytes[table] ?? 0) >=
             DEFAULT_TABLE_BUDGET_BYTES[table] * DEFAULT_WARNING_RATIO,
         ),
-        volumeHeadroom: evaluateVolumeHeadroom({ env }),
+        physical: decision.physical,
       });
     }
     store.__omniadsGrowthFence = {

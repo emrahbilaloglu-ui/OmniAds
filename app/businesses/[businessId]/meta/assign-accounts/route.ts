@@ -6,6 +6,10 @@ import {
   PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
   upsertProviderAccountAssignments,
 } from "@/lib/provider-account-assignments";
+import {
+  authorizeAssignmentMutation,
+  validateRequestedProviderAccounts,
+} from "@/lib/provider-assignment-authorization";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
 
@@ -25,6 +29,13 @@ export async function POST(
       { status: 400 }
     );
   }
+
+  // FIRST, before the demo check, before any integration or credential read,
+  // before any database or provider work. The demo branch is not a safe place to
+  // land an unauthenticated caller either: it still discloses whether a business
+  // id exists and is a demo.
+  const authorized = await authorizeAssignmentMutation({ request, businessId });
+  if (!authorized.ok) return authorized.response;
 
   if (await isDemoBusiness(businessId)) {
     const body = await request.json().catch(() => null);
@@ -81,6 +92,43 @@ export async function POST(
   }
 
   const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
+
+  // Membership authorises acting on THIS business; it does not authorise binding
+  // an arbitrary provider account id to it. Meta previously accepted any string,
+  // so a caller could have attached an account this business was never shown.
+  if (cleaned.length > 0) {
+    const validation = await validateRequestedProviderAccounts({
+      businessId,
+      provider: "meta",
+      requestedIds: cleaned,
+    });
+    if (!validation.ok) {
+      if (validation.refusal.kind === "snapshot_missing") {
+        return NextResponse.json(
+          {
+            error: "meta_accounts_not_loaded",
+            message:
+              "Meta ad accounts must be loaded before assignments can be saved. Refresh the account list and try again.",
+          },
+          { status: 409 },
+        );
+      }
+      console.warn("[meta-assign-accounts] rejected unknown account ids", {
+        businessId,
+        invalidIds: validation.refusal.invalidIds,
+        snapshotCount: validation.refusal.snapshotCount,
+      });
+      return NextResponse.json(
+        {
+          error: "invalid_meta_account_selection",
+          message:
+            "One or more selected Meta ad accounts are no longer available. Refresh the account list and try again.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const readiness = await getDbSchemaReadiness({
     tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
   }).catch(() => null);

@@ -18,6 +18,7 @@ const DECISION = {
   evaluatedAt: "2026-07-26T00:00:00.000Z",
   errorMessage: null,
   overridden: false,
+  physical: null,
 };
 
 describe("describeSyncSafetyRefusal", () => {

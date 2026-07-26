@@ -19,12 +19,14 @@ const {
   PLANNED_VOLUME_HEADROOM_BYTES,
   MINIMUM_VOLUME_FREE_BYTES,
   DEFAULT_WARNING_RATIO,
-  evaluateVolumeHeadroom,
-  VOLUME_AVAILABLE_ENV,
-  VOLUME_CAPACITY_ENV,
+  evaluatePhysicalCapacity,
+  PHYSICAL_DATA_PATH,
+  PHYSICAL_SNAPSHOT_MAX_AGE_MS,
+  MINIMUM_VOLUME_FREE_BYTES: MIN_FREE,
 } = await import("@/lib/sync/db-growth-fence");
 
 const GiB = 1024 ** 3;
+const DB_NAME = "adsecute_prod";
 
 function installDb(
   rows:
@@ -39,12 +41,44 @@ function installDb(
   return query;
 }
 
-function sizes(overrides: Partial<Record<string, number | null>> = {}) {
+/**
+ * A healthy host telemetry row: fresh, on the data path, with room to spare.
+ *
+ * Every logical-budget test needs one, because physical admission is now a
+ * precondition of reaching the logical checks at all — which is the point.
+ */
+function capacityPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    sampledAt: new Date().toISOString(),
+    hostname: "db-host",
+    database: { name: DB_NAME, sizeBytes: 1, sizePretty: "1 bytes" },
+    disks: [
+      { path: "/", totalBytes: 100 * GiB, usedBytes: 10 * GiB, availableBytes: 90 * GiB },
+      {
+        path: PHYSICAL_DATA_PATH,
+        totalBytes: 400 * GiB,
+        usedBytes: 190 * GiB,
+        availableBytes: 210 * GiB,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function sizes(
+  overrides: Partial<Record<string, number | null>> = {},
+  capacity: Partial<Record<string, unknown>> = {},
+) {
   return FENCED_TABLES.map((table) => ({
     database_bytes: overrides.database_bytes ?? 10 * GiB,
+    database_name: DB_NAME,
     table_name: table,
-    table_bytes:
-      table in overrides ? overrides[table] : 1 * GiB,
+    table_bytes: table in overrides ? overrides[table] : 1 * GiB,
+    capacity_id: "1",
+    capacity_sampled_at: new Date().toISOString(),
+    capacity_age_seconds: 120,
+    capacity_payload: capacityPayload(),
+    ...capacity,
   }));
 }
 
@@ -185,6 +219,198 @@ describe("db growth fence", () => {
       expect(decision.reason).toBe("database_budget_exceeded");
       expect(decision.warning).toBe(true);
     });
+
+    it.each([
+      [
+        "the disk is nearly full",
+        {
+          capacity_payload: capacityPayload({
+            disks: [
+              {
+                path: PHYSICAL_DATA_PATH,
+                totalBytes: 210 * GiB,
+                usedBytes: 200 * GiB,
+                availableBytes: 10 * GiB,
+              },
+            ],
+          }),
+        },
+        "physical_free_space_low",
+      ],
+      [
+        "the sample is stale",
+        { capacity_age_seconds: PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000 + 1 },
+        "physical_snapshot_stale",
+      ],
+      [
+        "there is no sample at all",
+        { capacity_id: null, capacity_sampled_at: null, capacity_age_seconds: null, capacity_payload: null },
+        "physical_snapshot_missing",
+      ],
+      [
+        "the payload is malformed",
+        { capacity_payload: { database: { name: DB_NAME }, disks: "not-an-array" } },
+        "physical_snapshot_malformed",
+      ],
+    ])("cannot be overridden past a physical refusal — %s", async (_label, capacity, reason) => {
+      // The override exists to push past a budget an operator chose. It was
+      // never a licence to write into a full or unmeasured disk, and a fully
+      // audited override must not reach one.
+      installDb(sizes({}, capacity as Record<string, unknown>));
+      const decision = await evaluateDbGrowthFence({ env: granted() });
+      expect(decision.allowed).toBe(false);
+      expect(decision.overridden).toBe(false);
+      expect(decision.reason).toBe(reason);
+    });
+  });
+});
+
+describe("physical capacity admission", () => {
+  const base = {
+    telemetryAvailable: true,
+    databaseName: DB_NAME,
+    databaseBytes: 136 * GiB,
+    databaseBudgetBytes: 160 * GiB,
+  };
+  const snapshot = (payload: unknown, ageSeconds = 120) => ({
+    id: "42",
+    sampledAt: new Date().toISOString(),
+    ageSeconds,
+    payload,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("admits a fresh sample with room to spare and reports what it saw", () => {
+    const decision = evaluatePhysicalCapacity({ ...base, snapshot: snapshot(capacityPayload()) });
+    expect(decision.admitted).toBe(true);
+    expect(decision.reason).toBe("ok");
+    expect(decision.snapshotId).toBe("42");
+    expect(decision.dataPath).toBe(PHYSICAL_DATA_PATH);
+    expect(decision.availableBytes).toBe(210 * GiB);
+    // 210 GiB free minus the 24 GiB of budget left to consume.
+    expect(decision.projectedFreeBytes).toBe(210 * GiB - 24 * GiB);
+  });
+
+  it("refuses when telemetry is not readable at all", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      telemetryAvailable: false,
+      snapshot: null,
+    });
+    expect(decision.admitted).toBe(false);
+    expect(decision.reason).toBe("telemetry_unavailable");
+  });
+
+  it("refuses when the sampler has produced nothing", () => {
+    const decision = evaluatePhysicalCapacity({ ...base, snapshot: null });
+    expect(decision.reason).toBe("snapshot_missing");
+  });
+
+  it("refuses a sample that belongs to a different database", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(capacityPayload({ database: { name: "some_other_db" } })),
+    });
+    expect(decision.reason).toBe("database_identity_mismatch");
+  });
+
+  it("refuses a future-dated sample, which would never age out", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(capacityPayload(), -3600),
+    });
+    expect(decision.reason).toBe("snapshot_future_dated");
+  });
+
+  it("tolerates sub-minute skew from the previous host-clock producer", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(capacityPayload(), -5),
+    });
+    expect(decision.admitted).toBe(true);
+  });
+
+  it("refuses a stale sample", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(capacityPayload(), PHYSICAL_SNAPSHOT_MAX_AGE_MS / 1000 + 1),
+    });
+    expect(decision.reason).toBe("snapshot_stale");
+  });
+
+  it("refuses when the sample has no entry for the data path", () => {
+    // The root filesystem is not a substitute: PostgreSQL's data directory is
+    // frequently a separate volume, which is exactly the case here.
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(
+        capacityPayload({
+          disks: [{ path: "/", totalBytes: 1, usedBytes: 0, availableBytes: 1 }],
+        }),
+      ),
+    });
+    expect(decision.reason).toBe("data_path_missing");
+  });
+
+  it.each([
+    ["a missing field", { path: PHYSICAL_DATA_PATH, totalBytes: 210 * GiB, usedBytes: 1 }],
+    ["a non-numeric field", { path: PHYSICAL_DATA_PATH, totalBytes: "x", usedBytes: 1, availableBytes: 1 }],
+    ["a negative field", { path: PHYSICAL_DATA_PATH, totalBytes: 210 * GiB, usedBytes: -1, availableBytes: 1 }],
+    ["a zero total", { path: PHYSICAL_DATA_PATH, totalBytes: 0, usedBytes: 0, availableBytes: 0 }],
+    ["used above total", { path: PHYSICAL_DATA_PATH, totalBytes: 10, usedBytes: 11, availableBytes: 0 }],
+    ["available above total", { path: PHYSICAL_DATA_PATH, totalBytes: 10, usedBytes: 0, availableBytes: 11 }],
+  ])("refuses a malformed measurement: %s", (_label, disk) => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(capacityPayload({ disks: [disk] })),
+    });
+    expect(decision.admitted).toBe(false);
+    expect(decision.reason).toBe("snapshot_malformed");
+  });
+
+  it("refuses below the free-space floor", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      snapshot: snapshot(
+        capacityPayload({
+          disks: [
+            {
+              path: PHYSICAL_DATA_PATH,
+              totalBytes: 210 * GiB,
+              usedBytes: 210 * GiB - (MIN_FREE - 1),
+              availableBytes: MIN_FREE - 1,
+            },
+          ],
+        }),
+      ),
+    });
+    expect(decision.reason).toBe("free_space_low");
+  });
+
+  it("refuses a budget the disk could not absorb, however large the budget", () => {
+    // This is the case the env-supplied number could never catch: the disk is
+    // healthy TODAY, and a 300 GiB budget authorises growth it cannot hold.
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      databaseBudgetBytes: 400 * GiB,
+      snapshot: snapshot(capacityPayload()),
+    });
+    expect(decision.admitted).toBe(false);
+    expect(decision.reason).toBe("projected_free_space_low");
+    expect(decision.availableBytes).toBe(210 * GiB);
+  });
+
+  it("admits the same disk under a budget it can absorb", () => {
+    const decision = evaluatePhysicalCapacity({
+      ...base,
+      databaseBudgetBytes: 160 * GiB,
+      snapshot: snapshot(capacityPayload()),
+    });
+    expect(decision.admitted).toBe(true);
   });
 });
 
@@ -266,7 +492,10 @@ describe("admission cache keying", () => {
     ["the database changes", { DATABASE_URL: "postgres://other/db" }],
     [
       "the database budget changes",
-      { SYNC_GROWTH_FENCE_DATABASE_BYTES: String(900 * 1024 ** 3) },
+      // Different from the default so the key changes, but still a budget the
+      // measured disk could absorb — otherwise this would refuse on physical
+      // capacity before the cache was ever consulted.
+      { SYNC_GROWTH_FENCE_DATABASE_BYTES: String(170 * 1024 ** 3) },
     ],
     [
       "a table budget changes",
@@ -411,24 +640,7 @@ describe("production volume calibration", () => {
     expect(PLANNED_VOLUME_HEADROOM_BYTES).toBe(
       LIVE_MEASUREMENT.volume.capacityBytes - DEFAULT_DATABASE_BUDGET_BYTES,
     );
-    // With no measurement, headroom is unknown — never "ok". Reporting an
-    // absence of evidence as health is how a logical budget gets mistaken for
-    // disk telemetry.
-    expect(evaluateVolumeHeadroom({ env: {} }).status).toBe("unknown");
-    expect(evaluateVolumeHeadroom({ env: {} }).availableBytes).toBeNull();
-    expect(
-      evaluateVolumeHeadroom({
-        env: {
-          [VOLUME_AVAILABLE_ENV]: String(LIVE_MEASUREMENT.volume.availableBytes),
-          [VOLUME_CAPACITY_ENV]: String(LIVE_MEASUREMENT.volume.capacityBytes),
-        },
-      }).status,
-    ).toBe("ok");
-    expect(
-      evaluateVolumeHeadroom({
-        env: { [VOLUME_AVAILABLE_ENV]: String(MINIMUM_VOLUME_FREE_BYTES - 1) },
-      }).status,
-    ).toBe("low");
+    expect(MINIMUM_VOLUME_FREE_BYTES).toBe(40 * GiB);
   });
 
   it("fences every dominant append surface", () => {

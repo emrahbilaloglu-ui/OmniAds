@@ -3,10 +3,8 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSearchConsoleSiteAccessible } from "@/lib/search-console-site-selection-authority";
-import {
-  upsertIntegration,
-  ProviderConnectionGenerationConflictError,
-} from "@/lib/integrations";
+import { ProviderConnectionGenerationConflictError } from "@/lib/integrations";
+import { writeSearchConsoleSiteSelection } from "@/lib/search-console-selection-writer";
 import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   getSearchConsoleSiteType,
@@ -125,6 +123,22 @@ export async function POST(request: NextRequest) {
   const googleGenerationAtCapture = connectionGenerationTokenFromIntegration(
     context.googleIntegration,
   );
+  // No generation, no write. A `null` token used to be accepted by the optional
+  // parameter as "no compare-and-set", which is an unbound write wearing the
+  // shape of a bound one.
+  if (
+    searchConsoleGenerationAtCapture == null ||
+    googleGenerationAtCapture == null
+  ) {
+    return NextResponse.json(
+      {
+        error: "search_console_select_site_failed",
+        message:
+          "Could not establish which connection this selection would be made under. Nothing was changed.",
+      },
+      { status: 500 },
+    );
+  }
 
   // Membership in the CONNECTED token's live accessible-site set. Both writers
   // previously accepted any syntactically valid URL and wrote it onto the
@@ -181,29 +195,18 @@ export async function POST(request: NextRequest) {
         ? (context.integration.metadata as Record<string, unknown>)
         : {};
 
-    const selected = await upsertIntegration({
+    // The single supported Search Console selection writer: both generations are
+    // required inputs, and both are compare-and-set inside one write
+    // transaction. The selection is stored on `search_console` but its authority
+    // derives from the GOOGLE connection, which the Search Console generation
+    // cannot see change.
+    const selected = await writeSearchConsoleSiteSelection({
       businessId,
-      provider: "search_console",
-      status: "connected",
-      providerAccountId: verifiedSiteUrl,
-      providerAccountName: verifiedSiteUrl,
-      // Both generations, compare-and-set inside the write transaction. The
-      // selection is stored on `search_console` but its authority derives from
-      // the GOOGLE connection, which the Search Console generation cannot see
-      // change.
-      expectedConnectionGeneration: searchConsoleGenerationAtCapture,
-      expectedDerivedAuthority:
-        googleGenerationAtCapture == null
-          ? null
-          : { provider: "google", connectionGeneration: googleGenerationAtCapture },
-      metadata: {
-        ...existingMetadata,
-        siteUrl: verifiedSiteUrl,
-        siteType: getSearchConsoleSiteType(verifiedSiteUrl),
-        propertyName: verifiedSiteUrl,
-        connectedAt:
-          context.integration.connected_at ?? new Date().toISOString(),
-      },
+      siteUrl: verifiedSiteUrl,
+      searchConsoleConnectionGeneration: searchConsoleGenerationAtCapture,
+      googleConnectionGeneration: googleGenerationAtCapture,
+      existingMetadata,
+      connectedAt: context.integration.connected_at,
     });
 
     return NextResponse.json({

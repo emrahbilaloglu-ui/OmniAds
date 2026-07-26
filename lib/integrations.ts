@@ -50,6 +50,75 @@ export type IntegrationProviderType =
   | "ga4"
   | "klaviyo";
 
+/**
+ * The provider whose connection generation authorises a Search Console
+ * selection.
+ *
+ * Named once, here, because it is a fact about the product rather than a choice
+ * each writer makes: the accessible-site listing that validates a selection and
+ * every later Search Console sync run on the GOOGLE credential
+ * (`resolveSearchConsoleContext` reads `getIntegration(businessId, "google")`
+ * and uses its access token), while the selection itself is stored on the
+ * `search_console` connection.
+ */
+export const SEARCH_CONSOLE_AUTHORITY_PROVIDER = "google" as const;
+
+/**
+ * A write refused because it would persist a provider selection without naming
+ * the connection whose authority the selection derives from.
+ *
+ * Its own class, and thrown BEFORE any database work, so it can never be
+ * mistaken for a race (`ProviderConnectionGenerationConflictError`) or a
+ * provider failure. This one is not recoverable by retrying: the caller is
+ * simply wrong, and the fix is to route the write through
+ * `writeSearchConsoleSiteSelection` in `lib/search-console-selection-writer.ts`.
+ */
+export class DerivedAuthorityRequiredError extends Error {
+  readonly businessId: string;
+  readonly provider: IntegrationProviderType;
+  readonly requiredAuthorityProvider: IntegrationProviderType;
+  /** The selection the refused write was trying to persist. */
+  readonly selection: string;
+  constructor(input: {
+    businessId: string;
+    provider: IntegrationProviderType;
+    requiredAuthorityProvider: IntegrationProviderType;
+    selection: string;
+    channel: string;
+  }) {
+    super(
+      `Refusing to persist a ${input.provider} selection (${input.selection}, via ${input.channel}) ` +
+        `without the ${input.requiredAuthorityProvider} connection generation it derives its authority from. ` +
+        `Use writeSearchConsoleSiteSelection() in lib/search-console-selection-writer.ts.`,
+    );
+    this.name = "DerivedAuthorityRequiredError";
+    this.businessId = input.businessId;
+    this.provider = input.provider;
+    this.requiredAuthorityProvider = input.requiredAuthorityProvider;
+    this.selection = input.selection;
+  }
+}
+
+/**
+ * A SECOND connection whose generation must also be unchanged, for writes whose
+ * authority is derived from a different provider than the one they write.
+ *
+ * Checked inside the write transaction, under the same row lock, so it is a real
+ * compare-and-set rather than a check-then-act a reconnect can land between.
+ */
+export interface ProviderDerivedAuthority {
+  provider: IntegrationProviderType;
+  connectionGeneration: string;
+}
+
+/**
+ * The derived authority a Search Console selection must carry: the `google`
+ * connection specifically, never some other provider's generation.
+ */
+export interface SearchConsoleDerivedAuthority extends ProviderDerivedAuthority {
+  provider: typeof SEARCH_CONSOLE_AUTHORITY_PROVIDER;
+}
+
 export interface IntegrationRow {
   id: string;
   business_id: string;
@@ -316,12 +385,9 @@ export async function getIntegrationMetadata(
   });
 }
 
-/** Upsert an integration record after successful OAuth */
-export async function upsertIntegration(params: {
+interface UpsertIntegrationCommonParams {
   businessId: string;
-  provider: IntegrationProviderType;
   status: string;
-  providerAccountId?: string;
   providerAccountName?: string;
   accessToken?: string;
   refreshToken?: string;
@@ -349,27 +415,122 @@ export async function upsertIntegration(params: {
    * another's grant.
    */
   samePrincipal?: boolean;
+}
+
+/**
+ * What `upsertIntegration` accepts, as three mutually exclusive shapes rather
+ * than one shape with an optional safety parameter.
+ *
+ * `expectedDerivedAuthority` used to be optional for every provider, which made
+ * binding a Search Console selection to the Google connection a courtesy the
+ * next writer could simply forget — and forgetting it silently restored the
+ * unbounded behaviour. Optional safety is not safety, so the shape that can
+ * express a Search Console selection is the shape that REQUIRES the binding, and
+ * there is no shape that expresses one without it.
+ *
+ * The discriminant is not the provider alone but "does this write name a Search
+ * Console property". That is what makes the rule enforceable without also
+ * breaking the connect-time writers, which legitimately create the
+ * `search_console` connection while naming no site at all
+ * (`app/api/oauth/search_console/callback` and `app/api/oauth/google/callback`),
+ * and without breaking `resolveGoogleAccessTokenWithGeneration`, which passes a
+ * non-literal provider and names no account.
+ */
+export type UpsertIntegrationParams =
   /**
-   * A SECOND connection whose generation must also be unchanged, for writes
-   * whose authority is derived from a different provider than the one they
-   * write.
-   *
-   * Search Console is the case this exists for. Its selection is stored on the
-   * `search_console` connection, but the listing that validated the selection —
-   * and every later sync — runs on the GOOGLE token. A plain Google reconnect
-   * bumps only the Google generation, and the Search Console upsert the connect
-   * flow performs changes neither status nor account, so it does not bump the
-   * Search Console generation either. The write's own compare-and-set therefore
-   * cannot see a Google principal change at all.
-   *
-   * Checked inside this transaction, under the same row lock, so it is a real
-   * compare-and-set rather than a check-then-act the reconnect can land between.
+   * A Search Console SELECTION: it names the property every later sync will read.
+   * The Google generation the selection was validated under is mandatory and
+   * non-nullable. An unbound selection writer does not type-check.
    */
-  expectedDerivedAuthority?: {
-    provider: IntegrationProviderType;
-    connectionGeneration: string;
-  } | null;
-}): Promise<IntegrationRow> {
+  | (UpsertIntegrationCommonParams & {
+      provider: "search_console";
+      providerAccountId: string;
+      expectedDerivedAuthority: SearchConsoleDerivedAuthority;
+    })
+  /**
+   * Any other provider. Its selection is stored on the same connection that
+   * holds the credential it was validated with, so its own
+   * `expectedConnectionGeneration` already sees a principal change and nothing
+   * further is required of it.
+   */
+  | (UpsertIntegrationCommonParams & {
+      provider: Exclude<IntegrationProviderType, "search_console">;
+      providerAccountId?: string;
+      expectedDerivedAuthority?: ProviderDerivedAuthority | null;
+    })
+  /**
+   * Any provider, naming NO account: a connect-time write, a status change, or a
+   * token refresh. It cannot express a Search Console selection through
+   * `providerAccountId`, so there is nothing for a derived authority to bind.
+   *
+   * It can still smuggle one through `metadata.siteUrl`, which
+   * `resolveSearchConsoleContext` reads in preference to `provider_account_id` —
+   * a channel no type can police because metadata is `Record<string, unknown>`.
+   * That is exactly what the runtime refusal below is for, and why the type
+   * alone is not the whole guard.
+   */
+  | (UpsertIntegrationCommonParams & {
+      provider: IntegrationProviderType;
+      providerAccountId?: undefined;
+      expectedDerivedAuthority?: ProviderDerivedAuthority | null;
+    });
+
+/**
+ * The Search Console property this write would make current, through either
+ * channel `resolveSearchConsoleContext` reads it back from — `metadata.siteUrl`
+ * first, then `provider_account_id`. Returns `null` when the write names no
+ * property, which is what a connect-time write looks like.
+ */
+function readPersistedSearchConsoleSelection(
+  params: UpsertIntegrationParams,
+): { site: string; channel: string } | null {
+  if (params.provider !== "search_console") return null;
+  const metadataSite = params.metadata?.siteUrl;
+  if (typeof metadataSite === "string" && metadataSite.trim()) {
+    return { site: metadataSite.trim(), channel: "metadata.siteUrl" };
+  }
+  const account =
+    typeof params.providerAccountId === "string" ? params.providerAccountId.trim() : "";
+  if (account) return { site: account, channel: "providerAccountId" };
+  return null;
+}
+
+/**
+ * The runtime half of the guard.
+ *
+ * The type stops a writer that is compiled against this signature; this stops
+ * one that casts, one that reaches `upsertIntegration` through a `Record`-typed
+ * indirection, and one that hides the property in `metadata` where no type can
+ * see it. Production paths hit this check, not the type.
+ */
+function assertDerivedAuthorityPresent(params: UpsertIntegrationParams): void {
+  const selection = readPersistedSearchConsoleSelection(params);
+  if (!selection) return;
+  const derived = params.expectedDerivedAuthority;
+  if (
+    !derived ||
+    derived.provider !== SEARCH_CONSOLE_AUTHORITY_PROVIDER ||
+    typeof derived.connectionGeneration !== "string" ||
+    derived.connectionGeneration.trim() === ""
+  ) {
+    throw new DerivedAuthorityRequiredError({
+      businessId: params.businessId,
+      provider: params.provider,
+      requiredAuthorityProvider: SEARCH_CONSOLE_AUTHORITY_PROVIDER,
+      selection: selection.site,
+      channel: selection.channel,
+    });
+  }
+}
+
+/** Upsert an integration record after successful OAuth */
+export async function upsertIntegration(
+  params: UpsertIntegrationParams,
+): Promise<IntegrationRow> {
+  // Before any database work: a write that cannot name its authority must not
+  // reach a transaction, let alone a row lock.
+  assertDerivedAuthorityPresent(params);
+
   const now = new Date().toISOString();
   const metadataJson = JSON.stringify(params.metadata ?? {});
   const accessToken = encryptIntegrationSecret(params.accessToken ?? null);
@@ -802,6 +963,26 @@ export async function mergeIntegrationMetadata(params: {
   provider: IntegrationProviderType;
   metadata: Record<string, unknown>;
 }): Promise<void> {
+  // The other door into the same field. `resolveSearchConsoleContext` reads
+  // `metadata.siteUrl` in preference to `provider_account_id`, so a blind merge
+  // here changes the selected property with no compare-and-set of any kind —
+  // not against Search Console, not against Google. There is no generation to
+  // check in this function's contract, so the only correct answer is to refuse
+  // and send the caller to the selection writer.
+  const mergedSite = params.metadata?.siteUrl;
+  if (
+    params.provider === "search_console" &&
+    typeof mergedSite === "string" &&
+    mergedSite.trim() !== ""
+  ) {
+    throw new DerivedAuthorityRequiredError({
+      businessId: params.businessId,
+      provider: params.provider,
+      requiredAuthorityProvider: SEARCH_CONSOLE_AUTHORITY_PROVIDER,
+      selection: mergedSite.trim(),
+      channel: "mergeIntegrationMetadata(metadata.siteUrl)",
+    });
+  }
   const sql = getDb();
   const metadataJson = JSON.stringify(params.metadata ?? {});
   const connectionRows = (await sql`

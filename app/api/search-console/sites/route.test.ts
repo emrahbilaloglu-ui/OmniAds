@@ -277,6 +277,34 @@ describe("Search Console sites selection authority", () => {
     expect(writes).toHaveLength(0);
   });
 
+  it("refuses when the Google generation cannot be established, rather than writing unbound", async () => {
+    // The degradation the old optional parameter accepted silently: no Google
+    // connection to bind to meant `expectedDerivedAuthority: null`, which is an
+    // unbound write wearing the shape of a bound one. The selection writer now
+    // requires the generation, so the route has to refuse before the listing.
+    resolveSearchConsoleContext.mockImplementation(async () => ({
+      businessId: BUSINESS_ID,
+      accessToken: "token",
+      siteUrl: null,
+      integration: {
+        id: "int-sc",
+        provider: "search_console",
+        status: searchConsole.status,
+        connection_generation: searchConsole.generation,
+        metadata: {},
+        connected_at: "2026-07-01T00:00:00.000Z",
+      },
+      googleIntegration: null,
+    }));
+
+    const response = await POST(post({ siteUrl: PROVIDER_SITE }));
+
+    expect(response.status).toBe(500);
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect(upsertIntegration).not.toHaveBeenCalled();
+    expect(writes).toHaveLength(0);
+  });
+
   it("refuses a site the connected token cannot see", async () => {
     const response = await POST(
       post({ siteUrl: "sc-domain:someone-else.example" }),

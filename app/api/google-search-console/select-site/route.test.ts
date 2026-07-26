@@ -210,6 +210,32 @@ describe("google-search-console select-site selection authority", () => {
     expect(writes).toHaveLength(0);
   });
 
+  it("refuses when the Google generation cannot be established, rather than writing unbound", async () => {
+    // No Google connection to bind to used to mean `expectedDerivedAuthority:
+    // null`, which the optional parameter accepted as "no compare-and-set". The
+    // selection writer requires the generation, so this is a refusal now.
+    resolveSearchConsoleContext.mockImplementation(async () => ({
+      businessId: BUSINESS_ID,
+      accessToken: "token",
+      siteUrl: null,
+      integration: {
+        id: "int-sc",
+        provider: "search_console",
+        status: searchConsole.status,
+        connection_generation: searchConsole.generation,
+        metadata: {},
+        connected_at: "2026-07-01T00:00:00.000Z",
+      },
+      googleIntegration: undefined,
+    }));
+
+    const response = await POST(post({ businessId: BUSINESS_ID, siteUrl: PROVIDER_SITE }));
+
+    expect(response.status).toBe(500);
+    expect(providerFetch).not.toHaveBeenCalled();
+    expect(writes).toHaveLength(0);
+  });
+
   it("refuses when the connection cannot be read, rather than writing unbound", async () => {
     resolveSearchConsoleContext.mockRejectedValue(new Error("db down"));
 

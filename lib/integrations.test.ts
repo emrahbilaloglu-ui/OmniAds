@@ -192,3 +192,139 @@ describe("backfillIntegrationSecretsEncryption", () => {
     ]);
   });
 });
+
+/**
+ * The RUNTIME half of the derived-authority guard.
+ *
+ * The parameter type has no shape that expresses an unbound Search Console
+ * selection, but a type protects only a caller that is compiled against it. A
+ * cast, a `Record`-typed indirection, or a property smuggled into `metadata` —
+ * where no type can look, because metadata is `Record<string, unknown>` — all
+ * walk straight past it. This is the check a real production path actually hits,
+ * and it fires before any database work rather than inside the transaction.
+ */
+describe("upsertIntegration refuses an unbound Search Console selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Deliberately unusable. If the guard ever fails to fire, the write reaches
+    // this and the test fails on the wrong error instead of passing quietly.
+    vi.mocked(db.getDb).mockImplementation(() => {
+      throw new Error("The refused write must not reach the database.");
+    });
+  });
+
+  it("rejects a cast that names a property through providerAccountId", async () => {
+    const { upsertIntegration, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    await expect(
+      upsertIntegration({
+        businessId: "biz_1",
+        provider: "search_console",
+        status: "connected",
+        providerAccountId: "sc-domain:mine.example",
+        providerAccountName: "sc-domain:mine.example",
+        expectedConnectionGeneration: "3:connected",
+      } as never),
+    ).rejects.toBeInstanceOf(DerivedAuthorityRequiredError);
+  });
+
+  it("rejects a property smuggled through metadata.siteUrl", async () => {
+    // `resolveSearchConsoleContext` reads `metadata.siteUrl` in PREFERENCE to
+    // `provider_account_id`, so this is a real selection channel and not a
+    // theoretical one. The type cannot see it; this must.
+    const { upsertIntegration, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    await expect(
+      upsertIntegration({
+        businessId: "biz_1",
+        provider: "search_console",
+        status: "connected",
+        metadata: { siteUrl: "sc-domain:mine.example" },
+      }),
+    ).rejects.toBeInstanceOf(DerivedAuthorityRequiredError);
+  });
+
+  it("rejects an authority pinned to the wrong connection", async () => {
+    const { upsertIntegration, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    await expect(
+      upsertIntegration({
+        businessId: "biz_1",
+        provider: "search_console",
+        status: "connected",
+        providerAccountId: "sc-domain:mine.example",
+        expectedDerivedAuthority: {
+          provider: "search_console",
+          connectionGeneration: "3:connected",
+        },
+      } as never),
+    ).rejects.toBeInstanceOf(DerivedAuthorityRequiredError);
+  });
+
+  it("rejects an empty generation, which compares against nothing", async () => {
+    const { upsertIntegration, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    await expect(
+      upsertIntegration({
+        businessId: "biz_1",
+        provider: "search_console",
+        status: "connected",
+        providerAccountId: "sc-domain:mine.example",
+        expectedDerivedAuthority: { provider: "google", connectionGeneration: "  " },
+      }),
+    ).rejects.toBeInstanceOf(DerivedAuthorityRequiredError);
+  });
+
+  it("rejects a selection merged in through mergeIntegrationMetadata", async () => {
+    // The other door into the same field, and one with no compare-and-set of any
+    // kind in its contract — so the only correct answer is to refuse.
+    const { mergeIntegrationMetadata, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    await expect(
+      mergeIntegrationMetadata({
+        businessId: "biz_1",
+        provider: "search_console",
+        metadata: { siteUrl: "sc-domain:mine.example" },
+      }),
+    ).rejects.toBeInstanceOf(DerivedAuthorityRequiredError);
+  });
+
+  it("leaves connect-time and other-provider writes alone", async () => {
+    // The guard must not make the general case harder: a Search Console write
+    // that names no property, and every non-Search-Console write, pass straight
+    // through to the database work (which this test then trips on deliberately).
+    const { upsertIntegration, DerivedAuthorityRequiredError } = await import(
+      "@/lib/integrations"
+    );
+
+    for (const params of [
+      {
+        businessId: "biz_1",
+        provider: "search_console" as const,
+        status: "connected",
+        providerAccountName: "Not selected",
+        metadata: { connectedAt: "2026-07-01T00:00:00.000Z" },
+      },
+      {
+        businessId: "biz_1",
+        provider: "ga4" as const,
+        status: "connected",
+        providerAccountId: "properties/900900900",
+      },
+    ]) {
+      await expect(upsertIntegration(params)).rejects.not.toBeInstanceOf(
+        DerivedAuthorityRequiredError,
+      );
+    }
+  });
+});

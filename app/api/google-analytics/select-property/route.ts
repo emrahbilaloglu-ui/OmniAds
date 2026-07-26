@@ -34,6 +34,30 @@ function normalizeGa4PropertyId(value: string): string {
  *
  * Validates that the selected property is accessible by the connected
  * Google account, then persists the selection in the integration metadata.
+ *
+ * GA4 authority is SELF-CONTAINED, unlike Search Console's, so this writer
+ * deliberately carries no derived authority. The evidence, all of it in code:
+ *
+ *  - `resolveGa4AnalyticsContext` (lib/google-analytics-reporting.ts) reads
+ *    `getIntegration(businessId, "ga4")` and takes `access_token` /
+ *    `refresh_token` from THAT row. It never reads the `google` connection, and
+ *    no GA4 module references the `"google"` provider at all.
+ *  - The refresh path is `refreshGA4AccessToken(integration.refresh_token)` —
+ *    again the `ga4` row's own refresh token.
+ *  - `app/api/oauth/google-analytics/callback` is a separate OAuth flow that
+ *    writes `accessToken`/`refreshToken` onto the `ga4` connection.
+ *  - The property listing this route validates against
+ *    (`fetchGA4Properties(ga4Context.accessToken)`) therefore runs on the ga4
+ *    credential, which lives on the same connection this route writes.
+ *
+ * So a GA4 reconnect supplies a credential, `upsertIntegration` counts that as
+ * an authority change, the `ga4` connection generation increments, and the
+ * `expectedConnectionGeneration` compare-and-set below SEES it. That is exactly
+ * what Search Console cannot do: there the listing runs on `google` while the
+ * selection lands on `search_console`, so a Google reconnect moves a generation
+ * the write never looks at. Binding GA4 to `google` would assert a relationship
+ * the code does not have, and would start failing the moment a business connects
+ * GA4 without connecting Google Ads.
  */
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;

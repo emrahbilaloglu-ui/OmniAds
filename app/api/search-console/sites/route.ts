@@ -3,10 +3,8 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSearchConsoleSiteAccessible } from "@/lib/search-console-site-selection-authority";
-import {
-  upsertIntegration,
-  ProviderConnectionGenerationConflictError,
-} from "@/lib/integrations";
+import { ProviderConnectionGenerationConflictError } from "@/lib/integrations";
+import { writeSearchConsoleSiteSelection } from "@/lib/search-console-selection-writer";
 import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   getSearchConsoleSiteType,
@@ -242,6 +240,23 @@ export async function POST(request: NextRequest) {
   const googleGenerationAtCapture = connectionGenerationTokenFromIntegration(
     context.googleIntegration,
   );
+  // No generation, no write. This used to degrade to `null`, which the old
+  // optional parameter accepted as "no compare-and-set" — an unbound write
+  // dressed up as a bound one. There is no such thing as a Search Console
+  // selection nobody can attribute to a connection.
+  if (
+    searchConsoleGenerationAtCapture == null ||
+    googleGenerationAtCapture == null
+  ) {
+    return NextResponse.json(
+      {
+        error: "search_console_select_site_failed",
+        message:
+          "Could not establish which connection this selection would be made under. Nothing was changed.",
+      },
+      { status: 500 },
+    );
+  }
 
   // Membership in the CONNECTED token's live accessible-site set. Both writers
   // previously accepted any syntactically valid URL and wrote it onto the
@@ -329,29 +344,18 @@ export async function POST(request: NextRequest) {
         ? (context.integration.metadata as Record<string, unknown>)
         : {};
 
-    const updated = await upsertIntegration({
+    // The single supported Search Console selection writer. Both generations are
+    // required inputs, and the Google one is asserted INSIDE the write
+    // transaction under the same row lock — so the re-observation above is a
+    // fast refusal rather than the only defence, and a reconnect landing between
+    // that read and this write is refused by the compare-and-set itself.
+    const updated = await writeSearchConsoleSiteSelection({
       businessId,
-      provider: "search_console",
-      status: "connected",
-      providerAccountId: verifiedSiteUrl,
-      providerAccountName: verifiedSiteUrl,
-      expectedConnectionGeneration: searchConsoleGenerationAtCapture,
-      // The Google generation is now asserted INSIDE the write transaction,
-      // under the same row lock, so the re-observation above is a fast refusal
-      // rather than the only defence. A reconnect landing between that read and
-      // this write is refused by the compare-and-set itself.
-      expectedDerivedAuthority:
-        googleGenerationAtCapture == null
-          ? null
-          : { provider: "google", connectionGeneration: googleGenerationAtCapture },
-      metadata: {
-        ...metadata,
-        siteUrl: verifiedSiteUrl,
-        siteType: getSearchConsoleSiteType(verifiedSiteUrl),
-        propertyName: verifiedSiteUrl,
-        connectedAt:
-          context.integration.connected_at ?? new Date().toISOString(),
-      },
+      siteUrl: verifiedSiteUrl,
+      searchConsoleConnectionGeneration: searchConsoleGenerationAtCapture,
+      googleConnectionGeneration: googleGenerationAtCapture,
+      existingMetadata: metadata,
+      connectedAt: context.integration.connected_at,
     });
 
     return NextResponse.json({ success: true, integration: updated });

@@ -8757,10 +8757,23 @@ export async function appendMetaCurrentConfigHistory(input: {
           accountTimezone: row.accountTimezone,
         })),
       );
+      // The SKIP-UNCHANGED decision, made here under the lock.
+      //
+      // It used to live in a BEFORE INSERT trigger. Without it an unchanged
+      // configuration observed hourly appends hourly — `captured_at` is part of
+      // the arbiter, so the same fingerprint at a new instant is a new row, and
+      // that is exactly the growth that made these tables ~22 GB. Made inside
+      // the same transaction that holds the entity locks, the read and the
+      // insert are one atomic step rather than the trigger's race.
+      const changed = await filterMetaConfigTransitions(chunk, {
+        table: "meta_campaign_config_history",
+        entityColumn: "campaign_id",
+        entityIdOf: (row) => row.campaignId,
+      });
       // EXACT count, from RETURNING. Reporting `chunk.length` counted rows the
       // arbiter rejected as though they had been written, so a surface that
       // never appended anything still reported progress.
-      return appendMetaCampaignConfigHistoryRows(chunk, referenceContext);
+      return appendMetaCampaignConfigHistoryRows(changed, referenceContext);
     });
   }
   let adsetRowsWritten = 0;
@@ -8777,7 +8790,12 @@ export async function appendMetaCurrentConfigHistory(input: {
           accountTimezone: row.accountTimezone,
         })),
       );
-      return appendMetaAdSetConfigHistoryRows(chunk, referenceContext);
+      const changed = await filterMetaConfigTransitions(chunk, {
+        table: "meta_adset_config_history",
+        entityColumn: "adset_id",
+        entityIdOf: (row) => row.adsetId,
+      });
+      return appendMetaAdSetConfigHistoryRows(changed, referenceContext);
     });
   }
   return {
@@ -8786,6 +8804,58 @@ export async function appendMetaCurrentConfigHistory(input: {
     campaignSkippedIncompleteReceipt: !input.campaignReceipt.complete,
     adsetSkippedIncompleteReceipt: !input.adsetReceipt.complete,
   };
+}
+
+
+/**
+ * Drop rows whose configuration is unchanged from the entity's current latest.
+ *
+ * The equivalent of the trigger this replaces, with the two things the trigger
+ * lacked: it runs inside the transaction that already holds the per-entity
+ * advisory locks, so no concurrent writer can insert between the read and the
+ * insert; and it orders by `(captured_at DESC, id DESC)`, so two rows at the
+ * same instant resolve deterministically instead of by whichever the planner
+ * reached first.
+ *
+ * An out-of-order observation is still recorded: it is compared against the
+ * CURRENT latest, and a genuinely different configuration is a transition
+ * whenever it was observed.
+ */
+async function filterMetaConfigTransitions<TRow>(
+  rows: TRow[],
+  options: {
+    table: "meta_campaign_config_history" | "meta_adset_config_history";
+    entityColumn: "campaign_id" | "adset_id";
+    entityIdOf: (row: TRow) => string;
+  },
+): Promise<TRow[]> {
+  if (rows.length === 0) return rows;
+  const sql = getDb();
+  const businessId = (rows[0] as { businessId: string }).businessId;
+  const providerAccountId = (rows[0] as { providerAccountId: string })
+    .providerAccountId;
+  const entityIds = Array.from(new Set(rows.map(options.entityIdOf)));
+
+  const latest = (await sql.query(
+    `SELECT DISTINCT ON (${options.entityColumn})
+            ${options.entityColumn} AS entity_id, config_fingerprint
+     FROM ${options.table}
+     WHERE business_id = $1
+       AND provider_account_id = $2
+       AND ${options.entityColumn} = ANY($3::text[])
+     ORDER BY ${options.entityColumn}, captured_at DESC, id DESC`,
+    [businessId, providerAccountId, entityIds],
+  )) as Array<{ entity_id: string; config_fingerprint: string }>;
+  const latestByEntity = new Map(
+    latest.map((row) => [row.entity_id, row.config_fingerprint]),
+  );
+
+  return rows.filter((row) => {
+    const fingerprint = buildMetaConfigHistoryFingerprint(
+      row as never,
+    );
+    return latestByEntity.get(options.entityIdOf(row)) !== fingerprint;
+  });
 }
 
 /**

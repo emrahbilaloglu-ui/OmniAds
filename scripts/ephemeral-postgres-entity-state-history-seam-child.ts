@@ -985,6 +985,7 @@ async function verifySemanticHeartbeat(context: {
   );
 
   await verifyRelationshipOnlyLineage(context);
+  await verifyConfigHistoryTransitions(context);
   await verifyLegacyLineageCollapse(context);
 }
 
@@ -1111,8 +1112,255 @@ async function verifyRelationshipOnlyLineage(context: {
     `H8: repeating the same relationship appended another edge: ${JSON.stringify(repeated)}`,
   );
 
+  // H8b: the AS-OF cutoff. The edge is attached to the kept run for the
+  // composite foreign key's sake, so it carries that run's t1 clocks — and a
+  // reader that trusted them reported the relationship as observed at t1, an
+  // hour before anyone saw it.
+  const { readMetaCreativeLineageAsOf } = await import(
+    "@/lib/meta/entity-state-history"
+  );
+  const asOf = async (cutoff: string) =>
+    (
+      await readMetaCreativeLineageAsOf({
+        businessId,
+        providerAccountId,
+        cutoff,
+        creativeId: CREATIVE_ID,
+      })
+    ).length;
+
+  // BEFORE t1: the run did not exist.
+  assert(
+    (await asOf("2026-08-31T23:59:59Z")) === 0,
+    "H8b: an edge is visible before the observation run that carries it existed.",
+  );
+  // BETWEEN t1 and t2: the states were observed, the relationship was not.
+  assert(
+    (await asOf("2026-09-01T00:30:00Z")) === 0,
+    "H8b: the relationship is visible at t1, an hour before it was observed — the coalesced run's clocks are being reported as the observation time.",
+  );
+  // AT t2 and AFTER: observed.
+  assert(
+    (await asOf("2026-09-01T01:00:00Z")) === 1 &&
+      (await asOf("2026-09-02T00:00:00Z")) === 1,
+    "H8b: the relationship is not visible at or after the observation that recorded it.",
+  );
+  // The row still carries the RUN's clocks, which is what the foreign key needs.
+  const [edgeClocks] = await sql<{
+    observed_at: string;
+    relationship_observed_at: string | null;
+  }>`
+    SELECT observed_at::text AS observed_at,
+           relationship_observed_at::text AS relationship_observed_at
+    FROM meta_creative_lineage_edges
+    WHERE business_id = ${businessId}
+      AND provider_account_id = ${providerAccountId}
+      AND source_creative_id = ${CREATIVE_ID}
+  `;
+  assert(
+    edgeClocks != null &&
+      edgeClocks.relationship_observed_at != null &&
+      edgeClocks.observed_at !== edgeClocks.relationship_observed_at,
+    `H8b: the edge does not distinguish the run's clock from the observation's: ${JSON.stringify(edgeClocks)}`,
+  );
+
   console.log(
-    "[entity-state-history-seam] H8 PASS relationship-only lineage: an observation with byte-identical states but newly-available ad-creative links coalesces its states (stateCount 0) AND persists the new logical edge; repeating it adds nothing",
+    "[entity-state-history-seam] H8 PASS relationship-only lineage: an observation with byte-identical states but newly-available ad-creative links coalesces its states (stateCount 0) AND persists the new logical edge; repeating it adds nothing; and an as-of read returns 0 edges before t1, 0 between t1 and t2, and 1 at and after t2 while the row still carries the run's own clocks for its foreign key",
+  );
+}
+
+/**
+ * H14-H17 — config-history transitions, concurrently and out of order.
+ *
+ * The decision "is this a new configuration?" used to live in a BEFORE INSERT
+ * trigger: read the latest fingerprint for the entity, return NULL if unchanged.
+ * With no per-entity serialisation two observations of the SAME entity arriving
+ * together both read the same latest, so an A -> B -> A sequence could lose the
+ * revert — B lands, and the return to A is skipped as "unchanged" against a
+ * stale read. Its `ORDER BY captured_at DESC` had no id tie-break either, so two
+ * rows at the same instant made the answer nondeterministic.
+ */
+async function verifyConfigHistoryTransitions(context: {
+  sql: ReturnType<typeof getDb>;
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const { sql, businessId, providerAccountId } = context;
+  const { appendMetaCurrentConfigHistory } = await import("@/lib/meta/warehouse");
+  const CAMPAIGN_ID = "campaign_transition_probe";
+
+  const campaignRow = (dailyBudget: number) => ({
+    businessId,
+    providerAccountId,
+    date: "2026-10-01",
+    accountTimezone: "UTC",
+    accountCurrency: "USD",
+    sourceSnapshotId: null,
+    campaignId: CAMPAIGN_ID,
+    campaignNameCurrent: "Probe",
+    campaignNameHistorical: "Probe",
+    campaignStatus: "ACTIVE",
+    objective: "OUTCOME_SALES",
+    buyingType: "AUCTION",
+    optimizationGoal: null,
+    bidStrategyType: null,
+    bidStrategyLabel: null,
+    manualBidAmount: null,
+    bidValue: null,
+    bidValueFormat: null,
+    dailyBudget,
+    lifetimeBudget: null,
+    isBudgetMixed: false,
+    isConfigMixed: false,
+    isOptimizationGoalMixed: false,
+    isBidStrategyMixed: false,
+    isBidValueMixed: false,
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    reach: 0,
+    frequency: 0,
+    conversions: 0,
+    revenue: 0,
+    roas: 0,
+    cpa: 0,
+    ctr: 0,
+    cpc: 0,
+  });
+
+  const write = (dailyBudget: number, observedAt: string, complete = true) =>
+    appendMetaCurrentConfigHistory({
+      campaignRows: [campaignRow(dailyBudget) as never],
+      adsetRows: [],
+      campaignReceipt: { complete, observedAt },
+      adsetReceipt: { complete: true, observedAt },
+    });
+
+  const history = async () =>
+    (
+      await sql<{ config_fingerprint: string; captured_at: string }>`
+        SELECT config_fingerprint, captured_at::text AS captured_at
+        FROM meta_campaign_config_history
+        WHERE business_id = ${businessId}
+          AND provider_account_id = ${providerAccountId}
+          AND campaign_id = ${CAMPAIGN_ID}
+        ORDER BY captured_at ASC, id ASC
+      `
+    ).map((row) => row.config_fingerprint);
+
+  // H14: an INCOMPLETE receipt records nothing. A partial page set is missing
+  // entities, and absence is indistinguishable from deletion downstream.
+  const incomplete = await write(1000, "2026-10-01T09:00:00Z", false);
+  assert(
+    incomplete.campaignRowsWritten === 0 &&
+      incomplete.campaignSkippedIncompleteReceipt === true &&
+      (await history()).length === 0,
+    `H14: an incomplete receipt was recorded as a configuration: ${JSON.stringify(incomplete)}`,
+  );
+
+  // H15: exact counts. The writer used to report the ATTEMPTED chunk length, so
+  // a chunk the arbiter rejected entirely still reported progress.
+  const firstWrite = await write(1000, "2026-10-01T10:00:00Z");
+  assert(
+    firstWrite.campaignRowsWritten === 1,
+    `H15: the first transition reported ${firstWrite.campaignRowsWritten} rows written, expected 1.`,
+  );
+  const repeatWrite = await write(1000, "2026-10-01T10:00:00Z");
+  assert(
+    repeatWrite.campaignRowsWritten === 0,
+    `H15: an identical repeat reported ${repeatWrite.campaignRowsWritten} rows written; the arbiter rejected it, so the count must be 0.`,
+  );
+
+  // H16a: CONCURRENT identical observations. Eight writers, eight distinct
+  // instants, one configuration. `captured_at` is part of the arbiter, so
+  // without a serialized skip-unchanged decision this is eight rows — which is
+  // exactly the growth that made these tables ~22 GB.
+  const beforeBurst = (await history()).length;
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      write(1000, `2026-10-01T10:${String(10 + index).padStart(2, "0")}:00Z`),
+    ),
+  );
+  const afterBurst = await history();
+  assert(
+    afterBurst.length === beforeBurst,
+    `H16a: 8 concurrent identical observations appended ${afterBurst.length - beforeBurst} rows; an unchanged configuration must coalesce.`,
+  );
+
+  // H16b: SEQUENTIAL A -> B -> A. The revert is itself a transition and must be
+  // recorded; the trigger's stale read is what could drop it.
+  await write(2000, "2026-10-01T11:00:00Z");
+  await write(1000, "2026-10-01T12:00:00Z");
+  const afterRevert = await history();
+  assert(
+    afterRevert.length === beforeBurst + 2 &&
+      afterRevert[afterRevert.length - 1] === afterRevert[beforeBurst - 1],
+    `H16b: A->B->A did not preserve the revert: ${JSON.stringify(afterRevert)}`,
+  );
+
+  // H16c: CONCURRENT DISTINCT transitions. Three different configurations
+  // arriving together must all be recorded whatever the interleaving —
+  // serialisation is what makes that deterministic. Unserialised, two writers
+  // reading the same "latest" is how one of them is lost.
+  const beforeDistinct = (await history()).length;
+  await Promise.all([
+    write(4000, "2026-10-01T13:00:00Z"),
+    write(5000, "2026-10-01T13:01:00Z"),
+    write(6000, "2026-10-01T13:02:00Z"),
+  ]);
+  const afterDistinct = await history();
+  assert(
+    afterDistinct.length === beforeDistinct + 3,
+    `H16c: 3 concurrent DISTINCT transitions produced ${afterDistinct.length - beforeDistinct} rows, expected 3: ${JSON.stringify(afterDistinct)}`,
+  );
+  assert(
+    new Set(afterDistinct.slice(beforeDistinct)).size === 3,
+    `H16c: concurrent transitions collapsed into fewer distinct configurations: ${JSON.stringify(afterDistinct)}`,
+  );
+
+  // H17: OUT-OF-ORDER arrival. An observation from 09:30 arriving after the
+  // 12:00 one must still be recorded at its own instant rather than compared
+  // against a later row and discarded.
+  const outOfOrder = await write(3000, "2026-10-01T09:30:00Z");
+  assert(
+    outOfOrder.campaignRowsWritten === 1,
+    `H17: an out-of-order observation was dropped: ${JSON.stringify(outOfOrder)}`,
+  );
+  // Compared in UTC: `::text` renders in the server's local time zone, so a
+  // substring match on the wall clock would be asserting the server's offset
+  // rather than the recorded instant.
+  const afterOutOfOrder = await sql<{ captured_at: string }>`
+    SELECT to_char(captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+             AS captured_at
+    FROM meta_campaign_config_history
+    WHERE business_id = ${businessId}
+      AND provider_account_id = ${providerAccountId}
+      AND campaign_id = ${CAMPAIGN_ID}
+    ORDER BY captured_at ASC
+    LIMIT 1
+  `;
+  assert(
+    afterOutOfOrder[0]?.captured_at === "2026-10-01T09:30:00Z",
+    `H17: the out-of-order row was not filed at its own observation instant: ${JSON.stringify(afterOutOfOrder[0])}`,
+  );
+
+  // The triggers that used to make this racy are GONE.
+  const triggers = await sql<{ count: string }>`
+    SELECT COUNT(*)::text AS count
+    FROM pg_trigger
+    WHERE NOT tgisinternal
+      AND tgname IN (
+        'trg_skip_unchanged_meta_campaign_config_history',
+        'trg_skip_unchanged_meta_adset_config_history'
+      )
+  `;
+  assert(
+    Number(triggers[0]!.count) === 0,
+    "H14-H17: a config-history trigger still exists; it would silently drop rows the serialized writer decided to keep.",
+  );
+
+  console.log(
+    `[entity-state-history-seam] H14-H17 PASS config transitions: an incomplete receipt records nothing; counts come from RETURNING so an identical repeat reports 0; 8 concurrent identical observations append 0 rows while 3 concurrent DISTINCT transitions all land; a sequential A->B->A preserves the revert; an out-of-order observation is filed at its own instant; and both racy triggers are gone`,
   );
 }
 

@@ -3,28 +3,10 @@ import {
   forceProviderAccountSnapshotRefresh,
   type ProviderAccountSnapshotItem,
 } from "@/lib/provider-account-snapshots";
-import type { ProviderDiscoveryPayload, ProviderDiscoveryRow } from "@/lib/provider-account-discovery";
-
-function mergeAssignments(
-  accounts: ProviderAccountSnapshotItem[],
-  assignedIds: string[],
-): ProviderDiscoveryRow[] {
-  const assignedSet = new Set(assignedIds);
-  const seenAccountIds = new Set(accounts.map((account) => account.id));
-  return [
-    ...accounts.map((account) => ({
-      ...account,
-      assigned: assignedSet.has(account.id),
-    })),
-    ...assignedIds
-      .filter((accountId) => !seenAccountIds.has(accountId))
-      .map((accountId) => ({
-        id: accountId,
-        name: accountId,
-        assigned: true,
-      })),
-  ];
-}
+import {
+  reconcileAssignments,
+  type ProviderDiscoveryPayload,
+} from "@/lib/provider-account-discovery";
 
 export async function refreshProviderDiscoveryPayload(input: {
   businessId: string;
@@ -44,9 +26,20 @@ export async function refreshProviderDiscoveryPayload(input: {
     reason: input.reason ?? "assignment_drawer_manual_refresh",
   });
 
+  // A manual refresh is the strongest evidence available: it just asked the
+  // provider. Anything selected that the provider did not return is therefore
+  // NOT accessible right now, and appending it as a row named after its own id
+  // — which is what this used to do — turned a revoked or arbitrary id into
+  // apparently authoritative account data.
+  const reconciled = reconcileAssignments(
+    input.provider,
+    refreshed.accounts,
+    assignmentRow?.account_ids ?? [],
+  );
   return {
-    data: mergeAssignments(refreshed.accounts, assignmentRow?.account_ids ?? []),
+    data: reconciled.rows,
     meta: refreshed.meta,
     notice: null,
+    invalidAssignedAccountIds: reconciled.invalidAssignedAccountIds,
   };
 }

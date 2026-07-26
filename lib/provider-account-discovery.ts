@@ -1,4 +1,5 @@
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { normalizeProviderAccountIdentity } from "@/lib/provider-assignment-authorization";
 import {
   readProviderAccountSnapshot,
   type ProviderAccountSnapshotItem,
@@ -14,6 +15,20 @@ export interface ProviderDiscoveryPayload {
   data: ProviderDiscoveryRow[];
   meta: ProviderAccountSnapshotMeta;
   notice: string | null;
+  /**
+   * Selected account ids the provider did NOT report as currently accessible.
+   *
+   * These used to be appended to `data` with `assigned: true` and a name equal
+   * to the id, which laundered an arbitrary or revoked id back into what every
+   * caller treats as authoritative provider data — including
+   * `toSnapshotResultFromPayload`, which writes it back as a snapshot. A
+   * selected id that the provider does not list is a RECONCILIATION problem, and
+   * it is reported as one: separate from the account data, never merged into it.
+   *
+   * Empty is the healthy case. Non-empty means selection and provider truth
+   * disagree, which is worth surfacing and is never worth papering over.
+   */
+  invalidAssignedAccountIds: string[];
 }
 
 const DEFAULT_FRESHNESS_MS = 6 * 60 * 60_000;
@@ -64,23 +79,35 @@ function buildDiscoveryNotice(input: {
   return input.degradedNotice;
 }
 
-function mergeAssignments(
+/**
+ * Mark which reported accounts are selected, and report which selected ids the
+ * provider did not report at all.
+ *
+ * Comparison is on normalized identity, so `100` and `act_100` are one account
+ * rather than one selected account plus one phantom.
+ */
+export function reconcileAssignments(
+  provider: "meta" | "google",
   accounts: ProviderAccountSnapshotItem[],
-  assignedIds: string[]
-): ProviderDiscoveryRow[] {
-  const assignedSet = new Set(assignedIds);
-  return accounts.map((account) => ({
-    ...account,
-    assigned: assignedSet.has(account.id),
-  }));
-}
-
-function buildAssignedFallbackRows(accountIds: string[]): ProviderDiscoveryRow[] {
-  return accountIds.map((accountId) => ({
-    id: accountId,
-    name: accountId,
-    assigned: true,
-  }));
+  assignedIds: string[],
+): { rows: ProviderDiscoveryRow[]; invalidAssignedAccountIds: string[] } {
+  const canonicalAssigned = new Set(
+    assignedIds.map((id) => normalizeProviderAccountIdentity(provider, id)).filter(Boolean),
+  );
+  const reported = new Set(
+    accounts.map((account) => normalizeProviderAccountIdentity(provider, account.id)).filter(Boolean),
+  );
+  return {
+    rows: accounts.map((account) => ({
+      ...account,
+      assigned: canonicalAssigned.has(
+        normalizeProviderAccountIdentity(provider, account.id),
+      ),
+    })),
+    invalidAssignedAccountIds: assignedIds.filter(
+      (id) => !reported.has(normalizeProviderAccountIdentity(provider, id)),
+    ),
+  };
 }
 
 export async function resolveProviderDiscoveryPayload(input: {
@@ -107,62 +134,53 @@ export async function resolveProviderDiscoveryPayload(input: {
   });
 
   if (snapshot) {
-    if (snapshot.accounts.length === 0 && assignedIds.length > 0) {
-      return {
-        data: buildAssignedFallbackRows(assignedIds),
-        meta: snapshot.meta,
-        notice: snapshot.meta.refreshFailed
-          ? buildDiscoveryNotice({
-              snapshot,
-              degradedNotice: input.degradedNotice,
-              quotaNotice: input.quotaNotice,
-            })
-          : input.missingSnapshotNotice,
-      };
-    }
-
+    const reconciled = reconcileAssignments(input.provider, snapshot.accounts, assignedIds);
+    // An EMPTY account list with a non-empty selection is the loudest possible
+    // disagreement between selection and provider truth. It previously produced
+    // a list of synthesized rows that looked exactly like real accounts.
+    const notice =
+      snapshot.accounts.length === 0 && assignedIds.length > 0 && !snapshot.meta.refreshFailed
+        ? input.missingSnapshotNotice
+        : buildDiscoveryNotice({
+            snapshot,
+            degradedNotice: input.degradedNotice,
+            quotaNotice: input.quotaNotice,
+          });
     return {
-      data: mergeAssignments(snapshot.accounts, assignedIds),
+      data: reconciled.rows,
       meta: snapshot.meta,
-      notice: buildDiscoveryNotice({
-        snapshot,
-        degradedNotice: input.degradedNotice,
-        quotaNotice: input.quotaNotice,
-      }),
+      notice,
+      invalidAssignedAccountIds: reconciled.invalidAssignedAccountIds,
     };
   }
 
-  if (assignedIds.length > 0) {
-    return {
-      data: buildAssignedFallbackRows(assignedIds),
-      meta: buildMeta({
-        stale: true,
-        sourceHealth: "healthy_cached",
-        lastKnownGoodAvailable: true,
-        refreshInProgress: false,
-        sourceReason: "initial_snapshot_refresh",
-        trustLevel: "safe",
-        trustScore: 68,
-      }),
-      notice: input.missingSnapshotNotice,
-    };
-  }
-
+  // No snapshot at all. There is no evidence about ANY account, including the
+  // selected ones, so there is no account data to return. Reporting a selected
+  // id here as `healthy_cached` / `safe` while `stale: true` was the exact
+  // combination that made an unverified id look authoritative.
   return {
     data: [],
-      meta: buildMeta({
-        stale: true,
-        sourceHealth: "degraded_blocking",
-        lastKnownGoodAvailable: false,
-        refreshInProgress: false,
-        sourceReason: "initial_snapshot_refresh",
-        trustLevel: "blocking",
-        trustScore: 0,
-      }),
-      notice: input.unavailableNotice,
-    };
+    meta: buildMeta({
+      stale: true,
+      sourceHealth: "degraded_blocking",
+      lastKnownGoodAvailable: false,
+      refreshInProgress: false,
+      sourceReason: "initial_snapshot_refresh",
+      trustLevel: "blocking",
+      trustScore: 0,
+    }),
+    notice: assignedIds.length > 0 ? input.missingSnapshotNotice : input.unavailableNotice,
+    invalidAssignedAccountIds: assignedIds,
+  };
 }
 
+/**
+ * Only rows the provider actually reported become snapshot content.
+ *
+ * `data` no longer contains synthesized rows, so this can no longer write a
+ * selected-but-unverified id back into the snapshot store as though the
+ * provider had returned it.
+ */
 export function toSnapshotResultFromPayload(
   payload: ProviderDiscoveryPayload
 ): ProviderAccountSnapshotResult {

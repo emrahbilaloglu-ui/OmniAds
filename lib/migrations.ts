@@ -1258,10 +1258,18 @@ export async function runMigrations(options?: {
           source_reason            TEXT,
           last_successful_refresh_at TIMESTAMPTZ,
           refresh_failure_streak   INTEGER NOT NULL DEFAULT 0,
+          connection_fingerprint   TEXT,
           created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider)
         )`,
+        // Which connection generation produced the snapshot. Nullable on
+        // purpose: rows written before this column exists carry NULL, and
+        // selection treats NULL as "not bound to the current credential" and
+        // therefore refuses — the fail-closed direction. Not swallowed, because
+        // selection authority depends on the column existing.
+        sql`ALTER TABLE provider_account_snapshot_runs
+          ADD COLUMN IF NOT EXISTS connection_fingerprint TEXT`,
         sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_items (
           id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           snapshot_run_id        UUID NOT NULL REFERENCES provider_account_snapshot_runs(id) ON DELETE CASCADE,

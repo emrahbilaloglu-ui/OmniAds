@@ -71,6 +71,11 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "shopify_raw_snapshots", column: "last_observed_at", dataType: "timestamp with time zone", isNullable: true },
   { table: "shopify_raw_snapshots", column: "observation_count", dataType: "integer", isNullable: false, columnDefault: "1" },
   { table: "provider_sync_jobs", column: "progress_json", dataType: "jsonb", isNullable: false },
+  // Selection authority refuses when a snapshot is not bound to the current
+  // credential generation, so an absent column would make every selection fail
+  // rather than degrade quietly — verified so it fails at migration time
+  // instead.
+  { table: "provider_account_snapshot_runs", column: "connection_fingerprint", dataType: "text", isNullable: true },
 ];
 
 /** Tables this change adds. */

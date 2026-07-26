@@ -1,6 +1,8 @@
 import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
+import { getIntegration, type IntegrationProviderType } from "@/lib/integrations";
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
+import { computeProviderConnectionFingerprint } from "@/lib/provider-connection-fingerprint";
 
 export interface ProviderAccountSnapshotItem {
   id: string;
@@ -25,6 +27,16 @@ interface ProviderAccountSnapshotRow {
   source_reason: string | null;
   last_successful_refresh_at: string | null;
   refresh_failure_streak: number;
+  /**
+   * Which provider connection generation produced this snapshot.
+   *
+   * A snapshot is evidence about the credential it was fetched with and about
+   * nothing else. Without this, a list captured under one user's token stays
+   * "fresh" for its whole window across a disconnect, a reconnect by someone
+   * else, or a rotation — and would authorise selection under credentials that
+   * never saw those accounts.
+   */
+  connection_fingerprint: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +61,7 @@ interface NormalizedProviderAccountSnapshotRunRow {
   source_reason: string | null;
   last_successful_refresh_at: string | null;
   refresh_failure_streak: number;
+  connection_fingerprint: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -89,6 +102,8 @@ export interface ProviderAccountSnapshotMeta {
   snapshotAgeHours?: number | null;
   lastSuccessfulRefreshAgeHours?: number | null;
   refreshFailureStreak?: number;
+  /** Provider connection generation this snapshot was captured under. */
+  connectionFingerprint?: string | null;
 }
 
 export interface ProviderAccountSnapshotResult {
@@ -195,6 +210,7 @@ function buildLegacySnapshotRow(input: {
   sourceReason: string | null;
   lastSuccessfulRefreshAt: string | null;
   refreshFailureStreak: number;
+  connectionFingerprint: string | null;
   createdAt: string;
   updatedAt: string;
 }): ProviderAccountSnapshotRow {
@@ -213,6 +229,7 @@ function buildLegacySnapshotRow(input: {
     source_reason: input.sourceReason,
     last_successful_refresh_at: input.lastSuccessfulRefreshAt,
     refresh_failure_streak: input.refreshFailureStreak,
+    connection_fingerprint: input.connectionFingerprint,
     created_at: input.createdAt,
     updated_at: input.updatedAt,
   };
@@ -350,6 +367,7 @@ async function getSnapshotRow(
       source_reason,
       last_successful_refresh_at,
       refresh_failure_streak,
+      connection_fingerprint,
       created_at,
       updated_at
     FROM provider_account_snapshot_runs
@@ -396,6 +414,7 @@ async function getSnapshotRow(
     sourceReason: run.source_reason,
     lastSuccessfulRefreshAt: run.last_successful_refresh_at,
     refreshFailureStreak: run.refresh_failure_streak,
+    connectionFingerprint: run.connection_fingerprint,
     createdAt: run.created_at,
     updatedAt: run.updated_at,
   });
@@ -422,6 +441,15 @@ async function persistSnapshotState(input: {
   const fetchedAt = toIso(input.fetchedAt ?? null) ?? now;
   const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const businessRefId = businessRefIds.get(input.businessId) ?? null;
+  // Stamp the connection generation this list was fetched under. A snapshot
+  // that outlives its credential must not keep authorising selection.
+  const connectionIntegration = await getIntegration(
+    input.businessId,
+    input.provider as IntegrationProviderType,
+  ).catch(() => null);
+  const connectionFingerprint = connectionIntegration
+    ? computeProviderConnectionFingerprint(connectionIntegration)
+    : null;
   const runRows = (await sql`
     INSERT INTO provider_account_snapshot_runs (
       business_id,
@@ -438,6 +466,7 @@ async function persistSnapshotState(input: {
       source_reason,
       last_successful_refresh_at,
       refresh_failure_streak,
+      connection_fingerprint,
       created_at,
       updated_at
     )
@@ -456,6 +485,7 @@ async function persistSnapshotState(input: {
       ${input.sourceReason ?? null},
       ${toIso(input.lastSuccessfulRefreshAt ?? null)},
       ${input.refreshFailureStreak ?? 0},
+      ${connectionFingerprint},
       ${now},
       ${now}
     )
@@ -475,6 +505,7 @@ async function persistSnapshotState(input: {
       source_reason = EXCLUDED.source_reason,
       last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
       refresh_failure_streak = EXCLUDED.refresh_failure_streak,
+      connection_fingerprint = EXCLUDED.connection_fingerprint,
       updated_at = EXCLUDED.updated_at
     RETURNING id
   `) as Array<{ id: string }>;
@@ -687,6 +718,7 @@ function toSnapshotMeta(input: {
     snapshotAgeHours: computeAgeHours(input.snapshot.fetched_at),
     lastSuccessfulRefreshAgeHours: computeAgeHours(input.snapshot.last_successful_refresh_at),
     refreshFailureStreak: Number(input.snapshot.refresh_failure_streak ?? 0),
+    connectionFingerprint: input.snapshot.connection_fingerprint ?? null,
   };
 }
 

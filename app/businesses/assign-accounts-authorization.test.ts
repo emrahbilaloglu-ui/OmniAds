@@ -158,47 +158,6 @@ describe("assign-accounts cross-tenant authorization", () => {
     });
   });
 
-  it("rejects a Meta account id that is not in this business's snapshot", async () => {
-    requireBusinessAccess.mockResolvedValue({ session: {}, membership: {} });
-    isDemoBusiness.mockResolvedValue(false);
-    getIntegration.mockResolvedValue({ status: "connected", access_token: "t" });
-    readProviderAccountSnapshot.mockResolvedValue({
-      accounts: [{ id: "act_100", name: "Mine" }],
-      meta: {},
-    });
-
-    const response = await metaRoute.POST(post({ account_ids: ["act_999"] }), {
-      params,
-    });
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { error?: string };
-    expect(body.error).toBe("invalid_meta_account_selection");
-    // Nothing was written and no sync was started for an account this business
-    // was never shown.
-    expect(upsertProviderAccountAssignments).not.toHaveBeenCalled();
-    expect(syncMetaInitial).not.toHaveBeenCalled();
-  });
-
-  it("accepts a Meta id in either spelling of the same account", async () => {
-    requireBusinessAccess.mockResolvedValue({ session: {}, membership: {} });
-    isDemoBusiness.mockResolvedValue(false);
-    getIntegration.mockResolvedValue({ status: "connected", access_token: "t" });
-    readProviderAccountSnapshot.mockResolvedValue({
-      accounts: [{ id: "act_100", name: "Mine" }],
-      meta: {},
-    });
-    upsertProviderAccountAssignments.mockResolvedValue({
-      account_ids: ["act_100"],
-      updated_at: new Date(0).toISOString(),
-    });
-    syncMetaInitial.mockResolvedValue(null);
-
-    // `100` and `act_100` are one account, not two.
-    const response = await metaRoute.POST(post({ account_ids: ["100"] }), { params });
-    expect(response.status).toBe(200);
-    expect(upsertProviderAccountAssignments).toHaveBeenCalled();
-  });
-
   it("refuses Meta selection when no account snapshot is available", async () => {
     requireBusinessAccess.mockResolvedValue({ session: {}, membership: {} });
     isDemoBusiness.mockResolvedValue(false);

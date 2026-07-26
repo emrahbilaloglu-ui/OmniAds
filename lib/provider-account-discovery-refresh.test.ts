@@ -70,7 +70,11 @@ describe("provider discovery refresh path", () => {
     ]);
   });
 
-  it("keeps assigned fallback rows that are missing from a partial refresh result", async () => {
+  it("reports a selected id missing from a fresh refresh instead of inventing a row", async () => {
+    // A manual refresh is the strongest evidence available — it just asked the
+    // provider. An id it did not return is not accessible, and appending it as
+    // `{ id, name: id, assigned: true }` made a revoked or arbitrary id
+    // indistinguishable from a real account.
     vi.mocked(providerAssignments.getProviderAccountAssignments).mockResolvedValue({
       account_ids: ["acct_1", "acct_missing"],
     } as never);
@@ -84,7 +88,7 @@ describe("provider discovery refresh path", () => {
     expect(payload.data).toEqual([
       { id: "acct_1", name: "Account 1", assigned: true },
       { id: "acct_2", name: "Account 2", assigned: false },
-      { id: "acct_missing", name: "acct_missing", assigned: true },
     ]);
+    expect(payload.invalidAssignedAccountIds).toEqual(["acct_missing"]);
   });
 });

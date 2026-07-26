@@ -29,8 +29,27 @@ DEPLOY_SHA=<exact commit sha> ./.github/scripts/hetzner-sync-cutover.sh prefligh
 ```
 
 Phases, in order: `preflight`, `quiesce`, `fingerprint-pre`, `migrate`,
-`fingerprint-post`, `deploy-disabled`, `enable`, `resume-scheduler`. Plus
-`emergency-disable` and `status`, which need no predecessor.
+`verify-contract`, `fingerprint-post`, `deploy-disabled`, `enable`,
+`resume-scheduler`. Plus `emergency-disable` and `status`, which need no
+predecessor.
+
+**Preflight is old-schema safe on purpose.** It checks images, the env file, the
+backup manifest, the scheduler and database identity — none of which depend on
+the migration having run. The post-migration schema contract is its own phase,
+`verify-contract`, after `migrate`. An earlier version ran that contract inside
+preflight, which made the graph impossible to traverse: preflight required
+objects the migration had not created yet, and migrate required preflight.
+
+**The application and the database are on separate hosts.** The app host has the
+Compose project and no local PostgreSQL socket; the database host has PostgreSQL
+and no Compose project. Set `SYNC_CUTOVER_DB_SSH` to the database host; every
+SQL statement and the backup-manifest check go there.
+
+**Declare the scheduler.** `SYNC_CUTOVER_SCHEDULER` takes `systemd:<unit>`,
+`cron:<file>`, `compose:<service>` or `none`. If it is unset the script tries to
+detect one and REFUSES at preflight when it cannot — rather than accepting a
+missing scheduler during quiesce and then requiring a nonexistent systemd unit
+when resuming.
 
 ## Preconditions
 

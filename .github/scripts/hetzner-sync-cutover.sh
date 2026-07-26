@@ -3,45 +3,54 @@ set -euo pipefail
 
 # Host-side global sync cutover.
 #
-# WHY THIS EXISTS AT ALL
+# WHY THIS EXISTS
 #
-# `scripts/global-sync-rollout.ts` is TypeScript run through npm. The production
-# host has psql, docker and docker compose — and no Node, no npm, no
-# node_modules. So `npm run rollout:enable` cannot run there, and a runbook that
-# says to run it is a runbook that cannot be followed. Everything below runs with
-# what the host actually has, and reaches the TypeScript verifier by executing it
-# INSIDE the already-pinned worker image with the project directory bind-mounted.
+# `scripts/global-sync-rollout.ts` is TypeScript run through npm. The app host
+# has psql-less docker and docker compose and no Node, no npm, no node_modules —
+# so `npm run rollout:enable` cannot run there. Everything below uses what the
+# hosts actually have and reaches the repository's TypeScript by executing it
+# inside the already-pinned worker image.
+#
+# TWO HOSTS
+#
+# The application and PostgreSQL are on SEPARATE hosts. The app host has the
+# Compose project and no local PostgreSQL socket; the DB host has PostgreSQL and
+# no Compose project. Assuming both live together is how a cutover script fails
+# on its first real run. Every database operation therefore goes through
+# `db_sql`, which uses `SYNC_CUTOVER_DB_SSH` when set and falls back to a local
+# psql only for single-host development.
+#
+# PHASE GRAPH
+#
+# The previous version could not reach migration: its preflight ran the
+# post-migration schema contract, which by definition fails before the migration
+# has run. Preflight is now OLD-SCHEMA SAFE — it checks images, the env file, the
+# backup manifest, the scheduler and database identity, none of which depend on
+# the new schema — and the contract verification is its own phase AFTER migrate.
 #
 # WHAT IT IS NOT
 #
-# It is not atomic, and this file will not pretend otherwise. Writing the env
-# file atomically makes the FILE change atomic; it does not make the RUNTIME
-# change atomic, because web and worker read their environment when the container
-# is created. The cutover is therefore built around: both new-build processes
-# already deployed and disabled, physical quiescence for the migration, a single
-# preserved env configuration, controlled recreation from that same
-# configuration, and readback of what the containers actually got.
-#
-# STATE
-#
-# Every phase records completion in a durable state file, so an interrupted
-# cutover resumes rather than restarting — re-running a completed phase is
-# refused rather than silently repeated. One flock serialises the whole thing:
-# two operators, or an operator and a cron, must not interleave.
+# It is not atomic. Writing the env file atomically makes the FILE change atomic;
+# it does not make the RUNTIME change atomic, because web and worker read their
+# environment when the container is created. The cutover is built around both
+# new-build processes already deployed and disabled, physical quiescence for the
+# migration, a single preserved env configuration, controlled recreation from
+# that same configuration, and readback of what the containers actually got.
 #
 #   ./hetzner-sync-cutover.sh <phase>
 #
 # Phases, in order:
-#   preflight        read-only; verify SHA, quiescence targets, backup manifest
-#   quiesce          disable external scheduler, stop autoheal + web + worker
-#   fingerprint-pre  record DB identity, counts, selected-binding hash
-#   migrate          run migrations from the pinned image
-#   fingerprint-post compare against the pre-migration fingerprint
-#   deploy-disabled  bring web + worker up on the new build with lanes OFF
-#   enable           update the preserved env, recreate both, verify
-#   resume-scheduler re-enable the external scheduler, last
-#   emergency-disable  stop everything now; report success only once confirmed
-#   status           print the state file
+#   preflight         old-schema safe; images, env source, backup, scheduler, DB
+#   quiesce           stop the real scheduler, autoheal, web, worker; prove drain
+#   fingerprint-pre   DB identity, raw counts, hash of the full selected set
+#   migrate           run migrations from the pinned image
+#   verify-contract   POST-migration schema contract (needs the new schema)
+#   fingerprint-post  compare against the pre-migration fingerprint
+#   deploy-disabled   both processes on the new build with every lane off
+#   enable            update the preserved env, recreate both, verify
+#   resume-scheduler  re-enable the real scheduler, last
+#   emergency-disable stop live runtime and scheduler; confirm the state
+#   status            print the state file and live state
 
 PHASE="${1:-status}"
 APP_DIR="${REMOTE_APP_DIR:-/var/www/adsecute}"
@@ -51,12 +60,22 @@ STATE_FILE="${STATE_DIR}/state"
 LOCK_FILE="${STATE_DIR}/lock"
 BACKUP_MANIFEST="${SYNC_CUTOVER_BACKUP_MANIFEST:-/var/backups/adsecute-postgres/verified-restore.manifest}"
 DRAIN_SECONDS="${SYNC_CUTOVER_DRAIN_SECONDS:-90}"
-SCHEDULER_UNIT="${SYNC_CUTOVER_SCHEDULER_UNIT:-adsecute-sync-cron.timer}"
 DB_NAME="${DB_NAME:-adsecute_prod}"
-PSQL=(runuser -u postgres -- psql --dbname="${DB_NAME}" -v ON_ERROR_STOP=1 --tuples-only --no-align)
 
-# The exact build being cut over to. Not optional: "whatever is deployed" is how
-# a cutover ends up half on one build and half on another.
+# The DB host. Empty means "PostgreSQL is reachable locally", which is only true
+# in development.
+DB_SSH="${SYNC_CUTOVER_DB_SSH:-}"
+
+# How the external trigger is actually run. Declared rather than assumed: the
+# previous version accepted a missing systemd unit during quiesce and then
+# REQUIRED that same unit to exist when resuming, so a deployment using cron or
+# a container scheduler would quiesce "successfully" and then fail to resume.
+#   systemd:<unit>     systemctl enable/disable --now
+#   cron:<file>        a crontab fragment moved aside and back
+#   compose:<service>  a Compose service stopped and started
+#   none               explicitly no external scheduler
+SCHEDULER_SPEC="${SYNC_CUTOVER_SCHEDULER:-}"
+
 EXPECTED_SHA="${DEPLOY_SHA:-}"
 EXPECTED_WEB_IMAGE="ghcr.io/erhanrdn/omniads-web:${EXPECTED_SHA}"
 EXPECTED_WORKER_IMAGE="ghcr.io/erhanrdn/omniads-worker:${EXPECTED_SHA}"
@@ -73,9 +92,6 @@ state_put() { grep -qxF "$1" "${STATE_FILE}" || printf '%s\n' "$1" >> "${STATE_F
 require_state() {
   state_has "$1" || die "phase '$1' has not completed; run it first"
 }
-refuse_repeat() {
-  ! state_has "$1" || die "phase '$1' already completed; nothing to redo (see ${STATE_FILE})"
-}
 
 require_sha() {
   [ -n "${EXPECTED_SHA}" ] || die "DEPLOY_SHA is required and must be the exact commit being cut over to"
@@ -84,8 +100,102 @@ require_sha() {
   esac
 }
 
-# Run the repository's TypeScript from inside the pinned worker image. The host
-# has no Node; the image does, and it is the exact build being deployed.
+# ── Two-host primitives ────────────────────────────────────────────────────
+
+# Run SQL on the DATABASE host. Never assumes a local socket.
+db_sql() {
+  local statement="$1"
+  if [ -n "${DB_SSH}" ]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "${DB_SSH}" \
+      "runuser -u postgres -- psql --dbname=$(printf %q "${DB_NAME}") -v ON_ERROR_STOP=1 --tuples-only --no-align --command=$(printf %q "${statement}")"
+  else
+    runuser -u postgres -- psql --dbname="${DB_NAME}" -v ON_ERROR_STOP=1 \
+      --tuples-only --no-align --command="${statement}"
+  fi
+}
+
+# Run a command on the DATABASE host.
+db_run() {
+  if [ -n "${DB_SSH}" ]; then
+    ssh -o BatchMode=yes -o ConnectTimeout=10 "${DB_SSH}" "$@"
+  else
+    "$@"
+  fi
+}
+
+# ── Scheduler control, for whatever the scheduler actually is ──────────────
+
+resolve_scheduler() {
+  if [ -n "${SCHEDULER_SPEC}" ]; then
+    printf '%s' "${SCHEDULER_SPEC}"
+    return 0
+  fi
+  # Detect, in order of how this deployment is most likely to be wired.
+  if command -v systemctl >/dev/null 2>&1 &&
+     systemctl list-unit-files 2>/dev/null | grep -q '^adsecute-sync-cron.timer'; then
+    printf 'systemd:adsecute-sync-cron.timer'
+    return 0
+  fi
+  if [ -f /etc/cron.d/adsecute-sync ]; then
+    printf 'cron:/etc/cron.d/adsecute-sync'
+    return 0
+  fi
+  if docker compose ps --services 2>/dev/null | grep -qx scheduler; then
+    printf 'compose:scheduler'
+    return 0
+  fi
+  printf 'unresolved'
+}
+
+scheduler_stop() {
+  local spec="$1"
+  case "${spec}" in
+    systemd:*) systemctl disable --now "${spec#systemd:}" ;;
+    cron:*) mv "${spec#cron:}" "${spec#cron:}.cutover-disabled" ;;
+    compose:*) docker compose stop "${spec#compose:}" ;;
+    none) log "scheduler=none (declared); nothing to stop" ;;
+    *) die "cannot stop scheduler: '${spec}' is not a supported spec. Set SYNC_CUTOVER_SCHEDULER explicitly." ;;
+  esac
+}
+
+scheduler_start() {
+  local spec="$1"
+  case "${spec}" in
+    systemd:*) systemctl enable --now "${spec#systemd:}" ;;
+    cron:*) mv "${spec#cron:}.cutover-disabled" "${spec#cron:}" ;;
+    compose:*) docker compose up -d "${spec#compose:}" ;;
+    none) log "scheduler=none (declared); nothing to start" ;;
+    *) die "cannot start scheduler: '${spec}' is not a supported spec" ;;
+  esac
+}
+
+# Prints "running" or "stopped". Never guesses: an unsupported spec is fatal.
+scheduler_state() {
+  local spec="$1"
+  case "${spec}" in
+    systemd:*)
+      if systemctl is-active --quiet "${spec#systemd:}" 2>/dev/null; then
+        printf 'running'
+      else
+        printf 'stopped'
+      fi
+      ;;
+    cron:*)
+      if [ -f "${spec#cron:}" ]; then printf 'running'; else printf 'stopped'; fi
+      ;;
+    compose:*)
+      case "$(container_state "${spec#compose:}")" in
+        running) printf 'running' ;;
+        *) printf 'stopped' ;;
+      esac
+      ;;
+    none) printf 'stopped' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# ── App-host primitives ────────────────────────────────────────────────────
+
 run_in_pinned_image() {
   docker run --rm \
     --network host \
@@ -115,10 +225,10 @@ assert_stopped() {
 }
 
 selected_binding_hash() {
-  # The FULL identity set, not a count. A count matches after an account is
-  # swapped for another; this does not. Ordered so the hash is stable.
-  "${PSQL[@]}" --command="
-    SELECT encode(digest(string_agg(identity, E'\n' ORDER BY identity), 'sha256'), 'hex')
+  # The FULL identity set, not a count. A count still matches after one selected
+  # account is swapped for another; this does not.
+  db_sql "
+    SELECT COALESCE(encode(digest(string_agg(identity, E'\n' ORDER BY identity), 'sha256'), 'hex'), 'empty')
     FROM (
       SELECT bpa.business_id || '|' || bpa.provider || '|' || bpa.provider_account_id AS identity
       FROM business_provider_accounts bpa
@@ -128,13 +238,12 @@ selected_binding_hash() {
 }
 
 db_identity() {
-  "${PSQL[@]}" --command="
-    SELECT current_database() || '|' || system_identifier::text FROM pg_control_system();
-  " | tr -d '[:space:]'
+  db_sql "SELECT current_database() || '|' || system_identifier::text FROM pg_control_system();" |
+    tr -d '[:space:]'
 }
 
 raw_counts() {
-  "${PSQL[@]}" --command="
+  db_sql "
     SELECT (SELECT count(*) FROM meta_raw_snapshots)::text || '|' ||
            (SELECT count(*) FROM shopify_raw_snapshots)::text || '|' ||
            (SELECT count(*) FROM business_provider_accounts)::text;
@@ -146,16 +255,22 @@ cd "${APP_DIR}"
 exec 9>"${LOCK_FILE}"
 flock -n 9 || die "another cutover is in progress (${LOCK_FILE})"
 
+SCHEDULER="$(resolve_scheduler)"
+
 case "${PHASE}" in
   status)
     printf 'state file: %s\n' "${STATE_FILE}"
     cat "${STATE_FILE}"
+    printf 'scheduler=%s state=%s\n' "${SCHEDULER}" "$(scheduler_state "${SCHEDULER}")"
     for service in web worker autoheal; do
       printf '%s=%s\n' "${service}" "$(container_state "${service}")"
     done
     ;;
 
   preflight)
+    # OLD-SCHEMA SAFE. Nothing here may depend on the migration having run —
+    # that was the phase-graph deadlock: preflight required post-migration
+    # objects, and migrate required preflight.
     require_sha
     log "Verifying the exact images for ${EXPECTED_SHA} are present"
     docker image inspect "${EXPECTED_WEB_IMAGE}" >/dev/null \
@@ -168,14 +283,21 @@ case "${PHASE}" in
     grep -q "\.env\.production" "${APP_DIR}/docker-compose.yml" \
       || die "docker-compose.yml does not reference .env.production; the target is wrong"
 
-    log "Requiring a VERIFIED backup manifest (a backup nobody restored is not a rollback plan)"
-    [ -s "${BACKUP_MANIFEST}" ] || die "missing or empty ${BACKUP_MANIFEST}"
-    grep -q "scratch_restore_verified=yes" "${BACKUP_MANIFEST}" \
-      || die "${BACKUP_MANIFEST} does not record a completed scratch restore"
+    log "Resolving the external scheduler"
+    [ "${SCHEDULER}" != "unresolved" ] \
+      || die "could not determine how the external scheduler runs. Set SYNC_CUTOVER_SCHEDULER to systemd:<unit>, cron:<file>, compose:<service>, or none."
+    log "scheduler=${SCHEDULER} state=$(scheduler_state "${SCHEDULER}")"
 
-    log "Running the repository preflight inside the pinned image"
-    run_in_pinned_image node --import tsx scripts/global-sync-rollout.ts preflight \
-      || die "repository preflight refused; do not continue"
+    log "Requiring a VERIFIED backup manifest on the DB host"
+    db_run test -s "${BACKUP_MANIFEST}" \
+      || die "missing or empty ${BACKUP_MANIFEST} on the database host"
+    db_run grep -q "scratch_restore_verified=yes" "${BACKUP_MANIFEST}" \
+      || die "${BACKUP_MANIFEST} does not record a completed scratch restore; a backup nobody restored is not a rollback plan"
+
+    log "Reaching the database host"
+    identity="$(db_identity)"
+    [ -n "${identity}" ] || die "could not read database identity from the DB host"
+    log "database=${identity}"
 
     state_put "preflight:${EXPECTED_SHA}"
     log "preflight OK"
@@ -184,14 +306,14 @@ case "${PHASE}" in
   quiesce)
     require_sha
     require_state "preflight:${EXPECTED_SHA}"
-    log "Disabling the external scheduler BEFORE stopping anything"
-    systemctl disable --now "${SCHEDULER_UNIT}" 2>/dev/null || true
-    if systemctl is-active --quiet "${SCHEDULER_UNIT}" 2>/dev/null; then
-      die "${SCHEDULER_UNIT} is still active; an external trigger would restart work mid-migration"
-    fi
+    log "Stopping the external scheduler (${SCHEDULER}) BEFORE anything else"
+    scheduler_stop "${SCHEDULER}"
+    observed="$(scheduler_state "${SCHEDULER}")"
+    [ "${observed}" = "stopped" ] \
+      || die "scheduler is still '${observed}'; an external trigger would restart work mid-migration"
 
-    # autoheal FIRST. It restarts unhealthy containers, so stopping the worker
-    # while autoheal is running is how a "stopped" worker comes back by itself.
+    # autoheal FIRST: it restarts unhealthy containers, so stopping the worker
+    # while autoheal runs is how a "stopped" worker comes back by itself.
     log "Stopping autoheal, then web, then worker"
     docker compose stop autoheal || true
     assert_stopped autoheal
@@ -204,8 +326,10 @@ case "${PHASE}" in
     assert_stopped web
     assert_stopped worker
     assert_stopped autoheal
+    [ "$(scheduler_state "${SCHEDULER}")" = "stopped" ] \
+      || die "the scheduler restarted during the drain window"
 
-    leases="$("${PSQL[@]}" --command="
+    leases="$(db_sql "
       SELECT (SELECT count(*) FROM meta_sync_partitions WHERE lease_owner IS NOT NULL)
            + (SELECT count(*) FROM google_ads_sync_partitions WHERE lease_owner IS NOT NULL)
            + (SELECT count(*) FROM sync_runner_leases WHERE lease_expires_at > now())
@@ -219,7 +343,6 @@ case "${PHASE}" in
 
   fingerprint-pre)
     require_state "quiesce:${EXPECTED_SHA}"
-    refuse_repeat "fingerprint-pre:${EXPECTED_SHA}"
     {
       printf 'identity=%s\n' "$(db_identity)"
       printf 'counts=%s\n' "$(raw_counts)"
@@ -233,7 +356,7 @@ case "${PHASE}" in
 
   migrate)
     require_state "fingerprint-pre:${EXPECTED_SHA}"
-    log "Running migrations from the pinned image"
+    log "Running migrations from the pinned image against the DB host"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
       docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate \
       || die "migrations failed; completion was not announced and nothing was enabled"
@@ -242,8 +365,19 @@ case "${PHASE}" in
     log "migrate OK"
     ;;
 
-  fingerprint-post)
+  verify-contract)
+    # POST-migration. This is what preflight used to run, which is why the graph
+    # could never reach migration.
     require_state "migrate:${EXPECTED_SHA}"
+    log "Verifying the post-migration schema contract from the pinned image"
+    run_in_pinned_image node --import tsx scripts/global-sync-rollout.ts preflight \
+      || die "the post-migration contract refused; do not continue"
+    state_put "verify-contract:${EXPECTED_SHA}"
+    log "verify-contract OK"
+    ;;
+
+  fingerprint-post)
+    require_state "verify-contract:${EXPECTED_SHA}"
     {
       printf 'identity=%s\n' "$(db_identity)"
       printf 'counts=%s\n' "$(raw_counts)"
@@ -251,8 +385,7 @@ case "${PHASE}" in
     } > "${STATE_DIR}/fingerprint-post"
     chmod 0600 "${STATE_DIR}/fingerprint-post"
     # The migration is expand-only. Identity, row counts and the FULL selected
-    # binding identity set must be byte-identical. A count alone would still
-    # match if one selected account had been swapped for another.
+    # binding identity set must be byte-identical.
     if ! diff -u "${STATE_DIR}/fingerprint-pre" "${STATE_DIR}/fingerprint-post"; then
       die "the migration changed identity, row counts or the selected-binding set. Do not enable. Restore from the verified backup."
     fi
@@ -283,9 +416,8 @@ case "${PHASE}" in
     build_id="$(curl -fsS http://127.0.0.1:3000/api/build-info | python3 -c 'import json,sys; print(json.load(sys.stdin).get("buildId") or "")')"
     [ "${build_id}" = "${EXPECTED_SHA}" ] || die "build-info reports '${build_id}', expected ${EXPECTED_SHA}"
 
-    # Effective CONTAINER environment, not the file. This is the readback that
-    # proves the recreate actually picked the configuration up — and it prints
-    # only key names and a yes/no, never a value.
+    # Effective CONTAINER environment, not the file. Key names and a yes/no
+    # only — never a value.
     for service in web worker; do
       id="$(docker compose ps -q "${service}")"
       for key in ADSECUTE_SYNC_GLOBAL_ENABLED DATABASE_URL; do
@@ -313,15 +445,13 @@ case "${PHASE}" in
 
   enable)
     require_state "deploy-disabled:${EXPECTED_SHA}"
-    refuse_repeat "enable:${EXPECTED_SHA}"
-
     log "Updating ONLY the managed lane keys in the preserved env file"
     run_in_pinned_image node --import tsx scripts/global-sync-rollout.ts enable \
       || die "enable refused; nothing was changed"
 
-    # The file changed. The RUNTIME has not: web and worker read their
+    # The file changed. The RUNTIME has not: both processes read their
     # environment at container creation. This recreate is the runtime change,
-    # and it is not atomic — the two containers come up one after the other.
+    # and it is not atomic either — the containers come up one after the other.
     log "Recreating web and worker from that same configuration"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
       docker compose up -d --force-recreate web worker
@@ -338,25 +468,25 @@ case "${PHASE}" in
 
     docker compose up -d autoheal
     state_put "enable:${EXPECTED_SHA}"
-    log "enable OK — the external scheduler is still OFF"
+    log "enable OK — the external scheduler is still stopped"
     ;;
 
   resume-scheduler)
     require_state "enable:${EXPECTED_SHA}"
-    log "Both processes are proven; re-enabling the external scheduler last"
-    systemctl enable --now "${SCHEDULER_UNIT}"
-    systemctl is-active --quiet "${SCHEDULER_UNIT}" || die "${SCHEDULER_UNIT} did not start"
+    log "Both processes are proven; restarting the scheduler (${SCHEDULER}) last"
+    scheduler_start "${SCHEDULER}"
+    observed="$(scheduler_state "${SCHEDULER}")"
+    [ "${observed}" = "running" ] || die "scheduler is '${observed}' after start"
     state_put "resume-scheduler:${EXPECTED_SHA}"
     log "resume-scheduler OK"
     ;;
 
   emergency-disable)
-    # Stopping must always be available, including when the database is
-    # unreachable and when no state file exists. It reports success only after
-    # LIVE state is confirmed stopped — "the command returned 0" is not the same
-    # as "nothing is running".
-    log "EMERGENCY: disabling scheduler and stopping autoheal, web, worker"
-    systemctl disable --now "${SCHEDULER_UNIT}" 2>/dev/null || true
+    # Always available: no state file, no DEPLOY_SHA, no database. Reports
+    # success only after LIVE state is confirmed stopped — "the command returned
+    # 0" is not the same as "nothing is running".
+    log "EMERGENCY: stopping scheduler (${SCHEDULER}), autoheal, web, worker"
+    scheduler_stop "${SCHEDULER}" || true
     docker compose stop autoheal || true
     docker compose stop web worker || true
     failed=0
@@ -368,10 +498,9 @@ case "${PHASE}" in
         *) failed=1 ;;
       esac
     done
-    if systemctl is-active --quiet "${SCHEDULER_UNIT}" 2>/dev/null; then
-      log "${SCHEDULER_UNIT}=active"
-      failed=1
-    fi
+    scheduler_observed="$(scheduler_state "${SCHEDULER}")"
+    log "scheduler=${SCHEDULER} state=${scheduler_observed}"
+    [ "${scheduler_observed}" = "stopped" ] || failed=1
     [ "${failed}" = "0" ] || die "emergency disable did NOT fully take effect; intervene by hand"
     state_put "emergency-disable"
     log "emergency-disable CONFIRMED stopped"

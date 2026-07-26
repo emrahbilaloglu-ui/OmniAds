@@ -118,7 +118,8 @@
     "db:architecture:baseline:runtime": "node --import tsx scripts/db-architecture-baseline.ts --runtime-only",
     "test:provider-fixture-seam": "node --import tsx scripts/ephemeral-postgres-provider-fixture-seam.ts",
     "test:release-gate-plan-seam": "node --import tsx scripts/ephemeral-postgres-release-gate-plan-seam.ts",
-    "test:legacy-replay-seam": "node --import tsx scripts/ephemeral-postgres-legacy-replay-seam.ts"
+    "test:legacy-replay-seam": "node --import tsx scripts/ephemeral-postgres-legacy-replay-seam.ts",
+    "test:cutover-harness": "bash scripts/cutover-state-machine-harness.sh"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

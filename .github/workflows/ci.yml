@@ -119,6 +119,13 @@ jobs:
       - name: Legacy import replay seam
         run: npm run test:legacy-replay-seam
 
+      # bash -n proves the cutover script parses. It says nothing about whether
+      # the phase graph can be traversed, whether the two-host split holds, or
+      # whether a failed phase resumes — which is what was actually wrong. This
+      # runs the real script against stub hosts.
+      - name: Cutover state-machine harness
+        run: npm run test:cutover-harness
+
       - name: Pre-change schema upgrade seam (branch point)
         # Needs full history: the seam cross-checks its rewind against the
         # pre-change ref's migrations, which a shallow clone does not have.

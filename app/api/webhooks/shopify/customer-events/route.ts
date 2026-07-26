@@ -1,3 +1,6 @@
+import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { evaluateLaneAdmission } from "@/lib/sync/global-kill-switch";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getDb } from "@/lib/db";
@@ -96,6 +99,48 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+    // Admission after authentication and schema readiness, before the
+    // customer-event write below. Retryable non-success so Shopify redelivers;
+    // a 202 here would acknowledge an event that was never stored.
+    const shopifyAdmission = evaluateLaneAdmission({ lane: "shopify_sync" });
+    if (!shopifyAdmission.enabled) {
+      console.warn("[shopify-customer-events] refused: lane disabled", {
+        shopDomain,
+        reason: shopifyAdmission.reason,
+      });
+      return NextResponse.json(
+        {
+          received: false,
+          error: "lane_disabled",
+          lane: shopifyAdmission.lane,
+          reason: shopifyAdmission.reason,
+          retryable: true,
+        },
+        { status: 503 },
+      );
+    }
+    const capacity = await assertSyncGrowthBoundary("shopify_customer_events", {
+      fresh: true,
+    }).then(
+      () => null,
+      (error: unknown) => describeSyncSafetyRefusal(error),
+    );
+    if (capacity) {
+      console.error("[shopify-customer-events] refused: capacity", {
+        shopDomain,
+        capacity,
+      });
+      return NextResponse.json(
+        {
+          received: false,
+          error: capacity.kind,
+          retryable: true,
+          safetyRefusal: capacity,
+        },
+        { status: 503 },
+      );
+    }
+
     const sql = getDb();
     const integrationRows = (await sql`
       SELECT business_id, provider_account_id

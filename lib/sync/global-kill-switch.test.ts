@@ -85,6 +85,7 @@ describe("global kill switch", () => {
       "meta_sync",
       "retention",
       "shopify_sync",
+      "source_ingest",
     ]);
   });
 

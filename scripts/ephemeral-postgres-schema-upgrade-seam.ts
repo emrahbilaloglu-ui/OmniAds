@@ -451,6 +451,7 @@ async function main() {
       "META_SYNC",
       "GOOGLE_SYNC",
       "SHOPIFY_SYNC",
+      "SOURCE_INGEST",
       "CRON_ENQUEUE",
       "ASSIGNMENT_MUTATION",
       "RETENTION",

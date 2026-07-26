@@ -1,5 +1,20 @@
 /**
- * One switch that stops everything which writes.
+ * Runtime admission for every writer that can violate a sync or cutover
+ * contract.
+ *
+ * SCOPE, precisely. This covers external-source ingestion (Meta, Google,
+ * Shopify including its webhooks, GA4, Search Console), the enqueue paths that
+ * create durable work, account-selection mutation, and destructive retention.
+ * It does NOT claim to stop every write in the process — ordinary bookkeeping
+ * such as request logs, cache rows and derived decision records is out of
+ * scope, and pretending otherwise would be documentation that is broader than
+ * the code.
+ *
+ * For the migration's true zero-writer interval, this switch is NOT the
+ * authority: physically stopping web, worker and the external scheduler is.
+ * A runtime flag cannot stop a process that is already inside a transaction,
+ * and it takes effect only when containers are recreated. The switch's job is
+ * to keep work from RESUMING once those processes come back up.
  *
  * The rollout for this change is global and one-shot: there is a single user
  * and a canary over one business would only delay the same risk while running
@@ -23,6 +38,13 @@ export const SYNC_LANES = [
   "meta_sync",
   "google_sync",
   "shopify_sync",
+  /**
+   * Non-Ads external-source ingestion: GA4, Search Console, and any other
+   * writer that pulls from an external source into the warehouse. These were
+   * outside the switch entirely, so "global OFF stops everything that writes"
+   * was false for them.
+   */
+  "source_ingest",
   /** Cron and any enqueue path that creates durable work. */
   "cron_enqueue",
   /** Account selection mutation, which changes what everything else acts on. */

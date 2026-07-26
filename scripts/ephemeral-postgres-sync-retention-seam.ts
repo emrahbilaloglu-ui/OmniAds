@@ -762,6 +762,60 @@ async function verifyReleaseBoundary(client: Client) {
   );
 }
 
+// ── T6. Legacy provider retention, EXECUTED with the lane off ─────────────
+
+/**
+ * The unit tests for this use a mocked SQL client, which proves the code path
+ * chooses dry_run — not that a real database receives no DELETE. These run the
+ * ACTUAL provider retention policies against real PostgreSQL with the lane off
+ * and every inner flag on, and compare row counts.
+ */
+async function verifyLegacyRetentionLaneOff(client: Client) {
+  const before = await client.query<{ meta: string; google: string }>(
+    `SELECT (SELECT COUNT(*)::text FROM meta_raw_snapshots) AS meta,
+            (SELECT COUNT(*)::text FROM google_ads_raw_snapshots) AS google`,
+  );
+
+  const metaRetention = await import("@/lib/meta/warehouse-retention");
+  const googleRetention = await import("@/lib/google-ads/warehouse-retention");
+  const laneOffEnv = {
+    ...process.env,
+    // Every inner flag ON, plus forceExecute below — only the lane says stop.
+    META_RETENTION_EXECUTION_ENABLED: "true",
+    GOOGLE_ADS_RETENTION_EXECUTION_ENABLED: "true",
+    ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+    ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "off",
+  } as NodeJS.ProcessEnv;
+
+  const metaResult = await metaRetention.executeMetaRetentionPolicy({
+    asOfDate: "2026-07-26",
+    forceExecute: true,
+    env: laneOffEnv,
+  });
+  const googleResult = await googleRetention.executeGoogleAdsRetentionPolicy({
+    asOfDate: "2026-07-26",
+    forceExecute: true,
+    env: laneOffEnv,
+  });
+  assert(
+    metaResult.mode === "dry_run" && googleResult.mode === "dry_run",
+    `T6: a provider retention policy executed with the lane off: meta=${metaResult.mode} google=${googleResult.mode}`,
+  );
+
+  const after = await client.query<{ meta: string; google: string }>(
+    `SELECT (SELECT COUNT(*)::text FROM meta_raw_snapshots) AS meta,
+            (SELECT COUNT(*)::text FROM google_ads_raw_snapshots) AS google`,
+  );
+  assert(
+    before.rows[0]!.meta === after.rows[0]!.meta &&
+      before.rows[0]!.google === after.rows[0]!.google,
+    `T6: rows were deleted with the retention lane off.\n  before ${JSON.stringify(before.rows[0])}\n  after  ${JSON.stringify(after.rows[0])}`,
+  );
+  console.log(
+    `${LABEL} T6 PASS legacy retention lane-off: the real Meta and Google policies ran with both provider flags on and forceExecute set, both downgraded to dry_run, and row counts are unchanged (meta=${after.rows[0]!.meta} google=${after.rows[0]!.google})`,
+  );
+}
+
 // ── S1-S3. Selection queries, EXECUTED ─────────────────────────────────────
 
 /**
@@ -957,6 +1011,7 @@ async function verifyRolloutOrchestration(client: Client) {
           ADSECUTE_SYNC_LANE_META_SYNC_ENABLED: "",
           ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED: "",
           ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED: "",
+          ADSECUTE_SYNC_LANE_SOURCE_INGEST_ENABLED: "",
           ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED: "",
           ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED: "",
           ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "",
@@ -1076,6 +1131,7 @@ async function verifyRolloutOrchestration(client: Client) {
       "META_SYNC",
       "GOOGLE_SYNC",
       "SHOPIFY_SYNC",
+      "SOURCE_INGEST",
       "CRON_ENQUEUE",
       "ASSIGNMENT_MUTATION",
     ]) {
@@ -1094,7 +1150,7 @@ async function verifyRolloutOrchestration(client: Client) {
       "R2: retention was ENABLED by the rollout script; it must never be.",
     );
     console.log(
-      `${LABEL} R2 PASS atomic enable: all 5 sync lanes written in one action into the real compose env file, every unrelated key and comment preserved, a checksummed backup written, retention left disabled`,
+      `${LABEL} R2 PASS atomic enable: all 6 sync lanes written in one action into the real compose env file, every unrelated key and comment preserved, a checksummed backup written, retention left disabled`,
     );
 
     // R3: disable always works and clears everything, including retention.
@@ -1170,6 +1226,7 @@ async function main() {
       "META_SYNC",
       "GOOGLE_SYNC",
       "SHOPIFY_SYNC",
+      "SOURCE_INGEST",
       "CRON_ENQUEUE",
       "ASSIGNMENT_MUTATION",
       "RETENTION",
@@ -1190,6 +1247,7 @@ async function main() {
     await verifyRetentionSweep(client);
     await verifyGrowthBoundaries();
     await verifyReleaseBoundary(client);
+    await verifyLegacyRetentionLaneOff(client);
     await verifySelectionQueries(client);
     await verifyRolloutOrchestration(client);
 

@@ -1,3 +1,4 @@
+import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getIntegration } from "@/lib/integrations";
@@ -200,6 +201,39 @@ async function resolveWriteContext(input: {
       ),
     };
   }
+  // Current selection, immediately before a provider mutation. Every campaign,
+  // adset and ad action — including duplicate, resume and retry — resolves its
+  // write context here, and this previously checked only the connection. A
+  // deselected account still has its historical binding and its warehouse
+  // dimensions, so an action targeting one would have resolved cleanly and
+  // written to a live ad account the user had removed.
+  //
+  // Tri-state, not a boolean: an unreadable authority must refuse as uncertain
+  // rather than be reported as revoked.
+  const authority = await resolveMetaAccountAuthority(
+    input.businessId,
+    providerAccountId,
+  );
+  if (authority.state === "unknown_error") {
+    return {
+      ok: false,
+      response: jsonError(
+        503,
+        "meta_account_authority_unknown",
+        "Could not verify that this Meta ad account is currently selected. No provider write was attempted.",
+      ),
+    };
+  }
+  if (authority.state !== "authorized") {
+    return {
+      ok: false,
+      response: jsonError(
+        409,
+        "meta_account_not_selected",
+        "This Meta ad account is not currently selected for this business. Historical data remains readable; provider writes are refused.",
+      ),
+    };
+  }
   return {
     ok: true,
     ctx: {
@@ -209,6 +243,15 @@ async function resolveWriteContext(input: {
     },
   };
 }
+
+/**
+ * Test seam for the write-context guard.
+ *
+ * resolveWriteContext is private and every action path goes through it, so this
+ * is the one place the selection contract can be exercised directly without
+ * standing up a full route.
+ */
+export const __testResolveWriteContext = resolveWriteContext;
 
 function decisionOriginReplayResponse(input: {
   action: MetaAdsActionKind;

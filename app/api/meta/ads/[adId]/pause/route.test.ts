@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
+vi.mock("@/lib/meta/account-context", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/meta/account-context")>();
+  return {
+    ...actual,
+    // Default-authorised. The deselection refusal has its own suite; these
+    // cases are about what the action does once the account is selected.
+    resolveMetaAccountAuthority: vi.fn(async () => ({
+      state: "authorized" as const,
+      errorMessage: null,
+    })),
+  };
+});
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));

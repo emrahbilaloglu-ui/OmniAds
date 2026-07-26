@@ -5,6 +5,8 @@
  * Shared read helpers stay read-only; route/report snapshots are persisted only
  * via `lib/reporting-cache-writer.ts`.
  */
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import {
   resolveGa4AnalyticsContext,
   GA4AuthError,
@@ -100,6 +102,11 @@ export interface GA4SyncResult {
 }
 
 export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult> {
+  // Admission before the connection is even resolved. This is an external
+  // source writing into the warehouse, so it is inside the master switch and
+  // inside the capacity budget like every other ingest path.
+  assertSyncLaneEnabled("source_ingest");
+  await assertSyncGrowthBoundary("ga4_reports_sync", { fresh: true });
   // GA4 bağlantısını doğrula
   try {
     await resolveGa4AnalyticsContext(businessId, { requireProperty: true });

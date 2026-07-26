@@ -5,6 +5,8 @@
  * Uses the exact same functions as the SEO route handlers and stores
  * results via the explicit seo_results_cache writer.
  */
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import {
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
@@ -103,6 +105,11 @@ export interface SearchConsoleSyncResult {
 }
 
 export async function syncSearchConsoleReports(businessId: string): Promise<SearchConsoleSyncResult> {
+  // Admission before the connection is even resolved. This is an external
+  // source writing into the warehouse, so it is inside the master switch and
+  // inside the capacity budget like every other ingest path.
+  assertSyncLaneEnabled("source_ingest");
+  await assertSyncGrowthBoundary("search_console_reports_sync", { fresh: true });
   let context: Awaited<ReturnType<typeof resolveSearchConsoleContext>>;
   try {
     context = await resolveSearchConsoleContext({ businessId, requireSite: true });

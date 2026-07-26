@@ -19,7 +19,15 @@ otherwise cause.
   `test:schema-upgrade-seam`) and `test:migrations-from-zero`.
 - You have a restorable backup and have actually restored it somewhere.
 
-## 1. Kill switch: stop everything that writes
+## 1. Kill switch: stop every contract-violating writer
+
+**What this switch does and does not cover.** It admits external-source
+ingestion (Meta, Google, Shopify including its webhooks, GA4, Search Console),
+the enqueue paths that create durable work, account-selection mutation, and
+destructive retention. It does not claim to stop ordinary bookkeeping — request
+logs, cache rows, derived decision records. For the migration's true zero-writer
+interval the authority is step 2, physically stopping the processes; this switch
+keeps work from RESUMING when they come back.
 
 Lanes default to **off**. Nothing needs to be set to stop; something must be
 set to start. Confirm the switch is absent or off everywhere:
@@ -28,8 +36,8 @@ set to start. Confirm the switch is absent or off everywhere:
 grep -E 'ADSECUTE_SYNC_(GLOBAL|LANE)' .env.production || echo "no sync lane enabled"
 ```
 
-Lanes: `meta_sync`, `google_sync`, `shopify_sync`, `cron_enqueue`,
-`assignment_mutation`, `retention`. The master switch is
+Lanes: `meta_sync`, `google_sync`, `shopify_sync`, `source_ingest` (GA4,
+Search Console), `cron_enqueue`, `assignment_mutation`, `retention`. The master switch is
 `ADSECUTE_SYNC_GLOBAL_ENABLED=enabled` and each lane additionally needs
 `ADSECUTE_SYNC_LANE_<LANE>_ENABLED=enabled`. The master switch is deliberately
 not a blanket grant, so resuming sync cannot resume retention.
@@ -174,16 +182,69 @@ readiness contract both evaluate without any lane being enabled:
   the cleanup planner ships no executor.
 - Retention readiness must report ready.
 
+### 160 GiB is a fail-closed cutover ceiling, not a sustainability claim
+
+160 GiB is the largest whole-GiB ceiling whose 85% band is already active at
+the current 136.439 GiB, and it sits below the ~210 GiB volume minus the 40 GiB
+reserve. That is all it establishes. It does **not** mean this database is
+sustainable:
+
+- there is no measured post-fix daily growth rate, so there is no time-to-cap;
+- filesystem bytes are not 1:1 with logical bytes, and the reason for the gap
+  is not established;
+- the config trio is 62.596 GiB against 24/24/23 GiB ceilings — 8.404 GiB of
+  slack between them;
+- that space cannot currently be reclaimed. The trio has verified backups but
+  no safe compaction path, and the cleanup planner ships no executor.
+
+The per-table ceilings are hard stops and stay. The system stops itself before
+the hard limits, which is what replaces a canary here.
+
+### Collect the growth baseline immediately after enabling
+
+Without a canary, the measurement IS the safety net. Record a baseline within
+minutes of enabling, then repeat on a schedule and compute the trend:
+
+```sql
+SELECT now() AS at,
+       pg_database_size(current_database()) AS database_bytes,
+       relname,
+       pg_total_relation_size(c.oid) AS table_bytes
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+WHERE relname IN (
+  'meta_config_snapshots','meta_campaign_config_history','meta_adset_config_history',
+  'meta_raw_snapshots','shopify_raw_snapshots','meta_entity_state_history',
+  'meta_raw_snapshot_observations','shopify_raw_snapshot_observations'
+)
+ORDER BY table_bytes DESC;
+```
+
+From two samples compute, and write down:
+
+- bytes/day for the database and for each fenced table;
+- **time-to-warning**: `(136.00 GiB − current) / bytes-per-day` — negative means
+  already warning, which is expected;
+- **time-to-hard-cap**: `(160 GiB − current) / bytes-per-day` for the aggregate,
+  and the same per table against its own ceiling.
+
+If time-to-hard-cap is short, the answer is to reduce what is written or to
+solve compaction — not to raise the budget. Raising it removes the only signal
+before refusal.
+
 Enable every sync lane in one action (retention stays off):
 
+Use the script rather than hand-editing — it preserves every unrelated key in
+`.env.production`, takes a checksummed backup, and writes all six lanes or none:
+
+```bash
+npm run rollout:enable
 ```
-ADSECUTE_SYNC_GLOBAL_ENABLED=enabled
-ADSECUTE_SYNC_LANE_META_SYNC_ENABLED=enabled
-ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED=enabled
-ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED=enabled
-ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED=enabled
-ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED=enabled
-```
+
+It refuses if any precondition fails, and it never enables retention. Then
+recreate web and worker from that same configuration: **the file change is not
+the runtime change** — both processes read their environment at container
+creation.
 
 Re-enable the external cron trigger. Then verify durable results, not just the
 absence of errors:

@@ -6,6 +6,9 @@ const sql = Object.assign(vi.fn(), {
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => sql),
+  // The raw-snapshot writer is two-layer: canonical content and its receipt
+  // must land together or not at all, so it runs inside a transaction.
+  runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 vi.mock("@/lib/db-schema-readiness", () => ({

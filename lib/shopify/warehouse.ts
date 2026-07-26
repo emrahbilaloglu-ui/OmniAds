@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   ensureProviderAccountReferenceIds,
@@ -394,51 +394,162 @@ export function buildShopifyRawSnapshotHash(input: {
     .digest("hex");
 }
 
+/**
+ * The canonical CONTENT identity of a Shopify raw snapshot.
+ *
+ * Deliberately the same construction as the Meta side: every scope field that
+ * would otherwise collide, and nothing that describes the observation. Shopify
+ * snapshots carry no partition/run/checkpoint, so what is excluded here is
+ * status and the instant — both of which live on the receipt.
+ */
+export function buildShopifyRawSnapshotContentKey(input: {
+  businessId: string;
+  providerAccountId: string;
+  endpointName: string;
+  entityScope: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  payloadHash: string;
+}): string {
+  return [
+    input.businessId,
+    input.providerAccountId,
+    input.endpointName,
+    input.entityScope,
+    normalizeDate(input.startDate) ?? "",
+    normalizeDate(input.endDate) ?? "",
+    input.payloadHash,
+    // Unit separator: a byte that cannot occur in any of the joined fields, so
+    // adjacent components can never be re-partitioned into a different tuple
+    // that produces the same key.
+  ].join(String.fromCharCode(0x1f));
+}
+
+/**
+ * Two-layer write: one immutable canonical content row plus one append-only
+ * observation receipt, in a single transaction.
+ *
+ * The canonical content id is what is returned, because every existing typed
+ * `source_snapshot_id` FK points at `shopify_raw_snapshots(id)` and must keep
+ * resolving unchanged.
+ */
 export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_raw_snapshot");
-  const sql = getDb();
   const refs = await resolveSingleShopifyCanonicalReferenceContext({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
   });
-  const rows = (await sql`
-    INSERT INTO shopify_raw_snapshots (
-      business_id,
-      business_ref_id,
-      provider_account_id,
-      provider_account_ref_id,
-      endpoint_name,
-      entity_scope,
-      start_date,
-      end_date,
-      payload_json,
-      payload_hash,
-      request_context,
-      response_headers,
-      provider_http_status,
-      status,
-      fetched_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${refs.businessRefId},
-      ${input.providerAccountId},
-      ${refs.providerAccountRefId},
-      ${input.endpointName},
-      ${input.entityScope},
-      ${normalizeDate(input.startDate)},
-      ${normalizeDate(input.endDate)},
-      ${JSON.stringify(input.payloadJson ?? {})}::jsonb,
-      ${input.payloadHash},
-      ${JSON.stringify(input.requestContext ?? {})}::jsonb,
-      ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
-      ${input.providerHttpStatus ?? null},
-      ${input.status},
-      COALESCE(${normalizeTimestamp(input.fetchedAt)}, now())
-    )
-    RETURNING id
-  `) as Array<{ id: string }>;
-  return rows[0]?.id ?? null;
+  const contentKey = buildShopifyRawSnapshotContentKey({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    endpointName: input.endpointName,
+    entityScope: input.entityScope,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    payloadHash: input.payloadHash,
+  });
+  const observedAt = normalizeTimestamp(input.fetchedAt);
+
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    const rows = (await sql`
+      INSERT INTO shopify_raw_snapshots (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        endpoint_name,
+        entity_scope,
+        start_date,
+        end_date,
+        payload_json,
+        payload_hash,
+        content_key,
+        request_context,
+        response_headers,
+        provider_http_status,
+        status,
+        fetched_at,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${input.businessId},
+        ${refs.businessRefId},
+        ${input.providerAccountId},
+        ${refs.providerAccountRefId},
+        ${input.endpointName},
+        ${input.entityScope},
+        ${normalizeDate(input.startDate)},
+        ${normalizeDate(input.endDate)},
+        ${JSON.stringify(input.payloadJson ?? {})}::jsonb,
+        ${input.payloadHash},
+        ${contentKey},
+        ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+        ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
+        ${input.providerHttpStatus ?? null},
+        -- First-observation mirror only. Lifecycle authority is the receipt.
+        ${input.status},
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now())
+      )
+      ON CONFLICT (content_key) WHERE content_key IS NOT NULL
+      DO UPDATE SET
+        -- Content is immutable: fetched_at, first_observed_at and payload_json
+        -- are never touched, so the first-observation time survives.
+        last_observed_at = GREATEST(
+          shopify_raw_snapshots.last_observed_at,
+          COALESCE(${observedAt}::timestamptz, now())
+        ),
+        observation_count = shopify_raw_snapshots.observation_count + 1,
+        updated_at = now()
+      RETURNING id
+    `) as Array<{ id: string }>;
+    const snapshotId = rows[0]?.id ?? null;
+    if (!snapshotId) return null;
+
+    await sql`
+      INSERT INTO shopify_raw_snapshot_observations (
+        snapshot_id,
+        business_id,
+        provider_account_id,
+        endpoint_name,
+        entity_scope,
+        status,
+        provider_http_status,
+        request_context,
+        response_headers,
+        observed_at,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${snapshotId}::uuid,
+        ${input.businessId},
+        ${input.providerAccountId},
+        ${input.endpointName},
+        ${input.entityScope},
+        ${input.status},
+        ${input.providerHttpStatus ?? null},
+        ${JSON.stringify(input.requestContext ?? {})}::jsonb,
+        ${JSON.stringify(input.responseHeaders ?? {})}::jsonb,
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now()),
+        COALESCE(${observedAt}, now())
+      )
+      ON CONFLICT (snapshot_id, status, observed_at)
+      DO UPDATE SET
+        last_observed_at = GREATEST(
+          shopify_raw_snapshot_observations.last_observed_at,
+          COALESCE(${observedAt}::timestamptz, now())
+        ),
+        observation_count = shopify_raw_snapshot_observations.observation_count + 1,
+        updated_at = now()
+    `;
+
+    return snapshotId;
+  });
 }
 
 async function upsertShopifyShopDimensions(

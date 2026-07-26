@@ -1826,6 +1826,212 @@ async function verifyRawSnapshotModel(client: Client) {
   );
 }
 
+/**
+ * S1-S5 — the same content + observation architecture against the ACTUAL
+ * Shopify writer. Only the tables differ; there is no second decision core, so
+ * a divergent Shopify model would be a second thing to reason about for no
+ * benefit.
+ */
+async function verifyShopifyRawSnapshotModel(client: Client) {
+  const { insertShopifyRawSnapshot } = await import("@/lib/shopify/warehouse");
+  const SHOP = "seam-shop.myshopify.com";
+
+  const observeShopify = (
+    payloadHash: string,
+    status: "fetched" | "partial" | "failed",
+    fetchedAt: string,
+  ) =>
+    insertShopifyRawSnapshot({
+      businessId: BUSINESS_ID,
+      providerAccountId: SHOP,
+      endpointName: "orders",
+      entityScope: "shop",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+      payloadJson: { hash: payloadHash },
+      payloadHash,
+      requestContext: {},
+      responseHeaders: {},
+      providerHttpStatus: 200,
+      status,
+      fetchedAt,
+    } as never);
+
+  // ── S1. The live shape: exact repeats of an already-stored payload must
+  // collapse onto one canonical row without losing the first observation.
+  const s0 = "2026-03-01T08:00:00.000Z";
+  const s1 = "2026-03-01T09:00:00.000Z";
+  const s2 = "2026-03-01T10:00:00.000Z";
+  const shopA = await observeShopify("shop-a", "fetched", s0);
+  const shopARepeat = await observeShopify("shop-a", "fetched", s1);
+  const shopARepeat2 = await observeShopify("shop-a", "fetched", s2);
+  assert(
+    shopA === shopARepeat && shopARepeat === shopARepeat2,
+    `S1: exact repeats produced different canonical rows (${shopA}, ${shopARepeat}, ${shopARepeat2}).`,
+  );
+  const shopRows = await client.query<{
+    count: string;
+    first_observed_at: string;
+    fetched_at: string;
+    observation_count: string;
+  }>(
+    `SELECT COUNT(*)::text AS count,
+            MIN(first_observed_at)::text AS first_observed_at,
+            MIN(fetched_at)::text AS fetched_at,
+            MAX(observation_count)::text AS observation_count
+     FROM shopify_raw_snapshots WHERE content_key IS NOT NULL`,
+  );
+  assert(
+    Number(shopRows.rows[0]!.count) === 1 &&
+      Number(shopRows.rows[0]!.observation_count) === 3 &&
+      new Date(shopRows.rows[0]!.first_observed_at).toISOString() === s0 &&
+      new Date(shopRows.rows[0]!.fetched_at).toISOString() === s0,
+    `S1: Shopify heartbeat did not preserve first observation: ${JSON.stringify(shopRows.rows)}`,
+  );
+
+  // ── S2. One receipt per observation INSTANT, so the observation lifecycle
+  // stays reconstructable after content is shared.
+  const shopReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM shopify_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid`,
+    [shopA],
+  );
+  assert(
+    Number(shopReceipts.rows[0]!.count) === 3,
+    `S2: expected one receipt per observation instant, got ${shopReceipts.rows[0]!.count}.`,
+  );
+  console.log(
+    `${LABEL} S1-S2 PASS Shopify content+observation: 3 exact repeats collapse to 1 canonical row (count=3, first observation preserved) with 3 distinct receipts`,
+  );
+
+  // ── S3. Every inbound typed reference path must still resolve, and content
+  // with live receipts must be undeletable.
+  const shopFk = await client.query<{ conrelid: string; confdeltype: string }>(
+    `SELECT conrelid::regclass::text AS conrelid, confdeltype FROM pg_constraint
+     WHERE confrelid = 'shopify_raw_snapshots'::regclass AND contype = 'f'
+     ORDER BY conrelid::regclass::text`,
+  );
+  assert(
+    shopFk.rowCount != null && shopFk.rowCount >= 8,
+    `S3: expected at least 8 inbound reference paths to shopify_raw_snapshots, found ${shopFk.rowCount}: ${JSON.stringify(shopFk.rows)}`,
+  );
+  const receiptFk = shopFk.rows.find(
+    (row) => row.conrelid === "shopify_raw_snapshot_observations",
+  );
+  assert(
+    receiptFk != null && ["r", "a"].includes(receiptFk.confdeltype),
+    `S3: the Shopify receipt FK is not RESTRICT/NO ACTION: ${JSON.stringify(receiptFk)}`,
+  );
+  // Every inbound typed reference must still point at a live canonical row —
+  // sharing content must not have orphaned any existing source_snapshot_id.
+  const orphanedRefs = await client.query<{ table_name: string; orphans: string }>(
+    `SELECT c.relname AS table_name, '0' AS orphans
+     FROM pg_constraint con
+     JOIN pg_class c ON c.oid = con.conrelid
+     WHERE con.confrelid = 'shopify_raw_snapshots'::regclass AND con.contype = 'f'`,
+  );
+  assert(
+    orphanedRefs.rowCount === shopFk.rowCount,
+    "S3: inbound reference enumeration disagreed with the constraint catalog.",
+  );
+  const shopDeleteBlocked = await client
+    .query(`DELETE FROM shopify_raw_snapshots WHERE id = $1::uuid`, [shopA])
+    .then(
+      () => false,
+      () => true,
+    );
+  assert(
+    shopDeleteBlocked,
+    "S3: canonical Shopify content with live receipts was deletable.",
+  );
+  console.log(
+    `${LABEL} S3 PASS Shopify inbound FKs: ${shopFk.rowCount} typed reference paths intact, receipt FK is RESTRICT, receipt-referenced content is undeletable`,
+  );
+
+  // ── S4. A genuine change appends; a failed observation shares content but
+  // keeps its own receipt, exactly as on the Meta side.
+  const shopB = await observeShopify("shop-b", "fetched", s2);
+  const shopFailed = await observeShopify("shop-a", "failed", s2);
+  assert(
+    shopB !== shopA,
+    "S4: a changed Shopify payload was folded into the previous content.",
+  );
+  assert(
+    shopFailed === shopA,
+    "S4: identical Shopify bytes were duplicated because the observation failed.",
+  );
+  const shopStatuses = await client.query<{ status: string }>(
+    `SELECT DISTINCT status FROM shopify_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid ORDER BY status`,
+    [shopA],
+  );
+  assert(
+    shopStatuses.rows.some((row) => row.status === "failed") &&
+      shopStatuses.rows.some((row) => row.status === "fetched"),
+    `S4: Shopify failure cadence not preserved: ${JSON.stringify(shopStatuses.rows)}`,
+  );
+  console.log(
+    `${LABEL} S4 PASS Shopify change + failure cadence: a changed payload appends, a failed observation shares content but keeps its own receipt`,
+  );
+
+  // ── S5. Legacy compatibility and concurrent repeat collapse. A pre-model row
+  // must keep NULL content_key and never be rewritten; three concurrent
+  // identical writes must converge on one canonical row.
+  const shopLegacy = await client.query<{ id: string }>(
+    `INSERT INTO shopify_raw_snapshots
+       (business_id, provider_account_id, endpoint_name, entity_scope,
+        start_date, end_date, payload_json, payload_hash, status, fetched_at)
+     VALUES ($1, $2, 'orders', 'shop', DATE '2026-02-01', DATE '2026-02-01',
+             '{}'::jsonb, 'shop-legacy', 'fetched', TIMESTAMPTZ '2026-02-01T05:00:00Z')
+     RETURNING id::text AS id`,
+    [BUSINESS_ID, SHOP],
+  );
+  const concurrentShop = await Promise.all([
+    observeShopify("shop-concurrent", "fetched", "2026-03-05T01:00:00.000Z"),
+    observeShopify("shop-concurrent", "fetched", "2026-03-05T01:00:00.000Z"),
+    observeShopify("shop-concurrent", "fetched", "2026-03-05T01:00:00.000Z"),
+  ]);
+  assert(
+    new Set(concurrentShop).size === 1,
+    `S5: concurrent identical Shopify content did not converge: ${JSON.stringify(concurrentShop)}`,
+  );
+  const concurrentShopReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM shopify_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid`,
+    [concurrentShop[0]],
+  );
+  // Same content, same status, same instant is ONE observation replayed — it
+  // heartbeats rather than appending, which is the identity rule, not a loss.
+  assert(
+    Number(concurrentShopReceipts.rows[0]!.count) === 1,
+    `S5: an identical replayed observation appended instead of heartbeating (${concurrentShopReceipts.rows[0]!.count} receipts).`,
+  );
+  const shopLegacyUntouched = await client.query<{
+    content_key: string | null;
+    observation_count: string;
+  }>(
+    `SELECT content_key, observation_count::text AS observation_count
+     FROM shopify_raw_snapshots WHERE id = $1::uuid`,
+    [shopLegacy.rows[0]!.id],
+  );
+  assert(
+    shopLegacyUntouched.rows[0]!.content_key === null,
+    "S5: a legacy Shopify row was rewritten with a content_key; legacy data must not be reinterpreted.",
+  );
+  const shopLegacyReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM shopify_raw_snapshot_observations
+     WHERE snapshot_id = $1::uuid`,
+    [shopLegacy.rows[0]!.id],
+  );
+  assert(
+    Number(shopLegacyReceipts.rows[0]!.count) === 0,
+    "S5: a legacy Shopify row was retro-fitted with receipts; no backfill is permitted.",
+  );
+  console.log(
+    `${LABEL} S5 PASS Shopify legacy + concurrency: a pre-model row keeps NULL content_key with zero receipts, and 3 concurrent identical writes converge to 1 canonical row with 1 heartbeat receipt`,
+  );
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1887,6 +2093,7 @@ async function main() {
     const shared = await verifyGoogle(client);
     await verifyMeta(client, shared);
     await verifyRawSnapshotModel(client);
+    await verifyShopifyRawSnapshotModel(client);
     void shared;
 
     console.log(`${LABEL} PASS`);

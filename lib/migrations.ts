@@ -6410,6 +6410,66 @@ export async function runMigrations(options?: {
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        // ── Shopify two-layer content + observation ────────────────────────
+        //
+        // Same principle and the same shapes as meta_raw_snapshots, applied to
+        // the same problem: a large majority of rows are exact repeats of a
+        // payload already stored. Only the tables differ — there is no second
+        // decision core, so the model is deliberately identical rather than
+        // re-invented.
+        //
+        // Additive: content_key is set by NEW writes only, so the partial
+        // unique index cannot collide with the existing duplicates and no
+        // rewrite of the table is needed.
+        sql`ALTER TABLE shopify_raw_snapshots
+          ADD COLUMN IF NOT EXISTS content_key TEXT`.catch(() => {}),
+        sql`ALTER TABLE shopify_raw_snapshots
+          ADD COLUMN IF NOT EXISTS first_observed_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_raw_snapshots
+          ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE shopify_raw_snapshots
+          ADD COLUMN IF NOT EXISTS observation_count INTEGER NOT NULL DEFAULT 1`.catch(
+          () => {},
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS shopify_raw_snapshots_content_identity
+          ON shopify_raw_snapshots (content_key)
+          WHERE content_key IS NOT NULL`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_raw_snapshot_observations (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          snapshot_id          UUID NOT NULL
+                               REFERENCES shopify_raw_snapshots(id) ON DELETE RESTRICT,
+          business_id          TEXT NOT NULL,
+          provider_account_id  TEXT NOT NULL,
+          endpoint_name        TEXT NOT NULL,
+          entity_scope         TEXT NOT NULL,
+          status               TEXT NOT NULL,
+          provider_http_status INTEGER,
+          request_context      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          response_headers     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          observed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          first_observed_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_observed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          observation_count    INTEGER NOT NULL DEFAULT 1,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        // Shopify snapshots have no partition/run/checkpoint lifecycle, so the
+        // receipt identity is (content, status, instant) — the same rule as on
+        // the Meta side, minus the columns that do not exist here.
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS shopify_raw_snapshot_observations_identity
+          ON shopify_raw_snapshot_observations (snapshot_id, status, observed_at)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshot_observations_retention
+          ON shopify_raw_snapshot_observations (observed_at ASC, id ASC)`.catch(
+          () => {},
+        ),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshot_observations_snapshot
+          ON shopify_raw_snapshot_observations (snapshot_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshot_observations_timeline
+          ON shopify_raw_snapshot_observations (
+            business_id, provider_account_id, endpoint_name, observed_at DESC
+          )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_business
           ON shopify_raw_snapshots (business_id, fetched_at DESC)`.catch(
           () => {},

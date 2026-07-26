@@ -652,6 +652,14 @@ export async function syncShopifyCommerceReports(
       const maxHistoricalChunksPerRun = shopifyHistoricalChunksPerRun();
 
       for (let chunkIndex = 0; chunkIndex < maxHistoricalChunksPerRun; chunkIndex += 1) {
+        // Re-admitted per CHUNK. A historical backfill run walks many chunks,
+        // each of which calls Shopify and writes orders, returns and cursor
+        // state. Admitting once at the top means a lane disabled or a disk
+        // filled during the run is not noticed until every remaining chunk has
+        // already been fetched and written.
+        assertSyncLaneEnabled("shopify_sync");
+        await assertSyncGrowthBoundary("shopify_historical_chunk", { fresh: true });
+
         const ordersChunk = computeHistoricalChunk({
           targetStartDate: historical.targetStartDate,
           targetEndDate: historical.targetEndDate,

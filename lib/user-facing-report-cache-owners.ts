@@ -1,3 +1,5 @@
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { getGa4EcommerceFallbackData } from "@/lib/ga4-ecommerce-fallback";
 import {
   GA4_DEMOGRAPHICS_DIMENSIONS,
@@ -55,6 +57,12 @@ export async function warmGa4UserFacingRouteReportCache(input: {
   endDate: string;
   dimension?: string | null;
 }) {
+  // The cache warmer is a PROVIDER CALL and a durable cache write, so it is
+  // admitted like any other source-related work unit. It sits outside the sync
+  // lanes' obvious surface — it is invoked from report routes and from the GA4
+  // sweep — which is exactly why it kept calling providers during a quiesce.
+  assertSyncLaneEnabled("source_ingest");
+  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
   const normalizedDimension =
     input.reportType === "ga4_detailed_demographics"
       ? normalizeDemographicsDimension(input.dimension)
@@ -106,6 +114,12 @@ export async function warmGa4EcommerceFallbackCache(input: {
   startDate: string;
   endDate: string;
 }) {
+  // The cache warmer is a PROVIDER CALL and a durable cache write, so it is
+  // admitted like any other source-related work unit. It sits outside the sync
+  // lanes' obvious surface — it is invoked from report routes and from the GA4
+  // sweep — which is exactly why it kept calling providers during a quiesce.
+  assertSyncLaneEnabled("source_ingest");
+  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
   const payload = await runWithGoogleRequestAuditContext(
     {
       provider: "ga4",
@@ -156,6 +170,12 @@ export async function warmShopifyOverviewReportCache(input: {
   endDate: string;
   forceRefresh?: boolean;
 }) {
+  // The cache warmer is a PROVIDER CALL and a durable cache write, so it is
+  // admitted like any other source-related work unit. It sits outside the sync
+  // lanes' obvious surface — it is invoked from report routes and from the GA4
+  // sweep — which is exactly why it kept calling providers during a quiesce.
+  assertSyncLaneEnabled("source_ingest");
+  await assertSyncGrowthBoundary("user_facing_report_cache_warm", { fresh: true });
   const payload = await getShopifyOverviewAggregate({
     businessId: input.businessId,
     startDate: input.startDate,

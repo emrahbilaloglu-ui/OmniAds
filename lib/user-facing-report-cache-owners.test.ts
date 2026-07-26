@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/ga4-user-facing-reports", () => ({
   GA4_DEMOGRAPHICS_DIMENSIONS: [
@@ -31,6 +31,16 @@ vi.mock("@/lib/reporting-cache-writer", () => ({
   writeCachedRouteReport: vi.fn(),
 }));
 
+/**
+ * The warmer is a provider call and a durable cache write, so it is admitted
+ * like any other source-related work unit. These cases exercise what it writes
+ * once admitted; the refusal itself is asserted separately below.
+ */
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: vi.fn() };
+});
+
 vi.mock("@/lib/shopify/overview", () => ({
   getShopifyOverviewAggregate: vi.fn(),
 }));
@@ -39,6 +49,7 @@ const ga4Reports = await import("@/lib/ga4-user-facing-reports");
 const fallback = await import("@/lib/ga4-ecommerce-fallback");
 const reportingCacheWriter = await import("@/lib/reporting-cache-writer");
 const shopifyOverview = await import("@/lib/shopify/overview");
+const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
 const {
   warmGa4UserFacingRouteReportCache,
   warmGa4EcommerceFallbackCache,
@@ -46,7 +57,14 @@ const {
 } = await import("@/lib/user-facing-report-cache-owners");
 
 describe("user-facing report cache owners", () => {
+  const savedEnv = { ...process.env };
   beforeEach(() => {
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_SOURCE_INGEST_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
     vi.resetAllMocks();
     vi.mocked(ga4Reports.getGa4UserFacingRoutePayload).mockResolvedValue({ rows: [] } as never);
     vi.mocked(fallback.getGa4EcommerceFallbackData).mockResolvedValue({
@@ -149,5 +167,31 @@ describe("user-facing report cache owners", () => {
         wrote: true,
       }),
     );
+  });
+});
+
+describe("user-facing report cache warmer admission", () => {
+  const savedEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("makes no provider call and writes no cache under global-off", async () => {
+    // The warmer is invoked from report routes and from the GA4 sweep, which is
+    // exactly why it kept calling providers during a quiesce: it sits outside
+    // the sync lanes' obvious surface.
+    vi.clearAllMocks();
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    await expect(
+      warmGa4UserFacingRouteReportCache({
+        businessId: "biz_1",
+        reportType: "ga4_analytics_overview",
+        startDate: "2026-01-01",
+        endDate: "2026-01-07",
+      }),
+    ).rejects.toMatchObject({ name: "SyncLaneDisabledError" });
+    expect(ga4Reports.getGa4UserFacingRoutePayload).not.toHaveBeenCalled();
+    expect(reportingCacheWriter.writeCachedRouteReport).not.toHaveBeenCalled();
+    expect(reportingCacheWriter.writeCachedReportSnapshot).not.toHaveBeenCalled();
   });
 });

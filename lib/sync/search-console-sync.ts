@@ -125,6 +125,12 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
   let failed = 0;
 
   for (const window of DATE_WINDOWS) {
+    // Re-admitted per WINDOW. Each window is its own provider call group and
+    // its own cache/job write; admitting once at the top says nothing about
+    // whether the fourth window is still allowed to run.
+    assertSyncLaneEnabled("source_ingest");
+    await assertSyncGrowthBoundary("search_console_report_window", { fresh: true });
+
     const { startDate, endDate } = buildDateRange(window.days);
     const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
     const dateRangeKey = `${startDate}:${endDate}`;

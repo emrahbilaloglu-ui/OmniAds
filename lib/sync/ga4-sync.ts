@@ -121,6 +121,15 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
   let failed = 0;
 
   for (const window of GA4_AUTO_WARM_DATE_WINDOWS) {
+    // Re-admitted per WINDOW, before the job row that starts it.
+    //
+    // Admission once at the top covers a run that may take many minutes across
+    // several windows, each of which calls the provider and writes a cache and a
+    // job row. A lane disabled or a disk filled after the first window would
+    // otherwise be discovered only when the whole run finished.
+    assertSyncLaneEnabled("source_ingest");
+    await assertSyncGrowthBoundary("ga4_report_window", { fresh: true });
+
     const { startDate, endDate } = buildDateRange(window.days);
     const searchParams = new URLSearchParams({ businessId, startDate, endDate });
     const dateRangeKey = getNormalizedSearchParamsKey(searchParams);

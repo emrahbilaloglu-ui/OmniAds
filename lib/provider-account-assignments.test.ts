@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  // The selection writer runs identity upsert, binding upsert, deselect and
+  // exact readback in one transaction; run it inline here.
+  runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 vi.mock("@/lib/provider-account-reference-store", () => ({
@@ -24,6 +27,25 @@ describe("provider account assignments", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       queries.push(query);
+      // Physical identity validation: the writer refuses to bind an account
+      // whose provider_accounts row it cannot resolve, so the fake must answer
+      // it truthfully rather than let the writer proceed on an empty result.
+      if (query.includes("FROM provider_accounts")) {
+        return [
+          { id: "pa-1", external_account_id: "acc_1" },
+          { id: "pa-2", external_account_id: "acc_2" },
+        ];
+      }
+      // Exact in-transaction readback of the selected set, in order. Keyed on
+      // the absence of ARRAY_AGG so it cannot shadow the aggregate reader,
+      // which selects from the same two tables.
+      if (
+        query.includes("bpa.is_selected") &&
+        !query.includes("ARRAY_AGG") &&
+        query.includes("ORDER BY bpa.position")
+      ) {
+        return [{ account_id: "acc_1" }, { account_id: "acc_2" }];
+      }
       if (query.includes("FROM business_provider_accounts")) {
         return [
           {
@@ -51,6 +73,10 @@ describe("provider account assignments", () => {
     expect(queries.join("\n")).toContain("INSERT INTO provider_accounts");
     expect(queries.join("\n")).toContain("INSERT INTO business_provider_accounts");
     expect(queries.join("\n")).toContain("business_ref_id");
+    // Identity bindings must survive deselection.
+    expect(queries.join("\n")).not.toContain("DELETE FROM business_provider_accounts");
+    expect(queries.join("\n")).toContain("SET is_selected = FALSE");
+    expect(queries.join("\n")).toContain("pg_advisory_xact_lock_shared");
   });
 
   it("reads aggregated assignments from normalized rows", async () => {

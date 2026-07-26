@@ -975,6 +975,72 @@ export async function runMigrations(options?: {
           updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider, provider_account_ref_id)
         )`,
+        // ── Selection contract (additive, ordered) ─────────────────────────
+        //
+        // business_provider_accounts is BOTH the immutable historical identity
+        // binding and the source of the current account selection. Those two
+        // roles are split by is_selected: a row is created once and never
+        // deleted when the user deselects an account, only marked unselected.
+        // Deleting it would break the many inbound references that treat a
+        // binding as historical identity.
+        //
+        // Cutover ordering matters and is deliberate:
+        //   1. ADD COLUMN ... NOT NULL DEFAULT TRUE. Every legacy row DID
+        //      represent the current selection, so they must be admitted as
+        //      selected. Crucially this also covers concurrent inserts from
+        //      still-running old code during the cutover, which would otherwise
+        //      be silently born deselected and would drop accounts out of sync.
+        //      On PG11+ this is metadata-only: no heap rewrite.
+        //   2. Prove the column exists with the exact type and NOT NULL.
+        //   3. Only THEN switch the default to FALSE, so from here on any
+        //      insert that forgets the column fails closed to unselected and
+        //      only the assignment writer may declare an account selected.
+        sql`ALTER TABLE business_provider_accounts
+          ADD COLUMN IF NOT EXISTS is_selected BOOLEAN NOT NULL DEFAULT TRUE`.catch(
+          () => {},
+        ),
+        sql`
+          DO $business_provider_accounts_selection_contract$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'business_provider_accounts'
+                AND column_name = 'is_selected'
+                AND data_type = 'boolean'
+                AND is_nullable = 'NO'
+            ) THEN
+              RAISE EXCEPTION
+                'business_provider_accounts.is_selected must exist as BOOLEAN NOT NULL';
+            END IF;
+          END
+          $business_provider_accounts_selection_contract$
+        `,
+        sql`ALTER TABLE business_provider_accounts
+          ALTER COLUMN is_selected SET DEFAULT FALSE`.catch(() => {}),
+        sql`
+          DO $business_provider_accounts_selection_default$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'business_provider_accounts'
+                AND column_name = 'is_selected'
+                AND column_default = 'false'
+            ) THEN
+              RAISE EXCEPTION
+                'business_provider_accounts.is_selected must default to FALSE after cutover';
+            END IF;
+          END
+          $business_provider_accounts_selection_default$
+        `,
+        // Current-selection lookups always filter is_selected, so the index is
+        // partial on exactly that predicate.
+        sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_selected
+          ON business_provider_accounts (business_id, provider, position, id)
+          WHERE is_selected`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_runs (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,

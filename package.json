@@ -110,7 +110,8 @@
     "db:sync:local-businesses": "node --import tsx scripts/sync-local-businesses.ts",
     "local:db:ensure": "node --import tsx scripts/ensure-local-postgres.ts",
     "db:architecture:baseline": "node --import tsx scripts/db-architecture-baseline.ts",
-    "db:architecture:baseline:runtime": "node --import tsx scripts/db-architecture-baseline.ts --runtime-only"
+    "db:architecture:baseline:runtime": "node --import tsx scripts/db-architecture-baseline.ts --runtime-only",
+    "test:provider-fixture-seam": "node --import tsx scripts/ephemeral-postgres-provider-fixture-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

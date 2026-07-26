@@ -1604,17 +1604,26 @@ async function verifyHistoricalEvidenceAmplification(
     [BUSINESS_ID, META_ACCOUNT_ID, accountToday, HISTORICAL_WORKER_ID],
   );
   const beforeToday = await readEvidenceCensus(client);
-  await syncMetaAccountCoreWarehouseDay({
-    credentials,
-    accountId: META_ACCOUNT_ID,
-    day: accountToday,
-    partitionId: todayPartition.rows[0]!.id,
-    workerId: HISTORICAL_WORKER_ID,
-    leaseEpoch: Number(todayPartition.rows[0]!.lease_epoch),
-    attemptCount: 1,
-    leaseMinutes: 15,
-    freshStart: true,
-  } as never).catch(() => undefined);
+  // Errors are NOT swallowed. `.catch(() => undefined)` here made every
+  // assertion below conditional on the sync having worked, which is exactly the
+  // thing under test: a run that threw before reaching the config writer would
+  // have produced the same "unchanged config legitimately coalesces" reading.
+  const runToday = (partitionId: string, leaseEpoch: number) =>
+    syncMetaAccountCoreWarehouseDay({
+      credentials,
+      accountId: META_ACCOUNT_ID,
+      day: accountToday,
+      partitionId,
+      workerId: HISTORICAL_WORKER_ID,
+      leaseEpoch,
+      attemptCount: 1,
+      leaseMinutes: 15,
+      freshStart: true,
+    } as never);
+  await runToday(
+    todayPartition.rows[0]!.id,
+    Number(todayPartition.rows[0]!.lease_epoch),
+  );
   const afterToday = await readEvidenceCensus(client);
   // Current evidence WAS recorded. It does not have to be a new run: the
   // semantic heartbeat coalesces identical truth by design, so an unchanged
@@ -1650,8 +1659,144 @@ async function verifyHistoricalEvidenceAmplification(
     Number(todaySnapshot.rows[0]!.count) > 0,
     `C3: no config snapshot exists for the account's own today, so the current-config writer was never reached: ${JSON.stringify({ beforeToday, afterToday })}`,
   );
+
+  // ── C3b. TYPED config history, which was unreachable in every case ────────
+  //
+  // `appendConfigHistory` on the daily writers fires only when
+  // `truthState === "finalized"`; current evidence exists only on a PROVISIONAL
+  // today. Mutually exclusive, so `meta_campaign_config_history` and
+  // `meta_adset_config_history` received nothing at all — and even had it fired,
+  // every row would have been dropped because `captured_at` was null on a
+  // provisional day. Nonzero rows with exact provenance is the whole point.
+  const readTypedConfig = async (table: "campaign" | "adset") =>
+    (
+      await client.query<{
+        config_fingerprint: string;
+        captured_at: string;
+        source_kind: string;
+        effective_from: string;
+      }>(
+        `SELECT config_fingerprint, captured_at::text AS captured_at, source_kind,
+                effective_from::text AS effective_from
+         FROM meta_${table}_config_history
+         WHERE business_id = $1 AND provider_account_id = $2
+         ORDER BY captured_at ASC`,
+        [BUSINESS_ID, META_ACCOUNT_ID],
+      )
+    ).rows;
+
+  for (const table of ["campaign", "adset"] as const) {
+    const rows = await readTypedConfig(table);
+    assert(
+      rows.length > 0,
+      `C3b: meta_${table}_config_history is EMPTY after a current provisional day; the typed config writer is unreachable.`,
+    );
+    assert(
+      rows.every((row) => row.source_kind === "warehouse_daily"),
+      `C3b: meta_${table}_config_history rows have unexpected provenance: ${JSON.stringify(rows.map((row) => row.source_kind))}`,
+    );
+    assert(
+      rows.every((row) => row.effective_from === accountToday),
+      `C3b: meta_${table}_config_history rows are not dated to the account's own today (${accountToday}): ${JSON.stringify(rows.map((row) => row.effective_from))}`,
+    );
+    // A REAL observation time, not a synthetic midnight. captured_at is part of
+    // the arbiter, so a fabricated one collapses genuinely different
+    // observations and backdates a configuration to the start of the day.
+    assert(
+      rows.every((row) => !/ 00:00:00(\.0+)?\+00$/.test(row.captured_at)),
+      `C3b: meta_${table}_config_history captured_at is a synthetic midnight: ${JSON.stringify(rows.map((row) => row.captured_at))}`,
+    );
+  }
+  const campaignAfterFirst = await readTypedConfig("campaign");
+  const adsetAfterFirst = await readTypedConfig("adset");
+
+  // Repeat: the same configuration observed again must not append a second row
+  // per entity for the same fingerprint on the same day.
+  const leaseTodayAgain = async () =>
+    (
+      await client.query<{ id: string; lease_epoch: string }>(
+        `UPDATE meta_sync_partitions
+         SET status = 'leased', lease_owner = $4,
+             lease_expires_at = now() + interval '10 minutes', updated_at = now()
+         WHERE business_id = $1 AND provider_account_id = $2
+           AND lane = 'core' AND scope = 'account_daily' AND partition_date = $3::date
+         RETURNING id::text AS id, lease_epoch::text AS lease_epoch`,
+        [BUSINESS_ID, META_ACCOUNT_ID, accountToday, HISTORICAL_WORKER_ID],
+      )
+    ).rows[0]!;
+  const second = await leaseTodayAgain();
+  await runToday(second.id, Number(second.lease_epoch));
+  const campaignAfterRepeat = await readTypedConfig("campaign");
+  assert(
+    campaignAfterRepeat.length === campaignAfterFirst.length,
+    `C3b: repeating an identical observation appended ${campaignAfterRepeat.length - campaignAfterFirst.length} campaign config-history rows; identical configuration must coalesce.`,
+  );
+
+  // Concurrency: four identical runs racing must also coalesce. This is the
+  // shape a retry storm produces, and it is where a read-then-insert without an
+  // arbiter duplicates.
+  const concurrentLeases = [];
+  for (let i = 0; i < 4; i += 1) concurrentLeases.push(await leaseTodayAgain());
+  await Promise.all(
+    concurrentLeases.map((lease) =>
+      runToday(lease.id, Number(lease.lease_epoch)).catch((error: unknown) => {
+        // A lease conflict between racing runs is legitimate and expected; a
+        // schema or writer error is not, and must not be hidden.
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/lease|partition/i.test(message)) throw error;
+      }),
+    ),
+  );
+  const campaignAfterConcurrent = await readTypedConfig("campaign");
+  assert(
+    campaignAfterConcurrent.length === campaignAfterFirst.length,
+    `C3b: 4 concurrent identical runs appended ${campaignAfterConcurrent.length - campaignAfterFirst.length} campaign config-history rows.`,
+  );
+
+  // A -> B -> A. A genuine change must append, and the REVERT must append too:
+  // an operator needs to see that the account went back, not that it never
+  // moved.
+  const originalCampaignBudget = metaConfigVariant.campaignDailyBudget;
+  metaConfigVariant.campaignDailyBudget = "77000";
+  const bLease = await leaseTodayAgain();
+  await runToday(bLease.id, Number(bLease.lease_epoch));
+  const afterB = await readTypedConfig("campaign");
+  assert(
+    afterB.length > campaignAfterFirst.length,
+    `C3b: changing the campaign daily budget did not append a config-history row (${campaignAfterFirst.length} -> ${afterB.length}).`,
+  );
+  metaConfigVariant.campaignDailyBudget = originalCampaignBudget;
+  const aLease = await leaseTodayAgain();
+  await runToday(aLease.id, Number(aLease.lease_epoch));
+  const afterRevert = await readTypedConfig("campaign");
+  assert(
+    afterRevert.length > afterB.length,
+    `C3b: reverting the campaign daily budget did not append (${afterB.length} -> ${afterRevert.length}); a revert is a transition.`,
+  );
+  const fingerprints = afterRevert.map((row) => row.config_fingerprint);
+  assert(
+    fingerprints[0] === fingerprints[fingerprints.length - 1] &&
+      new Set(fingerprints).size === 2,
+    `C3b: A->B->A did not produce the A,B,A fingerprint sequence: ${JSON.stringify(fingerprints)}`,
+  );
+
+  // Consumer readback: the surface that reads this history must see all three.
+  const readback = await client.query<{ config_fingerprint: string; captured_at: string }>(
+    `SELECT config_fingerprint, captured_at::text AS captured_at
+     FROM meta_campaign_config_history
+     WHERE business_id = $1 AND provider_account_id = $2
+       AND effective_from = $3::date
+     ORDER BY captured_at DESC`,
+    [BUSINESS_ID, META_ACCOUNT_ID, accountToday],
+  );
+  assert(
+    readback.rows.length === afterRevert.length &&
+      readback.rows[0]!.config_fingerprint === fingerprints[fingerprints.length - 1],
+    `C3b: the day-scoped consumer read returned ${readback.rows.length} rows with newest fingerprint ${readback.rows[0]?.config_fingerprint}, expected ${afterRevert.length} and ${fingerprints[fingerprints.length - 1]}.`,
+  );
+
   console.log(
-    `${LABEL} C3 PASS current evidence preserved: the account's own today added ${afterToday.entityObservationRuns - beforeToday.entityObservationRuns} observation runs and ${afterToday.entityStateHistory - beforeToday.entityStateHistory} entity state rows, and holds ${todaySnapshot.rows[0]!.count} config snapshots for today (unchanged config legitimately coalesces rather than appending)`,
+    `${LABEL} C3 PASS current evidence preserved: the account's own today added ${afterToday.entityObservationRuns - beforeToday.entityObservationRuns} observation runs and ${afterToday.entityStateHistory - beforeToday.entityStateHistory} entity state rows, holds ${todaySnapshot.rows[0]!.count} config snapshots for today, and wrote ${campaignAfterFirst.length} campaign / ${adsetAfterFirst.length} adset TYPED config-history rows with source_kind=warehouse_daily, effective_from=${accountToday} and non-midnight captured_at; a repeat and 4 concurrent identical runs each added 0 rows; A->B->A produced ${afterRevert.length} rows with fingerprints ${JSON.stringify(fingerprints)}; the day-scoped consumer read returns all of them, newest first (sync errors are NOT swallowed anywhere in this case)`,
   );
 }
 

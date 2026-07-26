@@ -609,11 +609,86 @@ async function main() {
     assert(
       selectedIndex.rowCount === 1 &&
         selectedIndex.rows[0]!.indisvalid &&
-        selectedIndex.rows[0]!.indexdef.includes("WHERE is_selected"),
+        selectedIndex.rows[0]!.indexdef.includes(
+          "(business_id, provider, \"position\", id)",
+        ) &&
+        selectedIndex.rows[0]!.indexdef.endsWith("WHERE is_selected"),
       `U3: the selected-index definition is wrong or invalid: ${JSON.stringify(selectedIndex.rows)}`,
     );
+
+    // U3b: the arbiter and index DRIFTS that every name-and-fragment check
+    // accepted, proven to be refused on an UPGRADED catalog rather than only on
+    // a fresh one.
+    const { verifyMigrationSchemaContract } = await import(
+      "@/lib/migration-verification"
+    );
+    const drifts: Array<{ label: string; break: string; restore: string }> = [
+      {
+        // 42P10: a same-name PARTIAL unique index over the exact four columns.
+        // Valid, unique, correctly named — and an unqualified ON CONFLICT
+        // cannot infer it, so every repair-plan write fails at runtime.
+        label: "partial repair-plan arbiter",
+        break: `DROP INDEX sync_repair_plans_scope_mode_identity;
+          CREATE UNIQUE INDEX sync_repair_plans_scope_mode_identity
+            ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)
+            WHERE eligible`,
+        restore: `DROP INDEX sync_repair_plans_scope_mode_identity;
+          CREATE UNIQUE INDEX sync_repair_plans_scope_mode_identity
+            ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)`,
+      },
+      {
+        label: "subset repair-plan arbiter",
+        break: `DROP INDEX sync_repair_plans_scope_mode_identity;
+          CREATE UNIQUE INDEX sync_repair_plans_scope_mode_identity
+            ON sync_repair_plans (build_id, environment)`,
+        restore: `DROP INDEX sync_repair_plans_scope_mode_identity;
+          CREATE UNIQUE INDEX sync_repair_plans_scope_mode_identity
+            ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)`,
+      },
+      {
+        label: "(id) WHERE is_selected drift",
+        break: `DROP INDEX idx_business_provider_accounts_selected;
+          CREATE INDEX idx_business_provider_accounts_selected
+            ON business_provider_accounts (id) WHERE is_selected`,
+        restore: `DROP INDEX idx_business_provider_accounts_selected;
+          CREATE INDEX idx_business_provider_accounts_selected
+            ON business_provider_accounts (business_id, provider, position, id)
+            WHERE is_selected`,
+      },
+    ];
+    for (const drift of drifts) {
+      await client.query(drift.break);
+      if (drift.label === "partial repair-plan arbiter") {
+        const runtime = await client
+          .query(
+            `INSERT INTO sync_repair_plans (build_id, environment, provider_scope,
+               plan_mode, eligible, summary, payload_json)
+             VALUES ('u3b','production','meta','dry_run', TRUE, 's', '{}'::jsonb)
+             ON CONFLICT (build_id, environment, provider_scope, plan_mode)
+             DO UPDATE SET summary = EXCLUDED.summary`,
+          )
+          .then(
+            () => null,
+            (error: unknown) => (error as { code?: string })?.code ?? "unknown",
+          );
+        assert(
+          runtime === "42P10",
+          `U3b: a partial arbiter returned ${runtime} at runtime, expected 42P10.`,
+        );
+      }
+      const refused = await verifyMigrationSchemaContract().then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+      );
+      assert(
+        refused != null,
+        `U3b: the upgraded catalog ACCEPTED the ${drift.label}.`,
+      );
+      await client.query(drift.restore);
+    }
+    await verifyMigrationSchemaContract();
     console.log(
-      `${LABEL} U3 PASS selection cutover: all ${selection.rows[0]!.total} bindings admitted as selected including the legacy assignment-table import, the final column default is false, 0 identity mismatches, and the partial selected index is valid with its exact predicate`,
+      `${LABEL} U3 PASS selection cutover: all ${selection.rows[0]!.total} bindings admitted as selected including the legacy assignment-table import, the final column default is false, 0 identity mismatches, the partial selected index is valid with its exact ordered keys and predicate, and on this UPGRADED catalog a partial arbiter (42P10 at runtime), a subset arbiter and an (id) WHERE is_selected drift are each refused before the restored catalog verifies clean`,
     );
 
     // ── U4. Old readers and new readers agree ─────────────────────────────

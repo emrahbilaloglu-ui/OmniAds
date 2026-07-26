@@ -56,6 +56,7 @@ import {
   upsertMetaCampaignDailyRows,
   upsertMetaBreakdownDailyRows,
   upsertMetaSyncPhaseTiming,
+  appendMetaCurrentConfigHistory,
 } from "@/lib/meta/warehouse";
 import {
   resolveMetaRawSnapshotFetchUrl,
@@ -133,6 +134,7 @@ type MetaAccountCoreSubStageName =
   | "syncMetaAccountCoreWarehouseDay.write_ad_daily"
   | "syncMetaAccountCoreWarehouseDay.persist_campaign_config_snapshots"
   | "syncMetaAccountCoreWarehouseDay.append_adset_config_snapshots"
+  | "syncMetaAccountCoreWarehouseDay.append_current_config_history"
   | "syncMetaAccountCoreWarehouseDay.refresh_overview_summary"
   | "syncMetaAccountCoreWarehouseDay.finalize_phase_timings";
 
@@ -2707,6 +2709,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let campaignStatuses = new Map<string, string>();
   let adsetConfigs = new Map<string, RawAdSet>();
   let campaignConfigs = new Map<string, RawCampaign>();
+  /**
+   * When the provider actually returned this account's current configuration.
+   *
+   * `captured_at` is part of the config-history arbiter, so this is the value
+   * that decides whether a repeat observation coalesces or appends. It is only
+   * ever set from a real receipt; there is no fallback, because a fabricated
+   * timestamp is precisely the fact this table exists to record.
+   */
+  let currentConfigObservedAt: string | null = null;
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -2887,6 +2898,15 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           }),
         ]);
       }
+      // The real observation time of this configuration, taken from the receipt
+      // rather than from a clock at write time. `lastResponseObservedAt` is when
+      // the final page came back; `completedAt` is the receipt's own completion.
+      currentConfigObservedAt =
+        campaignReceipt.lastResponseObservedAt ??
+        campaignReceipt.completedAt ??
+        adsetReceipt.lastResponseObservedAt ??
+        adsetReceipt.completedAt ??
+        null;
       campaignConfigs = new Map(
         campaignReceipt.rows.map((campaign) => [campaign.id, campaign]),
       );
@@ -3788,6 +3808,45 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       }
     },
   });
+  // Typed campaign and adset config history for the CURRENT provisional day.
+  //
+  // This is a first-class write, not a side effect of a finalized daily write.
+  // The `appendConfigHistory` option threaded through the daily writers could
+  // never fire: those writers run only when `truthState === "finalized"`, and
+  // current evidence is permitted only on the account's own local today declared
+  // PROVISIONAL. Two mutually exclusive conditions, so both typed config-history
+  // tables received nothing at all.
+  //
+  // The write is driven off the same rows the daily path builds and stamped with
+  // the receipt's real observation time, so it shares the daily path's canonical
+  // semantic records and fingerprint. Failures propagate.
+  let currentConfigHistoryWritten = { campaignRowsWritten: 0, adsetRowsWritten: 0 };
+  await captureMetaAccountCoreSubStage({
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    partitionId: input.partitionId,
+    scope: partitionScope,
+    lane: partitionLane,
+    source: partitionSource,
+    day: normalizedDay,
+    stage: "syncMetaAccountCoreWarehouseDay.append_current_config_history",
+    run: async () => {
+      if (!currentEvidence.persistsCurrentConfigEvidence) return;
+      if (!currentConfigObservedAt) {
+        // Current evidence was permitted but no receipt recorded an observation
+        // time. That is a contradiction, not a reason to invent one.
+        throw new Error(
+          "meta_current_config_history_missing_observed_at:" +
+            `${input.credentials.businessId}:${input.accountId}:${normalizedDay}`,
+        );
+      }
+      currentConfigHistoryWritten = await appendMetaCurrentConfigHistory({
+        campaignRows,
+        adsetRows,
+        observedAt: currentConfigObservedAt,
+      });
+    },
+  });
   await captureMetaAccountCoreSubStage({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -3811,7 +3870,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         adRows.length
       : 0) +
     persistedCampaignConfigCount +
-    (truthState === "finalized" ? adsetSnapshotRows.length : 0);
+    (truthState === "finalized" ? adsetSnapshotRows.length : 0) +
+    currentConfigHistoryWritten.campaignRowsWritten +
+    currentConfigHistoryWritten.adsetRowsWritten;
   await upsertOwnedMetaPhaseTimingOrThrow({
     partitionId: input.partitionId,
     businessId: input.credentials.businessId,

@@ -91,6 +91,9 @@ vi.mock("@/lib/meta/warehouse", () => ({
   upsertMetaAdDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaAdSetDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaCampaignDailyRows: vi.fn().mockResolvedValue(undefined),
+  appendMetaCurrentConfigHistory: vi
+    .fn()
+    .mockResolvedValue({ campaignRowsWritten: 0, adsetRowsWritten: 0 }),
   updateMetaAuthoritativeSliceVersion: vi
     .fn()
     .mockImplementation(async (input) => input),
@@ -326,6 +329,10 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(
       undefined,
     );
+    vi.mocked(warehouse.appendMetaCurrentConfigHistory).mockResolvedValue({
+      campaignRowsWritten: 0,
+      adsetRowsWritten: 0,
+    });
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
       new Map(),
     );
@@ -751,6 +758,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       expect.anything(),
       expect.objectContaining({ appendConfigHistory: false }),
     );
+    // Typed config history is written HERE, by its own call, not as a side
+    // effect of a finalized daily write. `appendConfigHistory` on the daily
+    // writers only ever fired for `truthState === "finalized"`, and current
+    // evidence only exists on a PROVISIONAL today — mutually exclusive, so both
+    // typed tables received nothing at all until this call existed.
+    expect(warehouse.appendMetaCurrentConfigHistory).toHaveBeenCalledTimes(1);
+    const currentConfigCall = vi.mocked(warehouse.appendMetaCurrentConfigHistory)
+      .mock.calls[0]![0];
+    expect(currentConfigCall.campaignRows.length).toBeGreaterThan(0);
+    // A REAL observation timestamp from the receipt, not a synthetic midnight
+    // and not a clock read at write time. captured_at is part of the arbiter.
+    expect(currentConfigCall.observedAt).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    );
+    expect(currentConfigCall.observedAt).not.toContain("T00:00:00.000Z");
     const campaignObservationCall = vi
       .mocked(entityStateHistory.persistMetaEntityObservation)
       .mock.calls.map(([call]) => call)
@@ -2366,6 +2388,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       "syncMetaAccountCoreWarehouseDay.write_ad_daily",
       "syncMetaAccountCoreWarehouseDay.persist_campaign_config_snapshots",
       "syncMetaAccountCoreWarehouseDay.append_adset_config_snapshots",
+      "syncMetaAccountCoreWarehouseDay.append_current_config_history",
       "syncMetaAccountCoreWarehouseDay.refresh_overview_summary",
       "syncMetaAccountCoreWarehouseDay.finalize_phase_timings",
     ]);

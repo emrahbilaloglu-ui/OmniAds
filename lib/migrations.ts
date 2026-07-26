@@ -372,6 +372,61 @@ function orderedMigrationSteps(
   })();
 }
 
+/**
+ * Version of the legacy-import contract. Bump only to deliberately re-open every
+ * sealed import; a bump makes every deployment import again.
+ */
+const LEGACY_IMPORT_VERSION = 1;
+
+/**
+ * Run a legacy import exactly ONCE per database, ever.
+ *
+ * `ON CONFLICT ... DO NOTHING` stopped a rerun from overwriting canonical truth,
+ * which was the immediate bug. It did not stop a rerun from INSERTING. The
+ * legacy tables are still present and still writable, so a row that appears in
+ * `provider_account_assignments` after the first import — restored from a
+ * backup, written by an old code path, added by hand — hits no conflict on the
+ * next deploy and creates a brand-new canonical `business_provider_accounts` row
+ * with `is_selected = TRUE`. That is a deploy silently selecting an account
+ * nobody selected, and it starts syncing it.
+ *
+ * So the import is sealed: the first successful run records a durable marker
+ * with the row count it imported, and every later deploy skips the statement
+ * entirely. There is no path by which a late legacy row reaches canonical state.
+ */
+async function runSealedLegacyImport(
+  sql: DbClientLike,
+  input: {
+    importKey: string;
+    run: () => Promise<unknown>;
+  },
+): Promise<"imported" | "sealed"> {
+  const existing = (await sql.query(
+    `SELECT import_key FROM schema_legacy_import_state
+     WHERE import_key = $1 AND import_version = $2`,
+    [input.importKey, LEGACY_IMPORT_VERSION],
+  )) as Array<{ import_key: string }>;
+  if (existing.length > 0) return "sealed";
+
+  const result = (await input.run()) as unknown;
+  const importedRowCount = Array.isArray(result) ? result.length : 0;
+  await sql.query(
+    `INSERT INTO schema_legacy_import_state
+       (import_key, import_version, imported_row_count, completed_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (import_key) DO UPDATE SET
+       import_version = EXCLUDED.import_version,
+       imported_row_count = EXCLUDED.imported_row_count,
+       completed_at = EXCLUDED.completed_at`,
+    [input.importKey, LEGACY_IMPORT_VERSION, importedRowCount],
+  );
+  return "imported";
+}
+
+type DbClientLike = {
+  query: (text: string, params?: unknown[]) => Promise<unknown>;
+};
+
 function assertMigrationIdentifier(identifier: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
     throw new Error(`Unsafe migration identifier: ${identifier}`);
@@ -1968,10 +2023,27 @@ export async function runMigrations(options?: {
           WHERE NULLIF(account_id, '') IS NOT NULL
         `);
       }
-      await runMigrationBatchSequentially([
+      // The legacy imports run at most ONCE per database, in order.
+      //
+      // Two separate guarantees: `orderedMigrationSteps` because a batch array
+      // issues its statements concurrently and these depend on each other
+      // (connections need accounts; credentials need connections; snapshot items
+      // need snapshot runs), and `runSealedLegacyImport` because DO NOTHING only
+      // stops a rerun from OVERWRITING — it never stopped one from INSERTING a
+      // legacy row that appeared after the first import.
+      await sql`CREATE TABLE IF NOT EXISTS schema_legacy_import_state (
+        import_key         TEXT PRIMARY KEY,
+        import_version     INTEGER NOT NULL,
+        imported_row_count BIGINT NOT NULL DEFAULT 0,
+        completed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await orderedMigrationSteps([
         ...(providerAccountLegacySeedSources.length > 0
           ? [
-              sql.query(`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "provider_accounts_seed",
+                  run: () => sql.query(`
           INSERT INTO provider_accounts (
             provider,
             external_account_id,
@@ -2006,12 +2078,17 @@ export async function runMigrations(options?: {
           -- since — undoing a disconnect, a credential rotation, a snapshot
           -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
           ON CONFLICT (provider, external_account_id) DO NOTHING
+          RETURNING id
         `),
+                }),
             ]
           : []),
         ...(legacyIntegrationsAvailable
           ? [
-              sql`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "provider_connections_from_integrations",
+                  run: () => sql`
           INSERT INTO provider_connections (
             business_id,
             provider,
@@ -2050,12 +2127,17 @@ export async function runMigrations(options?: {
           -- 'connected' over a canonical disconnect would silently reconnect an
           -- integration the user turned off.
           ON CONFLICT (business_id, provider) DO NOTHING
+          RETURNING id
         `,
+                }),
             ]
           : []),
         ...(legacyIntegrationsAvailable
           ? [
-              sql`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "integration_credentials_from_integrations",
+                  run: () => sql`
           INSERT INTO integration_credentials (
             provider_connection_id,
             access_token,
@@ -2091,12 +2173,17 @@ export async function runMigrations(options?: {
           -- Secrets especially: a rerun must never put a rotated-away
           -- token back.
           ON CONFLICT (provider_connection_id) DO NOTHING
+          RETURNING id
         `,
+                }),
             ]
           : []),
         ...(legacyAssignmentsAvailable
           ? [
-              sql`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "business_provider_accounts_from_assignments",
+                  run: () => sql`
           INSERT INTO business_provider_accounts (
             business_id,
             provider,
@@ -2138,12 +2225,17 @@ export async function runMigrations(options?: {
           -- table still listed came back on the next migration run, and no
           -- selection change can survive a deploy under that rule.
           ON CONFLICT (business_id, provider, provider_account_ref_id) DO NOTHING
+          RETURNING id
         `,
+                }),
             ]
           : []),
         ...(legacySnapshotsAvailable
           ? [
-              sql`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "snapshot_runs_from_snapshots",
+                  run: () => sql`
           INSERT INTO provider_account_snapshot_runs (
             business_id,
             provider,
@@ -2189,12 +2281,17 @@ export async function runMigrations(options?: {
           -- current failed one would make a degraded discovery look fresh, and
           -- selection authority reads exactly those fields.
           ON CONFLICT (business_id, provider) DO NOTHING
+          RETURNING id
         `,
+                }),
             ]
           : []),
         ...(legacySnapshotsAvailable
           ? [
-              sql`
+              () =>
+                runSealedLegacyImport(sql, {
+                  importKey: "snapshot_items_from_snapshots",
+                  run: () => sql`
           INSERT INTO provider_account_snapshot_items (
             snapshot_run_id,
             provider_account_ref_id,
@@ -2240,7 +2337,9 @@ export async function runMigrations(options?: {
           -- since — undoing a disconnect, a credential rotation, a snapshot
           -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
           ON CONFLICT (snapshot_run_id, provider_account_id) DO NOTHING
+          RETURNING id
         `,
+                }),
             ]
           : []),
       ]);

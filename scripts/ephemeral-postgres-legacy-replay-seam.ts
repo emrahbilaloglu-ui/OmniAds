@@ -401,33 +401,78 @@ async function main() {
       `${LABEL} L2-L3 PASS replay safety: after a disconnect, a credential rotation, a deselection and a snapshot refresh, 3 full migration reruns left every canonical row and both secrets byte-identical`,
     );
 
-    // L4: a legacy row for an account canonical state has never seen is still
-    // imported, because the contract is insert-missing-only rather than
-    // do-nothing-ever.
+    // L4: the SEAL. A legacy row that appears AFTER the first successful import
+    // must never reach canonical state.
+    //
+    // `ON CONFLICT ... DO NOTHING` stopped a rerun from overwriting canonical
+    // truth. It never stopped one from INSERTING: a row added to
+    // `provider_account_assignments` after the import — restored from a backup,
+    // written by an old code path, added by hand — hits no conflict and creates
+    // a brand-new `business_provider_accounts` row with `is_selected = TRUE`.
+    // That is a deploy selecting an account nobody selected, and the worker then
+    // starts syncing it.
+    const sealBefore = await client.query<{
+      import_key: string;
+      imported_row_count: string;
+    }>(
+      `SELECT import_key, imported_row_count::text AS imported_row_count
+       FROM schema_legacy_import_state ORDER BY import_key`,
+    );
+    assert(
+      sealBefore.rows.length >= 4,
+      `L4: only ${sealBefore.rows.length} legacy imports recorded a seal marker; every import must record one.`,
+    );
+    const canonicalBeforeLateRow = await readCanonical(client, businessId);
     await client.query(
       `UPDATE provider_account_assignments
-       SET account_ids = array_append(account_ids, 'act_new_from_legacy'),
+       SET account_ids = array_append(account_ids, 'act_late_legacy_row'),
            updated_at = now()
        WHERE business_id = $1 AND provider = $2`,
       [businessId, PROVIDER],
     );
+    // ...and a whole new legacy integration, which is the other shape of the
+    // same problem: a connection and a credential appearing from nowhere.
+    await client.query(
+      `INSERT INTO integrations (business_id, provider, status, provider_account_id,
+         provider_account_name, access_token, refresh_token, connected_at,
+         created_at, updated_at)
+       VALUES ($1, 'google_ads', 'connected', 'act_late_legacy_row',
+               'Late legacy', 'late-token', 'late-refresh', now(), now(), now())`,
+      [businessId],
+    );
     resetMigrationLatchForSeams();
-    await runMigrations({ force: true, reason: "legacy_replay_seam_new_account" });
-    const withNew = await readCanonical(client, businessId);
-    const added = withNew.bindings.find(
-      (row) => row.provider_account_id === "act_new_from_legacy",
+    await runMigrations({ force: true, reason: "legacy_replay_seam_late_legacy_row" });
+    const afterLateRow = await readCanonical(client, businessId);
+    assert(
+      JSON.stringify(canonicalBeforeLateRow) === JSON.stringify(afterLateRow),
+      `L4: a legacy row added after the seal changed canonical state.\nbefore=${JSON.stringify(canonicalBeforeLateRow)}\nafter=${JSON.stringify(afterLateRow)}`,
+    );
+    const lateBinding = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM business_provider_accounts
+       WHERE provider_account_id = 'act_late_legacy_row'`,
     );
     assert(
-      added != null,
-      `L4: a genuinely new legacy account was not imported, so the import is not insert-missing-only: ${JSON.stringify(withNew.bindings)}`,
+      Number(lateBinding.rows[0]!.count) === 0,
+      "L4: a late legacy assignment created a canonical binding — and it would have been is_selected = TRUE.",
+    );
+    const lateConnection = await client.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM provider_connections
+       WHERE provider = 'google_ads' AND business_id = $1`,
+      [businessId],
     );
     assert(
-      withNew.bindings.find((row) => row.provider_account_id === DESELECTED_ACCOUNT)
-        ?.is_selected === false,
-      "L4: importing a new account reselected the deselected one.",
+      Number(lateConnection.rows[0]!.count) === 0,
+      "L4: a late legacy integration created a canonical connection after the seal.",
+    );
+    const sealAfter = await client.query<{ import_key: string }>(
+      `SELECT import_key FROM schema_legacy_import_state ORDER BY import_key`,
+    );
+    assert(
+      JSON.stringify(sealAfter.rows) === JSON.stringify(sealBefore.rows.map((row) => ({ import_key: row.import_key }))),
+      `L4: the seal markers changed on a rerun: ${JSON.stringify(sealAfter.rows)}`,
     );
     console.log(
-      `${LABEL} L4 PASS insert-missing-only: a genuinely new legacy account is still imported, and importing it does not disturb existing canonical selection`,
+      `${LABEL} L4 PASS import seal: ${sealBefore.rows.length} imports carry a durable marker; a legacy assignment AND a whole legacy integration added after the first import both reach canonical state 0 times, and canonical rows are byte-identical across the rerun`,
     );
 
     // L5: with the legacy tables gone — which is production's actual state —
@@ -491,12 +536,43 @@ async function main() {
       missingArbiter === "42P10",
       `L6: with the arbiter dropped the write returned ${missingArbiter}, expected 42P10.`,
     );
-    // ...and the migration restores it.
+    // The PARTIAL-arbiter negative control. A same-name UNIQUE index over the
+    // exact four columns but carrying a predicate is a valid index that passes
+    // every name-and-column check and cannot be INFERRED by the unqualified
+    // `ON CONFLICT` the writer issues.
+    await client.query(
+      `CREATE UNIQUE INDEX sync_repair_plans_scope_mode_identity
+         ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)
+         WHERE eligible`,
+    );
+    const partialArbiter = await writePlan().then(
+      () => null,
+      (error: unknown) => (error as { code?: string })?.code ?? "unknown",
+    );
+    assert(
+      partialArbiter === "42P10",
+      `L6: a PARTIAL same-name arbiter returned ${partialArbiter}, expected 42P10.`,
+    );
+    const { verifyMigrationSchemaContract } = await import(
+      "@/lib/migration-verification"
+    );
+    const partialRefusal = await verifyMigrationSchemaContract().then(
+      () => null,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    assert(
+      partialRefusal != null && /sync_repair_plans_scope_mode_identity/.test(partialRefusal),
+      `L6: schema verification ACCEPTED a partial repair-plan arbiter: ${String(partialRefusal)}`,
+    );
+    await client.query(`DROP INDEX sync_repair_plans_scope_mode_identity`);
+
+    // ...and the migration restores it, on both the missing and the partial path.
     resetMigrationLatchForSeams();
     await runMigrations({ force: true, reason: "legacy_replay_seam_arbiter_restore" });
     await writePlan();
+    await verifyMigrationSchemaContract();
     console.log(
-      `${LABEL} L6 PASS repair-plan arbiter: the explicit unique index exists and enforces, a missing arbiter raises 42P10 instead of duplicating, and a migration rerun restores it`,
+      `${LABEL} L6 PASS repair-plan arbiter: the explicit unique index exists and enforces; a MISSING arbiter and a same-name PARTIAL arbiter each raise 42P10 instead of duplicating; schema verification refuses the partial one by name; and a migration rerun restores a working arbiter that verifies clean`,
     );
 
     // G1-G3: connection generation. A reconnect used to be invisible —

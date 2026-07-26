@@ -774,6 +774,219 @@ function buildMetaTombstoneHash(input: {
   });
 }
 
+/**
+ * Creative lineage for one observation, decoupled from whether the observation
+ * appended a run.
+ *
+ * Extracted because it must run on the COALESCED path too. Relationship truth is
+ * not part of the semantic identity — two observations with byte-identical
+ * entity states can differ in whether the provider returned the ad-creative link
+ * at all, because `creative{id}` is a separate field group that can be missing
+ * on one page and present on the next. When that happened the coalescing branch
+ * returned early with `lineageCount: 0` and the edge was simply never recorded:
+ * the states were "the same truth", and the new relationship was thrown away
+ * with them.
+ *
+ * Running it here, keyed on the run whose state rows are already durable, means
+ * a relationship-only change persists its logical edge while the identical state
+ * payload still coalesces. Both `ON CONFLICT ... DO NOTHING` arbiters make a
+ * repeat a no-op, so calling this on every observation is idempotent.
+ */
+async function persistMetaObservationLineage(
+  sql: ReturnType<typeof getDb>,
+  options: {
+    runId: string;
+    binding: { business_ref_id: string; provider_account_ref_id: string };
+    businessId: string;
+    providerAccountId: string;
+    entityType: MetaEntityType;
+    completeness: MetaObservationCompleteness;
+    observedAt: string;
+    capturedAt: string;
+    states: ReadonlyArray<{
+      entityId: string;
+      adId?: string | null;
+      creativeId?: string | null;
+    }>;
+    adCreativeRelationships?: MetaObservedAdCreativeRelationship[] | null;
+  },
+): Promise<number> {
+    let lineageCount = 0;
+  if (options.entityType === "ad" && options.completeness !== "failed") {
+    const verifiedRows = await sql<MetaVerifiedDuplicateLineageDbRow>`
+      SELECT
+        action.id::text AS action_log_id,
+        source.ad_id AS source_ad_id,
+        source.creative_id AS source_creative_id,
+        target.ad_id AS target_ad_id,
+        target.creative_id AS target_creative_id,
+        action.verified_at::text AS action_verified_at
+      FROM meta_ads_action_log action
+      JOIN meta_entity_state_history source
+        ON source.run_id = ${options.runId}
+       AND source.entity_type = 'ad'
+       AND source.ad_id = action.ad_id
+       AND source.creative_id = action.creative_id
+      JOIN meta_entity_state_history target
+        ON target.run_id = ${options.runId}
+       AND target.entity_type = 'ad'
+       AND target.ad_id = action.resulting_ad_id
+       AND target.creative_id = source.creative_id
+      WHERE action.business_id = ${options.binding.business_ref_id}::uuid
+        AND action.action = 'duplicate'
+        AND action.status = 'success'
+        AND action.verified_at IS NOT NULL
+        AND action.verified_at <= ${options.observedAt}::timestamptz
+        AND action.resulting_ad_id IS NOT NULL
+        AND source.creative_id IS NOT NULL
+      ORDER BY action.verified_at, action.id
+    `;
+    const verifiedPairs = new Set<string>();
+    for (const edge of verifiedRows) {
+      const pairKey = `${edge.source_ad_id}\u0000${edge.target_ad_id}`;
+      verifiedPairs.add(pairKey);
+      const lineageHash = buildMetaCreativeLineageHash({
+        businessId: options.businessId,
+        providerAccountId: options.providerAccountId,
+        sourceAdId: edge.source_ad_id,
+        sourceCreativeId: edge.source_creative_id,
+        targetAdId: edge.target_ad_id,
+        targetCreativeId: edge.target_creative_id,
+        evidenceSource: "verified_action",
+        observationRunId: options.runId,
+        actionLogId: edge.action_log_id,
+      });
+      const logicalKey = buildMetaCreativeLineageLogicalKey({
+        businessId: options.businessId,
+        providerAccountId: options.providerAccountId,
+        lineageType: "reuse_same_creative",
+        sourceAdId: edge.source_ad_id,
+        sourceCreativeId: edge.source_creative_id,
+        targetAdId: edge.target_ad_id,
+        targetCreativeId: edge.target_creative_id,
+        evidenceSource: "verified_action",
+        actionLogId: edge.action_log_id,
+      });
+      const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
+        INSERT INTO meta_creative_lineage_edges (
+          business_ref_id, business_id, provider_account_ref_id,
+          provider_account_id, source_ad_id, source_creative_id, target_ad_id,
+          target_creative_id, lineage_type, evidence_source,
+          observation_run_id, observation_run_entity_type,
+          observation_run_completeness, action_log_id, action_type,
+          action_status, action_verified_at, evidence_json, observed_at,
+          captured_at, lineage_hash, logical_lineage_key
+        ) VALUES (
+          ${options.binding.business_ref_id}, ${options.businessId},
+          ${options.binding.provider_account_ref_id}, ${options.providerAccountId},
+          ${edge.source_ad_id}, ${edge.source_creative_id}, ${edge.target_ad_id},
+          ${edge.target_creative_id}, 'reuse_same_creative', 'verified_action',
+          ${options.runId}, 'ad', ${options.completeness}, ${edge.action_log_id},
+          'duplicate', 'success', ${edge.action_verified_at}::timestamptz,
+          ${JSON.stringify({ receipt: "meta_ads_action_log", matchedObservedAds: true })}::jsonb,
+          ${options.observedAt}::timestamptz, ${options.capturedAt}::timestamptz, ${lineageHash},
+          ${logicalKey}
+        )
+        ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
+          WHERE logical_lineage_key IS NOT NULL
+        DO NOTHING
+        RETURNING id
+      `);
+      lineageCount += inserted.length;
+    }
+
+    const stateByAdId = new Map(
+      options.states
+        .filter(
+          (state) =>
+            state.adId != null &&
+            state.creativeId != null &&
+            state.adId === state.entityId,
+        )
+        .map((state) => [state.adId as string, state]),
+    );
+    const relationshipsByCreative = new Map<
+      string,
+      Array<MetaObservedAdCreativeRelationship & { createdAt: string }>
+    >();
+    for (const relationship of options.adCreativeRelationships ?? []) {
+      const adId = relationship.adId.trim();
+      const creativeId = relationship.creativeId.trim();
+      const state = stateByAdId.get(adId);
+      if (!state || state.creativeId !== creativeId) continue;
+      const createdAt = normalizeMetaProviderUpdatedAt(
+        relationship.providerCreatedAt,
+        options.observedAt,
+      );
+      if (!createdAt) continue;
+      const group = relationshipsByCreative.get(creativeId) ?? [];
+      group.push({ ...relationship, adId, creativeId, createdAt });
+      relationshipsByCreative.set(creativeId, group);
+    }
+    for (const [creativeId, relationships] of relationshipsByCreative) {
+      relationships.sort(
+        (a, b) =>
+          a.createdAt.localeCompare(b.createdAt) || a.adId.localeCompare(b.adId),
+      );
+      const source = relationships[0];
+      if (!source) continue;
+      for (const target of relationships.slice(1)) {
+        if (target.createdAt === source.createdAt) continue;
+        if (verifiedPairs.has(`${source.adId}\u0000${target.adId}`)) continue;
+        const lineageHash = buildMetaCreativeLineageHash({
+          businessId: options.businessId,
+          providerAccountId: options.providerAccountId,
+          sourceAdId: source.adId,
+          sourceCreativeId: creativeId,
+          targetAdId: target.adId,
+          targetCreativeId: creativeId,
+          evidenceSource: "observation_run",
+          observationRunId: options.runId,
+        });
+        const logicalKey = buildMetaCreativeLineageLogicalKey({
+          businessId: options.businessId,
+          providerAccountId: options.providerAccountId,
+          lineageType: "reuse_same_creative",
+          sourceAdId: source.adId,
+          sourceCreativeId: creativeId,
+          targetAdId: target.adId,
+          targetCreativeId: creativeId,
+          evidenceSource: "observation_run",
+        });
+        const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
+          INSERT INTO meta_creative_lineage_edges (
+            business_ref_id, business_id, provider_account_ref_id,
+            provider_account_id, source_ad_id, source_creative_id,
+            target_ad_id, target_creative_id, lineage_type, evidence_source,
+            observation_run_id, observation_run_entity_type,
+            observation_run_completeness, evidence_json, observed_at,
+            captured_at, lineage_hash, logical_lineage_key
+          ) VALUES (
+            ${options.binding.business_ref_id}, ${options.businessId},
+            ${options.binding.provider_account_ref_id}, ${options.providerAccountId},
+            ${source.adId}, ${creativeId}, ${target.adId}, ${creativeId},
+            'reuse_same_creative', 'observation_run', ${options.runId}, 'ad',
+            ${options.completeness},
+            ${JSON.stringify({
+              relationship: "same_provider_creative_id",
+              sourceProviderCreatedAt: source.createdAt,
+              targetProviderCreatedAt: target.createdAt,
+            })}::jsonb,
+            ${options.observedAt}::timestamptz, ${options.capturedAt}::timestamptz,
+            ${lineageHash}, ${logicalKey}
+          )
+          ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
+            WHERE logical_lineage_key IS NOT NULL
+          DO NOTHING
+          RETURNING id
+        `);
+        lineageCount += inserted.length;
+      }
+    }
+  }
+  return lineageCount;
+}
+
 export async function persistMetaEntityObservation(
   input: PersistMetaEntityObservationInput,
 ): Promise<PersistMetaEntityObservationResult> {
@@ -935,6 +1148,36 @@ export async function persistMetaEntityObservation(
           WHERE id = ${currentRun.id}
           RETURNING repeat_count
         `;
+        // Lineage is processed on the coalesced path too.
+        //
+        // Relationship truth is deliberately NOT part of the semantic identity:
+        // the entity states really are the same, and re-writing a full state set
+        // because a link appeared is the growth this heartbeat exists to remove.
+        // But `creative{id}` is a separate field group that can be absent on one
+        // observation and present on the next, so returning early here threw the
+        // newly-available edge away — permanently, because the next identical
+        // observation coalesces again.
+        //
+        // The edge is keyed to the run whose state rows are already durable, and
+        // both lineage arbiters are DO NOTHING, so this is idempotent on a true
+        // repeat and records exactly the new edges on a relationship-only change.
+        const lineageCount = await persistMetaObservationLineage(sql, {
+          runId: currentRun.id,
+          binding,
+          businessId,
+          providerAccountId,
+          entityType,
+          completeness: input.completeness,
+          // The KEPT run's clocks, not this call's. `meta_creative_lineage_edges`
+          // carries a composite foreign key onto
+          // (observation_run_id, …, observed_at, captured_at, completeness), so
+          // an edge attached to the coalesced run must describe that run's
+          // identity exactly or the write is rejected outright.
+          observedAt: currentRun.observed_at,
+          capturedAt: currentRun.captured_at,
+          states,
+          adCreativeRelationships: input.adCreativeRelationships,
+        });
         return {
           runId: currentRun.id,
           runHash,
@@ -942,7 +1185,7 @@ export async function persistMetaEntityObservation(
           coalesced: true,
           repeatCount: Number(heartbeat[0]?.repeat_count ?? 0),
           stateCount: 0,
-          lineageCount: 0,
+          lineageCount,
           completeness: input.completeness,
           observedAt: currentRun.observed_at,
           capturedAt: currentRun.captured_at,
@@ -1019,179 +1262,18 @@ export async function persistMetaEntityObservation(
       stateCount += 1;
     }
 
-    let lineageCount = 0;
-    if (entityType === "ad" && input.completeness !== "failed") {
-      const verifiedRows = await sql<MetaVerifiedDuplicateLineageDbRow>`
-        SELECT
-          action.id::text AS action_log_id,
-          source.ad_id AS source_ad_id,
-          source.creative_id AS source_creative_id,
-          target.ad_id AS target_ad_id,
-          target.creative_id AS target_creative_id,
-          action.verified_at::text AS action_verified_at
-        FROM meta_ads_action_log action
-        JOIN meta_entity_state_history source
-          ON source.run_id = ${run.id}
-         AND source.entity_type = 'ad'
-         AND source.ad_id = action.ad_id
-         AND source.creative_id = action.creative_id
-        JOIN meta_entity_state_history target
-          ON target.run_id = ${run.id}
-         AND target.entity_type = 'ad'
-         AND target.ad_id = action.resulting_ad_id
-         AND target.creative_id = source.creative_id
-        WHERE action.business_id = ${binding.business_ref_id}::uuid
-          AND action.action = 'duplicate'
-          AND action.status = 'success'
-          AND action.verified_at IS NOT NULL
-          AND action.verified_at <= ${observedAt}::timestamptz
-          AND action.resulting_ad_id IS NOT NULL
-          AND source.creative_id IS NOT NULL
-        ORDER BY action.verified_at, action.id
-      `;
-      const verifiedPairs = new Set<string>();
-      for (const edge of verifiedRows) {
-        const pairKey = `${edge.source_ad_id}\u0000${edge.target_ad_id}`;
-        verifiedPairs.add(pairKey);
-        const lineageHash = buildMetaCreativeLineageHash({
-          businessId,
-          providerAccountId,
-          sourceAdId: edge.source_ad_id,
-          sourceCreativeId: edge.source_creative_id,
-          targetAdId: edge.target_ad_id,
-          targetCreativeId: edge.target_creative_id,
-          evidenceSource: "verified_action",
-          observationRunId: run.id,
-          actionLogId: edge.action_log_id,
-        });
-        const logicalKey = buildMetaCreativeLineageLogicalKey({
-          businessId,
-          providerAccountId,
-          lineageType: "reuse_same_creative",
-          sourceAdId: edge.source_ad_id,
-          sourceCreativeId: edge.source_creative_id,
-          targetAdId: edge.target_ad_id,
-          targetCreativeId: edge.target_creative_id,
-          evidenceSource: "verified_action",
-          actionLogId: edge.action_log_id,
-        });
-        const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
-          INSERT INTO meta_creative_lineage_edges (
-            business_ref_id, business_id, provider_account_ref_id,
-            provider_account_id, source_ad_id, source_creative_id, target_ad_id,
-            target_creative_id, lineage_type, evidence_source,
-            observation_run_id, observation_run_entity_type,
-            observation_run_completeness, action_log_id, action_type,
-            action_status, action_verified_at, evidence_json, observed_at,
-            captured_at, lineage_hash, logical_lineage_key
-          ) VALUES (
-            ${binding.business_ref_id}, ${businessId},
-            ${binding.provider_account_ref_id}, ${providerAccountId},
-            ${edge.source_ad_id}, ${edge.source_creative_id}, ${edge.target_ad_id},
-            ${edge.target_creative_id}, 'reuse_same_creative', 'verified_action',
-            ${run.id}, 'ad', ${input.completeness}, ${edge.action_log_id},
-            'duplicate', 'success', ${edge.action_verified_at}::timestamptz,
-            ${JSON.stringify({ receipt: "meta_ads_action_log", matchedObservedAds: true })}::jsonb,
-            ${observedAt}::timestamptz, ${capturedAt}::timestamptz, ${lineageHash},
-            ${logicalKey}
-          )
-          ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
-            WHERE logical_lineage_key IS NOT NULL
-          DO NOTHING
-          RETURNING id
-        `);
-        lineageCount += inserted.length;
-      }
-
-      const stateByAdId = new Map(
-        states
-          .filter(
-            (state) =>
-              state.adId != null &&
-              state.creativeId != null &&
-              state.adId === state.entityId,
-          )
-          .map((state) => [state.adId as string, state]),
-      );
-      const relationshipsByCreative = new Map<
-        string,
-        Array<MetaObservedAdCreativeRelationship & { createdAt: string }>
-      >();
-      for (const relationship of input.adCreativeRelationships ?? []) {
-        const adId = relationship.adId.trim();
-        const creativeId = relationship.creativeId.trim();
-        const state = stateByAdId.get(adId);
-        if (!state || state.creativeId !== creativeId) continue;
-        const createdAt = normalizeMetaProviderUpdatedAt(
-          relationship.providerCreatedAt,
-          observedAt,
-        );
-        if (!createdAt) continue;
-        const group = relationshipsByCreative.get(creativeId) ?? [];
-        group.push({ ...relationship, adId, creativeId, createdAt });
-        relationshipsByCreative.set(creativeId, group);
-      }
-      for (const [creativeId, relationships] of relationshipsByCreative) {
-        relationships.sort(
-          (a, b) =>
-            a.createdAt.localeCompare(b.createdAt) || a.adId.localeCompare(b.adId),
-        );
-        const source = relationships[0];
-        if (!source) continue;
-        for (const target of relationships.slice(1)) {
-          if (target.createdAt === source.createdAt) continue;
-          if (verifiedPairs.has(`${source.adId}\u0000${target.adId}`)) continue;
-          const lineageHash = buildMetaCreativeLineageHash({
-            businessId,
-            providerAccountId,
-            sourceAdId: source.adId,
-            sourceCreativeId: creativeId,
-            targetAdId: target.adId,
-            targetCreativeId: creativeId,
-            evidenceSource: "observation_run",
-            observationRunId: run.id,
-          });
-          const logicalKey = buildMetaCreativeLineageLogicalKey({
-            businessId,
-            providerAccountId,
-            lineageType: "reuse_same_creative",
-            sourceAdId: source.adId,
-            sourceCreativeId: creativeId,
-            targetAdId: target.adId,
-            targetCreativeId: creativeId,
-            evidenceSource: "observation_run",
-          });
-          const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
-            INSERT INTO meta_creative_lineage_edges (
-              business_ref_id, business_id, provider_account_ref_id,
-              provider_account_id, source_ad_id, source_creative_id,
-              target_ad_id, target_creative_id, lineage_type, evidence_source,
-              observation_run_id, observation_run_entity_type,
-              observation_run_completeness, evidence_json, observed_at,
-              captured_at, lineage_hash, logical_lineage_key
-            ) VALUES (
-              ${binding.business_ref_id}, ${businessId},
-              ${binding.provider_account_ref_id}, ${providerAccountId},
-              ${source.adId}, ${creativeId}, ${target.adId}, ${creativeId},
-              'reuse_same_creative', 'observation_run', ${run.id}, 'ad',
-              ${input.completeness},
-              ${JSON.stringify({
-                relationship: "same_provider_creative_id",
-                sourceProviderCreatedAt: source.createdAt,
-                targetProviderCreatedAt: target.createdAt,
-              })}::jsonb,
-              ${observedAt}::timestamptz, ${capturedAt}::timestamptz,
-              ${lineageHash}, ${logicalKey}
-            )
-            ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
-              WHERE logical_lineage_key IS NOT NULL
-            DO NOTHING
-            RETURNING id
-          `);
-          lineageCount += inserted.length;
-        }
-      }
-    }
+    const lineageCount = await persistMetaObservationLineage(sql, {
+      runId: run.id,
+      binding,
+      businessId,
+      providerAccountId,
+      entityType,
+      completeness: input.completeness,
+      observedAt,
+      capturedAt,
+      states,
+      adCreativeRelationships: input.adCreativeRelationships,
+    });
 
     return {
       runId: run.id,

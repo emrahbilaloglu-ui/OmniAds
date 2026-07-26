@@ -8622,6 +8622,87 @@ export async function upsertMetaAdSetDailyRows(
   }
 }
 
+/**
+ * Typed campaign and adset config history for the account's CURRENT, provisional
+ * day — written directly, not as a side effect of a daily fact write.
+ *
+ * The `appendConfigHistory` option on the daily writers could never fire. Those
+ * writers run only when `truthState === "finalized"`, and current evidence is
+ * permitted only on the account's own local today declared PROVISIONAL. The two
+ * conditions are mutually exclusive, so `appendConfigHistory: true` was dead at
+ * every call site and `meta_campaign_config_history` /
+ * `meta_adset_config_history` received nothing at all.
+ *
+ * Even had it fired, every row would have been dropped: `captured_at` is part of
+ * the arbiter, `buildMetaHistoryCapturedAt` returns null without a real
+ * observation time, and on a provisional day `finalizedAt` is null and nothing
+ * ever set `configObservedAt`.
+ *
+ * So this writer takes the real observation timestamp from the config receipt
+ * that produced the rows and stamps it onto them. It uses the SAME canonical
+ * semantic records and the SAME `buildMetaConfigHistoryFingerprint` as the daily
+ * path, so a row written here and a row written by a finalized replay coalesce
+ * on identity rather than duplicating.
+ *
+ * Errors are NOT swallowed. A config-history write that fails silently is
+ * indistinguishable from one that had nothing to write, which is exactly how
+ * this surface stayed empty without anyone noticing.
+ */
+export async function appendMetaCurrentConfigHistory(input: {
+  campaignRows: MetaCampaignDailyRow[];
+  adsetRows: MetaAdSetDailyRow[];
+  /** When the provider actually returned this configuration. */
+  observedAt: string;
+}): Promise<{ campaignRowsWritten: number; adsetRowsWritten: number }> {
+  const observedAt = normalizeTimestamp(input.observedAt);
+  if (!observedAt) {
+    throw new Error(
+      `meta_current_config_history_requires_observed_at: ${String(input.observedAt)}`,
+    );
+  }
+  if (input.campaignRows.length === 0 && input.adsetRows.length === 0) {
+    return { campaignRowsWritten: 0, adsetRowsWritten: 0 };
+  }
+  await assertMetaMutationTablesReady("meta_warehouse");
+
+  const campaignRows = input.campaignRows.map((row) => ({
+    ...row,
+    configObservedAt: observedAt,
+  }));
+  const adsetRows = input.adsetRows.map((row) => ({
+    ...row,
+    configObservedAt: observedAt,
+  }));
+
+  let campaignRowsWritten = 0;
+  for (const chunk of chunkRows(campaignRows, 200)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
+    await appendMetaCampaignConfigHistoryRows(chunk, referenceContext);
+    campaignRowsWritten += chunk.length;
+  }
+  let adsetRowsWritten = 0;
+  for (const chunk of chunkRows(adsetRows, 200)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
+    await appendMetaAdSetConfigHistoryRows(chunk, referenceContext);
+    adsetRowsWritten += chunk.length;
+  }
+  return { campaignRowsWritten, adsetRowsWritten };
+}
+
 export async function replaceMetaAccountDailySlice(input: {
   rows: MetaAccountDailyRow[];
   proof: MetaFinalizationCompletenessProof;

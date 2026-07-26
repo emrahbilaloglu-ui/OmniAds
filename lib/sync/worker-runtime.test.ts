@@ -15,6 +15,17 @@ vi.mock("@/lib/sync/provider-job-lock", () => ({
   getProviderJobLockState: vi.fn(),
 }));
 
+// Lane and capacity admission now run BEFORE the lease, at the real work-unit
+// boundary. Default-admit here; refusal is proven in
+// lib/sync/worker-tick-admission.test.ts.
+const growthFenceMocks = vi.hoisted(() => ({
+  assertSyncGrowthBoundary: vi.fn(async () => ({ allowed: true, reason: "ready" })),
+}));
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: growthFenceMocks.assertSyncGrowthBoundary };
+});
+
 vi.mock("@/lib/sync/release-gates", () => ({
   getLatestSyncGateRecords: vi.fn(),
 }));
@@ -555,6 +566,16 @@ describe("resolveAdapterLifecycleSnapshot", () => {
 });
 
 describe("runAdapterLifecycleTick", () => {
+  beforeEach(() => {
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    growthFenceMocks.assertSyncGrowthBoundary.mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+  });
+
   it("drives the shared lifecycle methods when a partition is leased", async () => {
     const calls: string[] = [];
     const leasePartitions = async (input: {

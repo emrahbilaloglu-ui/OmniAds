@@ -1,4 +1,13 @@
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import {
+  assertSyncLaneEnabled,
+  type SyncLane,
+} from "@/lib/sync/global-kill-switch";
+import {
+  describeSyncSafetyRefusal,
+  type SyncSafetyRefusal,
+} from "@/lib/sync/safety-refusal";
 import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters";
 import type { ProviderLeasePlan } from "@/lib/sync/provider-status-truth";
@@ -296,6 +305,14 @@ export interface AdapterLifecycleTickResult {
   laneLeaseCounts: Record<string, number>;
   lastPartitionId: string | null;
   failureReasons: string[];
+  /**
+   * A lane or capacity refusal, preserved as structure.
+   *
+   * `failureReasons` is a list of strings, so a refusal that landed there was
+   * indistinguishable from a provider timeout to everything downstream — which
+   * is exactly how a capacity refusal can run unnoticed.
+   */
+  safetyRefusal?: SyncSafetyRefusal | null;
 }
 
 export interface ConsumeBusinessFallbackDecision {
@@ -365,6 +382,13 @@ export async function resolveConsumeBusinessFallbackDecision(input: {
   };
 }
 
+/** The kill-switch lane that owns each adapter's provider scope. */
+const ADAPTER_LANE: Record<ProviderWorkerAdapter["providerScope"], SyncLane> = {
+  meta: "meta_sync",
+  google_ads: "google_sync",
+  shopify: "shopify_sync",
+};
+
 export async function runAdapterLifecycleTick(input: {
   adapter: ProviderWorkerAdapter;
   businessId: string;
@@ -373,6 +397,45 @@ export async function runAdapterLifecycleTick(input: {
   leasePlan?: ProviderLeasePlan | null;
   leaseGuard?: RunnerLeaseGuard;
 }): Promise<AdapterLifecycleTickResult> {
+  // Admission BEFORE the lease.
+  //
+  // This is the real work-unit boundary: everything the adapter does — taking
+  // leases, reading and advancing checkpoints, persisting chunks, completing
+  // partitions — happens after it. Leasing first meant a disabled lane or a full
+  // database still mutated partition state on every tick, and the refusal then
+  // arrived as one more string in `failureReasons`, indistinguishable from a
+  // provider timeout.
+  //
+  // `fresh: true`, because a tick is a coarse boundary and a cached admission
+  // from a previous tick is not evidence about this one.
+  const lane = ADAPTER_LANE[input.adapter.providerScope];
+  try {
+    assertSyncLaneEnabled(lane);
+    await assertSyncGrowthBoundary(`${input.adapter.providerScope}_worker_tick`, {
+      fresh: true,
+    });
+  } catch (error) {
+    const refusal = describeSyncSafetyRefusal(error);
+    console.error("[durable-worker] lifecycle_tick_refused", {
+      businessId: input.businessId,
+      providerScope: input.adapter.providerScope,
+      refusal,
+    });
+    // Zero attempted, zero leased, zero mutated — and the refusal survives as
+    // structure so a caller can tell "we were told not to" from "we tried and
+    // failed".
+    return {
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      leasedPartitionIds: [],
+      laneLeaseCounts: {},
+      lastPartitionId: null,
+      failureReasons: [refusal?.kind ?? "sync_admission_refused"],
+      safetyRefusal: refusal,
+    };
+  }
+
   const leasedPartitions = await input.adapter.leasePartitions({
     businessId: input.businessId,
     workerId: input.workerId,
@@ -397,6 +460,7 @@ export async function runAdapterLifecycleTick(input: {
   let failed = 0;
   let lastPartitionId: string | null = null;
   const failureReasons: string[] = [];
+  let safetyRefusal: SyncSafetyRefusal | null = null;
 
   for (const partition of leasedPartitions) {
     if (input.leaseGuard?.isLeaseLost()) {
@@ -404,6 +468,30 @@ export async function runAdapterLifecycleTick(input: {
       const reason =
         input.leaseGuard.getLeaseLossReason() ?? "runner_lease_conflict";
       failureReasons.push(reason);
+      break;
+    }
+
+    // Re-admission at every work unit, so a long tick cannot cross the budget
+    // unchecked. Cached (not fresh) because re-measuring per partition would
+    // itself be the load problem; a refusal is never cached, so recovery is
+    // immediate. On refusal the loop STOPS: the remaining partitions keep their
+    // leases and are retried later, which is recoverable, whereas continuing
+    // would keep writing.
+    try {
+      assertSyncLaneEnabled(lane);
+      await assertSyncGrowthBoundary(
+        `${input.adapter.providerScope}_worker_partition`,
+      );
+    } catch (error) {
+      const refusal = describeSyncSafetyRefusal(error);
+      safetyRefusal = refusal;
+      failureReasons.push(refusal?.kind ?? "sync_admission_refused");
+      console.error("[durable-worker] lifecycle_partition_refused", {
+        businessId: input.businessId,
+        providerScope: input.adapter.providerScope,
+        partitionId: partition.partitionId,
+        refusal,
+      });
       break;
     }
 
@@ -437,6 +525,7 @@ export async function runAdapterLifecycleTick(input: {
     laneLeaseCounts,
     lastPartitionId,
     failureReasons,
+    safetyRefusal,
   };
 }
 

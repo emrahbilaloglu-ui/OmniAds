@@ -333,6 +333,16 @@ export const VERIFIED_ENCRYPTED_SECRET_COLUMNS: readonly EncryptedSecretColumnSp
       column: "access_token",
       why: "a Shopify Admin API token, usable against the live store by anyone who can read this table, a backup or a replica",
     },
+    {
+      table: "integration_credentials",
+      column: "access_token",
+      why: "a live provider access token for the connection this row belongs to",
+    },
+    {
+      table: "integration_credentials",
+      column: "refresh_token",
+      why: "a provider REFRESH token, which mints new access tokens indefinitely — production held two of these in plaintext, unrewritten since the day they were granted, because a refresh token is only re-persisted when the principal reconnects",
+    },
   ];
 
 /**

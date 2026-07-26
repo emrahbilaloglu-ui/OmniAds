@@ -725,6 +725,117 @@ export async function encryptShopifyInstallContextAccessTokens(
   return { converted, remaining, interrupted };
 }
 
+/**
+ * Encrypt any legacy plaintext secret still sitting in `integration_credentials`.
+ *
+ * The Shopify install-context sweep above was scoped to the one table that fix
+ * was about. Production turned out to hold live Google OAuth REFRESH tokens in
+ * plaintext in this table too — rows written before `upsertIntegration` enforced
+ * encryption, which nothing has rewritten since, because a refresh token is only
+ * re-persisted when the principal reconnects.
+ *
+ * `decryptIntegrationSecret` passes an unprefixed value through unchanged, so
+ * those rows still work; they are simply readable by anyone who can read the
+ * table — or a backup of it. That last part is why this belongs in THIS release:
+ * the daily backup now dumps the whole database instead of a 15-table allowlist,
+ * so every artifact from here on carries whatever plaintext is left behind.
+ *
+ * Same contract as the install-context sweep: keyset pagination so a no-op
+ * UPDATE cannot spin, compare-and-set so a row someone else converted mid-sweep
+ * is left alone, the key required only when there is work to do (which keeps
+ * migrations-from-zero honest without key material), and a hard failure rather
+ * than a silent skip if plaintext survives the pass.
+ */
+export async function encryptLegacyIntegrationCredentials(
+  sql: DbClientLike,
+  options?: { batchSize?: number; maxBatches?: number },
+): Promise<ShopifyInstallContextEncryptionResult> {
+  const batchSize = Math.max(1, Math.min(options?.batchSize ?? 200, 1_000));
+  const maxBatches = Math.max(1, options?.maxBatches ?? 100_000);
+  const COLUMNS = ["access_token", "refresh_token"] as const;
+
+  const tablePresence = (await sql.query(
+    `SELECT to_regclass('public.integration_credentials') IS NOT NULL AS present`,
+  )) as Array<{ present: boolean }>;
+  if (!tablePresence[0]?.present) {
+    return { converted: 0, remaining: 0, interrupted: false };
+  }
+
+  const plaintextPredicate = COLUMNS.map(
+    (column) => `(${column} IS NOT NULL AND ${column} NOT LIKE 'enc:v1:%')`,
+  ).join(" OR ");
+
+  const countPlaintext = async () => {
+    const rows = (await sql.query(
+      `SELECT COUNT(*)::text AS count FROM integration_credentials
+       WHERE ${plaintextPredicate}`,
+    )) as Array<{ count: string }>;
+    return Number(rows[0]?.count ?? "0");
+  };
+
+  if ((await countPlaintext()) === 0) {
+    return { converted: 0, remaining: 0, interrupted: false };
+  }
+
+  requireIntegrationSecretKey();
+
+  let converted = 0;
+  let batches = 0;
+  let interrupted = false;
+  let cursor = "00000000-0000-0000-0000-000000000000";
+
+  for (;;) {
+    if (batches >= maxBatches) {
+      interrupted = true;
+      break;
+    }
+    const rows = (await sql.query(
+      `SELECT id::text AS id, access_token, refresh_token
+       FROM integration_credentials
+       WHERE (${plaintextPredicate}) AND id > $1::uuid
+       ORDER BY id ASC
+       LIMIT $2`,
+      [cursor, batchSize],
+    )) as Array<{
+      id: string;
+      access_token: string | null;
+      refresh_token: string | null;
+    }>;
+    if (rows.length === 0) break;
+    batches += 1;
+
+    for (const row of rows) {
+      cursor = row.id;
+      for (const column of COLUMNS) {
+        const current = row[column];
+        if (!current || isEncryptedIntegrationSecret(current)) continue;
+        const encrypted = encryptIntegrationSecret(current);
+        if (!encrypted || !isEncryptedIntegrationSecret(encrypted)) {
+          throw new Error(
+            `Refusing to rewrite integration_credentials.${column}: the encrypted form is not ciphertext.`,
+          );
+        }
+        const updated = (await sql.query(
+          `UPDATE integration_credentials
+             SET ${column} = $1
+           WHERE id = $2::uuid AND ${column} = $3
+           RETURNING 1 AS converted`,
+          [encrypted, row.id, current],
+        )) as Array<unknown>;
+        converted += updated.length;
+      }
+    }
+  }
+
+  const remaining = await countPlaintext();
+  if (!interrupted && remaining > 0) {
+    throw new Error(
+      `Integration credential encryption finished with ${remaining} row(s) still holding a plaintext secret.`,
+    );
+  }
+  return { converted, remaining, interrupted };
+}
+
 function assertMigrationIdentifier(identifier: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
     throw new Error(`Unsafe migration identifier: ${identifier}`);
@@ -12001,6 +12112,7 @@ export async function runMigrations(options?: {
       // the plaintext there permanently and reports success, so it throws.
       const installTokenEncryption =
         await encryptShopifyInstallContextAccessTokens(sql);
+        await encryptLegacyIntegrationCredentials(sql);
       if (installTokenEncryption.converted > 0) {
         logStartupEvent("migrations_shopify_install_tokens_encrypted", {
           reason,

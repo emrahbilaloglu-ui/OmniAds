@@ -11,6 +11,7 @@
  * depends on has drifted.
  */
 import fs from "node:fs";
+import { encryptIntegrationSecret } from "@/lib/integration-secrets";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -1074,12 +1075,17 @@ async function verifySelectionQueries(client: Client) {
   // must not be offered, which is a property of the authority EXISTS inside the
   // lease SQL — not something a string assertion can establish.
   await client.query(
+    // Encrypted at rest, as every production writer stores it. The rollout's
+    // post-migration schema contract refuses plaintext here, and rightly so —
+    // this fixture is about lease authority, not about storage encoding, so it
+    // should not be the one place that writes a secret the way production never
+    // would.
     `INSERT INTO integration_credentials (provider_connection_id, access_token)
-     SELECT id, 'seam-not-a-credential'
+     SELECT id, $2
      FROM provider_connections
      WHERE business_id = $1 AND provider = 'google'
      ON CONFLICT DO NOTHING`,
-    [BUSINESS],
+    [BUSINESS, encryptIntegrationSecret("seam-not-a-credential")],
   );
   for (const accountId of ["111-selected", "222-deselected"]) {
     await client.query(
@@ -1416,6 +1422,11 @@ async function main() {
 
     const connectionString = `postgresql://${USER}@127.0.0.1:${port}/${DB}`;
     process.env.DATABASE_URL = connectionString;
+  // The fixture encrypts the credential it seeds, and migrations refuse to
+  // leave plaintext behind, so the key has to exist before either happens.
+  process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY ??
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     process.env.DB_SSL_MODE = "disable";
     // Lanes default to OFF. A seam that exercises the real entrypoints has to
     // represent an ENABLED deployment, so it turns them on explicitly — which

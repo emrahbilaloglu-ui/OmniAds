@@ -271,6 +271,14 @@ async function main() {
 
     const connectionString = `postgresql://${USER}@127.0.0.1:${port}/${DB}`;
     process.env.DATABASE_URL = connectionString;
+    // Migrations now encrypt any legacy plaintext secret left in
+    // `integration_credentials`, and that step FAILS rather than skipping when
+    // no key is present — which is the whole point of it. This seam writes
+    // plaintext credentials on purpose, so the key has to exist before the very
+    // first migration run, not only before the generation fixture further down.
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
+      process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY ??
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     process.env.DB_SSL_MODE = "disable";
     process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
     process.env.ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED = "enabled";
@@ -350,11 +358,25 @@ async function main() {
       [businessId, PROVIDER],
     );
 
-    const afterCanonicalChanges = await readCanonical(client, businessId);
+    let afterCanonicalChanges = await readCanonical(client, businessId);
     assert(
       afterCanonicalChanges.connection?.status === "disconnected",
       "L2: the canonical disconnect did not take.",
     );
+
+    // The canonical edits above wrote plaintext credentials directly, the way
+    // they existed in production before secrets were encrypted at rest. The
+    // migration chain carries a ONE-TIME conversion for exactly that, so run it
+    // once here — as a deploy does — and re-read the baseline afterwards.
+    //
+    // Without this, rerun 1 would be the pass that performs the conversion and
+    // L3 would report it as "a rerun changed canonical state", which is true but
+    // is an artefact of seeding after the previous migration rather than a
+    // migration that fails to settle. What L3 is actually about — reruns being
+    // no-ops once everything has settled — is asserted below, unchanged.
+    resetMigrationLatchForSeams();
+    await runMigrations({ force: true, reason: "legacy_replay_seam_settle" });
+    afterCanonicalChanges = await readCanonical(client, businessId);
 
     // L3: rerun the FULL migration chain repeatedly. The legacy tables still say
     // connected, still list the deselected account, still hold the old token and
@@ -376,10 +398,22 @@ async function main() {
       final.connection?.status === "disconnected",
       "L3: a rerun reconnected a canonically disconnected integration.",
     );
+    // Compared DECRYPTED. The contract is "the rotated-away credential did not
+    // come back", which is about which secret is stored, not about its
+    // encoding — and secrets are ciphertext at rest now. Comparing the raw
+    // column would silently start asserting the encoding instead.
+    const { decryptIntegrationSecret } = await import("@/lib/integration-secrets");
     assert(
-      final.credential?.access_token === "rotated-access-token" &&
-        final.credential?.refresh_token === "rotated-refresh-token",
+      decryptIntegrationSecret((final.credential?.access_token as string | null) ?? null) ===
+        "rotated-access-token" &&
+        decryptIntegrationSecret((final.credential?.refresh_token as string | null) ?? null) ===
+          "rotated-refresh-token",
       "L3: a rerun restored a rotated-away credential.",
+    );
+    assert(
+      String(final.credential?.access_token ?? "").startsWith("enc:v1:") &&
+        String(final.credential?.refresh_token ?? "").startsWith("enc:v1:"),
+      "L3: the migration left a credential in plaintext at rest.",
     );
     const deselected = final.bindings.find(
       (row) => row.provider_account_id === DESELECTED_ACCOUNT,

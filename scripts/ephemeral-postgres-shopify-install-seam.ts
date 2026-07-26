@@ -1220,6 +1220,91 @@ async function main() {
       `${LABEL} S13 PASS key absent: creating a context fails and writes 0 rows, reading an encrypted context raises instead of returning ciphertext, the conversion fails rather than skipping its 1 outstanding row, and restoring the key converts that row with 0 plaintext left in the table`,
     );
 
+    // ── S14. Legacy plaintext in integration_credentials ────────────────────
+    //
+    // Production held two live Google OAuth REFRESH tokens here in plaintext,
+    // three months old. `upsertIntegration` has encrypted on write for a while,
+    // but a refresh token is only re-persisted when the principal reconnects, so
+    // nothing had rewritten them — and the daily backup now dumps the whole
+    // database, which puts them in every artifact from here on.
+    {
+      const { encryptLegacyIntegrationCredentials } = await import("@/lib/migrations");
+      const { getDb: getAppDb } = await import("@/lib/db");
+      const { decryptIntegrationSecret } = await import("@/lib/integration-secrets");
+
+      const connection = await client.query<{ id: string }>(
+        `INSERT INTO provider_connections (business_id, provider, status, connected_at)
+         VALUES ($1, 'ga4', 'connected', now()) RETURNING id::text AS id`,
+        [await makeBusiness("Legacy credential holder")],
+      );
+      const secrets = {
+        access: "s14-plaintext-access-token",
+        refresh: "s14-plaintext-refresh-token",
+      };
+      await client.query(
+        `INSERT INTO integration_credentials (provider_connection_id, access_token, refresh_token, scopes)
+         VALUES ($1::uuid, $2, $3, 'analytics.readonly')`,
+        [connection.rows[0]!.id, secrets.access, secrets.refresh],
+      );
+
+      // The contract must REFUSE while the plaintext is there. It signals by
+      // throwing, so accepting is the silent outcome to guard against.
+      const before = await verifyMigrationSchemaContract().then(
+        () => null,
+        (error: unknown) => error as { failures?: Array<{ kind: string; object: string }> },
+      );
+      assert(
+        before?.failures?.some(
+          (f) =>
+            f.kind === "secret_at_rest" &&
+            f.object === "integration_credentials.refresh_token",
+        ) === true,
+        `S14: the schema contract accepted a plaintext refresh token at rest.`,
+      );
+
+      const first = await encryptLegacyIntegrationCredentials(getAppDb() as never);
+      // Idempotent: a second pass has nothing left to do.
+      const second = await encryptLegacyIntegrationCredentials(getAppDb() as never);
+      assert(
+        first.converted === 2 && first.remaining === 0 && second.converted === 0,
+        `S14: conversion was not idempotent (first=${JSON.stringify(first)} second=${JSON.stringify(second)}).`,
+      );
+
+      const stored = await client.query<{ access_token: string; refresh_token: string }>(
+        `SELECT access_token, refresh_token FROM integration_credentials
+         WHERE provider_connection_id = $1::uuid`,
+        [connection.rows[0]!.id],
+      );
+      const row = stored.rows[0]!;
+      assert(
+        row.access_token.startsWith("enc:v1:") && row.refresh_token.startsWith("enc:v1:"),
+        `S14: a stored credential carries no enc:v1 prefix after conversion.`,
+      );
+      assert(
+        !row.access_token.includes(secrets.access) && !row.refresh_token.includes(secrets.refresh),
+        `S14: the ciphertext still contains the plaintext bytes.`,
+      );
+      assert(
+        decryptIntegrationSecret(row.access_token) === secrets.access &&
+          decryptIntegrationSecret(row.refresh_token) === secrets.refresh,
+        `S14: a converted credential no longer decrypts to what it was written with.`,
+      );
+
+      // ...and now it must pass outright rather than throw.
+      const after = await verifyMigrationSchemaContract().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      assert(
+        after === null,
+        `S14: the contract still refuses after conversion: ${String(after)}`,
+      );
+
+      console.log(
+        `${LABEL} S14 PASS legacy credentials: a plaintext access AND refresh token make the schema contract refuse, one pass converts both in place with the ciphertext containing none of the original bytes, both still decrypt to what they were written with, a second pass converts 0, and the contract then verifies clean`,
+      );
+    }
+
     console.log(`${LABEL} PASS`);
   } catch (error) {
     if (fs.existsSync(logFile)) {

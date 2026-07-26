@@ -626,6 +626,36 @@ export async function runDurableWorkerRuntime(
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
+  // Admission BEFORE the first heartbeat DB write.
+  //
+  // A heartbeat is a source-related write: it inserts and updates rows in
+  // `sync_worker_instances` on a timer, forever. Admitting only before the
+  // runner lease meant a worker started against a database over budget — or
+  // during a cutover quiesce — still wrote a starting heartbeat per provider
+  // scope, kept writing them every 15 seconds, and looked healthy to every
+  // operator surface while doing no work at all.
+  //
+  // A refusal here is fatal to the process rather than a skipped tick: a worker
+  // that may not write anything has nothing to do, and exiting lets the
+  // container restart policy retry it once conditions change.
+  try {
+    // Every lane this worker carries. If none of them may run, the worker has
+    // nothing to do and must not start writing heartbeats about it.
+    for (const scope of providerScopes) {
+      assertSyncLaneEnabled(
+        scope === "google_ads" ? "google_sync" : scope === "shopify" ? "shopify_sync" : "meta_sync",
+      );
+    }
+    await assertSyncGrowthBoundary("durable_worker_boot", { fresh: true });
+  } catch (error) {
+    console.error("[durable-worker] boot_refused", {
+      workerId,
+      message: error instanceof Error ? error.message : String(error),
+      refusal: describeSyncSafetyRefusal(error),
+    });
+    throw error;
+  }
+
   await heartbeat({
     providerScope: "all",
     status: "starting",

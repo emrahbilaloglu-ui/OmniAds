@@ -77,6 +77,11 @@ const googleSync = await import("@/lib/sync/google-ads-sync");
 const metaScheduled = await import("@/lib/meta/scheduled");
 const decisionResponses = await import("@/lib/meta/decision-responses");
 const outcomeAccrual = await import("@/lib/meta/outcome-accrual");
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: vi.fn() };
+});
+
 const creativeDecisionEngine = await import("@/lib/creative-decision-engine");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
@@ -86,12 +91,22 @@ const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const repairExecutor = await import("@/lib/sync/repair-executor");
 const googleControlPlane = await import("@/lib/google-ads/control-plane-runtime");
+const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
 const { POST } = await import("@/app/api/sync/cron/route");
 
 describe("POST /api/sync/cron", () => {
+  const savedCronEnv = { ...process.env };
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.CRON_SECRET = "secret";
+    // The cron admits ONCE, before any work. These cases exercise what the pass
+    // does once admitted; the refusal itself is asserted separately below.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
     delete process.env.SYNC_CRON_ENFORCE_SOAK_GATE;
     delete process.env.SHOPIFY_SYNC_ENABLED;
     vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
@@ -684,5 +699,74 @@ describe("POST /api/sync/cron", () => {
     expect(payload.ok).toBe(false);
     expect(payload.controlPlaneOnly).toBe(true);
     expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+  });
+});
+
+describe("sync cron admission happens BEFORE any work", () => {
+  const savedEnv = { ...process.env };
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.CRON_SECRET = "secret";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+    vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
+      { id: "biz_1", name: "Biz 1" },
+    ] as never);
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  const cronRequest = () =>
+    new NextRequest("https://example.com/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+
+  it("does ZERO snapshot, repair and reconciliation writes under global-off", async () => {
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    const response = await POST(cronRequest());
+    expect(response.status).toBe(503);
+    const payload = (await response.json()) as Record<string, unknown>;
+    expect(payload.ok).toBe(false);
+    expect(payload.refusal).not.toBeNull();
+
+    // Every writer the pass would have run. Previously all of these executed and
+    // the refusal was reported afterwards.
+    expect(metaScheduled.runMetaSnapshotJobIfDue).not.toHaveBeenCalled();
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).not.toHaveBeenCalled();
+    expect(repairExecutor.executeAutoSyncRepairPlan).not.toHaveBeenCalled();
+    expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+    expect(googleSync.enqueueGoogleAdsScheduledWork).not.toHaveBeenCalled();
+    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+  });
+
+  it("does ZERO work when the growth fence refuses", async () => {
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockRejectedValue(
+      new dbGrowthFence.DbGrowthFenceRefusal(
+        {
+          allowed: false,
+          reason: "physical_snapshot_stale",
+          warning: false,
+          databaseBytes: 1,
+          databaseBudgetBytes: 2,
+          tableBytes: {},
+          offender: null,
+          evaluatedAt: new Date(0).toISOString(),
+          errorMessage: "sampler stopped",
+          overridden: false,
+          physical: null,
+        },
+        "sync_cron_tick",
+      ),
+    );
+    const response = await POST(cronRequest());
+    expect(response.status).toBe(503);
+    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
 import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
@@ -182,6 +184,32 @@ export async function POST(request: NextRequest) {
         autoRepairResults: autoRepair?.results ?? [],
       },
       { status: blocked ? 503 : 200 },
+    );
+  }
+
+  // Global admission BEFORE any work, not after it.
+  //
+  // Every job below writes: the duplicate-ad reconciliation sweep, the snapshot
+  // jobs, the repair planner and its auto-execute, the outcome accrual chains.
+  // They ran first and the refusal was reported at the END, so a cron firing
+  // during a cutover quiesce or over a full disk performed a complete pass and
+  // then announced that it should not have. Refusing here means a due cron
+  // under global-off does zero snapshot, repair and reconciliation writes.
+  try {
+    assertSyncLaneEnabled("cron_enqueue");
+    await assertSyncGrowthBoundary("sync_cron_tick", { fresh: true });
+  } catch (error) {
+    const refusal = describeSyncSafetyRefusal(error);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: refusal?.kind ?? "sync_cron_refused",
+        message:
+          "The sync cron is currently disabled or over capacity. No work was performed.",
+        refusal,
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
     );
   }
 

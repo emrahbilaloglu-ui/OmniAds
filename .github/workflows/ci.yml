@@ -61,6 +61,55 @@ jobs:
         run: |
           npm run creative:v2:safety
 
+  database-seams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 — the schema upgrade seam reads the pre-change
+          # commit's migrations to validate that its rewind describes a schema
+          # production actually had.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql
+          echo "EPHEMERAL_PG_BIN_DIR=$(pg_config --bindir)" >> "$GITHUB_ENV"
+
+      - name: Migrations from zero
+        run: npm run test:migrations-from-zero
+
+      - name: Native ad decision database seam
+        run: node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts
+
+      # The three seams that carry this change's real-PostgreSQL proofs. They
+      # are the only place the two-layer model, receipt-first retention, the
+      # growth-fence budgets and the pre-change upgrade path are exercised
+      # against a real server, so a green unit suite without them is not
+      # evidence the change is safe to deploy.
+      - name: Provider fixture seam
+        run: npm run test:provider-fixture-seam
+
+      - name: Sync retention, growth and release seam
+        run: npm run test:sync-retention-seam
+
+      - name: Pre-change schema upgrade seam
+        # Needs full history: the seam cross-checks its rewind against the
+        # pre-change commit's migrations, which a shallow clone does not have.
+        run: npm run test:schema-upgrade-seam
+
   build:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

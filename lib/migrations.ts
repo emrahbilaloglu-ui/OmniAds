@@ -4,6 +4,7 @@ import {
   runDbTransaction,
   type DbClient,
 } from "@/lib/db";
+import { verifyMigrationSchemaContract } from "@/lib/migration-verification";
 import {
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
   ALTER_NATIVE_AD_SNAPSHOT_AUTHORITY_CHECK_SQL,
@@ -333,6 +334,104 @@ function assertMigrationIdentifier(identifier: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
     throw new Error(`Unsafe migration identifier: ${identifier}`);
   }
+}
+
+/**
+ * SQL that removes a same-name index which is invalid or does not match the
+ * definition we are about to create.
+ *
+ * `CREATE INDEX ... IF NOT EXISTS` matches on NAME ONLY. An interrupted
+ * `CREATE INDEX CONCURRENTLY` leaves behind an index that exists, is named
+ * correctly, and is INVALID — PostgreSQL will not use it, and IF NOT EXISTS
+ * will happily skip recreating it, so the build stays broken forever while
+ * every migration run reports success. The same applies to an index that was
+ * created earlier with different columns or a different predicate.
+ */
+function buildInvalidIndexRepairQuery(input: {
+  indexName: string;
+  /** LIKE patterns every correct definition must contain. */
+  definitionMustContain: readonly string[];
+}) {
+  assertMigrationIdentifier(input.indexName);
+  const mismatchConditions = input.definitionMustContain
+    .map(
+      (fragment) =>
+        `existing_definition NOT LIKE ${quoteLiteral(`%${fragment}%`)}`,
+    )
+    .join("\n              OR ");
+  return `
+    DO $repair_${input.indexName}$
+    DECLARE
+      existing_definition TEXT;
+      existing_valid BOOLEAN;
+    BEGIN
+      SELECT pg_get_indexdef(index_class.oid), index_catalog.indisvalid
+        INTO existing_definition, existing_valid
+      FROM pg_class index_class
+      JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+      WHERE index_class.relname = ${quoteLiteral(input.indexName)};
+      IF existing_definition IS NOT NULL AND (
+        existing_valid IS NOT TRUE
+        OR ${mismatchConditions}
+      ) THEN
+        RAISE WARNING 'dropping unusable index %: valid=% definition=%',
+          ${quoteLiteral(input.indexName)}, existing_valid, existing_definition;
+        -- Not CONCURRENTLY: PostgreSQL forbids it inside a function/DO block.
+        -- The bounded ACCESS EXCLUSIVE this takes is on an index that is
+        -- already unusable — no plan can be depending on it — and the session
+        -- lock_timeout set at the start of the migration bounds the wait.
+        EXECUTE 'DROP INDEX IF EXISTS ' || ${quoteLiteral(input.indexName)};
+      END IF;
+    END
+    $repair_${input.indexName}$
+  `;
+}
+
+/**
+ * Proves an index exists under its declared name AND is usable.
+ *
+ * Deliberately unswallowed: an index this migration is responsible for creating
+ * either exists valid/ready/live afterwards, or the migration has not
+ * succeeded. Reporting completion with a missing index on a multi-gigabyte
+ * relation is how a destructive path ends up on a sequential scan.
+ */
+function buildIndexContractQuery(input: {
+  indexName: string;
+  definitionMustContain: readonly string[];
+}) {
+  assertMigrationIdentifier(input.indexName);
+  const checks = input.definitionMustContain
+    .map(
+      (fragment) => `
+      IF actual_definition NOT LIKE ${quoteLiteral(`%${fragment}%`)} THEN
+        RAISE EXCEPTION '% lost required definition fragment %: %',
+          ${quoteLiteral(input.indexName)}, ${quoteLiteral(fragment)}, actual_definition;
+      END IF;`,
+    )
+    .join("");
+  return `
+    DO $contract_${input.indexName}$
+    DECLARE
+      actual_definition TEXT;
+    BEGIN
+      SELECT pg_get_indexdef(index_class.oid)
+        INTO actual_definition
+      FROM pg_class index_class
+      JOIN pg_index index_catalog ON index_catalog.indexrelid = index_class.oid
+      WHERE index_class.relname = ${quoteLiteral(input.indexName)}
+        AND index_catalog.indisvalid
+        AND index_catalog.indisready
+        AND index_catalog.indislive;
+      IF actual_definition IS NULL THEN
+        RAISE EXCEPTION '% is missing or not valid/ready/live', ${quoteLiteral(input.indexName)};
+      END IF;${checks}
+    END
+    $contract_${input.indexName}$
+  `;
+}
+
+function quoteLiteral(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function buildLockSafeDropColumnQuery(tableName: string, columnName: string) {
@@ -838,6 +937,59 @@ export async function runMigrations(options?: {
           ? getDbWithTimeout(options.timeoutMs)
           : getDb(),
       );
+
+      // Bounded lock waiting, and a record of what the session actually used.
+      // A DDL statement that blocks behind a long-running reader would
+      // otherwise queue every subsequent request behind it — the classic
+      // migration-takes-the-site-down shape — with nothing in the logs to say
+      // which statement was waiting.
+      const lockTimeoutMs = Math.max(
+        1_000,
+        Number(process.env.MIGRATION_LOCK_TIMEOUT_MS ?? 15_000),
+      );
+      await sql
+        .query(`SET lock_timeout = ${Math.floor(lockTimeoutMs)}`)
+        .catch(() => undefined);
+      const migrationSessionSettings = (await sql
+        .query(
+          `SELECT current_setting('lock_timeout') AS lock_timeout,
+                  current_setting('statement_timeout') AS statement_timeout,
+                  current_setting('idle_in_transaction_session_timeout') AS idle_timeout`,
+        )
+        .catch(() => [])) as Array<Record<string, string>>;
+      // Preflight: report the headroom this migration is about to consume from,
+      // so a failure has the numbers next to it. These are OBSERVATIONS, not a
+      // gate — the app cannot see the database host's filesystem, and claiming
+      // otherwise is what conflates a logical budget with disk telemetry.
+      const preflight = (await sql
+        .query(
+          `SELECT pg_database_size(current_database())::text AS database_bytes,
+                  pg_size_pretty(pg_database_size(current_database())) AS database_pretty,
+                  (SELECT COALESCE(SUM(size), 0)::text FROM pg_ls_waldir()) AS wal_bytes,
+                  COALESCE(current_setting('temp_file_limit', true), 'unset') AS temp_file_limit,
+                  -- to_regclass, because a from-zero database has none of the
+                  -- relations this migration is about to create.
+                  COALESCE(
+                    pg_size_pretty(
+                      pg_total_relation_size(to_regclass('public.meta_raw_snapshots'))
+                    ),
+                    'absent'
+                  ) AS meta_raw_snapshots_size,
+                  COALESCE(
+                    pg_size_pretty(
+                      pg_total_relation_size(to_regclass('public.shopify_raw_snapshots'))
+                    ),
+                    'absent'
+                  ) AS shopify_raw_snapshots_size`,
+        )
+        .catch((error) => [
+          { preflight_error: error instanceof Error ? error.message : String(error) },
+        ])) as Array<Record<string, string>>;
+      logStartupEvent("migrations_preflight", {
+        reason,
+        session: migrationSessionSettings[0] ?? null,
+        capacity: preflight[0] ?? null,
+      });
 
       await sql.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
       const legacyCompatEnabled =
@@ -3677,9 +3829,29 @@ export async function runMigrations(options?: {
         // separate, blocked, dry-run-only concern.
         sql`ALTER TABLE meta_raw_snapshots
           ADD COLUMN IF NOT EXISTS content_key TEXT`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS meta_raw_snapshots_content_identity
+        // CONCURRENTLY: this builds a unique index on a multi-gigabyte relation.
+        // A plain CREATE INDEX takes ACCESS EXCLUSIVE for the whole build and
+        // would stall every reader and writer of meta_raw_snapshots for the
+        // duration. Repair first, because IF NOT EXISTS matches on name alone
+        // and an interrupted CONCURRENTLY build leaves an INVALID index that it
+        // silently accepts; then verify, because an index this migration is
+        // responsible for either exists usable or the migration has not
+        // succeeded.
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "meta_raw_snapshots_content_identity",
+            definitionMustContain: ["(content_key)", "WHERE (content_key IS NOT NULL)"],
+          }),
+        ),
+        sql`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_raw_snapshots_content_identity
           ON meta_raw_snapshots (content_key)
           WHERE content_key IS NOT NULL`.catch(() => {}),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "meta_raw_snapshots_content_identity",
+            definitionMustContain: ["(content_key)", "WHERE (content_key IS NOT NULL)"],
+          }),
+        ),
         //
         // Layer 2: the append-only observation receipt. This is what preserves
         // per-partition completion evidence once content is shared. The FK to
@@ -6491,9 +6663,29 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS observation_count INTEGER NOT NULL DEFAULT 1`.catch(
           () => {},
         ),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS shopify_raw_snapshots_content_identity
+        // CONCURRENTLY: this builds a unique index on a multi-gigabyte relation.
+        // A plain CREATE INDEX takes ACCESS EXCLUSIVE for the whole build and
+        // would stall every reader and writer of shopify_raw_snapshots for the
+        // duration. Repair first, because IF NOT EXISTS matches on name alone
+        // and an interrupted CONCURRENTLY build leaves an INVALID index that it
+        // silently accepts; then verify, because an index this migration is
+        // responsible for either exists usable or the migration has not
+        // succeeded.
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "shopify_raw_snapshots_content_identity",
+            definitionMustContain: ["(content_key)", "WHERE (content_key IS NOT NULL)"],
+          }),
+        ),
+        sql`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS shopify_raw_snapshots_content_identity
           ON shopify_raw_snapshots (content_key)
           WHERE content_key IS NOT NULL`.catch(() => {}),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "shopify_raw_snapshots_content_identity",
+            definitionMustContain: ["(content_key)", "WHERE (content_key IS NOT NULL)"],
+          }),
+        ),
         sql`CREATE TABLE IF NOT EXISTS shopify_raw_snapshot_observations (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           snapshot_id          UUID NOT NULL
@@ -10893,6 +11085,17 @@ export async function runMigrations(options?: {
 
       // ── Seed superadmin ───────────────────────────────────────────────────
       await sql`UPDATE users SET is_superadmin = true WHERE lower(email) = 'emrahbilaloglu@gmail.com'`;
+
+      // Prove the schema this change is responsible for actually landed BEFORE
+      // announcing completion. Almost every DDL statement above swallows its
+      // error, which means a failed column, table, FK or index would otherwise
+      // be reported as a successful migration and the application would start
+      // against a schema that cannot support it. This throws.
+      const verification = await verifyMigrationSchemaContract({ timeoutMs });
+      logStartupEvent("migrations_schema_verified", {
+        reason,
+        verifiedObjects: verification.verified,
+      });
 
       migrationsCompleted = true;
       logStartupEvent("migrations_completed", { reason });

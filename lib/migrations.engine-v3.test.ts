@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/migration-verification", () => ({
+  // This suite drives the migration statements against a fake SQL client, so
+  // there is no catalog for the post-migration verifier to read. Its own
+  // behaviour — including every negative case — is covered in
+  // lib/migration-verification.test.ts and end to end by the real-PG seams.
+  verifyMigrationSchemaContract: vi.fn(async () => ({ verified: 0 })),
+}));
+
 const ENGINE_V3_TABLES = [
   "business_engine_v3_flags",
   "engine_v3_account_calibration_daily",

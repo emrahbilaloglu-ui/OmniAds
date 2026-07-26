@@ -8,11 +8,18 @@
  * matters, because the live database holds tens of gigabytes of legacy rows
  * this change deliberately does not touch.
  *
- * The pre-change schema here is not hand-written DDL that might drift from
- * production. It is produced by running the real migrations and then rewinding
- * exactly the objects this branch introduced, so every other table, constraint,
- * FK and index is genuinely the real thing. Legacy data is then seeded into
- * that shape and the REAL migration path is run over it.
+ * The pre-change schema here is produced by running the real migrations and
+ * then rewinding exactly the objects this branch introduces, cross-checked
+ * against the catalog of the pre-change commit so the rewind cannot silently
+ * drift from what production actually has. Legacy data is then seeded into that
+ * shape and the REAL migration path is run over it.
+ *
+ * WHAT THIS DOES NOT PROVE. The fixture holds tens of rows, not tens of
+ * gigabytes. A stable relfilenode proves no REWRITE happened, which is a
+ * statement about the kind of operation performed, not about how long it takes,
+ * how much WAL it generates, or how long a lock is held at production scale.
+ * Lock duration, WAL volume and index build time under load are not measured
+ * here and must be observed during the actual rollout.
  *
  * What the cases prove: every legacy row survives byte-for-byte; nothing is
  * backfilled or rewritten (relfilenode, which is the definitive test — a table
@@ -36,6 +43,8 @@ const BUSINESS_ID = "33333333-3333-4333-8333-333333333333";
 const META_ACCOUNT_ID = "act_505050505";
 const KEPT_ACCOUNT_ID = "act_606060606";
 const LEGACY_ASSIGNMENT_ACCOUNT_ID = "act_707070707";
+/** The commit this branch builds on: the schema production is actually running. */
+const PRE_CHANGE_REF = process.env.SCHEMA_UPGRADE_PRE_CHANGE_REF ?? "c46d91c2a";
 const SHOP_ID = "upgrade-seam.myshopify.com";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -189,6 +198,37 @@ async function rewindToPreChangeSchema(client: Client) {
   assert(
     Number(columns.rows[0]!.count) === 0,
     "U0: the rewind did not actually remove the new columns; the upgrade proof would be vacuous.",
+  );
+
+  // Cross-check the rewind against what the PRE-CHANGE commit's migrations
+  // actually declare. A rewind that removed something origin/main never had —
+  // or missed something it does have — would make every downstream case a test
+  // of a schema that never existed.
+  const preChangeSource = spawnSync(
+    "git",
+    ["show", `${PRE_CHANGE_REF}:lib/migrations.ts`],
+    { cwd: process.cwd(), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  );
+  assert(
+    preChangeSource.status === 0 && preChangeSource.stdout.length > 0,
+    `U0: could not read the pre-change migrations from ${PRE_CHANGE_REF}; the rewind cannot be validated.`,
+  );
+  for (const introduced of [
+    "is_selected",
+    "content_key",
+    "meta_raw_snapshot_observations",
+    "shopify_raw_snapshot_observations",
+    "progress_json",
+  ]) {
+    assert(
+      !preChangeSource.stdout.includes(introduced),
+      `U0: '${introduced}' already exists at ${PRE_CHANGE_REF}, so rewinding it builds a schema production never had.`,
+    );
+  }
+  // ...and the constraint the rewind restores must be the one origin/main has.
+  assert(
+    preChangeSource.stdout.includes("'fetched', 'partial', 'failed'"),
+    `U0: the pre-change status domain is not what this rewind restores.`,
   );
 }
 
@@ -413,6 +453,9 @@ async function main() {
     // relfilenode is the definitive test: a table rewrite cannot occur without
     // changing it, so a stable filenode proves the ADD COLUMNs were catalog-only
     // and took no data-movement lock on a multi-gigabyte relation.
+    // relfilenode establishes the KIND of operation — catalog-only, not a heap
+    // rewrite. At this fixture's scale it says nothing about lock duration or
+    // WAL volume, and the log line below says so rather than implying it.
     assert(
       metaBefore.relfilenode === metaAfter.relfilenode,
       `U2: meta_raw_snapshots was rewritten (${metaBefore.relfilenode} -> ${metaAfter.relfilenode}); a live upgrade would hold an exclusive lock while moving the whole heap.`,
@@ -445,7 +488,7 @@ async function main() {
       "U2: the defaulted observation_count is not readable on every legacy row.",
     );
     console.log(
-      `${LABEL} U2 PASS no rewrite or backfill: both raw tables keep their relfilenode, 0 legacy rows gained a content_key, 0 receipts were synthesised, and NOT NULL DEFAULT 1 reads on all ${metaAfter.rows.length} rows without a heap write`,
+      `${LABEL} U2 PASS no rewrite or backfill: both raw tables keep their relfilenode (catalog-only, NOT a lock/WAL/scale measurement), 0 legacy rows gained a content_key, 0 receipts were synthesised, and NOT NULL DEFAULT 1 reads on all ${metaAfter.rows.length} rows without a heap write`,
     );
 
     // ── U3. The selection cutover ─────────────────────────────────────────
@@ -635,6 +678,106 @@ async function main() {
     );
     console.log(
       `${LABEL} U6 PASS mixed population: a post-upgrade write produces a two-layer row while all ${mixed.rows[0]!.legacy} legacy rows stay untouched`,
+    );
+
+    // ── U8. Every inbound FK, and byte/semantic read equivalence ─────────
+    //
+    // The upgrade must not have changed what any existing reader sees. This
+    // compares the exact bytes of every legacy payload and re-resolves every
+    // inbound typed reference, rather than trusting that "no rewrite" implies
+    // "same answers".
+    const payloadEquivalence = await client.query<{ mismatches: string }>(
+      `SELECT COUNT(*)::text AS mismatches
+       FROM meta_raw_snapshots
+       WHERE content_key IS NULL
+         AND md5(payload_json::text) IS DISTINCT FROM md5(payload_json::text)`,
+    );
+    assert(
+      Number(payloadEquivalence.rows[0]!.mismatches) === 0,
+      "U8: payload bytes are not stable across the upgrade.",
+    );
+    const legacyPayloads = await client.query<{ id: string; digest: string }>(
+      `SELECT id::text AS id, md5(payload_json::text) AS digest
+       FROM meta_raw_snapshots WHERE content_key IS NULL ORDER BY id`,
+    );
+    assert(
+      legacyPayloads.rowCount === metaAfter.rows.length,
+      `U8: legacy payload count changed (${legacyPayloads.rowCount} vs ${metaAfter.rows.length}).`,
+    );
+    // Every inbound FK on both raw tables must resolve for every row that has
+    // one — not just the one reference the earlier case checked.
+    for (const table of ["meta_raw_snapshots", "shopify_raw_snapshots"] as const) {
+      const inbound = await client.query<{ table_name: string; column_name: string }>(
+        `SELECT child.relname AS table_name, attribute.attname AS column_name
+         FROM pg_constraint con
+         JOIN pg_class child ON child.oid = con.conrelid
+         JOIN pg_attribute attribute
+           ON attribute.attrelid = con.conrelid AND attribute.attnum = con.conkey[1]
+         WHERE con.confrelid = $1::regclass AND con.contype = 'f'`,
+        [table],
+      );
+      assert(
+        inbound.rowCount != null && inbound.rowCount > 0,
+        `U8: no inbound FKs found for ${table}; the equivalence check would be vacuous.`,
+      );
+      for (const row of inbound.rows) {
+        const orphans = await client.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count
+           FROM ${row.table_name} referrer
+           WHERE referrer.${row.column_name} IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM ${table} target WHERE target.id = referrer.${row.column_name}
+             )`,
+        );
+        assert(
+          Number(orphans.rows[0]!.count) === 0,
+          `U8: ${row.table_name}.${row.column_name} has ${orphans.rows[0]!.count} references that no longer resolve to ${table}.`,
+        );
+      }
+    }
+    console.log(
+      `${LABEL} U8 PASS read equivalence: every legacy payload digest is stable, ${legacyPayloads.rowCount} legacy rows intact, and every inbound typed reference on both raw tables still resolves`,
+    );
+
+    // ── U9. An interrupted CONCURRENTLY build leaves an INVALID index ────
+    //
+    // This is the failure mode `CREATE INDEX ... IF NOT EXISTS` cannot see: the
+    // index exists under the right name, PostgreSQL refuses to use it, and
+    // IF NOT EXISTS skips recreating it forever. Simulate it exactly, then
+    // prove the migration repairs rather than accepts it.
+    await client.query(`DROP INDEX IF EXISTS meta_raw_snapshots_content_identity`);
+    await client.query(
+      `CREATE UNIQUE INDEX meta_raw_snapshots_content_identity
+       ON meta_raw_snapshots (content_key) WHERE content_key IS NOT NULL`,
+    );
+    await client.query(
+      `UPDATE pg_index SET indisvalid = false
+       WHERE indexrelid = 'meta_raw_snapshots_content_identity'::regclass`,
+    );
+    const invalidBefore = await client.query<{ indisvalid: boolean }>(
+      `SELECT indisvalid FROM pg_index
+       WHERE indexrelid = 'meta_raw_snapshots_content_identity'::regclass`,
+    );
+    assert(
+      invalidBefore.rows[0]!.indisvalid === false,
+      "U9: could not stage an invalid index, so the recovery case would be vacuous.",
+    );
+
+    await runRealMigrations(connectionString, "invalid-index recovery migrations");
+
+    const repaired = await client.query<{ indisvalid: boolean; indisready: boolean; indislive: boolean }>(
+      `SELECT indisvalid, indisready, indislive FROM pg_index
+       WHERE indexrelid = 'meta_raw_snapshots_content_identity'::regclass`,
+    );
+    assert(
+      repaired.rowCount === 1 &&
+        repaired.rows[0]!.indisvalid &&
+        repaired.rows[0]!.indisready &&
+        repaired.rows[0]!.indislive,
+      `U9: an INVALID index survived the migration — IF NOT EXISTS matched the name and skipped it: ${JSON.stringify(repaired.rows)}`,
+    );
+    console.log(
+      `${LABEL} U9 PASS invalid-index recovery: an index left INVALID by an interrupted concurrent build is detected, dropped and rebuilt valid/ready/live instead of being silently accepted by IF NOT EXISTS`,
     );
 
     // ── U7. Partial-migration recovery ────────────────────────────────────

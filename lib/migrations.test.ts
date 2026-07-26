@@ -5,6 +5,15 @@ vi.mock("@/lib/startup-diagnostics", () => ({
   logStartupEvent: vi.fn(),
 }));
 
+vi.mock("@/lib/migration-verification", () => ({
+  // These suites drive the migration statements against a fake SQL client, so
+  // there is no catalog for the post-migration verifier to read. Its own
+  // behaviour — including every negative case — is covered in
+  // lib/migration-verification.test.ts and proven end to end by the real-PG
+  // seams; mocking it here keeps this suite about the statements it emits.
+  verifyMigrationSchemaContract: vi.fn(async () => ({ verified: 0 })),
+}));
+
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
   getDbWithTimeout: vi.fn(),

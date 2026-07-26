@@ -76,6 +76,13 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // rather than degrade quietly — verified so it fails at migration time
   // instead.
   { table: "provider_account_snapshot_runs", column: "connection_fingerprint", dataType: "text", isNullable: true },
+  // The release-gate anti-runaway contract. Every keyed read and the coalescing
+  // writer depend on these; without them the table returns to a row per
+  // evaluation and a scan per read.
+  { table: "sync_release_gates", column: "provider_scope", dataType: "text", isNullable: true },
+  { table: "sync_release_gates", column: "decision_fingerprint", dataType: "text", isNullable: true },
+  { table: "sync_release_gates", column: "last_seen_at", dataType: "timestamp with time zone", isNullable: false },
+  { table: "sync_release_gates", column: "coalesced_count", dataType: "integer", isNullable: false, columnDefault: "1" },
 ];
 
 /** Tables this change adds. */
@@ -141,6 +148,20 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     table: "business_provider_accounts",
     unique: false,
     definitionMustContain: ["WHERE is_selected"],
+  },
+  {
+    // The keyed latest read for gate evaluation and /build-info. Without it both
+    // fall back to ordering a multi-gigabyte relation to return one row.
+    name: "idx_sync_release_gates_key_latest",
+    table: "sync_release_gates",
+    unique: false,
+    definitionMustContain: ["build_id", "environment", "gate_kind", "COALESCE(provider_scope", "emitted_at DESC", "id DESC"],
+  },
+  {
+    name: "idx_sync_release_gates_kind_latest",
+    table: "sync_release_gates",
+    unique: false,
+    definitionMustContain: ["gate_kind", "COALESCE(provider_scope", "emitted_at DESC", "id DESC"],
   },
   {
     // The growth fence refuses every write it cannot back with a fresh host

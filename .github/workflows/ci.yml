@@ -105,6 +105,13 @@ jobs:
       - name: Sync retention, growth and release seam
         run: npm run test:sync-retention-seam
 
+      # sync_release_gates reached ~1.35 GB because every evaluation appended a
+      # row and every read scanned the build's whole history. Neither is visible
+      # on three rows, so this seam seeds 500k and pins work_mem/temp_file_limit
+      # low enough that an unindexed sort is an ERROR rather than a slow query.
+      - name: Release-gate plan and coalescing seam
+        run: npm run test:release-gate-plan-seam
+
       - name: Pre-change schema upgrade seam (branch point)
         # Needs full history: the seam cross-checks its rewind against the
         # pre-change ref's migrations, which a shallow clone does not have.

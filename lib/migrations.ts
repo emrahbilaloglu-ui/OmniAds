@@ -33,6 +33,23 @@ import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
+
+/**
+ * Clear the in-process "already migrated" latch.
+ *
+ * `runMigrations` returns immediately once it has succeeded, which is right for
+ * a long-lived process. A seam that has to prove the UPGRADE path — drop the
+ * objects this change adds, reproduce a pre-change catalog, and show the
+ * migration restores them — needs to run it twice against one database. Without
+ * this it would only ever be testing a fresh migration, which says nothing about
+ * the upgrade production will actually perform.
+ *
+ * Deliberately not called from any runtime path.
+ */
+export function resetMigrationLatchForSeams() {
+  migrationsPromise = null;
+  migrationsCompleted = false;
+}
 let loggedMigrationSkip = false;
 
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
@@ -3523,6 +3540,93 @@ export async function runMigrations(options?: {
         ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_emitted
           ON sync_release_gates (emitted_at DESC)`.catch(() => {}),
+        //
+        // Anti-runaway contract for sync_release_gates.
+        //
+        // This table is ~1.35 GB because every evaluation appended a row and
+        // every read scanned all of them: `getLatestSyncGateRecords` ran two
+        // unbounded `ORDER BY emitted_at DESC` queries with no LIMIT and
+        // filtered in JavaScript, and the control-plane status read three
+        // `LIMIT 100` scans including one with no key predicate at all. The
+        // fix is a keyed latest read with an explicit tie-break, plus logical
+        // coalescing so an unchanged decision advances a counter instead of
+        // appending an identical row.
+        //
+        // NOT swallowed. These columns and indexes are the contract every read
+        // and write below depends on; a migration that "completed" without them
+        // has left the runaway in place while reporting success.
+        sql`ALTER TABLE sync_release_gates
+          ADD COLUMN IF NOT EXISTS provider_scope TEXT`,
+        sql`ALTER TABLE sync_release_gates
+          ADD COLUMN IF NOT EXISTS decision_fingerprint TEXT`,
+        sql`ALTER TABLE sync_release_gates
+          ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
+        sql`ALTER TABLE sync_release_gates
+          ADD COLUMN IF NOT EXISTS coalesced_count INTEGER NOT NULL DEFAULT 1`,
+        // provider_scope is deliberately NULLABLE with no default and no
+        // backfill. Legacy rows encode the scope inside evidence_json, where
+        // absent has always meant "meta"; an UPDATE across a multi-gigabyte
+        // table to materialise that would be a rewrite, and a DEFAULT 'meta'
+        // would silently relabel existing google_ads rows. Every read and the
+        // indexes below use COALESCE(provider_scope, 'meta') instead, which is
+        // exactly the old semantics expressed as a single indexable predicate.
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "idx_sync_release_gates_key_latest",
+            definitionMustContain: [
+              "build_id",
+              "environment",
+              "gate_kind",
+              "COALESCE(provider_scope",
+              "emitted_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_key_latest
+          ON sync_release_gates (
+            build_id, environment, gate_kind,
+            (COALESCE(provider_scope, 'meta')), emitted_at DESC, id DESC
+          )`.catch(() => {}),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "idx_sync_release_gates_key_latest",
+            definitionMustContain: [
+              "build_id",
+              "environment",
+              "gate_kind",
+              "COALESCE(provider_scope",
+              "emitted_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "idx_sync_release_gates_kind_latest",
+            definitionMustContain: [
+              "gate_kind",
+              "COALESCE(provider_scope",
+              "emitted_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sync_release_gates_kind_latest
+          ON sync_release_gates (
+            gate_kind, (COALESCE(provider_scope, 'meta')), emitted_at DESC, id DESC
+          )`.catch(() => {}),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "idx_sync_release_gates_kind_latest",
+            definitionMustContain: [
+              "gate_kind",
+              "COALESCE(provider_scope",
+              "emitted_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
         sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           build_id            TEXT NOT NULL,

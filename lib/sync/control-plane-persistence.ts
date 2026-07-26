@@ -1,9 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import {
-  selectLatestSyncGateRecords,
-  type SyncGateRecord,
-} from "@/lib/sync/release-gates";
+import type { SyncGateRecord } from "@/lib/sync/release-gates";
 import {
   resolveSyncControlPlaneKey,
   type SyncControlPlaneKey,
@@ -112,18 +109,46 @@ function toGateIdentity(record: SyncGateRecord | null): SyncGateIdentity | null 
   };
 }
 
-function mapGateRows(
-  rows: Array<Record<string, unknown>>,
-  providerScope: string,
-): SyncGateIdentityMap {
-  const selected = selectLatestSyncGateRecords(
-    rows.map((row) => mapGateRowToRecord(row)),
-    { providerScope },
-  );
-  return {
-    deployGate: toGateIdentity(selected.deployGate),
-    releaseGate: toGateIdentity(selected.releaseGate),
-  };
+/**
+ * One gate row for exactly one key.
+ *
+ * `buildId: null` means "newest for this kind and scope anywhere", which is the
+ * diagnostic the previous unkeyed `LIMIT 100` scan was trying to answer.
+ * `environment: null` narrows only to the build. Both are still index-keyed and
+ * still return at most one row.
+ */
+async function readKeyedGateRow(
+  sql: ReturnType<typeof getDb>,
+  input: {
+    buildId: string | null;
+    environment: string | null;
+    gateKind: "deploy_gate" | "release_gate";
+    providerScope: string;
+  },
+): Promise<SyncGateRecord | null> {
+  const columns = `id, build_id, environment, gate_kind, verdict, emitted_at,
+    gate_scope, mode, base_result, blocker_class, summary, break_glass,
+    override_reason, evidence_json`;
+  const predicates: string[] = ["gate_kind = $1", "COALESCE(provider_scope, 'meta') = $2"];
+  const values: unknown[] = [input.gateKind, input.providerScope];
+  if (input.buildId != null) {
+    values.push(input.buildId);
+    predicates.push(`build_id = $${values.length}`);
+  }
+  if (input.environment != null) {
+    values.push(input.environment);
+    predicates.push(`environment = $${values.length}`);
+  }
+  const rows = (await sql.query(
+    `SELECT ${columns}
+     FROM sync_release_gates
+     WHERE ${predicates.join(" AND ")}
+     ORDER BY emitted_at DESC, id DESC
+     LIMIT 1`,
+    values,
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row ? mapGateRowToRecord(row) : null;
 }
 
 function mapRepairPlanRow(row: Record<string, unknown> | undefined): SyncRepairPlanIdentity | null {
@@ -147,69 +172,102 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
   const sql = getDb();
   const identity = resolveSyncControlPlaneKey(input);
 
-  const [exactGateRows, fallbackGateRows, latestGateRows, exactRepairRows, fallbackRepairRows, latestRepairRows] =
-    await Promise.all([
-      sql`
-        SELECT id, build_id, environment, gate_kind, verdict, emitted_at
-        , gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
-        FROM sync_release_gates
-        WHERE build_id = ${identity.buildId}
-          AND environment = ${identity.environment}
-        ORDER BY emitted_at DESC
-        LIMIT 100
-      ` as Promise<Array<Record<string, unknown>>>,
-      sql`
-        SELECT id, build_id, environment, gate_kind, verdict, emitted_at
-        , gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
-        FROM sync_release_gates
-        WHERE build_id = ${identity.buildId}
-        ORDER BY emitted_at DESC
-        LIMIT 100
-      ` as Promise<Array<Record<string, unknown>>>,
-      sql`
-        SELECT
-          id, build_id, environment, gate_kind, verdict, emitted_at,
-          gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
-        FROM sync_release_gates
-        ORDER BY emitted_at DESC
-        LIMIT 100
-      ` as Promise<Array<Record<string, unknown>>>,
-      sql`
-        SELECT id, build_id, environment, provider_scope, eligible, emitted_at
-        FROM sync_repair_plans
-        WHERE build_id = ${identity.buildId}
-          AND environment = ${identity.environment}
-          AND provider_scope = ${identity.providerScope}
-        ORDER BY emitted_at DESC
-        LIMIT 1
-      ` as Promise<Array<Record<string, unknown>>>,
-      sql`
-        SELECT id, build_id, environment, provider_scope, eligible, emitted_at
-        FROM sync_repair_plans
-        WHERE build_id = ${identity.buildId}
-          AND provider_scope = ${identity.providerScope}
-        ORDER BY emitted_at DESC
-        LIMIT 1
-      ` as Promise<Array<Record<string, unknown>>>,
-      sql`
-        SELECT id, build_id, environment, provider_scope, eligible, emitted_at
-        FROM sync_repair_plans
-        WHERE provider_scope = ${identity.providerScope}
-        ORDER BY emitted_at DESC
-        LIMIT 1
-      ` as Promise<Array<Record<string, unknown>>>,
-    ]);
+  // Eight keyed LIMIT 1 reads.
+  //
+  // These were three `LIMIT 100` gate scans — including one with NO key
+  // predicate at all, which read the hundred globally newest rows of a
+  // multi-gigabyte table on every /build-info request — followed by a
+  // pick-the-first-of-each-kind in JavaScript. `LIMIT 100` is not a bound on
+  // work: the planner still had to order the matching set to find the first
+  // hundred. Each read below is keyed on exactly what it answers and returns at
+  // most one row, with the same `emitted_at DESC, id DESC` tie-break the index
+  // carries so two readers cannot disagree about the current verdict.
+  const [
+    exactDeploy,
+    exactRelease,
+    fallbackDeploy,
+    fallbackRelease,
+    latestDeploy,
+    latestRelease,
+    exactRepairRows,
+    fallbackRepairRows,
+    latestRepairRows,
+  ] = await Promise.all([
+    readKeyedGateRow(sql, {
+      buildId: identity.buildId,
+      environment: identity.environment,
+      gateKind: "deploy_gate",
+      providerScope: identity.providerScope,
+    }),
+    readKeyedGateRow(sql, {
+      buildId: identity.buildId,
+      environment: identity.environment,
+      gateKind: "release_gate",
+      providerScope: identity.providerScope,
+    }),
+    readKeyedGateRow(sql, {
+      buildId: identity.buildId,
+      environment: null,
+      gateKind: "deploy_gate",
+      providerScope: identity.providerScope,
+    }),
+    readKeyedGateRow(sql, {
+      buildId: identity.buildId,
+      environment: null,
+      gateKind: "release_gate",
+      providerScope: identity.providerScope,
+    }),
+    readKeyedGateRow(sql, {
+      buildId: null,
+      environment: null,
+      gateKind: "deploy_gate",
+      providerScope: identity.providerScope,
+    }),
+    readKeyedGateRow(sql, {
+      buildId: null,
+      environment: null,
+      gateKind: "release_gate",
+      providerScope: identity.providerScope,
+    }),
+    sql`
+      SELECT id, build_id, environment, provider_scope, eligible, emitted_at
+      FROM sync_repair_plans
+      WHERE build_id = ${identity.buildId}
+        AND environment = ${identity.environment}
+        AND provider_scope = ${identity.providerScope}
+      ORDER BY emitted_at DESC, id DESC
+      LIMIT 1
+    ` as Promise<Array<Record<string, unknown>>>,
+    sql`
+      SELECT id, build_id, environment, provider_scope, eligible, emitted_at
+      FROM sync_repair_plans
+      WHERE build_id = ${identity.buildId}
+        AND provider_scope = ${identity.providerScope}
+      ORDER BY emitted_at DESC, id DESC
+      LIMIT 1
+    ` as Promise<Array<Record<string, unknown>>>,
+    sql`
+      SELECT id, build_id, environment, provider_scope, eligible, emitted_at
+      FROM sync_repair_plans
+      WHERE provider_scope = ${identity.providerScope}
+      ORDER BY emitted_at DESC, id DESC
+      LIMIT 1
+    ` as Promise<Array<Record<string, unknown>>>,
+  ]);
 
   const exact = {
-    ...mapGateRows(exactGateRows, identity.providerScope),
+    deployGate: toGateIdentity(exactDeploy),
+    releaseGate: toGateIdentity(exactRelease),
     repairPlan: mapRepairPlanRow(exactRepairRows[0]),
   };
   const fallbackByBuild = {
-    ...mapGateRows(fallbackGateRows, identity.providerScope),
+    deployGate: toGateIdentity(fallbackDeploy),
+    releaseGate: toGateIdentity(fallbackRelease),
     repairPlan: mapRepairPlanRow(fallbackRepairRows[0]),
   };
   const latest = {
-    ...mapGateRows(latestGateRows, identity.providerScope),
+    deployGate: toGateIdentity(latestDeploy),
+    releaseGate: toGateIdentity(latestRelease),
     repairPlan: mapRepairPlanRow(latestRepairRows[0]),
   };
   const missingExact = ([

@@ -1,5 +1,7 @@
-import { getDb } from "@/lib/db";
+import { createHash } from "node:crypto";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import { resolveDestructiveRetentionMode } from "@/lib/sync/global-kill-switch";
 import type { MetaSyncBenchmarkSnapshot } from "@/lib/meta-sync-benchmark";
 import {
   getRuntimeRegistryStatus,
@@ -156,48 +158,225 @@ async function assertGateTablesReady(context: string) {
   });
 }
 
-export async function upsertSyncGateRecord(input: SyncGateRecord) {
+/**
+ * Advisory-lock namespace for release-gate coalescing.
+ *
+ * Two concurrent evaluations of the same gate reach the same key. Without a
+ * lock both would read "no current row" or "fingerprint differs" and both would
+ * insert, which is precisely how identical rows accumulate under load.
+ */
+const SYNC_GATE_COALESCE_LOCK_NAMESPACE = 0x53474154;
+
+function gateCoalesceKey(input: {
+  buildId: string;
+  environment: string;
+  gateKind: SyncGateKind;
+  providerScope: string;
+}) {
+  return `sync_release_gate:${input.buildId}:${input.environment}:${input.gateKind}:${input.providerScope}`;
+}
+
+/**
+ * Exact provider scope for a gate row.
+ *
+ * Deploy gates have never carried one; release gates carry it inside evidence,
+ * where absent has always meant "meta". Normalising it into a column at write
+ * time is what makes the keyed read a single indexable predicate instead of a
+ * scan-and-filter-in-JavaScript.
+ */
+export function resolveSyncGateProviderScope(input: {
+  gateKind: SyncGateKind;
+  evidence?: Record<string, unknown> | null;
+}): string {
+  if (input.gateKind === "deploy_gate") return "meta";
+  return (
+    readReleaseGateProviderScope(input.evidence) ??
+    normalizeRequestedReleaseGateProviderScope(null)
+  );
+}
+
+/**
+ * The DECISION, with no clocks in it.
+ *
+ * Coalescing has to distinguish "the same verdict again" from "the verdict
+ * changed". Evidence detail moves on every evaluation — queue depth, sampled
+ * timestamps, lag — so hashing evidence would make every evaluation a
+ * transition and coalesce nothing. What an operator, a deploy gate and a
+ * rollback decision all read is the verdict tuple, so that is what defines
+ * identity. The newest evidence and summary are still written onto the current
+ * row, so the freshest detail remains readable without a new row per sample.
+ */
+export function computeSyncGateDecisionFingerprint(input: {
+  gateKind: SyncGateKind;
+  gateScope: SyncGateScope;
+  providerScope: string;
+  mode: SyncGateMode;
+  baseResult: SyncGateBaseResult;
+  verdict: SyncGateVerdict;
+  blockerClass: SyncBlockerClass | null;
+  breakGlass: boolean;
+  overrideReason: string | null;
+}): string {
+  return createHash("sha256")
+    .update(
+      [
+        input.gateKind,
+        input.gateScope,
+        input.providerScope,
+        input.mode,
+        input.baseResult,
+        input.verdict,
+        input.blockerClass ?? "",
+        input.breakGlass ? "1" : "0",
+        input.overrideReason ?? "",
+      ].join(""),
+    )
+    .digest("hex");
+}
+
+export interface SyncGateWriteResult extends SyncGateRecord {
+  /** True when this evaluation folded into the current row instead of appending. */
+  coalesced: boolean;
+  coalescedCount: number;
+  providerScope: string;
+}
+
+/**
+ * Record a gate evaluation, appending only on a genuine transition.
+ *
+ * Every evaluation used to INSERT. Cron evaluates both gates on every run, and
+ * the deploy pipeline evaluates them again per phase, so an unchanged "pass"
+ * wrote a new row indefinitely — the direct cause of a 1.35 GB table whose
+ * reads then scanned all of it.
+ *
+ * Now: one advisory lock per key, one keyed `FOR UPDATE` read of the current
+ * row, and either an UPDATE that advances `last_seen_at`/`coalesced_count` and
+ * refreshes the evidence, or an INSERT because the decision actually changed.
+ */
+export async function upsertSyncGateRecord(
+  input: SyncGateRecord,
+): Promise<SyncGateWriteResult> {
   await assertGateTablesReady("sync_release_gates:upsert");
-  const sql = getDb();
-  const rows = await sql`
-    INSERT INTO sync_release_gates (
-      build_id,
-      environment,
-      gate_kind,
-      gate_scope,
-      mode,
-      base_result,
-      verdict,
-      blocker_class,
-      summary,
-      break_glass,
-      override_reason,
-      evidence_json,
-      emitted_at,
-      updated_at
-    )
-    VALUES (
-      ${input.buildId},
-      ${input.environment},
-      ${input.gateKind},
-      ${input.gateScope},
-      ${input.mode},
-      ${input.baseResult},
-      ${input.verdict},
-      ${input.blockerClass ?? null},
-      ${input.summary},
-      ${input.breakGlass},
-      ${input.overrideReason ?? null},
-      ${JSON.stringify(input.evidence ?? {})}::jsonb,
-      ${input.emittedAt},
-      now()
-    )
-    RETURNING id
-  ` as Array<{ id: string }>;
-  return {
-    ...input,
-    id: rows[0]?.id ?? input.id ?? null,
-  };
+  const providerScope = resolveSyncGateProviderScope({
+    gateKind: input.gateKind,
+    evidence: input.evidence,
+  });
+  const fingerprint = computeSyncGateDecisionFingerprint({
+    gateKind: input.gateKind,
+    gateScope: input.gateScope,
+    providerScope,
+    mode: input.mode,
+    baseResult: input.baseResult,
+    verdict: input.verdict,
+    blockerClass: input.blockerClass ?? null,
+    breakGlass: input.breakGlass,
+    overrideReason: input.overrideReason ?? null,
+  });
+
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        ${SYNC_GATE_COALESCE_LOCK_NAMESPACE}::int,
+        hashtext(${gateCoalesceKey({
+          buildId: input.buildId,
+          environment: input.environment,
+          gateKind: input.gateKind,
+          providerScope,
+        })})
+      )
+    `;
+
+    // The keyed latest read, inside the lock, so it is by construction fresh:
+    // no cache can serve it and no concurrent writer can pass through it.
+    const current = (await sql`
+      SELECT id, decision_fingerprint, coalesced_count
+      FROM sync_release_gates
+      WHERE build_id = ${input.buildId}
+        AND environment = ${input.environment}
+        AND gate_kind = ${input.gateKind}
+        AND COALESCE(provider_scope, 'meta') = ${providerScope}
+      ORDER BY emitted_at DESC, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `) as Array<{
+      id: string;
+      decision_fingerprint: string | null;
+      coalesced_count: number | string | null;
+    }>;
+
+    const existing = current[0];
+    if (existing && existing.decision_fingerprint === fingerprint) {
+      const updated = (await sql`
+        UPDATE sync_release_gates
+        SET last_seen_at = ${input.emittedAt},
+            coalesced_count = coalesced_count + 1,
+            summary = ${input.summary},
+            evidence_json = ${JSON.stringify(input.evidence ?? {})}::jsonb,
+            updated_at = now()
+        WHERE id = ${existing.id}
+        RETURNING id, coalesced_count
+      `) as Array<{ id: string; coalesced_count: number | string }>;
+      return {
+        ...input,
+        id: updated[0]?.id ?? existing.id,
+        coalesced: true,
+        coalescedCount: Number(updated[0]?.coalesced_count ?? 0),
+        providerScope,
+      };
+    }
+
+    const inserted = (await sql`
+      INSERT INTO sync_release_gates (
+        build_id,
+        environment,
+        gate_kind,
+        gate_scope,
+        provider_scope,
+        decision_fingerprint,
+        mode,
+        base_result,
+        verdict,
+        blocker_class,
+        summary,
+        break_glass,
+        override_reason,
+        evidence_json,
+        emitted_at,
+        last_seen_at,
+        coalesced_count,
+        updated_at
+      )
+      VALUES (
+        ${input.buildId},
+        ${input.environment},
+        ${input.gateKind},
+        ${input.gateScope},
+        ${providerScope},
+        ${fingerprint},
+        ${input.mode},
+        ${input.baseResult},
+        ${input.verdict},
+        ${input.blockerClass ?? null},
+        ${input.summary},
+        ${input.breakGlass},
+        ${input.overrideReason ?? null},
+        ${JSON.stringify(input.evidence ?? {})}::jsonb,
+        ${input.emittedAt},
+        ${input.emittedAt},
+        1,
+        now()
+      )
+      RETURNING id
+    `) as Array<{ id: string }>;
+    return {
+      ...input,
+      id: inserted[0]?.id ?? input.id ?? null,
+      coalesced: false,
+      coalescedCount: 1,
+      providerScope,
+    };
+  });
 }
 
 function hydrateSyncGateRecordRow(row: Record<string, unknown>): SyncGateRecord {
@@ -307,71 +486,190 @@ export async function getLatestSyncGateRecords(input?: {
   releaseGate: SyncGateRecord | null;
 }> {
   await assertGateTablesReady("sync_release_gates:get_latest");
-  const sql = getDb();
   const { buildId, environment } = resolveSyncControlPlaneKey({
     buildId: input?.buildId,
     environment: input?.environment,
   });
-  const exactRows = await sql`
-    SELECT
-      id,
-      build_id,
-      environment,
-      gate_kind,
-      gate_scope,
-      mode,
-      base_result,
-      verdict,
-      blocker_class,
-      summary,
-      break_glass,
-      override_reason,
-      evidence_json,
-      emitted_at
-    FROM sync_release_gates
-    WHERE build_id = ${buildId}
-      AND environment = ${environment}
-    ORDER BY emitted_at DESC
-  ` as Array<Record<string, unknown>>;
-  const fallbackRows = await sql`
-    SELECT
-      id,
-      build_id,
-      environment,
-      gate_kind,
-      gate_scope,
-      mode,
-      base_result,
-      verdict,
-      blocker_class,
-      summary,
-      break_glass,
-      override_reason,
-      evidence_json,
-      emitted_at
-    FROM sync_release_gates
-    WHERE build_id = ${buildId}
-    ORDER BY emitted_at DESC
-  ` as Array<Record<string, unknown>>;
+  const providerScope = normalizeRequestedReleaseGateProviderScope(
+    input?.providerScope,
+  );
 
-  const exactRecords = selectLatestSyncGateRecords(
-    exactRows.map((row) => hydrateSyncGateRecordRow(row)),
-    {
-      providerScope: input?.providerScope,
-    },
-  );
-  const fallbackRecords = selectLatestSyncGateRecords(
-    fallbackRows.map((row) => hydrateSyncGateRecordRow(row)),
-    {
-      providerScope: input?.providerScope,
-    },
-  );
+  // Four keyed LIMIT 1 reads instead of two unbounded scans.
+  //
+  // The previous version selected EVERY row for a build (and every row for a
+  // build+environment) ordered by emitted_at, then picked the first of each kind
+  // in JavaScript. On a table that grew a row per evaluation that is a scan of
+  // the whole build's history to answer a question about one row, and it got
+  // slower exactly as the runaway got worse.
+  const [deployExact, releaseExact, deployFallback, releaseFallback] =
+    await Promise.all([
+      readLatestSyncGateRow({ buildId, environment, gateKind: "deploy_gate", providerScope }),
+      readLatestSyncGateRow({ buildId, environment, gateKind: "release_gate", providerScope }),
+      readLatestSyncGateRow({ buildId, environment: null, gateKind: "deploy_gate", providerScope }),
+      readLatestSyncGateRow({ buildId, environment: null, gateKind: "release_gate", providerScope }),
+    ]);
 
   return mergeLatestSyncGateRecords({
     environment,
-    exact: exactRecords,
-    fallbackByBuild: fallbackRecords,
+    exact: { deployGate: deployExact, releaseGate: releaseExact },
+    fallbackByBuild: { deployGate: deployFallback, releaseGate: releaseFallback },
   });
+}
+
+const SYNC_GATE_ROW_COLUMNS = `
+  id,
+  build_id,
+  environment,
+  gate_kind,
+  gate_scope,
+  provider_scope,
+  mode,
+  base_result,
+  verdict,
+  blocker_class,
+  summary,
+  break_glass,
+  override_reason,
+  evidence_json,
+  emitted_at,
+  last_seen_at,
+  coalesced_count
+`;
+
+/**
+ * One gate row, chosen deterministically.
+ *
+ * `emitted_at DESC, id DESC`: the tie-break is not decoration. Two evaluations
+ * within the same millisecond — which the deploy pipeline produces routinely —
+ * would otherwise return whichever row the planner happened to reach first, so
+ * two readers could disagree about the current verdict. The index carries the
+ * same ordering, so this is a one-row index scan.
+ *
+ * `environment: null` means "any environment for this build", used only as the
+ * fallback when no exact row exists. It is still keyed and still LIMIT 1.
+ */
+async function readLatestSyncGateRow(input: {
+  buildId: string;
+  environment: string | null;
+  gateKind: SyncGateKind;
+  providerScope: string;
+}): Promise<SyncGateRecord | null> {
+  const sql = getDb();
+  const rows = (input.environment == null
+    ? await sql.query(
+        `SELECT ${SYNC_GATE_ROW_COLUMNS}
+         FROM sync_release_gates
+         WHERE build_id = $1
+           AND gate_kind = $2
+           AND COALESCE(provider_scope, 'meta') = $3
+         ORDER BY emitted_at DESC, id DESC
+         LIMIT 1`,
+        [input.buildId, input.gateKind, input.providerScope],
+      )
+    : await sql.query(
+        `SELECT ${SYNC_GATE_ROW_COLUMNS}
+         FROM sync_release_gates
+         WHERE build_id = $1
+           AND environment = $2
+           AND gate_kind = $3
+           AND COALESCE(provider_scope, 'meta') = $4
+         ORDER BY emitted_at DESC, id DESC
+         LIMIT 1`,
+        [input.buildId, input.environment, input.gateKind, input.providerScope],
+      )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row ? hydrateSyncGateRecordRow(row) : null;
+}
+
+/** Keyed newest row for a gate kind regardless of build. Diagnostics only. */
+export async function readLatestSyncGateRowForKind(input: {
+  gateKind: SyncGateKind;
+  providerScope: string;
+}): Promise<SyncGateRecord | null> {
+  const sql = getDb();
+  const rows = (await sql.query(
+    `SELECT ${SYNC_GATE_ROW_COLUMNS}
+     FROM sync_release_gates
+     WHERE gate_kind = $1
+       AND COALESCE(provider_scope, 'meta') = $2
+     ORDER BY emitted_at DESC, id DESC
+     LIMIT 1`,
+    [input.gateKind, input.providerScope],
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row ? hydrateSyncGateRecordRow(row) : null;
+}
+
+/**
+ * Bounded retention for gate evidence.
+ *
+ * Guarded three ways, because this is the only path here that deletes:
+ *   - it runs under the retention lane, so it is dry-run while that lane is off;
+ *   - it never touches the newest row for any key, so the current verdict for
+ *     every build/environment/kind/scope survives regardless of age;
+ *   - it deletes at most `limit` rows per call, so a first run on a table with
+ *     millions of stale rows cannot become an unbounded delete.
+ */
+export async function pruneSyncGateRecords(input?: {
+  maxAgeDays?: number;
+  limit?: number;
+  forceExecute?: boolean;
+  env?: Readonly<Record<string, string | undefined>>;
+}): Promise<{
+  mode: "execute" | "dry_run";
+  candidates: number;
+  deleted: number;
+  laneReason: string;
+}> {
+  await assertGateTablesReady("sync_release_gates:prune");
+  const maxAgeDays = Math.max(1, Math.min(3650, input?.maxAgeDays ?? 90));
+  const limit = Math.max(1, Math.min(50_000, input?.limit ?? 5_000));
+  const decision = resolveDestructiveRetentionMode({
+    requestedExecute: input?.forceExecute === true,
+    env: input?.env,
+  });
+  const sql = getDb();
+
+  // `latest` is the newest row per key. Anything in it is current evidence and
+  // is excluded from deletion by identity, not by age — a build that has not
+  // been evaluated for a year still has a readable verdict.
+  const candidateSql = `
+    WITH latest AS (
+      SELECT DISTINCT ON (build_id, environment, gate_kind, COALESCE(provider_scope, 'meta'))
+             id
+      FROM sync_release_gates
+      ORDER BY build_id, environment, gate_kind,
+               COALESCE(provider_scope, 'meta'), emitted_at DESC, id DESC
+    )
+    SELECT id FROM sync_release_gates
+    WHERE emitted_at < now() - make_interval(days => $1)
+      AND id NOT IN (SELECT id FROM latest)
+    ORDER BY emitted_at ASC, id ASC
+    LIMIT $2
+  `;
+  const candidates = (await sql.query(candidateSql, [maxAgeDays, limit])) as Array<{
+    id: string;
+  }>;
+
+  if (decision.mode !== "execute" || candidates.length === 0) {
+    return {
+      mode: decision.mode,
+      candidates: candidates.length,
+      deleted: 0,
+      laneReason: decision.laneAdmission.reason,
+    };
+  }
+
+  const deleted = (await sql.query(
+    `DELETE FROM sync_release_gates WHERE id = ANY($1::uuid[]) RETURNING id`,
+    [candidates.map((row) => row.id)],
+  )) as Array<{ id: string }>;
+  return {
+    mode: decision.mode,
+    candidates: candidates.length,
+    deleted: deleted.length,
+    laneReason: decision.laneAdmission.reason,
+  };
 }
 
 export async function getSyncGateRecordById(input: {

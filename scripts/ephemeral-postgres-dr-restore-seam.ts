@@ -698,10 +698,19 @@ async function main() {
       manifest.missing_from_dump === "0" && manifest.unexpected_in_dump === "0",
       `D1: the backup's own completeness check did not pass: missing=${manifest.missing_from_dump} unexpected=${manifest.unexpected_in_dump}`,
     );
+    // The equality is the real assertion: the live catalog and the dump's own
+    // TOC must describe the same set, which is what makes an omission fail.
+    //
+    // The floor is only a sanity bound against the degenerate case — a backup of
+    // a schema-less database would satisfy the equality trivially (0 === 0). It
+    // is deliberately NOT the exact table count of any one release: pinning it
+    // to that turns every legitimate schema change into a seam failure and
+    // teaches the next person to raise the number instead of reading it.
+    const SCHEMA_SANITY_FLOOR = 150;
     assert(
       Number(manifest.catalog_tables) === Number(manifest.dump_table_data_entries) &&
-        Number(manifest.catalog_tables) >= 200,
-      `D1: catalog tables (${manifest.catalog_tables}) and dump TABLE DATA entries (${manifest.dump_table_data_entries}) disagree.`,
+        Number(manifest.catalog_tables) >= SCHEMA_SANITY_FLOOR,
+      `D1: catalog tables (${manifest.catalog_tables}) and dump TABLE DATA entries (${manifest.dump_table_data_entries}) disagree, or the schema is implausibly small (floor ${SCHEMA_SANITY_FLOOR}).`,
     );
     const checksumVerify = spawnSync(
       "bash",

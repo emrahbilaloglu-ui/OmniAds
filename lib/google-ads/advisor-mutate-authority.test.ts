@@ -110,6 +110,41 @@ describe("Google Ads account authority", () => {
     });
   });
 
+  it("re-reads authority after the token refresh and before every attempt", async () => {
+    // Token refresh is a network round trip and manager-candidate resolution
+    // reads a discovery snapshot; both take real time. A check only at the top
+    // leaves a window before each attempt, and the loop retries against a
+    // different login customer id.
+    let calls = 0;
+    getProviderAccountAssignments.mockImplementation(async () => {
+      calls += 1;
+      // Selected for the first read (route admission), revoked from then on.
+      return { account_ids: calls === 1 ? ["123-456-7890"] : [] };
+    });
+
+    const outcome = await advisor
+      .executeAdvisorMutation({
+        businessId: "biz-1",
+        accountId: "123-456-7890",
+        action: {
+          actionType: "add_negative_keyword",
+          payload: {
+            campaignId: "c-1",
+            negativeKeywords: ["bad"],
+            matchType: "EXACT",
+          },
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(outcome).not.toBeNull();
+    expect(isGoogleAdsAccountAuthorityError(outcome)).toBe(true);
+    expect(fetchWithTimeout).not.toHaveBeenCalled();
+  });
+
   describe("advisor writeback makes zero provider calls without authority", () => {
     const action: import("@/lib/google-ads/advisor-mutate").AdvisorMutatePayload = {
       actionType: "add_negative_keyword",

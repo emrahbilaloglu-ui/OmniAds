@@ -158,6 +158,30 @@ describe("Meta write authority at the immediate pre-POST boundary", () => {
     expect(resolveMetaAccountAuthority).toHaveBeenCalledTimes(2);
   });
 
+  it("re-reads authority AFTER the journaling hook, immediately before the POST", async () => {
+    // The route checks once, and the check at the top of the write helper runs
+    // BEFORE `beforeMutationAttempt` — which is where the durable journal entry
+    // is written, and journaling is not instantaneous. An account deselected in
+    // that window would have been caught by neither.
+    let revokedDuringJournaling = false;
+    resolveMetaAccountAuthority.mockImplementation(async () =>
+      revokedDuringJournaling
+        ? { state: "confirmed_revoked", errorMessage: null }
+        : { state: "authorized", errorMessage: null },
+    );
+
+    const failure = await (async () => {
+      const first = await getMetaAdsWriteBlockFailure(ctx);
+      expect(first).toBeNull();
+      // ...the journaling hook runs here, and the account is deselected in it.
+      revokedDuringJournaling = true;
+      return getMetaAdsWriteBlockFailure(ctx);
+    })();
+
+    expect(failure?.error.code).toBe(META_ACCOUNT_NOT_SELECTED_CODE);
+    expect(postCount()).toBe(0);
+  });
+
   it("classifies both authority refusals as batch-halting", () => {
     expect(isMetaWriteAuthorityFailure({ code: META_ACCOUNT_NOT_SELECTED_CODE })).toBe(
       true,

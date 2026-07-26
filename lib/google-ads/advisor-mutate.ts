@@ -127,7 +127,18 @@ async function googleAdsMutateRequest(input: {
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/${input.path}`;
   let lastError: string | null = null;
 
-  for (const loginCustomerId of await loginCustomerIdCandidates(input.businessId, accountId)) {
+  const candidates = await loginCustomerIdCandidates(input.businessId, accountId);
+  for (const loginCustomerId of candidates) {
+    // Re-read AFTER the token refresh and the manager-account resolution above,
+    // and again before EVERY attempt. Both of those can take seconds — a token
+    // refresh is a network round trip and candidate resolution reads a
+    // discovery snapshot — and the loop retries against a different login
+    // customer id, so "checked once at the top" leaves a window before each
+    // attempt in which the account can be deselected.
+    await assertGoogleAdsAccountAuthority({
+      businessId: input.businessId,
+      accountId: input.accountId,
+    });
     const response = await fetchWithTimeout(
       url,
       {
@@ -177,7 +188,12 @@ async function googleAdsSearchRequest(input: {
   const url = `${GOOGLE_CONFIG.adsApiBase}/customers/${accountId}/googleAds:search`;
   let lastError: string | null = null;
 
-  for (const loginCustomerId of await loginCustomerIdCandidates(input.businessId, accountId)) {
+  const searchCandidates = await loginCustomerIdCandidates(input.businessId, accountId);
+  for (const loginCustomerId of searchCandidates) {
+    await assertGoogleAdsAccountAuthority({
+      businessId: input.businessId,
+      accountId: input.accountId,
+    });
     const response = await fetchWithTimeout(
       url,
       {

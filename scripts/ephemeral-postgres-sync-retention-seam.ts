@@ -940,6 +940,7 @@ async function verifySelectionQueries(client: Client) {
 async function verifyRolloutOrchestration(client: Client) {
   const { spawnSync: spawnRollout } = await import("node:child_process");
   const laneFile = path.join(os.tmpdir(), `adsecute-rollout-lanes-${process.pid}.env`);
+  void laneFile;
   const runRollout = (command: string, extraEnv: Record<string, string> = {}) =>
     spawnRollout(
       process.execPath,
@@ -949,7 +950,7 @@ async function verifyRolloutOrchestration(client: Client) {
         encoding: "utf8",
         env: {
           ...process.env,
-          SYNC_LANE_ENV_FILE: laneFile,
+          SYNC_LANE_ENV_FILE: envPath,
           // The script must judge the lane state from the environment, not from
           // whatever this seam turned on for its own cases.
           ADSECUTE_SYNC_GLOBAL_ENABLED: "",
@@ -964,6 +965,29 @@ async function verifyRolloutOrchestration(client: Client) {
         maxBuffer: 16 * 1024 * 1024,
       },
     );
+
+  // A realistic production env: secrets, unrelated settings, comments, blank
+  // lines, an `export` form, a quoted value containing '=', and one managed key
+  // already present. Every byte of the non-managed content must survive.
+  const PRODUCTION_ENV = [
+    "# Adsecute production environment",
+    "DATABASE_URL=postgresql://user:s3cr3t@db:5432/adsecute?sslmode=require",
+    "NEXTAUTH_SECRET=abc123==padding==",
+    "export META_APP_SECRET=shhh",
+    'GOOGLE_ADS_DEVELOPER_TOKEN="tok=en/with=equals"',
+    "",
+    "# Worker tuning",
+    "WORKER_POLL_INTERVAL_MS=10000",
+    "ADSECUTE_SYNC_GLOBAL_ENABLED=",
+    "SHOPIFY_SYNC_ENABLED=true",
+    "",
+  ].join("\n");
+  const COMPOSE = "services:\n  web:\n    env_file:\n      - .env.production\n";
+
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "adsecute-rollout-proj-"));
+  const envPath = path.join(projectDir, ".env.production");
+  fs.writeFileSync(envPath, PRODUCTION_ENV, { mode: 0o600 });
+  fs.writeFileSync(path.join(projectDir, "docker-compose.yml"), COMPOSE);
 
   try {
     // R1: a live lease must abort. Nothing is written.
@@ -985,11 +1009,11 @@ async function verifyRolloutOrchestration(client: Client) {
       `R1: the abort did not name the failed precondition:\n${blocked.stdout}\n${blocked.stderr}`,
     );
     assert(
-      !fs.existsSync(laneFile),
-      "R1: a refused enable still wrote the lane file; a partial enable is possible.",
+      fs.readFileSync(envPath, "utf8") === PRODUCTION_ENV,
+      "R1: a refused enable modified the production env file.",
     );
     console.log(
-      `${LABEL} R1 PASS rollout abort: a live runner lease refuses enable, names the failed check, and writes nothing`,
+      `${LABEL} R1 PASS rollout abort: a live runner lease refuses enable, names the failed check, and leaves the env file byte-identical`,
     );
 
     // R2: with the database actually quiesced, enable succeeds and writes ALL
@@ -1020,7 +1044,34 @@ async function verifyRolloutOrchestration(client: Client) {
       enabled.status === 0,
       `R2: enable failed on a quiesced database:\n${enabled.stdout}\n${enabled.stderr}`,
     );
-    const laneContents = fs.readFileSync(laneFile, "utf8");
+    const laneContents = fs.readFileSync(envPath, "utf8");
+    // The P0 this guards: an earlier version rendered the whole file from the
+    // lane list, which against a real .env.production would have replaced
+    // DATABASE_URL, every credential and every unrelated setting with six
+    // lines.
+    for (const preserved of [
+      "DATABASE_URL=postgresql://user:s3cr3t@db:5432/adsecute?sslmode=require",
+      "NEXTAUTH_SECRET=abc123==padding==",
+      "export META_APP_SECRET=shhh",
+      'GOOGLE_ADS_DEVELOPER_TOKEN="tok=en/with=equals"',
+      "WORKER_POLL_INTERVAL_MS=10000",
+      "SHOPIFY_SYNC_ENABLED=true",
+      "# Adsecute production environment",
+      "# Worker tuning",
+    ]) {
+      assert(
+        laneContents.includes(preserved),
+        `R2: enable destroyed an unrelated line: ${preserved.slice(0, 40)}`,
+      );
+    }
+    const backups = fs
+      .readdirSync(projectDir)
+      .filter((name) => name.includes(".rollout-backup-"));
+    assert(
+      backups.length > 0 &&
+        fs.readFileSync(path.join(projectDir, backups[0]!), "utf8") === PRODUCTION_ENV,
+      "R2: no restorable backup of the original env file was written.",
+    );
     for (const lane of [
       "META_SYNC",
       "GOOGLE_SYNC",
@@ -1043,25 +1094,29 @@ async function verifyRolloutOrchestration(client: Client) {
       "R2: retention was ENABLED by the rollout script; it must never be.",
     );
     console.log(
-      `${LABEL} R2 PASS atomic enable: all 5 sync lanes written in one action with retention left disabled`,
+      `${LABEL} R2 PASS atomic enable: all 5 sync lanes written in one action into the real compose env file, every unrelated key and comment preserved, a checksummed backup written, retention left disabled`,
     );
 
     // R3: disable always works and clears everything, including retention.
     const disabled = runRollout("disable");
     assert(disabled.status === 0, `R3: disable failed:\n${disabled.stderr}`);
-    const afterDisable = fs.readFileSync(laneFile, "utf8");
+    const afterDisable = fs.readFileSync(envPath, "utf8");
     assert(
-      !/=enabled/.test(afterDisable),
-      `R3: disable left something enabled:\n${afterDisable}`,
+      !/ADSECUTE_SYNC_[A-Z_]*=enabled/.test(afterDisable),
+      `R3: disable left a lane enabled:\n${afterDisable}`,
+    );
+    assert(
+      afterDisable.includes("DATABASE_URL=postgresql://user:s3cr3t@db:5432/adsecute?sslmode=require"),
+      "R3: disable destroyed an unrelated key.",
     );
     console.log(
-      `${LABEL} R3 PASS unconditional disable: every lane cleared, including retention`,
+      `${LABEL} R3 PASS unconditional disable: every lane cleared including retention, unrelated keys intact`,
     );
   } finally {
     await client
       .query(`DELETE FROM sync_runner_leases WHERE business_id = '__rollout_probe__'`)
       .catch(() => undefined);
-    fs.rmSync(laneFile, { force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
   }
 }
 

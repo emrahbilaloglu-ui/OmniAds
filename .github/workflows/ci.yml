@@ -105,10 +105,17 @@ jobs:
       - name: Sync retention, growth and release seam
         run: npm run test:sync-retention-seam
 
-      - name: Pre-change schema upgrade seam
+      - name: Pre-change schema upgrade seam (branch point)
         # Needs full history: the seam cross-checks its rewind against the
-        # pre-change commit's migrations, which a shallow clone does not have.
+        # pre-change ref's migrations, which a shallow clone does not have.
         run: npm run test:schema-upgrade-seam
+
+      - name: Pre-change schema upgrade seam (origin/main)
+        # The second meaningful baseline. Both are exercised because the rewind
+        # is only honest if it reverts what that specific ref lacks — a seam
+        # validated against one ref can silently rewind an object the other ref
+        # already has.
+        run: SCHEMA_UPGRADE_PRE_CHANGE_REF=origin/main npm run test:schema-upgrade-seam
 
   build:
     if: github.event_name == 'pull_request'

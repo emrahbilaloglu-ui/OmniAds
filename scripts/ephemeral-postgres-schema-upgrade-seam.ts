@@ -45,6 +45,19 @@ const KEPT_ACCOUNT_ID = "act_606060606";
 const LEGACY_ASSIGNMENT_ACCOUNT_ID = "act_707070707";
 /** The commit this branch builds on: the schema production is actually running. */
 const PRE_CHANGE_REF = process.env.SCHEMA_UPGRADE_PRE_CHANGE_REF ?? "c46d91c2a";
+/**
+ * Exactly what rewindToPreChangeSchema reverts. Every entry is verified to be
+ * ABSENT at PRE_CHANGE_REF and PRESENT at HEAD before any case runs, so this
+ * list cannot drift into rewinding something the pre-change schema already had.
+ */
+const REWOUND_IDENTIFIERS = [
+  "is_selected",
+  "content_key",
+  "first_observed_at",
+  "meta_raw_snapshot_observations",
+  "shopify_raw_snapshot_observations",
+  "progress_json",
+] as const;
 const SHOP_ID = "upgrade-seam.myshopify.com";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -149,14 +162,6 @@ async function rewindToPreChangeSchema(client: Client) {
       await client.query(`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`);
     }
   }
-  // The pre-change status domain had no 'superseded'.
-  await client.query(
-    `ALTER TABLE meta_raw_snapshots DROP CONSTRAINT IF EXISTS meta_raw_snapshots_status_check`,
-  );
-  await client.query(
-    `ALTER TABLE meta_raw_snapshots ADD CONSTRAINT meta_raw_snapshots_status_check
-     CHECK (status IN ('fetched', 'partial', 'failed'))`,
-  );
   await client.query(
     `ALTER TABLE business_provider_accounts DROP COLUMN IF EXISTS is_selected`,
   );
@@ -200,10 +205,21 @@ async function rewindToPreChangeSchema(client: Client) {
     "U0: the rewind did not actually remove the new columns; the upgrade proof would be vacuous.",
   );
 
-  // Cross-check the rewind against what the PRE-CHANGE commit's migrations
-  // actually declare. A rewind that removed something origin/main never had —
-  // or missed something it does have — would make every downstream case a test
-  // of a schema that never existed.
+  // Cross-check the rewind against what the PRE-CHANGE ref's migrations
+  // actually declare — in BOTH directions.
+  //
+  // A previous version of this check asserted a hand-authored list of
+  // "introduced" identifiers and, separately, that the pre-change source
+  // contained the substring `'fetched', 'partial', 'failed'`. Both were wrong:
+  // the list omitted the status constraint the rewind was ALSO reverting, and
+  // that substring matches inside the four-value constraint, so a schema that
+  // already had 'superseded' passed a check meant to prove it did not. The
+  // seam was rewinding an object the pre-change schema already had and
+  // reporting compatibility with a schema that never existed.
+  //
+  // The list is now VERIFIED against the ref rather than trusted, so an
+  // identifier that is already present at the pre-change ref is a hard failure
+  // instead of a silent mis-rewind.
   const preChangeSource = spawnSync(
     "git",
     ["show", `${PRE_CHANGE_REF}:lib/migrations.ts`],
@@ -213,22 +229,43 @@ async function rewindToPreChangeSchema(client: Client) {
     preChangeSource.status === 0 && preChangeSource.stdout.length > 0,
     `U0: could not read the pre-change migrations from ${PRE_CHANGE_REF}; the rewind cannot be validated.`,
   );
-  for (const introduced of [
-    "is_selected",
-    "content_key",
-    "meta_raw_snapshot_observations",
-    "shopify_raw_snapshot_observations",
-    "progress_json",
-  ]) {
+  const headSource = fs.readFileSync(
+    path.join(process.cwd(), "lib/migrations.ts"),
+    "utf8",
+  );
+  for (const introduced of REWOUND_IDENTIFIERS) {
     assert(
       !preChangeSource.stdout.includes(introduced),
-      `U0: '${introduced}' already exists at ${PRE_CHANGE_REF}, so rewinding it builds a schema production never had.`,
+      `U0: '${introduced}' ALREADY exists at ${PRE_CHANGE_REF}, so rewinding it builds a schema production never had. Remove it from REWOUND_IDENTIFIERS and from rewindToPreChangeSchema.`,
+    );
+    assert(
+      headSource.includes(introduced),
+      `U0: '${introduced}' is not present at HEAD either, so the rewind reverts nothing.`,
     );
   }
-  // ...and the constraint the rewind restores must be the one origin/main has.
+  // Anything this branch introduces MUST be in the rewind list, or the "pre-change"
+  // schema still contains part of the change under test.
+  for (const introduced of ["is_selected", "content_key", "progress_json"]) {
+    assert(
+      (REWOUND_IDENTIFIERS as readonly string[]).includes(introduced),
+      `U0: '${introduced}' is introduced by this branch but is not rewound.`,
+    );
+  }
+  // The status domain is deliberately NOT rewound: 'superseded' predates this
+  // branch. Asserted exactly rather than by substring, because
+  // `'fetched', 'partial', 'failed'` is a prefix of the four-value constraint.
+  const preChangeStatusValues = [
+    ...preChangeSource.stdout.matchAll(
+      /meta_raw_snapshots_status_check[\s\S]{0,200}?CHECK \(status IN \(([^)]*)\)\)/g,
+    ),
+  ].map((match) => match[1]!.replace(/\s+/g, " ").trim());
   assert(
-    preChangeSource.stdout.includes("'fetched', 'partial', 'failed'"),
-    `U0: the pre-change status domain is not what this rewind restores.`,
+    preChangeStatusValues.length > 0,
+    `U0: could not read the pre-change status domain from ${PRE_CHANGE_REF}.`,
+  );
+  assert(
+    preChangeStatusValues.every((values) => values.includes("'superseded'")),
+    `U0: 'superseded' is NOT in the pre-change status domain (${JSON.stringify(preChangeStatusValues)}); the seam must then rewind it, and this assertion must be inverted.`,
   );
 }
 

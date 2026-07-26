@@ -28,6 +28,7 @@
  * deliberate operator action; this file being present is not that action.
  */
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 const LABEL = "[global-sync-rollout]";
@@ -209,46 +210,177 @@ async function verifyLanesCurrentlyOff(results: CheckResult[]) {
   );
 }
 
+/** Exactly the keys this script owns. Nothing else in the file is its business. */
+function managedKeys(): string[] {
+  return [
+    "ADSECUTE_SYNC_GLOBAL_ENABLED",
+    ...ALL_LANES.map((lane) => `ADSECUTE_SYNC_LANE_${lane}_ENABLED`),
+  ];
+}
+
 /**
- * Write every lane in ONE file write.
+ * Confirm the file being edited is the one the runtime actually sources.
  *
- * The failure this prevents is a partial enable: a sequence of manual exports
- * where the fourth fails leaves three lanes running against a deployment that
- * was never verified in that configuration. The file is rendered whole and
- * written via a temp file plus rename, so a crash mid-write leaves the previous
- * contents rather than half of the new ones.
+ * Writing lane switches into a file nothing reads is a silent no-op that looks
+ * like a successful cutover — which is what a dedicated lane file would have
+ * been here, since web, worker and migrate all source only the compose
+ * project's env_file.
  */
-function writeLaneFileAtomically(input: {
+function verifyComposeEnvSource(results: CheckResult[], targetPath: string) {
+  const projectDir = path.dirname(targetPath);
+  const composeCandidates = [
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yml",
+    "compose.yaml",
+  ].map((name) => path.join(projectDir, name));
+  const composePath = composeCandidates.find((candidate) => fs.existsSync(candidate));
+  if (!composePath) {
+    return record(
+      results,
+      "env:compose_source",
+      false,
+      `no compose file beside ${targetPath}; cannot confirm the runtime reads it`,
+    );
+  }
+  const compose = fs.readFileSync(composePath, "utf8");
+  const basename = path.basename(targetPath);
+  const referenced =
+    compose.includes(basename) || /env_file/.test(compose) === false;
+  return record(
+    results,
+    "env:compose_source",
+    compose.includes(basename),
+    referenced
+      ? `${composePath} references ${basename}`
+      : `${composePath} does NOT reference ${basename}; writing there has no runtime effect`,
+  );
+}
+
+/**
+ * Update ONLY the managed keys, preserving every other byte.
+ *
+ * The earlier version of this rendered the whole file from the lane list. Aimed
+ * at a dedicated file that was a harmless no-op; aimed at the real
+ * `.env.production` it would have replaced DATABASE_URL, every credential and
+ * every unrelated setting with six lines. Rewriting an env file wholesale is
+ * never the right operation.
+ *
+ * A timestamped 0600 backup is taken first and its SHA-256 printed, so a
+ * restore is possible and verifiable. Contents are never printed.
+ *
+ * ATOMICITY, precisely: temp-file-plus-rename makes the FILE change atomic. It
+ * does NOT make the runtime change atomic — web and worker read their
+ * environment when the container is created, so nothing takes effect until a
+ * controlled recreate. Both processes must already be running the new build,
+ * disabled, before this is used.
+ */
+function updateManagedKeysInPlace(input: {
   targetPath: string;
   enabledLanes: readonly string[];
 }) {
-  const lines = [
-    "# Written by scripts/global-sync-rollout.ts. Do not hand-edit during a rollout.",
-    `# Generated for lanes: ${input.enabledLanes.join(", ") || "(none)"}`,
-    `ADSECUTE_SYNC_GLOBAL_ENABLED=${input.enabledLanes.length > 0 ? "enabled" : ""}`,
-    ...ALL_LANES.map(
-      (lane) =>
-        `ADSECUTE_SYNC_LANE_${lane}_ENABLED=${
-          input.enabledLanes.includes(lane) ? "enabled" : ""
-        }`,
-    ),
-    "",
-  ];
+  const desired = new Map<string, string>(
+    managedKeys().map((key) => {
+      if (key === "ADSECUTE_SYNC_GLOBAL_ENABLED") {
+        return [key, input.enabledLanes.length > 0 ? "enabled" : ""];
+      }
+      const lane = key.replace("ADSECUTE_SYNC_LANE_", "").replace("_ENABLED", "");
+      return [key, input.enabledLanes.includes(lane) ? "enabled" : ""];
+    }),
+  );
+
+  const exists = fs.existsSync(input.targetPath);
+  const original = exists ? fs.readFileSync(input.targetPath, "utf8") : "";
+  const mode = exists ? fs.statSync(input.targetPath).mode & 0o777 : 0o600;
+
+  if (exists) {
+    const stamp = new Date(fs.statSync(input.targetPath).mtimeMs)
+      .toISOString()
+      .replace(/[:.]/g, "-");
+    const backupPath = `${input.targetPath}.rollout-backup-${stamp}`;
+    fs.writeFileSync(backupPath, original, { mode: 0o600 });
+    const digest = createHash("sha256").update(original).digest("hex");
+    console.log(`${LABEL} backup ${backupPath} sha256=${digest} bytes=${original.length}`);
+  }
+
+  const lines = original.length > 0 ? original.split("\n") : [];
+  const seen = new Set<string>();
+  const updated = lines.map((line) => {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+    const key = match?.[1];
+    if (!key || !desired.has(key)) return line;
+    seen.add(key);
+    return `${key}=${desired.get(key)}`;
+  });
+  const missing = managedKeys().filter((key) => !seen.has(key));
+  if (missing.length > 0) {
+    if (updated.length > 0 && updated[updated.length - 1] !== "") updated.push("");
+    updated.push("# Managed by scripts/global-sync-rollout.ts — values only.");
+    for (const key of missing) updated.push(`${key}=${desired.get(key)}`);
+  }
+  const next = updated.join("\n");
+
   const temp = `${input.targetPath}.tmp-${process.pid}`;
-  fs.writeFileSync(temp, lines.join("\n"), { mode: 0o600 });
+  fs.writeFileSync(temp, next, { mode });
   fs.renameSync(temp, input.targetPath);
+
+  // Read back and prove BOTH directions: managed keys hold the intended value,
+  // and every unrelated key survived byte-for-byte.
+  const readback = fs.readFileSync(input.targetPath, "utf8");
+  const parse = (text: string) => {
+    const map = new Map<string, string>();
+    for (const line of text.split("\n")) {
+      const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line);
+      if (match) map.set(match[1]!, match[2]!);
+    }
+    return map;
+  };
+  const before = parse(original);
+  const after = parse(readback);
+  for (const [key, value] of desired) {
+    if (after.get(key) !== value) {
+      throw new Error(
+        `Readback mismatch: ${key} is '${String(after.get(key))}', expected '${value}'.`,
+      );
+    }
+  }
+  for (const [key, value] of before) {
+    if (desired.has(key)) continue;
+    if (after.get(key) !== value) {
+      throw new Error(
+        `Readback mismatch: unrelated key ${key} was modified or lost. Restore from the backup printed above.`,
+      );
+    }
+  }
+  console.log(
+    `${LABEL} updated ${desired.size} managed keys; ${before.size - [...before.keys()].filter((key) => desired.has(key)).length} unrelated keys preserved.`,
+  );
+  console.log(
+    `${LABEL} NOTE: this changed the FILE. Web and worker read their environment at container creation, so nothing takes effect until a controlled recreate.`,
+  );
 }
 
 async function main() {
   const command = process.argv[2] ?? "preflight";
+  // The compose project's env_file, because that is what web, worker and
+  // migrate actually source. A dedicated lane file would be a silent no-op —
+  // it looks like a successful cutover and changes nothing.
+  const projectDir = process.env.SYNC_ROLLOUT_PROJECT_DIR ?? "/var/www/adsecute";
   const targetPath =
-    process.env.SYNC_LANE_ENV_FILE ??
-    path.join(process.cwd(), ".env.sync-lanes");
+    process.env.SYNC_LANE_ENV_FILE ?? path.join(projectDir, ".env.production");
 
   if (command === "disable") {
-    // Disabling has no preconditions on purpose: stopping must always be
-    // available, including when the database is unreachable.
-    writeLaneFileAtomically({ targetPath, enabledLanes: [] });
+    // Disabling has no DATABASE preconditions on purpose: stopping must always
+    // be available, including when the database is unreachable. It still
+    // confirms it is editing the file the runtime reads, because writing to the
+    // wrong file would leave everything running while reporting success.
+    const disableChecks: CheckResult[] = [];
+    if (!verifyComposeEnvSource(disableChecks, targetPath)) {
+      throw new Error(
+        `Refusing to disable: ${targetPath} is not the env file the runtime sources.`,
+      );
+    }
+    updateManagedKeysInPlace({ targetPath, enabledLanes: [] });
     console.log(`${LABEL} DISABLED every lane, including retention -> ${targetPath}`);
     console.log(`${LABEL} Restart the web and worker processes to load it.`);
     return;
@@ -259,6 +391,7 @@ async function main() {
   }
 
   const results: CheckResult[] = [];
+  verifyComposeEnvSource(results, targetPath);
   await verifyLanesCurrentlyOff(results);
   await verifyQuiesced(results);
   await verifyFingerprints(results);
@@ -288,7 +421,7 @@ async function main() {
     );
   }
 
-  writeLaneFileAtomically({ targetPath, enabledLanes: CUTOVER_LANES });
+  updateManagedKeysInPlace({ targetPath, enabledLanes: CUTOVER_LANES });
   console.log(
     `${LABEL} ENABLED ${CUTOVER_LANES.length} sync lanes atomically -> ${targetPath}`,
   );

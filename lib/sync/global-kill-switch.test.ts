@@ -9,6 +9,7 @@ import {
   describeSyncLaneAdmissions,
   evaluateLaneAdmission,
   laneEnvVar,
+  resolveDestructiveRetentionMode,
 } from "@/lib/sync/global-kill-switch";
 
 function allOn(): Record<string, string> {
@@ -85,5 +86,45 @@ describe("global kill switch", () => {
       "retention",
       "shopify_sync",
     ]);
+  });
+
+  it("downgrades destructive retention to dry run whenever the lane is off", () => {
+    // The claim "global/lane OFF stops all deletion" has to be TRUE, and the
+    // legacy per-provider policies carry their own execution flags plus a
+    // forceExecute argument. The lane sits outside all of them.
+    for (const env of [
+      {},
+      { [GLOBAL_SYNC_ENABLED_ENV]: GLOBAL_SYNC_ENABLED_VALUE },
+      {
+        [GLOBAL_SYNC_ENABLED_ENV]: GLOBAL_SYNC_ENABLED_VALUE,
+        [laneEnvVar("retention")]: "no",
+      },
+      // Every OTHER lane on, retention still off.
+      { ...allOn(), [laneEnvVar("retention")]: "off" },
+    ]) {
+      const forced = resolveDestructiveRetentionMode({
+        requestedExecute: true,
+        env,
+      });
+      expect(forced.mode).toBe("dry_run");
+      expect(forced.downgradedByLane).toBe(true);
+    }
+  });
+
+  it("permits execution only when the retention lane is explicitly on", () => {
+    const allowed = resolveDestructiveRetentionMode({
+      requestedExecute: true,
+      env: allOn(),
+    });
+    expect(allowed.mode).toBe("execute");
+    expect(allowed.downgradedByLane).toBe(false);
+
+    // An enabled lane still does not execute what the caller did not request.
+    const notRequested = resolveDestructiveRetentionMode({
+      requestedExecute: false,
+      env: allOn(),
+    });
+    expect(notRequested.mode).toBe("dry_run");
+    expect(notRequested.downgradedByLane).toBe(false);
   });
 });

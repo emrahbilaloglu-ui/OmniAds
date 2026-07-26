@@ -120,3 +120,40 @@ export function describeSyncLaneAdmissions(options?: {
   );
   return { allDisabled: lanes.every((entry) => !entry.enabled), lanes };
 }
+
+/**
+ * Outer admission for EVERY destructive retention path, including the legacy
+ * per-provider policies that carry their own `*_RETENTION_EXECUTION_ENABLED`
+ * flags and a `forceExecute` argument.
+ *
+ * The retention lane has to sit OUTSIDE those, or "global off stops all
+ * deletion" is false: the worker loop invokes the legacy Google and Meta
+ * policies directly, and either of their own flags — or a caller passing
+ * forceExecute — would delete while the lane said stop.
+ *
+ * Downgrades to dry-run rather than throwing. A throw would break the worker
+ * loop and remove the dry-run visibility the rollout depends on; a dry run
+ * deletes nothing, which is the property that actually matters.
+ */
+export function resolveDestructiveRetentionMode(input: {
+  /** What the caller's own flags/arguments asked for. */
+  requestedExecute: boolean;
+  env?: Readonly<Record<string, string | undefined>>;
+}): {
+  mode: "execute" | "dry_run";
+  laneAdmission: LaneAdmission;
+  downgradedByLane: boolean;
+} {
+  const laneAdmission = evaluateLaneAdmission({ lane: "retention", env: input.env });
+  const downgradedByLane = input.requestedExecute && !laneAdmission.enabled;
+  if (downgradedByLane) {
+    console.warn("[sync-kill-switch] retention execution downgraded to dry run", {
+      reason: laneAdmission.reason,
+    });
+  }
+  return {
+    mode: input.requestedExecute && laneAdmission.enabled ? "execute" : "dry_run",
+    laneAdmission,
+    downgradedByLane,
+  };
+}

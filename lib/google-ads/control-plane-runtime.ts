@@ -107,11 +107,6 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
       ON connection.business_id = bpa.business_id
      AND connection.provider = bpa.provider
      AND connection.status = 'connected'
-    -- Current selection, not historical identity. Control-plane admission and
-    -- leasing decide what to WORK ON, so a deselected account must not be
-    -- counted; binding rows are never deleted, so without this a deselect is
-    -- invisible to scheduling.
-    WHERE bpa.is_selected
     LEFT JOIN businesses business
       ON business.id::text = bpa.business_id
     LEFT JOIN (
@@ -126,6 +121,11 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
     ) sync_state
       ON sync_state.business_id = bpa.business_id
     WHERE bpa.provider = 'google'
+      -- Current selection, not historical identity. Control-plane admission
+      -- and leasing decide what to WORK ON, so a deselected account must not
+      -- be counted; binding rows are never deleted, so without this a deselect
+      -- is invisible to scheduling.
+      AND bpa.is_selected
     GROUP BY
       bpa.business_id,
       business.name,

@@ -1518,6 +1518,12 @@ export async function leaseGoogleAdsSyncPartitions(input: {
               ON assignment.business_id = google_ads_sync_partitions.business_id
              AND assignment.provider = 'google'
              AND assignment.provider_account_id = google_ads_sync_partitions.provider_account_id
+             -- This EXISTS is the authoritative lease predicate: it decides
+             -- whether a partition may be claimed at all. Without the
+             -- selection filter a deselected Google account stays leaseable,
+             -- and the per-work-unit revalidation downstream would then be the
+             -- only thing standing between it and provider work.
+             AND assignment.is_selected
             WHERE connection.business_id = google_ads_sync_partitions.business_id
               AND connection.provider = 'google'
               AND connection.status = 'connected'

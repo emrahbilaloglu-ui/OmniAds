@@ -1089,6 +1089,12 @@ WITH assigned_accounts AS (
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
+    -- Current execution, not historical attribution. This CTE decides which
+    -- accounts the engine hydrates and decides FOR right now, so a deselected
+    -- account must not receive decisions. Already-written snapshots, outcomes
+    -- and backtests join on provider_account_ref_id and are untouched, so past
+    -- attribution still resolves through a deselected binding.
+    AND binding.is_selected
     AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
 ),
 selected_ad_days AS (
@@ -1830,6 +1836,10 @@ WITH assigned_accounts AS (
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
+    -- Must match the hydration CTE above exactly. This proves the manifest is
+    -- complete for the accounts being hydrated; a wider set here would report
+    -- the run as incomplete for accounts that were deliberately excluded.
+    AND binding.is_selected
     AND (NOT $5::boolean OR binding.provider_account_id = ANY($4::text[]))
 ), complete_runs AS (
   SELECT

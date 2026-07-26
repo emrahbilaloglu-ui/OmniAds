@@ -29,6 +29,8 @@ describe("Google Ads warehouse retention policy", () => {
     vi.resetAllMocks();
     delete process.env.DATABASE_URL;
     delete process.env.GOOGLE_ADS_RETENTION_EXECUTION_ENABLED;
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
     delete process.env.GOOGLE_ADS_RETENTION_BATCH_SIZE;
     delete process.env.GOOGLE_ADS_RETENTION_LEASE_MINUTES;
     delete process.env.GOOGLE_ADS_RETENTION_QUERY_TIMEOUT_MS;
@@ -174,6 +176,10 @@ describe("Google Ads warehouse retention policy", () => {
   it("deletes retained rows in batches when execution is enabled and records a run", async () => {
     process.env.DATABASE_URL = "postgres://example";
     process.env.GOOGLE_ADS_RETENTION_EXECUTION_ENABLED = "true";
+    // Execution now requires the retention LANE as the outer admission; the
+    // per-provider flag alone can no longer delete.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = "enabled";
     process.env.GOOGLE_ADS_RETENTION_BATCH_SIZE = "2";
     vi.mocked(getDbSchemaReadiness).mockResolvedValue({
       ready: true,
@@ -272,5 +278,36 @@ describe("Google Ads warehouse retention policy", () => {
         mode: "dry_run",
       }),
     ]);
+  });
+
+  it("deletes nothing when the retention lane is off, whatever else is set", async () => {
+    // Same contract as the Meta policy: the worker loop invokes this directly
+    // under GOOGLE_ADS_RETENTION_EXECUTION_ENABLED, so the lane has to sit
+    // outside that flag and outside forceExecute for "lane off stops all
+    // deletion" to be true.
+    const sqlQuery = vi.fn(async () => [{ count: 0 }]);
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    for (const env of [
+      {
+        DATABASE_URL: "postgres://example",
+        GOOGLE_ADS_RETENTION_EXECUTION_ENABLED: "true",
+      },
+      {
+        DATABASE_URL: "postgres://example",
+        GOOGLE_ADS_RETENTION_EXECUTION_ENABLED: "true",
+        ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+        ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "off",
+      },
+    ]) {
+      const result = await retention.executeGoogleAdsRetentionPolicy({
+        asOfDate: "2026-04-13",
+        forceExecute: true,
+        env: env as unknown as NodeJS.ProcessEnv,
+      });
+      expect(result.mode).toBe("dry_run");
+      const issued = sqlQuery.mock.calls.map(([text]) => String(text));
+      expect(issued.some((text) => /DELETE\s+FROM/i.test(text))).toBe(false);
+    }
   });
 });

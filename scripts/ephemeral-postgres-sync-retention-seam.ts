@@ -762,6 +762,174 @@ async function verifyReleaseBoundary(client: Client) {
   );
 }
 
+// ── S1-S3. Selection queries, EXECUTED ─────────────────────────────────────
+
+/**
+ * These queries were previously covered by string assertions only, which is
+ * exactly how a `WHERE` placed before a `LEFT JOIN` — invalid PostgreSQL —
+ * passed review and every test. Anything that decides what to WORK ON now has
+ * to run against a real server here.
+ */
+async function verifySelectionQueries(client: Client) {
+  const ownerRows = await client.query<{ id: string }>(
+    `INSERT INTO users (email, name, password_hash)
+     VALUES ('selection-seam@example.invalid', 'Selection Seam', 'seam-not-a-credential')
+     ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id::text AS id`,
+  );
+  const BUSINESS = "44444444-4444-4444-8444-444444444444";
+  await client.query(
+    `INSERT INTO businesses (id, name, owner_id, currency)
+     VALUES ($1, 'Selection Seam', $2::uuid, 'TRY')
+     ON CONFLICT (id) DO NOTHING`,
+    [BUSINESS, ownerRows.rows[0]!.id],
+  );
+  await client.query(
+    `INSERT INTO provider_connections (business_id, provider, status)
+     VALUES ($1, 'google', 'connected')
+     ON CONFLICT (business_id, provider) DO UPDATE SET status = 'connected'`,
+    [BUSINESS],
+  );
+  const bind = async (accountId: string, selected: boolean) => {
+    const account = await client.query<{ id: string }>(
+      `INSERT INTO provider_accounts (provider, external_account_id)
+       VALUES ('google', $1)
+       ON CONFLICT (provider, external_account_id) DO UPDATE SET updated_at = now()
+       RETURNING id::text AS id`,
+      [accountId],
+    );
+    await client.query(
+      `INSERT INTO business_provider_accounts
+         (business_id, provider, provider_account_ref_id, provider_account_id,
+          position, is_selected)
+       VALUES ($1, 'google', $2::uuid, $3, 0, $4)
+       ON CONFLICT (business_id, provider, provider_account_ref_id)
+       DO UPDATE SET is_selected = EXCLUDED.is_selected`,
+      [BUSINESS, account.rows[0]!.id, accountId, selected],
+    );
+    return account.rows[0]!.id;
+  };
+  const selectedRef = await bind("111-selected", true);
+  const deselectedRef = await bind("222-deselected", false);
+  void selectedRef;
+  void deselectedRef;
+
+  // S1: the control-plane admission query must PARSE and must count only the
+  // selected account.
+  const { readConnectedGoogleAdsControlPlaneBusinesses } = await import(
+    "@/lib/google-ads/control-plane-runtime"
+  );
+  const controlPlane = await readConnectedGoogleAdsControlPlaneBusinesses();
+  const seamRow = controlPlane.find((row) => row.businessId === BUSINESS);
+  assert(
+    seamRow != null,
+    `S1: the control-plane query returned no row for a connected business with a selected account: ${JSON.stringify(controlPlane)}`,
+  );
+  assert(
+    Number(seamRow.assignedAccountCount) === 1,
+    `S1: the control-plane query counted ${seamRow.assignedAccountCount} accounts; the deselected one must not be counted.`,
+  );
+  console.log(
+    `${LABEL} S1 PASS control-plane admission: the query parses against real PostgreSQL and counts 1 of 2 bindings, excluding the deselected account`,
+  );
+
+  // S2: run the REAL leasing function. A deselected account's queued partition
+  // must not be offered, which is a property of the authority EXISTS inside the
+  // lease SQL — not something a string assertion can establish.
+  await client.query(
+    `INSERT INTO integration_credentials (provider_connection_id, access_token)
+     SELECT id, 'seam-not-a-credential'
+     FROM provider_connections
+     WHERE business_id = $1 AND provider = 'google'
+     ON CONFLICT DO NOTHING`,
+    [BUSINESS],
+  );
+  for (const accountId of ["111-selected", "222-deselected"]) {
+    await client.query(
+      `INSERT INTO google_ads_sync_partitions
+         (business_id, provider_account_id, lane, scope, partition_date, status, source)
+       VALUES ($1, $2, 'core', 'account_daily', DATE '2026-02-01', 'queued', 'seam')
+       ON CONFLICT DO NOTHING`,
+      [BUSINESS, accountId],
+    );
+  }
+  const { acquireSyncRunnerLease: acquireGoogleRunnerLease } = await import(
+    "@/lib/sync/worker-health"
+  );
+  const GOOGLE_WORKER = "selection-seam-google-worker";
+  await acquireGoogleRunnerLease({
+    businessId: BUSINESS,
+    providerScope: "google_ads",
+    leaseOwner: GOOGLE_WORKER,
+    leaseMinutes: 15,
+  });
+  const { leaseGoogleAdsSyncPartitions } = await import("@/lib/google-ads/warehouse");
+  const leased = (await leaseGoogleAdsSyncPartitions({
+    businessId: BUSINESS,
+    workerId: GOOGLE_WORKER,
+    limit: 10,
+  })) as Array<{ providerAccountId?: string; provider_account_id?: string }>;
+  const leasedAccounts = leased.map(
+    (row) => row.providerAccountId ?? row.provider_account_id,
+  );
+  assert(
+    !leasedAccounts.includes("222-deselected"),
+    `S2: a DESELECTED Google account's partition was leased: ${JSON.stringify(leasedAccounts)}`,
+  );
+  assert(
+    leasedAccounts.includes("111-selected"),
+    `S2: the selected account's partition was not leasable, so the filter is over-broad: ${JSON.stringify(leasedAccounts)}`,
+  );
+  console.log(
+    `${LABEL} S2 PASS Google lease authority: the real leasing function offers the selected account's partition and refuses the deselected one before any work`,
+  );
+
+  // S3: the decision-engine hydration queries must PARSE. They are large CTEs
+  // that no unit test executes.
+  const dataSource = await import("@/lib/creative-decision-engine/data-source");
+  // Placeholder count is read from the SQL itself, so this cannot silently stop
+  // covering a query that grows a parameter. Only $1 needs a real value; the
+  // rest are NULL because planning, not results, is what is being proved.
+  const planWithNulls = async (name: string, sqlText: string) => {
+    const highest = Math.max(
+      0,
+      ...[...sqlText.matchAll(/\$(\d+)/g)].map((match) => Number(match[1])),
+    );
+    assert(highest > 0, `S3: ${name} has no bind parameters; the fixture is wrong.`);
+    const params: Array<string | null> = Array.from({ length: highest }, () => null);
+    params[0] = BUSINESS;
+    const planned = await client.query(`EXPLAIN ${sqlText}`, params).then(
+      () => ({ ok: true as const, error: null }),
+      (error: unknown) => ({
+        ok: false as const,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    assert(
+      planned.ok,
+      `S3: ${name} does not plan against real PostgreSQL: ${planned.error}`,
+    );
+    assert(
+      sqlText.includes("binding.is_selected"),
+      `S3: ${name} lost its current-selection filter.`,
+    );
+    return highest;
+  };
+  const hydrateParams = await planWithNulls(
+    "HYDRATE_AD_DECISION_INPUTS_QUERY",
+    dataSource.HYDRATE_AD_DECISION_INPUTS_QUERY,
+  );
+  const receiptParams = await planWithNulls(
+    "READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY",
+    dataSource.READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY,
+  );
+  void hydrateParams;
+  void receiptParams;
+  console.log(
+    `${LABEL} S3 PASS decision hydration: both current-execution CTEs plan against real PostgreSQL with the selection filter in place`,
+  );
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -832,6 +1000,7 @@ async function main() {
     await verifyRetentionSweep(client);
     await verifyGrowthBoundaries();
     await verifyReleaseBoundary(client);
+    await verifySelectionQueries(client);
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

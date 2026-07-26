@@ -1,3 +1,4 @@
+import { resolveDestructiveRetentionMode } from "@/lib/sync/global-kill-switch";
 import { randomUUID } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
@@ -1157,15 +1158,22 @@ export async function executeMetaRetentionPolicy(input: {
   const runtime = getMetaRetentionRuntimeStatus(env);
   const executionEnabled = runtime.executionEnabled;
   const businessIds = normalizeBusinessIds(input.businessIds);
-  const mode =
-    executionEnabled || input.forceExecute ? ("execute" as const) : ("dry_run" as const);
-  const executionDisposition =
-    input.executionDisposition ??
-    (input.forceExecute
-      ? "scoped_execute"
-      : executionEnabled
-        ? "global_execute"
-        : "dry_run");
+  // The retention lane is the OUTER admission. META_RETENTION_EXECUTION_ENABLED,
+  // forceExecute and any caller-supplied disposition are all inside it, so none
+  // of them can delete while the lane says stop.
+  const laneMode = resolveDestructiveRetentionMode({
+    requestedExecute: executionEnabled || Boolean(input.forceExecute),
+    env,
+  });
+  const mode = laneMode.mode;
+  const executionDisposition = laneMode.downgradedByLane
+    ? ("dry_run" as const)
+    : (input.executionDisposition ??
+      (input.forceExecute
+        ? "scoped_execute"
+        : executionEnabled
+          ? "global_execute"
+          : "dry_run"));
   const scope =
     businessIds.length > 0
       ? {

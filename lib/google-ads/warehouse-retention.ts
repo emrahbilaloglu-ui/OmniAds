@@ -1,3 +1,4 @@
+import { resolveDestructiveRetentionMode } from "@/lib/sync/global-kill-switch";
 import { randomUUID } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
@@ -522,8 +523,13 @@ export async function executeGoogleAdsRetentionPolicy(input: {
   const env = input.env ?? process.env;
   const runtime = getGoogleAdsRetentionRuntimeStatus(env);
   const executionEnabled = runtime.executionEnabled;
-  const mode =
-    executionEnabled || input.forceExecute ? ("execute" as const) : ("dry_run" as const);
+  // The retention lane is the OUTER admission. GOOGLE_ADS_RETENTION_EXECUTION_
+  // ENABLED and forceExecute are both inside it, so neither can delete while
+  // the lane says stop.
+  const { mode } = resolveDestructiveRetentionMode({
+    requestedExecute: executionEnabled || Boolean(input.forceExecute),
+    env,
+  });
 
   if (!isGoogleAdsRetentionRuntimeAvailable(env)) {
     return emptyRetentionRunSummary({

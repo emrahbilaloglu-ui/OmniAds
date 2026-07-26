@@ -29,6 +29,8 @@ describe("Meta warehouse retention policy", () => {
     vi.resetAllMocks();
     delete process.env.DATABASE_URL;
     delete process.env.META_RETENTION_EXECUTION_ENABLED;
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
     delete process.env.META_RETENTION_BATCH_SIZE;
     delete process.env.META_RETENTION_LEASE_MINUTES;
     delete process.env.META_RETENTION_QUERY_TIMEOUT_MS;
@@ -149,6 +151,8 @@ describe("Meta warehouse retention policy", () => {
     const env = {
       DATABASE_URL: "postgres://example",
       META_RETENTION_EXECUTION_ENABLED: "true",
+      ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "enabled",
     } as unknown as NodeJS.ProcessEnv;
 
     expect(
@@ -344,6 +348,10 @@ describe("Meta warehouse retention policy", () => {
   it("deletes retained rows in batches when execution is enabled and records a run", async () => {
     process.env.DATABASE_URL = "postgres://example";
     process.env.META_RETENTION_EXECUTION_ENABLED = "true";
+    // Execution now requires the retention LANE as the outer admission; the
+    // per-provider flag alone can no longer delete.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = "enabled";
     process.env.META_RETENTION_BATCH_SIZE = "2";
     vi.mocked(getDbSchemaReadiness).mockResolvedValue({
       ready: true,
@@ -450,9 +458,15 @@ describe("Meta warehouse retention policy", () => {
       env: {
         DATABASE_URL: "postgres://example",
         META_RETENTION_EXECUTION_ENABLED: "true",
+        ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+        ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "enabled",
       } as unknown as NodeJS.ProcessEnv,
     });
 
+    // The policy call reads process.env, and the retention LANE is now the
+    // outer admission for it — forceExecute alone can no longer delete.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = "enabled";
     const result = await retention.executeMetaRetentionPolicy({
       asOfDate: "2026-04-13",
       businessIds: ["biz_canary"],
@@ -611,5 +625,40 @@ describe("Meta warehouse retention policy", () => {
         mode: "execute",
       }),
     });
+  });
+
+  it("deletes nothing when the retention lane is off, whatever else is set", async () => {
+    // The runbook claims global/lane OFF stops all deletion. The worker loop
+    // invokes THIS policy directly, and it carries its own execution flag plus
+    // a forceExecute argument — so unless the lane sits outside both, that
+    // claim is false.
+    const sqlQuery = vi.fn(async () => [{ count: 0 }]);
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    for (const env of [
+      { DATABASE_URL: "postgres://example", META_RETENTION_EXECUTION_ENABLED: "true" },
+      {
+        DATABASE_URL: "postgres://example",
+        META_RETENTION_EXECUTION_ENABLED: "true",
+        ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+      },
+      {
+        DATABASE_URL: "postgres://example",
+        META_RETENTION_EXECUTION_ENABLED: "true",
+        ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+        ADSECUTE_SYNC_LANE_RETENTION_ENABLED: "off",
+      },
+    ]) {
+      const result = await retention.executeMetaRetentionPolicy({
+        asOfDate: "2026-04-13",
+        // Even an explicit force must not get through.
+        forceExecute: true,
+        env: env as unknown as NodeJS.ProcessEnv,
+      });
+      expect(result.mode).toBe("dry_run");
+      expect(result.executionDisposition).toBe("dry_run");
+      const issued = sqlQuery.mock.calls.map(([text]) => String(text));
+      expect(issued.some((text) => /DELETE\s+FROM/i.test(text))).toBe(false);
+    }
   });
 });

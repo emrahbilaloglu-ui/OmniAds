@@ -1946,16 +1946,14 @@ export async function runMigrations(options?: {
           ) AS source
           WHERE external_account_id IS NOT NULL
           ORDER BY provider, external_account_id, source_rank
-          ON CONFLICT (provider, external_account_id) DO UPDATE SET
-            account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
-            currency = COALESCE(EXCLUDED.currency, provider_accounts.currency),
-            timezone = COALESCE(EXCLUDED.timezone, provider_accounts.timezone),
-            is_manager = COALESCE(EXCLUDED.is_manager, provider_accounts.is_manager),
-            metadata = CASE
-              WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
-              ELSE provider_accounts.metadata || EXCLUDED.metadata
-            END,
-            updated_at = now()
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          ON CONFLICT (provider, external_account_id) DO NOTHING
         `),
             ]
           : []),
@@ -1989,14 +1987,17 @@ export async function runMigrations(options?: {
           LEFT JOIN provider_accounts pa
             ON pa.provider = i.provider
            AND pa.external_account_id = NULLIF(i.provider_account_id, '')
-          ON CONFLICT (business_id, provider) DO UPDATE SET
-            status = EXCLUDED.status,
-            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_connections.provider_account_ref_id),
-            provider_account_id = COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id),
-            provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name),
-            connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
-            disconnected_at = COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at),
-            updated_at = EXCLUDED.updated_at
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          -- Connection STATUS in particular: replaying a stale
+          -- 'connected' over a canonical disconnect would silently reconnect an
+          -- integration the user turned off.
+          ON CONFLICT (business_id, provider) DO NOTHING
         `,
             ]
           : []),
@@ -2028,17 +2029,16 @@ export async function runMigrations(options?: {
           JOIN provider_connections pc
             ON pc.business_id = i.business_id
            AND pc.provider = i.provider
-          ON CONFLICT (provider_connection_id) DO UPDATE SET
-            access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
-            refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
-            token_expires_at = COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at),
-            scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
-            error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
-            metadata = CASE
-              WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
-              ELSE integration_credentials.metadata || EXCLUDED.metadata
-            END,
-            updated_at = EXCLUDED.updated_at
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          -- Secrets especially: a rerun must never put a rotated-away
+          -- token back.
+          ON CONFLICT (provider_connection_id) DO NOTHING
         `,
             ]
           : []),
@@ -2074,13 +2074,18 @@ export async function runMigrations(options?: {
           JOIN provider_accounts pa
             ON pa.provider = a.provider
            AND pa.external_account_id = account.account_id
-          ON CONFLICT (business_id, provider, provider_account_ref_id) DO UPDATE SET
-            provider_account_id = EXCLUDED.provider_account_id,
-            position = EXCLUDED.position,
-            -- An existing binding that the legacy table still lists is selected.
-            -- Never downgrade: OR, not assignment.
-            is_selected = business_provider_accounts.is_selected OR EXCLUDED.is_selected,
-            updated_at = EXCLUDED.updated_at
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          -- The is_selected = existing OR EXCLUDED clause was the
+          -- reselection defect: a canonically DESELECTED account that the legacy
+          -- table still listed came back on the next migration run, and no
+          -- selection change can survive a deploy under that rule.
+          ON CONFLICT (business_id, provider, provider_account_ref_id) DO NOTHING
         `,
             ]
           : []),
@@ -2121,19 +2126,17 @@ export async function runMigrations(options?: {
             created_at,
             updated_at
           FROM provider_account_snapshots
-          ON CONFLICT (business_id, provider) DO UPDATE SET
-            fetched_at = EXCLUDED.fetched_at,
-            refresh_failed = EXCLUDED.refresh_failed,
-            last_error = EXCLUDED.last_error,
-            refresh_requested_at = COALESCE(EXCLUDED.refresh_requested_at, provider_account_snapshot_runs.refresh_requested_at),
-            last_refresh_attempt_at = COALESCE(EXCLUDED.last_refresh_attempt_at, provider_account_snapshot_runs.last_refresh_attempt_at),
-            next_refresh_after = EXCLUDED.next_refresh_after,
-            refresh_in_progress = EXCLUDED.refresh_in_progress,
-            accounts_hash = EXCLUDED.accounts_hash,
-            source_reason = EXCLUDED.source_reason,
-            last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
-            refresh_failure_streak = EXCLUDED.refresh_failure_streak,
-            updated_at = EXCLUDED.updated_at
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          -- Snapshot health too: replaying a stale healthy row over a
+          -- current failed one would make a degraded discovery look fresh, and
+          -- selection authority reads exactly those fields.
+          ON CONFLICT (business_id, provider) DO NOTHING
         `,
             ]
           : []),
@@ -2177,15 +2180,14 @@ export async function runMigrations(options?: {
             ON pa.provider = s.provider
            AND pa.external_account_id = NULLIF(item.item->>'id', '')
           WHERE NULLIF(item.item->>'id', '') IS NOT NULL
-          ON CONFLICT (snapshot_run_id, provider_account_id) DO UPDATE SET
-            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_account_snapshot_items.provider_account_ref_id),
-            provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_account_snapshot_items.provider_account_name),
-            currency = COALESCE(EXCLUDED.currency, provider_account_snapshot_items.currency),
-            timezone = COALESCE(EXCLUDED.timezone, provider_account_snapshot_items.timezone),
-            is_manager = COALESCE(EXCLUDED.is_manager, provider_account_snapshot_items.is_manager),
-            position = EXCLUDED.position,
-            raw_payload = EXCLUDED.raw_payload,
-            updated_at = EXCLUDED.updated_at
+          -- STRICTLY ONE-WAY. This import exists to seed canonical rows the
+          -- first time a deployment upgrades from the legacy tables; it is not
+          -- a synchronisation. Migrations rerun on every deploy, and the
+          -- previous DO UPDATE clauses meant every rerun replayed whatever the
+          -- legacy table still held over whatever canonical truth had happened
+          -- since — undoing a disconnect, a credential rotation, a snapshot
+          -- refresh, or a deselection. DO NOTHING makes a rerun a no-op.
+          ON CONFLICT (snapshot_run_id, provider_account_id) DO NOTHING
         `,
             ]
           : []),
@@ -3644,9 +3646,74 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (build_id, environment, provider_scope, plan_mode)
         )`.catch(() => {}),
-        sql`ALTER TABLE sync_repair_plans
-          DROP CONSTRAINT IF EXISTS sync_repair_plans_build_id_environment_provider_scope_plan_mode_key`.catch(
-          () => {},
+        //
+        // The repair-plan ON CONFLICT arbiter, made explicit.
+        //
+        // `persistSyncRepairPlan` writes with
+        // `ON CONFLICT (build_id, environment, provider_scope, plan_mode)`, so
+        // that unique arbiter has to exist or every write fails with 42P10.
+        // The only thing providing it was the table's inline UNIQUE, whose
+        // auto-generated name is
+        // sync_repair_plans_build_id_environment_provider_scope_plan_mode_key —
+        // 67 characters, which PostgreSQL truncates to 63. The DROP CONSTRAINT
+        // that used to sit here named the untruncated form, so it silently
+        // matched nothing and the arbiter survived BY ACCIDENT. A deployment
+        // where that name happened to match would have lost the arbiter and
+        // broken every repair-plan write.
+        //
+        // So: create an explicitly named unique index first, then adopt by
+        // dropping whatever auto-named constraint covers exactly the same
+        // columns — found by COLUMN SET, never by a guessed name — then verify.
+        // The arbiter is never absent at any point in that order.
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "sync_repair_plans_scope_mode_identity",
+            definitionMustContain: [
+              "UNIQUE",
+              "build_id",
+              "environment",
+              "provider_scope",
+              "plan_mode",
+            ],
+          }),
+        ),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS sync_repair_plans_scope_mode_identity
+          ON sync_repair_plans (build_id, environment, provider_scope, plan_mode)`,
+        sql`DO $sync_repair_plans_adopt_arbiter$
+          DECLARE
+            legacy_constraint TEXT;
+          BEGIN
+            SELECT constraint_catalog.conname INTO legacy_constraint
+            FROM pg_constraint constraint_catalog
+            WHERE constraint_catalog.conrelid = 'sync_repair_plans'::regclass
+              AND constraint_catalog.contype = 'u'
+              AND constraint_catalog.conname <> 'sync_repair_plans_scope_mode_identity'
+              AND (
+                SELECT array_agg(attribute.attname::text ORDER BY attribute.attname)
+                FROM unnest(constraint_catalog.conkey) AS key(attnum)
+                JOIN pg_attribute attribute
+                  ON attribute.attrelid = constraint_catalog.conrelid
+                 AND attribute.attnum = key.attnum
+              ) = ARRAY['build_id','environment','plan_mode','provider_scope']
+            LIMIT 1;
+            IF legacy_constraint IS NOT NULL THEN
+              RAISE NOTICE 'adopting repair-plan arbiter: dropping %', legacy_constraint;
+              EXECUTE 'ALTER TABLE sync_repair_plans DROP CONSTRAINT ' ||
+                quote_ident(legacy_constraint);
+            END IF;
+          END
+          $sync_repair_plans_adopt_arbiter$`,
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "sync_repair_plans_scope_mode_identity",
+            definitionMustContain: [
+              "UNIQUE",
+              "build_id",
+              "environment",
+              "provider_scope",
+              "plan_mode",
+            ],
+          }),
         ),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
           ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(

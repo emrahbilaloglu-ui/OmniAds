@@ -112,6 +112,13 @@ jobs:
       - name: Release-gate plan and coalescing seam
         run: npm run test:release-gate-plan-seam
 
+      # Migrations rerun on every deploy. The legacy import steps used
+      # ON CONFLICT DO UPDATE, so a rerun replayed stale legacy rows over
+      # canonical truth — undoing a disconnect, a rotation, a refresh or a
+      # deselection. This seam contradicts the legacy rows and reruns the chain.
+      - name: Legacy import replay seam
+        run: npm run test:legacy-replay-seam
+
       - name: Pre-change schema upgrade seam (branch point)
         # Needs full history: the seam cross-checks its rewind against the
         # pre-change ref's migrations, which a shallow clone does not have.

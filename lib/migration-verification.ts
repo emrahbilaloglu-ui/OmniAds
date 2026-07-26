@@ -159,6 +159,18 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     definitionMustContain: ["WHERE is_selected"],
   },
   {
+    // The ON CONFLICT arbiter for repair-plan writes. It used to be provided
+    // only by the table's inline UNIQUE, whose auto-generated name is 67
+    // characters and is truncated to 63 — so the DROP that named the untruncated
+    // form matched nothing and the arbiter survived by accident. Verified by
+    // name now, because losing it means every repair-plan write fails with
+    // 42P10.
+    name: "sync_repair_plans_scope_mode_identity",
+    table: "sync_repair_plans",
+    unique: true,
+    definitionMustContain: ["build_id", "environment", "provider_scope", "plan_mode"],
+  },
+  {
     name: "idx_meta_entity_observation_runs_semantic_latest",
     table: "meta_entity_observation_runs",
     unique: false,

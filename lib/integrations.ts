@@ -739,8 +739,31 @@ export async function upsertIntegration(
       business_ref_id = COALESCE(provider_connections.business_ref_id, EXCLUDED.business_ref_id),
       status = EXCLUDED.status,
       provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_connections.provider_account_ref_id),
-      provider_account_id = COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id),
-      provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name),
+      -- The recorded principal is CLEARED when a credential arrives that does
+      -- not prove it belongs to the same principal, for the same reason the
+      -- refresh token is.
+      --
+      -- COALESCE kept the previous account id whenever a caller named none, and
+      -- the Search Console and GA4 callbacks legitimately name none. So a
+      -- reconnect as a different Google user replaced the metadata, clearing
+      -- metadata.siteUrl, and left the OLD principal's site sitting in
+      -- provider_account_id, which resolveSearchConsoleContext falls back to.
+      -- Every later sync then ran against the previous principal's property
+      -- under the new principal's token.
+      --
+      -- Only credential-replacing writes clear it: a metadata-only or
+      -- status-only write is not evidence about identity either way, and a
+      -- genuine same-principal token refresh declares samePrincipal.
+      provider_account_id = CASE
+        WHEN ${replacesCredential} AND NOT ${principalUnchanged}
+          THEN EXCLUDED.provider_account_id
+        ELSE COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id)
+      END,
+      provider_account_name = CASE
+        WHEN ${replacesCredential} AND NOT ${principalUnchanged}
+          THEN EXCLUDED.provider_account_name
+        ELSE COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name)
+      END,
       connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
       disconnected_at = CASE
         WHEN EXCLUDED.status = 'disconnected'

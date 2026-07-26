@@ -658,6 +658,101 @@ async function main() {
       `${LABEL} S6 PASS exported selection lock: a concurrent replacement blocked for the whole time withProviderAccountSelectionLock held it, so an OAuth post-connect read-decide-write can no longer overwrite a selection saved underneath it`,
     );
 
+    // ── S7: a foreign principal must not inherit the previous one's account ──
+    //
+    // `provider_account_id` was `COALESCE(EXCLUDED, existing)`, so a caller that
+    // named no account kept whatever was there — and the Search Console and GA4
+    // callbacks legitimately name none. A reconnect as a different Google user
+    // therefore replaced the metadata, clearing `metadata.siteUrl`, and left the
+    // PREVIOUS principal's site sitting in `provider_account_id`, which
+    // `resolveSearchConsoleContext` falls back to. Every later sync then ran
+    // against the old principal's property under the new principal's token.
+    //
+    // The recorded principal is now cleared on exactly the same evidence the
+    // refresh token is: a credential arrived, and nothing proved it belongs to
+    // the same principal.
+    {
+      // Provider secrets are encrypted at rest; the writer refuses without a
+      // key rather than storing plaintext, so the seam supplies one.
+      process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
+        process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY ??
+        "selection-race-seam-encryption-key";
+      const { upsertIntegration, getIntegration } = await import(
+        "@/lib/integrations"
+      );
+      const google = await upsertIntegration({
+        businessId,
+        provider: "google",
+        status: "connected",
+        providerAccountId: "1234567890",
+        providerAccountName: "First principal",
+        accessToken: "s7-google-token",
+        refreshToken: "s7-google-refresh",
+      });
+      await upsertIntegration({
+        businessId,
+        provider: "search_console",
+        status: "connected",
+        providerAccountId: "sc-domain:first-principal.example",
+        providerAccountName: "sc-domain:first-principal.example",
+        accessToken: "s7-sc-token",
+        refreshToken: "s7-sc-refresh",
+        metadata: { siteUrl: "sc-domain:first-principal.example" },
+        expectedDerivedAuthority: {
+          provider: "google",
+          connectionGeneration: `${google.connection_generation ?? 1}:${google.status}`,
+        },
+      });
+
+      const before = await getIntegration(businessId, "search_console");
+      assert(
+        before?.provider_account_id === "sc-domain:first-principal.example",
+        `S7: fixture did not record the first principal's site (${String(before?.provider_account_id)}).`,
+      );
+
+      // The real Search Console connect-time write: a new credential, and no
+      // account id at all.
+      await upsertIntegration({
+        businessId,
+        provider: "search_console",
+        status: "connected",
+        accessToken: "s7-sc-token-second-principal",
+        metadata: { connectedAt: new Date(0).toISOString() },
+      });
+
+      const after = await getIntegration(businessId, "search_console");
+      const resurrectedSite =
+        (after?.metadata as Record<string, unknown> | undefined)?.siteUrl ??
+        after?.provider_account_id ??
+        null;
+      assert(
+        resurrectedSite === null,
+        `S7: a reconnect by a different principal left the previous principal's site reachable as "${String(resurrectedSite)}"; resolveSearchConsoleContext falls back to provider_account_id, so every later sync would run against it.`,
+      );
+      assert(
+        after?.provider_account_name == null,
+        `S7: the previous principal's account NAME survived the reconnect (${String(after?.provider_account_name)}).`,
+      );
+
+      // ...and a genuine same-principal token refresh must NOT clear it.
+      await upsertIntegration({
+        businessId,
+        provider: "google",
+        status: "connected",
+        accessToken: "s7-google-token-refreshed",
+        refreshToken: "s7-google-refresh",
+        samePrincipal: true,
+      });
+      const googleAfter = await getIntegration(businessId, "google");
+      assert(
+        googleAfter?.provider_account_id === "1234567890",
+        `S7: a declared same-principal token refresh cleared the account id (${String(googleAfter?.provider_account_id)}); routine refreshes would force a reconnect.`,
+      );
+      console.log(
+        `${LABEL} S7 PASS foreign principal: a reconnect that supplies a credential and names no account clears the recorded principal — site and name both gone, with nothing left for the metadata fallback to resurrect — while a declared same-principal refresh keeps it`,
+      );
+    }
+
     console.log(`${LABEL} PASS`);
   } catch (error) {
     if (fs.existsSync(logFile)) {

@@ -547,6 +547,16 @@ async function loadGoogleProviderAccountsForSnapshot(input: {
         provider: "google",
         status: "connected",
         accessToken: refreshed.accessToken,
+        // The SAME refresh token, named, and a POSITIVE declaration that this
+        // is a same-principal refresh.
+        //
+        // Without it this write looked like a connect by an unknown principal:
+        // no account id is not evidence of sameness, so `upsertIntegration`
+        // cleared the refresh token as foreign — and the worker's own routine
+        // token refresh destroyed the credential it depends on, turning the
+        // next refresh into "please reconnect".
+        refreshToken: input.refreshToken,
+        samePrincipal: true,
         tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
       });
     } else if (isExpired) {

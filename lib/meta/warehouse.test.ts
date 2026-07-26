@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -17,6 +17,11 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
     return new Map(businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const));
   }),
 }));
+
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: vi.fn() };
+});
 
 vi.mock("@/lib/sync/worker-health", () => ({
   recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
@@ -75,12 +80,38 @@ const {
   "@/lib/meta/warehouse"
 );
 const { createMetaFinalizationCompletenessProof } = await import("@/lib/meta/finalization-proof");
+const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
 
 describe("meta warehouse ownership safety", () => {
+  const savedEnv = { ...process.env };
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    // Dead-letter replay is a NEW-WORK transition and now requires the lane and
+    // fresh capacity. The cases below exercise what replay does once admitted,
+    // so they admit it explicitly; the refusal itself is asserted separately.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("refuses replay entirely when the Meta lane is disabled", async () => {
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    const sql = vi.fn();
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await expect(
+      replayMetaDeadLetterPartitions({ businessId: "biz-1" }),
+    ).rejects.toMatchObject({ name: "SyncLaneDisabledError" });
+    // Not "found nothing to replay" — nothing was even read.
+    expect(sql).not.toHaveBeenCalled();
   });
 
   it("builds a normalized authoritative publication lookup key", () => {

@@ -6,6 +6,7 @@ import {
   handleProviderAssignmentRequest,
 } from "@/lib/provider-assignment-service";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
+import { readProviderConnectionGenerationToken } from "@/lib/provider-account-snapshots";
 import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
@@ -29,7 +30,7 @@ export async function POST(
       label: "google-assign-accounts",
       requiredTables: ASSIGNMENT_REQUIRED_TABLES.google,
       snapshotFreshnessMs: ASSIGNMENT_SNAPSHOT_FRESHNESS_MS,
-      schedule: async ({ businessId: id, accountIds }) => {
+      schedule: async ({ businessId: id, accountIds, connectionGeneration, scheduledAfter }) => {
         if (accountIds.length === 0) {
           return {
             scheduled: true,
@@ -46,18 +47,40 @@ export async function POST(
             refusal: describeSyncSafetyRefusal(error),
           };
         }
+        // Scoped to THIS operation and to the exact committed accounts.
+        // Counting every queued partition for the business let unrelated
+        // in-flight work report `syncScheduled: true` for accounts that had
+        // nothing enqueued.
         try {
           const sql = getDb();
           const rows = (await sql`
-            SELECT COUNT(*)::int AS queued
+            SELECT provider_account_id, COUNT(*)::int AS queued
             FROM google_ads_sync_partitions
             WHERE business_id = ${id}
+              AND provider_account_id = ANY(${accountIds}::text[])
               AND status IN ('queued', 'leased', 'running')
-          `) as Array<{ queued: number }>;
-          const queued = Number(rows[0]?.queued ?? 0);
+              AND created_at >= ${scheduledAfter}::timestamptz
+            GROUP BY provider_account_id
+          `) as Array<{ provider_account_id: string; queued: number }>;
+          const scheduledAccounts = new Set(rows.map((row) => row.provider_account_id));
+          const missing = accountIds.filter((accountId) => !scheduledAccounts.has(accountId));
+          const queued = rows.reduce((total, row) => total + Number(row.queued ?? 0), 0);
+
+          const currentGeneration = await readProviderConnectionGenerationToken(id, "google");
+          if (connectionGeneration != null && currentGeneration !== connectionGeneration) {
+            return {
+              scheduled: false,
+              detail: `the Google connection changed while scheduling (expected ${connectionGeneration}, found ${currentGeneration ?? "none"})`,
+              refusal: null,
+            };
+          }
+
           return {
-            scheduled: queued > 0,
-            detail: `${queued} Google partition(s) queued`,
+            scheduled: missing.length === 0 && queued > 0,
+            detail:
+              missing.length === 0
+                ? `${queued} Google partition(s) queued for ${accountIds.length} selected account(s)`
+                : `no new Google partitions for: ${missing.join(", ")}`,
             refusal: null,
           };
         } catch (error) {

@@ -120,7 +120,11 @@ describe("assign-accounts selection truth", () => {
       }),
     );
     syncMetaInitial.mockResolvedValue(null);
-    queuedPartitions.mockResolvedValue([{ queued: 3 }]);
+    // The readback is scoped to the exact committed accounts now, so the stub
+    // answers per account rather than with a single business-wide count.
+    queuedPartitions.mockResolvedValue([
+      { provider_account_id: "act_100", queued: 3 },
+    ]);
   });
 
   describe("canonical identity", () => {
@@ -329,7 +333,23 @@ describe("assign-accounts selection truth", () => {
     it("reports 202 when enqueue succeeds but nothing is durably queued", async () => {
       // The failure mode a plain try/catch cannot see: the call returned, and
       // the queue is still empty.
-      queuedPartitions.mockResolvedValue([{ queued: 0 }]);
+      queuedPartitions.mockResolvedValue([]);
+      const response = await metaRoute.POST(post({ account_ids: ["act_100"] }), {
+        params,
+      });
+      expect(response.status).toBe(202);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.selectionSaved).toBe(true);
+      expect(body.syncScheduled).toBe(false);
+    });
+
+    it("refuses success when another account's work is queued but this one's is not", async () => {
+      // The exact false positive the old business-wide count produced: work
+      // draining for a DIFFERENT account made `syncScheduled: true` for an
+      // account that had nothing enqueued at all.
+      queuedPartitions.mockResolvedValue([
+        { provider_account_id: "act_999", queued: 12 },
+      ]);
       const response = await metaRoute.POST(post({ account_ids: ["act_100"] }), {
         params,
       });

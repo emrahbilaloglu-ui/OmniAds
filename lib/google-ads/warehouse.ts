@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
@@ -6259,6 +6261,11 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
   endDate?: string | null;
   recoveryKinds?: GoogleAdsDeadLetterRecoveryKind[] | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
+  // Same contract as the Meta replay: moving a dead letter back to queued is a
+  // new-work transition, so it needs the lane, fresh capacity, and current
+  // selection. Without them a revoked account's dead letters could be revived.
+  assertSyncLaneEnabled("google_sync");
+  await assertSyncGrowthBoundary("google_dead_letter_replay", { fresh: true });
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
@@ -6281,6 +6288,13 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
     ) latest_run ON true
     WHERE partition.business_id = ${input.businessId}
       AND partition.status = 'dead_letter'
+      AND EXISTS (
+        SELECT 1 FROM business_provider_accounts binding
+        WHERE binding.business_id = partition.business_id
+          AND binding.provider = 'google'
+          AND binding.provider_account_id = partition.provider_account_id
+          AND binding.is_selected
+      )
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       AND (${input.startDate ?? null}::date IS NULL OR partition.partition_date >= ${input.startDate ?? null}::date)
       AND (${input.endDate ?? null}::date IS NULL OR partition.partition_date <= ${input.endDate ?? null}::date)

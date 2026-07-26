@@ -4,8 +4,8 @@ import { fetchGoogleAdsAccounts } from "@/lib/google-ads-accounts";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { sanitizeNextPath } from "@/lib/auth-routing";
-import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { scheduleAfterProviderConnect } from "@/lib/oauth/post-connect-schedule";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
@@ -198,13 +198,19 @@ export async function GET(request: NextRequest) {
       scopes: GOOGLE_CONFIG.scopes.join(" "),
     });
 
+    let googlePostConnect: Awaited<
+      ReturnType<typeof scheduleAfterProviderConnect>
+    > | null = null;
     if (GOOGLE_CONFIG.scopes.includes("https://www.googleapis.com/auth/adwords")) {
-      await scheduleProviderAccountSnapshotRefresh({
+      // Awaited, bound to this grant's generation, and intersected with the
+      // accounts the new principal can actually see. The previous pair of
+      // `.catch(() => null)` calls scheduled a background refresh whose failure
+      // was invisible and then enqueued work for the OLD selection regardless —
+      // including accounts this grant has no access to.
+      googlePostConnect = await scheduleAfterProviderConnect({
         businessId,
         provider: "google",
-        freshnessMs: 6 * 60 * 60_000,
-        reason: "oauth_callback_refresh",
-        skipIfFresh: false,
+        growthScope: "google_oauth_post_connect",
         liveLoader: async () => {
           const result = await fetchGoogleAdsAccounts(accessToken, {
             scopePresent: true,
@@ -222,9 +228,10 @@ export async function GET(request: NextRequest) {
             isManager: customer.isManager,
           }));
         },
-      }).catch(() => null);
-
-      await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
+        enqueue: async ({ businessId: id }: { businessId: string }) => {
+          await enqueueGoogleAdsScheduledWork(id);
+        },
+      });
     }
 
     let searchConsoleIntegrationId: string | null = null;
@@ -264,7 +271,28 @@ export async function GET(request: NextRequest) {
           : integration.id,
     });
 
-    const response = NextResponse.redirect(redirectUrl);
+    // Truthful about scheduling. A connection that saved but scheduled nothing —
+    // because discovery failed, because capacity refused, or because this
+    // principal cannot see any previously selected account — is a different
+    // outcome from one that started syncing.
+    const finalRedirectUrl = new URL(redirectUrl);
+    if (googlePostConnect) {
+      finalRedirectUrl.searchParams.set(
+        "syncScheduled",
+        googlePostConnect.scheduled ? "1" : "0",
+      );
+      if (!googlePostConnect.scheduled) {
+        finalRedirectUrl.searchParams.set("scheduleReason", googlePostConnect.reason);
+      }
+      if (googlePostConnect.droppedAccountIds.length > 0) {
+        finalRedirectUrl.searchParams.set(
+          "droppedAccounts",
+          String(googlePostConnect.droppedAccountIds.length),
+        );
+      }
+    }
+
+    const response = NextResponse.redirect(finalRedirectUrl.toString());
     // Clear the state cookie
     response.cookies.set("google_oauth_state", "", {
       httpOnly: true,

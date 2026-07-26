@@ -3,9 +3,8 @@ import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { forceProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
+import { scheduleAfterProviderConnect } from "@/lib/oauth/post-connect-schedule";
 
 async function exchangeMetaLongLivedToken(shortLivedToken: string) {
   const params = new URLSearchParams({
@@ -176,11 +175,15 @@ export async function GET(request: NextRequest) {
       scopes: META_CONFIG.scopes.join(" "),
     });
 
-    await forceProviderAccountSnapshotRefresh({
+    // Discovery, intersection, admission and enqueue — in that order, all
+    // awaited, all bound to the generation this grant produced. Previously the
+    // discovery and the enqueue were both `.catch(() => null)` and the enqueue
+    // used the OLD selection verbatim, so a reconnect by a different principal
+    // scheduled syncs for accounts that principal cannot see.
+    const postConnect = await scheduleAfterProviderConnect({
       businessId,
       provider: "meta",
-      freshnessMs: 6 * 60 * 60_000,
-      reason: "oauth_callback_refresh",
+      growthScope: "meta_oauth_post_connect",
       liveLoader: async () => {
         const metaResult = await fetchMetaAdAccounts(accessToken);
         if (!metaResult.ok || metaResult.body?.error) {
@@ -194,20 +197,32 @@ export async function GET(request: NextRequest) {
           isManager: false,
         }));
       },
-    }).catch(() => null);
-
-    const assignments = await getProviderAccountAssignments(businessId, "meta").catch(
-      () => null,
-    );
-    if ((assignments?.account_ids?.length ?? 0) > 0) {
-      await syncMetaInitial(businessId).catch(() => null);
-    }
+      enqueue: async ({ businessId: id }: { businessId: string }) => {
+        await syncMetaInitial(id);
+      },
+    });
 
     // ── Redirect to frontend callback with success ──────────────
     const redirectUrl = new URL(`/integrations/callback/meta`, baseUrl);
     redirectUrl.searchParams.set("status", "success");
     redirectUrl.searchParams.set("businessId", businessId);
     redirectUrl.searchParams.set("integrationId", integration.id);
+    // Truthful about what happened. A connection that saved but scheduled
+    // nothing is not the same outcome as one that started syncing, and the UI
+    // needs to be able to tell them apart.
+    redirectUrl.searchParams.set(
+      "syncScheduled",
+      postConnect.scheduled ? "1" : "0",
+    );
+    if (!postConnect.scheduled) {
+      redirectUrl.searchParams.set("scheduleReason", postConnect.reason);
+    }
+    if (postConnect.droppedAccountIds.length > 0) {
+      redirectUrl.searchParams.set(
+        "droppedAccounts",
+        String(postConnect.droppedAccountIds.length),
+      );
+    }
 
     const response = NextResponse.redirect(redirectUrl.toString());
     // Clear the state cookie

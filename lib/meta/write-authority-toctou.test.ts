@@ -27,6 +27,13 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   return { ...actual, resolveMetaAccountAuthority };
 });
 
+const readProviderConnectionGenerationToken = vi.fn(async () => "2:connected");
+
+vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, readProviderConnectionGenerationToken };
+});
+
 const {
   getMetaAdsWriteBlockFailure,
   isMetaWriteAuthorityFailure,
@@ -192,5 +199,44 @@ describe("Meta write authority at the immediate pre-POST boundary", () => {
     // An ordinary provider error is retryable per item and must NOT stop a batch.
     expect(isMetaWriteAuthorityFailure({ code: "meta_http_error" })).toBe(false);
     expect(isMetaWriteAuthorityFailure(null)).toBe(false);
+  });
+});
+
+describe("credential generation at the write boundary", () => {
+  beforeEach(() => {
+    getMetaWriteBlockState.mockResolvedValue({ blocked: false });
+    resolveMetaAccountAuthority.mockResolvedValue({
+      state: "authorized",
+      errorMessage: null,
+    });
+    readProviderConnectionGenerationToken.mockResolvedValue("2:connected");
+  });
+
+  it("refuses when the connection moved after the token was read", async () => {
+    // Selection never changes here: the ACCOUNT is still selected the whole
+    // time. What changed is who the connection belongs to — the user
+    // reconnected Meta as a different principal — so the token captured before
+    // that reconnect must not reach a live account.
+    const failure = await getMetaAdsWriteBlockFailure({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      accessToken: "token-from-old-grant",
+      connectionGeneration: "1:connected",
+    });
+    expect(failure).not.toBeNull();
+    expect(failure?.providerMutationAttempted).toBe(false);
+    expect(failure?.httpStatus).toBe(409);
+    expect(failure?.error.message).toMatch(/connection changed/i);
+  });
+
+  it("admits when the generation is unchanged", async () => {
+    await expect(
+      getMetaAdsWriteBlockFailure({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "2:connected",
+      }),
+    ).resolves.toBeNull();
   });
 });

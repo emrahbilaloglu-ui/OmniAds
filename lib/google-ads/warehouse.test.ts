@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dedupeGoogleAdsWarehouseRows } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
 
@@ -59,6 +59,11 @@ vi.mock("@/lib/sync/worker-health", () => ({
   recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: vi.fn() };
+});
+
 vi.mock("@/lib/google-ads/request-model-store", () => ({
   readGoogleAdsCampaignDimensions: vi.fn(async () => []),
   readGoogleAdsAdGroupDimensions: vi.fn(async () => []),
@@ -71,6 +76,7 @@ vi.mock("@/lib/google-ads/request-model-store", () => ({
 const db = await import("@/lib/db");
 const requestModelStore = await import("@/lib/google-ads/request-model-store");
 const workerHealth = await import("@/lib/sync/worker-health");
+const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
 const {
   acquireGoogleAdsRunnerLease,
   backfillGoogleAdsRunningCheckpointsForTerminalPartition,
@@ -334,11 +340,34 @@ describe("getGoogleAdsWarehouseIntegrityIncidents", () => {
 });
 
 describe("google ads warehouse ownership safety", () => {
+  const savedEnv = { ...process.env };
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(
       undefined,
     );
+    // Dead-letter replay is a NEW-WORK transition and now requires the lane and
+    // fresh capacity before it reads anything at all.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it("refuses replay entirely when the Google lane is disabled", async () => {
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    const sql = vi.fn();
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    await expect(
+      replayGoogleAdsDeadLetterPartitions({ businessId: "biz-1" }),
+    ).rejects.toMatchObject({ name: "SyncLaneDisabledError" });
+    expect(sql).not.toHaveBeenCalled();
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {

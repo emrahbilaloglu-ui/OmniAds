@@ -6,7 +6,11 @@ import {
   PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
   upsertProviderAccountAssignments,
 } from "@/lib/provider-account-assignments";
-import { PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES } from "@/lib/provider-account-snapshots";
+import {
+  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+  readProviderConnectionGenerationToken,
+} from "@/lib/provider-account-snapshots";
+import { ProviderAccountSelectionError } from "@/lib/provider-account-assignments";
 import {
   MAX_SELECTED_ACCOUNTS,
   authorizeAssignmentMutation,
@@ -60,7 +64,14 @@ export interface AssignmentRouteConfig {
    * scheduling failure is a partial success to report, not an error that
    * discards a selection already committed.
    */
-  schedule: (input: { businessId: string; accountIds: string[] }) => Promise<AssignmentSchedulingResult>;
+  schedule: (input: {
+    businessId: string;
+    accountIds: string[];
+    /** The connection generation this selection was validated and written under. */
+    connectionGeneration: string | null;
+    /** Wall clock immediately before scheduling, for exact-work readback. */
+    scheduledAfter: string;
+  }) => Promise<AssignmentSchedulingResult>;
 }
 
 function json(body: unknown, status: number) {
@@ -325,15 +336,43 @@ export async function handleProviderAssignmentRequest(
   //    provider-global and business-provider advisory locks and reads the
   //    selection back inside the same transaction, so a partial selection can
   //    never be observed or reported as success.
+  // The generation this selection was VALIDATED under, captured before the
+  // write and enforced inside the write's own lock. A reconnect between
+  // validation and write replaces the credential — and with it which accounts
+  // are actually accessible — so committing anyway would persist a selection
+  // nobody validated against the current connection.
+  const validatedConnectionGeneration = await readProviderConnectionGenerationToken(
+    businessId,
+    config.provider,
+  ).catch(() => null);
+
   let saved: string[];
   try {
     const row = await upsertProviderAccountAssignments({
       businessId,
       provider: config.provider,
       accountIds: canonicalIds,
+      expectedConnectionGeneration: validatedConnectionGeneration,
     });
     saved = row.account_ids ?? [];
   } catch (error: unknown) {
+    if (
+      error instanceof ProviderAccountSelectionError &&
+      error.code === "connection_generation_changed"
+    ) {
+      // Zero mutation, zero enqueue. The user reconnected mid-request; the
+      // selection they were shown was validated against a connection that no
+      // longer exists.
+      return json(
+        {
+          error: "connection_changed",
+          message: error.message,
+          selectionSaved: false,
+          syncScheduled: false,
+        },
+        409,
+      );
+    }
     const laneRefusal = describeSyncSafetyRefusal(error);
     if (laneRefusal) {
       // A lane or capacity refusal is not a server error and not a success.
@@ -380,7 +419,13 @@ export async function handleProviderAssignmentRequest(
   // 6. Selection is durable. Scheduling is a SEPARATE outcome and is reported
   //    as one: a failure here leaves a saved selection with no work started,
   //    which is a 202, never a 200 with `success: true`.
-  const scheduling = await config.schedule({ businessId, accountIds: saved });
+  const scheduledAfter = new Date().toISOString();
+  const scheduling = await config.schedule({
+    businessId,
+    accountIds: saved,
+    connectionGeneration: validatedConnectionGeneration,
+    scheduledAfter,
+  });
   if (!scheduling.scheduled) {
     console.warn(`[${config.label}] selection saved but scheduling did not complete`, {
       businessId,

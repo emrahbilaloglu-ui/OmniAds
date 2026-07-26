@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
@@ -7580,6 +7582,13 @@ export async function replayMetaDeadLetterPartitions(input: {
   sources?: string[] | null;
   recoveryKinds?: MetaDeadLetterRecoveryKind[] | null;
 }): Promise<MetaRecoveryActionResult> {
+  // Replay is a NEW-WORK transition: it moves dead-letter partitions back to
+  // queued, and the worker then calls the provider for them. It was reachable
+  // with no lane check, no capacity check and no selection check at all, so a
+  // revoked account's dead letters could be revived and resynced by an operator
+  // action — or by an automated recovery — long after the user removed it.
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_dead_letter_replay", { fresh: true });
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const matchedRows = await sql`
@@ -7602,6 +7611,16 @@ export async function replayMetaDeadLetterPartitions(input: {
     ) latest_run ON true
     WHERE partition.business_id = ${input.businessId}
       AND partition.status = 'dead_letter'
+      -- CURRENTLY selected only. A dead letter for a deselected account stays a
+      -- dead letter: terminalising already-started work is allowed, reviving it
+      -- is not.
+      AND EXISTS (
+        SELECT 1 FROM business_provider_accounts binding
+        WHERE binding.business_id = partition.business_id
+          AND binding.provider = 'meta'
+          AND binding.provider_account_id = partition.provider_account_id
+          AND binding.is_selected
+      )
       AND (${input.scope ?? null}::text IS NULL OR partition.scope = ${input.scope ?? null})
       AND (${input.sources ?? null}::text[] IS NULL OR partition.source = ANY(${input.sources ?? null}::text[]))
   ` as MetaDeadLetterCandidateRow[];

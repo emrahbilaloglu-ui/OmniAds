@@ -87,7 +87,8 @@ export class ProviderAccountSelectionError extends Error {
     readonly code:
       | "identity_missing"
       | "identity_mismatch"
-      | "readback_mismatch",
+      | "readback_mismatch"
+      | "connection_generation_changed",
     message: string,
   ) {
     super(message);
@@ -107,6 +108,18 @@ export async function replaceProviderAccountSelection(input: {
   businessId: string;
   provider: IntegrationProviderType;
   accountIds: readonly string[];
+  /**
+   * The `connection_generation:status` the caller VALIDATED this selection
+   * against.
+   *
+   * Validation reads the discovery snapshot to decide the accounts are
+   * accessible, then this writes them. Between those two steps a reconnect can
+   * replace the credential entirely — different principal, different accessible
+   * accounts — and the write would commit a selection nobody validated against
+   * the current connection. Checked INSIDE the same lock that serialises the
+   * write, so there is no window between the check and the commit.
+   */
+  expectedConnectionGeneration?: string | null;
 }): Promise<string[]> {
   // Selection mutation changes what every other lane acts on, so it is quiesced
   // with them during a rollout rather than left writable underneath a migration.
@@ -129,6 +142,24 @@ export async function replaceProviderAccountSelection(input: {
         hashtext(${buildBusinessLockKey(input.businessId, input.provider)})
       )
     `;
+
+    if (input.expectedConnectionGeneration != null) {
+      const connectionRows = (await sql`
+        SELECT connection_generation::text AS generation, status
+        FROM provider_connections
+        WHERE business_id = ${input.businessId} AND provider = ${input.provider}
+        LIMIT 1
+      `) as Array<{ generation: string; status: string }>;
+      const observed = connectionRows[0]
+        ? `${connectionRows[0].generation}:${connectionRows[0].status}`
+        : null;
+      if (observed !== input.expectedConnectionGeneration) {
+        throw new ProviderAccountSelectionError(
+          "connection_generation_changed",
+          `The ${input.provider} connection changed while this selection was being validated (expected ${input.expectedConnectionGeneration ?? "none"}, found ${observed ?? "none"}). Nothing was selected or scheduled.`,
+        );
+      }
+    }
 
     if (accountIds.length > 0) {
       // Identity rows are created once and never rewritten. ORDER BY keeps
@@ -262,6 +293,7 @@ export async function upsertProviderAccountAssignments(params: {
   businessId: string;
   provider: IntegrationProviderType;
   accountIds: string[];
+  expectedConnectionGeneration?: string | null;
 }): Promise<ProviderAccountAssignmentRow> {
   const selected = await replaceProviderAccountSelection(params);
   const row = await readAssignmentRowsByBusiness(params.businessId, params.provider);

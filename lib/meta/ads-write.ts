@@ -7,6 +7,16 @@ export interface MetaAdsWriteContext {
   businessId: string;
   providerAccountId: string;
   accessToken: string;
+  /**
+   * The `connection_generation:status` this `accessToken` was read under.
+   *
+   * Selection is not the whole of authority. A user can reconnect Meta as a
+   * different principal while the ad account stays selected by id, and the
+   * token captured before that reconnect would still be POSTed — writing to a
+   * live account through a credential the user has already replaced. When the
+   * caller supplies this, the pre-POST check refuses on any change.
+   */
+  connectionGeneration?: string | null;
 }
 
 export interface MetaAdsWriteOptions {
@@ -181,6 +191,44 @@ export async function getMetaAdsWriteBlockFailure(
       responsePayload: null,
       verificationPayload: null,
     };
+  }
+
+  if (ctx.connectionGeneration != null) {
+    const { readProviderConnectionGenerationToken } = await import(
+      "@/lib/provider-account-snapshots"
+    );
+    const current = await readProviderConnectionGenerationToken(
+      ctx.businessId,
+      "meta",
+    ).catch(() => undefined);
+    if (current === undefined) {
+      return {
+        ok: false,
+        httpStatus: 503,
+        providerMutationAttempted: false,
+        error: {
+          code: META_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
+          message:
+            "Could not verify which Meta connection this credential belongs to. No provider write was attempted.",
+        },
+        responsePayload: null,
+        verificationPayload: null,
+      };
+    }
+    if (current !== ctx.connectionGeneration) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        providerMutationAttempted: false,
+        error: {
+          code: META_ACCOUNT_NOT_SELECTED_CODE,
+          message:
+            "The Meta connection changed after this credential was read. The write was refused rather than sent with a superseded token.",
+        },
+        responsePayload: null,
+        verificationPayload: null,
+      };
+    }
   }
 
   const authority = await resolveMetaAccountAuthority(

@@ -234,12 +234,25 @@ async function resolveWriteContext(input: {
       ),
     };
   }
+  // The generation this access token belongs to, captured WITH the token. The
+  // pre-POST check re-reads it and refuses if the connection moved, so a
+  // reconnect after this point cannot be written through with the old
+  // credential even though the account is still selected.
+  const { readProviderConnectionGenerationToken } = await import(
+    "@/lib/provider-account-snapshots"
+  );
+  const connectionGeneration = await readProviderConnectionGenerationToken(
+    input.businessId,
+    "meta",
+  ).catch(() => null);
+
   return {
     ok: true,
     ctx: {
       businessId: input.businessId,
       providerAccountId,
       accessToken: integration.access_token,
+      connectionGeneration,
     },
   };
 }

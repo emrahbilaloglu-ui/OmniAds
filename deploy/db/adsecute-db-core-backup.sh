@@ -56,6 +56,28 @@ BACKUP_DB_SUPERUSER="${BACKUP_DB_SUPERUSER:-postgres}"
 # disaster-recovery seam, which targets an ephemeral server over TCP.
 BACKUP_DB_HOST="${BACKUP_DB_HOST:-}"
 BACKUP_DB_PORT="${BACKUP_DB_PORT:-}"
+# Where tier-B per-table archives are written. MUST be on a different filesystem
+# from the PostgreSQL data directory: a backup that shares a disk with the data
+# it protects is not a backup. Verified below, not assumed.
+BACKUP_ARCHIVE_ROOT="${BACKUP_ARCHIVE_ROOT:-$BACKUP_ROOT/archive}"
+RECOVERY_POLICY_FILE="${RECOVERY_POLICY_FILE:-$(dirname "$0")/recovery-policy.tsv}"
+# Tables whose DATA must always be in the primary artifact. A policy line moving
+# any of these to tier B is refused. This list is about AUTHORITY and CONTINUITY:
+# who is connected, with what credential, what is selected, what was scheduled,
+# and what evidence a release was gated on.
+RECOVERY_AUTHORITY_TABLES="\
+users businesses memberships invites sessions \
+provider_connections provider_accounts integration_credentials \
+business_provider_accounts provider_account_assignments \
+provider_account_snapshot_runs provider_account_snapshot_items \
+shopify_install_contexts shopify_subscriptions \
+provider_sync_jobs meta_sync_jobs google_ads_sync_jobs \
+meta_sync_partitions google_ads_sync_partitions \
+meta_sync_runs google_ads_sync_runs \
+meta_sync_checkpoints google_ads_sync_checkpoints \
+sync_release_gates sync_incidents sync_repair_plans \
+sync_runner_leases sync_worker_heartbeats system_capacity_snapshots \
+schema_legacy_import_state"
 
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 TARGET_DIR="$BACKUP_ROOT/daily/$TIMESTAMP"
@@ -117,6 +139,45 @@ mkdir -p "$BACKUP_ROOT/daily"
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
 
+# ── 0. Recovery policy ───────────────────────────────────────────────────────
+#
+# DEFAULT IS TIER A: a table absent from the policy file gets its data into the
+# primary artifact. Forgetting to classify a new table costs disk, never data.
+tier_b_tables=""
+if [ -f "$RECOVERY_POLICY_FILE" ]; then
+  tier_b_tables="$(awk -F'\t' '
+    /^[[:space:]]*#/ { next }
+    NF >= 2 && $2 == "B" { print $1 }
+  ' "$RECOVERY_POLICY_FILE" | LC_ALL=C sort -u)"
+else
+  echo "recovery_policy_missing path=$RECOVERY_POLICY_FILE" >&2
+  fail "recovery_policy_missing"
+fi
+
+# An authority table may never be tier B.
+for t in $RECOVERY_AUTHORITY_TABLES; do
+  if printf '%s\n' "$tier_b_tables" | grep -qx "$t"; then
+    echo "recovery_policy_violation authority_table_in_tier_b=$t" >&2
+    fail "authority_table_in_tier_b"
+  fi
+done
+
+# Every tier-B table must actually exist; a stale policy line hides a typo that
+# would otherwise silently put a real table's data nowhere.
+for t in $tier_b_tables; do
+  present="$(psql_value "$DB_NAME" "SELECT to_regclass('public.${t}') IS NOT NULL")"
+  if [ "$present" != "t" ]; then
+    echo "recovery_policy_violation tier_b_table_absent=$t" >&2
+    fail "tier_b_table_absent_from_catalog"
+  fi
+done
+
+tier_b_count="$(printf '%s\n' "$tier_b_tables" | grep -c . || true)"
+exclude_args=()
+for t in $tier_b_tables; do
+  exclude_args+=( "--exclude-table-data=public.${t}" )
+done
+
 # ── 1. The artifact ──────────────────────────────────────────────────────────
 #
 # One pg_dump, whole database, custom format. No table filter of any kind: the
@@ -134,6 +195,7 @@ as_postgres pg_dump ${conn_args[@]+"${conn_args[@]}"} \
   --no-owner \
   --no-privileges \
   --no-tablespaces \
+  ${exclude_args[@]+"${exclude_args[@]}"} \
   > "$TMP_DIR/full-database.dump"
 dump_finished_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -176,8 +238,27 @@ pg_restore --list "$TMP_DIR/full-database.dump" > "$TMP_DIR/dump-toc.txt"
 awk '$1 ~ /^[0-9]+;$/ && $4 == "TABLE" && $5 == "DATA" { print $6 "." $7 }' \
   "$TMP_DIR/dump-toc.txt" | LC_ALL=C sort > "$TMP_DIR/dump-tables.txt"
 
-missing_from_dump="$(LC_ALL=C comm -23 "$TMP_DIR/catalog-tables.txt" "$TMP_DIR/dump-tables.txt")"
-unexpected_in_dump="$(LC_ALL=C comm -13 "$TMP_DIR/catalog-tables.txt" "$TMP_DIR/dump-tables.txt")"
+# Tier-B tables are deliberately absent from TABLE DATA. They must still be in
+# the artifact's SCHEMA, or a tier-A restore would not even have somewhere to
+# replay the archive into — so that is checked explicitly rather than assumed.
+printf '%s\n' "$tier_b_tables" | grep . | sed 's/^/public./' | LC_ALL=C sort \
+  > "$TMP_DIR/tier-b-tables.txt" || : > "$TMP_DIR/tier-b-tables.txt"
+LC_ALL=C comm -23 "$TMP_DIR/catalog-tables.txt" "$TMP_DIR/tier-b-tables.txt" \
+  > "$TMP_DIR/expected-data-tables.txt"
+
+for t in $tier_b_tables; do
+  # A plain TABLE entry is "<id>; <oid> <oid> TABLE <schema> <name> <owner>",
+  # whereas TABLE DATA shifts every field right by one. Matching the DATA layout
+  # against a TABLE line silently never matches.
+  if ! awk -v want="$t" '$1 ~ /^[0-9]+;$/ && $4 == "TABLE" && $5 == "public" && $6 == want { found = 1 }
+       END { exit found ? 0 : 1 }' "$TMP_DIR/dump-toc.txt"; then
+    echo "backup_incomplete tier_b_schema_missing=$t" >&2
+    fail "tier_b_table_schema_missing_from_dump"
+  fi
+done
+
+missing_from_dump="$(LC_ALL=C comm -23 "$TMP_DIR/expected-data-tables.txt" "$TMP_DIR/dump-tables.txt")"
+unexpected_in_dump="$(LC_ALL=C comm -13 "$TMP_DIR/expected-data-tables.txt" "$TMP_DIR/dump-tables.txt")"
 
 if [ -n "$missing_from_dump" ]; then
   echo "backup_incomplete missing_tables=$(echo "$missing_from_dump" | tr '\n' ',' | sed 's/,$//')" >&2
@@ -192,6 +273,70 @@ catalog_tables="$(wc -l < "$TMP_DIR/catalog-tables.txt" | tr -d ' ')"
 dump_table_data_entries="$(wc -l < "$TMP_DIR/dump-tables.txt" | tr -d ' ')"
 dump_sequence_set_entries="$(awk '$1 ~ /^[0-9]+;$/ && $4 == "SEQUENCE" && $5 == "SET"' \
   "$TMP_DIR/dump-toc.txt" | wc -l | tr -d ' ')"
+
+# ── 2b. Tier-B archives ──────────────────────────────────────────────────────
+#
+# One data-only custom-format archive per tier-B table, written to a filesystem
+# that is NOT the one holding the data. Each is validated on the two facts a
+# replay depends on: the row count PostgreSQL reports, and the digest of the
+# bytes actually written. A mismatch fails the whole backup — a tier-B archive
+# that silently truncated would leave a restore quietly short of 22 million rows.
+#
+# These tables are NOT discarded and NOT considered rebuildable. Every one was
+# classified independently and none has a regeneration path: they are
+# point-in-time observations the provider will not re-serve. The split exists
+# only because the migration provably does not mutate them, so a ROLLBACK does
+# not need them — a DISASTER RECOVERY still does, which is why they are archived
+# rather than skipped.
+archive_dir="$BACKUP_ARCHIVE_ROOT/$TIMESTAMP"
+mkdir -p "$archive_dir"
+chmod 0700 "$archive_dir" 2>/dev/null || true
+
+# A backup on the same filesystem as the data it protects is not a backup.
+data_dir_fs="$(psql_value "$DB_NAME" "SHOW data_directory" 2>/dev/null || echo "")"
+if [ -n "$data_dir_fs" ] && [ -d "$data_dir_fs" ]; then
+  if [ "$(stat -c %d "$data_dir_fs" 2>/dev/null || echo x)" = "$(stat -c %d "$archive_dir" 2>/dev/null || echo y)" ]; then
+    echo "backup_archive_colocated_with_data data_dir=$data_dir_fs archive=$archive_dir" >&2
+    fail "archive_shares_filesystem_with_data"
+  fi
+fi
+
+: > "$TMP_DIR/tier-b-manifest.tsv"
+tier_b_bytes_total=0
+tier_b_rows_total=0
+for t in $tier_b_tables; do
+  rows="$(psql_value "$DB_NAME" "SELECT count(*) FROM public.${t}")"
+  out="$archive_dir/${t}.dump"
+  as_postgres pg_dump ${conn_args[@]+"${conn_args[@]}"} \
+    --dbname="$DB_NAME" \
+    --format=custom \
+    --compress=9 \
+    --data-only \
+    --no-owner \
+    --no-privileges \
+    --no-tablespaces \
+    --table="public.${t}" > "$out"
+
+  bytes="$(wc -c < "$out" | tr -d ' ')"
+  digest="$(checksum "$out" | awk '{print $1}')"
+  # The archive must contain a TABLE DATA entry for exactly this table.
+  entries="$(pg_restore --list "$out" \
+    | awk -v want="$t" '$1 ~ /^[0-9]+;$/ && $4 == "TABLE" && $5 == "DATA" && $7 == want' \
+    | wc -l | tr -d ' ')"
+  if [ "$entries" != "1" ]; then
+    echo "backup_archive_invalid table=$t table_data_entries=$entries" >&2
+    fail "tier_b_archive_missing_table_data"
+  fi
+  if [ "$bytes" -le 0 ]; then
+    echo "backup_archive_empty table=$t" >&2
+    fail "tier_b_archive_empty"
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$t" "$rows" "$bytes" "$digest" >> "$TMP_DIR/tier-b-manifest.tsv"
+  tier_b_bytes_total=$(( tier_b_bytes_total + bytes ))
+  tier_b_rows_total=$(( tier_b_rows_total + rows ))
+done
+( cd "$archive_dir" && checksum ./*.dump > SHA256SUMS 2>/dev/null ) || true
+cp "$TMP_DIR/tier-b-manifest.tsv" "$archive_dir/tier-b-manifest.tsv" 2>/dev/null || true
 
 # ── 3. What the artifact contains, so a restorer can check it ────────────────
 psql_value "$DB_NAME" "
@@ -317,6 +462,14 @@ fi
   echo "row_census_sha256=$row_census_sha256"
   echo "globals_sql_contains_role_secrets=true"
   echo "restore_command=pg_restore --dbname=<new_db> --no-owner --no-privileges --exit-on-error full-database.dump"
+  echo "recovery_tiers=A_primary_plus_B_archives"
+  echo "tier_b_table_count=${tier_b_count}"
+  echo "tier_b_tables=$(printf '%s' "$tier_b_tables" | tr '\n' ',' | sed 's/,$//')"
+  echo "tier_b_rows_total=${tier_b_rows_total}"
+  echo "tier_b_bytes_total=${tier_b_bytes_total}"
+  echo "tier_b_archive_dir=${archive_dir}"
+  echo "tier_b_manifest=tier-b-manifest.tsv"
+  echo "restore_order=1) pg_restore full-database.dump  2) replay each tier-B archive with pg_restore --data-only"
   echo "verify_command=sha256sum -c SHA256SUMS"
 } > "$TMP_DIR/manifest.txt"
 

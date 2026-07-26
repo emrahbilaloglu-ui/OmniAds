@@ -37,6 +37,8 @@ COPY --from=builder /app/app /app/app
 COPY --from=builder /app/lib /app/lib
 COPY --from=builder /app/providers /app/providers
 COPY --from=builder /app/scripts /app/scripts
+# The recovery tier policy travels with the cutover wrapper.
+COPY --from=builder /app/deploy /app/deploy
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/store /app/store
 COPY --from=builder /app/hooks /app/hooks

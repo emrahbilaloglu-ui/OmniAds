@@ -39,6 +39,7 @@
  * is ever selected into this process, printed, or written to a file.
  */
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -658,6 +659,40 @@ async function main() {
       `fixture: every provider connection has the same generation, so "generations survived" would be vacuously true.`,
     );
 
+    // Tier-B archives go somewhere separate from the primary artifact, the way
+    // production writes them to an independent host.
+    const archiveRoot = path.join(tmp, "tier-b-archive");
+    fs.mkdirSync(archiveRoot, { recursive: true });
+
+    // Rows in TIER-B tables, so the split is actually exercised. Without these
+    // the tier-B path is inert and every assertion below would pass against a
+    // backup that never archived anything.
+    for (let i = 0; i < 7; i += 1) {
+      await sourceClient.query(
+        `INSERT INTO meta_config_snapshots
+           (business_id, account_id, entity_level, entity_id, payload, snapshot_date, captured_at)
+         VALUES ($1, $2, 'campaign', $3, $4::jsonb, DATE '2026-07-01', now())`,
+        [businesses[0]!.id, "act_dr_tier_b", `camp_${i}`, JSON.stringify({ objective: "OUTCOME_SALES", i })],
+      );
+    }
+    // Captured BEFORE the backup. Reading them later is wrong: the migration
+    // chain backfills config history from meta_config_snapshots the first time
+    // it sees an empty table, so a count taken after D7's migration re-run
+    // describes a different database than the artifact does.
+    const tierBSourceCounts = new Map<string, number>();
+    for (const table of [
+      "meta_config_snapshots",
+      "meta_campaign_config_history",
+      "meta_adset_config_history",
+      "meta_raw_snapshots",
+      "shopify_raw_snapshots",
+    ]) {
+      const row = await sourceClient.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM public.${table}`,
+      );
+      tierBSourceCounts.set(table, Number(row.rows[0]!.n));
+    }
+
     // ── The ACTUAL backup script ─────────────────────────────────────────────
     const backup = spawnSync("bash", [BACKUP_SCRIPT], {
       cwd: process.cwd(),
@@ -673,6 +708,7 @@ async function main() {
         BACKUP_DB_PORT: String(sourcePort),
         PGUSER: USER,
         RETENTION_DAYS: "14",
+        BACKUP_ARCHIVE_ROOT: archiveRoot,
       },
     });
     const backupOutput = `${backup.stdout ?? ""}${backup.stderr ?? ""}`;
@@ -707,10 +743,16 @@ async function main() {
     // to that turns every legitimate schema change into a seam failure and
     // teaches the next person to raise the number instead of reading it.
     const SCHEMA_SANITY_FLOOR = 150;
+    // Tier-B tables carry their SCHEMA in the primary artifact but their DATA in
+    // separate archives, so the primary dump legitimately has fewer TABLE DATA
+    // entries than the catalog has tables — by exactly the tier-B count, and by
+    // nothing else. Any other difference is an omission.
+    const tierBCount = Number(manifest.tier_b_table_count ?? "0");
     assert(
-      Number(manifest.catalog_tables) === Number(manifest.dump_table_data_entries) &&
+      Number(manifest.catalog_tables) - tierBCount ===
+        Number(manifest.dump_table_data_entries) &&
         Number(manifest.catalog_tables) >= SCHEMA_SANITY_FLOOR,
-      `D1: catalog tables (${manifest.catalog_tables}) and dump TABLE DATA entries (${manifest.dump_table_data_entries}) disagree, or the schema is implausibly small (floor ${SCHEMA_SANITY_FLOOR}).`,
+      `D1: catalog tables (${manifest.catalog_tables}) minus tier-B (${tierBCount}) should equal dump TABLE DATA entries (${manifest.dump_table_data_entries}), or the schema is implausibly small (floor ${SCHEMA_SANITY_FLOOR}).`,
     );
     const checksumVerify = spawnSync(
       "bash",
@@ -980,6 +1022,85 @@ async function main() {
     );
     console.log(
       `${LABEL} D8 PASS secret hygiene: none of the ${Object.keys(SECRETS).length} fixture credentials appear in the backup's stdout/stderr or in any of the ${inspectable.length} readable artifact files (manifest, census, TOC, checksums, schema)`,
+    );
+
+    // ── D9. The tier split, end to end ──────────────────────────────────────
+    //
+    // The primary artifact carries tier-B SCHEMA but not tier-B ROWS, so a
+    // tier-A restore must yield those tables present-and-empty. Then each
+    // archive must replay into it and land the exact source count. If the
+    // archive silently truncated, this is the assertion that catches it.
+    const tierBTables = (manifest.tier_b_tables ?? "").split(",").filter(Boolean);
+    assert(
+      tierBTables.length > 0 && Number(manifest.tier_b_rows_total) > 0,
+      `D9: the backup archived no tier-B rows (tables=${tierBTables.length} rows=${manifest.tier_b_rows_total}); the split is inert and proves nothing.`,
+    );
+
+    for (const table of tierBTables) {
+      const beforeReplay = await targetClient!.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM public.${table}`,
+      );
+      assert(
+        Number(beforeReplay.rows[0]!.n) === 0,
+        `D9: ${table} already holds ${beforeReplay.rows[0]!.n} row(s) in the tier-A restore; tier-B data must not be in the primary artifact.`,
+      );
+    }
+
+    // The archive manifest is the contract a replay is validated against.
+    const archiveManifest = fs
+      .readFileSync(path.join(archiveRoot, manifest.tier_b_archive_dir!.split("/").pop()!, "tier-b-manifest.tsv"), "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => line.split("\t"));
+    const archiveByTable = new Map(
+      archiveManifest.map((cols) => [cols[0]!, { rows: cols[1]!, bytes: cols[2]!, digest: cols[3]! }]),
+    );
+    assert(
+      archiveByTable.size === tierBTables.length,
+      `D9: archive manifest lists ${archiveByTable.size} table(s), the policy declares ${tierBTables.length}.`,
+    );
+    for (const table of tierBTables) {
+      const entry = archiveByTable.get(table);
+      assert(entry, `D9: no archive manifest entry for ${table}.`);
+      const { rows, bytes, digest } = entry!;
+      const file = path.join(archiveRoot, manifest.tier_b_archive_dir!.split("/").pop()!, `${table}.dump`);
+      assert(fs.existsSync(file), `D9: archive for ${table} is missing at ${file}.`);
+      const actualBytes = fs.statSync(file).size;
+      assert(
+        String(actualBytes) === bytes,
+        `D9: ${table} archive is ${actualBytes}B, the manifest records ${bytes}B — a truncated archive would restore silently short.`,
+      );
+      const actualDigest = createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+      assert(
+        actualDigest === digest,
+        `D9: ${table} archive digest ${actualDigest} does not match the manifest ${digest}.`,
+      );
+      assert(
+        Number(rows) === tierBSourceCounts.get(table),
+        `D9: ${table} archive records ${rows} rows, the source holds ${tierBSourceCounts.get(table)}.`,
+      );
+
+      // Replay it, exactly as the documented restore order says.
+      const replay = spawnSync(
+        path.join(bin, "pg_restore"),
+        ["-h", "127.0.0.1", "-p", String(targetPort), "-U", USER, "--dbname=" + TARGET_DB,
+         "--data-only", "--no-owner", "--no-privileges", "--exit-on-error", file],
+        { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } },
+      );
+      assert(
+        replay.status === 0,
+        `D9: replaying ${table} failed (${replay.status}): ${(replay.stderr ?? "").slice(0, 400)}`,
+      );
+      const afterReplay = await targetClient!.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM public.${table}`,
+      );
+      assert(
+        Number(afterReplay.rows[0]!.n) === tierBSourceCounts.get(table),
+        `D9: after replay ${table} holds ${afterReplay.rows[0]!.n}, the source holds ${tierBSourceCounts.get(table)}.`,
+      );
+    }
+    console.log(
+      `${LABEL} D9 PASS tier split: ${tierBTables.length} tier-B table(s) carrying ${manifest.tier_b_rows_total} row(s) are SCHEMA-present and ROW-empty after the tier-A restore, every archive matches the manifest on bytes, sha256 and row count, and replaying each one lands the exact source count`,
     );
 
     console.log(`${LABEL} PASS`);

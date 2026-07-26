@@ -814,6 +814,53 @@ db_logical_bytes() {
   db_sql "SELECT pg_database_size(current_database())::text;" | tr -d '[:space:]'
 }
 
+# The tables whose DATA the rollback artifact deliberately does not carry, read
+# from the SAME policy file the daily backup uses. One source of truth: a table
+# cannot be tier B for the backup and tier A for the cutover.
+RECOVERY_POLICY_FILE="${SYNC_CUTOVER_RECOVERY_POLICY:-${CUTOVER_DIR}/recovery-policy.tsv}"
+
+tier_b_table_list() {
+  [ -f "${RECOVERY_POLICY_FILE}" ] || return 0
+  awk -F'\t' '/^[[:space:]]*#/ { next } NF >= 2 && $2 == "B" { print $1 }' \
+    "${RECOVERY_POLICY_FILE}" | LC_ALL=C sort -u
+}
+
+# A SQL list literal of the tier-B tables, or an impossible name when there are
+# none, so the predicates below stay valid either way.
+tier_b_sql_list() {
+  local list first=1 out=""
+  list="$(tier_b_table_list)"
+  if [ -z "${list}" ]; then printf "''" ; return 0; fi
+  while IFS= read -r t; do
+    [ -n "${t}" ] || continue
+    if [ "${first}" = "1" ]; then out="'${t}'"; first=0; else out="${out},'${t}'"; fi
+  done <<EOF
+${list}
+EOF
+  printf '%s' "${out}"
+}
+
+# What the ARTIFACT actually has to hold: heap + TOAST of the tables whose data
+# it carries. Indexes are excluded because pg_dump ships CREATE INDEX, not index
+# pages — on this database that is 47 of 136 GiB, and counting it was what made
+# the old gate demand a filesystem nobody has.
+db_included_dump_input_bytes() {
+  db_sql "SELECT COALESCE(sum(pg_relation_size(c.oid) + COALESCE(pg_total_relation_size(c.reltoastrelid),0)),0)::text
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname='public' AND c.relkind='r'
+            AND c.relname NOT IN ($(tier_b_sql_list));" | tr -d '[:space:]'
+}
+
+# What a SCRATCH RESTORE of that artifact inflates to: the same tables with their
+# indexes rebuilt. This lands in the PostgreSQL data directory, not in
+# BACKUP_ROOT, so it is measured against a different filesystem.
+db_included_restored_bytes() {
+  db_sql "SELECT COALESCE(sum(pg_total_relation_size(c.oid)),0)::text
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname='public' AND c.relkind='r'
+            AND c.relname NOT IN ($(tier_b_sql_list));" | tr -d '[:space:]'
+}
+
 db_data_directory() {
   db_sql "SHOW data_directory;" | tr -d '[:space:]'
 }
@@ -841,7 +888,7 @@ assert_capacity_for_migration() {
 }
 
 take_verified_backup() {
-  local epoch="$1" dir artifact manifest scratch free logical
+  local epoch="$1" dir artifact manifest scratch free logical dump_input restored data_dir scratch_free artifact_required scratch_required exclude_flags
   dir="$(backup_dir_for_epoch "${epoch}")"
   artifact="${dir}/full.dump"
   manifest="${dir}/cutover-backup.manifest"
@@ -854,16 +901,52 @@ take_verified_backup() {
   db_run "mkdir -p $(printf %q "${dir}") && chmod 0700 $(printf %q "${dir}")" \
     || die "could not create ${dir} on the database host"
 
+  # Measured against what this artifact actually contains and where each part
+  # lands — not against pg_database_size.
+  #
+  # The old gate demanded `logical + logical/4` under BACKUP_ROOT: on this
+  # database 170 GiB, on a filesystem with 30. It was wrong twice over. It
+  # counted 47 GiB of INDEX pages that pg_dump never writes, and it charged the
+  # scratch restore to BACKUP_ROOT when a restore inflates into the PostgreSQL
+  # DATA directory, which is usually a different filesystem entirely.
+  #
+  # The rollback artifact carries tier-A data only. That is sound because the
+  # migration's write-set was proven: it adds columns and indexes to the tier-B
+  # tables and mutates no pre-existing column of any of them, so undoing the
+  # migration never needs their rows. Their DATA is archived separately by the
+  # daily backup; their SCHEMA is in this artifact.
   logical="$(db_logical_bytes)"
+  dump_input="$(db_included_dump_input_bytes)"
+  restored="$(db_included_restored_bytes)"
+  data_dir="$(db_data_directory)"
   free="$(db_free_bytes_for "${BACKUP_ROOT}")"
+  scratch_free="$(db_free_bytes_for "${data_dir}")"
   case "${free}" in "" | *[!0-9]*) die "could not read free space for ${BACKUP_ROOT} on the database host" ;; esac
-  # The scratch restore inflates back to roughly the logical size, and the dump
-  # itself sits next to it, so the backup filesystem needs both.
-  [ "${free}" -ge "$(( logical + logical / 4 ))" ] \
-    || die "insufficient free space for the cutover backup and its scratch restore: ${free}B free under ${BACKUP_ROOT}, a ${logical}B database"
+  case "${dump_input}" in "" | *[!0-9]*) die "could not measure the artifact's included dataset; refusing to back up blind" ;; esac
+  case "${restored}" in "" | *[!0-9]*) die "could not measure the scratch-restore target size; refusing to back up blind" ;; esac
+  case "${scratch_free}" in "" | *[!0-9]*) die "could not read free space for the data directory ${data_dir}" ;; esac
+
+  # The artifact is compressed, so its uncompressed input is a conservative
+  # upper bound. Quarter headroom on top.
+  artifact_required=$(( dump_input + dump_input / 4 ))
+  scratch_required=$(( restored + restored / 4 ))
+  log "capacity: artifact_input=${dump_input}B required=${artifact_required}B free(${BACKUP_ROOT})=${free}B"
+  log "capacity: scratch_restore=${restored}B required=${scratch_required}B free(${data_dir})=${scratch_free}B"
+  log "capacity: whole database is ${logical}B; the difference is index pages and tier-B data, neither of which this artifact carries"
+  [ "${free}" -ge "${artifact_required}" ] \
+    || die "insufficient free space for the cutover backup: ${free}B free under ${BACKUP_ROOT}, ${artifact_required}B required for a ${dump_input}B included dataset"
+  [ "${scratch_free}" -ge "${scratch_required}" ] \
+    || die "insufficient free space for the scratch restore: ${scratch_free}B free under ${data_dir}, ${scratch_required}B required to inflate a ${restored}B dataset"
 
   log "Taking a FRESH full backup of ${DB_NAME} on the database host"
-  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --file=$(printf %q "${artifact}")" \
+  exclude_flags=""
+  while IFS= read -r t; do
+    [ -n "${t}" ] || continue
+    exclude_flags="${exclude_flags} --exclude-table-data=public.${t}"
+  done <<EOF
+$(tier_b_table_list)
+EOF
+  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags} --file=$(printf %q "${artifact}")" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
 
   local artifact_sha artifact_bytes artifact_created

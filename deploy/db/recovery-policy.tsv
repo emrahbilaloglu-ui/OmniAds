@@ -1,0 +1,42 @@
+# Recovery tier policy.  table<TAB>tier<TAB>reason
+#
+# TIER A — data lives in the primary artifact (full.dump). Restorable in one
+#          pg_restore, scratch-verified, constraint-validated.
+# TIER B — data lives in separate per-table archives streamed to an INDEPENDENT
+#          filesystem. The primary artifact still carries the table's SCHEMA, so
+#          a tier-A restore yields a structurally complete database with these
+#          tables empty, and each archive is replayed into it afterwards.
+#
+# DEFAULT IS TIER A. A table absent from this file gets its data backed up. That
+# is the fail-safe direction: forgetting to classify a new table costs disk, not
+# data. Only an explicit line moves a table to tier B, and every such line has to
+# say why.
+#
+# HARD RULES, enforced by the backup script and the cutover gate:
+#   * a table named in RECOVERY_AUTHORITY_TABLES may never be tier B;
+#   * a tier-B table must be append-only with an indexed monotonic chunk key;
+#   * a tier-B table's archive must validate on count AND sha256 before the
+#     backup is reported successful;
+#   * a tier-B table that the pending migration MUTATES is refused — rollback
+#     would then depend on tier B, which defeats the split.
+#
+# Why these five, and only these five (measured 2026-07-27 against production):
+# they are 94 of the 136 GiB. Each was classified independently. NONE of them is
+# provider-rebuildable — every one is a point-in-time observation the provider
+# will not re-serve, so tier B is an ARCHIVE, never a discard. The split is
+# justified purely by the proven migration write-set: the migration adds columns
+# and indexes to them and mutates no pre-existing column, so a migration
+# rollback never needs their rows.
+#
+# Chunk keys verified indexed:
+#   meta_raw_snapshots        (fetched_at, id)  idx_meta_raw_snapshots_retention
+#   shopify_raw_snapshots     (fetched_at, id)  idx_shopify_raw_snapshots_retention
+#   meta_config_snapshots     id                primary key
+#   meta_campaign_config_history  id            primary key
+#   meta_adset_config_history     id            primary key
+
+meta_config_snapshots	B	21.3 GiB / 22.4M rows. Append-only; no production DELETE exists. Migration touches it with ZERO statements. Read as an all-time bid-regime aggregate and for previous-different diffs, so the archive is mandatory for DR.
+meta_campaign_config_history	B	20.9 GiB / 23.2M rows (14.0 GiB of it index, which never enters a dump). Append-only, ON CONFLICT DO NOTHING. Migration only DROPs a skip-unchanged trigger. Read at a decision cutoff by the ad decision engine, so the archive is mandatory for DR.
+meta_adset_config_history	B	20.4 GiB / 21.2M rows (12.9 GiB index). Same shape as the campaign table; also the only home of promoted_object_json and pixel_id.
+meta_raw_snapshots	B	18.5 GiB, 17.2 of it TOAST. Migration adds 4 fast-default columns and 2 CONCURRENT indexes and explicitly does not backfill. Carries provenance FKs from 8 tables, so its archive must be replayed before those tables are trusted.
+shopify_raw_snapshots	B	12.9 GiB, 12.8 of it TOAST. Same shape. No code reads its payload; it is FK provenance for 7 tables.

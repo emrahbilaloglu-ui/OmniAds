@@ -276,6 +276,10 @@ sha256_of_file() {
 # instead of driving a cutover.
 WRAPPER_IMAGE_PATH="/app/scripts/hetzner-sync-cutover.sh"
 WRAPPER_MANIFEST_IMAGE_PATH="/app/scripts/cutover-wrapper.manifest"
+# The recovery tier policy the wrapper measures its capacity gate against. Without
+# it the wrapper sees no tier-B tables, silently sizes the rollback artifact
+# against the WHOLE database, and refuses a cutover that would have fit.
+WRAPPER_POLICY_IMAGE_PATH="/app/deploy/db/recovery-policy.tsv"
 
 deliver_cutover_wrapper() {
   cutover_dir="${REMOTE_APP_DIR}/cutover"
@@ -299,8 +303,9 @@ deliver_cutover_wrapper() {
 
   extract_container="$(docker create "${expected_worker_image}" true)"
   if ! docker cp "${extract_container}:${WRAPPER_IMAGE_PATH}" "${staging_dir}/hetzner-sync-cutover.sh" ||
-    ! docker cp "${extract_container}:${WRAPPER_MANIFEST_IMAGE_PATH}" "${staging_dir}/cutover-wrapper.manifest"; then
-    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} does not carry ${WRAPPER_IMAGE_PATH} and ${WRAPPER_MANIFEST_IMAGE_PATH}"
+    ! docker cp "${extract_container}:${WRAPPER_MANIFEST_IMAGE_PATH}" "${staging_dir}/cutover-wrapper.manifest" ||
+    ! docker cp "${extract_container}:${WRAPPER_POLICY_IMAGE_PATH}" "${staging_dir}/recovery-policy.tsv"; then
+    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} does not carry ${WRAPPER_IMAGE_PATH}, ${WRAPPER_MANIFEST_IMAGE_PATH} and ${WRAPPER_POLICY_IMAGE_PATH}"
     cleanup_cutover_delivery
     return 1
   fi

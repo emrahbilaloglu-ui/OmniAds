@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
 import { requireAdmin } from "@/lib/admin-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import {
@@ -116,6 +119,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Only google_ads and meta recovery actions are supported in this endpoint." },
         { status: 400 }
+      );
+    }
+
+    // Admission BEFORE any recovery action.
+    //
+    // Every branch below mutates durable state: cleanup rewrites partition
+    // orchestration, replay requeues dead letters, auto-repair writes incidents
+    // and executions. Operator authority is not capacity authority — an admin
+    // can be entirely entitled to run a recovery and the database still be over
+    // budget or the lane quiesced for a cutover, and running it anyway is how a
+    // maintenance window is undone by hand.
+    try {
+      assertSyncLaneEnabled(body.provider === "meta" ? "meta_sync" : "google_sync");
+      await assertSyncGrowthBoundary("admin_sync_recovery", { fresh: true });
+    } catch (error) {
+      const refusal = describeSyncSafetyRefusal(error);
+      await logRecovery("rejected", { refusal });
+      return NextResponse.json(
+        {
+          error: refusal?.kind ?? "sync_recovery_refused",
+          message:
+            "Sync recovery is currently disabled or over capacity. No recovery action was performed.",
+          refusal,
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        { status: 503 },
       );
     }
 

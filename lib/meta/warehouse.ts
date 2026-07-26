@@ -3702,6 +3702,7 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       ${input.lastError ?? null},
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
+      ${getCurrentSchedulingAttemptId()},
       now()
     )
     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
@@ -4864,7 +4865,16 @@ export async function cleanupMetaPartitionOrchestration(input: {
   runProgressGraceMinutes?: number;
   staleLegacyMinutes?: number;
 }) {
-  await assertMetaMutationTablesReady("meta_warehouse");
+    // Admission BEFORE the first orchestration write.
+  //
+  // Cleanup reclaims leases, cancels runs and rewrites partition status. That is
+  // a mutation of the exact state a closed lane or an exhausted capacity budget
+  // is trying to hold still, and it runs on the worker, on cron and from the
+  // admin recovery endpoint alike. Admitting at the callers only would leave
+  // whichever caller was added next unguarded.
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_partition_cleanup", { fresh: true });
+await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });

@@ -1,0 +1,5 @@
+wrapper_source=.github/scripts/hetzner-sync-cutover.sh
+wrapper_payload=scripts/cutover-wrapper-payload.sh
+wrapper_sha256=a2f2e310b06d2ebeae94b7a244e2e98960d7fd8f52f0c9e3bd6bd6fb7b7f1016
+wrapper_bytes=71989
+cutover_required=yes

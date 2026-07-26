@@ -7,12 +7,12 @@ import {
   upsertIntegration,
   ProviderConnectionGenerationConflictError,
 } from "@/lib/integrations";
-import { readProviderConnectionGenerationToken } from "@/lib/provider-account-snapshots";
-import {  } from "@/lib/demo-business";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
   SearchConsoleAuthError,
+  type SearchConsoleContext,
 } from "@/lib/search-console";
 
 interface SearchConsoleSiteEntry {
@@ -200,6 +200,49 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Resolved ONCE, before the listing, because this single read produces both
+  // things the rest of the request depends on: the Google credential the listing
+  // will run under, and the Search Console row the write will land on. Capturing
+  // both generations from it binds the whole request to one observed state.
+  //
+  // Reading them afterwards instead — which is what a second query issued after
+  // the listing does — captures the generation a reconnect had just produced, so
+  // the compare-and-set matches and a selection validated under the previous
+  // Google principal commits anyway.
+  let context: SearchConsoleContext;
+  try {
+    context = await resolveSearchConsoleContext({
+      businessId,
+      requireSite: false,
+    });
+  } catch (error) {
+    if (error instanceof SearchConsoleAuthError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
+        { status: error.status },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: "search_console_select_site_failed",
+        message: "Could not read the Search Console connection. Nothing was changed.",
+      },
+      { status: 500 },
+    );
+  }
+  const searchConsoleGenerationAtCapture =
+    connectionGenerationTokenFromIntegration(context.integration);
+  // Search Console authority is DERIVED from the Google connection: the listing
+  // and every later sync run on the Google token, while the selection is stored
+  // on the Search Console connection. A plain Google reconnect bumps only the
+  // Google generation, and the Search Console upsert performed by the connect
+  // flow changes neither its status nor its account, so it does not bump the
+  // Search Console generation either — meaning the write's own compare-and-set
+  // cannot see a Google principal change at all. This is the only thing that can.
+  const googleGenerationAtCapture = connectionGenerationTokenFromIntegration(
+    context.googleIntegration,
+  );
+
   // Membership in the CONNECTED token's live accessible-site set. Both writers
   // previously accepted any syntactically valid URL and wrote it onto the
   // canonical connection, so a typo or a third-party domain became the selected
@@ -234,13 +277,12 @@ export async function POST(request: NextRequest) {
   }
   const verifiedSiteUrl = accessible.siteUrl;
 
-  // Re-read lane and generation AFTER the slow accessibility listing.
+  // Re-check the lane AFTER the slow accessibility listing.
   //
-  // `assertSearchConsoleSiteAccessible` is a live provider round trip. A
-  // disconnect, a reconnect as a different Google principal, or a cutover
-  // quiesce can all land inside that window, and the write below would
-  // otherwise commit a property validated against a connection that no longer
-  // exists.
+  // `assertSearchConsoleSiteAccessible` is a live provider round trip, and a
+  // cutover quiesce that begins inside it must stop this writer like every other
+  // one rather than let an in-flight request slip a selection change past the
+  // switch.
   try {
     assertSyncLaneEnabled("assignment_mutation");
   } catch (error) {
@@ -253,17 +295,35 @@ export async function POST(request: NextRequest) {
       { status: 503 },
     );
   }
-  const generationAfterListing = await readProviderConnectionGenerationToken(
-    businessId,
-    "search_console",
-  ).catch(() => null);
 
   try {
-    const context = await resolveSearchConsoleContext({
+    // The Google connection re-observed, and compared against the generation the
+    // listing was authorised by. `upsertIntegration` compare-and-sets the Search
+    // Console connection inside its own write transaction, which is where that
+    // race belongs; nothing checks Google, so a reconnect as a different Google
+    // user during the listing would otherwise store a site only the PREVIOUS
+    // principal could see and leave every later sync failing against it.
+    const reobserved = await resolveSearchConsoleContext({
       businessId,
       requireSite: false,
     });
+    if (
+      connectionGenerationTokenFromIntegration(reobserved.googleIntegration) !==
+      googleGenerationAtCapture
+    ) {
+      return NextResponse.json(
+        {
+          error: "connection_changed",
+          message:
+            "The Google connection changed while this property was being validated. Nothing was saved; try again.",
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
 
+    // The metadata carried forward is the one read at capture time, so the merge
+    // describes the same connection state the compare-and-set is about to assert.
     const metadata =
       context.integration.metadata && typeof context.integration.metadata === "object"
         ? (context.integration.metadata as Record<string, unknown>)
@@ -275,7 +335,7 @@ export async function POST(request: NextRequest) {
       status: "connected",
       providerAccountId: verifiedSiteUrl,
       providerAccountName: verifiedSiteUrl,
-      expectedConnectionGeneration: generationAfterListing,
+      expectedConnectionGeneration: searchConsoleGenerationAtCapture,
       metadata: {
         ...metadata,
         siteUrl: verifiedSiteUrl,

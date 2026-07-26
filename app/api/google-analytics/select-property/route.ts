@@ -6,7 +6,7 @@ import {
   upsertIntegration,
   ProviderConnectionGenerationConflictError,
 } from "@/lib/integrations";
-import { readProviderConnectionGenerationToken } from "@/lib/provider-account-snapshots";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import {
   fetchGA4Properties,
   fetchGA4PropertyMetadata,
@@ -142,6 +142,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The generation every later decision in this request is bound to, captured
+  // from the integration row itself and never re-read.
+  //
+  // It used to be read by a separate query issued after the property listing, so
+  // a reconnect that landed during the listing was invisible: the token handed
+  // to the compare-and-set was the one the reconnect had just produced, the
+  // compare-and-set matched, and a property validated against the OLD Google
+  // principal was written onto the NEW connection. Capturing it here — strictly
+  // before the credential this request lists with is resolved — makes the
+  // guarded window a superset of the credential's own validity window, so every
+  // reconnect inside it is a refusal rather than a silent overwrite.
+  const expectedConnectionGeneration =
+    connectionGenerationTokenFromIntegration(integration);
+
   let ga4Context: GA4ResolvedAnalyticsContext;
   try {
     ga4Context = await resolveGa4AnalyticsContext(businessId, {
@@ -200,16 +214,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Every persisted field is derived from `matchedProperty` from here on, including
+  // the identifier. The caller's spelling only ever decided WHICH provider row
+  // matched; letting it also decide what gets stored would record an identity the
+  // listing never returned the moment the match stops being a byte comparison.
+  const selectedPropertyResourceName = normalizeGa4PropertyId(
+    matchedProperty.propertyId,
+  );
+
   const propertyMetadata = await fetchGA4PropertyMetadata(
     ga4Context.accessToken,
-    normalizedPropertyId,
+    selectedPropertyResourceName,
   ).catch((error: unknown) => {
     console.warn("[ga4-select-property] property_metadata_failed", {
       businessId,
-      propertyId: normalizedPropertyId,
+      propertyId: selectedPropertyResourceName,
       message: error instanceof Error ? error.message : String(error),
     });
-    return { propertyId: normalizedPropertyId, timeZone: null };
+    return { propertyId: selectedPropertyResourceName, timeZone: null };
   });
 
   // Save property selection to integration metadata
@@ -217,12 +239,14 @@ export async function POST(request: NextRequest) {
     string,
     unknown
   >;
-  // Re-read the lane and the exact connection generation AFTER the slow provider
-  // calls above. Listing properties and fetching metadata are two network round
-  // trips; a disconnect, a reconnect as a different Google principal, or a
-  // cutover quiesce can all land inside that window, and the write would
-  // otherwise commit a selection validated against a connection that no longer
-  // exists.
+  // Re-check the lane AFTER the slow provider calls above. Listing properties and
+  // fetching metadata are two network round trips, and a cutover quiesce that
+  // begins inside that window must stop this writer like every other one rather
+  // than let an in-flight request slip a selection change past the switch.
+  //
+  // The connection generation is deliberately NOT re-read here; it was captured
+  // before the credential was resolved, and re-reading it would hand the
+  // compare-and-set the very reconnect it is meant to detect.
   try {
     assertSyncLaneEnabled("assignment_mutation");
   } catch (error) {
@@ -235,10 +259,6 @@ export async function POST(request: NextRequest) {
       { status: 503 },
     );
   }
-  const generationAfterProviderCalls = await readProviderConnectionGenerationToken(
-    businessId,
-    "ga4",
-  ).catch(() => null);
 
   let updatedIntegration;
   try {
@@ -246,14 +266,16 @@ export async function POST(request: NextRequest) {
       businessId,
       provider: "ga4",
       status: "connected",
-      providerAccountId: normalizedPropertyId,
+      providerAccountId: selectedPropertyResourceName,
       // Provider truth, every field of it.
-      providerAccountName: matchedProperty.propertyName ?? normalizedPropertyId,
-      expectedConnectionGeneration: generationAfterProviderCalls,
+      providerAccountName:
+        matchedProperty.propertyName ?? selectedPropertyResourceName,
+      expectedConnectionGeneration,
       metadata: {
         ...existingMetadata,
-        ga4PropertyId: normalizedPropertyId,
-        ga4PropertyName: matchedProperty.propertyName ?? normalizedPropertyId,
+        ga4PropertyId: selectedPropertyResourceName,
+        ga4PropertyName:
+          matchedProperty.propertyName ?? selectedPropertyResourceName,
         ga4AccountId: matchedProperty.accountId ?? null,
         ga4AccountName: matchedProperty.accountName ?? null,
         ga4PropertyTimeZone: propertyMetadata.timeZone,
@@ -276,8 +298,8 @@ export async function POST(request: NextRequest) {
 
   logRuntimeDebug("ga4-select-property", "property_linked", {
     businessId,
-    propertyId: normalizedPropertyId,
-    propertyName: matchedProperty.propertyName ?? normalizedPropertyId,
+    propertyId: selectedPropertyResourceName,
+    propertyName: matchedProperty.propertyName ?? selectedPropertyResourceName,
     accountId: matchedProperty.accountId ?? null,
     accountName: matchedProperty.accountName ?? null,
     callerSuppliedPropertyName: propertyName,

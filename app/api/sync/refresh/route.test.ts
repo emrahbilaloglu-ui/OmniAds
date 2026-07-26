@@ -1,9 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
+import * as dbGrowthFence from "@/lib/sync/db-growth-fence";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
+
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertSyncGrowthBoundary: vi.fn() };
+});
 
 vi.mock("@/lib/internal-sync-auth", () => ({
   requireInternalOrAdminSyncAccess: vi.fn(),
@@ -105,6 +111,17 @@ function deferred<T>() {
 describe("POST /api/sync/refresh", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // A manual refresh admits ONCE, before the first durable write. These cases
+    // exercise what the refresh does once admitted; the refusal itself is
+    // asserted separately below.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
     delete (globalThis as typeof globalThis & { __syncRefreshInFlightKeys?: Set<string> })
       .__syncRefreshInFlightKeys;
     vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
@@ -393,6 +410,74 @@ describe("POST /api/sync/refresh", () => {
     const response = await POST(buildRequest({ businessId: "missing", provider: "meta" }));
 
     expect(response.status).toBe(404);
+  });
+
+  it("refuses a manual refresh with the lane closed, before any durable write", async () => {
+    // The refresh took the durable lock, expired stale jobs and cleaned up
+    // obsolete ones before anything checked whether sync was allowed to run at
+    // all — so a lane closed for a cutover was undone by one operator clicking
+    // refresh.
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    delete process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED;
+    const response = await POST(buildRequest({ businessId: "biz", provider: "meta" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error).toBe("lane_disabled");
+    expect(payload.refusal).toMatchObject({ kind: "lane_disabled", scope: "meta_sync" });
+    // Nothing ran: no lock, no job-state writes, no sync.
+    expect(metaWarehouse.expireStaleMetaSyncJobs).not.toHaveBeenCalled();
+    expect(providerRepair.runMetaRepairCycle).not.toHaveBeenCalled();
+    expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+  });
+
+  it("refuses a manual refresh when capacity cannot be proven", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockRejectedValue(
+      new dbGrowthFence.DbGrowthFenceRefusal(
+        {
+          allowed: false,
+          reason: "physical_free_space_low",
+          warning: false,
+          databaseBytes: 1,
+          databaseBudgetBytes: 2,
+          tableBytes: {},
+          offender: null,
+          evaluatedAt: new Date(0).toISOString(),
+          errorMessage: "disk full",
+          overridden: false,
+          physical: null,
+        },
+        "manual_refresh_google_ads",
+      ),
+    );
+    const response = await POST(
+      buildRequest({ businessId: "biz", provider: "google_ads" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error).toBe("capacity_refused");
+    expect(googleAdsWarehouse.cleanupGoogleAdsObsoleteSyncJobs).not.toHaveBeenCalled();
+    expect(googleAdsWarehouse.expireStaleGoogleAdsSyncJobs).not.toHaveBeenCalled();
+    expect(providerRepair.runGoogleAdsRepairCycle).not.toHaveBeenCalled();
+  });
+
+  it("admits with FRESH capacity, not a cached sample", async () => {
+    // A cached reading is exactly what a refresh started after the database
+    // filled up would read: the last good sample, taken before the growth.
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    await POST(buildRequest({ businessId: "biz", provider: "meta" }));
+    expect(dbGrowthFence.assertSyncGrowthBoundary).toHaveBeenCalledWith(
+      "manual_refresh_meta",
+      { fresh: true },
+    );
   });
 
   it("returns started after durable enqueue succeeds", async () => {

@@ -244,6 +244,120 @@ persist_image_tag_env() {
   done
 }
 
+# The DB host and the app host are Debian and have `sha256sum`; a developer
+# machine running this file through `bash -n` or a harness is macOS and has
+# `shasum`. Picking one and hoping is how the delivery gate becomes an
+# unconditional failure outside production.
+sha256_of_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# Deliver the cutover wrapper to this host, pinned by digest.
+#
+# Before this existed, `.github/scripts/hetzner-sync-cutover.sh` was named by the
+# runbook and by deploy/CUTOVER_REQUIRED as the thing to run on the app host, and
+# it was never delivered there — the deploy syncs docker-compose.yml and nothing
+# else, and the host has no repository. An operator's only options were to paste
+# the script over ssh or to hand-copy it, and neither leaves any evidence of
+# WHICH version ran.
+#
+# `scripts/cutover-wrapper-package.sh` puts a verbatim copy of the wrapper and
+# its SHA-256 under `scripts/`, which the worker image carries. Extracting them
+# from the exact pinned image binds the wrapper to the release being deployed,
+# and the wrapper re-hashes itself against the installed manifest before every
+# phase, so a truncated copy, a hand-edit on the host, or a wrapper left over
+# from a previous release refuses instead of driving a cutover.
+deliver_cutover_wrapper() {
+  cutover_dir="${REMOTE_APP_DIR}/cutover"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/adsecute-cutover-deliver.XXXXXX")"
+  extract_container=""
+
+  cleanup_cutover_delivery() {
+    if [ -n "${extract_container}" ]; then
+      docker rm -f "${extract_container}" >/dev/null 2>&1 || true
+    fi
+    rm -rf "${staging_dir}"
+  }
+
+  log "Delivering the cutover wrapper from ${expected_worker_image}"
+  worker_image_id="$(docker image inspect "${expected_worker_image}" --format '{{.Id}}' 2>/dev/null || true)"
+  if [ -z "${worker_image_id}" ]; then
+    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} is not present on this host"
+    cleanup_cutover_delivery
+    return 1
+  fi
+
+  extract_container="$(docker create "${expected_worker_image}" true)"
+  if ! docker cp "${extract_container}:/app/scripts/cutover-wrapper-payload.sh" "${staging_dir}/hetzner-sync-cutover.sh" ||
+    ! docker cp "${extract_container}:/app/scripts/cutover-wrapper.manifest" "${staging_dir}/cutover-wrapper.manifest"; then
+    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} does not carry the packaged cutover wrapper"
+    cleanup_cutover_delivery
+    return 1
+  fi
+  docker rm -f "${extract_container}" >/dev/null 2>&1 || true
+  extract_container=""
+
+  expected_sha="$(awk -F= '$1 == "wrapper_sha256" { print $2 }' "${staging_dir}/cutover-wrapper.manifest" | tr -d '[:space:]')"
+  actual_sha="$(sha256_of_file "${staging_dir}/hetzner-sync-cutover.sh")"
+  if [ -z "${expected_sha}" ] || [ "${expected_sha}" != "${actual_sha}" ]; then
+    echo "cutover_wrapper_delivery FAILED: extracted wrapper hashes ${actual_sha}, image manifest pins ${expected_sha:-<none>}"
+    cleanup_cutover_delivery
+    return 1
+  fi
+
+  # The installed manifest carries what the repository copy cannot know: which
+  # release delivered this wrapper and out of which immutable image. A wrapper
+  # left behind by an earlier deploy is then visible as such rather than looking
+  # current because its own digest happens to match its own manifest.
+  {
+    cat "${staging_dir}/cutover-wrapper.manifest"
+    printf 'delivered_deploy_sha=%s\n' "${DEPLOY_SHA}"
+    printf 'delivered_worker_image=%s\n' "${expected_worker_image}"
+    printf 'delivered_worker_image_id=%s\n' "${worker_image_id}"
+    printf 'delivered_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "${staging_dir}/installed.manifest"
+
+  mkdir -p "${cutover_dir}"
+  chmod 0700 "${cutover_dir}"
+  # Rename within one directory, so an operator who starts a phase during the
+  # deploy sees the whole old wrapper or the whole new one, never a half-written
+  # file. It does NOT make the wrapper and its manifest change together — they
+  # are two renames — which is exactly why the wrapper verifies its own digest
+  # against the manifest rather than assuming they were installed as a pair.
+  cp "${staging_dir}/hetzner-sync-cutover.sh" "${cutover_dir}/.hetzner-sync-cutover.sh.tmp"
+  chmod 0700 "${cutover_dir}/.hetzner-sync-cutover.sh.tmp"
+  cp "${staging_dir}/installed.manifest" "${cutover_dir}/.cutover-wrapper.manifest.tmp"
+  chmod 0600 "${cutover_dir}/.cutover-wrapper.manifest.tmp"
+  mv "${cutover_dir}/.cutover-wrapper.manifest.tmp" "${cutover_dir}/cutover-wrapper.manifest"
+  mv "${cutover_dir}/.hetzner-sync-cutover.sh.tmp" "${cutover_dir}/hetzner-sync-cutover.sh"
+
+  echo "cutover_wrapper_installed path=${cutover_dir}/hetzner-sync-cutover.sh sha256=${actual_sha} image_id=${worker_image_id}"
+  cleanup_cutover_delivery
+}
+
+# Does the delivered manifest say this release must go through the cutover?
+#
+# `deploy/CUTOVER_REQUIRED` is a repository file and this host has no repository,
+# so the file check below it could never fire here. The packaged manifest records
+# the same fact and IS delivered, which is what makes the refusal real.
+delivered_cutover_required() {
+  manifest="${REMOTE_APP_DIR}/cutover/cutover-wrapper.manifest"
+  if [ ! -f "${manifest}" ]; then
+    return 1
+  fi
+  required="$(awk -F= '$1 == "cutover_required" { print $2 }' "${manifest}" | tr -d '[:space:]')"
+  delivered_sha="$(awk -F= '$1 == "delivered_deploy_sha" { print $2 }' "${manifest}" | tr -d '[:space:]')"
+  # Only the manifest delivered for THIS release may speak for it. A stale
+  # manifest from a previous deploy would otherwise either block a release that
+  # does not need the cutover or wave through one that does.
+  [ "${delivered_sha}" = "${DEPLOY_SHA}" ] || return 1
+  [ "${required}" = "yes" ]
+}
+
 verify_service_image() {
   service_name="$1"
   expected_image="$2"
@@ -391,11 +505,29 @@ run_migrations_service() {
     cat "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" || true
     return 1
   fi
+  # The check above is the repository-side one and cannot fire on this host,
+  # which has no repository. The manifest delivered out of this release's own
+  # worker image carries the same fact and does.
+  if delivered_cutover_required; then
+    log "ABORT the manifest delivered for ${DEPLOY_SHA} records cutover_required=yes: this release must go through ${REMOTE_APP_DIR}/cutover/hetzner-sync-cutover.sh, not the ordinary deploy"
+    return 1
+  fi
   # ...and a cutover already in progress owns the database. Migrating underneath
-  # it would run two migration paths against one database at once.
-  if [ -e "/var/lib/adsecute/sync-cutover/state" ] && [ -s "/var/lib/adsecute/sync-cutover/state" ]; then
-    if ! grep -Eq '^(enable|emergency-disable|resume-scheduler):' "/var/lib/adsecute/sync-cutover/state"; then
-      log "ABORT a sync cutover is in progress ($(cat /var/lib/adsecute/sync-cutover/state)); the ordinary deploy must not migrate underneath it"
+  # it would run two migration paths against one database at once. The state
+  # record lives where the wrapper actually writes it; the path this check used
+  # before never existed, so the guard could not fire.
+  cutover_state_file="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}/state"
+  if [ -s "${cutover_state_file}" ]; then
+    cutover_chain="$(awk -F= '$1 == "phase_chain" { sub(/^[^=]*=/, ""); print; exit }' "${cutover_state_file}")"
+    cutover_invalidated="$(awk -F= '$1 == "invalidated" { print $2 }' "${cutover_state_file}" | tr -d '[:space:]')"
+    # A finished cutover (resume-scheduler reached) and an explicitly abandoned
+    # one (emergency-disable invalidated it, so an operator already took manual
+    # control) both hand the database back. Anything between preflight and
+    # resume-scheduler still owns it.
+    if [ -n "${cutover_chain}" ] &&
+      [ "${cutover_invalidated}" != "yes" ] &&
+      ! printf '%s' "${cutover_chain}" | grep -q 'resume-scheduler'; then
+      log "ABORT a sync cutover is in progress (phases: ${cutover_chain}); the ordinary deploy must not migrate underneath it"
       return 1
     fi
   fi
@@ -441,6 +573,17 @@ case "${phase}" in
 
     log "Pulling exact SHA images"
     docker compose pull web worker
+
+    # Delivered HERE, before run_migrations, on purpose: a cutover-required
+    # release aborts in run_migrations, and the wrapper that performs the cutover
+    # has to already be on the host when it does.
+    deliver_cutover_wrapper
+    ;;
+
+  deliver_cutover_wrapper)
+    # Standalone re-delivery, for the case where an operator needs the wrapper
+    # for a release whose deploy aborted before prepare_runtime completed.
+    deliver_cutover_wrapper
     ;;
 
   run_migrations)

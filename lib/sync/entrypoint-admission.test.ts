@@ -75,6 +75,24 @@ const ENTRYPOINTS: Array<{
     },
   },
   {
+    name: "cleanupMetaPartitionOrchestration",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { cleanupMetaPartitionOrchestration } = await import("@/lib/meta/warehouse");
+      return cleanupMetaPartitionOrchestration({ businessId: "biz-1" });
+    },
+  },
+  {
+    name: "cleanupGoogleAdsPartitionOrchestration",
+    lane: "ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED",
+    call: async () => {
+      const { cleanupGoogleAdsPartitionOrchestration } = await import(
+        "@/lib/google-ads/warehouse"
+      );
+      return cleanupGoogleAdsPartitionOrchestration({ businessId: "biz-1" });
+    },
+  },
+  {
     name: "enqueueMetaScheduledWork",
     lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
     extraLanes: ["ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED"],

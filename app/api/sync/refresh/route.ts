@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
@@ -576,6 +578,49 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+  }
+
+  // Admission BEFORE the first durable write of a manual refresh.
+  //
+  // The lock is itself a durable row, and everything downstream of it —
+  // stale-job expiry, obsolete-job cleanup, the sync itself, queue consumption —
+  // writes. Admitting only inside the per-provider sync functions leaves the
+  // lock, the expiry and the cleanup running while the lane is closed for a
+  // cutover, which is exactly the state a cutover is trying to hold still.
+  //
+  // A refusal escapes as a structured 503 and takes no lock, so a caller can
+  // retry once the lane reopens without first having to break a lock nobody
+  // owns.
+  try {
+    assertSyncLaneEnabled(
+      provider === "meta"
+        ? "meta_sync"
+        : provider === "google_ads"
+          ? "google_sync"
+          : "shopify_sync",
+    );
+    await assertSyncGrowthBoundary(`manual_refresh_${provider}`, { fresh: true });
+  } catch (error) {
+    const refusal = describeSyncSafetyRefusal(error);
+    if (access.kind === "admin") {
+      await logAdminAction({
+        adminId: access.session.user.id,
+        action: "sync.refresh",
+        targetType: "business",
+        targetId: businessId,
+        meta: { provider, outcome: "rejected", refusal },
+      });
+    }
+    return NextResponse.json(
+      {
+        error: refusal?.kind ?? "sync_refresh_refused",
+        message:
+          "Sync is currently disabled or over capacity. No refresh lock was taken and no sync was started.",
+        refusal,
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
   }
 
   // Zaten çalışan bir job varsa tekrar başlatma

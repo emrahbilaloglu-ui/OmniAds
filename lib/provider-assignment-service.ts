@@ -4,12 +4,11 @@ import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-re
 import type { IntegrationProviderType } from "@/lib/integrations";
 import {
   PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  readProviderSelectionAuthority,
   upsertProviderAccountAssignments,
+  type ProviderSelectionAuthority,
 } from "@/lib/provider-account-assignments";
-import {
-  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
-  readProviderConnectionGenerationToken,
-} from "@/lib/provider-account-snapshots";
+import { PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES } from "@/lib/provider-account-snapshots";
 import { ProviderAccountSelectionError } from "@/lib/provider-account-assignments";
 import {
   MAX_SELECTED_ACCOUNTS,
@@ -304,6 +303,29 @@ export async function handleProviderAssignmentRequest(
     );
   }
 
+  // 2b. The authority this selection is about to be validated against, captured
+  //     BEFORE validation reads a single account.
+  //
+  //     It used to be captured after validation, immediately before the write.
+  //     That left validation itself unguarded: a reconnect or a discovery
+  //     refresh landing while the account list was being checked was invisible,
+  //     because the token captured afterwards already described the changed
+  //     state and matched at write time. Capturing first makes the guarded
+  //     window cover validation, so any change between "we started deciding" and
+  //     "we committed" refuses.
+  //
+  //     A failure here is NOT flattened to null. `null` means "no expectation to
+  //     enforce", so a swallowed error would silently disable the check for
+  //     exactly the request that could not read the connection state. It is
+  //     carried instead, and refuses below.
+  let authority: ProviderSelectionAuthority | null = null;
+  let authorityError: unknown = null;
+  try {
+    authority = await readProviderSelectionAuthority(businessId, config.provider);
+  } catch (error) {
+    authorityError = error;
+  }
+
   // 3 + 4. Bounded, well-formed, and present in a fresh snapshot taken under
   //        THIS credential generation. Returns the snapshot's canonical ids.
   let canonicalIds: string[] = [];
@@ -320,6 +342,31 @@ export async function handleProviderAssignmentRequest(
     }
     // Persist what the PROVIDER calls these accounts, not what the caller typed.
     canonicalIds = validation.canonicalIds;
+  }
+
+  // Reported only once validation has had its say, because a validation refusal
+  // names something the user can act on ("refresh the account list") while this
+  // one does not. Both are zero-mutation refusals, so which is returned changes
+  // the message and nothing else — but an unreadable authority can never become
+  // a write.
+  if (authority == null) {
+    console.error(`[${config.label}] selection authority unreadable`, {
+      businessId,
+      message:
+        authorityError instanceof Error
+          ? authorityError.message
+          : String(authorityError),
+    });
+    return json(
+      {
+        error: "selection_authority_unavailable",
+        message:
+          "Could not confirm which connection and account list this selection belongs to. Nothing was changed; try again.",
+        selectionSaved: false,
+        syncScheduled: false,
+      },
+      503,
+    );
   }
 
   const readiness = await getDbSchemaReadiness({ tables: [...config.requiredTables] }).catch(
@@ -344,15 +391,12 @@ export async function handleProviderAssignmentRequest(
   //    provider-global and business-provider advisory locks and reads the
   //    selection back inside the same transaction, so a partial selection can
   //    never be observed or reported as success.
-  // The generation this selection was VALIDATED under, captured before the
-  // write and enforced inside the write's own lock. A reconnect between
-  // validation and write replaces the credential — and with it which accounts
-  // are actually accessible — so committing anyway would persist a selection
-  // nobody validated against the current connection.
-  const validatedConnectionGeneration = await readProviderConnectionGenerationToken(
-    businessId,
-    config.provider,
-  ).catch(() => null);
+  // Both halves of the captured authority are enforced inside the write's own
+  // lock. A reconnect between validation and write replaces the credential — and
+  // with it which accounts are accessible; a discovery refresh replaces the
+  // account list under an unchanged credential. Either one makes the evidence
+  // this selection rests on describe a state that no longer exists.
+  const validatedConnectionGeneration = authority.connectionGeneration;
 
   let saved: string[];
   try {
@@ -361,6 +405,7 @@ export async function handleProviderAssignmentRequest(
       provider: config.provider,
       accountIds: canonicalIds,
       expectedConnectionGeneration: validatedConnectionGeneration,
+      expectedSnapshotRevision: authority.snapshotRevision,
     });
     saved = row.account_ids ?? [];
   } catch (error: unknown) {
@@ -374,6 +419,23 @@ export async function handleProviderAssignmentRequest(
       return json(
         {
           error: "connection_changed",
+          message: error.message,
+          selectionSaved: false,
+          syncScheduled: false,
+        },
+        409,
+      );
+    }
+    if (
+      error instanceof ProviderAccountSelectionError &&
+      error.code === "snapshot_revision_changed"
+    ) {
+      // Zero mutation, zero enqueue. Discovery ran again mid-request, so the
+      // account list the user chose from has been superseded — possibly because
+      // one of the accounts they picked is no longer reachable at all.
+      return json(
+        {
+          error: "account_list_changed",
           message: error.message,
           selectionSaved: false,
           syncScheduled: false,

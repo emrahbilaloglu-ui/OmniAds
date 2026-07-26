@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import {
-  consumeShopifyInstallContext,
-  restoreShopifyInstallContext,
-} from "@/lib/shopify/install-context";
-import { upsertIntegration } from "@/lib/integrations";
+import { finalizeShopifyInstall } from "@/lib/shopify/install-context";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { setSessionActiveBusiness } from "@/lib/auth";
 import { sanitizeNextPath } from "@/lib/auth-routing";
-import { registerShopifyCustomerEventsPixel } from "@/lib/shopify/pixels";
-import { registerShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 
 interface FinalizeBody {
   token?: string;
@@ -35,67 +29,33 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  // Authorized BEFORE the claim, and the claim is single-use and actor-bound.
-  // The previous shape read the context by token alone and deleted it in a
-  // second statement, so two concurrent finalizers both connected the shop, and
-  // anyone holding the token could bind someone else's store to a business of
-  // their own.
-  const claim = await consumeShopifyInstallContext({
+  // Authorized BEFORE the claim, and the claim itself is single-use, actor-bound
+  // and business-bound. The grant lifecycle lives in one place on purpose: this
+  // handler must not be able to reorder the claim, the credential write and the
+  // provider registrations, because the previous shape read the context by token
+  // alone, deleted it in a second statement, and put a live credential back on
+  // failures a retry could never fix.
+  const result = await finalizeShopifyInstall({
     token,
+    businessId,
     sessionId: access.session.sessionId,
     userId: access.session.user?.id ?? null,
   });
-  if (!claim.ok) {
-    return claim.reason === "not_your_context"
-      ? NextResponse.json(
-          {
-            error: "context_not_yours",
-            message:
-              "This Shopify install was started by a different session. Start the install again from this account.",
-          },
-          { status: 403 },
-        )
-      : NextResponse.json(
-          {
-            error: "context_not_found",
-            message: "Shopify install context not found or expired.",
-          },
-          { status: 404 },
-        );
-  }
-  const context = claim.context;
 
-  let integration;
-  try {
-    integration = await upsertIntegration({
-      businessId,
-      provider: "shopify",
-      status: "connected",
-      providerAccountId: context.shop_domain,
-      providerAccountName: context.shop_name ?? context.shop_domain,
-      accessToken: context.access_token,
-      scopes: context.scopes ?? undefined,
-      metadata: {
-        ...(context.metadata ?? {}),
-        shopifyProductionServingMode: "auto",
-      },
-    });
-  } catch (error: unknown) {
-    // The claim already destroyed the only copy of the shop's access token, so
-    // a failure here would force a reinstall. Put it back and say so.
-    await restoreShopifyInstallContext(context).catch(() => undefined);
+  if (!result.ok) {
+    const { failure } = result;
     return NextResponse.json(
       {
-        error: "integration_save_failed",
-        message:
-          "The Shopify connection could not be saved. The install is still valid — retry shortly.",
-        retryable: true,
-        detail: error instanceof Error ? error.message : String(error),
+        error: failure.code,
+        message: failure.message,
+        retryable: failure.retryable,
+        ...(failure.detail ? { detail: failure.detail } : {}),
       },
-      { status: 503 },
+      { status: failure.httpStatus },
     );
   }
 
+  const { context, integration } = result;
   const currency =
     context.metadata && typeof context.metadata.currency === "string"
       ? context.metadata.currency
@@ -104,26 +64,40 @@ export async function POST(request: NextRequest) {
     await updateBusinessCurrency(businessId, currency).catch(() => {});
   }
 
-  await registerShopifySyncWebhooks({
-    shopId: context.shop_domain,
-    accessToken: context.access_token,
-  }).catch((error) => {
-    console.warn("[shopify-finalize] webhook_registration_failed", {
-      businessId,
-      shopId: context.shop_domain,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
-  await registerShopifyCustomerEventsPixel({
-    shopId: context.shop_domain,
-    accessToken: context.access_token,
-  }).catch((error) => {
-    console.warn("[shopify-finalize] customer_events_pixel_registration_failed", {
-      businessId,
-      shopId: context.shop_domain,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
+  // Registration outcomes are reported, not thrown: the connection is already
+  // durable, and a webhook or pixel that did not land is a repairable gap rather
+  // than a reason to fail an install the user has completed. Refusals are logged
+  // distinctly because they mean the connection MOVED mid-install, which is the
+  // case where a superseded token would otherwise have been sent to Shopify.
+  for (const [name, outcome] of [
+    ["webhooks", result.webhooks],
+    ["pixel", result.pixel],
+  ] as const) {
+    if (outcome.status === "failed") {
+      console.warn(`[shopify-finalize] ${name}_registration_failed`, {
+        businessId,
+        shopId: context.shop_domain,
+        error: outcome.detail,
+      });
+    } else if (outcome.status === "refused") {
+      console.warn(`[shopify-finalize] ${name}_registration_refused`, {
+        businessId,
+        shopId: context.shop_domain,
+        code: outcome.code,
+        error: outcome.detail,
+      });
+    } else if (
+      outcome.status === "registered" &&
+      outcome.registrationRecorded === false
+    ) {
+      // The registration happened and nothing durable records it, so the next
+      // finalize for this shop would perform it again.
+      console.warn(`[shopify-finalize] ${name}_registration_unrecorded`, {
+        businessId,
+        shopId: context.shop_domain,
+      });
+    }
+  }
 
   await setSessionActiveBusiness(access.session.sessionId, businessId);
 
@@ -137,6 +111,10 @@ export async function POST(request: NextRequest) {
       connectedAt: integration.connected_at,
     },
     businessId,
+    registration: {
+      webhooks: result.webhooks.status,
+      customerEventsPixel: result.pixel.status,
+    },
     returnTo: sanitizeNextPath(context.return_to) ?? "/integrations",
   });
 }

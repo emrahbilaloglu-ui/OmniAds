@@ -146,6 +146,21 @@ async function verifyReadinessContract(client: Client) {
     );
   }
 
+  // Coverage in the OTHER direction: every relation the sweep actually deletes
+  // from must be covered by at least one declared index. Resolvability alone
+  // can be satisfied while a destructive path runs entirely unindexed.
+  const { SYNC_RETENTION_DELETE_TARGET_TABLES } = await import("@/lib/sync/retention");
+  const coveredTables = new Set(
+    SYNC_RETENTION_EXECUTION_INDEX_SPECS.map((spec) => spec.table),
+  );
+  const uncovered = SYNC_RETENTION_DELETE_TARGET_TABLES.filter(
+    (table) => !coveredTables.has(table),
+  );
+  assert(
+    uncovered.length === 0,
+    `T1: the sweep deletes from relations no declared index covers: ${uncovered.join(", ")}`,
+  );
+
   // Every declared index must exist with the declared identity — not merely
   // exist by name.
   for (const spec of SYNC_RETENTION_EXECUTION_INDEX_SPECS) {
@@ -182,7 +197,7 @@ async function verifyReadinessContract(client: Client) {
     );
   }
   console.log(
-    `${LABEL} T1 PASS readiness contract: all ${SYNC_RETENTION_EXECUTION_INDEX_SPECS.length} declared indexes exist with matching method/uniqueness and are valid/ready/live; both observation-retention indexes are under the contract`,
+    `${LABEL} T1 PASS readiness contract: all ${SYNC_RETENTION_EXECUTION_INDEX_SPECS.length} declared indexes exist with matching method/uniqueness and are valid/ready/live, every declared spec resolves to a real relation, and all ${SYNC_RETENTION_DELETE_TARGET_TABLES.length} delete targets are covered; both observation-retention indexes are under the contract`,
   );
 }
 

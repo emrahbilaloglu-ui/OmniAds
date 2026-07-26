@@ -2057,6 +2057,85 @@ async function verifyRawSnapshotModel(client: Client) {
   console.log(
     `${LABEL} V8 PASS supersede as event: ${superseded} receipt events appended, canonical content untouched, earlier PIT truth preserved`,
   );
+
+  // ── V10. One resume authority per page, with the timeline intact.
+  //
+  // Receipts are append-only, so a retried page has two and a superseded
+  // partition adds a third. Resume validation rejects a duplicate page_index
+  // outright, so a naive receipt-per-row read would break restore on exactly
+  // the runs that needed it.
+  const { listMetaRawSnapshotsForRun } = await import("@/lib/meta/warehouse");
+  const resumePartition = await client.query<{ id: string }>(
+    `INSERT INTO meta_sync_partitions
+       (business_id, provider_account_id, lane, scope, partition_date, status, source)
+     VALUES ($1, $2, 'core', 'account_daily', DATE '2026-04-01', 'running', 'seam')
+     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
+     DO UPDATE SET updated_at = now() RETURNING id::text AS id`,
+    [BUSINESS_ID, META_ACCOUNT_ID],
+  );
+  const pidResume = resumePartition.rows[0]!.id;
+  const observePage = (pageIndex: number, hash: string, at: string) =>
+    persistMetaRawSnapshot({
+      businessId: BUSINESS_ID,
+      providerAccountId: META_ACCOUNT_ID,
+      partitionId: pidResume,
+      runId: "resume-run",
+      endpointName: "seam_resume",
+      entityScope: "campaign",
+      pageIndex,
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      accountTimezone: "Europe/Istanbul",
+      accountCurrency: "TRY",
+      payloadJson: [{ hash }],
+      payloadHash: hash,
+      requestContext: {},
+      responseHeaders: {},
+      providerHttpStatus: 200,
+      status: "fetched",
+      fetchedAt: at,
+    } as never);
+
+  await observePage(0, "page-0", "2026-04-01T01:00:00.000Z");
+  await observePage(1, "page-1", "2026-04-01T01:01:00.000Z");
+  // The same page retried a minute later: a second receipt, same page index.
+  await observePage(1, "page-1-retry", "2026-04-01T01:02:00.000Z");
+
+  const totalReceipts = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM meta_raw_snapshot_observations
+     WHERE partition_id = $1::uuid AND endpoint_name = 'seam_resume'`,
+    [pidResume],
+  );
+  assert(
+    Number(totalReceipts.rows[0]!.count) === 3,
+    `V10: expected 3 receipts (2 pages, 1 retried), got ${totalReceipts.rows[0]!.count}; the timeline is not append-only.`,
+  );
+
+  const resumePages = await listMetaRawSnapshotsForRun({
+    partitionId: pidResume,
+    endpointName: "seam_resume",
+    runId: "resume-run",
+  });
+  const resumeIndices = resumePages.map((page) => page.page_index);
+  assert(
+    resumeIndices.length === new Set(resumeIndices).size,
+    `V10: resume returned a duplicate page index ${JSON.stringify(resumeIndices)}; restore validation rejects that outright.`,
+  );
+  assert(
+    resumeIndices.length === 2,
+    `V10: resume returned ${resumeIndices.length} pages for 2 distinct page indexes.`,
+  );
+  // The newest receipt wins for the retried page.
+  const retriedPage = resumePages.find((page) => page.page_index === 1);
+  assert(
+    retriedPage != null &&
+      new Date(String(retriedPage.fetched_at)).toISOString() ===
+        "2026-04-01T01:02:00.000Z",
+    `V10: resume did not select the newest receipt for the retried page: ${JSON.stringify(retriedPage)}`,
+  );
+  console.log(
+    `${LABEL} V10 PASS resume authority: 3 receipts across 2 pages (one retried) yield exactly 2 resume rows with no duplicate page index, the newest receipt wins, and all 3 observations remain on the timeline`,
+  );
 }
 
 /**

@@ -223,6 +223,27 @@ describe("receipt-first readers", () => {
     expect(query).toContain("legacy.content_key IS NULL");
   });
 
+  it("returns exactly one resume authority per page while keeping the timeline", async () => {
+    const queries = installSqlRecorder(() => []);
+    await listMetaRawSnapshotsForRun({
+      partitionId: "11111111-1111-4111-8111-111111111111",
+      endpointName: "campaign_configs",
+      runId: "run-1",
+    });
+    const query = queries.at(-1)!;
+    // Receipts are append-only: a retried page has two, and a superseded
+    // partition adds a third. Resume validation rejects a duplicate page_index
+    // outright, so without this the restore path breaks on exactly the runs
+    // that needed it.
+    expect(query).toContain("DISTINCT ON (receipt.page_index)");
+    expect(query).toContain("receipt.observed_at DESC");
+    // Superseded evidence is retired, not resumable.
+    expect(query).toContain("receipt.status <> 'superseded'");
+    // The narrowing is scoped to the resume view; nothing deletes or rewrites
+    // a receipt, so the point-in-time timeline is unaffected.
+    expect(query).not.toMatch(/DELETE|UPDATE/);
+  });
+
   it("supersedes by appending a receipt event and never rewrites shared content", async () => {
     const queries = installSqlRecorder(() => []);
     await supersedeMetaRawSnapshotsForPartition({

@@ -5845,6 +5845,32 @@ export async function listMetaRawSnapshotsForRun(input: {
   // which is exactly how the two layers divide. The legacy arm is restricted to
   // `content_key IS NULL` so a new row can never be counted twice.
   return (sql`
+    WITH resume_authority AS (
+      -- Exactly ONE row per page. Receipts are append-only and deliberately
+      -- retain every observation instant for point-in-time, so a retried page
+      -- has two receipts and a superseded partition has a third — and resume
+      -- validation rejects a duplicate page_index outright, which would break
+      -- restore on exactly the runs that needed it most.
+      --
+      -- DISTINCT ON keeps the newest live receipt per page. The full timeline is
+      -- untouched: this narrows the RESUME view, not the evidence.
+      SELECT DISTINCT ON (receipt.page_index)
+        receipt.snapshot_id,
+        receipt.page_index,
+        receipt.response_headers,
+        receipt.provider_cursor,
+        receipt.request_context,
+        receipt.provider_http_status,
+        receipt.status,
+        receipt.observed_at
+      FROM meta_raw_snapshot_observations receipt
+      WHERE receipt.partition_id = ${input.partitionId}::uuid
+        AND receipt.run_id = ${input.runId}
+        AND receipt.endpoint_name = ${input.endpointName}
+        -- A superseded page is retired evidence, not resumable work.
+        AND receipt.status <> 'superseded'
+      ORDER BY receipt.page_index, receipt.observed_at DESC, receipt.id DESC
+    )
     SELECT
       snapshot.id,
       receipt.page_index,
@@ -5855,11 +5881,8 @@ export async function listMetaRawSnapshotsForRun(input: {
       receipt.provider_http_status,
       receipt.status,
       receipt.observed_at AS fetched_at
-    FROM meta_raw_snapshot_observations receipt
+    FROM resume_authority receipt
     JOIN meta_raw_snapshots snapshot ON snapshot.id = receipt.snapshot_id
-    WHERE receipt.partition_id = ${input.partitionId}::uuid
-      AND receipt.run_id = ${input.runId}
-      AND receipt.endpoint_name = ${input.endpointName}
     UNION ALL
     SELECT
       legacy.id,

@@ -24,6 +24,7 @@ interface TestIndexReadinessRow {
   predicate: string | null;
   is_valid: boolean | null;
   is_ready: boolean | null;
+  is_live: boolean | null;
 }
 
 function readyIndexRows(): TestIndexReadinessRow[] {
@@ -38,6 +39,7 @@ function readyIndexRows(): TestIndexReadinessRow[] {
     predicate: spec.predicate,
     is_valid: true,
     is_ready: true,
+    is_live: true,
   }));
 }
 
@@ -210,5 +212,29 @@ describe("sync retention execution readiness", () => {
     expect(result.missingOrInvalidIndexes).toEqual([...drifted].sort());
     expect(result.missingColumns).toEqual([]);
     expect(result.unexpectedGoogleRunReferenceColumns).toEqual([]);
+  });
+
+  it("refuses an index left not-live by an interrupted concurrent drop", () => {
+    // indislive = false is what an interrupted DROP INDEX CONCURRENTLY leaves.
+    // The index is still in the catalog and can still read as valid, but the
+    // planner will not use it — so a destructive sweep would run on a
+    // sequential scan while the contract reported ready.
+    const rows = readyIndexRows();
+    const target = rows.find(
+      (row) => row.index_name === "idx_meta_raw_snapshot_observations_retention",
+    );
+    expect(target).toBeDefined();
+    target!.is_live = false;
+    query
+      .mockResolvedValueOnce(rows)
+      .mockResolvedValueOnce(readyColumnRows())
+      .mockResolvedValueOnce([]);
+
+    return readiness.getSyncRetentionExecutionReadiness().then((result) => {
+      expect(result.ready).toBe(false);
+      expect(result.missingOrInvalidIndexes).toContain(
+        "idx_meta_raw_snapshot_observations_retention",
+      );
+    });
   });
 });

@@ -74,10 +74,31 @@ describe("the module ships no executable deletion path", () => {
     }
   });
 
-  it("exports no function whose name implies execution", () => {
+  it("exports nothing that acts on a plan", () => {
+    // Names that would mean "carry out the plan". `collectLegacyCleanupReceipts`
+    // deliberately does not match: it collects EVIDENCE, reads only, and its
+    // read-only-ness is enforced by the source-level check above rather than by
+    // its name.
     for (const name of Object.keys(planner)) {
-      expect(name).not.toMatch(/execute|delete|purge|collect|apply|run/i);
+      expect(name).not.toMatch(
+        /^(execute|apply|run|perform|commit|delete|purge|prune|collectGarbage)/i,
+      );
+      expect(name).not.toMatch(/(Execution|Cleanup)(Executor|Runner|Applier)$/);
     }
+  });
+
+  it("has no exported function that both takes an authority and returns", () => {
+    // The authority type exists so a future executor cannot be written without
+    // verification. Today nothing consumes one, which is the actual guarantee —
+    // possessing an authority, genuine or fabricated, accomplishes nothing.
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "lib/sync/legacy-cleanup-planner.ts"),
+      "utf8",
+    );
+    const consumers = source.match(
+      /authority:\s*LegacyCleanupExecutionAuthority/g,
+    );
+    expect(consumers).toBeNull();
   });
 
   it("issues only SELECT statements when planning", async () => {
@@ -338,6 +359,26 @@ describe("authorizeLegacyCleanupExecution", () => {
     ).toThrow("missing_isolated_restore_identity");
   });
 
+  it("does not treat a private symbol as unforgeable", () => {
+    // Documented honestly rather than claimed: the brand makes accidental
+    // construction inconvenient, not impossible. Anything in-process can
+    // reproduce the shape. The guarantee is that nothing consumes it.
+    const real = planner.authorizeLegacyCleanupExecution({
+      plan,
+      fingerprint: FINGERPRINT,
+      receipts: planner.REQUIRED_LEGACY_CLEANUP_RECEIPTS.map((kind) =>
+        receipt(kind, plan.planDigest),
+      ),
+      now: NOW,
+    });
+    const brand = Object.getOwnPropertySymbols(real)[0]!;
+    const fabricated = { [brand]: true, planDigest: "anything", verifiedAt: NOW };
+    // A fabricated value is structurally identical. That is fine, and is
+    // exactly why the safety argument does not rest on the type.
+    expect(Object.getOwnPropertySymbols(fabricated)).toHaveLength(1);
+    expect(fabricated[brand as unknown as keyof typeof fabricated]).toBe(true);
+  });
+
   it("cannot be bypassed by env vars, config, or a cast", () => {
     // Environment is not an input at all — the signature takes plan,
     // fingerprint, receipts and now, and reads nothing else.
@@ -358,13 +399,13 @@ describe("authorizeLegacyCleanupExecution", () => {
       process.env = saved;
     }
 
-    // A structurally-shaped fake is not an authority: the brand is a
-    // module-private symbol, so nothing outside the module can produce one.
-    const forged = JSON.parse(
+    // A JSON round-trip drops the symbol, so config or a parsed payload cannot
+    // accidentally become an authority. In-process code can still reproduce it;
+    // see the test above.
+    const parsed = JSON.parse(
       JSON.stringify({ planDigest: "plan-digest", verifiedAt: NOW }),
     ) as Record<string, unknown>;
-    const brandKeys = Object.getOwnPropertySymbols(forged);
-    expect(brandKeys).toHaveLength(0);
+    expect(Object.getOwnPropertySymbols(parsed)).toHaveLength(0);
 
     const real = planner.authorizeLegacyCleanupExecution({
       plan,

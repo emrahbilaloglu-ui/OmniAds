@@ -143,6 +143,12 @@ export const SYNC_RETENTION_EXECUTION_INDEX_SPECS: readonly SyncRetentionExecuti
       "shopify_raw_snapshot_observations",
       [ascendingKey("observed_at"), ascendingKey("id")],
     ),
+    // The Shopify CONTENT sweep, which had no declared index at all: the sweep
+    // deleted from this relation while the contract said nothing about it.
+    btreeIndex("idx_shopify_raw_snapshots_retention", "shopify_raw_snapshots", [
+      ascendingKey("fetched_at"),
+      ascendingKey("id"),
+    ]),
     ginIndex(
       "idx_google_ads_sync_checkpoints_raw_snapshot_ids",
       "google_ads_sync_checkpoints",

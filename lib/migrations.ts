@@ -6722,6 +6722,12 @@ export async function runMigrations(options?: {
           ON shopify_raw_snapshot_observations (
             business_id, provider_account_id, endpoint_name, observed_at DESC
           )`.catch(() => {}),
+        // The retention sweep scans this table ordered by (fetched_at ASC,
+        // id ASC). The business index above is DESC and business-scoped, so it
+        // cannot serve that scan — without this the Shopify content sweep runs
+        // a sequential scan of a 13.9 GB relation on a destructive path.
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_shopify_raw_snapshots_retention
+          ON shopify_raw_snapshots (fetched_at ASC, id ASC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_business
           ON shopify_raw_snapshots (business_id, fetched_at DESC)`.catch(
           () => {},

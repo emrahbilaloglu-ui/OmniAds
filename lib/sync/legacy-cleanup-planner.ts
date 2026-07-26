@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { getDbWithTimeout } from "@/lib/db";
+import {
+  META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
+  SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
+} from "@/lib/sync/retention";
 
 /**
  * Bounded, deterministic, restartable DRY-RUN planner for legacy raw-snapshot
@@ -21,13 +25,24 @@ import { getDbWithTimeout } from "@/lib/db";
  * would require adding new code, which is a reviewed change rather than a
  * runtime decision.
  *
- * `LegacyCleanupExecutionAuthority` exists so that any FUTURE execution path
- * has one, and only one, way to be entered: an authority value. That value
- * carries a module-private symbol, so it cannot be constructed by an object
- * literal, parsed from JSON, cast from config, or forged by any caller — the
- * type is uninhabitable outside this file. `authorizeLegacyCleanupExecution`
- * is its sole producer, and it refuses unless every receipt verifies exactly
- * against the live database.
+ * ── On the authority type ─────────────────────────────────────────────────
+ *
+ * `LegacyCleanupExecutionAuthority` carries a module-private symbol. That makes
+ * it inconvenient to construct accidentally — an object literal or a JSON.parse
+ * result will not satisfy it, and TypeScript will reject the assignment. It is
+ * NOT a security boundary and must not be described as one: TypeScript types do
+ * not exist at runtime, `as unknown as` defeats them, `Object.getOwnPropertySymbols`
+ * plus `Reflect.set` reproduces the shape, and any code in this process can
+ * import the module. The real guarantee is simpler and does not depend on the
+ * type system at all: THERE IS NO DELETION CODE. Nothing in this repository
+ * consumes an authority to delete a row, so possessing one — genuine or
+ * fabricated — accomplishes nothing.
+ *
+ * Receipts are likewise not trusted from callers. `collectLegacyCleanupReceipts`
+ * derives them from the live database and recomputes the plan digest itself;
+ * `authorizeLegacyCleanupExecution` verifies whatever it is given, but a
+ * caller-supplied object can never become deletion authority because there is
+ * nothing for authority to authorise.
  */
 
 const AUTHORITY_BRAND: unique symbol = Symbol("legacy-cleanup-execution-authority");
@@ -86,6 +101,27 @@ function digest(parts: readonly string[]) {
 }
 
 /**
+ * A candidate must have NO typed inbound reference.
+ *
+ * These FKs are ON DELETE SET NULL, so a future execution path acting on a plan
+ * that included a referenced row would not fail — it would silently null a
+ * durable warehouse row's provenance. Excluding them at PLAN time means the
+ * plan itself can never name such a row, rather than relying on an executor
+ * that does not exist yet to re-check.
+ *
+ * Rendered from the same closed literal lists the retention sweep uses, so the
+ * two cannot drift; the real-PG seam asserts those lists match the catalog.
+ */
+function inboundReferenceExclusion(tables: readonly string[], alias: string) {
+  return tables
+    .map(
+      (table) =>
+        `NOT EXISTS (SELECT 1 FROM ${table} referrer WHERE referrer.source_snapshot_id = ${alias}.id)`,
+    )
+    .join("\n    AND ");
+}
+
+/**
  * Candidate SQL, held as constants so the tests can assert what the planner
  * reads, and so a reviewer can see there is no mutation anywhere in the module.
  */
@@ -103,6 +139,10 @@ export const META_ORPHAN_LEGACY_CANDIDATE_SQL = `
       FROM meta_raw_snapshot_observations receipt
       WHERE receipt.snapshot_id = snapshot.id
     )
+    AND ${inboundReferenceExclusion(
+      META_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
+      "snapshot",
+    )}
     AND ($2::timestamptz IS NULL OR (snapshot.fetched_at, snapshot.id) > ($2::timestamptz, $3::uuid))
   ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
   LIMIT $4`;
@@ -133,6 +173,10 @@ export const SHOPIFY_LEGACY_DUPLICATE_CANDIDATE_SQL = `
       FROM shopify_raw_snapshot_observations receipt
       WHERE receipt.snapshot_id = snapshot.id
     )
+    AND ${inboundReferenceExclusion(
+      SHOPIFY_RAW_SNAPSHOT_INBOUND_REFERENCE_TABLES,
+      "snapshot",
+    )}
     AND ($2::timestamptz IS NULL OR (snapshot.fetched_at, snapshot.id) > ($2::timestamptz, $3::uuid))
   ORDER BY snapshot.fetched_at ASC, snapshot.id ASC
   LIMIT $4`;
@@ -335,6 +379,52 @@ export interface LegacyCleanupExecutionAuthority {
  * is no function in this module that consumes its result to delete anything.
  * It exists so that a future execution path cannot be written without it.
  */
+/**
+ * Derive the receipt set from the LIVE database rather than accepting one.
+ *
+ * A caller-supplied receipt proves nothing about the database it claims to
+ * describe. This recomputes the fingerprint and the plan digest from the
+ * database itself and stamps them onto receipts, so the only receipts that can
+ * verify are ones this process produced against the state it just read.
+ *
+ * `restored_backup` is deliberately NOT derivable here: proving a backup
+ * restores requires an isolated database that this process is not connected to.
+ * It is returned as an unsatisfied requirement rather than fabricated, which is
+ * why authorization still refuses after calling this — and why there is no
+ * execution path for it to unlock.
+ */
+export async function collectLegacyCleanupReceipts(input: {
+  plan: LegacyCleanupPlan;
+  issuedAt: string;
+  timeoutMs?: number;
+}): Promise<{
+  receipts: LegacyCleanupReceipt[];
+  fingerprint: DatabaseFingerprint;
+  unsatisfied: LegacyCleanupReceiptKind[];
+}> {
+  const fingerprint = await fingerprintDatabaseForPlan({
+    plan: input.plan,
+    timeoutMs: input.timeoutMs,
+  });
+  const base = {
+    planDigest: input.plan.planDigest,
+    cutoff: input.plan.cutoff,
+    databaseIdentity: fingerprint.databaseIdentity,
+    schemaDigest: fingerprint.schemaDigest,
+    dataFingerprint: fingerprint.dataFingerprint,
+    issuedAt: input.issuedAt,
+  } as const;
+  return {
+    receipts: [
+      { kind: "reader_equivalence", ...base },
+      { kind: "fk_pit_equivalence", ...base },
+    ],
+    fingerprint,
+    // Cannot be produced from the live database by construction.
+    unsatisfied: ["restored_backup"],
+  };
+}
+
 export function authorizeLegacyCleanupExecution(input: {
   plan: LegacyCleanupPlan;
   fingerprint: DatabaseFingerprint;

@@ -43,6 +43,7 @@ interface IndexReadinessRow {
   predicate?: string | null;
   is_valid?: boolean | null;
   is_ready?: boolean | null;
+  is_live?: boolean | null;
 }
 
 interface ColumnReadinessRow {
@@ -77,7 +78,8 @@ export async function getSyncRetentionExecutionReadiness(input?: {
         available.is_unique,
         available.predicate,
         available.is_valid,
-        available.is_ready
+        available.is_ready,
+        available.is_live
       FROM requested
       LEFT JOIN (
         SELECT
@@ -123,7 +125,12 @@ export async function getSyncRetentionExecutionReadiness(input?: {
             true
           ) AS predicate,
           index_catalog.indisvalid AS is_valid,
-          index_catalog.indisready AS is_ready
+          index_catalog.indisready AS is_ready,
+          -- indislive too. A DROP INDEX CONCURRENTLY that was interrupted
+          -- leaves indislive = false: the index is still in the catalog and
+          -- can still read as valid, but the planner will not use it, so a
+          -- destructive sweep would silently run on a sequential scan.
+          index_catalog.indislive AS is_live
         FROM pg_class index_relation
         INNER JOIN pg_namespace index_namespace
           ON index_namespace.oid = index_relation.relnamespace
@@ -204,7 +211,8 @@ export async function getSyncRetentionExecutionReadiness(input?: {
         row.is_unique !== spec.unique ||
         row.predicate !== spec.predicate ||
         row.is_valid !== true ||
-        row.is_ready !== true
+        row.is_ready !== true ||
+        row.is_live !== true
       );
     })
     .map((row) => String(row.index_name ?? "unknown"))

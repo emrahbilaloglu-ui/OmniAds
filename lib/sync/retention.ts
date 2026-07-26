@@ -30,6 +30,27 @@ const SYNC_RETENTION_REQUIRED_TABLES = [
 ] as const;
 
 /**
+ * Every relation this sweep issues a DELETE against.
+ *
+ * Declared so the readiness contract's coverage can be checked in BOTH
+ * directions: every declared index must resolve to a real relation, and every
+ * relation this sweep deletes from must be covered by a declared index. A
+ * contract that only checks one direction can be satisfied while a destructive
+ * path runs entirely unindexed.
+ */
+export const SYNC_RETENTION_DELETE_TARGET_TABLES = [
+  "google_ads_raw_snapshots",
+  "meta_raw_snapshot_observations",
+  "shopify_raw_snapshot_observations",
+  "meta_raw_snapshots",
+  "shopify_raw_snapshots",
+  "google_ads_sync_checkpoints",
+  "meta_sync_checkpoints",
+  "sync_worker_heartbeats",
+  "sync_reclaim_events",
+] as const;
+
+/**
  * Every table holding a typed reference INTO canonical raw content.
  *
  * These are all `ON DELETE SET NULL`, which is exactly why they must be

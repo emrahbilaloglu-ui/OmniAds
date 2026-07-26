@@ -987,6 +987,7 @@ async function verifySemanticHeartbeat(context: {
   await verifyRelationshipOnlyLineage(context);
   await verifyConfigHistoryTransitions(context);
   await verifyLegacyLineageCollapse(context);
+  await verifyStorageContainment(context);
 }
 
 /**
@@ -1361,6 +1362,137 @@ async function verifyConfigHistoryTransitions(context: {
 
   console.log(
     `[entity-state-history-seam] H14-H17 PASS config transitions: an incomplete receipt records nothing; counts come from RETURNING so an identical repeat reports 0; 8 concurrent identical observations append 0 rows while 3 concurrent DISTINCT transitions all land; a sequential A->B->A preserves the revert; an out-of-order observation is filed at its own instant; and both racy triggers are gone`,
+  );
+}
+
+/**
+ * H18 — the OPERATIONAL containment pass.
+ *
+ * Every individual fix was correct and none of them ran. The gate prune had no
+ * caller, the lineage collapse existed only inside a seam, and nothing measured
+ * whether forward growth had stopped — so the census stayed at ~22 GB of config
+ * history, ~3.27 GB of lineage and ~1.35 GB of gates regardless.
+ */
+async function verifyStorageContainment(context: {
+  sql: ReturnType<typeof getDb>;
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const { sql } = context;
+  const { runStorageContainmentPass, measureConfigHistoryForwardGrowth } =
+    await import("@/lib/sync/storage-containment");
+
+  const lineageBefore = Number(
+    (
+      await sql<{ count: string }>`
+        SELECT COUNT(*)::text AS count FROM meta_creative_lineage_edges
+      `
+    )[0]!.count,
+  );
+
+  // DEFAULT-OFF. The retention lane is disabled, so the pass plans and stamps
+  // nothing — and it still reports what it found.
+  const savedLane = process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  const dryRun = await runStorageContainmentPass({ lineageBatchLimit: 5 });
+  const lineageAfterDryRun = Number(
+    (
+      await sql<{ count: string }>`
+        SELECT COUNT(*)::text AS count FROM meta_creative_lineage_edges
+      `
+    )[0]!.count,
+  );
+  assert(
+    dryRun.mode === "dry_run" && dryRun.lineageCollapse.applied === 0,
+    `H18: the default-off pass stamped keepers: ${JSON.stringify(dryRun.lineageCollapse)}`,
+  );
+  assert(
+    lineageAfterDryRun === lineageBefore,
+    `H18: the containment pass changed the lineage row count (${lineageBefore} -> ${lineageAfterDryRun}); it has no delete path.`,
+  );
+  assert(
+    dryRun.lineageCollapse.completed,
+    `H18: the bounded pass did not reach the end of the table: ${JSON.stringify(dryRun.lineageCollapse)}`,
+  );
+
+  // FORWARD GROWTH. Every config-history row written in the last day must be a
+  // genuine transition. A redundant row is the per-observation append that made
+  // the table 22 GB, and it is the only measurement that says the writer-side
+  // containment actually holds.
+  for (const measurement of dryRun.configGrowth) {
+    assert(
+      measurement.redundantLastDay === 0,
+      `H18: ${measurement.table} gained ${measurement.redundantLastDay} redundant rows in the last day; forward growth is NOT contained: ${JSON.stringify(measurement)}`,
+    );
+    assert(
+      measurement.rowsLastDay === measurement.transitionsLastDay,
+      `H18: ${measurement.table} rows and transitions disagree: ${JSON.stringify(measurement)}`,
+    );
+  }
+  // ...and the measurement is not vacuous: the transitions written earlier in
+  // this seam are visible to it.
+  const campaignGrowth = await measureConfigHistoryForwardGrowth({
+    table: "meta_campaign_config_history",
+    entityColumn: "campaign_id",
+  });
+  assert(
+    campaignGrowth.rowsLastDay > 0,
+    `H18: the growth measurement sees no rows at all, so "0 redundant" proves nothing: ${JSON.stringify(campaignGrowth)}`,
+  );
+
+  // DETERMINISTIC PROGRESS. With the lane on, the pass stamps keepers and a
+  // rerun stamps none — the plan converges rather than proposing the same work
+  // forever.
+  // Both switches: the destructive decision requires the global switch AND the
+  // retention lane, which is exactly why "retention stays off" is a real
+  // guarantee rather than one flag away from deleting.
+  const savedGlobal = process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+  process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+  process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = "enabled";
+  // Even with both switches on it stays dry-run unless the CALLER asks: three
+  // independent conditions, not one flag.
+  const switchesOnButNotRequested = await runStorageContainmentPass({
+    lineageBatchLimit: 5,
+  });
+  assert(
+    switchesOnButNotRequested.mode === "dry_run",
+    `H18: the pass executed without the caller requesting it: ${JSON.stringify(switchesOnButNotRequested)}`,
+  );
+  const firstApply = await runStorageContainmentPass({
+    lineageBatchLimit: 5,
+    forceExecute: true,
+  });
+  const secondApply = await runStorageContainmentPass({
+    lineageBatchLimit: 5,
+    forceExecute: true,
+  });
+  const lineageAfterApply = Number(
+    (
+      await sql<{ count: string }>`
+        SELECT COUNT(*)::text AS count FROM meta_creative_lineage_edges
+      `
+    )[0]!.count,
+  );
+  assert(
+    firstApply.mode === "execute",
+    `H18: the pass did not switch to execute with the lane on: ${JSON.stringify(firstApply)}`,
+  );
+  if (savedLane == null) delete process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED;
+  else process.env.ADSECUTE_SYNC_LANE_RETENTION_ENABLED = savedLane;
+  if (savedGlobal == null) delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+  else process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = savedGlobal;
+
+  assert(
+    secondApply.lineageCollapse.applied === 0,
+    `H18: a second pass stamped ${secondApply.lineageCollapse.applied} more keepers; the plan does not converge.`,
+  );
+  assert(
+    lineageAfterApply === lineageBefore,
+    `H18: applying the collapse deleted rows (${lineageBefore} -> ${lineageAfterApply}); it must never delete.`,
+  );
+
+  console.log(
+    `[entity-state-history-seam] H18 PASS storage containment: the pass is default-off and stays dry-run even with both switches on unless the caller explicitly requests execution, deletes NOTHING in either mode (${lineageBefore} lineage rows before and after), converges (a second apply stamps 0), and measures forward growth as ${campaignGrowth.rowsLastDay} rows / ${campaignGrowth.transitionsLastDay} transitions / ${campaignGrowth.redundantLastDay} redundant in the last day`,
   );
 }
 

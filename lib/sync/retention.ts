@@ -4,6 +4,10 @@ import { assertSyncRetentionExecutionReady } from "@/lib/sync/retention-readines
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { runSyncGateRetentionPass } from "@/lib/sync/release-gates";
 import {
+  runStorageContainmentPass,
+  type StorageContainmentReport,
+} from "@/lib/sync/storage-containment";
+import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
@@ -220,6 +224,14 @@ export interface SyncRetentionSummary {
     deleted: number;
     completed: boolean;
   };
+  /**
+   * Lineage collapse progress and config-history forward-growth measurement.
+   *
+   * Reported here because containment is only meaningful operationally if
+   * something runs it and something measures whether it worked. Neither the
+   * collapse nor the growth measurement deletes anything.
+   */
+  storageContainment: StorageContainmentReport | null;
   skippedDueToActiveLease?: boolean;
 }
 
@@ -252,6 +264,7 @@ function emptyRetentionSummary(
       deleted: 0,
       completed: true,
     },
+    storageContainment: null,
     skippedDueToActiveLease: false,
     ...input,
   };
@@ -583,7 +596,20 @@ export async function pruneSyncLifecycleData(input?: {
       return null;
     });
 
+    // Lineage collapse progress and config forward-growth truth. Neither
+    // deletes; both are bounded and resumable, and the collapse only stamps
+    // keepers when the destructive lane is on.
+    const storageContainment = await runStorageContainmentPass().catch(
+      (error: unknown) => {
+        console.error("[sync-retention] storage_containment_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      },
+    );
+
     return emptyRetentionSummary({
+      storageContainment,
       googleRawSnapshotsDeleted,
       googleCheckpointsDeleted,
       metaRawSnapshotsDeleted,

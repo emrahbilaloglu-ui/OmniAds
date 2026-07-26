@@ -83,6 +83,15 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   { table: "sync_release_gates", column: "decision_fingerprint", dataType: "text", isNullable: true },
   { table: "sync_release_gates", column: "last_seen_at", dataType: "timestamp with time zone", isNullable: false },
   { table: "sync_release_gates", column: "coalesced_count", dataType: "integer", isNullable: false, columnDefault: "1" },
+  // The Meta observation semantic heartbeat. Without these the writer falls back
+  // to appending a full state set per observation, which is the growth this
+  // change removes.
+  { table: "meta_entity_observation_runs", column: "semantic_hash", dataType: "text", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "last_seen_at", dataType: "timestamp with time zone", isNullable: true },
+  { table: "meta_entity_observation_runs", column: "repeat_count", dataType: "integer", isNullable: false, columnDefault: "1" },
+  { table: "meta_entity_observation_runs", column: "last_checkpoint_at", dataType: "timestamp with time zone", isNullable: true },
+  // Stable logical identity for lineage edges.
+  { table: "meta_creative_lineage_edges", column: "logical_lineage_key", dataType: "text", isNullable: true },
 ];
 
 /** Tables this change adds. */
@@ -148,6 +157,20 @@ export const VERIFIED_INDEXES: readonly IndexSpec[] = [
     table: "business_provider_accounts",
     unique: false,
     definitionMustContain: ["WHERE is_selected"],
+  },
+  {
+    name: "idx_meta_entity_observation_runs_semantic_latest",
+    table: "meta_entity_observation_runs",
+    unique: false,
+    definitionMustContain: ["business_id", "provider_account_id", "entity_type", "endpoint", "observed_at DESC", "id DESC"],
+  },
+  {
+    // Partial, so legacy rows with a NULL logical key stay outside the arbiter
+    // instead of colliding with it.
+    name: "meta_creative_lineage_logical_identity",
+    table: "meta_creative_lineage_edges",
+    unique: true,
+    definitionMustContain: ["logical_lineage_key", "WHERE (logical_lineage_key IS NOT NULL)"],
   },
   {
     // The keyed latest read for gate evaluation and /build-info. Without it both

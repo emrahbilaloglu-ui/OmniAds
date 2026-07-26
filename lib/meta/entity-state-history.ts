@@ -108,6 +108,12 @@ export interface PersistMetaEntityObservationResult {
   completeness: MetaObservationCompleteness;
   observedAt: string;
   capturedAt: string;
+  /** The clock-free truth this observation carried. */
+  semanticHash: string;
+  /** True when identical truth advanced the heartbeat and wrote no payload. */
+  coalesced: boolean;
+  /** How many observations this run now represents. */
+  repeatCount: number;
 }
 
 export interface PersistMetaExplicitEntityTombstoneInput {
@@ -502,6 +508,89 @@ export function buildMetaEntityStateHash(input: MetaEntityStateHashInput) {
   });
 }
 
+/**
+ * How long identical truth may be coalesced before a full auditable checkpoint
+ * is forced anyway.
+ *
+ * Coalescing alone would mean an account whose inventory never changes has one
+ * state row from months ago and nothing since — technically accurate, but an
+ * audit cannot distinguish "unchanged and still being observed" from "nobody
+ * has looked". The cadence bounds that: at most one full checkpoint per window
+ * per key, which is a few hundred rows a year instead of a few hundred thousand.
+ */
+export const META_OBSERVATION_CHECKPOINT_INTERVAL_MS = 24 * 60 * 60_000;
+
+/** Advisory-lock namespace for observation coalescing. */
+const META_OBSERVATION_COALESCE_LOCK_NAMESPACE = 0x4d454f42;
+
+/**
+ * A shorter cadence for repeated failure or partial truth.
+ *
+ * A provider that has been failing for six hours is a different operational
+ * story from one that failed once, and the difference has to be visible without
+ * waiting a day for the next checkpoint.
+ */
+export const META_OBSERVATION_DEGRADED_CHECKPOINT_INTERVAL_MS = 60 * 60_000;
+
+export function metaObservationCheckpointIntervalMs(
+  completeness: MetaObservationCompleteness,
+): number {
+  return completeness === "complete" || completeness === "point_lookup"
+    ? META_OBSERVATION_CHECKPOINT_INTERVAL_MS
+    : META_OBSERVATION_DEGRADED_CHECKPOINT_INTERVAL_MS;
+}
+
+/**
+ * The observed TRUTH, with every clock removed.
+ *
+ * `buildMetaObservationRunHash` includes `observedAt` and `capturedAt`, so
+ * replaying the same provider response one second later is a different run — and
+ * every run writes a full state set. Identical inventory observed hourly
+ * therefore stored itself hourly, in full. That is the remaining structural
+ * source of `meta_entity_state_history` growth after the historical-day gate.
+ *
+ * Excluded on purpose: observedAt, capturedAt, sourceSnapshotId and payloadHash.
+ * The first two are observation clocks. The third is a checkpoint pointer. The
+ * fourth is derived from per-state `observedAt`, so including it would smuggle a
+ * clock back in.
+ *
+ * Included on purpose: completeness and the error receipt, because "complete
+ * with these 40 ads" and "partial with these 40 ads" are different truths and
+ * must not coalesce into each other; and the sorted (entityId, stateHash) set,
+ * which is the entity truth itself. `stateHash` is already clock-free — it
+ * carries `providerUpdatedAt`, which is provider truth rather than an
+ * observation clock.
+ */
+export function buildMetaObservationSemanticHash(input: {
+  businessId: string;
+  providerAccountId: string;
+  entityType: MetaEntityType;
+  endpoint: string;
+  completeness: MetaObservationCompleteness;
+  pageCount: number;
+  rowCount: number;
+  error?: Record<string, unknown> | null;
+  states: ReadonlyArray<{ entityId: string; stateHash: string }>;
+}) {
+  return sha256({
+    contractVersion: "meta-entity-observation-semantic.v1",
+    businessId: requireNonEmpty(input.businessId, "businessId"),
+    providerAccountId: requireNonEmpty(
+      input.providerAccountId,
+      "providerAccountId",
+    ),
+    entityType: normalizeEntityType(input.entityType),
+    endpoint: requireNonEmpty(input.endpoint, "endpoint"),
+    completeness: input.completeness,
+    pageCount: input.pageCount,
+    rowCount: input.rowCount,
+    error: input.error ?? null,
+    states: [...input.states]
+      .map((state) => ({ entityId: state.entityId, stateHash: state.stateHash }))
+      .sort((a, b) => a.entityId.localeCompare(b.entityId)),
+  });
+}
+
 export function buildMetaObservationRunHash(
   input: MetaObservationRunHashInput,
 ) {
@@ -582,6 +671,93 @@ function buildMetaCreativeLineageHash(input: {
     observationRunId: input.observationRunId,
     actionLogId: input.actionLogId ?? null,
   });
+}
+
+/**
+ * Stable logical identity for a lineage edge.
+ *
+ * "This ad reuses that creative" is a fact about two ads. `lineage_hash` folded
+ * `observationRunId` into it, so the same fact got a fresh identity on every
+ * observation and the unique constraint deduplicated nothing — every run
+ * appended the whole edge set again.
+ *
+ * `evidenceSource` and `actionLogId` stay IN the key on purpose. A verified
+ * duplicate action and an inferred same-creative relationship are different
+ * claims with different authority, and collapsing them would let an inference
+ * silently stand in for a receipt.
+ */
+export function buildMetaCreativeLineageLogicalKey(input: {
+  businessId: string;
+  providerAccountId: string;
+  lineageType: MetaCreativeLineageType;
+  sourceAdId: string;
+  sourceCreativeId: string;
+  targetAdId: string;
+  targetCreativeId: string;
+  evidenceSource: MetaCreativeLineageEvidenceSource;
+  actionLogId?: string | null;
+}) {
+  return sha256({
+    contractVersion: "meta-creative-lineage-logical.v1",
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    lineageType: input.lineageType,
+    sourceAdId: input.sourceAdId,
+    sourceCreativeId: input.sourceCreativeId,
+    targetAdId: input.targetAdId,
+    targetCreativeId: input.targetCreativeId,
+    evidenceSource: input.evidenceSource,
+    actionLogId: input.actionLogId ?? null,
+  });
+}
+
+/**
+ * The one legacy arbiter this writer may treat as "already present".
+ *
+ * Selective on purpose. A blanket catch around the insert would swallow a
+ * foreign-key violation — a lineage edge pointing at state rows that do not
+ * exist — and report success, which is exactly the class of silent corruption
+ * the receipt model exists to prevent.
+ */
+const LEGACY_LINEAGE_HASH_CONSTRAINT = "meta_creative_lineage_hash_unique";
+
+function isLegacyLineageHashConflict(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  const constraint = (error as { constraint?: unknown } | null)?.constraint;
+  return code === "23505" && constraint === LEGACY_LINEAGE_HASH_CONSTRAINT;
+}
+
+/**
+ * Insert one lineage edge under BOTH arbiters.
+ *
+ * The logical key is the arbiter in `ON CONFLICT`. The legacy
+ * `(business_id, provider_account_id, lineage_hash)` unique still exists and
+ * still applies, so a row whose logical key is new but whose legacy hash
+ * collides raises 23505 on the OTHER constraint. That specific case means the
+ * edge is already recorded, and only that case is absorbed — a foreign-key
+ * violation, a check violation, or a unique violation on any other constraint
+ * propagates, because each of those means the edge does not describe reality
+ * and reporting success would be a silent corruption.
+ *
+ * A savepoint is required: in PostgreSQL an error aborts the whole transaction
+ * unless it is rolled back to a savepoint, so catching without one would leave
+ * every later statement failing with 25P02.
+ */
+async function insertLineageEdge(
+  sql: ReturnType<typeof getDb>,
+  insert: () => Promise<Array<{ id: string }>>,
+): Promise<Array<{ id: string }>> {
+  await sql`SAVEPOINT lineage_edge_insert`;
+  try {
+    const rows = await insert();
+    await sql`RELEASE SAVEPOINT lineage_edge_insert`;
+    return rows;
+  } catch (error) {
+    await sql`ROLLBACK TO SAVEPOINT lineage_edge_insert`;
+    await sql`RELEASE SAVEPOINT lineage_edge_insert`;
+    if (isLegacyLineageHashConflict(error)) return [];
+    throw error;
+  }
 }
 
 function buildMetaTombstoneHash(input: {
@@ -685,25 +861,112 @@ export async function persistMetaEntityObservation(
     error: input.error ?? null,
   });
 
+  const semanticHash = buildMetaObservationSemanticHash({
+    businessId,
+    providerAccountId,
+    entityType,
+    endpoint,
+    completeness: input.completeness,
+    pageCount,
+    rowCount: providerRowCount,
+    error: input.error ?? null,
+    states: states.map((state) => ({
+      entityId: state.entityId,
+      stateHash: state.stateHash,
+    })),
+  });
+
   return runDbTransaction(async () => {
     const sql = getDb();
     const binding = await resolveMetaAccountBinding(sql, {
       businessId,
       providerAccountId,
     });
+
+    // Deterministic lock per observation key, so two workers observing the same
+    // account and endpoint at the same moment cannot both decide "this truth is
+    // new" and both write a full state set.
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        ${META_OBSERVATION_COALESCE_LOCK_NAMESPACE}::int,
+        hashtext(${`meta_entity_observation:${businessId}:${providerAccountId}:${entityType}:${endpoint}`})
+      )
+    `;
+
+    const currentRows = await sql<{
+      id: string;
+      semantic_hash: string | null;
+      repeat_count: number | string | null;
+      last_checkpoint_at: string | null;
+      observed_at: string;
+      captured_at: string;
+    }>`
+      SELECT id, semantic_hash, repeat_count,
+             last_checkpoint_at::text AS last_checkpoint_at,
+             observed_at::text AS observed_at,
+             captured_at::text AS captured_at
+      FROM meta_entity_observation_runs
+      WHERE business_id = ${businessId}
+        AND provider_account_id = ${providerAccountId}
+        AND entity_type = ${entityType}
+        AND endpoint = ${endpoint}
+      ORDER BY observed_at DESC, id DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const currentRun = currentRows[0];
+
+    if (currentRun && currentRun.semantic_hash === semanticHash) {
+      // The same truth again. A full auditable checkpoint is forced only at the
+      // declared cadence; until then this advances the heartbeat and writes no
+      // state and no lineage payload at all.
+      const anchorMs = Date.parse(
+        currentRun.last_checkpoint_at ?? currentRun.observed_at,
+      );
+      const elapsedMs = Number.isFinite(anchorMs)
+        ? new Date(observedAt).getTime() - anchorMs
+        : Number.POSITIVE_INFINITY;
+      if (elapsedMs < metaObservationCheckpointIntervalMs(input.completeness)) {
+        const heartbeat = await sql<{ repeat_count: number | string }>`
+          UPDATE meta_entity_observation_runs
+          SET last_seen_at = ${observedAt}::timestamptz,
+              repeat_count = repeat_count + 1,
+              source_snapshot_id = COALESCE(${input.sourceSnapshotId ?? null}, source_snapshot_id)
+          WHERE id = ${currentRun.id}
+          RETURNING repeat_count
+        `;
+        return {
+          runId: currentRun.id,
+          runHash,
+          semanticHash,
+          coalesced: true,
+          repeatCount: Number(heartbeat[0]?.repeat_count ?? 0),
+          stateCount: 0,
+          lineageCount: 0,
+          completeness: input.completeness,
+          observedAt: currentRun.observed_at,
+          capturedAt: currentRun.captured_at,
+        };
+      }
+    }
+
     const runRows = await sql<MetaObservationRunDbRow>`
       INSERT INTO meta_entity_observation_runs (
         business_ref_id, business_id, provider_account_ref_id, provider_account_id,
         entity_type, endpoint, observed_at, captured_at, completeness, page_count,
-        row_count, source_snapshot_id, payload_hash, run_hash, error_json
+        row_count, source_snapshot_id, payload_hash, run_hash, error_json,
+        semantic_hash, last_seen_at, repeat_count, last_checkpoint_at
       ) VALUES (
         ${binding.business_ref_id}, ${businessId}, ${binding.provider_account_ref_id},
         ${providerAccountId}, ${entityType}, ${endpoint}, ${observedAt}::timestamptz,
         ${capturedAt}::timestamptz, ${input.completeness}, ${pageCount},
         ${providerRowCount}, ${input.sourceSnapshotId ?? null}, ${payloadHash},
-        ${runHash}, ${input.error == null ? null : JSON.stringify(input.error)}::jsonb
+        ${runHash}, ${input.error == null ? null : JSON.stringify(input.error)}::jsonb,
+        ${semanticHash}, ${observedAt}::timestamptz, 1, ${observedAt}::timestamptz
       )
-      ON CONFLICT (run_hash) DO UPDATE SET run_hash = EXCLUDED.run_hash
+      ON CONFLICT (run_hash) DO UPDATE SET
+        semantic_hash = EXCLUDED.semantic_hash,
+        last_seen_at = EXCLUDED.last_seen_at
       RETURNING id, business_ref_id::text AS business_ref_id,
         provider_account_ref_id::text AS provider_account_ref_id,
         observed_at::text AS observed_at, captured_at::text AS captured_at,
@@ -801,7 +1064,18 @@ export async function persistMetaEntityObservation(
           observationRunId: run.id,
           actionLogId: edge.action_log_id,
         });
-        const inserted = await sql<{ id: string }>`
+        const logicalKey = buildMetaCreativeLineageLogicalKey({
+          businessId,
+          providerAccountId,
+          lineageType: "reuse_same_creative",
+          sourceAdId: edge.source_ad_id,
+          sourceCreativeId: edge.source_creative_id,
+          targetAdId: edge.target_ad_id,
+          targetCreativeId: edge.target_creative_id,
+          evidenceSource: "verified_action",
+          actionLogId: edge.action_log_id,
+        });
+        const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
           INSERT INTO meta_creative_lineage_edges (
             business_ref_id, business_id, provider_account_ref_id,
             provider_account_id, source_ad_id, source_creative_id, target_ad_id,
@@ -809,7 +1083,7 @@ export async function persistMetaEntityObservation(
             observation_run_id, observation_run_entity_type,
             observation_run_completeness, action_log_id, action_type,
             action_status, action_verified_at, evidence_json, observed_at,
-            captured_at, lineage_hash
+            captured_at, lineage_hash, logical_lineage_key
           ) VALUES (
             ${binding.business_ref_id}, ${businessId},
             ${binding.provider_account_ref_id}, ${providerAccountId},
@@ -818,11 +1092,14 @@ export async function persistMetaEntityObservation(
             ${run.id}, 'ad', ${input.completeness}, ${edge.action_log_id},
             'duplicate', 'success', ${edge.action_verified_at}::timestamptz,
             ${JSON.stringify({ receipt: "meta_ads_action_log", matchedObservedAds: true })}::jsonb,
-            ${observedAt}::timestamptz, ${capturedAt}::timestamptz, ${lineageHash}
+            ${observedAt}::timestamptz, ${capturedAt}::timestamptz, ${lineageHash},
+            ${logicalKey}
           )
-          ON CONFLICT (business_id, provider_account_id, lineage_hash) DO NOTHING
+          ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
+            WHERE logical_lineage_key IS NOT NULL
+          DO NOTHING
           RETURNING id
-        `;
+        `);
         lineageCount += inserted.length;
       }
 
@@ -874,14 +1151,24 @@ export async function persistMetaEntityObservation(
             evidenceSource: "observation_run",
             observationRunId: run.id,
           });
-          const inserted = await sql<{ id: string }>`
+          const logicalKey = buildMetaCreativeLineageLogicalKey({
+            businessId,
+            providerAccountId,
+            lineageType: "reuse_same_creative",
+            sourceAdId: source.adId,
+            sourceCreativeId: creativeId,
+            targetAdId: target.adId,
+            targetCreativeId: creativeId,
+            evidenceSource: "observation_run",
+          });
+          const inserted = await insertLineageEdge(sql, async () => sql<{ id: string }>`
             INSERT INTO meta_creative_lineage_edges (
               business_ref_id, business_id, provider_account_ref_id,
               provider_account_id, source_ad_id, source_creative_id,
               target_ad_id, target_creative_id, lineage_type, evidence_source,
               observation_run_id, observation_run_entity_type,
               observation_run_completeness, evidence_json, observed_at,
-              captured_at, lineage_hash
+              captured_at, lineage_hash, logical_lineage_key
             ) VALUES (
               ${binding.business_ref_id}, ${businessId},
               ${binding.provider_account_ref_id}, ${providerAccountId},
@@ -894,11 +1181,13 @@ export async function persistMetaEntityObservation(
                 targetProviderCreatedAt: target.createdAt,
               })}::jsonb,
               ${observedAt}::timestamptz, ${capturedAt}::timestamptz,
-              ${lineageHash}
+              ${lineageHash}, ${logicalKey}
             )
-            ON CONFLICT (business_id, provider_account_id, lineage_hash) DO NOTHING
+            ON CONFLICT (business_id, provider_account_id, logical_lineage_key)
+              WHERE logical_lineage_key IS NOT NULL
+            DO NOTHING
             RETURNING id
-          `;
+          `);
           lineageCount += inserted.length;
         }
       }
@@ -907,6 +1196,9 @@ export async function persistMetaEntityObservation(
     return {
       runId: run.id,
       runHash,
+      semanticHash,
+      coalesced: false,
+      repeatCount: 1,
       stateCount,
       lineageCount,
       completeness: input.completeness,

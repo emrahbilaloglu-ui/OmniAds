@@ -4624,6 +4624,58 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_entity_observation_runs_refs
           ON meta_entity_observation_runs
           (business_ref_id, provider_account_ref_id, entity_type, observed_at DESC)`,
+        //
+        // Semantic heartbeat for observation runs.
+        //
+        // `run_hash` includes observed_at and captured_at, so replaying the same
+        // provider truth one second later was a different run — and every run
+        // writes a full state set. That is the remaining structural source of
+        // meta_entity_state_history growth: identical inventory, observed
+        // repeatedly, stored in full every time.
+        //
+        // `semantic_hash` covers the truth (entity states, completeness and the
+        // decision-relevant scope) with NO clocks in it, so repeated identical
+        // truth is recognisable as repeated. NOT swallowed: the coalescing
+        // writer cannot function without these.
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS semantic_hash TEXT`,
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS repeat_count INTEGER NOT NULL DEFAULT 1`,
+        sql`ALTER TABLE meta_entity_observation_runs
+          ADD COLUMN IF NOT EXISTS last_checkpoint_at TIMESTAMPTZ`,
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "idx_meta_entity_observation_runs_semantic_latest",
+            definitionMustContain: [
+              "business_id",
+              "provider_account_id",
+              "entity_type",
+              "endpoint",
+              "observed_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
+        sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meta_entity_observation_runs_semantic_latest
+          ON meta_entity_observation_runs
+          (business_id, provider_account_id, entity_type, endpoint, observed_at DESC, id DESC)`.catch(
+          () => {},
+        ),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "idx_meta_entity_observation_runs_semantic_latest",
+            definitionMustContain: [
+              "business_id",
+              "provider_account_id",
+              "entity_type",
+              "endpoint",
+              "observed_at DESC",
+              "id DESC",
+            ],
+          }),
+        ),
         sql`DO $$
           BEGIN
             IF NOT EXISTS (
@@ -5082,6 +5134,48 @@ export async function runMigrations(options?: {
           CONSTRAINT meta_creative_lineage_hash_unique
             UNIQUE (business_id, provider_account_id, lineage_hash)
         )`,
+        //
+        // Stable logical identity for a lineage edge.
+        //
+        // `lineage_hash` included observationRunId, so the SAME logical edge —
+        // this ad reuses that creative — got a new hash on every observation and
+        // the unique constraint never deduplicated anything. The logical key
+        // carries source/target/entity/evidence semantics and no run id.
+        //
+        // Added as a SEPARATE column with a PARTIAL unique index rather than by
+        // redefining lineage_hash: existing rows carry run-scoped hashes that
+        // cannot be recomputed in a migration, and a NULL logical key keeps them
+        // outside the new arbiter instead of colliding with it. Collapsing them
+        // is a planned, dry-run, application-driven pass — not a DDL side
+        // effect.
+        sql`ALTER TABLE meta_creative_lineage_edges
+          ADD COLUMN IF NOT EXISTS logical_lineage_key TEXT`,
+        sql.query(
+          buildInvalidIndexRepairQuery({
+            indexName: "meta_creative_lineage_logical_identity",
+            definitionMustContain: [
+              "business_id",
+              "provider_account_id",
+              "logical_lineage_key",
+              "WHERE (logical_lineage_key IS NOT NULL)",
+            ],
+          }),
+        ),
+        sql`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS meta_creative_lineage_logical_identity
+          ON meta_creative_lineage_edges
+          (business_id, provider_account_id, logical_lineage_key)
+          WHERE logical_lineage_key IS NOT NULL`.catch(() => {}),
+        sql.query(
+          buildIndexContractQuery({
+            indexName: "meta_creative_lineage_logical_identity",
+            definitionMustContain: [
+              "business_id",
+              "provider_account_id",
+              "logical_lineage_key",
+              "WHERE (logical_lineage_key IS NOT NULL)",
+            ],
+          }),
+        ),
         sql`DO $$
           BEGIN
             IF NOT EXISTS (

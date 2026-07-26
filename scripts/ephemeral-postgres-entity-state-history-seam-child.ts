@@ -710,8 +710,276 @@ async function main() {
     "manual lineage without provider evidence",
   );
 
+  // ── H1-H7. Semantic heartbeat and stable lineage identity ────────────────
+  //
+  // `run_hash` included observedAt and capturedAt, so replaying the same
+  // provider truth one second later was a different run — and every run writes
+  // a full state set. Identical inventory observed hourly therefore stored
+  // itself hourly, in full. Lineage had the same shape one level down:
+  // `lineage_hash` included observationRunId, so "this ad reuses that creative"
+  // got a fresh identity on every observation and deduplicated nothing.
+  await verifySemanticHeartbeat({
+    sql,
+    businessId,
+    providerAccountId,
+  });
+
   console.log(
-    "[entity-state-history-seam] PASS: label history transaction/no-op/as-of, capture cutoff, run authority, explicit tombstones, truth ordering, and creative lineage constraints.",
+    "[entity-state-history-seam] PASS: label history transaction/no-op/as-of, capture cutoff, run authority, explicit tombstones, truth ordering, creative lineage constraints, and the semantic observation heartbeat.",
+  );
+}
+
+async function verifySemanticHeartbeat(context: {
+  sql: ReturnType<typeof getDb>;
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const { sql, businessId, providerAccountId } = context;
+  const ENDPOINT = "campaign_configs_heartbeat";
+
+  const census = async () => {
+    const [row] = await sql<{
+      runs: string;
+      states: string;
+      repeats: string;
+    }>`
+      SELECT
+        count(DISTINCT run.id)::text AS runs,
+        count(state.id)::text AS states,
+        COALESCE(max(run.repeat_count), 0)::text AS repeats
+      FROM meta_entity_observation_runs run
+      LEFT JOIN meta_entity_state_history state ON state.run_id = run.id
+      WHERE run.business_id = ${businessId}
+        AND run.provider_account_id = ${providerAccountId}
+        AND run.endpoint = ${ENDPOINT}
+    `;
+    return {
+      runs: Number(row!.runs),
+      states: Number(row!.states),
+      repeats: Number(row!.repeats),
+    };
+  };
+
+  const observation = (input: {
+    observedAt: string;
+    capturedAt: string;
+    status: string;
+    completeness?: "complete" | "partial" | "failed";
+  }) => ({
+    businessId,
+    providerAccountId,
+    entityType: "campaign" as const,
+    endpoint: ENDPOINT,
+    observedAt: input.observedAt,
+    capturedAt: input.capturedAt,
+    completeness: (input.completeness ?? "complete") as "complete" | "partial" | "failed",
+    pageCount: 1,
+    providerRowCount: 1,
+    ...(input.completeness === "failed"
+      ? { states: [], error: { code: "provider_failed" } }
+      : {
+          states: [
+            {
+              businessId,
+              providerAccountId,
+              entityType: "campaign" as const,
+              entityId: "campaign_heartbeat",
+              campaignId: "campaign_heartbeat",
+              learningSource: "not_observed" as const,
+              budgetOrigin: "not_applicable" as const,
+              presence: "present" as const,
+              fieldCoverage: { configuredStatus: true },
+              configuredStatus: input.status,
+              effectiveStatus: input.status,
+              providerUpdatedAt: "2026-06-30T08:00:00Z",
+              observedAt: input.observedAt,
+            },
+          ],
+        }),
+  });
+
+  // H1: the same truth at MOVING clocks. Ten observations an hour apart, each
+  // with a different observedAt and capturedAt, all reporting exactly the same
+  // campaign state. Under the old run identity this was ten runs and ten state
+  // rows.
+  const first = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T00:00:00Z",
+      capturedAt: "2026-08-01T00:00:01Z",
+      status: "ACTIVE",
+    }),
+  );
+  assert(!first.coalesced, "H1: the first observation should not coalesce.");
+  for (let hour = 1; hour <= 9; hour += 1) {
+    const repeat = await persistMetaEntityObservation(
+      observation({
+        observedAt: `2026-08-01T0${hour}:00:00Z`,
+        capturedAt: `2026-08-01T0${hour}:00:01Z`,
+        status: "ACTIVE",
+      }),
+    );
+    assert(
+      repeat.coalesced && repeat.runId === first.runId,
+      `H1: observation ${hour} did not coalesce into the first run: ${JSON.stringify(repeat)}`,
+    );
+  }
+  const afterRepeats = await census();
+  assert(
+    afterRepeats.runs === 1 && afterRepeats.states === 1,
+    `H1: 10 identical observations at 10 different clocks produced ${afterRepeats.runs} runs and ${afterRepeats.states} state rows; expected 1 and 1.`,
+  );
+  assert(
+    afterRepeats.repeats === 10,
+    `H1: repeat_count is ${afterRepeats.repeats}, expected 10.`,
+  );
+
+  // H2: replaying the SAME run — identical clocks included — must add nothing.
+  const replay = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T00:00:00Z",
+      capturedAt: "2026-08-01T00:00:01Z",
+      status: "ACTIVE",
+    }),
+  );
+  assert(replay.runId === first.runId, "H2: a replay created a new run.");
+  const afterReplay = await census();
+  assert(
+    afterReplay.runs === 1 && afterReplay.states === 1,
+    `H2: replaying the same run added rows: ${JSON.stringify(afterReplay)}`,
+  );
+
+  // H3: concurrency. Eight workers observing the same account and endpoint at
+  // once. Without the advisory lock each reads "no matching truth" and each
+  // writes a full state set.
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      persistMetaEntityObservation(
+        observation({
+          observedAt: `2026-08-01T10:0${index}:00Z`,
+          capturedAt: `2026-08-01T10:0${index}:01Z`,
+          status: "ACTIVE",
+        }),
+      ),
+    ),
+  );
+  const afterConcurrency = await census();
+  assert(
+    afterConcurrency.runs === 1 && afterConcurrency.states === 1,
+    `H3: 8 concurrent identical observations produced ${afterConcurrency.runs} runs and ${afterConcurrency.states} state rows; the coalescing lock did not serialize them.`,
+  );
+
+  // H4: A -> B -> A. Every genuine transition must append, including the return
+  // to a previous state — an operator reading history needs to see that the
+  // campaign went back, not that nothing happened.
+  const toPaused = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T12:00:00Z",
+      capturedAt: "2026-08-01T12:00:01Z",
+      status: "PAUSED",
+    }),
+  );
+  assert(!toPaused.coalesced, "H4: a state change coalesced instead of appending.");
+  const backToActive = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T13:00:00Z",
+      capturedAt: "2026-08-01T13:00:01Z",
+      status: "ACTIVE",
+    }),
+  );
+  assert(
+    !backToActive.coalesced && backToActive.runId !== first.runId,
+    "H4: returning to a previous state coalesced into the original run, erasing the transition.",
+  );
+  const afterTransitions = await census();
+  assert(
+    afterTransitions.runs === 3 && afterTransitions.states === 3,
+    `H4: A->B->A produced ${afterTransitions.runs} runs; expected 3.`,
+  );
+
+  // H5: a completeness change is a truth change even when the entity states are
+  // byte-identical. "Complete with this campaign" and "partial with this
+  // campaign" are different claims.
+  const partial = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T14:00:00Z",
+      capturedAt: "2026-08-01T14:00:01Z",
+      status: "ACTIVE",
+      completeness: "partial",
+    }),
+  );
+  assert(
+    !partial.coalesced,
+    "H5: a complete -> partial change coalesced, so a degraded observation was recorded as a healthy one.",
+  );
+  // ...and repeated partial truth uses the SHORTER cadence, so a persistent
+  // degradation still leaves periodic evidence rather than one row from hours
+  // ago. Two minutes later is inside that window, so it coalesces.
+  const partialRepeat = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T14:02:00Z",
+      capturedAt: "2026-08-01T14:02:01Z",
+      status: "ACTIVE",
+      completeness: "partial",
+    }),
+  );
+  assert(
+    partialRepeat.coalesced && partialRepeat.runId === partial.runId,
+    "H5: repeated partial truth did not coalesce inside its cadence.",
+  );
+  // Past the degraded cadence, a full checkpoint is forced even though nothing
+  // changed.
+  const partialCheckpoint = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T16:00:00Z",
+      capturedAt: "2026-08-01T16:00:01Z",
+      status: "ACTIVE",
+      completeness: "partial",
+    }),
+  );
+  assert(
+    !partialCheckpoint.coalesced,
+    "H5: unchanged partial truth never produced a checkpoint, so a long degradation would leave no auditable trail.",
+  );
+
+  // H6: a failure is its own truth and must append immediately.
+  const failure = await persistMetaEntityObservation(
+    observation({
+      observedAt: "2026-08-01T18:00:00Z",
+      capturedAt: "2026-08-01T18:00:01Z",
+      status: "ACTIVE",
+      completeness: "failed",
+    }),
+  );
+  assert(!failure.coalesced, "H6: a failure coalesced into a successful run.");
+
+  // H7: the PK-collision negative control. Forcing a duplicate primary key must
+  // surface as a real error, not be absorbed by the selective legacy handling.
+  const [existingState] = await sql<{ id: string }>`
+    SELECT id::text AS id FROM meta_entity_state_history
+    WHERE business_id = ${businessId} LIMIT 1
+  `;
+  assert(existingState?.id, "H7: no state row to collide with.");
+  const collided = await sql
+    .query(
+      `INSERT INTO meta_entity_state_history
+       SELECT * FROM meta_entity_state_history WHERE id = $1::uuid`,
+      [existingState.id],
+    )
+    .then(
+      () => null,
+      (error: unknown) => (error as { code?: string })?.code ?? "unknown",
+    );
+  // 23505 either way: the primary key or the (run_id, entity_id) unique. What
+  // matters is that a duplicate surfaces as a real integrity error rather than
+  // being absorbed by the selective legacy-conflict handling, which only ever
+  // recognises one named constraint.
+  assert(
+    collided === "23505",
+    `H7: a duplicate row did not raise 23505; got ${collided}.`,
+  );
+
+  console.log(
+    `[entity-state-history-seam] H1-H7 PASS semantic heartbeat: 10 identical observations at 10 different clocks, a same-clock replay and 8 concurrent writers all collapse to ONE run and ONE state row with repeat_count ${afterRepeats.repeats}; A->B->A appends 3; complete->partial appends, repeated partial coalesces inside its shorter cadence and checkpoints past it; a failure appends immediately; and a duplicate primary key still raises 23505`,
   );
 }
 

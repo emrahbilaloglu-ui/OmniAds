@@ -27,6 +27,9 @@ vi.mock("@/lib/meta/entity-state-history", async (importOriginal) => {
     persistMetaEntityObservation: vi.fn().mockResolvedValue({
       runId: "observation-run-1",
       runHash: "a".repeat(64),
+      semanticHash: "b".repeat(64),
+      coalesced: false,
+      repeatCount: 1,
       stateCount: 0,
       lineageCount: 0,
       completeness: "complete",
@@ -373,6 +376,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     ).mockResolvedValue({
       runId: "observation-run-1",
       runHash: "a".repeat(64),
+      semanticHash: "b".repeat(64),
+      coalesced: false,
+      repeatCount: 1,
       stateCount: 0,
       lineageCount: 0,
       completeness: "complete",

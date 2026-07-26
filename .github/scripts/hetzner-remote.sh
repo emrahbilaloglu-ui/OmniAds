@@ -258,19 +258,25 @@ sha256_of_file() {
 
 # Deliver the cutover wrapper to this host, pinned by digest.
 #
-# Before this existed, `.github/scripts/hetzner-sync-cutover.sh` was named by the
-# runbook and by deploy/CUTOVER_REQUIRED as the thing to run on the app host, and
-# it was never delivered there — the deploy syncs docker-compose.yml and nothing
-# else, and the host has no repository. An operator's only options were to paste
-# the script over ssh or to hand-copy it, and neither leaves any evidence of
-# WHICH version ran.
+# Before this existed, the cutover wrapper was named by the runbook and by
+# deploy/CUTOVER_REQUIRED as the thing to run on the app host, and it was never
+# delivered there — the deploy syncs docker-compose.yml and nothing else, and the
+# host has no repository. An operator's only options were to paste the script
+# over ssh or to hand-copy it, and neither leaves any evidence of WHICH version
+# ran.
 #
-# `scripts/cutover-wrapper-package.sh` puts a verbatim copy of the wrapper and
-# its SHA-256 under `scripts/`, which the worker image carries. Extracting them
-# from the exact pinned image binds the wrapper to the release being deployed,
-# and the wrapper re-hashes itself against the installed manifest before every
-# phase, so a truncated copy, a hand-edit on the host, or a wrapper left over
-# from a previous release refuses instead of driving a cutover.
+# The wrapper lives at `scripts/hetzner-sync-cutover.sh` and the worker image
+# copies `scripts/` wholesale, so the image carries the wrapper itself at
+# `${WRAPPER_IMAGE_PATH}` below — not a generated duplicate of it — alongside the
+# manifest that pins its SHA-256. Extracting both from the exact pinned image
+# binds the wrapper to the release being deployed, this function refuses unless
+# the extracted bytes hash to what that manifest pins, and the wrapper re-hashes
+# itself against the installed manifest before every phase. A truncated copy, a
+# hand-edit on the host, or a wrapper left over from a previous release refuses
+# instead of driving a cutover.
+WRAPPER_IMAGE_PATH="/app/scripts/hetzner-sync-cutover.sh"
+WRAPPER_MANIFEST_IMAGE_PATH="/app/scripts/cutover-wrapper.manifest"
+
 deliver_cutover_wrapper() {
   cutover_dir="${REMOTE_APP_DIR}/cutover"
   staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/adsecute-cutover-deliver.XXXXXX")"
@@ -292,14 +298,26 @@ deliver_cutover_wrapper() {
   fi
 
   extract_container="$(docker create "${expected_worker_image}" true)"
-  if ! docker cp "${extract_container}:/app/scripts/cutover-wrapper-payload.sh" "${staging_dir}/hetzner-sync-cutover.sh" ||
-    ! docker cp "${extract_container}:/app/scripts/cutover-wrapper.manifest" "${staging_dir}/cutover-wrapper.manifest"; then
-    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} does not carry the packaged cutover wrapper"
+  if ! docker cp "${extract_container}:${WRAPPER_IMAGE_PATH}" "${staging_dir}/hetzner-sync-cutover.sh" ||
+    ! docker cp "${extract_container}:${WRAPPER_MANIFEST_IMAGE_PATH}" "${staging_dir}/cutover-wrapper.manifest"; then
+    echo "cutover_wrapper_delivery FAILED: ${expected_worker_image} does not carry ${WRAPPER_IMAGE_PATH} and ${WRAPPER_MANIFEST_IMAGE_PATH}"
     cleanup_cutover_delivery
     return 1
   fi
   docker rm -f "${extract_container}" >/dev/null 2>&1 || true
   extract_container=""
+
+  # The manifest names the repository path the digest was taken over, and the
+  # builder stage copies the build context to /app, so it must describe the file
+  # just extracted. If the wrapper is ever moved again and only one of these two
+  # places is updated, this refuses here rather than silently pinning the digest
+  # of a file that is not the one being installed.
+  manifest_source="$(awk -F= '$1 == "wrapper_source" { print $2 }' "${staging_dir}/cutover-wrapper.manifest" | tr -d '[:space:]')"
+  if [ "/app/${manifest_source}" != "${WRAPPER_IMAGE_PATH}" ]; then
+    echo "cutover_wrapper_delivery FAILED: manifest pins wrapper_source=${manifest_source:-<none>}, this deploy extracted ${WRAPPER_IMAGE_PATH}"
+    cleanup_cutover_delivery
+    return 1
+  fi
 
   expected_sha="$(awk -F= '$1 == "wrapper_sha256" { print $2 }' "${staging_dir}/cutover-wrapper.manifest" | tr -d '[:space:]')"
   actual_sha="$(sha256_of_file "${staging_dir}/hetzner-sync-cutover.sh")"

@@ -124,7 +124,9 @@
     "test:cutover-harness": "bash scripts/cutover-real-postgres-harness.sh",
     "cutover:package": "bash scripts/cutover-wrapper-package.sh emit",
     "test:cutover-wrapper-package": "bash scripts/cutover-wrapper-package.sh verify",
-    "test:entrypoint-admission-seam": "node --import tsx scripts/ephemeral-postgres-entrypoint-admission-seam.ts"
+    "test:entrypoint-admission-seam": "node --import tsx scripts/ephemeral-postgres-entrypoint-admission-seam.ts",
+    "test:cutover-build-context": "bash scripts/cutover-wrapper-build-context-check.sh",
+    "test:shopify-grant-race-seam": "node --import tsx scripts/ephemeral-postgres-shopify-grant-race-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

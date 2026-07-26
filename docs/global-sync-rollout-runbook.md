@@ -21,9 +21,10 @@ reaches the repository's TypeScript by executing it inside the already-pinned
 worker image with `/var/www/adsecute` bind-mounted.
 
 **The path you type on the host is not the repository path.** The wrapper lives
-at `.github/scripts/hetzner-sync-cutover.sh` in this repository, but `.github/`
-is excluded from the image, so it is DELIVERED to the host during
-`prepare_runtime` and installed at:
+at `scripts/hetzner-sync-cutover.sh` in this repository. The app host has no
+repository, so that path is not something you can type there: the worker image
+carries the wrapper at `/app/scripts/hetzner-sync-cutover.sh`, and
+`prepare_runtime` DELIVERS it out of the exact pinned image and installs it at:
 
 ```
 /var/www/adsecute/cutover/hetzner-sync-cutover.sh

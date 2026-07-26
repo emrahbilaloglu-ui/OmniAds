@@ -12,8 +12,12 @@ so the second check is the one that actually fires there.
 
 RUN IT ON THE APP HOST, NOT FROM THE REPOSITORY
 
-The wrapper is delivered by the deploy, not checked out. `prepare_runtime`
-extracts it from `ghcr.io/erhanrdn/omniads-worker:<sha>` and installs it at:
+The wrapper's canonical source is `scripts/hetzner-sync-cutover.sh`, but do not
+run it from a checkout: a repository copy is whatever branch happens to be
+checked out, and the app host has no repository at all. It is delivered by the
+deploy. `prepare_runtime` extracts it from
+`ghcr.io/erhanrdn/omniads-worker:<sha>`, which carries it at
+`/app/scripts/hetzner-sync-cutover.sh`, and installs it at:
 
   /var/www/adsecute/cutover/hetzner-sync-cutover.sh
 

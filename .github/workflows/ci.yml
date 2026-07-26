@@ -119,17 +119,27 @@ jobs:
       - name: Legacy import replay seam
         run: npm run test:legacy-replay-seam
 
-      # The wrapper the app host receives is extracted from the worker image, so
-      # the packaged copy under scripts/ is what actually ships. This refuses a
-      # commit that edits the cutover script without repackaging, which would
-      # otherwise deploy a wrapper one release behind the release it drives.
+      # The wrapper now lives in scripts/, which an existing Dockerfile COPY
+      # already ships into the worker image — so there is one canonical copy
+      # rather than a generated duplicate. This refuses a commit that edits the
+      # cutover script without repackaging its manifest, which would otherwise
+      # deploy a wrapper whose digest no longer matches the one the host checks.
       - name: Cutover wrapper package is current
         run: |
           set -euo pipefail
-          bash -n .github/scripts/hetzner-sync-cutover.sh
+          bash -n scripts/hetzner-sync-cutover.sh
           bash -n scripts/cutover-wrapper-package.sh
           bash -n scripts/cutover-real-postgres-harness.sh
+          bash -n scripts/cutover-wrapper-build-context-check.sh
           npm run test:cutover-wrapper-package
+
+      # A STATIC assertion that the wrapper is inside the Docker build context
+      # and captured by an existing COPY. It is NOT a container smoke test: no
+      # image is built, no layer is read, nothing is executed in the image. It
+      # exists so a .dockerignore or Dockerfile edit that would silently stop
+      # shipping the wrapper fails here instead of at a cutover.
+      - name: Cutover wrapper build-context assertion (static, not a smoke test)
+        run: npm run test:cutover-build-context
 
       # bash -n proves the cutover script parses. It says nothing about whether
       # the phase graph can be traversed, whether the two-host split holds, or
@@ -163,10 +173,17 @@ jobs:
 
       # One Shopify grant, many finalizers. Proves exactly one winner across
       # separate backends, that a refused finalize performs zero provider work,
-      # and that a retryable failure restores the grant with its ORIGINAL expiry
-      # rather than extending or reviving it.
+      # that a retryable failure restores the grant with its ORIGINAL expiry
+      # rather than extending or reviving it, and that the shop's access token is
+      # encrypted at rest with no plaintext surviving the conversion.
       - name: Shopify install context seam
         run: npm run test:shopify-install-seam
+
+      # The guard runs before EVERY Shopify request, not once per sequence. A
+      # committed reconnect from a separate backend between call 1 and call 2
+      # must stop the remaining calls and must not produce a success receipt.
+      - name: Shopify grant race seam
+        run: npm run test:shopify-grant-race-seam
 
       # Fail-closed proof for the ORDINARY deploy path: a release carrying
       # deploy/CUTOVER_REQUIRED must not be migratable outside the cutover lock.
@@ -193,7 +210,7 @@ jobs:
             echo "deploy/CUTOVER_REQUIRED does not name ${installed}" >&2
             exit 1
           }
-          ! grep -qE '^\s*(\./)?\.github/scripts/hetzner-sync-cutover\.sh' docs/global-sync-rollout-runbook.md || {
+          ! grep -qE '^\s*(\./)?(\.github/)?scripts/hetzner-sync-cutover\.sh' docs/global-sync-rollout-runbook.md || {
             echo "the runbook still instructs running the repository copy of the wrapper" >&2
             exit 1
           }

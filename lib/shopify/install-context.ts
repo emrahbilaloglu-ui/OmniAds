@@ -3,11 +3,21 @@ import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import {
+  decryptIntegrationSecret,
+  encryptIntegrationSecret,
+  IntegrationSecretKeyRequiredError,
+  IntegrationSecretUnreadableError,
+  isEncryptedIntegrationSecret,
+  isIntegrationSecretKeyRequiredError,
+  isIntegrationSecretUnreadableError,
+} from "@/lib/integration-secrets";
+import {
   getIntegration,
   upsertIntegration,
   type IntegrationRow,
 } from "@/lib/integrations";
 import { registerShopifyCustomerEventsPixel } from "@/lib/shopify/pixels";
+import type { ShopifyGrantGuardedInput } from "@/lib/shopify/webhooks";
 import { registerShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 
 export interface ShopifyInstallContextRow {
@@ -15,6 +25,11 @@ export interface ShopifyInstallContextRow {
   token: string;
   shop_domain: string;
   shop_name: string | null;
+  /**
+   * PLAINTEXT on every row this module hands out, and CIPHERTEXT in every row it
+   * writes. `encryptInstallContextToken` and `readInstallContextRow` are the only
+   * two places that cross that boundary.
+   */
   access_token: string;
   scopes: string | null;
   metadata: Record<string, unknown>;
@@ -24,6 +39,62 @@ export interface ShopifyInstallContextRow {
   preferred_business_id: string | null;
   created_at: string;
   expires_at: string;
+}
+
+/**
+ * The at-rest form of a shop's Admin API access token, or a refusal.
+ *
+ * This table held the token in PLAINTEXT while the very same secret was
+ * encrypted the instant it became an integration credential — so a dump, a
+ * backup, a replica or one `SELECT` by anyone with read access handed over a
+ * live shop credential. The scheme is not a new one: it is exactly
+ * `lib/integration-secrets.ts`, keyed by `INTEGRATION_TOKEN_ENCRYPTION_KEY`.
+ *
+ * It THROWS rather than degrading. A missing key is the case in which a
+ * "best effort" encryption silently writes the plaintext it was supposed to
+ * remove, and a context that was never created is a failed install the user
+ * retries — while a plaintext row is a leaked credential nobody notices. The
+ * post-encryption assertion is not decoration either: `encryptIntegrationSecret`
+ * returns its input unchanged for an already-encrypted value and `null` for an
+ * empty one, so "it returned something" is not the same as "it returned
+ * ciphertext".
+ */
+function encryptInstallContextToken(accessToken: string): string {
+  if (!accessToken || accessToken.trim().length === 0) {
+    throw new IntegrationSecretKeyRequiredError(
+      "A Shopify install context cannot be created without an access token.",
+    );
+  }
+  const encrypted = encryptIntegrationSecret(accessToken);
+  if (!encrypted || !isEncryptedIntegrationSecret(encrypted)) {
+    throw new IntegrationSecretKeyRequiredError(
+      "Refusing to persist a Shopify install context whose access token is not encrypted.",
+    );
+  }
+  return encrypted;
+}
+
+/**
+ * Turn a stored row into one whose `access_token` is the shop's actual token.
+ *
+ * `decryptIntegrationSecret` passes a value through unchanged when it carries no
+ * `enc:v1` prefix, which is what makes rows written before this change readable
+ * during the transition, and it THROWS for a value that carries the prefix and
+ * cannot be decrypted. That distinction is the whole contract: ciphertext must
+ * never be returned as if it were the token — it would be sent to Shopify as a
+ * bearer credential, stored as an integration credential, and compared against
+ * the stored grant, all of which fail in ways that look like something else.
+ */
+function readInstallContextRow(
+  row: ShopifyInstallContextRow,
+): ShopifyInstallContextRow {
+  const accessToken = decryptIntegrationSecret(row.access_token);
+  if (!accessToken) {
+    throw new IntegrationSecretUnreadableError(
+      "A Shopify install context holds no readable access token.",
+    );
+  }
+  return { ...row, access_token: accessToken };
 }
 
 function buildExpiryDate() {
@@ -56,6 +127,9 @@ export async function createShopifyInstallContext(input: {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = buildExpiryDate().toISOString();
   const metadataJson = JSON.stringify(input.metadata ?? {});
+  // Before the INSERT, deliberately: a throw here means no row exists at all,
+  // which is the only outcome that cannot leave a plaintext credential behind.
+  const accessToken = encryptInstallContextToken(input.accessToken);
 
   const rows = (await sql`
     INSERT INTO shopify_install_contexts (
@@ -75,7 +149,7 @@ export async function createShopifyInstallContext(input: {
       ${token},
       ${input.shopDomain},
       ${input.shopName ?? null},
-      ${input.accessToken},
+      ${accessToken},
       ${input.scopes ?? null},
       ${metadataJson}::jsonb,
       ${sanitizeNextPath(input.returnTo) ?? null},
@@ -87,7 +161,10 @@ export async function createShopifyInstallContext(input: {
     RETURNING *
   `) as ShopifyInstallContextRow[];
 
-  return rows[0] as ShopifyInstallContextRow;
+  // Read back through the same door every other caller uses, so a stored value
+  // that cannot be decrypted fails HERE — while the install can still be
+  // restarted — rather than at the finalize that has already spent the grant.
+  return readInstallContextRow(rows[0] as ShopifyInstallContextRow);
 }
 
 export async function getShopifyInstallContext(
@@ -108,7 +185,7 @@ export async function getShopifyInstallContext(
       AND expires_at > now()
     LIMIT 1
   `) as ShopifyInstallContextRow[];
-  return rows[0] ?? null;
+  return rows[0] ? readInstallContextRow(rows[0]) : null;
 }
 
 export type ShopifyInstallContextClaim =
@@ -176,7 +253,12 @@ export async function consumeShopifyInstallContext(input: {
       )
     RETURNING *
   `) as ShopifyInstallContextRow[];
-  if (claimed[0]) return { ok: true, context: claimed[0] };
+  // A claimed row whose token cannot be decrypted throws rather than returning
+  // ciphertext. The claim is destructive, so the grant is spent either way — and
+  // between "the user reinstalls" and "we send a base64 blob to Shopify as a
+  // bearer token and store it as the business's credential", only the first is a
+  // recoverable state.
+  if (claimed[0]) return { ok: true, context: readInstallContextRow(claimed[0]) };
 
   // Distinguish "no such context" from "that context is not yours" and from
   // "that context belongs to a different business", so the caller can say
@@ -254,6 +336,12 @@ export async function restoreShopifyInstallContext(
   });
   if (!readiness.ready) return "unavailable";
   const sql = getDb();
+  // The claim handed this caller a DECRYPTED token, so putting it back writes it
+  // again — and a restore that wrote the plaintext straight back would undo the
+  // encryption for exactly the rows a failed install leaves behind. Refusing
+  // (this throws when the key is gone) is caught by `finalizeShopifyInstall` and
+  // reported as a grant that was not restored.
+  const accessToken = encryptInstallContextToken(context.access_token);
   const restored = (await sql`
     INSERT INTO shopify_install_contexts (
       token, shop_domain, shop_name, access_token, scopes, metadata,
@@ -263,7 +351,7 @@ export async function restoreShopifyInstallContext(
     SELECT
       ${context.token}::text, ${context.shop_domain}::text,
       ${context.shop_name}::text,
-      ${context.access_token}::text, ${context.scopes}::text,
+      ${accessToken}::text, ${context.scopes}::text,
       ${JSON.stringify(context.metadata ?? {})}::jsonb,
       ${context.return_to}::text,
       ${context.session_id}::uuid,
@@ -317,7 +405,7 @@ export async function getLatestShopifyInstallContextForActor(input: {
     LIMIT 1
   `) as ShopifyInstallContextRow[];
 
-  return rows[0] ?? null;
+  return rows[0] ? readInstallContextRow(rows[0]) : null;
 }
 
 /**
@@ -465,15 +553,21 @@ export type ShopifySideEffectOutcome =
       detail: string;
     };
 
+/**
+ * The provider mutations a finalize performs, declared so that a guardless one
+ * cannot be substituted.
+ *
+ * Written as PROPERTIES holding arrow types, not as method shorthand. Method
+ * shorthand is compared bivariantly even under `strictFunctionTypes`, so a
+ * function requiring `assertStillAuthorized` was assignable to a slot declaring
+ * it did not — which is precisely how a guardless implementation would slip
+ * back in without a type error.
+ */
 export interface ShopifyInstallSideEffects {
-  registerWebhooks(input: {
-    shopId: string;
-    accessToken: string;
-  }): Promise<unknown>;
-  registerPixel(input: {
-    shopId: string;
-    accessToken: string;
-  }): Promise<{ pixelId: string | null }>;
+  registerWebhooks: (input: ShopifyGrantGuardedInput) => Promise<unknown>;
+  registerPixel: (
+    input: ShopifyGrantGuardedInput,
+  ) => Promise<{ pixelId?: string | null } | { status: string }>;
 }
 
 const LIVE_SIDE_EFFECTS: ShopifyInstallSideEffects = {
@@ -610,8 +704,30 @@ async function readPersistedGrant(input: {
 async function runGuardedSideEffect(input: {
   businessId: string;
   authority: ShopifyGrantAuthority;
-  run: () => Promise<{ pixelId?: string | null } | void>;
+  run: (
+    assertStillAuthorized: () => Promise<void>,
+  ) => Promise<{ pixelId?: string | null; status?: string } | void>;
 }): Promise<ShopifySideEffectOutcome> {
+  /**
+   * The guard handed INTO the sequence, so it runs before every request it
+   * makes rather than once before the first.
+   *
+   * Checking here and then handing over the token was still a race: webhook
+   * registration lists and then issues one create per missing topic, and a
+   * reconnect between two of those creates sent the rest under a credential the
+   * user had already replaced. It throws, because a throw is what stops a
+   * sequence mid-flight; the sequence converts it into a stopped receipt.
+   */
+  const assertStillAuthorized = async () => {
+    const still = await assertShopifyGrantUnchanged({
+      businessId: input.businessId,
+      authority: input.authority,
+    });
+    if (!still.ok) {
+      throw new ShopifyGrantMovedError(still.code, still.detail);
+    }
+  };
+
   const authorised = await assertShopifyGrantUnchanged({
     businessId: input.businessId,
     authority: input.authority,
@@ -624,12 +740,42 @@ async function runGuardedSideEffect(input: {
     };
   }
   try {
-    const result = await input.run();
+    const result = await input.run(assertStillAuthorized);
+    // A sequence that stopped part-way reports itself as stopped. Reading that
+    // as success is the defect this whole path exists to prevent — and for the
+    // pixel it is worse than cosmetic: a "registered" outcome writes the marker
+    // that suppresses the NEXT shop's pixel entirely.
+    if (result && typeof result === "object" && result.status === "stopped") {
+      return {
+        status: "refused",
+        code: "shopify_connection_changed",
+        detail:
+          "The Shopify connection moved while the provider sequence was running; the remaining requests were not sent.",
+      };
+    }
     return result && "pixelId" in result
       ? { status: "registered", pixelId: result.pixelId ?? null }
       : { status: "registered" };
   } catch (error: unknown) {
+    if (error instanceof ShopifyGrantMovedError) {
+      return { status: "refused", code: error.code, detail: error.detail };
+    }
     return { status: "failed", detail: errorMessage(error) };
+  }
+}
+
+/** A grant that moved mid-sequence, distinguishable from a provider failure. */
+class ShopifyGrantMovedError extends Error {
+  readonly code: "shopify_connection_changed" | "shopify_authority_unknown";
+  readonly detail: string;
+  constructor(
+    code: "shopify_connection_changed" | "shopify_authority_unknown",
+    detail: string,
+  ) {
+    super(`${code}: ${detail}`);
+    this.name = "ShopifyGrantMovedError";
+    this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -653,12 +799,40 @@ export async function finalizeShopifyInstall(input: {
 }): Promise<ShopifyInstallFinalizeResult> {
   const sideEffects = input.sideEffects ?? LIVE_SIDE_EFFECTS;
 
-  const claim = await consumeShopifyInstallContext({
-    token: input.token,
-    sessionId: input.sessionId,
-    userId: input.userId,
-    targetBusinessId: input.businessId,
-  });
+  let claim: ShopifyInstallContextClaim;
+  try {
+    claim = await consumeShopifyInstallContext({
+      token: input.token,
+      sessionId: input.sessionId,
+      userId: input.userId,
+      targetBusinessId: input.businessId,
+    });
+  } catch (error: unknown) {
+    // The two secret errors are raised only AFTER the destructive claim has
+    // already returned the row, so the grant is provably spent and
+    // `discarded` is the truth rather than a guess. Every other error — a
+    // database failure during the DELETE itself — may have left the grant
+    // intact, and describing that as discarded would be a lie the caller acts
+    // on, so it propagates untouched.
+    if (
+      !isIntegrationSecretKeyRequiredError(error) &&
+      !isIntegrationSecretUnreadableError(error)
+    ) {
+      throw error;
+    }
+    return {
+      ok: false,
+      failure: {
+        code: "integration_save_failed_terminal",
+        httpStatus: 500,
+        message:
+          "The Shopify install could not be completed because its stored credential could not be read. Start the install again from Shopify.",
+        retryable: false,
+        grant: "discarded",
+        detail: errorMessage(error),
+      },
+    };
+  }
   if (!claim.ok) {
     if (claim.reason === "not_your_context") {
       return {
@@ -815,13 +989,12 @@ export async function finalizeShopifyInstall(input: {
   const webhooks = await runGuardedSideEffect({
     businessId: input.businessId,
     authority,
-    run: () =>
-      sideEffects
-        .registerWebhooks({
-          shopId: authority.shopDomain,
-          accessToken: authority.accessToken,
-        })
-        .then(() => undefined),
+    run: (assertStillAuthorized) =>
+      sideEffects.registerWebhooks({
+        shopId: authority.shopDomain,
+        accessToken: authority.accessToken,
+        assertStillAuthorized,
+      }) as Promise<{ status?: string }>,
   });
 
   const existingMarker = readPixelMarker(integration.metadata);
@@ -835,10 +1008,11 @@ export async function finalizeShopifyInstall(input: {
     pixel = await runGuardedSideEffect({
       businessId: input.businessId,
       authority,
-      run: () =>
+      run: (assertStillAuthorized) =>
         sideEffects.registerPixel({
           shopId: authority.shopDomain,
           accessToken: authority.accessToken,
+          assertStillAuthorized,
         }),
     });
     if (pixel.status === "registered") {

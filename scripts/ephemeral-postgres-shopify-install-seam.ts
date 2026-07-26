@@ -22,8 +22,16 @@
  *     succeed and a live shop credential must not sit in a claimable table;
  *   - a reconnect that lands mid-install refuses the remaining provider
  *     mutations instead of sending a superseded token to Shopify;
- *   - and a second install of the same shop does not create a second
- *     customer-events pixel, which would double-count every order.
+ *   - a second install of the same shop does not create a second
+ *     customer-events pixel, which would double-count every order;
+ *   - and the token is CIPHERTEXT in the column, converted in place for rows
+ *     written before that was true, convertible again after an interrupted run,
+ *     and refused outright when the key that protects it is absent.
+ *
+ * Nothing here prints a token or a decrypted secret. Every assertion is on a
+ * prefix, a count, a boolean or an equality computed in-process — a proof that
+ * credentials are encrypted at rest is not worth much if the proof itself
+ * writes them to a CI log.
  */
 import fs from "node:fs";
 import net from "node:net";
@@ -179,16 +187,24 @@ async function main() {
     const db = await import("@/lib/db");
     resetDbClientCache = db.resetDbClientCache;
     db.resetDbClientCache();
-    const { runMigrations } = await import("@/lib/migrations");
+    const {
+      encryptShopifyInstallContextAccessTokens,
+      resetMigrationLatchForSeams,
+      runMigrations,
+    } = await import("@/lib/migrations");
     await runMigrations({ force: true, reason: "shopify_install_seam" });
 
     const {
       consumeShopifyInstallContext,
       createShopifyInstallContext,
       finalizeShopifyInstall,
+      getShopifyInstallContext,
       restoreShopifyInstallContext,
     } = await import("@/lib/shopify/install-context");
     const { getIntegration, upsertIntegration } = await import("@/lib/integrations");
+    const { verifyMigrationSchemaContract } = await import(
+      "@/lib/migration-verification"
+    );
 
     client = new Client({ connectionString });
     await client.connect();
@@ -242,6 +258,59 @@ async function main() {
           )
         ).rows[0]!.count,
       );
+    /**
+     * The bytes actually on disk for one install token.
+     *
+     * Read through a raw client, deliberately: the module's own reader decrypts,
+     * so asking it what is stored would only ever return the answer we want to
+     * hear. Returned to the caller and never logged.
+     */
+    const rawStoredToken = async (token: string) =>
+      (
+        await observer!.query<{ access_token: string }>(
+          `SELECT access_token FROM shopify_install_contexts WHERE token = $1`,
+          [token],
+        )
+      ).rows[0]?.access_token ?? null;
+    /** Rows anywhere in the table whose token is not `enc:v1` ciphertext. */
+    const plaintextRowCount = async () =>
+      Number(
+        (
+          await observer!.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM shopify_install_contexts
+             WHERE access_token IS NOT NULL AND access_token NOT LIKE 'enc:v1:%'`,
+          )
+        ).rows[0]!.count,
+      );
+    /**
+     * Ciphertext at rest AND the original token back out.
+     *
+     * Both halves matter and neither implies the other: a column full of
+     * `enc:v1:` blobs that decrypt to the wrong thing is an outage, and a
+     * perfect round trip through a reader that never encrypted is the bug this
+     * closes.
+     */
+    const assertEncryptedAtRest = async (
+      label: string,
+      token: string,
+      plaintext: string,
+    ) => {
+      const stored = await rawStoredToken(token);
+      assert(stored != null, `${label}: the context row is gone.`);
+      assert(
+        stored.startsWith("enc:v1:"),
+        `${label}: the stored access token carries no enc:v1 prefix.`,
+      );
+      assert(
+        !stored.includes(plaintext) && stored !== plaintext,
+        `${label}: the plaintext token is present in the stored column value.`,
+      );
+      const readBack = await getShopifyInstallContext(token);
+      assert(
+        readBack?.access_token === plaintext,
+        `${label}: the round trip did not return the original token.`,
+      );
+    };
     const connectionCount = async (businessId: string) =>
       Number(
         (
@@ -379,6 +448,11 @@ async function main() {
       userId: ownerId,
       preferredBusinessId: businessA,
     });
+    // Captured BEFORE the refused claim, so "left byte-intact" is a comparison
+    // against what was actually stored rather than against a literal.
+    const foreignSessionCiphertext = await rawStoredToken(
+      foreignSessionContext.token,
+    );
     const strangerRecorder = recordingSideEffects();
     const strangerResult = await finalizeShopifyInstall({
       token: foreignSessionContext.token,
@@ -391,14 +465,16 @@ async function main() {
       !strangerResult.ok && strangerResult.failure.code === "context_not_yours",
       `S3: a finalize from a different session was accepted: ${JSON.stringify(strangerResult)}`,
     );
-    const survivingToken = await observer.query<{ access_token: string }>(
-      `SELECT access_token FROM shopify_install_contexts WHERE token = $1`,
-      [foreignSessionContext.token],
-    );
+    const survivingToken = await rawStoredToken(foreignSessionContext.token);
     assert(
-      survivingToken.rows[0]?.access_token === "shpat_foreign" &&
+      survivingToken === foreignSessionCiphertext &&
         strangerRecorder.calls.pixel.length === 0,
-      "S3: a refused claim destroyed or acted on a grant that belongs to someone else.",
+      "S3: a refused claim destroyed, rewrote or acted on a grant that belongs to someone else.",
+    );
+    await assertEncryptedAtRest(
+      "S3",
+      foreignSessionContext.token,
+      "shpat_foreign",
     );
     const rightfulOwner = await finalizeShopifyInstall({
       token: foreignSessionContext.token,
@@ -562,19 +638,18 @@ async function main() {
       `S6: a failed install still performed ${retryRecorder.calls.webhooks.length} webhook and ${retryRecorder.calls.pixel.length} pixel registrations.`,
     );
     const restored = await observer.query<{
-      access_token: string;
       expires_at: string;
       within_original: boolean;
     }>(
-      `SELECT access_token, expires_at::text AS expires_at,
+      `SELECT expires_at::text AS expires_at,
               expires_at <= $2::timestamptz AS within_original
        FROM shopify_install_contexts WHERE token = $1`,
       [retryContext.token, retryContext.expires_at],
     );
-    assert(
-      restored.rows[0]?.access_token === "shpat_retry_new",
-      "S6: the restored grant is not the one that was claimed.",
-    );
+    // The restore writes the token again, from a value the claim decrypted. If
+    // it wrote that value back verbatim the encryption would be undone for
+    // exactly the rows a failed install leaves lying around.
+    await assertEncryptedAtRest("S6", retryContext.token, "shpat_retry_new");
     assert(
       restored.rows[0]?.within_original === true,
       `S6: the restore EXTENDED the grant past the expiry the user consented to (${restored.rows[0]?.expires_at} > ${retryContext.expires_at}).`,
@@ -661,8 +736,57 @@ async function main() {
         terminalRecorder.calls.pixel.length === 0,
       "S7: a terminal failure left a connection or reached the provider.",
     );
+    // The same contract for a terminal failure of the credential WRITE, which
+    // the missing key no longer reaches: the token is now decrypted at claim
+    // time, so a keyless finalize fails before the write. A foreign-key
+    // violation is terminal in exactly the same way — identical on every retry —
+    // and this is the path that actually persists credentials.
+    const businessG = await makeBusiness("Install target G");
+    // A CHECK the write cannot satisfy: deterministic, rolled back by
+    // PostgreSQL, and classified as terminal because 23514 is not in the
+    // transient set. Dropped again immediately so nothing later inherits it.
+    await client.query(
+      `ALTER TABLE provider_connections
+       ADD CONSTRAINT tmp_shopify_install_seam_terminal
+       CHECK (provider_account_id IS DISTINCT FROM 'constraint.myshopify.com')`,
+    );
+    const constraintContext = await createShopifyInstallContext({
+      shopDomain: "constraint.myshopify.com",
+      accessToken: "shpat_constraint",
+      sessionId,
+      userId: ownerId,
+      preferredBusinessId: businessG,
+    });
+    const constraintRecorder = recordingSideEffects();
+    const constraintResult = await finalizeShopifyInstall({
+      token: constraintContext.token,
+      businessId: businessG,
+      sessionId,
+      userId: ownerId,
+      sideEffects: constraintRecorder.sideEffects,
+    });
+    await client.query(
+      `ALTER TABLE provider_connections
+       DROP CONSTRAINT tmp_shopify_install_seam_terminal`,
+    );
+    assert(
+      !constraintResult.ok &&
+        constraintResult.failure.code === "integration_save_failed_terminal" &&
+        constraintResult.failure.retryable === false &&
+        constraintResult.failure.grant === "discarded",
+      `S7: a credential write that fails identically on every retry was not reported as terminal: ${JSON.stringify(
+        constraintResult.ok ? { ok: true } : constraintResult.failure.code,
+      )}`,
+    );
+    assert(
+      (await contextCount(constraintContext.token)) === 0 &&
+        (await connectionCount(businessG)) === 0 &&
+        constraintRecorder.calls.webhooks.length === 0 &&
+        constraintRecorder.calls.pixel.length === 0,
+      "S7: a terminal credential-write failure put the grant back or reached the provider.",
+    );
     console.log(
-      `${LABEL} S7 PASS terminal failure: a misconfiguration that fails identically on every retry reports retryable=false, leaves 0 claimable grants, 0 connections and 0 provider calls, and the token cannot be claimed again`,
+      `${LABEL} S7 PASS terminal failure: an unreadable stored credential and a credential write that fails identically on every retry both report retryable=false, leave 0 claimable grants, 0 connections and 0 provider calls, and neither token can be claimed again`,
     );
 
     // ── S8. The restore itself cannot extend or resurrect ──────────────────
@@ -816,6 +940,284 @@ async function main() {
     );
     console.log(
       `${LABEL} S9 PASS generation binding: a reconnect landing mid-install refuses the remaining provider mutation with 0 calls under the superseded credential, and a second install of the same shop reuses the recorded registration so exactly 1 customer-events pixel is ever created`,
+    );
+
+    // ── S10. The stored token is CIPHERTEXT, and only ciphertext ───────────
+    //
+    // The table held a live Shopify Admin API token in the clear while the very
+    // same secret was encrypted the moment it became an integration credential.
+    // A dump, a backup, a replica or one SELECT was a working store credential.
+    const AT_REST_SECRET = "shpat_at_rest_secret";
+    const atRestContext = await createShopifyInstallContext({
+      shopDomain: "atrest.myshopify.com",
+      accessToken: AT_REST_SECRET,
+      sessionId,
+      userId: ownerId,
+      preferredBusinessId: businessB,
+    });
+    assert(
+      atRestContext.access_token === AT_REST_SECRET,
+      "S10: the writer did not hand its own caller back a usable token.",
+    );
+    await assertEncryptedAtRest("S10", atRestContext.token, AT_REST_SECRET);
+    // Not just "this row": the token bytes must not appear in ANY row, which is
+    // what a `pg_dump | grep` would find.
+    const leakedRows = Number(
+      (
+        await observer.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM shopify_install_contexts
+           WHERE access_token LIKE '%' || $1 || '%'`,
+          [AT_REST_SECRET],
+        )
+      ).rows[0]!.count,
+    );
+    assert(
+      leakedRows === 0,
+      `S10: the plaintext token appears in ${leakedRows} stored column value(s).`,
+    );
+    const strayPlaintext = await plaintextRowCount();
+    assert(
+      strayPlaintext === 0,
+      `S10: ${strayPlaintext} row(s) written by this seam's real installs hold an unencrypted token.`,
+    );
+    console.log(
+      `${LABEL} S10 PASS encrypted at rest: a context created through the real writer stores an enc:v1 value that contains none of the token's bytes, the round trip returns the original, and 0 of the rows this seam's installs wrote hold plaintext`,
+    );
+
+    // ── S11. Rows written BEFORE this change are converted ─────────────────
+    //
+    // Every row already in production is plaintext. The change is worth nothing
+    // if those rows keep their plaintext, so the migration converts them — and
+    // the post-migration contract has to REFUSE the pre-conversion state, or it
+    // is not proving anything about the conversion.
+    const legacyGrants = [
+      { token: "legacy-install-token-1", secret: "shpat_legacy_one" },
+      { token: "legacy-install-token-2", secret: "shpat_legacy_two" },
+      { token: "legacy-install-token-3", secret: "shpat_legacy_three" },
+    ];
+    for (const grant of legacyGrants) {
+      await client.query(
+        `INSERT INTO shopify_install_contexts (token, shop_domain, access_token, expires_at)
+         VALUES ($1, $2, $3, now() + interval '30 minutes')`,
+        [grant.token, "legacy.myshopify.com", grant.secret],
+      );
+    }
+    assert(
+      (await plaintextRowCount()) === legacyGrants.length,
+      "S11: the legacy fixture did not land as plaintext, so the conversion would prove nothing.",
+    );
+    const refusedWithPlaintext = await verifyMigrationSchemaContract().then(
+      () => null,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    assert(
+      refusedWithPlaintext != null &&
+        refusedWithPlaintext.includes("shopify_install_contexts.access_token"),
+      `S11: the post-migration contract ACCEPTED ${legacyGrants.length} plaintext shop credentials.`,
+    );
+
+    resetMigrationLatchForSeams();
+    await runMigrations({ force: true, reason: "shopify_install_seam_legacy" });
+
+    assert(
+      (await plaintextRowCount()) === 0,
+      "S11: the migration ran and left plaintext tokens behind.",
+    );
+    for (const grant of legacyGrants) {
+      await assertEncryptedAtRest("S11", grant.token, grant.secret);
+    }
+    await verifyMigrationSchemaContract();
+    console.log(
+      `${LABEL} S11 PASS legacy conversion: ${legacyGrants.length} pre-existing plaintext grants make the schema contract refuse, the real migration converts every one in place, each still decrypts to the token it was written with, and the contract then verifies clean`,
+    );
+
+    // ── S12. Interrupted conversion, re-run, and idempotency ───────────────
+    //
+    // A conversion that only works when it runs to completion is a conversion
+    // that leaves plaintext behind the first time the process is killed. The
+    // interruption here is real work stopped part-way, not a simulated one: the
+    // step is asked for one batch and no more.
+    const sql = db.getDb();
+    const interruptedGrants = Array.from({ length: 6 }, (_, index) => ({
+      token: `interrupted-install-token-${index + 1}`,
+      secret: `shpat_interrupted_${index + 1}`,
+    }));
+    for (const grant of interruptedGrants) {
+      await client.query(
+        `INSERT INTO shopify_install_contexts (token, shop_domain, access_token, expires_at)
+         VALUES ($1, $2, $3, now() + interval '30 minutes')`,
+        [grant.token, "interrupted.myshopify.com", grant.secret],
+      );
+    }
+    assert(
+      (await plaintextRowCount()) === interruptedGrants.length,
+      "S12: the interrupted-conversion fixture did not land as plaintext.",
+    );
+
+    const firstPass = await encryptShopifyInstallContextAccessTokens(sql, {
+      batchSize: 2,
+      maxBatches: 1,
+    });
+    assert(
+      firstPass.interrupted &&
+        firstPass.converted === 2 &&
+        firstPass.remaining === interruptedGrants.length - 2,
+      `S12: the interrupted pass converted ${firstPass.converted} and left ${firstPass.remaining}; 2 and ${interruptedGrants.length - 2} is the contract.`,
+    );
+
+    // The half-converted table must be fully READABLE. During a real
+    // interruption the application keeps serving out of exactly this state.
+    let encryptedMidway = 0;
+    for (const grant of interruptedGrants) {
+      const stored = await rawStoredToken(grant.token);
+      assert(stored != null, "S12: the interrupted conversion deleted a row.");
+      if (stored.startsWith("enc:v1:")) {
+        encryptedMidway += 1;
+        assert(
+          !stored.includes(grant.secret),
+          "S12: a converted row still contains its plaintext token.",
+        );
+      } else {
+        assert(
+          stored === grant.secret,
+          "S12: an unconverted row was rewritten into something that is neither its plaintext nor ciphertext.",
+        );
+      }
+      const readBack = await getShopifyInstallContext(grant.token);
+      assert(
+        readBack?.access_token === grant.secret,
+        "S12: a row became unreadable across the interrupted conversion.",
+      );
+    }
+    assert(
+      encryptedMidway === 2,
+      `S12: ${encryptedMidway} rows are ciphertext after a one-batch pass; 2 is the contract.`,
+    );
+
+    const secondPass = await encryptShopifyInstallContextAccessTokens(sql, {
+      batchSize: 2,
+    });
+    assert(
+      !secondPass.interrupted &&
+        secondPass.converted === interruptedGrants.length - 2 &&
+        secondPass.remaining === 0,
+      `S12: the re-run converted ${secondPass.converted} and left ${secondPass.remaining}; ${interruptedGrants.length - 2} and 0 is the contract.`,
+    );
+
+    // Byte-identity across a third run is what proves the step SKIPPED the
+    // encrypted rows rather than re-encrypting them: a re-encryption produces a
+    // fresh random IV, so the bytes would change even though it still decrypts.
+    const settled = new Map<string, string>();
+    for (const grant of interruptedGrants) {
+      settled.set(grant.token, (await rawStoredToken(grant.token))!);
+    }
+    const thirdPass = await encryptShopifyInstallContextAccessTokens(sql);
+    assert(
+      thirdPass.converted === 0 && thirdPass.remaining === 0,
+      `S12: re-running a finished conversion converted ${thirdPass.converted} row(s).`,
+    );
+    for (const grant of interruptedGrants) {
+      assert(
+        (await rawStoredToken(grant.token)) === settled.get(grant.token),
+        "S12: re-running the conversion rewrote an already-encrypted value.",
+      );
+      await assertEncryptedAtRest("S12", grant.token, grant.secret);
+    }
+    console.log(
+      `${LABEL} S12 PASS crash and retry: a conversion stopped after 1 of 3 batches leaves 2 encrypted and ${interruptedGrants.length - 2} plaintext with all ${interruptedGrants.length} still readable, the re-run finishes the remaining ${interruptedGrants.length - 2}, and a third run converts 0 while every stored value stays byte-identical and still decrypts to its original`,
+    );
+
+    // ── S13. No key: refuse, do not degrade ────────────────────────────────
+    //
+    // "Encrypt if we can" is how a plaintext credential gets written by code
+    // that believes it encrypts. Every path refuses instead: the writer creates
+    // no row, the reader raises rather than handing back a base64 blob that
+    // would be sent to Shopify as a bearer token, and the conversion fails the
+    // migration rather than silently skipping — a skip leaves the plaintext
+    // there forever and reports success.
+    const totalRowCount = async () =>
+      Number(
+        (
+          await observer!.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM shopify_install_contexts`,
+          )
+        ).rows[0]!.count,
+      );
+    await client.query(
+      `INSERT INTO shopify_install_contexts (token, shop_domain, access_token, expires_at)
+       VALUES ($1, $2, $3, now() + interval '30 minutes')`,
+      ["no-key-install-token", "nokey.myshopify.com", "shpat_no_key_legacy"],
+    );
+    const rowsBeforeKeyless = await totalRowCount();
+    const savedKey = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+    delete process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+
+    const refusedCreate = await createShopifyInstallContext({
+      shopDomain: "keyless.myshopify.com",
+      accessToken: "shpat_keyless",
+      sessionId,
+      userId: ownerId,
+      preferredBusinessId: businessB,
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      refusedCreate instanceof Error &&
+        /INTEGRATION_TOKEN_ENCRYPTION_KEY/.test(refusedCreate.message),
+      "S13: creating a context without an encryption key did not fail.",
+    );
+    assert(
+      (await totalRowCount()) === rowsBeforeKeyless,
+      "S13: the refused create still wrote a row.",
+    );
+
+    const refusedRead = await getShopifyInstallContext(
+      interruptedGrants[0]!.token,
+    ).then(
+      (value) => value,
+      (error: unknown) => error,
+    );
+    assert(
+      refusedRead instanceof Error &&
+        /INTEGRATION_TOKEN_ENCRYPTION_KEY/.test(refusedRead.message),
+      "S13: reading an encrypted context without a key returned a value instead of raising.",
+    );
+
+    const refusedConversion = await encryptShopifyInstallContextAccessTokens(
+      sql,
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    assert(
+      refusedConversion instanceof Error &&
+        /INTEGRATION_TOKEN_ENCRYPTION_KEY/.test(refusedConversion.message),
+      "S13: the conversion SKIPPED its work instead of failing when the key was absent.",
+    );
+    assert(
+      (await plaintextRowCount()) === 1,
+      "S13: the refused conversion changed rows on its way out.",
+    );
+
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY = savedKey;
+    const recovered = await encryptShopifyInstallContextAccessTokens(sql);
+    assert(
+      recovered.converted === 1 && recovered.remaining === 0,
+      `S13: with the key restored the conversion converted ${recovered.converted} row(s) and left ${recovered.remaining}.`,
+    );
+    await assertEncryptedAtRest(
+      "S13",
+      "no-key-install-token",
+      "shpat_no_key_legacy",
+    );
+    assert(
+      (await plaintextRowCount()) === 0,
+      "S13: plaintext survived the whole seam.",
+    );
+    await verifyMigrationSchemaContract();
+    console.log(
+      `${LABEL} S13 PASS key absent: creating a context fails and writes 0 rows, reading an encrypted context raises instead of returning ciphertext, the conversion fails rather than skipping its 1 outstanding row, and restoring the key converts that row with 0 plaintext left in the table`,
     );
 
     console.log(`${LABEL} PASS`);

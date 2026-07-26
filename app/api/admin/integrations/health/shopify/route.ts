@@ -2,7 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   readShopifyGrantAuthority,
   assertShopifyGrantUnchanged,
+  type ShopifyGrantAuthority,
 } from "@/lib/shopify/install-context";
+
+/**
+ * The per-request guard the Shopify webhook and pixel sequences require.
+ *
+ * It throws rather than returning a refusal, because that is what stops a
+ * multi-call sequence dead. A null authority means the connection could not be
+ * read at all, which is "I cannot tell" — and must not read as "unchanged".
+ */
+function buildShopifyGrantGuard(
+  businessId: string,
+  authority: ShopifyGrantAuthority | null,
+): () => Promise<void> {
+  return async () => {
+    if (!authority) {
+      throw new Error(
+        "shopify_authority_unknown: the Shopify connection could not be read.",
+      );
+    }
+    const still = await assertShopifyGrantUnchanged({ businessId, authority });
+    if (!still.ok) throw new Error(`${still.code}: ${still.detail}`);
+  };
+}
 
 import { requireAdmin } from "@/lib/admin-auth";
 import { getIntegration, mergeIntegrationMetadata } from "@/lib/integrations";
@@ -331,7 +354,16 @@ export async function GET(request: NextRequest) {
           ? await verifyShopifySyncWebhooks({
               shopId: integration.provider_account_id,
               accessToken: integration.access_token,
-            }).catch(() => null)
+              // Even a listing sends the shop's token to Shopify. Bound to the
+              // row it was read from, so a reconnect between the read and the
+              // request stops it rather than querying under a replaced grant.
+              assertStillAuthorized: buildShopifyGrantGuard(
+                businessId,
+                readShopifyGrantAuthority(integration),
+              ),
+            })
+              .then((result) => (result.status === "verified" ? result : null))
+              .catch(() => null)
           : null,
       repairIntents,
       rollout,
@@ -468,17 +500,30 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
+      // The same authority, re-checked before EVERY request the action makes.
+      //
+      // The check above covers the moment before the first call.
+      // `registerShopifySyncWebhooks` then lists and issues one create per
+      // missing topic, so a reconnect between call 1 and call 2 would send the
+      // remaining creates under a credential the operator never saw.
+      const assertGrantStillOurs = buildShopifyGrantGuard(
+        businessId,
+        grantAuthorityAtStart,
+      );
+
       switch (action) {
         case "register_webhooks":
           actionResult = await registerShopifySyncWebhooks({
             shopId: integration.provider_account_id,
             accessToken: integration.access_token,
+            assertStillAuthorized: assertGrantStillOurs,
           });
           break;
         case "verify_webhooks":
           actionResult = await verifyShopifySyncWebhooks({
             shopId: integration.provider_account_id,
             accessToken: integration.access_token,
+            assertStillAuthorized: assertGrantStillOurs,
           });
           break;
         case "run_recent_sync":

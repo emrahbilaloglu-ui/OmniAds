@@ -25,7 +25,8 @@ export interface MigrationVerificationFailure {
     | "index"
     | "default"
     | "readback"
-    | "trigger";
+    | "trigger"
+    | "secret_at_rest";
   object: string;
   detail: string;
 }
@@ -303,6 +304,37 @@ export const VERIFIED_TABLES: readonly string[] = [
   "shopify_raw_snapshot_observations",
 ];
 
+interface EncryptedSecretColumnSpec {
+  table: string;
+  column: string;
+  /** Why a plaintext value in this column is a live credential. */
+  why: string;
+}
+
+/**
+ * Columns that must never hold a secret in the clear.
+ *
+ * Every other assertion in this file is about SHAPE — a column exists, an index
+ * is inferable. This one is about CONTENT, and it is the only kind of assertion
+ * that can prove the migration's data conversion actually finished: a schema
+ * where `shopify_install_contexts.access_token` is a TEXT column is exactly the
+ * schema whether the tokens in it are encrypted or not.
+ *
+ * The predicate is the one `lib/migrations.ts` converts against and the one
+ * `isEncryptedIntegrationSecret` implements, so a row this check accepts is a
+ * row the reader will decrypt. It counts rows rather than reading them: a
+ * verification step that pulled credentials into the migration log to inspect
+ * them would be its own disclosure.
+ */
+export const VERIFIED_ENCRYPTED_SECRET_COLUMNS: readonly EncryptedSecretColumnSpec[] =
+  [
+    {
+      table: "shopify_install_contexts",
+      column: "access_token",
+      why: "a Shopify Admin API token, usable against the live store by anyone who can read this table, a backup or a replica",
+    },
+  ];
+
 /**
  * Foreign keys whose ON DELETE action is load-bearing.
  *
@@ -530,6 +562,38 @@ export async function verifyMigrationSchemaContract(input?: {
   for (const table of VERIFIED_TABLES) {
     if (!presentTables.has(table)) {
       failures.push({ kind: "table", object: table, detail: "missing" });
+    }
+  }
+
+  // Secrets at rest. `to_regclass` first, because a table that does not exist
+  // cannot be queried at all — and its absence is a DIFFERENT failure from
+  // "present with plaintext in it", so the two are reported separately rather
+  // than collapsed into one confusing message.
+  for (const spec of VERIFIED_ENCRYPTED_SECRET_COLUMNS) {
+    const key = `${spec.table}.${spec.column}`;
+    const presence = (await sql.query(
+      `SELECT to_regclass($1) IS NOT NULL AS present`,
+      [`${spec.table}`],
+    )) as Array<{ present: boolean }>;
+    if (!presence[0]?.present) {
+      failures.push({
+        kind: "secret_at_rest",
+        object: key,
+        detail: `table is absent, so the encryption invariant cannot be verified (${spec.why})`,
+      });
+      continue;
+    }
+    const plaintext = (await sql.query(
+      `SELECT COUNT(*)::text AS count FROM ${spec.table}
+       WHERE ${spec.column} IS NOT NULL AND ${spec.column} NOT LIKE 'enc:v1:%'`,
+    )) as Array<{ count: string }>;
+    const plaintextCount = Number(plaintext[0]?.count ?? "0");
+    if (plaintextCount > 0) {
+      failures.push({
+        kind: "secret_at_rest",
+        object: key,
+        detail: `${plaintextCount} row(s) hold a value without the 'enc:v1' prefix — ${spec.why}`,
+      });
     }
   }
 
@@ -810,6 +874,7 @@ export async function verifyMigrationSchemaContract(input?: {
       VERIFIED_COLUMNS.length +
       VERIFIED_TABLES.length +
       VERIFIED_FOREIGN_KEYS.length +
-      VERIFIED_INDEXES.length,
+      VERIFIED_INDEXES.length +
+      VERIFIED_ENCRYPTED_SECRET_COLUMNS.length,
   };
 }

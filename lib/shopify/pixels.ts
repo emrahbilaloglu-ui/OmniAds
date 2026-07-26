@@ -1,5 +1,9 @@
 import { shopifyAdminGraphql } from "@/lib/shopify/admin";
-import { buildShopifyWebhookCallbackUrl } from "@/lib/shopify/webhooks";
+import {
+  assertGrantGuardPresent,
+  buildShopifyWebhookCallbackUrl,
+  type ShopifyGrantGuardedInput,
+} from "@/lib/shopify/webhooks";
 
 const WEB_PIXEL_CREATE_MUTATION = `
   mutation ShopifyWebPixelCreate($settings: JSON!) {
@@ -19,12 +23,83 @@ export function buildShopifyCustomerEventsIngestUrl() {
   return buildShopifyWebhookCallbackUrl("/api/webhooks/shopify/customer-events");
 }
 
-export async function registerShopifyCustomerEventsPixel(input: {
-  shopId: string;
-  accessToken: string;
-}) {
+/**
+ * The one external mutation this module performs, named so a stopped receipt
+ * says which pixel was and was not created rather than only that something was
+ * refused.
+ */
+export const SHOPIFY_CUSTOMER_EVENTS_PIXEL_STEP = "customer_events_web_pixel";
+
+export type ShopifyCustomerEventsPixelStep =
+  typeof SHOPIFY_CUSTOMER_EVENTS_PIXEL_STEP;
+
+/**
+ * Created and not-created are reported explicitly, and `pixelId` exists only on
+ * the `registered` arm.
+ *
+ * `webPixelCreate` is a create, not an upsert, and the caller records a durable
+ * marker from this result that suppresses every later registration for the shop.
+ * A stop that read as success would therefore write a marker for a pixel that
+ * does not exist, and the shop's customer events would never be ingested at all.
+ */
+export type ShopifyCustomerEventsPixelResult =
+  | {
+      status: "registered";
+      endpoint: string;
+      pixelId: string | null;
+      created: ShopifyCustomerEventsPixelStep[];
+      notCreated: ShopifyCustomerEventsPixelStep[];
+    }
+  | {
+      status: "stopped";
+      stoppedBefore: "create_customer_events_web_pixel";
+      reason: string;
+      endpoint: string;
+      created: ShopifyCustomerEventsPixelStep[];
+      notCreated: ShopifyCustomerEventsPixelStep[];
+    };
+
+/**
+ * Create the customer-events web pixel, under a grant re-checked immediately
+ * before the request leaves the process.
+ *
+ * The guard is required rather than optional for the reason spelled out on
+ * `ShopifyGrantGuardedInput`: a finalize holds a plaintext access token across
+ * the whole of its webhook registration before it reaches this call, and a
+ * reconnect landing in that window would otherwise put a pixel — pointed at THIS
+ * deployment's ingest endpoint, carrying this deployment's shared secret — onto a
+ * store the business no longer holds.
+ */
+export async function registerShopifyCustomerEventsPixel(
+  input: ShopifyGrantGuardedInput,
+): Promise<ShopifyCustomerEventsPixelResult> {
+  assertGrantGuardPresent(input, "registerShopifyCustomerEventsPixel");
+  const endpoint = buildShopifyCustomerEventsIngestUrl();
+
+  // Immediately before the only request this function sends. A refusal is
+  // returned as a value, never thrown, so it cannot be mistaken for a Shopify
+  // error — and an authority read that failed arrives here as a throw from the
+  // guard, which stops the call rather than passing as "unchanged".
+  let refusal: string | null = null;
+  try {
+    await input.assertStillAuthorized();
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    refusal = detail.trim().length > 0 ? detail : "The Shopify grant is no longer current.";
+  }
+  if (refusal) {
+    return {
+      status: "stopped",
+      stoppedBefore: "create_customer_events_web_pixel",
+      reason: refusal,
+      endpoint,
+      created: [],
+      notCreated: [SHOPIFY_CUSTOMER_EVENTS_PIXEL_STEP],
+    };
+  }
+
   const settings = JSON.stringify({
-    endpoint: buildShopifyCustomerEventsIngestUrl(),
+    endpoint,
     authToken: process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET?.trim() || null,
   });
   const payload = await shopifyAdminGraphql<{
@@ -43,7 +118,10 @@ export async function registerShopifyCustomerEventsPixel(input: {
   const error = payload.webPixelCreate?.userErrors?.find((row) => row?.message)?.message;
   if (error) throw new Error(error);
   return {
-    endpoint: buildShopifyCustomerEventsIngestUrl(),
+    status: "registered",
+    endpoint,
     pixelId: payload.webPixelCreate?.webPixel?.id ?? null,
+    created: [SHOPIFY_CUSTOMER_EVENTS_PIXEL_STEP],
+    notCreated: [],
   };
 }

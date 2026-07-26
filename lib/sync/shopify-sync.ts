@@ -18,7 +18,11 @@ import {
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyStatus } from "@/lib/shopify/status";
-import { registerShopifySyncWebhooks, verifyShopifySyncWebhooks } from "@/lib/shopify/webhooks";
+import {
+  registerShopifySyncWebhooks,
+  verifyShopifySyncWebhooks,
+  type ShopifySyncWebhookVerification,
+} from "@/lib/shopify/webhooks";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import {
@@ -1136,66 +1140,92 @@ export async function ensureShopifyProviderReady(input: {
     })
   );
 
-  // Re-observe the grant immediately before the webhook calls.
+  // The grant guard, threaded into the webhook calls themselves.
   //
-  // A reconnect during the window above — a different shop, or the same shop
-  // re-granted by another user — would otherwise leave this registering webhooks
-  // under a credential that has already been replaced, pointing another shop's
-  // order events at this business. This is the widest unbound window of the
-  // Shopify mutation sites.
+  // Checking once here and then handing the token to a multi-call sequence was
+  // still a race: `registerShopifySyncWebhooks` lists, then issues one create
+  // per missing topic, and a reconnect landing between call 1 and call 2 sent
+  // every remaining create under a credential the user had already replaced.
+  // The guard is now a REQUIRED input that runs immediately before each request,
+  // so a drift mid-sequence stops the rest instead of finishing under a dead
+  // grant.
   //
   // A refusal is not a hard failure of the whole readiness pass: the sync below
   // resolves its own credential and is safe to attempt. What must not happen is
   // a webhook MUTATION under a credential nothing verified.
-  type ShopifyWebhookVerification =
-    | Awaited<ReturnType<typeof verifyShopifySyncWebhooks>>
-    | { error: string };
-  const grantStillOurs: { ok: true } | { ok: false; code: string; detail: string } =
-    grantAuthorityAtStart
+  const assertGrantStillOurs = async () => {
+    const still = grantAuthorityAtStart
       ? await assertShopifyGrantUnchanged({
           businessId: input.businessId,
           authority: grantAuthorityAtStart,
         })
-      : {
+      : ({
           ok: false,
           code: "shopify_authority_unknown",
           detail: "The Shopify connection could not be read before registering webhooks.",
-        };
+        } as const);
+    if (!still.ok) {
+      throw new Error(`${still.code}: ${still.detail}`);
+    }
+  };
 
-  let webhookVerification: ShopifyWebhookVerification = grantStillOurs.ok
-    ? await verifyShopifySyncWebhooks({
-        shopId: credentials.shopId,
-        accessToken: credentials.accessToken,
-      }).catch((error) => ({
-        error: error instanceof Error ? error.message : String(error),
-      }))
-    : { error: grantStillOurs.code };
+  const webhookVerification = await verifyShopifySyncWebhooks({
+    shopId: credentials.shopId,
+    accessToken: credentials.accessToken,
+    assertStillAuthorized: assertGrantStillOurs,
+  }).catch((error: unknown) => ({
+    status: "failed" as const,
+    error: error instanceof Error ? error.message : String(error),
+  }));
 
-  if (!grantStillOurs.ok) {
-    steps.push(
-      orchestrationStamp("webhooks_verify", "failed", {
-        error: grantStillOurs.code,
-        detail: grantStillOurs.detail,
-      }),
-    );
-  } else if ("error" in webhookVerification) {
+  let webhookCoverage: ShopifySyncWebhookVerification | null = null;
+  if (webhookVerification.status === "failed") {
     steps.push(
       orchestrationStamp("webhooks_verify", "failed", { error: webhookVerification.error }),
     );
+  } else if (webhookVerification.status === "stopped") {
+    // Named as a stop, not as a provider error: nothing went wrong at Shopify.
+    steps.push(
+      orchestrationStamp("webhooks_verify", "failed", {
+        error: "shopify_grant_changed",
+        stoppedBefore: webhookVerification.stoppedBefore,
+        detail: webhookVerification.reason,
+      }),
+    );
   } else {
+    webhookCoverage = webhookVerification;
     const registration = await registerShopifySyncWebhooks({
       shopId: credentials.shopId,
       accessToken: credentials.accessToken,
-    }).catch((error) => ({
-      ...(webhookVerification as Awaited<ReturnType<typeof verifyShopifySyncWebhooks>>),
-      created: [] as string[],
+      assertStillAuthorized: assertGrantStillOurs,
+    }).catch((error: unknown) => ({
+      status: "failed" as const,
       error: error instanceof Error ? error.message : String(error),
     }));
-    steps.push(
-      "error" in registration
-        ? orchestrationStamp("webhooks_register", "failed", { error: registration.error })
-        : orchestrationStamp("webhooks_register", "succeeded", registration),
-    );
+    if (registration.status === "failed") {
+      steps.push(
+        orchestrationStamp("webhooks_register", "failed", { error: registration.error }),
+      );
+    } else if (registration.status === "stopped") {
+      // Partial work is recorded as partial: exactly what was created before the
+      // grant moved, and exactly what was never attempted.
+      steps.push(
+        orchestrationStamp("webhooks_register", "failed", {
+          error: "shopify_grant_changed",
+          stoppedBefore: registration.stoppedBefore,
+          detail: registration.reason,
+          created: registration.created,
+          notCreated: registration.notCreated,
+        }),
+      );
+    } else {
+      webhookCoverage = registration;
+      steps.push(
+        orchestrationStamp("webhooks_register", "succeeded", {
+          ...registration,
+        } as unknown as Record<string, unknown>),
+      );
+    }
   }
 
   const recentSync = await syncShopifyCommerceReports(input.businessId, {
@@ -1260,14 +1290,16 @@ export async function ensureShopifyProviderReady(input: {
     recentSync,
     status,
     servingWindow: { startDate, endDate: today },
-    webhookCoverage:
-      "error" in webhookVerification
-        ? null
-        : {
-            desiredTopics: webhookVerification.desiredTopics,
-            existingTopics: webhookVerification.existingTopics,
-            missingTopics: webhookVerification.missingTopics,
-            extraTopics: webhookVerification.extraTopics,
-          },
+    // Null when the sequence never produced a complete observation — a provider
+    // failure, or a grant that moved mid-sequence. Reporting the plan from a
+    // stopped run as coverage would describe subscriptions that do not exist.
+    webhookCoverage: webhookCoverage
+      ? {
+          desiredTopics: webhookCoverage.desiredTopics,
+          existingTopics: webhookCoverage.existingTopics,
+          missingTopics: webhookCoverage.missingTopics,
+          extraTopics: webhookCoverage.extraTopics,
+        }
+      : null,
   };
 }

@@ -216,21 +216,62 @@ describe("syncShopifyCommerceReports", () => {
       state: "partial",
       issues: [],
     } as never);
-    vi.mocked(webhooks.verifyShopifySyncWebhooks).mockResolvedValue({
-      desiredTopics: ["ORDERS_CREATE"],
-      existingTopics: ["ORDERS_CREATE"],
-      missingTopics: [],
-      extraTopics: [],
-      callbackUrl: "https://app.example.com/api/webhooks/shopify/sync",
-    } as never);
-    vi.mocked(webhooks.registerShopifySyncWebhooks).mockResolvedValue({
-      desiredTopics: ["ORDERS_CREATE"],
-      existingTopics: ["ORDERS_CREATE"],
-      missingTopics: [],
-      extraTopics: [],
-      created: [],
-      callbackUrl: "https://app.example.com/api/webhooks/shopify/sync",
-    } as never);
+    // These fakes HONOUR the guard they are given, exactly as the real functions
+    // do. A fake that ignores it would return "verified" no matter what the
+    // caller wired, and the drift cases below would pass against a caller that
+    // handed over no guard at all.
+    const CALLBACK_URL = "https://app.example.com/api/webhooks/shopify/sync";
+    vi.mocked(webhooks.verifyShopifySyncWebhooks).mockImplementation(
+      async (input: { assertStillAuthorized: () => Promise<void> }) => {
+        try {
+          await input.assertStillAuthorized();
+        } catch (error: unknown) {
+          return {
+            status: "stopped",
+            stoppedBefore: "list_webhook_subscriptions",
+            reason: error instanceof Error ? error.message : String(error),
+            callbackUrl: CALLBACK_URL,
+            created: [],
+            notCreated: [],
+          } as never;
+        }
+        return {
+          status: "verified",
+          desiredTopics: ["ORDERS_CREATE"],
+          existingTopics: ["ORDERS_CREATE"],
+          missingTopics: [],
+          extraTopics: [],
+          callbackUrl: CALLBACK_URL,
+        } as never;
+      },
+    );
+    vi.mocked(webhooks.registerShopifySyncWebhooks).mockImplementation(
+      async (input: { assertStillAuthorized: () => Promise<void> }) => {
+        try {
+          await input.assertStillAuthorized();
+        } catch (error: unknown) {
+          return {
+            status: "stopped",
+            stoppedBefore: "list_webhook_subscriptions",
+            reason: error instanceof Error ? error.message : String(error),
+            callbackUrl: CALLBACK_URL,
+            created: [],
+            notCreated: [],
+            verification: null,
+          } as never;
+        }
+        return {
+          status: "registered",
+          desiredTopics: ["ORDERS_CREATE"],
+          existingTopics: ["ORDERS_CREATE"],
+          missingTopics: [],
+          extraTopics: [],
+          created: [],
+          notCreated: [],
+          callbackUrl: CALLBACK_URL,
+        } as never;
+      },
+    );
     vi.mocked(warehouseOverview.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
       revenue: 999,
       grossRevenue: 1100,
@@ -739,9 +780,22 @@ describe("syncShopifyCommerceReports", () => {
       triggerReason: "admin:run_recent_bootstrap",
     });
 
-    // Zero provider mutations, and zero provider reads under the stale token.
+    // The guard now lives INSIDE the sequence — it runs before every single
+    // provider request, not once around the whole thing — so the pass does call
+    // in. What must be true is that the guard it handed over actually REFUSES,
+    // because that is what stops request 1 and every request after it.
+    //
+    // Asserting the guard's behaviour rather than "the function was not called"
+    // is the only honest assertion available here: the webhook module is mocked,
+    // so this file cannot observe provider requests at all. That the refusing
+    // guard stops the real sequence is proven against a real database and a real
+    // request recorder in scripts/ephemeral-postgres-shopify-grant-race-seam.ts.
+    const verifyGuard = vi.mocked(webhooks.verifyShopifySyncWebhooks).mock
+      .calls[0]?.[0]?.assertStillAuthorized;
+    expect(verifyGuard).toBeTypeOf("function");
+    await expect(verifyGuard!()).rejects.toThrow(/shopify_connection_changed/);
+    // The verify stopped, so there was never a plan to register from.
     expect(webhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
-    expect(webhooks.verifyShopifySyncWebhooks).not.toHaveBeenCalled();
     // The refusal is recorded rather than swallowed...
     expect(integrations.mergeIntegrationMetadata).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -774,8 +828,12 @@ describe("syncShopifyCommerceReports", () => {
       triggerReason: "admin:run_recent_bootstrap",
     });
 
+    const guard = vi.mocked(webhooks.verifyShopifySyncWebhooks).mock.calls[0]?.[0]
+      ?.assertStillAuthorized;
+    expect(guard).toBeTypeOf("function");
+    // "I could not tell" is a refusal, not a pass.
+    await expect(guard!()).rejects.toThrow(/shopify_authority_unknown/);
     expect(webhooks.registerShopifySyncWebhooks).not.toHaveBeenCalled();
-    expect(webhooks.verifyShopifySyncWebhooks).not.toHaveBeenCalled();
   });
 
   it("orchestrates provider readiness and persists readiness summary", async () => {

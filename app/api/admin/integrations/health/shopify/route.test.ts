@@ -91,6 +91,10 @@ describe("GET /api/admin/integrations/health/shopify", () => {
     vi.mocked(shopifyWarehouse.listShopifyRepairIntents).mockResolvedValue([] as never);
     vi.mocked(shopifyWarehouse.listShopifyWebhookDeliveries).mockResolvedValue([] as never);
     vi.mocked(shopifyWebhooks.verifyShopifySyncWebhooks).mockResolvedValue({
+      // The real function returns a discriminated union: a stopped sequence has
+      // no verification fields at all, so a fixture without `status` no longer
+      // describes anything the code can receive.
+      status: "verified",
       desiredTopics: ["ORDERS_CREATE"],
       existingTopics: ["ORDERS_CREATE"],
       missingTopics: [],

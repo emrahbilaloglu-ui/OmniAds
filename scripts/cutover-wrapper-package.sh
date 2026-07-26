@@ -1,44 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Packages the cutover wrapper into an artifact the app host can actually
-# receive, and pins it by digest.
+# Pins the cutover wrapper by digest, in a manifest that ships beside it.
 #
 # WHY THIS EXISTS
 #
-# The deploy only ever synced `docker-compose.yml` to the app host, so
-# `.github/scripts/hetzner-sync-cutover.sh` — the script the runbook and
-# `deploy/CUTOVER_REQUIRED` tell an operator to run there — did not exist on the
-# host at all. The two ways to fix that are both worse than this one: telling
-# operators to paste a 900-line script over ssh means the wrapper that runs is
-# whatever survived the paste, and cloning the repository onto the app host means
-# the wrapper that runs is whatever branch happens to be checked out.
+# The deploy only ever synced `docker-compose.yml` to the app host, so the
+# script the runbook and `deploy/CUTOVER_REQUIRED` tell an operator to run there
+# did not exist on the host at all. The two ways to fix that are both worse than
+# this one: telling operators to paste a 900-line script over ssh means the
+# wrapper that runs is whatever survived the paste, and cloning the repository
+# onto the app host means the wrapper that runs is whatever branch happens to be
+# checked out.
 #
-# Instead the wrapper travels inside the image the cutover is FOR. `.dockerignore`
-# excludes `.github/`, and the worker image copies `scripts/`, so this script
-# writes a verbatim copy of the wrapper to `scripts/cutover-wrapper-payload.sh`
-# and its SHA-256 to `scripts/cutover-wrapper.manifest`. Both are then inside
-# `ghcr.io/erhanrdn/omniads-worker:<sha>`, which means the wrapper delivered to
-# the host is provably the wrapper built from the commit being cut over to —
-# `hetzner-remote.sh deliver_cutover_wrapper` extracts them from the pinned image
-# and the wrapper re-hashes itself against the manifest before every phase.
+# Instead the wrapper travels inside the image the cutover is FOR. It lives at
+# `scripts/hetzner-sync-cutover.sh`, and the worker image copies `scripts/`
+# wholesale, so it is already inside `ghcr.io/erhanrdn/omniads-worker:<sha>` at
+# `/app/scripts/hetzner-sync-cutover.sh` with no build-context special case.
+# This script's only job is the digest: it writes the wrapper's SHA-256, its
+# byte count and this release's cutover requirement to
+# `scripts/cutover-wrapper.manifest`, which ships in the same image directory.
+# `hetzner-remote.sh deliver_cutover_wrapper` extracts both from the pinned
+# image, refuses unless the extracted wrapper hashes to what the manifest pins,
+# and the wrapper re-hashes ITSELF against the installed manifest before every
+# phase — so the wrapper delivered to the host is provably the wrapper built
+# from the commit being cut over to.
 #
-# `verify` exists so the copy can never silently drift from the source: CI runs
-# it, so a change to the wrapper that does not repackage fails the build instead
-# of shipping an image whose wrapper is a release behind.
+# WHAT THIS NO LONGER DOES
 #
-#   scripts/cutover-wrapper-package.sh emit     regenerate the payload + manifest
-#   scripts/cutover-wrapper-package.sh verify   refuse if either has drifted
+# It used to also emit `scripts/cutover-wrapper-payload.sh`, a generated
+# byte-identical duplicate of the wrapper, because the wrapper then lived under
+# `.github/` and `.dockerignore` excludes `.github/`. A second copy of a
+# security-critical script is a liability even with a drift gate, so the wrapper
+# was moved into `scripts/` — the directory the image already copies — and the
+# duplicate and its cmp gate were deleted. Nothing is generated from the wrapper
+# any more; only measured.
+#
+# `verify` still has real work: the manifest is a hand-committed file describing
+# a file that changes, so CI runs it and a wrapper edit that does not repackage
+# fails the build instead of shipping an image whose manifest pins the previous
+# release's digest — which `deliver_cutover_wrapper` would then refuse ON THE
+# HOST, mid-deploy, instead of here.
+#
+#   scripts/cutover-wrapper-package.sh emit     regenerate the manifest
+#   scripts/cutover-wrapper-package.sh verify   refuse if it has drifted
 
 MODE="${1:-verify}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE_REL=".github/scripts/hetzner-sync-cutover.sh"
-PAYLOAD_REL="scripts/cutover-wrapper-payload.sh"
+SOURCE_REL="scripts/hetzner-sync-cutover.sh"
 MANIFEST_REL="scripts/cutover-wrapper.manifest"
 
 SOURCE="${REPO_ROOT}/${SOURCE_REL}"
-PAYLOAD="${REPO_ROOT}/${PAYLOAD_REL}"
 MANIFEST="${REPO_ROOT}/${MANIFEST_REL}"
 
 die() { printf '[cutover-package] ABORT %s\n' "$1" >&2; exit 1; }
@@ -69,9 +82,14 @@ else
   cutover_required=no
 fi
 
+# `wrapper_source` is deliberately BOTH facts at once: the path in this
+# repository and, because the builder stage copies the build context to `/app`,
+# the path inside the image at `/app/${wrapper_source}`. `deliver_cutover_wrapper`
+# cross-checks it against the path it actually extracted, so moving the wrapper
+# again without updating the delivery fails loudly rather than reporting that the
+# image "does not carry the packaged cutover wrapper".
 render_manifest() {
   printf 'wrapper_source=%s\n' "${SOURCE_REL}"
-  printf 'wrapper_payload=%s\n' "${PAYLOAD_REL}"
   printf 'wrapper_sha256=%s\n' "${wrapper_sha256}"
   printf 'wrapper_bytes=%s\n' "${wrapper_bytes}"
   printf 'cutover_required=%s\n' "${cutover_required}"
@@ -79,18 +97,13 @@ render_manifest() {
 
 case "${MODE}" in
   emit)
-    cp "${SOURCE}" "${PAYLOAD}"
-    chmod 0755 "${PAYLOAD}"
     render_manifest > "${MANIFEST}"
-    printf '[cutover-package] emitted %s and %s (sha256=%s bytes=%s cutover_required=%s)\n' \
-      "${PAYLOAD_REL}" "${MANIFEST_REL}" "${wrapper_sha256}" "${wrapper_bytes}" "${cutover_required}"
+    printf '[cutover-package] emitted %s for %s (sha256=%s bytes=%s cutover_required=%s)\n' \
+      "${MANIFEST_REL}" "${SOURCE_REL}" "${wrapper_sha256}" "${wrapper_bytes}" "${cutover_required}"
     ;;
 
   verify)
-    [ -f "${PAYLOAD}" ] || die "missing ${PAYLOAD_REL}; run 'npm run cutover:package' and commit the result"
     [ -f "${MANIFEST}" ] || die "missing ${MANIFEST_REL}; run 'npm run cutover:package' and commit the result"
-    cmp -s "${SOURCE}" "${PAYLOAD}" \
-      || die "${PAYLOAD_REL} is not byte-identical to ${SOURCE_REL}. The image would deliver a wrapper from an older commit; run 'npm run cutover:package'."
     expected="$(render_manifest)"
     actual="$(cat "${MANIFEST}")"
     [ "${expected}" = "${actual}" ] \
@@ -98,8 +111,14 @@ case "${MODE}" in
 ${expected}
 Found:
 ${actual}"
-    printf '[cutover-package] PASS wrapper payload and manifest match %s (sha256=%s, cutover_required=%s)\n' \
-      "${SOURCE_REL}" "${wrapper_sha256}" "${cutover_required}"
+    # The duplicate is gone; keep it gone. A regenerated copy under `scripts/`
+    # would ship a second wrapper inside the image, and whichever one
+    # `deliver_cutover_wrapper` happened to extract would be the one that drives
+    # the cutover.
+    [ ! -e "${REPO_ROOT}/scripts/cutover-wrapper-payload.sh" ] \
+      || die "scripts/cutover-wrapper-payload.sh is back. The wrapper is no longer duplicated into a payload — it lives at ${SOURCE_REL}, which the image already carries. Delete the payload."
+    printf '[cutover-package] PASS %s pins %s (sha256=%s, bytes=%s, cutover_required=%s)\n' \
+      "${MANIFEST_REL}" "${SOURCE_REL}" "${wrapper_sha256}" "${wrapper_bytes}" "${cutover_required}"
     ;;
 
   *)

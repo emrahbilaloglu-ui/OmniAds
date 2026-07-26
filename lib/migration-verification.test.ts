@@ -35,6 +35,7 @@ const {
   VERIFIED_TABLES,
   VERIFIED_FOREIGN_KEYS,
   VERIFIED_INDEXES,
+  VERIFIED_ENCRYPTED_SECRET_COLUMNS,
 } = await import("@/lib/migration-verification");
 
 /**
@@ -60,6 +61,10 @@ function healthyCatalog(damage: {
   changeAccessMethod?: { name: string; method: string };
   /** Claim more key attributes than the key list contains (INCLUDE columns). */
   inflateKeyCount?: string;
+  /** Rows left holding a secret without the `enc:v1` prefix. */
+  plaintextSecrets?: number;
+  /** The secret-bearing table is absent, so the invariant is unverifiable. */
+  dropSecretTable?: boolean;
 } = {}) {
   const columns = VERIFIED_COLUMNS.filter(
     (spec) => `${spec.table}.${spec.column}` !== damage.dropColumn,
@@ -141,6 +146,12 @@ function healthyCatalog(damage: {
       if (damage.writerThrows) throw new Error("no unique or exclusion constraint matching");
       return [];
     }
+    if (text.includes("to_regclass")) {
+      return [{ present: !damage.dropSecretTable }];
+    }
+    if (text.includes("NOT LIKE 'enc:v1:%'")) {
+      return [{ count: String(damage.plaintextSecrets ?? 0) }];
+    }
     if (text.includes("information_schema.columns")) return columns;
     if (text.includes("information_schema.tables")) return tables;
     if (text.includes("pg_constraint")) return foreignKeys;
@@ -167,8 +178,27 @@ describe("verifyMigrationSchemaContract", () => {
         VERIFIED_COLUMNS.length +
         VERIFIED_TABLES.length +
         VERIFIED_FOREIGN_KEYS.length +
-        VERIFIED_INDEXES.length,
+        VERIFIED_INDEXES.length +
+        VERIFIED_ENCRYPTED_SECRET_COLUMNS.length,
     });
+  });
+
+  it("fails when a secret column still holds an unencrypted value", async () => {
+    // The only assertion in this file about CONTENT rather than shape. A TEXT
+    // column is the same TEXT column whether the Shopify tokens in it are
+    // encrypted or not, so nothing else here can tell a finished conversion from
+    // one that silently skipped and reported success.
+    healthyCatalog({ plaintextSecrets: 3 });
+    await expect(verifyMigrationSchemaContract()).rejects.toThrow(
+      /shopify_install_contexts\.access_token: 3 row\(s\) hold a value without the 'enc:v1' prefix/,
+    );
+  });
+
+  it("fails when the secret-bearing table is absent rather than passing vacuously", async () => {
+    healthyCatalog({ dropSecretTable: true });
+    await expect(verifyMigrationSchemaContract()).rejects.toThrow(
+      /shopify_install_contexts\.access_token: table is absent/,
+    );
   });
 
   it("fails on a missing column", async () => {

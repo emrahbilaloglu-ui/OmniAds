@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# EXECUTION proof for .github/scripts/hetzner-sync-cutover.sh, against a REAL
+# EXECUTION proof for scripts/hetzner-sync-cutover.sh, against a REAL
 # PostgreSQL and a realistic split-host command surface.
 #
 # WHY THIS REPLACED THE STUB HARNESS
@@ -42,7 +42,7 @@ set -euo pipefail
 #      tampered wrapper, and a live application backend during quiesce
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WRAPPER="${REPO_ROOT}/.github/scripts/hetzner-sync-cutover.sh"
+WRAPPER="${REPO_ROOT}/scripts/hetzner-sync-cutover.sh"
 LABEL="[cutover-real-harness]"
 FAILURES=0
 
@@ -619,8 +619,7 @@ STUB
   local wrapper_sha
   wrapper_sha="$(sha256_of "${WRAPPER}")"
   {
-    printf 'wrapper_source=.github/scripts/hetzner-sync-cutover.sh\n'
-    printf 'wrapper_payload=scripts/cutover-wrapper-payload.sh\n'
+    printf 'wrapper_source=scripts/hetzner-sync-cutover.sh\n'
     printf 'wrapper_sha256=%s\n' "${wrapper_sha}"
     printf 'wrapper_bytes=%s\n' "$(wc -c < "${WRAPPER}" | tr -d '[:space:]')"
     printf 'cutover_required=yes\n'

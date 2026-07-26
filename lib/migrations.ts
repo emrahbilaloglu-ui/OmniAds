@@ -4,6 +4,11 @@ import {
   runDbTransaction,
   type DbClient,
 } from "@/lib/db";
+import {
+  encryptIntegrationSecret,
+  isEncryptedIntegrationSecret,
+  requireIntegrationSecretKey,
+} from "@/lib/integration-secrets";
 import { verifyMigrationSchemaContract } from "@/lib/migration-verification";
 import {
   ALTER_NATIVE_AD_DECISION_PROVENANCE_SQL,
@@ -583,6 +588,142 @@ async function runSealedLegacyImport(
 type DbClientLike = {
   query: (text: string, params?: unknown[]) => Promise<unknown>;
 };
+
+/**
+ * The rows that still hold a Shopify access token in the clear.
+ *
+ * `enc:v1:` is the prefix `lib/integration-secrets.ts` writes, and
+ * `isEncryptedIntegrationSecret` is the same test in TypeScript. Expressing it
+ * once, as a SQL predicate, is what lets the conversion, its remaining-work
+ * count and the post-migration contract in `lib/migration-verification.ts` all
+ * mean literally the same thing.
+ */
+const SHOPIFY_INSTALL_CONTEXT_PLAINTEXT_PREDICATE =
+  "access_token IS NOT NULL AND access_token NOT LIKE 'enc:v1:%'";
+
+export interface ShopifyInstallContextEncryptionResult {
+  /** Rows this call turned from plaintext into ciphertext. */
+  converted: number;
+  /** Rows STILL holding a plaintext token when the call returned. */
+  remaining: number;
+  /** True when `maxBatches` stopped the sweep before it ran out of work. */
+  interrupted: boolean;
+}
+
+/**
+ * Convert every pre-existing plaintext Shopify install token to `enc:v1`.
+ *
+ * Rows written before the writer started encrypting hold a LIVE shop credential
+ * in the clear, and they outlive the change: nothing rewrites them, and the
+ * table's 30-minute expiry only removes rows that are read, not rows that sit in
+ * a nightly backup that has already been taken. So the migration converts them.
+ *
+ * IDEMPOTENT. The predicate selects only rows whose token lacks the `enc:v1`
+ * prefix, so an already-encrypted value is never a candidate and can never be
+ * double-encrypted. The UPDATE is additionally a compare-and-set on the exact
+ * plaintext that was read, so a row someone else converted between the SELECT
+ * and the UPDATE is left alone rather than overwritten.
+ *
+ * CRASH-SAFE. Each row is its own autocommit statement, so an interruption
+ * leaves a converted prefix and an unconverted remainder — both individually
+ * valid, because reads accept either form during the transition. A re-run picks
+ * up exactly the rows that are still plaintext; there is no ledger that can say
+ * "already done" over work that was not finished, because the DATA is the
+ * ledger.
+ *
+ * FAIL-CLOSED ON A MISSING KEY. The key is required only when there is actually
+ * something to convert — which is what keeps `test:migrations-from-zero` and the
+ * upgrade seams honest without handing them production key material — and when
+ * there IS something to convert, an absent key raises
+ * `IntegrationSecretKeyRequiredError` and fails the migration. The alternative,
+ * skipping quietly, is the worst of the three outcomes: the plaintext stays
+ * forever, every later run finds the same rows and skips them again, and the
+ * deploy reports success.
+ *
+ * The final count is checked rather than assumed. A sweep that finished and
+ * still leaves plaintext behind means something wrote a plaintext token while
+ * the migration was running, and that is a refusal, not a rounding error.
+ */
+export async function encryptShopifyInstallContextAccessTokens(
+  sql: DbClientLike,
+  options?: { batchSize?: number; maxBatches?: number },
+): Promise<ShopifyInstallContextEncryptionResult> {
+  const batchSize = Math.max(1, Math.min(options?.batchSize ?? 200, 1_000));
+  const maxBatches = Math.max(1, options?.maxBatches ?? 100_000);
+
+  const tablePresence = (await sql.query(
+    `SELECT to_regclass('public.shopify_install_contexts') IS NOT NULL AS present`,
+  )) as Array<{ present: boolean }>;
+  if (!tablePresence[0]?.present) {
+    return { converted: 0, remaining: 0, interrupted: false };
+  }
+
+  const countPlaintext = async () => {
+    const rows = (await sql.query(
+      `SELECT COUNT(*)::text AS count FROM shopify_install_contexts
+       WHERE ${SHOPIFY_INSTALL_CONTEXT_PLAINTEXT_PREDICATE}`,
+    )) as Array<{ count: string }>;
+    return Number(rows[0]?.count ?? "0");
+  };
+
+  if ((await countPlaintext()) === 0) {
+    return { converted: 0, remaining: 0, interrupted: false };
+  }
+
+  // There is plaintext to convert, so the key is mandatory. This throws.
+  requireIntegrationSecretKey();
+
+  let converted = 0;
+  let batches = 0;
+  let interrupted = false;
+  // Keyset pagination, so the scan cannot revisit a row whose UPDATE was a
+  // no-op and spin forever on it. Progress is structural rather than hoped for.
+  let cursor = "00000000-0000-0000-0000-000000000000";
+
+  for (;;) {
+    if (batches >= maxBatches) {
+      interrupted = true;
+      break;
+    }
+    const rows = (await sql.query(
+      `SELECT id::text AS id, access_token
+       FROM shopify_install_contexts
+       WHERE ${SHOPIFY_INSTALL_CONTEXT_PLAINTEXT_PREDICATE}
+         AND id > $1::uuid
+       ORDER BY id ASC
+       LIMIT $2`,
+      [cursor, batchSize],
+    )) as Array<{ id: string; access_token: string }>;
+    if (rows.length === 0) break;
+    batches += 1;
+
+    for (const row of rows) {
+      cursor = row.id;
+      const encrypted = encryptIntegrationSecret(row.access_token);
+      if (!encrypted || !isEncryptedIntegrationSecret(encrypted)) {
+        throw new Error(
+          "Refusing to rewrite a Shopify install context: the encrypted form is not ciphertext.",
+        );
+      }
+      const updated = (await sql.query(
+        `UPDATE shopify_install_contexts
+         SET access_token = $1
+         WHERE id = $2::uuid AND access_token = $3
+         RETURNING 1 AS converted`,
+        [encrypted, row.id, row.access_token],
+      )) as Array<unknown>;
+      converted += updated.length;
+    }
+  }
+
+  const remaining = await countPlaintext();
+  if (!interrupted && remaining > 0) {
+    throw new Error(
+      `Shopify install context encryption finished with ${remaining} row(s) still holding a plaintext access token.`,
+    );
+  }
+  return { converted, remaining, interrupted };
+}
 
 function assertMigrationIdentifier(identifier: string) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
@@ -11829,6 +11970,22 @@ export async function runMigrations(options?: {
       await sql`ALTER TABLE provider_sync_jobs ADD COLUMN IF NOT EXISTS progress_json JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(
         () => {},
       );
+
+      // ── Shopify install grants at rest ────────────────────────────────────
+      //
+      // Deliberately NOT wrapped in `.catch(() => {})`. Every other swallowed
+      // statement in this file is a DDL that is either already done or harmless
+      // to skip; this one is the difference between a table of live shop
+      // credentials in the clear and a table of ciphertext. A skipped run leaves
+      // the plaintext there permanently and reports success, so it throws.
+      const installTokenEncryption =
+        await encryptShopifyInstallContextAccessTokens(sql);
+      if (installTokenEncryption.converted > 0) {
+        logStartupEvent("migrations_shopify_install_tokens_encrypted", {
+          reason,
+          converted: installTokenEncryption.converted,
+        });
+      }
 
       // ── Seed superadmin ───────────────────────────────────────────────────
       await sql`UPDATE users SET is_superadmin = true WHERE lower(email) = 'emrahbilaloglu@gmail.com'`;

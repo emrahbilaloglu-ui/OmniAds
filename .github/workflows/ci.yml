@@ -126,6 +126,25 @@ jobs:
       - name: Cutover state-machine harness
         run: npm run test:cutover-harness
 
+      # Admission over the REAL exported entrypoints, not a source scan. Both
+      # failures it replaces looked fine from outside: the cron performed a
+      # complete pass and reported the refusal at the end, and dead-letter
+      # replay had no admission at all.
+      - name: Entrypoint admission refusal seam
+        run: npx vitest run lib/sync/entrypoint-admission.test.ts
+
+      # Fail-closed proof for the ORDINARY deploy path: a release carrying
+      # deploy/CUTOVER_REQUIRED must not be migratable outside the cutover lock.
+      - name: Ordinary deploy refuses a cutover-required release
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/hetzner-remote.sh
+          test -f deploy/CUTOVER_REQUIRED || {
+            echo "deploy/CUTOVER_REQUIRED is absent; this release claims it does not need the cutover" >&2
+            exit 1
+          }
+          grep -q 'deploy/CUTOVER_REQUIRED' .github/scripts/hetzner-remote.sh
+
       - name: Pre-change schema upgrade seam (branch point)
         # Needs full history: the seam cross-checks its rewind against the
         # pre-change ref's migrations, which a shallow clone does not have.

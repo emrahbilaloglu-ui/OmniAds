@@ -57,7 +57,24 @@ ENVFILE
 #!/usr/bin/env bash
 printf '%s\n' "docker \$*" >> "${host}/log/docker"
 case "\$1 \$2" in
-  "image inspect") exit \${DOCKER_IMAGE_MISSING:-0} ;;
+  "image inspect")
+    if [ -n "\${DOCKER_IMAGE_MISSING:-}" ] && [ "\${DOCKER_IMAGE_MISSING}" != "0" ]; then
+      exit "\${DOCKER_IMAGE_MISSING}"
+    fi
+    for arg in "\$@"; do
+      case "\$arg" in
+        '{{.Id}}')
+          # Immutable image id. STUB_RETAGGED=1 simulates the tag being rebuilt
+          # between phases, which must refuse.
+          if [ -n "\${STUB_RETAGGED:-}" ]; then
+            printf 'sha256:retagged000000000000000000000000000000000000000000000000000000\n'
+          else
+            printf 'sha256:pinned0000000000000000000000000000000000000000000000000000000000\n'
+          fi
+          exit 0 ;;
+      esac
+    done
+    exit 0 ;;
 esac
 case "\$1" in
   compose)
@@ -76,10 +93,30 @@ case "\$1" in
         '{{.State.Status}}') printf '%s\n' "\${STUB_CONTAINER_STATE:-exited}"; exit 0 ;;
         '{{.Config.Image}}') printf 'ghcr.io/erhanrdn/omniads-\${STUB_SERVICE:-web}:\${DEPLOY_SHA}\n'; exit 0 ;;
         '{{.State.StartedAt}}') printf '2026-07-26T00:00:00Z\n'; exit 0 ;;
+        '{{.Id}}')
+          # Immutable image id. `STUB_RETAGGED=1` simulates the tag being
+          # rebuilt between phases, which must refuse.
+          if [ -n "\${STUB_RETAGGED:-}" ]; then
+            printf 'sha256:retagged0000000000000000000000000000000000000000000000000000\n'
+          else
+            printf 'sha256:pinned00000000000000000000000000000000000000000000000000000000\n'
+          fi
+          exit 0 ;;
       esac
     done
     exit 0 ;;
-  run) exit \${DOCKER_RUN_STATUS:-0} ;;
+  run)
+    # The runtime DATABASE_URL identity probe. It must agree with the control
+    # path, or the cutover would fingerprint one database and leave the app
+    # pointed at another.
+    for arg in "\$@"; do
+      case "\$arg" in
+        *pg_control_system*)
+          printf '%s' "\${STUB_RUNTIME_DB_IDENTITY:-adsecute_prod|7311}"
+          exit 0 ;;
+      esac
+    done
+    exit \${DOCKER_RUN_STATUS:-0} ;;
 esac
 exit 0
 STUB
@@ -89,10 +126,13 @@ STUB
 printf '%s\n' "ssh \$*" >> "${host}/log/ssh"
 # The DB host. It has psql and the backup manifest, and NO compose project.
 case "\$*" in
-  *pg_control_system*) printf 'adsecute_prod|7311\n'; exit 0 ;;
+  *pg_control_system*) printf '%s\n' "\${STUB_DB_IDENTITY:-adsecute_prod|7311}"; exit 0 ;;
   *string_agg*) printf 'abc123\n'; exit 0 ;;
   *meta_raw_snapshots*) printf '10|20|30\n'; exit 0 ;;
   *lease_owner*) printf '%s\n' "\${STUB_LEASES:-0}"; exit 0 ;;
+  *data_directory*) printf '%s\n' "\${STUB_DATA_DIR:-/var/lib/postgresql/16/main}"; exit 0 ;;
+  *pg_database_size*) printf '%s\n' "\${STUB_DB_BYTES:-21474836480}"; exit 0 ;;
+  *df\ -Pk*) printf '%s\n' "\${STUB_DB_FREE_BYTES:-107374182400}"; exit 0 ;;
   *verified-restore.manifest*) exit \${STUB_MANIFEST_STATUS:-0} ;;
 esac
 exit 0
@@ -305,6 +345,67 @@ else
   else
     fail "H6 emergency-disable failed for the wrong reason: ${out}"
   fi
+fi
+
+
+# ── H7. Capacity, database identity and image pin ────────────────────────────
+#
+# Three refusals that all have the same shape: the phase graph must stop BEFORE
+# the disk-consuming, hard-to-reverse step rather than discovering the problem
+# after it.
+
+host="$(new_host capacity)"
+out="$(run_phase "${host}" preflight \
+  SYNC_CUTOVER_SCHEDULER=none \
+  STUB_DB_FREE_BYTES=1073741824 \
+  STUB_DB_BYTES=21474836480 2>&1 || true)"
+if printf '%s' "${out}" | grep -q "insufficient free space"; then
+  pass "H7 low free space on the DB host's PostgreSQL data directory refuses at preflight"
+else
+  fail "H7 preflight accepted 1GiB free for a 20GiB database: ${out}"
+fi
+
+host="$(new_host wrongdb)"
+out="$(run_phase "${host}" preflight \
+  SYNC_CUTOVER_SCHEDULER=none \
+  STUB_DB_IDENTITY='adsecute_prod|7311' \
+  STUB_RUNTIME_DB_IDENTITY='adsecute_staging|9999' 2>&1 || true)"
+if printf '%s' "${out}" | grep -q "point at DIFFERENT databases"; then
+  pass "H7 a runtime DATABASE_URL pointing at another database refuses at preflight"
+else
+  fail "H7 preflight accepted a runtime pointed at a different database: ${out}"
+fi
+
+host="$(new_host retag)"
+run_phase "${host}" preflight SYNC_CUTOVER_SCHEDULER=none >/dev/null 2>&1 || true
+run_phase "${host}" quiesce SYNC_CUTOVER_SCHEDULER=none >/dev/null 2>&1 || true
+run_phase "${host}" fingerprint-pre SYNC_CUTOVER_SCHEDULER=none >/dev/null 2>&1 || true
+out="$(run_phase "${host}" migrate SYNC_CUTOVER_SCHEDULER=none STUB_RETAGGED=1 2>&1 || true)"
+if printf '%s' "${out}" | grep -q "retagged mid-cutover"; then
+  pass "H7 an image tag rebuilt between phases refuses instead of deploying a different build"
+else
+  fail "H7 migrate accepted a retagged image: ${out}"
+fi
+
+# ── H8. The old-schema selected-identity hash ────────────────────────────────
+#
+# `is_selected` is added BY this migration. The pre-fingerprint has to hash the
+# PRE-MODEL semantics — every identity binding selected — or the phase graph
+# deadlocks: fingerprint-pre needs a column that only exists after migrate.
+host="$(new_host oldschema)"
+run_phase "${host}" preflight SYNC_CUTOVER_SCHEDULER=none >/dev/null 2>&1 || true
+run_phase "${host}" quiesce SYNC_CUTOVER_SCHEDULER=none >/dev/null 2>&1 || true
+out="$(run_phase "${host}" fingerprint-pre SYNC_CUTOVER_SCHEDULER=none 2>&1 || true)"
+if printf '%s' "${out}" | grep -q "fingerprint-pre OK"; then
+  # And the statement it issued must be the schema-conditional one, not a bare
+  # `WHERE bpa.is_selected` that an old catalog would reject.
+  if grep -q "information_schema.columns" "${host}/log/ssh"; then
+    pass "H8 the pre-fingerprint hashes selection through a schema-conditional predicate, so it works before is_selected exists"
+  else
+    fail "H8 the pre-fingerprint did not use a schema-conditional selection predicate"
+  fi
+else
+  fail "H8 fingerprint-pre failed on an old schema: ${out}"
 fi
 
 if [ "${FAILURES}" -eq 0 ]; then

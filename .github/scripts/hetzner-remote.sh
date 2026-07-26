@@ -375,6 +375,31 @@ run_migrations_service() {
 
   export DEPLOY_MIGRATION_TIMEOUT_MS="${migration_timeout_ms}"
 
+  # FAIL CLOSED on a cutover-required release.
+  #
+  # The ordinary main deploy builds images and then runs migrate + recreate
+  # outside the cutover lock, with no quiesce, no capacity gate, no
+  # pre-fingerprint and no rollback artifact. For a schema-changing Sync release
+  # that is precisely the path the cutover exists to prevent, and nothing stopped
+  # a release from taking it.
+  #
+  # A release that requires the cutover carries `deploy/CUTOVER_REQUIRED` in the
+  # repo. The cutover driver is what removes it, so an ordinary deploy of that
+  # SHA refuses rather than migrating unattended.
+  if [ -f "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" ]; then
+    log "ABORT deploy/CUTOVER_REQUIRED is present: this release must go through the cutover workflow, not the ordinary deploy"
+    cat "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" || true
+    return 1
+  fi
+  # ...and a cutover already in progress owns the database. Migrating underneath
+  # it would run two migration paths against one database at once.
+  if [ -e "/var/lib/adsecute/sync-cutover/state" ] && [ -s "/var/lib/adsecute/sync-cutover/state" ]; then
+    if ! grep -Eq '^(enable|emergency-disable|resume-scheduler):' "/var/lib/adsecute/sync-cutover/state"; then
+      log "ABORT a sync cutover is in progress ($(cat /var/lib/adsecute/sync-cutover/state)); the ordinary deploy must not migrate underneath it"
+      return 1
+    fi
+  fi
+
   log "Starting migrate service timeout_seconds=${migration_timeout_seconds} node_timeout_ms=${DEPLOY_MIGRATION_TIMEOUT_MS}"
   docker compose rm -f migrate >/dev/null 2>&1 || true
 

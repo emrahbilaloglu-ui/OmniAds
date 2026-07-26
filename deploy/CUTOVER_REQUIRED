@@ -1,0 +1,15 @@
+This release changes the Sync schema and MUST be applied through the cutover
+workflow, not the ordinary main deploy.
+
+The ordinary deploy runs migrate and recreate outside the cutover lock, with no
+quiesce, no capacity gate, no pre-fingerprint and no verified rollback artifact.
+For this release that is the exact path the cutover exists to prevent, so
+`.github/scripts/hetzner-remote.sh` refuses to migrate while this file is
+present.
+
+Apply with `.github/scripts/hetzner-sync-cutover.sh`, phase by phase:
+
+  preflight -> quiesce -> fingerprint-pre -> migrate -> verify-contract
+            -> fingerprint-post -> deploy-disabled -> enable -> resume-scheduler
+
+Remove this file in the commit that follows a completed cutover.

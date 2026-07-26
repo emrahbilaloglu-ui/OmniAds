@@ -57,6 +57,9 @@ APP_DIR="${REMOTE_APP_DIR:-/var/www/adsecute}"
 ENV_FILE="${APP_DIR}/.env.production"
 STATE_DIR="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}"
 STATE_FILE="${STATE_DIR}/state"
+# Immutable image ids resolved once at preflight. Tags are mutable; a rebuild
+# under the same SHA tag between phases would otherwise be deployed silently.
+IMAGE_PIN_FILE="${STATE_DIR}/image-pin"
 LOCK_FILE="${STATE_DIR}/lock"
 BACKUP_MANIFEST="${SYNC_CUTOVER_BACKUP_MANIFEST:-/var/backups/adsecute-postgres/verified-restore.manifest}"
 DRAIN_SECONDS="${SYNC_CUTOVER_DRAIN_SECONDS:-90}"
@@ -89,6 +92,19 @@ chmod 0600 "${STATE_FILE}"
 
 state_has() { grep -qxF "$1" "${STATE_FILE}"; }
 state_put() { grep -qxF "$1" "${STATE_FILE}" || printf '%s\n' "$1" >> "${STATE_FILE}"; }
+# Retagging between phases must refuse. A tag is mutable; the image id is not.
+assert_image_pin() {
+  local pinned_web pinned_worker web_digest worker_digest
+  [ -s "${IMAGE_PIN_FILE}" ] || die "no image pin recorded; run preflight first"
+  read -r pinned_web pinned_worker < "${IMAGE_PIN_FILE}"
+  web_digest="$(docker image inspect "${EXPECTED_WEB_IMAGE}" --format '{{.Id}}' 2>/dev/null || true)"
+  worker_digest="$(docker image inspect "${EXPECTED_WORKER_IMAGE}" --format '{{.Id}}' 2>/dev/null || true)"
+  [ "${web_digest}" = "${pinned_web}" ] \
+    || die "the web image tag now resolves to ${web_digest}, not the pinned ${pinned_web}; it was retagged mid-cutover"
+  [ "${worker_digest}" = "${pinned_worker}" ] \
+    || die "the worker image tag now resolves to ${worker_digest}, not the pinned ${pinned_worker}; it was retagged mid-cutover"
+}
+
 require_state() {
   state_has "$1" || die "phase '$1' has not completed; run it first"
 }
@@ -227,14 +243,102 @@ assert_stopped() {
 selected_binding_hash() {
   # The FULL identity set, not a count. A count still matches after one selected
   # account is swapped for another; this does not.
+  #
+  # OLD-SCHEMA SAFE. `is_selected` is added BY the migration this cutover runs,
+  # so before it exists the query would fail and the pre-fingerprint could never
+  # be taken — the deadlock this phase graph exists to avoid. Before the column
+  # exists, the pre-model semantics are that every identity binding IS selected,
+  # so that is what gets hashed. After the migration, the backfilled selected set
+  # must reproduce exactly the same digest.
   db_sql "
     SELECT COALESCE(encode(digest(string_agg(identity, E'\n' ORDER BY identity), 'sha256'), 'hex'), 'empty')
     FROM (
       SELECT bpa.business_id || '|' || bpa.provider || '|' || bpa.provider_account_id AS identity
       FROM business_provider_accounts bpa
-      WHERE bpa.is_selected
+      WHERE CASE
+              WHEN EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'business_provider_accounts'
+                  AND column_name = 'is_selected'
+              )
+              -- Post-migration: the real selected set.
+              THEN COALESCE((to_jsonb(bpa) ->> 'is_selected')::boolean, FALSE)
+              -- Pre-migration: every identity binding was in effect selected.
+              ELSE TRUE
+            END
     ) rows;
   " | tr -d '[:space:]'
+}
+
+# ── F4: physical and logical capacity, from the DB host itself ─────────────
+#
+# Migration is the single most disk-consuming step of the cutover: it backfills
+# provider_scope across a multi-gigabyte relation and builds three indexes
+# concurrently. Waiting for the post-migration TypeScript verification to notice
+# a full disk is waiting until after the damage.
+#
+# `df` is read on the DB host for the EXACT PostgreSQL data directory, not for
+# `/`, because they are routinely different filesystems.
+db_free_bytes() {
+  local data_dir
+  data_dir="$(db_sql "SHOW data_directory;" | tr -d '[:space:]')"
+  [ -n "${data_dir}" ] || return 1
+  # POSIX df reports 1K blocks in field 4 of the second line.
+  db_run "df -Pk $(printf %q "${data_dir}") | awk 'NR==2 {print \$4 * 1024}'" |
+    tr -d '[:space:]'
+}
+
+db_logical_bytes() {
+  db_sql "SELECT pg_database_size(current_database())::text;" | tr -d '[:space:]'
+}
+
+assert_capacity_for_migration() {
+  local free logical required
+  free="$(db_free_bytes || true)"
+  logical="$(db_logical_bytes || true)"
+  case "${free}" in
+    "" | *[!0-9]*) die "could not read free space on the database host's PostgreSQL data directory; refusing to migrate blind" ;;
+  esac
+  case "${logical}" in
+    "" | *[!0-9]*) die "could not read the logical size of ${DB_NAME}; refusing to migrate blind" ;;
+  esac
+  # The backfill rewrites matched rows and the concurrent index builds need room
+  # for the new relations plus WAL. Half the database again, with a 5 GiB floor,
+  # is the smallest defensible headroom.
+  required=$(( logical / 2 ))
+  if [ "${required}" -lt 5368709120 ]; then required=5368709120; fi
+  log "db free=${free}B logical=${logical}B required=${required}B"
+  [ "${free}" -ge "${required}" ]     || die "insufficient free space on the database host: ${free}B free, ${required}B required for a ${logical}B database"
+}
+
+# ── F5: the fingerprint host and the runtime must be the same database ─────
+#
+# `db_sql` reaches the database through SYNC_CUTOVER_DB_SSH/DB_NAME; the app
+# reaches it through DATABASE_URL in .env.production. Nothing proved those were
+# the same system. A cutover could fingerprint one database, migrate it, and
+# leave the runtime pointed at another.
+assert_runtime_database_matches() {
+  local runtime_identity control_identity
+  control_identity="$(db_identity)"
+  [ -n "${control_identity}" ] || die "could not read the control-path database identity"
+  runtime_identity="$(
+    docker run --rm --network host --env-file "${ENV_FILE}" \
+      --entrypoint /bin/sh "${EXPECTED_WEB_IMAGE}" -c '
+        node -e "
+          const { Client } = require(\"pg\");
+          const client = new Client({ connectionString: process.env.DATABASE_URL });
+          client.connect()
+            .then(() => client.query(\"SELECT current_database() || chr(124) || system_identifier::text AS id FROM pg_control_system()\"))
+            .then((r) => { process.stdout.write(r.rows[0].id); return client.end(); })
+            .catch((e) => { process.stderr.write(String(e && e.message)); process.exit(1); });
+        "' 2>/dev/null | tr -d '[:space:]'
+  )"
+  [ -n "${runtime_identity}" ] \
+    || die "could not read the database identity through the runtime's DATABASE_URL"
+  [ "${runtime_identity}" = "${control_identity}" ] \
+    || die "the cutover control path (${control_identity}) and the runtime DATABASE_URL (${runtime_identity}) point at DIFFERENT databases"
+  log "runtime and control path agree: ${control_identity}"
 }
 
 db_identity() {
@@ -299,6 +403,20 @@ case "${PHASE}" in
     [ -n "${identity}" ] || die "could not read database identity from the DB host"
     log "database=${identity}"
 
+    log "Proving the runtime's DATABASE_URL is the SAME database"
+    assert_runtime_database_matches
+
+    log "Proving there is room to migrate"
+    assert_capacity_for_migration
+
+    log "Pinning image digests"
+    web_digest="$(docker image inspect "${EXPECTED_WEB_IMAGE}" --format '{{.Id}}')"
+    worker_digest="$(docker image inspect "${EXPECTED_WORKER_IMAGE}" --format '{{.Id}}')"
+    [ -n "${web_digest}" ] && [ -n "${worker_digest}" ] \
+      || die "could not resolve immutable image ids for ${EXPECTED_SHA}"
+    printf '%s %s\n' "${web_digest}" "${worker_digest}" > "${IMAGE_PIN_FILE}"
+    log "web=${web_digest} worker=${worker_digest}"
+
     state_put "preflight:${EXPECTED_SHA}"
     log "preflight OK"
     ;;
@@ -356,6 +474,9 @@ case "${PHASE}" in
 
   migrate)
     require_state "fingerprint-pre:${EXPECTED_SHA}"
+    assert_image_pin
+    log "Re-proving capacity immediately before the disk-consuming step"
+    assert_capacity_for_migration
     log "Running migrations from the pinned image against the DB host"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
       docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate \
@@ -395,6 +516,7 @@ case "${PHASE}" in
 
   deploy-disabled)
     require_state "fingerprint-post:${EXPECTED_SHA}"
+    assert_image_pin
     log "Confirming every lane is OFF before the new build starts"
     if grep -Eq '^\s*(export\s+)?ADSECUTE_SYNC_(GLOBAL|LANE_[A-Z_]+)_ENABLED\s*=\s*enabled' "${ENV_FILE}"; then
       die "a sync lane is already enabled in ${ENV_FILE}; the new build must start disabled"
@@ -445,6 +567,7 @@ case "${PHASE}" in
 
   enable)
     require_state "deploy-disabled:${EXPECTED_SHA}"
+    assert_image_pin
     log "Updating ONLY the managed lane keys in the preserved env file"
     run_in_pinned_image node --import tsx scripts/global-sync-rollout.ts enable \
       || die "enable refused; nothing was changed"

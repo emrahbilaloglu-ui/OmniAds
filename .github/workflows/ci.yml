@@ -154,6 +154,20 @@ jobs:
       - name: Entrypoint admission real-database seam
         run: npm run test:entrypoint-admission-seam
 
+      # Selection is a read-decide-write across a provider round trip. A unit
+      # test cannot show that a reconnect committing mid-flight actually BLOCKS
+      # on the row lock, or that a failure part-way through leaves no identity
+      # behind; this races two real backends against the app pool.
+      - name: Provider selection race seam
+        run: npm run test:selection-race-seam
+
+      # One Shopify grant, many finalizers. Proves exactly one winner across
+      # separate backends, that a refused finalize performs zero provider work,
+      # and that a retryable failure restores the grant with its ORIGINAL expiry
+      # rather than extending or reviving it.
+      - name: Shopify install context seam
+        run: npm run test:shopify-install-seam
+
       # Fail-closed proof for the ORDINARY deploy path: a release carrying
       # deploy/CUTOVER_REQUIRED must not be migratable outside the cutover lock.
       - name: Ordinary deploy refuses a cutover-required release

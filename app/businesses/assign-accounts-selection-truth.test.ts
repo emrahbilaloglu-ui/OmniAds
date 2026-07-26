@@ -343,6 +343,20 @@ describe("assign-accounts selection truth", () => {
       expect(body.syncScheduled).toBe(false);
     });
 
+    it("refuses success when a CONCURRENT enqueue created the work, not this attempt", async () => {
+      // The exact false positive an attempt id removes: another request enqueued
+      // for the same account inside this request's clock window, so a
+      // window-based readback reported success for work this operation never
+      // created.
+      queuedPartitions.mockResolvedValue([]);
+      const response = await metaRoute.POST(post({ account_ids: ["act_100"] }), {
+        params,
+      });
+      expect(response.status).toBe(202);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.syncScheduled).toBe(false);
+    });
+
     it("refuses success when another account's work is queued but this one's is not", async () => {
       // The exact false positive the old business-wide count produced: work
       // draining for a DIFFERENT account made `syncScheduled: true` for an

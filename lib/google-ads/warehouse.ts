@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
+import { getCurrentSchedulingAttemptId } from "@/lib/sync/scheduling-attempt";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
@@ -1141,6 +1142,7 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
       COALESCE(${input.triggeredAt ?? null}, now()),
       ${input.startedAt ?? null},
       ${input.finishedAt ?? null},
+      ${getCurrentSchedulingAttemptId()},
       now()
     )
     ON CONFLICT (
@@ -1379,6 +1381,10 @@ export async function queueGoogleAdsSyncPartition(
       last_error,
       started_at,
       finished_at,
+      -- Which scheduling operation created this row, if any. Null for work the
+      -- worker or a cron tick planned for itself, which belongs to no
+      -- user-facing request.
+      scheduling_attempt_id,
       updated_at
     )
     VALUES (
@@ -6332,6 +6338,20 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
       AND business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND COALESCE(lease_expires_at, now() - interval '1 second') <= now()
+      -- Selection is re-checked BY THE UPDATE, not before it.
+      --
+      -- The candidate SELECT and this UPDATE were separate statements, so a
+      -- revocation landing between them requeued work for an account the user
+      -- had just deselected — the SELECT saw it selected, the UPDATE never
+      -- looked again. Making the predicate part of the write closes the window
+      -- entirely: a deselected partition simply does not match.
+      AND EXISTS (
+        SELECT 1 FROM business_provider_accounts binding
+        WHERE binding.business_id = google_ads_sync_partitions.business_id
+          AND binding.provider = 'google'
+          AND binding.provider_account_id = google_ads_sync_partitions.provider_account_id
+          AND binding.is_selected
+      )
     RETURNING id, lane, scope, partition_date
   `) as Array<Record<string, unknown>>)
     : [];

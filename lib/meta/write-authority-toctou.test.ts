@@ -34,6 +34,20 @@ vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
   return { ...actual, readProviderConnectionGenerationToken };
 });
 
+/**
+ * The atomic pre-POST authority snapshot.
+ *
+ * Mocked as ONE call because that is the point: the credential, its generation,
+ * the connection status and this account's selection are settled together, not
+ * assembled from separate reads with windows between them.
+ */
+const assertProviderWriteAuthorityUnchanged = vi.fn(async () => ({ ok: true }));
+
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertProviderWriteAuthorityUnchanged };
+});
+
 const {
   getMetaAdsWriteBlockFailure,
   isMetaWriteAuthorityFailure,
@@ -59,6 +73,7 @@ describe("Meta write authority at the immediate pre-POST boundary", () => {
       state: "authorized",
       errorMessage: null,
     });
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", providerFetch);
     providerFetch.mockResolvedValue(
       new Response(JSON.stringify({ id: "1" }), { status: 200 }),
@@ -210,6 +225,7 @@ describe("credential generation at the write boundary", () => {
       errorMessage: null,
     });
     readProviderConnectionGenerationToken.mockResolvedValue("2:connected");
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({ ok: true });
   });
 
   it("refuses when the connection moved after the token was read", async () => {
@@ -217,6 +233,13 @@ describe("credential generation at the write boundary", () => {
     // time. What changed is who the connection belongs to — the user
     // reconnected Meta as a different principal — so the token captured before
     // that reconnect must not reach a live account.
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({
+      ok: false,
+      httpStatus: 409,
+      code: "provider_connection_changed",
+      message:
+        "The provider connection changed after this credential was read. The request was refused rather than sent with a superseded token.",
+    } as never);
     const failure = await getMetaAdsWriteBlockFailure({
       businessId: "biz-1",
       providerAccountId: "act_1",

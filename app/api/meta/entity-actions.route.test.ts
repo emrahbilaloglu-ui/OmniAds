@@ -72,7 +72,26 @@ describe("Meta entity write routes", () => {
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "biz_1" } as never,
     });
-    vi.mocked(db.getDb).mockReturnValue(vi.fn(async () => [{ provider_account_id: "act_1", label: "Entity" }]) as never);
+    // The pre-POST authority snapshot reads credential, generation, connection
+    // status and this account's selection in ONE statement, so the fake answers
+    // that shape too — a route that cannot resolve it refuses with 503 rather
+    // than POSTing.
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        const text = strings.join(" ");
+        if (text.includes("account_selected")) {
+          return [
+            {
+              status: "connected",
+              connection_generation: "1",
+              access_token: "token-1",
+              account_selected: true,
+            },
+          ];
+        }
+        return [{ provider_account_id: "act_1", label: "Entity" }];
+      }) as never,
+    );
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
       provider_account_id: "act_1",
@@ -129,7 +148,15 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("PAUSED");
     expect(writes.pauseCampaign).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       "cmp_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -165,7 +192,15 @@ describe("Meta entity write routes", () => {
 
     expect(response.status).toBe(200);
     expect(writes.pauseAdset).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       "adset_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -183,7 +218,15 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "campaign", status: "ACTIVE" });
     expect(writes.resumeCampaign).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       "cmp_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -206,7 +249,15 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "adset", status: "ACTIVE" });
     expect(writes.resumeAdset).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       "adset_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -263,7 +314,15 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload.bidAmountMinor).toBe(2200);
     expect(writes.updateAdsetBidAmount).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       { adsetId: "adset_1", bidAmountMinor: 2200 },
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
@@ -333,7 +392,15 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, dryRun: true, bidAmountMinor: 2200 });
     expect(writes.updateAdsetBidAmount).toHaveBeenCalledWith(
-      { businessId: "biz_1", providerAccountId: "act_1", accessToken: "token" },
+      // The write context now carries the generation the token was read under, so
+      // the pre-POST snapshot can refuse a reconnect that left the account
+      // selected.
+      {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        accessToken: "token",
+        connectionGeneration: "1:connected",
+      },
       { adsetId: "adset_1", bidAmountMinor: 2200, dryRun: true },
     );
   });

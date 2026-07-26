@@ -32,6 +32,18 @@ vi.mock("@/lib/http-fetch-with-timeout", () => ({ fetchWithTimeout }));
 
 const readProviderConnectionGenerationToken = vi.fn(async () => "1:connected");
 
+/**
+ * The atomic pre-POST authority snapshot: credential, generation, connection
+ * status and this account's selection settled in ONE read rather than assembled
+ * from three separate instants.
+ */
+const assertProviderWriteAuthorityUnchanged = vi.fn(async () => ({ ok: true }));
+
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, assertProviderWriteAuthorityUnchanged };
+});
+
 vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -57,6 +69,7 @@ describe("Google Ads account authority", () => {
     getIntegration.mockResolvedValue({ status: "connected", access_token: "token" });
     getProviderAccountAssignments.mockResolvedValue({ account_ids: ["123-456-7890"] });
     readProviderConnectionGenerationToken.mockResolvedValue("1:connected");
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({ ok: true } as never);
     process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "dev-token";
     fetchWithTimeout.mockResolvedValue(
       new Response(JSON.stringify({ results: [] }), { status: 200 }),
@@ -129,6 +142,14 @@ describe("Google Ads account authority", () => {
       // Selected for the first read (route admission), revoked from then on.
       return { account_ids: calls === 1 ? ["123-456-7890"] : [] };
     });
+    // The pre-POST snapshot is where the deselection is seen: route admission
+    // has already passed, and the atomic read is the next thing that looks.
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({
+      ok: false,
+      httpStatus: 409,
+      code: "provider_account_not_selected",
+      message: "This account is not currently selected for this business.",
+    } as never);
 
     const outcome = await advisor
       .executeAdvisorMutation({
@@ -158,14 +179,15 @@ describe("Google Ads account authority", () => {
     // What changed is who the connection belongs to: the user reconnected
     // Google as a different principal. The token captured before that reconnect
     // must not be POSTed to a live account.
-    let reads = 0;
-    readProviderConnectionGenerationToken.mockImplementation(async () => {
-      reads += 1;
-      // Reads 1-2 resolve the credential (before/after the read). The next read
-      // is the one at the literal pre-request boundary, by which time a
-      // reconnect has landed.
-      return reads <= 2 ? "1:connected" : "2:connected";
-    });
+    // The credential resolves under generation 1; by the time the atomic
+    // pre-POST snapshot is taken, a reconnect has landed.
+    assertProviderWriteAuthorityUnchanged.mockResolvedValue({
+      ok: false,
+      httpStatus: 409,
+      code: "provider_connection_changed",
+      message:
+        "The provider connection changed after this credential was read. The request was refused rather than sent with a superseded token.",
+    } as never);
 
     const outcome = await advisor
       .executeAdvisorMutation({

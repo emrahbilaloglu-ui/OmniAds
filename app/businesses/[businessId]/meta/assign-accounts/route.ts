@@ -28,7 +28,7 @@ export async function POST(
       provider: "meta",
       label: "meta-assign-accounts",
       requiredTables: ASSIGNMENT_REQUIRED_TABLES.meta,
-      schedule: async ({ businessId: id, accountIds, connectionGeneration, scheduledAfter }) => {
+      schedule: async ({ businessId: id, accountIds, connectionGeneration, schedulingAttemptId }) => {
         if (accountIds.length === 0) {
           return {
             scheduled: true,
@@ -67,7 +67,10 @@ export async function POST(
             WHERE business_id = ${id}
               AND provider_account_id = ANY(${accountIds}::text[])
               AND status IN ('queued', 'leased', 'running')
-              AND created_at >= ${scheduledAfter}::timestamptz
+              -- THIS attempt's work, by immutable id. A clock window is
+              -- satisfiable by a concurrent enqueue and breakable by skew
+              -- between the app clock and the database clock.
+              AND scheduling_attempt_id = ${schedulingAttemptId}::uuid
             GROUP BY provider_account_id
           `) as Array<{ provider_account_id: string; queued: number }>;
           const scheduledAccounts = new Set(rows.map((row) => row.provider_account_id));

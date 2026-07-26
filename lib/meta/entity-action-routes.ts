@@ -253,6 +253,10 @@ async function resolveWriteContext(input: {
       businessId: input.businessId,
       providerAccountId,
       accessToken: integration.access_token,
+      // The generation this token belongs to, from the SAME row. The pre-POST
+      // snapshot re-reads it, so a reconnect after this point refuses the write
+      // even though the account is still selected.
+      connectionGeneration: `${integration.connection_generation ?? 1}:${integration.status}`,
     },
   };
 }

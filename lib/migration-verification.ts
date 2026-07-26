@@ -248,6 +248,11 @@ export const VERIFIED_COLUMNS: readonly ColumnSpec[] = [
   // Refresh claim ownership. Without these a timed-out claimant can still commit
   // its result over the new owner's, including stamping the OLD account list
   // with the NEW credential's authority.
+  // The immutable scheduling attempt a partition was created by. Without it,
+  // "did this request schedule work?" is answered by a clock window that a
+  // concurrent enqueue can satisfy and clock skew can break.
+  { table: "meta_sync_partitions", column: "scheduling_attempt_id", dataType: "uuid", isNullable: true },
+  { table: "google_ads_sync_partitions", column: "scheduling_attempt_id", dataType: "uuid", isNullable: true },
   { table: "provider_account_snapshot_runs", column: "refresh_claim_owner", dataType: "text", isNullable: true },
   { table: "provider_account_snapshot_runs", column: "refresh_claim_epoch", dataType: "bigint", isNullable: false, columnDefault: "0" },
   { table: "provider_account_snapshot_runs", column: "refresh_claim_generation", dataType: "text", isNullable: true },

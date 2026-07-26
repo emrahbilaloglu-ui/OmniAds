@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
+import { assertProviderWriteAuthorityUnchanged } from "@/lib/provider-write-authority";
 import { getMetaWriteBlockState } from "@/lib/meta/automation-control-plane";
 import type { DecisionOriginAdExecutionBlocker } from "@/lib/creative-decision-engine/execution-safety";
 
@@ -193,42 +194,39 @@ export async function getMetaAdsWriteBlockFailure(
     };
   }
 
-  if (ctx.connectionGeneration != null) {
-    const { readProviderConnectionGenerationToken } = await import(
-      "@/lib/provider-account-snapshots"
-    );
-    const current = await readProviderConnectionGenerationToken(
-      ctx.businessId,
-      "meta",
-    ).catch(() => undefined);
-    if (current === undefined) {
-      return {
-        ok: false,
-        httpStatus: 503,
-        providerMutationAttempted: false,
-        error: {
-          code: META_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
-          message:
-            "Could not verify which Meta connection this credential belongs to. No provider write was attempted.",
-        },
-        responsePayload: null,
-        verificationPayload: null,
-      };
-    }
-    if (current !== ctx.connectionGeneration) {
-      return {
-        ok: false,
-        httpStatus: 409,
-        providerMutationAttempted: false,
-        error: {
-          code: META_ACCOUNT_NOT_SELECTED_CODE,
-          message:
-            "The Meta connection changed after this credential was read. The write was refused rather than sent with a superseded token.",
-        },
-        responsePayload: null,
-        verificationPayload: null,
-      };
-    }
+  // ONE atomic authority snapshot at the literal pre-POST boundary.
+  //
+  // The credential, its generation, the connection status and the selection of
+  // THIS account all have to be true at the same instant. Reading them
+  // separately — a generation query here, an authority query there — leaves a
+  // window between each pair in which the user can reconnect or deselect, and
+  // the POST goes out anyway.
+  //
+  // A read failure is 503, never an optional null: "I could not tell" must not
+  // be indistinguishable from "there is no generation to check".
+  const atomicAuthority = ctx.connectionGeneration
+    ? await assertProviderWriteAuthorityUnchanged({
+        businessId: ctx.businessId,
+        provider: "meta",
+        accountId: ctx.providerAccountId,
+        expectedConnectionGeneration: ctx.connectionGeneration,
+      })
+    : ({ ok: true } as const);
+  if (!atomicAuthority.ok) {
+    return {
+      ok: false,
+      httpStatus: atomicAuthority.httpStatus,
+      providerMutationAttempted: false,
+      error: {
+        code:
+          atomicAuthority.httpStatus === 503
+            ? META_ACCOUNT_AUTHORITY_UNKNOWN_CODE
+            : META_ACCOUNT_NOT_SELECTED_CODE,
+        message: atomicAuthority.message,
+      },
+      responsePayload: null,
+      verificationPayload: null,
+    };
   }
 
   const authority = await resolveMetaAccountAuthority(

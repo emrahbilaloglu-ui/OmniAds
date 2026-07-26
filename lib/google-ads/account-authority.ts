@@ -105,32 +105,32 @@ export async function assertGoogleAdsAccountAuthority(input: {
    */
   expectedConnectionGeneration?: string | null;
 }): Promise<void> {
+  // ONE atomic snapshot: credential, generation, connection status and this
+  // account's selection settled together. The generation check used to precede
+  // two further independent reads, so the answer was assembled from three
+  // different instants and a reconnect between any pair went unnoticed.
   if (input.expectedConnectionGeneration != null) {
-    const { readProviderConnectionGenerationToken } = await import(
-      "@/lib/provider-account-snapshots"
+    const { assertProviderWriteAuthorityUnchanged } = await import(
+      "@/lib/provider-write-authority"
     );
-    const current = await readProviderConnectionGenerationToken(
-      input.businessId,
-      "google",
-    ).catch(() => undefined);
-    if (current === undefined) {
+    const atomic = await assertProviderWriteAuthorityUnchanged({
+      businessId: input.businessId,
+      provider: "google",
+      accountId: input.accountId,
+      expectedConnectionGeneration: input.expectedConnectionGeneration,
+    });
+    if (!atomic.ok) {
       throw new GoogleAdsAccountAuthorityError({
-        code: GOOGLE_ADS_ACCOUNT_AUTHORITY_UNKNOWN_CODE,
-        httpStatus: 503,
+        code:
+          atomic.httpStatus === 503
+            ? GOOGLE_ADS_ACCOUNT_AUTHORITY_UNKNOWN_CODE
+            : GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE,
+        httpStatus: atomic.httpStatus,
         accountId: input.accountId,
-        message:
-          "Could not verify which Google connection this credential belongs to. No provider request was made.",
+        message: atomic.message,
       });
     }
-    if (current !== input.expectedConnectionGeneration) {
-      throw new GoogleAdsAccountAuthorityError({
-        code: GOOGLE_ADS_ACCOUNT_NOT_SELECTED_CODE,
-        httpStatus: 409,
-        accountId: input.accountId,
-        message:
-          "The Google connection changed after this credential was read. The request was refused rather than sent with a superseded token.",
-      });
-    }
+    return;
   }
   const authority = await resolveGoogleAdsAccountAuthority(
     input.businessId,

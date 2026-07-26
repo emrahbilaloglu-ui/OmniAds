@@ -20,6 +20,7 @@ import {
 } from "@/lib/provider-assignment-authorization";
 import { revokeAllProviderAccountSelection } from "@/lib/provider-selection-revocation";
 import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
+import { withSchedulingAttempt } from "@/lib/sync/scheduling-attempt";
 
 /**
  * One server-side service for provider account selection.
@@ -69,8 +70,15 @@ export interface AssignmentRouteConfig {
     accountIds: string[];
     /** The connection generation this selection was validated and written under. */
     connectionGeneration: string | null;
-    /** Wall clock immediately before scheduling, for exact-work readback. */
-    scheduledAfter: string;
+    /**
+     * The immutable id of THIS scheduling attempt.
+     *
+     * Every partition this operation creates carries it, so the readback asks
+     * "did I create this?" instead of "was something created for this account
+     * after my clock said so?" — which a concurrent enqueue satisfies and clock
+     * skew breaks.
+     */
+    schedulingAttemptId: string;
   }) => Promise<AssignmentSchedulingResult>;
 }
 
@@ -419,13 +427,14 @@ export async function handleProviderAssignmentRequest(
   // 6. Selection is durable. Scheduling is a SEPARATE outcome and is reported
   //    as one: a failure here leaves a saved selection with no work started,
   //    which is a 202, never a 200 with `success: true`.
-  const scheduledAfter = new Date().toISOString();
-  const scheduling = await config.schedule({
-    businessId,
-    accountIds: saved,
-    connectionGeneration: validatedConnectionGeneration,
-    scheduledAfter,
-  });
+  const { result: scheduling } = await withSchedulingAttempt((attemptId) =>
+    config.schedule({
+      businessId,
+      accountIds: saved,
+      connectionGeneration: validatedConnectionGeneration,
+      schedulingAttemptId: attemptId,
+    }),
+  );
   if (!scheduling.scheduled) {
     console.warn(`[${config.label}] selection saved but scheduling did not complete`, {
       businessId,

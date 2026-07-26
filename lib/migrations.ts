@@ -3578,6 +3578,12 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
         )`.catch(() => {}),
+        // The scheduling attempt that created this partition. "syncScheduled:
+        // true" was proven by account ids plus an app-clock `created_at` window,
+        // which a concurrent enqueue satisfies and clock skew breaks; an
+        // immutable attempt id answers "did THIS operation create work?" exactly.
+        sql`ALTER TABLE meta_sync_partitions
+          ADD COLUMN IF NOT EXISTS scheduling_attempt_id UUID`,
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_partitions_queue
           ON meta_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(
           () => {},
@@ -6902,6 +6908,8 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, lane, scope, partition_date)
         )`.catch(() => {}),
+        sql`ALTER TABLE google_ads_sync_partitions
+          ADD COLUMN IF NOT EXISTS scheduling_attempt_id UUID`,
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_sync_partitions_queue
           ON google_ads_sync_partitions (business_id, lane, status, priority DESC, partition_date DESC)`.catch(
           () => {},

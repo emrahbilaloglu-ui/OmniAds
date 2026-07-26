@@ -15,6 +15,7 @@ import {
   META_RUNTIME_STATE_SCOPES,
   isMetaProductCoreCoverageScope,
 } from "@/lib/meta/core-config";
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { isMetaAccountStillAuthorized } from "@/lib/meta/account-context";
 import {
   cancelMetaPartitionsForRevokedAccount,
@@ -4190,6 +4191,7 @@ export async function processMetaLifecyclePartition(input: {
   };
   workerId: string;
 }) {
+  await assertSyncGrowthBoundary("meta_lifecycle_partition");
   // Authority first: a revoked account must be refused as a loss of authority,
   // not surface as an unavailable-credentials failure.
   const revoked = await refuseRevokedMetaPartition(input.partition);
@@ -4216,6 +4218,7 @@ export async function consumeMetaQueuedWork(
     runtimeWorkerId?: string;
   },
 ): Promise<MetaSyncResult> {
+  await assertSyncGrowthBoundary("meta_consume_queued_work");
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
   );

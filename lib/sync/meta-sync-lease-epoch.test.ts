@@ -9,6 +9,34 @@ vi.mock("@/lib/meta/creatives-warehouse", () => ({
 // every partition. Default-authorised here; revocation behaviour itself is
 // proven end-to-end in the real-PostgreSQL provider seam.
 // Deliberately NOT a blanket mock — the rest of the module stays real.
+// These fixtures do not test the capacity fence; they exercise lease,
+// scheduling and partition logic against a stubbed database. Default-admit so
+// the fence is a no-op here, while refusal behaviour is proven in
+// db-growth-fence.test.ts and the real-PostgreSQL provider seam. Deliberately
+// NOT a blanket mock: the real decision shape is returned so a caller that
+// inspects it still sees truthful fields.
+vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();
+  const admit = async () => ({
+    allowed: true as const,
+    reason: "ready" as const,
+    warning: false,
+    databaseBytes: 1,
+    databaseBudgetBytes: 2,
+    tableBytes: {},
+    offender: null,
+    evaluatedAt: "2026-07-26T00:00:00.000Z",
+    errorMessage: null,
+    overridden: false,
+  });
+  return {
+    ...actual,
+    assertDbGrowthFenceAdmits: vi.fn(admit),
+    assertSyncGrowthBoundary: vi.fn(admit),
+  };
+});
+
 vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/meta/account-context")>();

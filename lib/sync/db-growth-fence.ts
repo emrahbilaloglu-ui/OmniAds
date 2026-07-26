@@ -40,6 +40,9 @@ export const FENCED_TABLES = [
   "meta_config_snapshots",
   "meta_campaign_config_history",
   "meta_adset_config_history",
+  // Google's dominant append surface. Omitting it would leave the largest
+  // Google warehouse table unmeasured while every Meta surface is fenced.
+  "google_ads_product_daily",
   "sync_release_gates",
 ] as const;
 export type FencedTable = (typeof FENCED_TABLES)[number];
@@ -77,8 +80,19 @@ export const DEFAULT_TABLE_BUDGET_BYTES: Record<FencedTable, number> = {
   meta_config_snapshots: 8 * 1024 ** 3,
   meta_campaign_config_history: 4 * 1024 ** 3,
   meta_adset_config_history: 4 * 1024 ** 3,
+  google_ads_product_daily: 20 * 1024 ** 3,
   sync_release_gates: 4 * 1024 ** 3,
 };
+
+/**
+ * Volume reserve, kept DISTINCT from the logical database budget.
+ *
+ * The database budget answers "is the logical database too large"; this answers
+ * "is the volume itself getting close to full", which an aggregate logical
+ * budget cannot substitute for — WAL, temp files and index builds consume the
+ * volume without appearing in pg_database_size.
+ */
+export const VOLUME_RESERVE_BYTES = PRODUCTION_VOLUME_BYTES - DEFAULT_DATABASE_BUDGET_BYTES;
 /** Warn band: still admitted, but loudly. */
 export const DEFAULT_WARNING_RATIO = 0.85;
 

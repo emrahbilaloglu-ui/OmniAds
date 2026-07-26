@@ -701,7 +701,22 @@ async function verifyGoogle(client: Client) {
   await setConnectionStatus("connected");
   console.log(`${LABEL} G4 PASS disconnected integration: zero provider calls`);
 
-  // (capacity-fence case arrives with Cluster C, alongside the guard wiring)
+  // ── G5. Capacity refusal on the proven-working path.
+  freshCase();
+  const refusal = await withEnv(OVER_BUDGET, () =>
+    runRange({ startDate: "2026-07-02", endDate: "2026-07-02" }).then(
+      (value) => ({ kind: "resolved" as const, value }),
+      (error) => ({ kind: "rejected" as const, error }),
+    ),
+  );
+  assert(
+    refusal.kind === "rejected" && refusal.error instanceof fence.DbGrowthFenceRefusal,
+    `G5: capacity refusal did not throw a fence refusal: ${JSON.stringify(refusal)}`,
+  );
+  await expectNoProviderWork("G5", "a refused run reached the provider");
+  console.log(
+    `${LABEL} G5 PASS capacity refusal on a path proven to work: zero provider calls, zero durable writes`,
+  );
 
   // ── G6. Mid-batch deselection. The batch resolves its account list once, so
   // this proves the per-account-day revalidation actually stops in-flight work.
@@ -1032,7 +1047,38 @@ async function verifyMeta(
   clearMetaContextCache();
   console.log(`${LABEL} M3 PASS disconnected Meta integration: zero provider calls`);
 
-  // (capacity-fence case arrives with Cluster C, alongside the guard wiring)
+  // ── M4. Capacity refusal on the proven-working consume path, with the queue
+  // and lease left recoverable.
+  freshCase();
+  const beforeRefusal = await client.query<{ snapshot: string }>(
+    `SELECT COALESCE(json_agg(row_to_json(p) ORDER BY p.id)::text, '[]') AS snapshot
+     FROM (SELECT id, status, lease_owner, lease_expires_at, attempt_count, next_retry_at
+           FROM meta_sync_partitions) p`,
+  );
+  const metaRefusal = await withEnv(OVER_BUDGET, () =>
+    meta.consumeMetaQueuedWork(BUSINESS_ID).then(
+      (value) => ({ kind: "resolved" as const, value }),
+      (error) => ({ kind: "rejected" as const, error }),
+    ),
+  );
+  assert(
+    metaRefusal.kind === "rejected" &&
+      metaRefusal.error instanceof shared.fence.DbGrowthFenceRefusal,
+    `M4: capacity refusal did not throw a fence refusal: ${JSON.stringify(metaRefusal)}`,
+  );
+  await expectNoMetaProviderWork("M4", "a refused consume reached the provider");
+  const afterRefusal = await client.query<{ snapshot: string }>(
+    `SELECT COALESCE(json_agg(row_to_json(p) ORDER BY p.id)::text, '[]') AS snapshot
+     FROM (SELECT id, status, lease_owner, lease_expires_at, attempt_count, next_retry_at
+           FROM meta_sync_partitions) p`,
+  );
+  assert(
+    beforeRefusal.rows[0]!.snapshot === afterRefusal.rows[0]!.snapshot,
+    "M4: a refused consume mutated partition queue/lease state; the claim is not byte-identical.",
+  );
+  console.log(
+    `${LABEL} M4 PASS capacity refusal on the working consume path: zero provider calls, partition queue and leases byte-identical`,
+  );
 
   // ── M5. Mid-batch revocation. Revoking during the first provider call must
   // stop the batch, cancel the account's partitions, and record no failure.
@@ -1258,8 +1304,58 @@ async function verifyMeta(
     `${LABEL} M8 PASS admitted processMetaLifecyclePartition: ${stub.providerCalls().length} provider calls, partition ${lifecycleRow.scope}@${lifecycleRow.partition_date} succeeded and read back`,
   );
 
-  // (capacity-fence case arrives with Cluster C, alongside the guard wiring)
-
+  // ── M9. Capacity refusal at that same entrypoint, on the proven path.
+  freshCase();
+  const refusalRow = await stageLeasedPartition();
+  const beforeM9 = await client.query<{ snapshot: string }>(
+    `SELECT row_to_json(p)::text AS snapshot FROM
+       (SELECT status, lease_owner, lease_expires_at, attempt_count, finished_at
+        FROM meta_sync_partitions WHERE id = $1::uuid) p`,
+    [refusalRow.id],
+  );
+  const lifecycleRefusal = await withEnv(OVER_BUDGET, () =>
+    meta
+      .processMetaLifecyclePartition({
+        partition: {
+          id: refusalRow.id,
+          businessId: BUSINESS_ID,
+          providerAccountId: META_ACCOUNT_ID,
+          lane: refusalRow.lane,
+          scope: refusalRow.scope,
+          partitionDate: refusalRow.partition_date,
+          attemptCount: 0,
+          leaseEpoch: Number(refusalRow.lease_epoch),
+          source: refusalRow.source,
+        },
+        workerId: META_WORKER_ID,
+      } as never)
+      .then(
+        (value) => ({ kind: "resolved" as const, value }),
+        (error) => ({ kind: "rejected" as const, error }),
+      ),
+  );
+  assert(
+    lifecycleRefusal.kind === "rejected" &&
+      lifecycleRefusal.error instanceof shared.fence.DbGrowthFenceRefusal,
+    `M9: capacity refusal did not throw a fence refusal: ${JSON.stringify(lifecycleRefusal)}`,
+  );
+  assert(
+    stub.providerCalls().length === 0,
+    `M9: a refused lifecycle partition made ${stub.providerCalls().length} provider calls.`,
+  );
+  const afterM9 = await client.query<{ snapshot: string }>(
+    `SELECT row_to_json(p)::text AS snapshot FROM
+       (SELECT status, lease_owner, lease_expires_at, attempt_count, finished_at
+        FROM meta_sync_partitions WHERE id = $1::uuid) p`,
+    [refusalRow.id],
+  );
+  assert(
+    beforeM9.rows[0]!.snapshot === afterM9.rows[0]!.snapshot,
+    `M9: a refused lifecycle partition mutated its lease/claim.\n  before ${beforeM9.rows[0]!.snapshot}\n  after  ${afterM9.rows[0]!.snapshot}`,
+  );
+  console.log(
+    `${LABEL} M9 PASS capacity refusal at processMetaLifecyclePartition: zero provider calls, lease and claim byte-identical and still recoverable`,
+  );
 }
 
 // NOTE: config-amplification, two-layer storage and growth-fence cases arrive

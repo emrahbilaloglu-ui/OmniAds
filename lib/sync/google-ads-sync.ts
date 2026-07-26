@@ -1,3 +1,4 @@
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import {
   getGoogleAdsAdsReport,
   getGoogleAdsAssetGroupsReport,
@@ -6337,6 +6338,7 @@ export async function syncGoogleAdsRange(input: {
   triggerSource?: string;
   scopes?: GoogleAdsWarehouseScope[];
 }): Promise<GoogleAdsSyncResult> {
+  await assertSyncGrowthBoundary("google_sync_range");
   const days = enumerateDays(
     input.startDate,
     input.endDate,

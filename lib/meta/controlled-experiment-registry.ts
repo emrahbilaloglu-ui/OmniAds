@@ -2303,8 +2303,12 @@ BEGIN
       AND binding.provider = 'meta'
       AND binding.provider_account_ref_id = NEW.provider_account_ref_id
       AND binding.provider_account_id = NEW.provider_account_id
+      -- A binding SURVIVES deselection by design, so existence alone does not
+      -- mean the account is currently in use. A controlled experiment is NEW
+      -- durable work and must not start against a deselected account.
+      AND binding.is_selected
   ) THEN
-    RAISE EXCEPTION 'controlled experiment account is not assigned to business'
+    RAISE EXCEPTION 'controlled experiment account is not currently selected for this business'
       USING ERRCODE = '23514';
   END IF;
   RETURN NEW;

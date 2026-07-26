@@ -14,6 +14,7 @@ import {
   validateRequestedProviderAccounts,
   type AssignmentSelectionRefusal,
 } from "@/lib/provider-assignment-authorization";
+import { revokeAllProviderAccountSelection } from "@/lib/provider-selection-revocation";
 import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
 
 /**
@@ -208,6 +209,59 @@ export async function handleProviderAssignmentRequest(
 
   if (await isDemoBusiness(businessId)) {
     return json({ success: true, assigned_accounts: requested, selectionSaved: true, syncScheduled: false }, 200);
+  }
+
+  // An EMPTY selection is a revocation, and revocation is a safety action.
+  //
+  // Sending it through the path below made "stop using my accounts" fail for
+  // the same reasons a new selection should: a missing, disconnected or expired
+  // integration, a stale discovery snapshot, a disabled lane. Every one of those
+  // is a state in which the user is MORE likely to want to revoke, and refusing
+  // leaves the product syncing accounts the owner asked it to stop touching.
+  //
+  // It is safe to exempt precisely because it can only reduce authority: no
+  // binding is added, none is re-pointed, nothing is selected, no provider is
+  // called and no work is enqueued. Tenant authorization above still applies.
+  if (requested.length === 0) {
+    try {
+      const revocation = await revokeAllProviderAccountSelection({
+        businessId,
+        provider: config.provider,
+      });
+      console.warn(`[${config.label}] selection revoked`, {
+        businessId,
+        deselected: revocation.deselected.length,
+        cancelledPartitions: revocation.cancelledPartitions,
+      });
+      return json(
+        {
+          success: true,
+          assigned_accounts: [],
+          selectionSaved: true,
+          syncScheduled: false,
+          revoked: true,
+          deselectedAccounts: revocation.deselected,
+          cancelledPartitions: revocation.cancelledPartitions,
+          message:
+            "Every account was deselected. No sync work remains queued for this business.",
+        },
+        200,
+      );
+    } catch (error) {
+      console.error(`[${config.label}] revocation failed`, {
+        businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return json(
+        {
+          error: "revocation_failed",
+          message: "Could not deselect every account. Nothing was changed.",
+          selectionSaved: false,
+          syncScheduled: false,
+        },
+        500,
+      );
+    }
   }
 
   // 2. A CURRENT connection, not merely an integration row.

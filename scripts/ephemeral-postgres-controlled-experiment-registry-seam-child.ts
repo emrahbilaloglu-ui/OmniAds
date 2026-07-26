@@ -183,6 +183,11 @@ async function main() {
         provider_account_ref_id UUID NOT NULL
           REFERENCES provider_accounts(id) ON DELETE RESTRICT,
         provider_account_id TEXT NOT NULL,
+        -- Mirrors the canonical column. A controlled experiment is NEW durable
+        -- work, so the account guard now requires the binding to be currently
+        -- SELECTED rather than merely present — bindings survive deselection by
+        -- design.
+        is_selected BOOLEAN NOT NULL DEFAULT FALSE,
         UNIQUE (business_id, provider_account_ref_id, provider_account_id)
       );
       CREATE TABLE engine_v3_ad_decision_evaluations (
@@ -298,8 +303,8 @@ async function main() {
     );
     await sql.query(
       `INSERT INTO business_provider_accounts
-       (business_id, provider, provider_account_ref_id, provider_account_id)
-       VALUES ($1::text, 'meta', $2::uuid, $3)`,
+       (business_id, provider, provider_account_ref_id, provider_account_id, is_selected)
+       VALUES ($1::text, 'meta', $2::uuid, $3, TRUE)`,
       [businessId, providerAccountRefId, providerAccountId],
     );
 

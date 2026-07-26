@@ -3,7 +3,11 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSearchConsoleSiteAccessible } from "@/lib/search-console-site-selection-authority";
-import { upsertIntegration } from "@/lib/integrations";
+import {
+  upsertIntegration,
+  ProviderConnectionGenerationConflictError,
+} from "@/lib/integrations";
+import { readProviderConnectionGenerationToken } from "@/lib/provider-account-snapshots";
 import {  } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
@@ -230,6 +234,30 @@ export async function POST(request: NextRequest) {
   }
   const verifiedSiteUrl = accessible.siteUrl;
 
+  // Re-read lane and generation AFTER the slow accessibility listing.
+  //
+  // `assertSearchConsoleSiteAccessible` is a live provider round trip. A
+  // disconnect, a reconnect as a different Google principal, or a cutover
+  // quiesce can all land inside that window, and the write below would
+  // otherwise commit a property validated against a connection that no longer
+  // exists.
+  try {
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message: "Property selection is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
+  const generationAfterListing = await readProviderConnectionGenerationToken(
+    businessId,
+    "search_console",
+  ).catch(() => null);
+
   try {
     const context = await resolveSearchConsoleContext({
       businessId,
@@ -247,6 +275,7 @@ export async function POST(request: NextRequest) {
       status: "connected",
       providerAccountId: verifiedSiteUrl,
       providerAccountName: verifiedSiteUrl,
+      expectedConnectionGeneration: generationAfterListing,
       metadata: {
         ...metadata,
         siteUrl: verifiedSiteUrl,
@@ -259,6 +288,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, integration: updated });
   } catch (error) {
+    if (error instanceof ProviderConnectionGenerationConflictError) {
+      return NextResponse.json(
+        {
+          error: "connection_changed",
+          message:
+            "The Search Console connection changed while this property was being validated. Nothing was saved; try again.",
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
     if (error instanceof SearchConsoleAuthError) {
       return NextResponse.json(
         { error: error.code, message: error.message },

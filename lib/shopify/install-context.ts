@@ -104,15 +104,96 @@ export async function getShopifyInstallContext(
   return rows[0] ?? null;
 }
 
-export async function consumeShopifyInstallContext(
-  token: string,
-): Promise<ShopifyInstallContextRow | null> {
-  const context = await getShopifyInstallContext(token);
-  if (!context) return null;
+export type ShopifyInstallContextClaim =
+  | { ok: true; context: ShopifyInstallContextRow }
+  | { ok: false; reason: "not_found" | "not_your_context" };
+
+/**
+ * Claim an install context exactly once, for the actor it was created for.
+ *
+ * Two defects, both closed by making this one statement.
+ *
+ * It was a SELECT followed by a DELETE, so two finalizers racing on the same
+ * token both read the row and both proceeded to connect a shop — two
+ * integrations, two webhook registrations, from one grant. `DELETE ...
+ * RETURNING` makes the claim itself the mutation: exactly one caller can ever
+ * receive the row.
+ *
+ * And it was consumed by TOKEN ALONE. The token is created during the Shopify
+ * redirect and carries the shop's access token; anyone who obtained it could
+ * finalize it into a business they had access to, binding someone else's shop
+ * to their own account. The claim now also requires the session or user the
+ * context was created for, when the context recorded one.
+ */
+export async function consumeShopifyInstallContext(input: {
+  token: string;
+  sessionId?: string | null;
+  userId?: string | null;
+}): Promise<ShopifyInstallContextClaim> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) return { ok: false, reason: "not_found" };
 
   const sql = getDb();
-  await sql`DELETE FROM shopify_install_contexts WHERE token = ${token}`;
-  return context;
+  const sessionId = sanitizeUuid(input.sessionId);
+  const userId = sanitizeUuid(input.userId);
+
+  const claimed = (await sql`
+    DELETE FROM shopify_install_contexts
+    WHERE token = ${input.token}
+      AND expires_at > now()
+      AND (session_id IS NULL OR session_id = ${sessionId}::uuid)
+      AND (user_id IS NULL OR user_id = ${userId}::uuid)
+    RETURNING *
+  `) as ShopifyInstallContextRow[];
+  if (claimed[0]) return { ok: true, context: claimed[0] };
+
+  // Distinguish "no such context" from "that context is not yours", so the
+  // caller can say something true without leaking whether a token exists to
+  // someone who does not own it.
+  const exists = (await sql`
+    SELECT 1 FROM shopify_install_contexts
+    WHERE token = ${input.token} AND expires_at > now()
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  return {
+    ok: false,
+    reason: exists.length > 0 ? "not_your_context" : "not_found",
+  };
+}
+
+/**
+ * Put a claimed context back after a failed finalize.
+ *
+ * The claim is destructive by design, so a finalize that fails AFTER claiming —
+ * a credential write that errors, a database blip — would otherwise have
+ * destroyed the only copy of the shop's access token and forced the user to
+ * reinstall. Restoring it makes that failure explicitly retryable, with a
+ * shorter window because the grant is already older than it was.
+ */
+export async function restoreShopifyInstallContext(
+  context: ShopifyInstallContextRow,
+): Promise<void> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) return;
+  const sql = getDb();
+  await sql`
+    INSERT INTO shopify_install_contexts (
+      token, shop_domain, shop_name, access_token, scopes, metadata,
+      return_to, session_id, user_id, preferred_business_id, expires_at
+    ) VALUES (
+      ${context.token}, ${context.shop_domain}, ${context.shop_name},
+      ${context.access_token}, ${context.scopes},
+      ${JSON.stringify(context.metadata ?? {})}::jsonb,
+      ${context.return_to}, ${context.session_id}, ${context.user_id},
+      ${context.preferred_business_id},
+      ${new Date(Date.now() + 5 * 60 * 1000).toISOString()}
+    )
+    ON CONFLICT (token) DO NOTHING
+  `;
 }
 
 export async function getLatestShopifyInstallContextForActor(input: {

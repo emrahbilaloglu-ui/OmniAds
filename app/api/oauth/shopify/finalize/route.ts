@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { consumeShopifyInstallContext } from "@/lib/shopify/install-context";
+import {
+  consumeShopifyInstallContext,
+  restoreShopifyInstallContext,
+} from "@/lib/shopify/install-context";
 import { upsertIntegration } from "@/lib/integrations";
 import { updateBusinessCurrency } from "@/lib/account-store";
 import { setSessionActiveBusiness } from "@/lib/auth";
@@ -32,27 +35,66 @@ export async function POST(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  const context = await consumeShopifyInstallContext(token);
-  if (!context) {
+  // Authorized BEFORE the claim, and the claim is single-use and actor-bound.
+  // The previous shape read the context by token alone and deleted it in a
+  // second statement, so two concurrent finalizers both connected the shop, and
+  // anyone holding the token could bind someone else's store to a business of
+  // their own.
+  const claim = await consumeShopifyInstallContext({
+    token,
+    sessionId: access.session.sessionId,
+    userId: access.session.user?.id ?? null,
+  });
+  if (!claim.ok) {
+    return claim.reason === "not_your_context"
+      ? NextResponse.json(
+          {
+            error: "context_not_yours",
+            message:
+              "This Shopify install was started by a different session. Start the install again from this account.",
+          },
+          { status: 403 },
+        )
+      : NextResponse.json(
+          {
+            error: "context_not_found",
+            message: "Shopify install context not found or expired.",
+          },
+          { status: 404 },
+        );
+  }
+  const context = claim.context;
+
+  let integration;
+  try {
+    integration = await upsertIntegration({
+      businessId,
+      provider: "shopify",
+      status: "connected",
+      providerAccountId: context.shop_domain,
+      providerAccountName: context.shop_name ?? context.shop_domain,
+      accessToken: context.access_token,
+      scopes: context.scopes ?? undefined,
+      metadata: {
+        ...(context.metadata ?? {}),
+        shopifyProductionServingMode: "auto",
+      },
+    });
+  } catch (error: unknown) {
+    // The claim already destroyed the only copy of the shop's access token, so
+    // a failure here would force a reinstall. Put it back and say so.
+    await restoreShopifyInstallContext(context).catch(() => undefined);
     return NextResponse.json(
-      { error: "context_not_found", message: "Shopify install context not found or expired." },
-      { status: 404 },
+      {
+        error: "integration_save_failed",
+        message:
+          "The Shopify connection could not be saved. The install is still valid — retry shortly.",
+        retryable: true,
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
     );
   }
-
-  const integration = await upsertIntegration({
-    businessId,
-    provider: "shopify",
-    status: "connected",
-    providerAccountId: context.shop_domain,
-    providerAccountName: context.shop_name ?? context.shop_domain,
-    accessToken: context.access_token,
-    scopes: context.scopes ?? undefined,
-    metadata: {
-      ...(context.metadata ?? {}),
-      shopifyProductionServingMode: "auto",
-    },
-  });
 
   const currency =
     context.metadata && typeof context.metadata.currency === "string"

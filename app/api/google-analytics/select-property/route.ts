@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoGa4Properties } from "@/lib/demo-business";
-import { getIntegration, upsertIntegration } from "@/lib/integrations";
+import {
+  getIntegration,
+  upsertIntegration,
+  ProviderConnectionGenerationConflictError,
+} from "@/lib/integrations";
+import { readProviderConnectionGenerationToken } from "@/lib/provider-account-snapshots";
 import {
   fetchGA4Properties,
   fetchGA4PropertyMetadata,
@@ -171,7 +176,18 @@ export async function POST(request: NextRequest) {
   }
 
   const normalizedPropertyId = normalizeGa4PropertyId(propertyId);
+  // The MATCHED provider row, not the caller's body.
+  //
+  // Names and account ids were taken straight from the request, so a caller
+  // could bind a property under any label and any account id it liked — the
+  // integration then reported an account relationship Google never asserted, and
+  // every surface downstream read it as provider truth.
+  const matchedProperty = propertiesResult.properties.find(
+    (candidate) =>
+      normalizeGa4PropertyId(candidate.propertyId) === normalizedPropertyId,
+  );
   if (
+    !matchedProperty ||
     !isPropertyAccessible(normalizedPropertyId, propertiesResult.properties)
   ) {
     return NextResponse.json(
@@ -201,28 +217,72 @@ export async function POST(request: NextRequest) {
     string,
     unknown
   >;
-  const updatedIntegration = await upsertIntegration({
+  // Re-read the lane and the exact connection generation AFTER the slow provider
+  // calls above. Listing properties and fetching metadata are two network round
+  // trips; a disconnect, a reconnect as a different Google principal, or a
+  // cutover quiesce can all land inside that window, and the write would
+  // otherwise commit a selection validated against a connection that no longer
+  // exists.
+  try {
+    assertSyncLaneEnabled("assignment_mutation");
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "lane_disabled",
+        message: "Property selection is currently disabled.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 503 },
+    );
+  }
+  const generationAfterProviderCalls = await readProviderConnectionGenerationToken(
     businessId,
-    provider: "ga4",
-    status: "connected",
-    providerAccountId: normalizedPropertyId,
-    providerAccountName: propertyName,
-    metadata: {
-      ...existingMetadata,
-      ga4PropertyId: normalizedPropertyId,
-      ga4PropertyName: propertyName,
-      ga4AccountId: accountId,
-      ga4AccountName: accountName,
-      ga4PropertyTimeZone: propertyMetadata.timeZone,
-    },
-  });
+    "ga4",
+  ).catch(() => null);
+
+  let updatedIntegration;
+  try {
+    updatedIntegration = await upsertIntegration({
+      businessId,
+      provider: "ga4",
+      status: "connected",
+      providerAccountId: normalizedPropertyId,
+      // Provider truth, every field of it.
+      providerAccountName: matchedProperty.propertyName ?? normalizedPropertyId,
+      expectedConnectionGeneration: generationAfterProviderCalls,
+      metadata: {
+        ...existingMetadata,
+        ga4PropertyId: normalizedPropertyId,
+        ga4PropertyName: matchedProperty.propertyName ?? normalizedPropertyId,
+        ga4AccountId: matchedProperty.accountId ?? null,
+        ga4AccountName: matchedProperty.accountName ?? null,
+        ga4PropertyTimeZone: propertyMetadata.timeZone,
+      },
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProviderConnectionGenerationConflictError) {
+      return NextResponse.json(
+        {
+          error: "connection_changed",
+          message:
+            "The Google Analytics connection changed while this property was being validated. Nothing was saved; try again.",
+          retryable: true,
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   logRuntimeDebug("ga4-select-property", "property_linked", {
     businessId,
     propertyId: normalizedPropertyId,
-    propertyName,
-    accountId,
-    accountName,
+    propertyName: matchedProperty.propertyName ?? normalizedPropertyId,
+    accountId: matchedProperty.accountId ?? null,
+    accountName: matchedProperty.accountName ?? null,
+    callerSuppliedPropertyName: propertyName,
+    callerSuppliedAccountId: accountId,
+    callerSuppliedAccountName: accountName,
     propertyTimeZone: propertyMetadata.timeZone,
   });
 

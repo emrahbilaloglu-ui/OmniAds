@@ -18,6 +18,7 @@ import {
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { resolveMetaAccountAuthority } from "@/lib/meta/account-context";
 import { runMetaLeasedPartitionBatch } from "@/lib/sync/meta-batch-stop";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import {
   cancelMetaPartitionsForRevokedAccount,
   backfillMetaRunningRunsForTerminalPartition,
@@ -3030,6 +3031,8 @@ async function enqueueMetaCreativeWarehousePartitions(
 }
 
 export async function enqueueMetaScheduledWork(businessId: string) {
+  assertSyncLaneEnabled("cron_enqueue");
+  assertSyncLaneEnabled("meta_sync");
   await assertSyncGrowthBoundary("meta_enqueue_scheduled_work", { fresh: true });
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
@@ -4215,6 +4218,7 @@ export async function processMetaLifecyclePartition(input: {
   };
   workerId: string;
 }) {
+  assertSyncLaneEnabled("meta_sync");
   await assertSyncGrowthBoundary("meta_lifecycle_partition");
   // Authority first: a revoked account must be refused as a loss of authority,
   // not surface as an unavailable-credentials failure.
@@ -4242,6 +4246,7 @@ export async function consumeMetaQueuedWork(
     runtimeWorkerId?: string;
   },
 ): Promise<MetaSyncResult> {
+  assertSyncLaneEnabled("meta_sync");
   await assertSyncGrowthBoundary("meta_consume_queued_work");
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
@@ -4638,6 +4643,7 @@ async function enqueueMetaRangeJob(input: {
   // Every manual range, recent, today, repair and initial path funnels here,
   // and each queues durable work across a date range. Fresh, because a cached
   // admission would authorise a whole backfill wave.
+  assertSyncLaneEnabled("meta_sync");
   await assertSyncGrowthBoundary("meta_enqueue_range_job", { fresh: true });
   const credentials = await resolveMetaCredentials(input.businessId);
   if (!credentials?.accountIds?.length) {

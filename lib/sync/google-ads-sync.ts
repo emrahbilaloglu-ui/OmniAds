@@ -1,4 +1,5 @@
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import {
   getGoogleAdsAdsReport,
   getGoogleAdsAssetGroupsReport,
@@ -4126,6 +4127,8 @@ export async function enqueueGoogleAdsScheduledWork(businessId: string) {
   // Enqueueing IS growth: every queued partition is durable work that will
   // write. Refusing here is what keeps a full queue from being built during an
   // incident and then draining the moment capacity is restored.
+  assertSyncLaneEnabled("cron_enqueue");
+  assertSyncLaneEnabled("google_sync");
   await assertSyncGrowthBoundary("google_enqueue_scheduled_work", { fresh: true });
   await refreshGoogleAdsSyncStateForBusiness({ businessId }).catch(() => null);
   const d1Recovery = await recoverGoogleAdsD1FinalizePartitions({
@@ -4256,6 +4259,7 @@ async function syncGoogleAdsDates(input: {
 }) {
   // Fresh, not cached. recent/today/initial all funnel here, and each expands
   // into a multi-day wave; one cached admission would authorise the whole wave.
+  assertSyncLaneEnabled("google_sync");
   await assertSyncGrowthBoundary("google_sync_dates", { fresh: true });
   await expireStaleGoogleAdsSyncJobs({ businessId: input.businessId }).catch(
     () => null,
@@ -5617,6 +5621,7 @@ async function processGoogleAdsPartition(input: {
   // Per work unit, and before any provider call or durable claim. A refusal
   // here propagates: the partition keeps its queued/leased state and is retried
   // later, which is recoverable — swallowing it would mark it done undone.
+  assertSyncLaneEnabled("google_sync");
   await assertSyncGrowthBoundary("google_lifecycle_partition");
   const partitionId = input.partition.id;
   if (!partitionId) return false;
@@ -6365,6 +6370,7 @@ export async function syncGoogleAdsRange(input: {
   triggerSource?: string;
   scopes?: GoogleAdsWarehouseScope[];
 }): Promise<GoogleAdsSyncResult> {
+  assertSyncLaneEnabled("google_sync");
   await assertSyncGrowthBoundary("google_sync_range");
   const days = enumerateDays(
     input.startDate,

@@ -1,6 +1,7 @@
 import { getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { assertSyncRetentionExecutionReady } from "@/lib/sync/retention-readiness";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
@@ -251,6 +252,9 @@ export async function pruneSyncLifecycleData(input?: {
   stoppedWorkerHeartbeatRetentionHours?: number;
   reclaimEventRetentionDays?: number;
 }) {
+  // Retention deletes. It has its own lane and stays off even when every other
+  // lane is on, so "resume sync" can never resume deletion.
+  assertSyncLaneEnabled("retention");
   await assertDbSchemaReady({
     tables: [...SYNC_RETENTION_REQUIRED_TABLES],
     context: "sync_retention_prune",

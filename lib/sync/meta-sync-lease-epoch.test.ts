@@ -15,6 +15,22 @@ vi.mock("@/lib/meta/creatives-warehouse", () => ({
 // db-growth-fence.test.ts and the real-PostgreSQL provider seam. Deliberately
 // NOT a blanket mock: the real decision shape is returned so a caller that
 // inspects it still sees truthful fields.
+vi.mock("@/lib/sync/global-kill-switch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/global-kill-switch")>();
+  return {
+    ...actual,
+    // Lanes default to OFF so a host cannot resume writing before an operator
+    // says so. These suites are about the code behind the switch, not the
+    // switch itself, which has its own tests.
+    assertSyncLaneEnabled: vi.fn(() => ({
+      lane: "meta_sync" as const,
+      enabled: true,
+      reason: "enabled" as const,
+    })),
+  };
+});
+
 vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();

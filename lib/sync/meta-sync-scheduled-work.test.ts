@@ -4,6 +4,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // suite has no database — without the mock every case would fail on
 // fence_read_failed, which is the fence working, not the code under test.
 // Everything else in the module stays real.
+vi.mock("@/lib/sync/global-kill-switch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/global-kill-switch")>();
+  return {
+    ...actual,
+    // Lanes default to OFF so a host cannot resume writing before an operator
+    // says so. These suites are about the code behind the switch, not the
+    // switch itself, which has its own tests.
+    assertSyncLaneEnabled: vi.fn(() => ({
+      lane: "meta_sync" as const,
+      enabled: true,
+      reason: "enabled" as const,
+    })),
+  };
+});
+
 vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/sync/db-growth-fence")>();

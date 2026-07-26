@@ -2387,6 +2387,20 @@ async function main() {
     const connectionString = `postgresql://${USER}@127.0.0.1:${port}/${DB}`;
     process.env.DATABASE_URL = connectionString;
     process.env.DB_SSL_MODE = "disable";
+    // Lanes default to OFF. A seam that exercises the real entrypoints has to
+    // represent an ENABLED deployment, so it turns them on explicitly — which
+    // is itself a check that the switch is wired where the seam runs.
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    for (const lane of [
+      "META_SYNC",
+      "GOOGLE_SYNC",
+      "SHOPIFY_SYNC",
+      "CRON_ENQUEUE",
+      "ASSIGNMENT_MUTATION",
+      "RETENTION",
+    ]) {
+      process.env[`ADSECUTE_SYNC_LANE_${lane}_ENABLED`] = "enabled";
+    }
     // Provider prerequisites. These are fixture values; no real credential is
     // ever used and the stub refuses any host that is not the expected API.
     process.env.GOOGLE_ADS_DEVELOPER_TOKEN ??= "seam-developer-token";

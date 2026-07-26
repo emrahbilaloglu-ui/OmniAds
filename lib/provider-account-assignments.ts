@@ -1,3 +1,4 @@
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { getDb, runDbTransaction } from "@/lib/db";
 import type { IntegrationProviderType } from "@/lib/integrations";
 import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
@@ -107,6 +108,9 @@ export async function replaceProviderAccountSelection(input: {
   provider: IntegrationProviderType;
   accountIds: readonly string[];
 }): Promise<string[]> {
+  // Selection mutation changes what every other lane acts on, so it is quiesced
+  // with them during a rollout rather than left writable underneath a migration.
+  assertSyncLaneEnabled("assignment_mutation");
   const accountIds = normalizeProviderAccountIds(input.accountIds);
   const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const businessRefId = businessRefIds.get(input.businessId) ?? null;

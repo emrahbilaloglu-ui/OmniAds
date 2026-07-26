@@ -6,6 +6,22 @@ const acquireSyncRunnerLease = vi.fn();
 const releaseSyncRunnerLease = vi.fn();
 const assertSyncRetentionExecutionReady = vi.fn();
 
+vi.mock("@/lib/sync/global-kill-switch", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/sync/global-kill-switch")>();
+  return {
+    ...actual,
+    // Lanes default to OFF so a host cannot resume writing before an operator
+    // says so. These suites are about the code behind the switch, not the
+    // switch itself, which has its own tests.
+    assertSyncLaneEnabled: vi.fn(() => ({
+      lane: "meta_sync" as const,
+      enabled: true,
+      reason: "enabled" as const,
+    })),
+  };
+});
+
 vi.mock("@/lib/db", () => ({
   getDbWithTimeout,
 }));

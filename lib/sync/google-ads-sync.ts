@@ -3473,6 +3473,9 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
+  // The lane, not only capacity. A disabled lane means this work unit must not
+  // run at all; a capacity check alone still admits it during a quiesce.
+  assertSyncLaneEnabled("google_sync");
   // Recovery requeues partitions, which is durable work that will write.
   await assertSyncGrowthBoundary("google_d1_finalize_recovery", { fresh: true });
   await assertDbSchemaReady({
@@ -4154,6 +4157,10 @@ export async function refreshGoogleAdsSyncStateForBusiness(input: {
   businessId: string;
   scopes?: GoogleAdsWarehouseScope[];
 }) {
+  // The lane, not only capacity. A disabled lane means this work unit must not
+  // run at all; a capacity check alone still admits it during a quiesce.
+  assertSyncLaneEnabled("google_sync");
+  await assertSyncGrowthBoundary("google_state_refresh", { fresh: true });
   const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );
@@ -4473,6 +4480,13 @@ async function syncGoogleAdsAccountDay(input: {
   }
 
   try {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("google_sync");
+  await assertSyncGrowthBoundary("google_state_refresh", { fresh: true });
     const campaigns = fetchPlan.campaigns
       ? await getGoogleAdsCampaignsReport({
           ...baseParams,
@@ -6392,6 +6406,9 @@ export async function runGoogleAdsTargetedRepair(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleAdsTargetedRepairResult> {
+  // The lane, not only capacity. A disabled lane means this work unit must not
+  // run at all; a capacity check alone still admits it during a quiesce.
+  assertSyncLaneEnabled("google_sync");
   await assertSyncGrowthBoundary("google_targeted_repair", { fresh: true });
   const integrityScopeRelevant =
     input.scope === "account_daily" || input.scope === "campaign_daily";
@@ -6593,6 +6610,13 @@ export async function syncGoogleAdsReports(
     runtimeWorkerId?: string;
   },
 ): Promise<GoogleAdsSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("google_sync");
+  await assertSyncGrowthBoundary("google_sync_recent", { fresh: true });
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueGoogleAdsScheduledWork(businessId).catch(() => null);
     return {

@@ -108,6 +108,124 @@ const ENTRYPOINTS: Array<{
       });
     },
   },
+  {
+    name: "syncMetaInitial",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { syncMetaInitial } = await import("@/lib/sync/meta-sync");
+      return syncMetaInitial("biz-1");
+    },
+  },
+  {
+    name: "syncMetaReports",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { syncMetaReports } = await import("@/lib/sync/meta-sync");
+      return syncMetaReports({ businessId: "biz-1" } as never);
+    },
+  },
+  {
+    name: "backfillMetaRange",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { backfillMetaRange } = await import("@/lib/sync/meta-sync");
+      return backfillMetaRange({
+        businessId: "biz-1",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+      } as never);
+    },
+  },
+  {
+    name: "recoverMetaD1FinalizePartitions",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { recoverMetaD1FinalizePartitions } = await import(
+        "@/lib/sync/meta-sync"
+      );
+      return recoverMetaD1FinalizePartitions({ businessId: "biz-1" });
+    },
+  },
+  {
+    name: "syncMetaRepairRange",
+    lane: "ADSECUTE_SYNC_LANE_META_SYNC_ENABLED",
+    call: async () => {
+      const { syncMetaRepairRange } = await import("@/lib/sync/meta-sync");
+      return syncMetaRepairRange({
+        businessId: "biz-1",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+      } as never);
+    },
+  },
+  {
+    name: "refreshGoogleAdsSyncStateForBusiness",
+    lane: "ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED",
+    call: async () => {
+      const { refreshGoogleAdsSyncStateForBusiness } = await import(
+        "@/lib/sync/google-ads-sync"
+      );
+      return refreshGoogleAdsSyncStateForBusiness({ businessId: "biz-1" });
+    },
+  },
+  {
+    name: "syncGoogleAdsRange",
+    lane: "ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED",
+    call: async () => {
+      const { syncGoogleAdsRange } = await import("@/lib/sync/google-ads-sync");
+      return syncGoogleAdsRange({
+        businessId: "biz-1",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+      } as never);
+    },
+  },
+  {
+    name: "runGoogleAdsTargetedRepair",
+    lane: "ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED",
+    call: async () => {
+      const { runGoogleAdsTargetedRepair } = await import(
+        "@/lib/sync/google-ads-sync"
+      );
+      return runGoogleAdsTargetedRepair({ businessId: "biz-1" } as never);
+    },
+  },
+  {
+    name: "recoverGoogleAdsD1FinalizePartitions",
+    lane: "ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED",
+    call: async () => {
+      const { recoverGoogleAdsD1FinalizePartitions } = await import(
+        "@/lib/sync/google-ads-sync"
+      );
+      return recoverGoogleAdsD1FinalizePartitions({ businessId: "biz-1" });
+    },
+  },
+  {
+    name: "runAutoSyncRepairPass",
+    lane: "ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED",
+    call: async () => {
+      const { runAutoSyncRepairPass } = await import("@/lib/sync/repair-executor");
+      return runAutoSyncRepairPass({
+        businessId: "biz-1",
+        providerScope: "meta",
+        source: "cron",
+      } as never);
+    },
+  },
+  {
+    name: "executeAutoSyncRepairPlan",
+    lane: "ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED",
+    call: async () => {
+      const { executeAutoSyncRepairPlan } = await import(
+        "@/lib/sync/repair-executor"
+      );
+      return executeAutoSyncRepairPlan({
+        providerScope: "meta",
+        source: "cron",
+        repairPlan: { recommendations: [] },
+      } as never);
+    },
+  },
 ];
 
 const savedEnv = { ...process.env };

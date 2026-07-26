@@ -4651,6 +4651,13 @@ export async function syncMetaReports(
     runtimeWorkerId?: string;
   },
 ): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_report_wrapper", { fresh: true });
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueMetaScheduledWork(businessId).catch(() => null);
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -4740,6 +4747,13 @@ export async function backfillMetaRange(input: {
   triggerSource?: string;
   syncType?: MetaSyncType;
 }): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_backfill_range", { fresh: true });
   return enqueueMetaRangeJob({
     businessId: input.businessId,
     startDate: input.startDate,
@@ -4755,6 +4769,13 @@ export async function backfillMetaRange(input: {
 export async function syncMetaRecent(
   businessId: string,
 ): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_sync_recent", { fresh: true });
   const credentials = await resolveMetaCredentials(businessId);
   if (!credentials) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -4776,6 +4797,13 @@ export async function syncMetaRecent(
 export async function syncMetaToday(
   businessId: string,
 ): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_sync_today", { fresh: true });
   const credentials = await resolveMetaCredentials(businessId);
   if (!credentials) {
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -4798,6 +4826,9 @@ export async function recoverMetaD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
+  // The lane, not only capacity. A disabled lane means this work unit must not
+  // run at all; a capacity check alone still admits it during a quiesce.
+  assertSyncLaneEnabled("meta_sync");
   // Recovery requeues partitions, which is durable work that will write.
   await assertSyncGrowthBoundary("meta_d1_finalize_recovery", { fresh: true });
   await assertDbSchemaReady({
@@ -5136,6 +5167,17 @@ export async function syncMetaRepairRange(input: {
   endDate: string;
   triggerSource?: MetaSyncPartitionSource;
 }): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write. D1 recovery requeues
+  // durable work and drives repair ranges that call the provider.
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_d1_finalize_recovery", { fresh: true });
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_repair_range", { fresh: true });
   return enqueueMetaRangeJob({
     businessId: input.businessId,
     startDate: input.startDate,
@@ -5154,6 +5196,13 @@ export async function syncMetaRepairRange(input: {
 export async function syncMetaInitial(
   businessId: string,
 ): Promise<MetaSyncResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_initial_sync", { fresh: true });
   const credentials = await resolveMetaCredentials(businessId).catch(() => null);
   if (!credentials?.accountIds?.length) {
     return {
@@ -5212,6 +5261,13 @@ export async function ensureMetaWarehouseRangeFilled(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaSyncResult | null> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("meta_sync");
+  await assertSyncGrowthBoundary("meta_ensure_range", { fresh: true });
   const completion = await getMetaWarehouseWindowCompletion({
     businessId: input.businessId,
     startDate: input.startDate,

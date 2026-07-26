@@ -1,3 +1,5 @@
+import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
+import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import {
   type SyncRepairPlanRecord,
   type SyncRepairRecommendation,
@@ -1095,6 +1097,13 @@ export async function runAutoSyncRepairPass(input: {
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;
 }): Promise<AutoSyncRepairPassResult> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("cron_enqueue");
+  await assertSyncGrowthBoundary("sync_repair_pass", { fresh: true });
   let releaseGate = input.releaseGate ?? null;
   let repairPlan = input.repairPlan ?? null;
 
@@ -1158,6 +1167,13 @@ export async function executeAutoSyncRepairPlan(input: {
   repairPlan: SyncRepairPlanRecord;
   results: AutoSyncRepairPassResult[];
 }> {
+  // Admission BEFORE the first source-related write.
+  //
+  // This is a real top-level work unit: it reaches a provider, writes warehouse
+  // or governance state, or requeues durable work. A refusal escapes unchanged
+  // so a caller can tell "we were told not to" from "we tried and failed".
+  assertSyncLaneEnabled("cron_enqueue");
+  await assertSyncGrowthBoundary("sync_repair_plan_execute", { fresh: true });
   const businessIds = Array.from(
     new Set(input.repairPlan.recommendations.map((row) => row.businessId)),
   );

@@ -888,7 +888,7 @@ assert_capacity_for_migration() {
 }
 
 take_verified_backup() {
-  local epoch="$1" dir artifact manifest scratch free logical dump_input restored data_dir scratch_free artifact_required scratch_required exclude_flags
+  local epoch="$1" dir artifact manifest scratch free logical prior_input prior_bytes sizing_basis artifact_bytes dump_input restored data_dir scratch_free artifact_required scratch_required exclude_flags
   dir="$(backup_dir_for_epoch "${epoch}")"
   artifact="${dir}/full.dump"
   manifest="${dir}/cutover-backup.manifest"
@@ -926,9 +926,39 @@ take_verified_backup() {
   case "${restored}" in "" | *[!0-9]*) die "could not measure the scratch-restore target size; refusing to back up blind" ;; esac
   case "${scratch_free}" in "" | *[!0-9]*) die "could not read free space for the data directory ${data_dir}" ;; esac
 
-  # The artifact is compressed, so its uncompressed input is a conservative
-  # upper bound. Quarter headroom on top.
-  artifact_required=$(( dump_input + dump_input / 4 ))
+  # Sizing the artifact.
+  #
+  # The uncompressed input is an upper bound, but on this data it is a wildly
+  # pessimistic one: measured on production, a 30.2 GiB tier-A input compresses
+  # to a 1.40 GiB artifact — roughly 21x, because tier-A rows are small and
+  # highly repetitive. Gating on the uncompressed figure would refuse a cutover
+  # that fits twenty times over, which is how a safety check turns into a
+  # phantom blocker.
+  #
+  # So: prefer EVIDENCE. If a previous artifact recorded both its input and its
+  # resulting size, use that ratio with a 3x safety margin. With no evidence,
+  # fall back to a deliberately cautious eighth of the input — still far above
+  # any ratio observed here — and never below a 2 GiB floor.
+  #
+  # This is defence in depth, not the only protection: if the dump runs out of
+  # space anyway, pg_dump fails and the phase dies before anything migrates.
+  prior_input=""; prior_bytes=""
+  if [ -f "${BACKUP_ROOT}/last-artifact-sizing" ]; then
+    prior_input="$(awk -F= '$1=="input_bytes"{print $2}' "${BACKUP_ROOT}/last-artifact-sizing" | tr -d '[:space:]')"
+    prior_bytes="$(awk -F= '$1=="artifact_bytes"{print $2}' "${BACKUP_ROOT}/last-artifact-sizing" | tr -d '[:space:]')"
+  fi
+  case "${prior_input}${prior_bytes}" in
+    "" | *[!0-9]*) artifact_required=$(( dump_input / 8 )) ; sizing_basis="no_prior_measurement" ;;
+    *)
+      if [ "${prior_input}" -gt 0 ] 2>/dev/null; then
+        artifact_required=$(( dump_input * prior_bytes * 3 / prior_input ))
+        sizing_basis="measured_ratio_${prior_bytes}_over_${prior_input}"
+      else
+        artifact_required=$(( dump_input / 8 )); sizing_basis="no_prior_measurement"
+      fi ;;
+  esac
+  if [ "${artifact_required}" -lt 2147483648 ]; then artifact_required=2147483648; fi
+  log "capacity: artifact sizing basis=${sizing_basis}"
   scratch_required=$(( restored + restored / 4 ))
   log "capacity: artifact_input=${dump_input}B required=${artifact_required}B free(${BACKUP_ROOT})=${free}B"
   log "capacity: scratch_restore=${restored}B required=${scratch_required}B free(${data_dir})=${scratch_free}B"
@@ -948,6 +978,17 @@ $(tier_b_table_list)
 EOF
   db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags} --file=$(printf %q "${artifact}")" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
+
+  # Record what this artifact actually cost, so the next cutover sizes itself
+  # against a measurement instead of a guess.
+  # `wc -c <file` rather than `stat -c %s`: stat's flags differ between GNU and
+  # BSD, and this script has to run against both.
+  artifact_bytes="$(db_run "wc -c < $(printf %q "${artifact}")" | tr -d '[:space:]')"
+  case "${artifact_bytes}" in
+    "" | *[!0-9]*) : ;;
+    *) db_run "printf 'input_bytes=%s\nartifact_bytes=%s\n' $(printf %q "${dump_input}") $(printf %q "${artifact_bytes}") > $(printf %q "${BACKUP_ROOT}/last-artifact-sizing")" || true
+       log "capacity: artifact measured ${artifact_bytes}B from a ${dump_input}B input" ;;
+  esac
 
   local artifact_sha artifact_bytes artifact_created
   artifact_sha="$(db_run "${REMOTE_SHA256_FN}; sha256_of $(printf %q "${artifact}")" | tr -d '[:space:]')"

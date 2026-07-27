@@ -270,6 +270,136 @@ require_sha() {
   esac
 }
 
+# ── The Sync release identity record ─────────────────────────────────────────
+#
+# A dedicated, root-owned, atomically written record of WHICH RELEASE this
+# cutover is. It exists because `current-build-info.json` is written by an
+# unrelated workflow: racing or clobbering that file would corrupt a diagnostic
+# somebody else owns, and it never described the deployed image anyway.
+#
+# What it binds, and why each field is load-bearing:
+#   source_sha          the commit being cut over to
+#   base_sha            the commit it was built ON, so a rebase is visible
+#   remote_branch_sha   what the pushed branch resolves to; a deploy from an
+#                       unpushed tree is untraceable
+#   *_image_id          immutable image ids — a TAG can be moved, an id cannot
+#   *_image_revision    the OCI revision LABEL baked into the image, which is
+#                       the only thing that ties an image id back to a commit
+#   wrapper/manifest/policy sha256  the exact cutover tooling in force
+#   backup_manifest_id  the rollback artifact this cutover is authorised against
+#   prev_*              the exact identity a rollback must restore
+#
+# It carries no secret: shas, ids, digests, paths and a phase name.
+RELEASE_RECORD="${SYNC_CUTOVER_RELEASE_RECORD:-${STATE_DIR}/sync-release-identity}"
+RELEASE_RECORD_VERSION=1
+
+release_get() {
+  [ -f "${RELEASE_RECORD}" ] || return 0
+  awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "${RELEASE_RECORD}"
+}
+
+# Atomic: write a temp file in the SAME directory, fsync-ish via mv, then mode.
+# A partial write must never be readable as a valid record, so the temp file is
+# created 0600 before any content reaches it and the rename is the commit point.
+release_set() {
+  local key="$1" value="$2" tmp
+  case "${key}" in
+    *[!a-z0-9_]*) die "refusing to write release record key '${key}'" ;;
+  esac
+  tmp="$(mktemp "${STATE_DIR}/relrec.XXXXXX")"
+  chmod 0600 "${tmp}"
+  if [ -f "${RELEASE_RECORD}" ]; then
+    awk -F= -v key="${key}" '$1 != key { print }' "${RELEASE_RECORD}" > "${tmp}"
+  fi
+  printf '%s=%s
+' "${key}" "${value}" >> "${tmp}"
+  chown root:root "${tmp}" 2>/dev/null || true
+  mv "${tmp}" "${RELEASE_RECORD}"
+  chmod 0600 "${RELEASE_RECORD}" 2>/dev/null || true
+  chown root:root "${RELEASE_RECORD}" 2>/dev/null || true
+}
+
+image_revision_label() {
+  docker image inspect "$1" \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true
+}
+
+# Everything the record should say about the release being cut over to, derived
+# fresh. Called at preflight to WRITE it and later to CHECK against it.
+release_identity_now() {
+  printf 'record_version=%s\n' "${RELEASE_RECORD_VERSION}"
+  printf 'source_sha=%s\n' "${EXPECTED_SHA}"
+  printf 'base_sha=%s\n' "${RELEASE_BASE_SHA:-unset}"
+  printf 'remote_branch_sha=%s\n' "${RELEASE_REMOTE_SHA:-unset}"
+  printf 'web_image_id=%s\n' "$(docker image inspect "${EXPECTED_WEB_IMAGE}" --format '{{.Id}}' 2>/dev/null || true)"
+  printf 'worker_image_id=%s\n' "$(docker image inspect "${EXPECTED_WORKER_IMAGE}" --format '{{.Id}}' 2>/dev/null || true)"
+  printf 'web_image_revision=%s\n' "$(image_revision_label "${EXPECTED_WEB_IMAGE}")"
+  printf 'worker_image_revision=%s\n' "$(image_revision_label "${EXPECTED_WORKER_IMAGE}")"
+  printf 'wrapper_sha256=%s\n' "$(sha256_file "$0")"
+  printf 'manifest_sha256=%s\n' "$([ -f "${WRAPPER_MANIFEST}" ] && sha256_file "${WRAPPER_MANIFEST}" || echo missing)"
+  printf 'policy_sha256=%s\n' "$([ -f "${RECOVERY_POLICY_FILE}" ] && sha256_file "${RECOVERY_POLICY_FILE}" || echo missing)"
+}
+
+# The record must exist, be well-formed, and describe THIS release.
+assert_release_record() {
+  local context="$1" want got key
+  [ -f "${RELEASE_RECORD}" ] \
+    || die "no Sync release identity record at ${RELEASE_RECORD}; run preflight for this release first"
+  [ "$(release_get record_version)" = "${RELEASE_RECORD_VERSION}" ] \
+    || die "release record is version '$(release_get record_version)', this wrapper writes ${RELEASE_RECORD_VERSION}; they do not describe the same release"
+  # A truncated record — a partial write, a full disk — must refuse rather than
+  # read as "some fields happen to match".
+  for key in record_version source_sha web_image_id worker_image_id \
+             web_image_revision worker_image_revision wrapper_sha256 \
+             manifest_sha256 policy_sha256; do
+    [ -n "$(release_get "${key}")" ] \
+      || die "release record is missing '${key}'; it is truncated or was written by a different tool. Refusing to ${context}."
+  done
+
+  release_identity_now | while IFS= read -r line; do
+    key="${line%%=*}"; want="${line#*=}"
+    got="$(release_get "${key}")"
+    if [ "${want}" != "${got}" ]; then
+      printf 'release identity MISMATCH on %s: record=%s now=%s\n' "${key}" "${got}" "${want}" >&2
+      exit 90
+    fi
+  done || die "the release identity changed since preflight; refusing to ${context}"
+
+  # The image must SAY which commit it is. An image whose revision label does
+  # not equal the sha being deployed is not this release, whatever its tag says.
+  [ "$(release_get web_image_revision)" = "${EXPECTED_SHA}" ] \
+    || die "the web image's OCI revision label is '$(release_get web_image_revision)', not ${EXPECTED_SHA}; refusing to ${context}"
+  [ "$(release_get worker_image_revision)" = "${EXPECTED_SHA}" ] \
+    || die "the worker image's OCI revision label is '$(release_get worker_image_revision)', not ${EXPECTED_SHA}; refusing to ${context}"
+
+  # A deploy from an unpushed tree cannot be traced back to anything.
+  if [ -n "${RELEASE_REMOTE_SHA:-}" ] && [ "${RELEASE_REMOTE_SHA}" != "unset" ]; then
+    [ "${RELEASE_REMOTE_SHA}" = "${EXPECTED_SHA}" ] \
+      || die "the pushed branch resolves to ${RELEASE_REMOTE_SHA}, not the ${EXPECTED_SHA} being deployed; refusing to ${context}"
+  fi
+}
+
+# After a container swap: what is RUNNING must be the release, not merely
+# something that started successfully.
+assert_running_image_identity() {
+  local svc cid img rev
+  for svc in web worker; do
+    cid="$(docker compose ps -q "${svc}" 2>/dev/null | head -1)"
+    [ -n "${cid}" ] || die "service '${svc}' is not running after the swap; refusing to enable"
+    img="$(docker inspect "${cid}" --format '{{.Image}}' 2>/dev/null || true)"
+    rev="$(docker inspect "${cid}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' 2>/dev/null || true)"
+    case "${svc}" in
+      web) [ "${img}" = "$(release_get web_image_id)" ] \
+             || die "the running web container is image ${img}, the release record pins $(release_get web_image_id); refusing to enable" ;;
+      worker) [ "${img}" = "$(release_get worker_image_id)" ] \
+             || die "the running worker container is image ${img}, the release record pins $(release_get worker_image_id); refusing to enable" ;;
+    esac
+    [ "${rev}" = "${EXPECTED_SHA}" ] \
+      || die "the running ${svc} container reports revision '${rev}', not ${EXPECTED_SHA}; refusing to enable"
+  done
+  log "running containers verified against the release record: web+worker both ${EXPECTED_SHA}"
+}
+
 # Retagging between phases must refuse. A tag is mutable; the image id is not.
 assert_image_pin() {
   local pinned_web pinned_worker web_digest worker_digest
@@ -1234,6 +1364,23 @@ rollback_enable() {
   state_set invalidated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   state_set last_failure "enable: ${reason}"
   state_set env_file_sha256 "$(env_file_hash)"
+
+  # Record what the rollback actually restored, in the release record, so the
+  # next operator reads the truth rather than a record still claiming the
+  # release is live. The PREVIOUS identity was captured at preflight, before
+  # anything was swapped, which is the only moment it was still observable.
+  release_set phase "rolled-back:enable"
+  release_set rollback_reason "${reason}"
+  release_set rollback_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  release_set restored_env_sha256 "$(env_file_hash)"
+  release_set restored_env_matches_preflight \
+    "$([ "$(env_file_hash)" = "$(release_get prev_env_sha256)" ] && echo yes || echo NO)"
+  release_set restore_target_web_image_id "$(release_get prev_web_image_id)"
+  release_set restore_target_worker_image_id "$(release_get prev_worker_image_id)"
+  release_set restore_target_web_image_ref "$(release_get prev_web_image_ref)"
+  release_set restore_target_worker_image_ref "$(release_get prev_worker_image_ref)"
+  release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  log "release record marked rolled-back; restore target web=$(release_get prev_web_image_ref) worker=$(release_get prev_worker_image_ref)"
   log "runtime stopped, scheduler stopped, state invalidated. Re-run deploy-disabled to retry cleanly."
   die "enable failed and was rolled back: ${reason}"
 }
@@ -1336,6 +1483,31 @@ case "${PHASE}" in
     state_set backup_manifest_sha256 "${manifest_sha}"
     state_set wrapper_sha256 "$(sha256_file "${BASH_SOURCE[0]}")"
     state_set phase_chain ""
+
+    # The dedicated release identity record. Written fresh for this cutover,
+    # atomically, root-owned. It is what every later phase checks itself against
+    # — and what a rollback needs in order to restore the EXACT previous thing
+    # rather than "whatever was there".
+    rm -f "${RELEASE_RECORD}"
+    release_identity_now | while IFS= read -r line; do
+      release_set "${line%%=*}" "${line#*=}"
+    done
+    release_set backup_manifest_id "${manifest_sha}"
+    release_set backup_manifest_path "${BACKUP_MANIFEST}"
+    release_set build_timestamp_utc "$(docker image inspect "${EXPECTED_WEB_IMAGE}" --format '{{.Created}}' 2>/dev/null || echo unknown)"
+    release_set cutover_epoch "${epoch}"
+    release_set db_identity "${identity}"
+    # What a rollback must put back. Captured BEFORE anything is swapped.
+    release_set prev_web_image_id "$(docker inspect "$(docker compose ps -q web 2>/dev/null | head -1)" --format '{{.Image}}' 2>/dev/null || echo none)"
+    release_set prev_worker_image_id "$(docker inspect "$(docker compose ps -q worker 2>/dev/null | head -1)" --format '{{.Image}}' 2>/dev/null || echo none)"
+    release_set prev_web_image_ref "$(docker inspect "$(docker compose ps -q web 2>/dev/null | head -1)" --format '{{.Config.Image}}' 2>/dev/null || echo none)"
+    release_set prev_worker_image_ref "$(docker inspect "$(docker compose ps -q worker 2>/dev/null | head -1)" --format '{{.Config.Image}}' 2>/dev/null || echo none)"
+    release_set prev_env_sha256 "$(env_file_hash)"
+    release_set prev_scheduler_sha256 "$(scheduler_hash "${SCHEDULER}")"
+    release_set phase "preflight"
+    release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    assert_release_record "record its own preflight"
+    log "release identity recorded at ${RELEASE_RECORD} for ${EXPECTED_SHA}"
     state_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     state_chain_add preflight
     log "preflight OK epoch=${epoch}"
@@ -1458,6 +1630,13 @@ case "${PHASE}" in
       die "a sync lane is already enabled in ${ENV_FILE}; the new build must start disabled"
     fi
 
+    # Nothing is swapped until the release record, the source sha, the pushed
+    # branch sha, the image ids and their revision labels, and the wrapper /
+    # manifest / policy pins all agree.
+    assert_release_record "swap the running containers"
+    release_set phase "deploy-disabled:swapping"
+    release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
     log "Starting web and worker on ${EXPECTED_SHA}, lanes off"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
       docker compose up -d --force-recreate web worker
@@ -1499,6 +1678,15 @@ case "${PHASE}" in
 
     # Re-establishing the runtime proof is what clears an earlier invalidation,
     # so an emergency stop can be recovered from without hand-editing state.
+    # What is RUNNING must be the release. Starting successfully is not the same
+    # as running the right image: a stale tag, a cached layer or a compose file
+    # pointing elsewhere all start cleanly and all deploy the wrong thing.
+    assert_running_image_identity
+    release_set phase "deploy-disabled"
+    release_set running_web_image_id "$(docker inspect "$(docker compose ps -q web)" --format '{{.Image}}')"
+    release_set running_worker_image_id "$(docker inspect "$(docker compose ps -q worker)" --format '{{.Image}}')"
+    release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
     state_set invalidated no
     state_set last_failure ""
     state_chain_add deploy-disabled
@@ -1510,6 +1698,11 @@ case "${PHASE}" in
     require_sha
     require_phase deploy-disabled
     assert_state_invariants
+    # Re-checked here, not merely inherited from deploy-disabled: a container can
+    # be recreated, an image retagged or a compose file edited between the two
+    # phases, and enabling lanes is the irreversible half.
+    assert_release_record "enable the sync lanes"
+    assert_running_image_identity
 
     DISABLED_ENV_BACKUP="${STATE_DIR}/env.disabled.$(state_get cutover_epoch)"
     cp "${ENV_FILE}" "${DISABLED_ENV_BACKUP}"

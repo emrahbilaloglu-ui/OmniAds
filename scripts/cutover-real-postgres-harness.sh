@@ -426,17 +426,26 @@ case "\$1 \$2" in
   "image inspect")
     shift 2
     img=""
-    want_id=0
+    want=""
     for arg in "\$@"; do
       case "\$arg" in
-        --format) want_id=1 ;;
-        '{{.Id}}') want_id=1 ;;
+        --format) : ;;
+        '{{.Id}}') want=id ;;
+        *org.opencontainers.image.revision*) want=revision ;;
+        '{{.Created}}') want=created ;;
         -*) ;;
         *) [ -z "\${img}" ] && img="\$arg" ;;
       esac
     done
     if [ -n "\${HARNESS_IMAGE_MISSING:-}" ]; then exit 1; fi
-    if [ "\${want_id}" = "1" ]; then image_id_for "\${img}"; printf '\n'; fi
+    case "\${want}" in
+      id) image_id_for "\${img}"; printf '\n' ;;
+      # The OCI revision label the real images now carry. HARNESS_IMAGE_REVISION
+      # lets a case ship an image whose label does NOT match the deploy sha,
+      # which is the tamper the release-identity gate exists to catch.
+      revision) printf '%s\n' "\${HARNESS_IMAGE_REVISION:-\${DEPLOY_SHA:-}}" ;;
+      created) printf '2026-07-27T00:00:00.000000000Z\n' ;;
+    esac
     exit 0 ;;
 esac
 
@@ -536,6 +545,14 @@ case "\$1" in
     case "\${fmt}" in
       '{{.State.Status}}') cat "\${RUNTIME}/state.\${svc}" 2>/dev/null || printf 'absent\n' ;;
       '{{.Config.Image}}') printf 'ghcr.io/erhanrdn/omniads-%s:%s\n' "\${svc}" "\${DEPLOY_SHA}" ;;
+      # The immutable image id the container is actually running, which is what
+      # the release-identity gate compares against. HARNESS_RUNNING_IMAGE_ID
+      # lets a case start a container on an image the record does not pin.
+      '{{.Image}}')
+        if [ -n "\${HARNESS_RUNNING_IMAGE_ID:-}" ]; then printf '%s\n' "\${HARNESS_RUNNING_IMAGE_ID}";
+        else image_id_for "omniads-\${svc}"; printf '\n'; fi ;;
+      *org.opencontainers.image.revision*)
+        printf '%s\n' "\${HARNESS_RUNNING_IMAGE_REVISION:-\${HARNESS_IMAGE_REVISION:-\${DEPLOY_SHA:-}}}" ;;
       '{{.State.StartedAt}}') cat "\${RUNTIME}/started.\${svc}" 2>/dev/null || printf '2026-07-01T00:00:00.000000000Z\n' ;;
       *) printf '\n' ;;
     esac
@@ -896,6 +913,19 @@ else
   fail "N7 the failed enable left runtime up or state valid: $(cat "${host}/state/cutover/state")"
 fi
 
+# R6: after a rollback the release record must say so, and must still carry the
+# identity a restore has to put back. A record still claiming the release is
+# live is how the next operator deploys on top of a rolled-back host.
+relrec="${host}/state/cutover/sync-release-identity"
+rel_phase="$(awk -F= '$1=="phase"{print $2}' "${relrec}" 2>/dev/null)"
+rel_target="$(awk -F= '$1=="restore_target_web_image_ref"{print $2}' "${relrec}" 2>/dev/null)"
+rel_envmatch="$(awk -F= '$1=="restored_env_matches_preflight"{print $2}' "${relrec}" 2>/dev/null)"
+if [ "${rel_phase}" = "rolled-back:enable" ] && [ -n "${rel_target}" ] && [ "${rel_envmatch}" = "yes" ]; then
+  pass "R6 the rollback recorded itself in the release record: phase=${rel_phase}, restore target web=${rel_target}, and the restored env matches the digest captured at preflight"
+else
+  fail "R6 the release record does not describe the rollback: phase='${rel_phase}' target='${rel_target}' env_match='${rel_envmatch}'"
+fi
+
 expect_refusal "${host}" enable "has not completed in this cutover" \
   "N8 after the rollback, enable refuses until the runtime proof is re-established" || true
 
@@ -1007,6 +1037,101 @@ if [ -s "${MAIN_HOST}/log/ssh" ] && [ ! -s "${MAIN_HOST}/log/local-db" ]; then
   pass "P23 two hosts held: $(wc -l < "${MAIN_HOST}/log/ssh" | tr -d '[:space:]') database operations went over the ssh shim and the app host's psql/pg_dump/runuser were never invoked"
 else
   fail "P23 the app host reached for a local PostgreSQL client, or never reached the database host: $(cat "${MAIN_HOST}/log/local-db" 2>/dev/null)"
+fi
+
+# Advance a fresh scenario host to the point just before the container swap.
+# Echoes the phase that failed, so a broken precondition names itself instead of
+# surfacing as "the scenario never reached deploy-disabled".
+# These cases are about the RELEASE IDENTITY gate at the swap boundary, not
+# about the phase graph, which P1-P23 already exercise end to end. So the host
+# is advanced by running the real preflight — which is what WRITES the record —
+# and then satisfying the phase chain directly. Driving the full migration chain
+# here would only re-test the graph and couple these cases to scenario database
+# state they do not care about.
+advance_to_swap_ready() {
+  local h="$1" out
+  if ! out="$(run_phase "${h}" preflight 2>&1)"; then
+    printf 'preflight: %s' "${out}"
+    return 1
+  fi
+  local st="${h}/state/cutover/state"
+  sed 's/^phase_chain=.*/phase_chain=preflight,quiesce,fingerprint-pre,migrate,verify-contract,fingerprint-post/' \
+    "${st}" > "${st}.x" && mv "${st}.x" "${st}"
+  return 0
+}
+
+# ── Release identity gate ────────────────────────────────────────────────────
+#
+# The record binds which release this cutover IS. These cases prove it refuses
+# on each way that binding can be broken, and that a rollback records the truth.
+
+# R1 positive: preflight writes a complete, correctly-owned record.
+host="$(new_host relrec)"
+if run_phase "${host}" preflight >/dev/null 2>&1; then
+  rec="${host}/state/cutover/sync-release-identity"
+  if [ ! -f "${rec}" ]; then
+    fail "R1 preflight wrote no release identity record"
+  else
+    missing=""
+    for k in record_version source_sha web_image_id worker_image_id \
+             web_image_revision worker_image_revision wrapper_sha256 \
+             manifest_sha256 policy_sha256 backup_manifest_id \
+             prev_web_image_ref prev_env_sha256 phase; do
+      grep -q "^${k}=" "${rec}" || missing="${missing} ${k}"
+    done
+    mode="$(stat -c %a "${rec}" 2>/dev/null || stat -f %Lp "${rec}" 2>/dev/null)"
+    secretish="$(grep -ciE 'token|secret|password|key=' "${rec}" || true)"
+    if [ -n "${missing}" ]; then
+      fail "R1 the release record is missing fields:${missing}"
+    elif [ "${mode}" != "600" ]; then
+      fail "R1 the release record is mode ${mode}, not 600"
+    elif [ "${secretish}" != "0" ]; then
+      fail "R1 the release record appears to contain secret material"
+    else
+      pass "R1 preflight wrote a complete mode-0600 release identity record binding source sha, both image ids, both OCI revision labels, wrapper/manifest/policy digests, the backup manifest id and the PREVIOUS runtime identity — with no secret material"
+    fi
+  fi
+else
+  fail "R1 preflight failed before a release record could be written"
+fi
+
+# R2 mismatch: an image whose OCI revision label is not the sha being deployed.
+host="$(new_host relmismatch)"
+expect_refusal "${host}" preflight "OCI revision label" \
+  "R2 an image whose revision label does not name the deployed sha is refused: a moved tag cannot impersonate the release" \
+  HARNESS_IMAGE_REVISION=0000000000000000000000000000000000000000 || true
+
+# R3 tamper: the record is edited after preflight.
+host="$(new_host reltamper)"
+if adv="$(advance_to_swap_ready "${host}")"; then
+  rec="${host}/state/cutover/sync-release-identity"
+  sed 's/^web_image_id=.*/web_image_id=sha256:tampered/' "${rec}" > "${rec}.x" && mv "${rec}.x" "${rec}"
+  expect_refusal "${host}" deploy-disabled "release identity" \
+    "R3 a release record edited after preflight refuses the container swap" || true
+else
+  fail "R3 the tamper scenario stopped early — ${adv}"
+fi
+
+# R4 partial write: a truncated record must refuse, not read as "fields match".
+host="$(new_host relpartial)"
+if adv="$(advance_to_swap_ready "${host}")"; then
+  rec="${host}/state/cutover/sync-release-identity"
+  head -3 "${rec}" > "${rec}.x" && mv "${rec}.x" "${rec}"
+  expect_refusal "${host}" deploy-disabled "missing" \
+    "R4 a truncated release record refuses instead of matching on the fields that survived" || true
+else
+  fail "R4 the partial-write scenario stopped early — ${adv}"
+fi
+
+# R5 running-image mismatch: the container comes up on an image the record does
+# not pin. Starting successfully is not the same as running the right thing.
+host="$(new_host relrunning)"
+if adv="$(advance_to_swap_ready "${host}")"; then
+  expect_refusal "${host}" deploy-disabled "the running web container is image" \
+    "R5 a container running an image the record does not pin refuses, even though it started cleanly" \
+    HARNESS_RUNNING_IMAGE_ID=sha256:someotherimage || true
+else
+  fail "R5 the running-image scenario stopped early — ${adv}"
 fi
 
 if [ "${FAILURES}" -eq 0 ]; then

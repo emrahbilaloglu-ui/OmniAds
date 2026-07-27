@@ -16,6 +16,11 @@ RUN npm run build
 
 FROM base AS web-runner
 ARG APP_BUILD_ID=dev-build
+# Immutable release identity carried BY the image. A tag is mutable and a
+# digest says nothing about which commit produced it; this label is what the
+# cutover checks the running container against.
+LABEL org.opencontainers.image.revision=$APP_BUILD_ID
+LABEL com.adsecute.release.role=web-runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
@@ -28,6 +33,11 @@ CMD ["node", "server.js"]
 
 FROM base AS worker-runner
 ARG APP_BUILD_ID=dev-build
+# Immutable release identity carried BY the image. A tag is mutable and a
+# digest says nothing about which commit produced it; this label is what the
+# cutover checks the running container against.
+LABEL org.opencontainers.image.revision=$APP_BUILD_ID
+LABEL com.adsecute.release.role=worker-runner
 ENV NODE_ENV=production
 ENV APP_BUILD_ID=$APP_BUILD_ID
 ENV SYNC_WORKER_MODE=1

@@ -1153,7 +1153,15 @@ take_verified_backup() {
   done <<EOF
 $(tier_b_table_list)
 EOF
-  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags} --file=$(printf %q "${artifact}")" \
+  # Redirected, not --file=.
+  #
+  # The artifact directory is created by this script as root with mode 0700, and
+  # pg_dump runs as the postgres user, which cannot create a file inside it:
+  # "could not open output file ... Permission denied". Redirecting makes the
+  # ROOT shell on the database host create the file and pg_dump merely write to
+  # its stdout. The daily backup script already does exactly this, for exactly
+  # this reason.
+  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags} > $(printf %q "${artifact}")" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
 
   # Record what this artifact actually cost, so the next cutover sizes itself
@@ -1178,7 +1186,10 @@ EOF
   db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
   db_run "runuser -u postgres -- createdb $(printf %q "${scratch}")" \
     || die "could not create the scratch database ${scratch}; an unverified backup is not a rollback plan"
-  if ! db_run "runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error $(printf %q "${artifact}")"; then
+  # Piped, for the same reason the dump is redirected: the artifact lives in a
+  # root-only directory, so the postgres user cannot even traverse to it. The
+  # ROOT shell reads the file and pg_restore takes it on stdin.
+  if ! db_run "cat $(printf %q "${artifact}") | runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error"; then
     db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
     die "the fresh backup could NOT be restored. Do not migrate: this release has no rollback."
   fi

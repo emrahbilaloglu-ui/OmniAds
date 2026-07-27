@@ -649,7 +649,15 @@ case "${phase}" in
 
   deliver_cutover_wrapper)
     # Standalone re-delivery, for the case where an operator needs the wrapper
-    # for a release whose deploy aborted before prepare_runtime completed.
+    # for a release whose deploy aborted before prepare_runtime completed —
+    # which, now that the gate refuses ahead of prepare_runtime, is the normal
+    # way a cutover-required release gets its wrapper.
+    #
+    # Deliberately NOT gated on cutover_required: this is the phase you need
+    # BECAUSE the release requires a cutover. It IS gated on a cutover already
+    # running, because delivery overwrites the wrapper file, and overwriting it
+    # while a cutover is executing rewrites a running script's bytes mid-run.
+    assert_no_cutover_in_progress
     deliver_cutover_wrapper
     ;;
 

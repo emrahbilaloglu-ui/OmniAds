@@ -134,6 +134,14 @@ else
   pass "G5 recreate_services refuses during a cutover before recreating anything"
 fi
 
+if run_gated_phase deliver_cutover_wrapper; then
+  fail "G6 standalone wrapper delivery ran during a cutover; it would have rewritten the wrapper mid-run"
+elif [ -s "${ROOT}/docker-invocations" ]; then
+  fail "G6 delivery refused only after a mutating docker command: $(tr '\n' ';' < "${ROOT}/docker-invocations")"
+else
+  pass "G6 standalone wrapper delivery refuses while a cutover is running, but is NOT gated on cutover_required — it is the phase you need precisely because the release requires a cutover"
+fi
+
 # ── The workflow itself ────────────────────────────────────────────────────
 #
 # The host script is only half of it. The gate used to live inside the "Run

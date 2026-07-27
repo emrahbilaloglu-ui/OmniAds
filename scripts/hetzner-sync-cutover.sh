@@ -122,6 +122,17 @@ WRAPPER_MANIFEST="${SYNC_CUTOVER_WRAPPER_MANIFEST:-${CUTOVER_DIR}/cutover-wrappe
 # protects is one hardware failure from being useless. The app host is a
 # different machine with 63 GiB free.
 BACKUP_ROOT="${SYNC_CUTOVER_BACKUP_ROOT:-/var/backups/adsecute-cutover}"
+
+# Compression level for the rollback artifact.
+#
+# NOT 9. Measured on this database: pg_dump sat at 85.6% CPU and produced
+# 64 MiB/min, which is ~8.5 hours for a ~33 GiB artifact. The bulk of tier A is
+# raw-snapshot TOAST that PostgreSQL has ALREADY compressed, so level 9 spends
+# enormous CPU re-compressing incompressible bytes for almost no size gain.
+#
+# A rollback artifact is short-lived and its value is being ready quickly. A low
+# level is many times faster and, on this data, very nearly the same size.
+BACKUP_COMPRESS_LEVEL="${SYNC_CUTOVER_BACKUP_COMPRESS:-1}"
 BACKUP_MANIFEST="${SYNC_CUTOVER_BACKUP_MANIFEST:-}"
 
 DRAIN_SECONDS="${SYNC_CUTOVER_DRAIN_SECONDS:-90}"
@@ -1180,7 +1191,7 @@ EOF
   # this reason.
   # Streamed: pg_dump writes to ITS stdout on the database host and ssh carries
   # the bytes here. Nothing large is ever written on the database host.
-  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" \
+  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=${BACKUP_COMPRESS_LEVEL} --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
 
   # Record what this artifact actually cost, so the next cutover sizes itself

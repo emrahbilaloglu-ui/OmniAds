@@ -239,12 +239,19 @@ jobs:
         # pre-change ref's migrations, which a shallow clone does not have.
         run: npm run test:schema-upgrade-seam
 
-      - name: Pre-change schema upgrade seam (origin/main)
-        # The second meaningful baseline. Both are exercised because the rewind
-        # is only honest if it reverts what that specific ref lacks — a seam
-        # validated against one ref can silently rewind an object the other ref
-        # already has.
-        run: SCHEMA_UPGRADE_PRE_CHANGE_REF=origin/main npm run test:schema-upgrade-seam
+      - name: Pre-change schema upgrade seam (deployed production baseline)
+        # The second meaningful baseline: the commit production is ACTUALLY
+        # running, recorded in deploy/PRODUCTION_BASELINE_SHA.
+        #
+        # This used to be `origin/main`, which is circular the moment a release
+        # lands on main before it is deployed — the seam then rewinds an object
+        # its own baseline already has, and says so. What the rewind must be
+        # honest about is the schema PRODUCTION has, which is this file.
+        run: |
+          set -euo pipefail
+          baseline="$(tr -d '[:space:]' < deploy/PRODUCTION_BASELINE_SHA)"
+          echo "production baseline: ${baseline}"
+          SCHEMA_UPGRADE_PRE_CHANGE_REF="${baseline}" npm run test:schema-upgrade-seam
 
   build:
     if: github.event_name == 'pull_request'

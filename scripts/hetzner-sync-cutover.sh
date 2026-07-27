@@ -927,6 +927,101 @@ credential_generation_hash_on() {
   " | tr -d '[:space:]'
 }
 
+# A per-row credential census, so that a CHANGE in credential_generation_hash can
+# be explained instead of merely detected.
+#
+# The generation hash is one opaque digest over every row. That is the right
+# shape for "did anything move", and it is useless for "was the thing that moved
+# the thing we intended to move" — an intended plaintext -> ciphertext rewrite and
+# a corrupted token produce the same answer: different.
+#
+# This emits, per row, the shape of each secret and a digest OF each secret. No
+# secret value is printed; a sha256 is not the token, and the generation hash
+# already digests the same material. Ordered by id so the two sides are
+# line-comparable.
+credential_census_on() {
+  db_sql_on "$1" "
+    SELECT ic.id::text || '|' ||
+           ic.provider_connection_id::text || '|' ||
+           CASE WHEN COALESCE(to_jsonb(ic) ->> 'access_token', '') = '' THEN 'empty'
+                WHEN to_jsonb(ic) ->> 'access_token' LIKE 'enc:v1:%' THEN 'enc'
+                ELSE 'plain' END || '|' ||
+           CASE WHEN COALESCE(to_jsonb(ic) ->> 'refresh_token', '') = '' THEN 'empty'
+                WHEN to_jsonb(ic) ->> 'refresh_token' LIKE 'enc:v1:%' THEN 'enc'
+                ELSE 'plain' END || '|' ||
+           CASE WHEN COALESCE(to_jsonb(ic) ->> 'access_token', '') = '' THEN '-'
+                ELSE encode(sha256(convert_to(to_jsonb(ic) ->> 'access_token', 'UTF8')), 'hex') END || '|' ||
+           CASE WHEN COALESCE(to_jsonb(ic) ->> 'refresh_token', '') = '' THEN '-'
+                ELSE encode(sha256(convert_to(to_jsonb(ic) ->> 'refresh_token', 'UTF8')), 'hex') END || '|' ||
+           COALESCE(to_jsonb(ic) ->> 'updated_at', '')
+    FROM integration_credentials ic
+    ORDER BY ic.id::text;
+  "
+}
+
+# Accept a credential_generation_hash change ONLY when every difference is a
+# plaintext secret becoming ciphertext. Anything else is refused.
+#
+# Permitted, per row and per column: plain -> enc.
+# Refused: a row appearing or disappearing; provider_connection_id or updated_at
+# moving; enc -> plain; enc -> a DIFFERENT ciphertext digest (a re-encryption or
+# a corruption is not a conversion); plain -> plain; empty gaining a value or a
+# value becoming empty. A run that ends with any plaintext left is refused, and
+# so is one where nothing actually converted — then the hash moved for a reason
+# this rule cannot see, which is exactly when it must not be waved through.
+assert_credential_change_is_encryption_only() {
+  local pre="$1" post="$2" verdict
+  verdict="$(awk -F'|' '
+    function fail(msg) { print "VIOLATION " msg; violations++ }
+    NR == FNR {
+      pre_conn[$1] = $2; pre_a[$1] = $3; pre_r[$1] = $4
+      pre_ad[$1] = $5; pre_rd[$1] = $6; pre_up[$1] = $7
+      pre_seen[$1] = 1; next
+    }
+    {
+      id = $1
+      if (!(id in pre_seen)) { fail("row " id " did not exist before the migration"); next }
+      post_seen[id] = 1
+      if ($2 != pre_conn[id]) fail("row " id " changed provider_connection_id")
+      if ($7 != pre_up[id])   fail("row " id " changed updated_at")
+      # access
+      if (pre_a[id] == "plain" && $3 == "enc") converted++
+      else if (pre_a[id] == $3 && pre_ad[id] == $5) ;
+      else fail("row " id " access_token " pre_a[id] "->" $3 " is not a plaintext-to-ciphertext conversion")
+      # refresh
+      if (pre_r[id] == "plain" && $4 == "enc") converted++
+      else if (pre_r[id] == $4 && pre_rd[id] == $6) ;
+      else fail("row " id " refresh_token " pre_r[id] "->" $4 " is not a plaintext-to-ciphertext conversion")
+      if ($3 == "plain" || $4 == "plain") fail("row " id " still holds a plaintext secret after the migration")
+    }
+    END {
+      for (id in pre_seen) if (!(id in post_seen)) fail("row " id " disappeared during the migration")
+      if (violations > 0) { print "REFUSED " violations; exit 0 }
+      if (converted == 0) { print "REFUSED unexplained"; exit 0 }
+      print "CONVERTED " converted
+    }
+  ' "${pre}" "${post}")"
+
+  # `|| true` on both: finding no VIOLATION lines is the SUCCESS case, and under
+  # `set -o pipefail` a grep that matches nothing makes the whole pipeline
+  # non-zero, which `set -e` then turns into a silent exit with no diagnosis at
+  # all — the phase would appear to fail for no stated reason precisely when the
+  # credentials were fine.
+  printf '%s\n' "${verdict}" | { grep '^VIOLATION ' || true; } | while IFS= read -r line; do
+    log "credential census: ${line#VIOLATION }"
+  done
+
+  case "$(printf '%s\n' "${verdict}" | grep -E '^(CONVERTED|REFUSED) ' || true)" in
+    "CONVERTED "*)
+      log "credential_generation_hash moved because $(printf '%s\n' "${verdict}" | awk '/^CONVERTED /{print $2}') plaintext secret(s) became ciphertext; every other credential byte, connection binding and updated_at is unchanged"
+      return 0 ;;
+    "REFUSED unexplained")
+      die "credential_generation_hash changed but NO plaintext secret was converted; the change is unexplained. Do not enable." ;;
+    *)
+      die "credential_generation_hash changed in ways that are not a plaintext-to-ciphertext conversion (see the census violations above). Do not enable." ;;
+  esac
+}
+
 assignment_hash_on() {
   db_sql_on "$1" "
     SELECT COALESCE(encode(sha256(convert_to(string_agg(sig, E'\n' ORDER BY sig), 'UTF8')), 'hex'), 'empty')
@@ -1680,6 +1775,13 @@ case "${PHASE}" in
     chmod 0600 "${STATE_DIR}/fingerprint-pre"
     cat "${STATE_DIR}/fingerprint-pre"
     state_set fingerprint_pre_sha256 "$(sha256_file "${STATE_DIR}/fingerprint-pre")"
+    # Taken beside the fingerprint and pinned the same way, so that if the
+    # credential generation hash moves, there is per-row evidence from BEFORE the
+    # migration to explain it against — evidence that cannot be manufactured
+    # afterwards.
+    credential_census_on "${DB_NAME}" > "${STATE_DIR}/credential-census-pre"
+    chmod 0600 "${STATE_DIR}/credential-census-pre"
+    state_set credential_census_pre_sha256 "$(sha256_file "${STATE_DIR}/credential-census-pre")"
     state_chain_add fingerprint-pre
     state_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     log "fingerprint-pre OK"
@@ -1725,24 +1827,55 @@ case "${PHASE}" in
     chmod 0600 "${STATE_DIR}/fingerprint-post"
     [ "$(sha256_file "${STATE_DIR}/fingerprint-pre")" = "$(state_get fingerprint_pre_sha256)" ] \
       || die "the pre-migration fingerprint file changed since it was taken; it cannot be compared against"
+    [ "$(sha256_file "${STATE_DIR}/credential-census-pre")" = "$(state_get credential_census_pre_sha256)" ] \
+      || die "the pre-migration credential census changed since it was taken; it cannot be compared against"
+    credential_census_on "${DB_NAME}" > "${STATE_DIR}/credential-census-post"
+    chmod 0600 "${STATE_DIR}/credential-census-post"
+
     # The migration is expand-only. Identity, schema-identity aside, every count
     # and every identity/generation hash must be byte-identical. `schema_identity`
     # is expected to move — that is what the migration does — so it is compared
     # separately rather than silently ignored.
+    #
+    # `credential_generation_hash` is compared separately too, for a reason that
+    # only shows up against real production data: this release's migration
+    # deliberately encrypts legacy PLAINTEXT secrets in place. That rewrite is the
+    # point of the release, and it necessarily moves a hash taken over the secret
+    # values. Comparing the two hashes can only say "different"; it cannot say
+    # whether the difference is the intended conversion or a corrupted token. So
+    # the hash difference is not ignored and not accepted — it is EXPLAINED,
+    # row by row, against a census taken before the migration ran, and accepted
+    # only if every single difference is a plaintext secret becoming ciphertext.
     if ! diff -u \
-      <(grep -v '^schema_identity=' "${STATE_DIR}/fingerprint-pre") \
-      <(grep -v '^schema_identity=' "${STATE_DIR}/fingerprint-post"); then
+      <(grep -vE '^(schema_identity|credential_generation_hash)=' "${STATE_DIR}/fingerprint-pre") \
+      <(grep -vE '^(schema_identity|credential_generation_hash)=' "${STATE_DIR}/fingerprint-post"); then
       die "the migration changed identity, row counts or an identity/generation hash. Do not enable. Restore from ${BACKUP_MANIFEST:-$(state_get backup_manifest_path)}."
+    fi
+    pre_cred="$(awk -F= '$1=="credential_generation_hash"{print $2}' "${STATE_DIR}/fingerprint-pre")"
+    post_cred="$(awk -F= '$1=="credential_generation_hash"{print $2}' "${STATE_DIR}/fingerprint-post")"
+    if [ "${pre_cred}" = "${post_cred}" ]; then
+      log "credential_generation_hash unchanged"
+    else
+      assert_credential_change_is_encryption_only \
+        "${STATE_DIR}/credential-census-pre" "${STATE_DIR}/credential-census-post"
     fi
     pre_schema="$(awk -F= '$1=="schema_identity"{print $2}' "${STATE_DIR}/fingerprint-pre")"
     post_schema="$(awk -F= '$1=="schema_identity"{print $2}' "${STATE_DIR}/fingerprint-post")"
     [ "${pre_schema}" != "${post_schema}" ] \
       || die "the schema identity is unchanged (${post_schema}); the migration this cutover exists to apply did not change the schema"
-    log "schema identity moved ${pre_schema} -> ${post_schema}, everything else identical"
+    if [ "${pre_cred}" = "${post_cred}" ]; then
+      log "schema identity moved ${pre_schema} -> ${post_schema}, everything else identical"
+    else
+      log "schema identity moved ${pre_schema} -> ${post_schema}; the only data difference is the explained plaintext-to-ciphertext credential conversion"
+    fi
     state_set schema_identity_post "${post_schema}"
     state_chain_add fingerprint-post
     state_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    log "fingerprint-post OK — data identical, schema advanced"
+    if [ "${pre_cred}" = "${post_cred}" ]; then
+      log "fingerprint-post OK — data identical, schema advanced"
+    else
+      log "fingerprint-post OK — schema advanced; the only data change is the credential encryption, explained row by row"
+    fi
     ;;
 
   deploy-disabled)

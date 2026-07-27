@@ -194,7 +194,13 @@ seed_database() {
   INSERT INTO provider_connections (business_id, provider, status, provider_account_id)
   VALUES ('biz-1', 'meta', 'connected', 'act_1001'), ('biz-2', 'shopify', 'connected', 'shop-9');
   INSERT INTO integration_credentials (provider_connection_id, access_token, refresh_token)
-  VALUES (1, 'meta-access-token-value', 'meta-refresh-token-value'),
+  -- Mirrors the production mix the credential census has to reason about: one
+  -- row whose secrets are ALREADY ciphertext and must come through the migration
+  -- byte-identical, and one still-plaintext row that the encryption migration is
+  -- expected to convert. A fixture where everything is already encrypted cannot
+  -- exercise the conversion at all, which is how a contract that forbids the
+  -- intended conversion reached production green.
+  VALUES (1, 'enc:v1:bWV0YS1hY2Nlc3M', 'enc:v1:bWV0YS1yZWZyZXNo'),
          (2, 'shopify-access-token-value', NULL);
   INSERT INTO provider_account_assignments (business_id, provider, account_ids)
   VALUES ('biz-1', 'meta', ARRAY['act_1001','act_1002']);
@@ -503,6 +509,56 @@ case "\$1" in
             CREATE INDEX IF NOT EXISTS business_provider_accounts_selected_idx
               ON business_provider_accounts (business_id, provider) WHERE is_selected;
           " >/dev/null || exit 1
+          # What the migration does to CREDENTIALS. Default: nothing, so the
+          # ordinary run still proves the generation hash does not move. Each
+          # mode below is a way the hash CAN move; only the first is legitimate.
+          case "\${HARNESS_MIGRATE_CREDENTIALS:-none}" in
+            none) : ;;
+            encrypt)
+              # The real thing: plaintext becomes ciphertext in place, and
+              # updated_at is deliberately left alone.
+              db_sql_via_shim "
+                UPDATE integration_credentials
+                   SET access_token = 'enc:v1:' || encode(sha256(convert_to(access_token,'UTF8')),'hex')
+                 WHERE access_token IS NOT NULL AND access_token <> ''
+                   AND access_token NOT LIKE 'enc:v1:%';
+                UPDATE integration_credentials
+                   SET refresh_token = 'enc:v1:' || encode(sha256(convert_to(refresh_token,'UTF8')),'hex')
+                 WHERE refresh_token IS NOT NULL AND refresh_token <> ''
+                   AND refresh_token NOT LIKE 'enc:v1:%';
+              " >/dev/null || exit 1 ;;
+            reencrypt)
+              # An ALREADY-encrypted secret becomes a different ciphertext.
+              db_sql_via_shim "
+                UPDATE integration_credentials SET access_token = 'enc:v1:something-else'
+                 WHERE access_token LIKE 'enc:v1:%';
+              " >/dev/null || exit 1 ;;
+            decrypt)
+              db_sql_via_shim "
+                UPDATE integration_credentials SET access_token = 'plaintext-again'
+                 WHERE access_token LIKE 'enc:v1:%';
+              " >/dev/null || exit 1 ;;
+            drop_row)
+              # Count-NEUTRAL on purpose: delete one row and insert another, so
+              # the row-count diff cannot catch it and the census rule is what
+              # has to notice that the id set moved.
+              db_sql_via_shim "
+                DELETE FROM integration_credentials WHERE provider_connection_id = 2;
+                INSERT INTO integration_credentials (provider_connection_id, access_token, refresh_token)
+                VALUES (1, 'enc:v1:cmVwbGFjZW1lbnQ', NULL);
+              " >/dev/null || exit 1 ;;
+            touch)
+              # Same secrets, but the row was rewritten.
+              db_sql_via_shim "
+                UPDATE integration_credentials SET updated_at = now() + interval '1 second';
+              " >/dev/null || exit 1 ;;
+            mutate_plain)
+              # Still plaintext afterwards, just a different value.
+              db_sql_via_shim "
+                UPDATE integration_credentials SET access_token = 'a-different-plaintext'
+                 WHERE access_token NOT LIKE 'enc:v1:%';
+              " >/dev/null || exit 1 ;;
+          esac
           exit 0
         fi
         for svc in "\${services[@]:-}"; do
@@ -1190,6 +1246,64 @@ host="$(new_host relpolicyedited)"
 printf '\nmeta_ad_daily\tB\tedited on the host\n' >> "${host}/cutover/recovery-policy.tsv"
 expect_refusal "${host}" preflight "recovery policy hashes" \
   "R8 a recovery policy edited on the host refuses against the digest the delivery pinned" || true
+
+# ══ C: the credential generation hash may move ONLY by encryption ══════════
+#
+# This release's migration encrypts legacy plaintext secrets in place. That is
+# the point of it, and it necessarily moves a hash taken over secret values. The
+# contract used to compare the two hashes and refuse any difference, which made
+# the intended conversion indistinguishable from a corrupted token — it refused
+# both. Now the difference has to be EXPLAINED against a census taken before the
+# migration, and only a plaintext-to-ciphertext conversion is an explanation.
+#
+# Every case below drives the real graph against a real database and lets the
+# real wrapper decide. C1 is the one that must be allowed through; the rest are
+# the ways a credential can move that must still stop the cutover dead.
+credential_case() {
+  local mode="$1" db="$2" hostname="$3"
+  local host
+  seed_database "${db}"
+  host="$(new_host "${hostname}")"
+  mkdir -p "${host}/tmp-work"
+  for phase in preflight quiesce fingerprint-pre migrate verify-contract; do
+    run_phase "${host}" "${phase}" DB_NAME="${db}" \
+      HARNESS_MIGRATE_CREDENTIALS="${mode}" >/dev/null 2>&1 || true
+  done
+  printf '%s' "${host}"
+}
+
+host="$(credential_case encrypt adsecute_credconv credconv)"
+out="$(run_phase "${host}" fingerprint-post DB_NAME=adsecute_credconv HARNESS_MIGRATE_CREDENTIALS=encrypt 2>&1)" && ok=1 || ok=0
+if [ "${ok}" = "1" ] && printf '%s' "${out}" | grep -q "plaintext secret(s) became ciphertext"; then
+  pass "C1 a credential hash that moved ONLY because plaintext became ciphertext is explained row by row and allowed through"
+else
+  fail "C1 the intended encryption was not accepted: ${out}"
+fi
+
+host="$(credential_case reencrypt adsecute_credreenc credreenc)"
+expect_refusal "${host}" fingerprint-post "not a plaintext-to-ciphertext conversion" \
+  "C2 an ALREADY-encrypted secret rewritten to a different ciphertext is refused: a re-encryption is not a conversion" \
+  DB_NAME=adsecute_credreenc HARNESS_MIGRATE_CREDENTIALS=reencrypt || true
+
+host="$(credential_case decrypt adsecute_creddec creddec)"
+expect_refusal "${host}" fingerprint-post "not a plaintext-to-ciphertext conversion" \
+  "C3 ciphertext turning back into plaintext is refused, in the direction the rule must never allow" \
+  DB_NAME=adsecute_creddec HARNESS_MIGRATE_CREDENTIALS=decrypt || true
+
+host="$(credential_case drop_row adsecute_creddrop creddrop)"
+expect_refusal "${host}" fingerprint-post "did not exist before the migration" \
+  "C4 a credential row swapped for a different one is refused by the census even though the row COUNT is unchanged" \
+  DB_NAME=adsecute_creddrop HARNESS_MIGRATE_CREDENTIALS=drop_row || true
+
+host="$(credential_case touch adsecute_credtouch credtouch)"
+expect_refusal "${host}" fingerprint-post "changed updated_at" \
+  "C5 identical secrets whose rows were nonetheless rewritten are refused: updated_at moving means something wrote them" \
+  DB_NAME=adsecute_credtouch HARNESS_MIGRATE_CREDENTIALS=touch || true
+
+host="$(credential_case mutate_plain adsecute_credplain credplain)"
+expect_refusal "${host}" fingerprint-post "not a plaintext-to-ciphertext conversion" \
+  "C6 a plaintext secret changed to a DIFFERENT plaintext is refused, and would leave plaintext behind" \
+  DB_NAME=adsecute_credplain HARNESS_MIGRATE_CREDENTIALS=mutate_plain || true
 
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"

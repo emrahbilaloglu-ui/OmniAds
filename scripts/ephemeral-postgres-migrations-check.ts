@@ -925,6 +925,89 @@ type TargetHistoryBackfillCases = {
 
 const PRIOR_NATIVE_OPERATOR_EPOCH = NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION;
 
+/**
+ * Recreate the two legacy config-history triggers that a long-lived production
+ * database still carries, so that run 2 has something real to remove.
+ *
+ * A from-zero database never has them, which is why "the migration drops these
+ * triggers" stayed green in CI while it was failing in production: with no
+ * trigger present, `DROP TRIGGER IF EXISTS` succeeds by doing nothing, and the
+ * assertion it satisfies is vacuous. Seeding them is what makes the check mean
+ * anything at all.
+ *
+ * This proves the drops now reach the database and take effect. It does NOT
+ * reproduce the production failure itself, which needed a lock held by the
+ * concurrent ALTER TABLEs in the same batch; that contention is not
+ * deterministically reproducible here, and it has been removed by construction
+ * rather than tested for.
+ */
+async function seedLegacySkipUnchangedTriggers(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    for (const entity of ["campaign", "adset"]) {
+      await client.query(`
+        CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_${entity}_config_history()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          RETURN NEW;
+        END;
+        $$;
+      `);
+      await client.query(`
+        CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_${entity}_config_history
+        BEFORE INSERT ON public.meta_${entity}_config_history
+        FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_${entity}_config_history();
+      `);
+    }
+    log(
+      "seeded the two legacy skip-unchanged config-history triggers that production still carried",
+    );
+  } finally {
+    await client.end();
+  }
+}
+
+async function assertLegacySkipUnchangedTriggersRemoved(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query<{ tgname: string }>(`
+      SELECT tgname FROM pg_trigger
+      WHERE tgname IN (
+        'trg_skip_unchanged_meta_campaign_config_history',
+        'trg_skip_unchanged_meta_adset_config_history'
+      )
+      ORDER BY tgname
+    `);
+    if (rows.length > 0) {
+      throw new Error(
+        `The migration left ${rows.length} legacy skip-unchanged trigger(s) in place: ${rows
+          .map((row) => row.tgname)
+          .join(", ")}. These triggers silently drop config-history rows that ` +
+          "the serialized application writer has already decided to keep.",
+      );
+    }
+    // The snapshot trigger lives in the same block and is CREATED, not dropped.
+    // Asserting it exists proves the block ran forwards as well as backwards,
+    // rather than the drops having succeeded because the block never executed.
+    const { rows: snapshot } = await client.query<{ tgname: string }>(
+      `SELECT tgname FROM pg_trigger WHERE tgname = 'trg_skip_unchanged_meta_config_snapshot'`,
+    );
+    if (snapshot.length !== 1) {
+      throw new Error(
+        "The growth-guard block did not create trg_skip_unchanged_meta_config_snapshot; " +
+          "the drops cannot be trusted either, because the block did not run.",
+      );
+    }
+    log(
+      "both legacy config-history triggers were removed, and the snapshot trigger the same block creates is present",
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function seedPriorEpochOperatorConstraints(databaseUrl: string) {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1869,11 +1952,13 @@ async function main() {
     const targetHistoryCases =
       await seedTargetHistoryBackfillCases(databaseUrl);
     await seedPriorEpochOperatorConstraints(databaseUrl);
+    await seedLegacySkipUnchangedTriggers(databaseUrl);
     await runMigrationsChild(
       repoRoot,
       databaseUrl,
       "run 2: idempotency + target backfill",
     );
+    await assertLegacySkipUnchangedTriggersRemoved(databaseUrl);
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
     await assertTargetHistoryBackfillCases(databaseUrl, targetHistoryCases);

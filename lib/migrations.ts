@@ -992,9 +992,30 @@ async function dropColumnIfExistsWithShortLock(
   }
 }
 
-function buildMetaConfigGrowthGuardSql() {
-  return `
-    CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_config_snapshot()
+/**
+ * Returned as SEPARATE statements, run in order, by a caller that lets failures
+ * propagate — see applyMetaConfigGrowthGuard.
+ *
+ * This was one multi-statement string, issued from inside a concurrent batch,
+ * ending in `.catch(() => {})`. On a production cutover the two config-history
+ * triggers it exists to DROP were still present afterwards, and only the
+ * post-migration verification noticed — by the consequence, never the cause,
+ * because the cause had been discarded.
+ *
+ * A multi-statement string goes to PostgreSQL as one simple query, which runs it
+ * in an IMPLICIT TRANSACTION: any single statement failing rolls back all of
+ * them, including the drops. Issued concurrently with the `ALTER TABLE
+ * meta_campaign_config_history ADD COLUMN` entries in the same batch, the
+ * `DROP TRIGGER` waits on ACCESS EXCLUSIVE for a table those ALTERs are holding,
+ * and a wait that reaches statement_timeout takes the whole block down with it.
+ *
+ * Splitting removes the all-or-nothing rollback, running it outside the batch
+ * removes the contention, and not catching removes the silence. The `$$`-quoted
+ * function body is one statement and stays whole.
+ */
+function buildMetaConfigGrowthGuardStatements(): string[] {
+  return [
+    `CREATE OR REPLACE FUNCTION public.skip_unchanged_meta_config_snapshot()
     RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -1017,36 +1038,49 @@ function buildMetaConfigGrowthGuardSql() {
 
       RETURN NEW;
     END;
-    $$;
+    $$`,
 
-
-
-    CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_config_snapshot
+    `CREATE OR REPLACE TRIGGER trg_skip_unchanged_meta_config_snapshot
     BEFORE INSERT ON public.meta_config_snapshots
-    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_config_snapshot();
+    FOR EACH ROW EXECUTE FUNCTION public.skip_unchanged_meta_config_snapshot()`,
 
-    -- The two config-history triggers are DROPPED, not created.
-    --
-    -- Each was a BEFORE INSERT read-then-insert: it read the latest fingerprint
-    -- for the entity and returned NULL when unchanged. With no per-entity
-    -- serialisation two concurrent observations both read the same "latest", so
-    -- an A -> B -> A sequence could lose the revert entirely — B is written and
-    -- the return to A is dropped as unchanged. Its ORDER BY captured_at DESC
-    -- had no id tie-break either, so two rows at the same instant made the
-    -- decision nondeterministic.
-    --
-    -- The transition decision now lives in appendMetaCurrentConfigHistory,
-    -- inside one transaction that holds a per-entity advisory lock, so the read
-    -- and the insert are one atomic step and the inserted count is exact.
-    -- Leaving the trigger in place would silently discard rows that writer had
-    -- already decided to keep.
-    DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_campaign_config_history
-      ON public.meta_campaign_config_history;
-    DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_adset_config_history
-      ON public.meta_adset_config_history;
-    DROP FUNCTION IF EXISTS public.skip_unchanged_meta_campaign_config_history();
-    DROP FUNCTION IF EXISTS public.skip_unchanged_meta_adset_config_history();
-  `;
+    // The two config-history triggers are DROPPED, not created.
+    //
+    // Each was a BEFORE INSERT read-then-insert: it read the latest fingerprint
+    // for the entity and returned NULL when unchanged. With no per-entity
+    // serialisation two concurrent observations both read the same "latest", so
+    // an A -> B -> A sequence could lose the revert entirely — B is written and
+    // the return to A is dropped as unchanged. Its ORDER BY captured_at DESC
+    // had no id tie-break either, so two rows at the same instant made the
+    // decision nondeterministic.
+    //
+    // The transition decision now lives in appendMetaCurrentConfigHistory,
+    // inside one transaction that holds a per-entity advisory lock, so the read
+    // and the insert are one atomic step and the inserted count is exact.
+    // Leaving the trigger in place would silently discard rows that writer had
+    // already decided to keep.
+    `DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_campaign_config_history
+      ON public.meta_campaign_config_history`,
+    `DROP TRIGGER IF EXISTS trg_skip_unchanged_meta_adset_config_history
+      ON public.meta_adset_config_history`,
+    `DROP FUNCTION IF EXISTS public.skip_unchanged_meta_campaign_config_history()`,
+    `DROP FUNCTION IF EXISTS public.skip_unchanged_meta_adset_config_history()`,
+  ];
+}
+
+/**
+ * Runs the growth-guard statements in order and lets a failure propagate.
+ *
+ * The call site used to end in `.catch(() => {})`. The block it guarded is the
+ * only thing that removes two triggers which now silently discard rows the
+ * serialized application writer has already decided to keep — so discarding its
+ * error meant the migration could report success while leaving the database in
+ * exactly the state the migration exists to prevent.
+ */
+async function applyMetaConfigGrowthGuard(sql: DbClient) {
+  for (const statement of buildMetaConfigGrowthGuardStatements()) {
+    await sql.query(statement);
+  }
 }
 
 function runtimeMigrationsEnabled() {
@@ -6777,7 +6811,6 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_adset_config_history ADD COLUMN IF NOT EXISTS promoted_object_json JSONB`.catch(
           () => {},
         ),
-        sql.query(buildMetaConfigGrowthGuardSql()).catch(() => {}),
         dropColumnIfExistsWithShortLock(
           sql,
           "meta_campaign_daily",
@@ -8573,6 +8606,20 @@ export async function runMigrations(options?: {
           () => {},
         ),
       ]);
+
+      // Deliberately AFTER the batch above has settled, and deliberately not an
+      // entry in it.
+      //
+      // Every `sql` in a batch array starts the moment the array literal is
+      // evaluated (see the note on runMigrationBatchSequentially), so an entry
+      // here would issue `DROP TRIGGER ... ON meta_campaign_config_history`
+      // concurrently with the `ALTER TABLE meta_campaign_config_history ADD
+      // COLUMN` entries a few lines above it. Both need ACCESS EXCLUSIVE on the
+      // same table, so one waits on the other and can reach statement_timeout.
+      // That was survivable only while the error was being thrown away; now that
+      // it is not, the statements have to run where nothing else is holding the
+      // lock — and where the tables the batch creates definitely exist.
+      await applyMetaConfigGrowthGuard(sql);
 
       // ── Engine v3 pre-computed analytics tables (schema only) ─────────────
       await runMigrationBatchSequentially([

@@ -1193,6 +1193,13 @@ EOF
   # this reason.
   # Streamed: pg_dump writes to ITS stdout on the database host and ssh carries
   # the bytes here. Nothing large is ever written on the database host.
+  # Created 0600 BEFORE the dump streams into it. A bare `>` redirection takes
+  # the umask, which left the only complete copy of the production database
+  # world-readable. The enclosing directory is 0700, so nothing could reach it —
+  # but the file mode is what survives if the directory is ever relaxed, moved,
+  # or copied, and every other file this script writes is already 0600.
+  : > "${artifact}" && chmod 0600 "${artifact}" \
+    || die "could not create ${artifact} on this host"
   db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=${BACKUP_COMPRESS_LEVEL} --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
 

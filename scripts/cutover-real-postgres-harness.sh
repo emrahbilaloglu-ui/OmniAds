@@ -815,6 +815,17 @@ if [ -n "${manifest_path}" ] && [ -s "${manifest_path}" ]; then
   else
     fail "P2b the artifact digest is not a real pin: manifest='${artifact_sha}' recomputed='${recomputed}'"
   fi
+
+  # P2c — the artifact is a full copy of the production database, including every
+  # encrypted credential. A `>` redirection gave it the umask's 0644. `ls -l`
+  # rather than stat, whose mode flags differ between GNU and BSD.
+  artifact_mode="$(ls -l "${artifact}" | cut -c1-10)"
+  manifest_mode="$(ls -l "${manifest_path}" | cut -c1-10)"
+  if [ "${artifact_mode}" = "-rw-------" ] && [ "${manifest_mode}" = "-rw-------" ]; then
+    pass "P2c the artifact and its manifest are both 0600, not merely hidden behind a 0700 directory"
+  else
+    fail "P2c artifact mode ${artifact_mode}, manifest mode ${manifest_mode}; both must be -rw-------"
+  fi
 else
   fail "P2 preflight recorded no backup manifest"
 fi

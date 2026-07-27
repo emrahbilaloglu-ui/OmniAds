@@ -343,6 +343,13 @@ jobs:
             runtime_regex_parts=(
               '^(\.github/workflows/|app/|components/|hooks/|lib/'
               '|providers/|public/|scripts/|src/|store/'
+              # deploy/ ships INSIDE the worker image: the cutover wrapper reads
+              # deploy/db/recovery-policy.tsv from /app/deploy, and the daily
+              # backup script is installed from there. A change to either is a
+              # runtime change, and treating it as one is what makes the host
+              # actually receive it — without this, the repository says the
+              # policy changed and production keeps running the old one.
+              '|deploy/'
               '|docs/v3-01-release-authority\.md$'
               '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
               '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'

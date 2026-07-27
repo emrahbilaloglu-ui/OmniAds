@@ -105,7 +105,16 @@ trap cleanup EXIT
 # a host where runuser vanished fails loudly on authentication rather than
 # silently backing up as the wrong role.
 as_postgres() {
-  if [ "$(id -un)" = "$BACKUP_DB_SUPERUSER" ] || ! command -v runuser >/dev/null 2>&1; then
+  # `runuser` is used only when it can actually work: it exists, we are root,
+  # and we are not already the target user.
+  #
+  # Checking existence alone was wrong. On a CI runner `runuser` is installed
+  # but the job runs as an unprivileged user, so it exists, is selected, and
+  # then fails with "may not be used by non-root users" — which is how a backup
+  # script that works on the production host fails everywhere else.
+  if [ "$(id -un)" = "$BACKUP_DB_SUPERUSER" ] \
+    || [ "$(id -u)" != "0" ] \
+    || ! command -v runuser >/dev/null 2>&1; then
     "$@"
   else
     runuser -u "$BACKUP_DB_SUPERUSER" -- "$@"

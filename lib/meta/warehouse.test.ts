@@ -3336,8 +3336,14 @@ describe("meta warehouse ownership safety", () => {
   });
 
   it("treats SQL date objects as local calendar dates in published verification", async () => {
+    // Assigning process.env.TZ here does nothing: Node resolves the zone once at
+    // startup, so this test was really asserting "the machine running it happens
+    // to be east of UTC". It passed in Istanbul and failed in CI.
+    //
+    // The behaviour under test is that a `Date` returned by the driver is read as
+    // a LOCAL calendar date, so the fixture is built the same way — local
+    // midnight on the queried day, which is that calendar date in every zone.
     const previousTz = process.env.TZ;
-    process.env.TZ = "Europe/Istanbul";
 
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -3346,7 +3352,7 @@ describe("meta warehouse ownership safety", () => {
           {
             business_id: "biz-1",
             provider_account_id: "act_1",
-            day: new Date("2026-04-06T21:00:00.000Z"),
+            day: new Date(2026, 3, 7),
             surface: "account_daily",
             latest_slice_id: "slice-1",
             latest_state: "finalized_verified",
@@ -3362,7 +3368,7 @@ describe("meta warehouse ownership safety", () => {
           {
             business_id: "biz-1",
             provider_account_id: "act_1",
-            day: new Date("2026-04-06T21:00:00.000Z"),
+            day: new Date(2026, 3, 7),
             surface: "campaign_daily",
             latest_slice_id: "slice-2",
             latest_state: "finalized_verified",

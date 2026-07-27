@@ -1650,6 +1650,20 @@ async function verifyHistoricalEvidenceAmplification(
   // legitimately adds no row. What must be true is that today REACHED the
   // writer: a snapshot for today's date exists. This is deliberately weaker
   // than the entity assertion above and is called out as such.
+  //
+  // `accountToday` is the account's own date (Europe/Istanbul); the WRITER
+  // dates its snapshot from the process clock. Those agree only while the two
+  // zones are on the same calendar day, so between 21:00 and 24:00 UTC this
+  // check failed on a UTC runner and passed on an Istanbul laptop — three hours
+  // a day where CI was red for reasons unrelated to the commit.
+  //
+  // The seam is pinned to TZ=Europe/Istanbul (see package.json) to make it
+  // deterministic. That makes the check honest about what it tests — "the
+  // writer was reached for the account's day" — and it deliberately does NOT
+  // answer the open product question underneath: whether a snapshot should be
+  // dated by the server clock at all, or always by the account's timezone. A
+  // server in another zone would date rows differently, and nothing here yet
+  // proves which is intended.
   const todaySnapshot = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM meta_config_snapshots
      WHERE business_id = $1 AND account_id = $2 AND snapshot_date = $3::date`,

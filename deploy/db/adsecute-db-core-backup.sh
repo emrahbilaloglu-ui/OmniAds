@@ -179,6 +179,25 @@ for t in $tier_b_tables; do
     echo "recovery_policy_violation tier_b_table_absent=$t" >&2
     fail "tier_b_table_absent_from_catalog"
   fi
+
+  # A tier-B table may not be the PARENT of a foreign key.
+  #
+  # pg_restore loads data first and adds constraints afterwards. If a tier-A
+  # child row references a tier-B parent whose rows are in a separate archive,
+  # ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY fails validation and the
+  # artifact does not restore at all — so the backup looks successful and the
+  # rollback does not exist. Found exactly this way: a production scratch
+  # restore died on meta_account_daily_source_snapshot_id_fkey because
+  # meta_raw_snapshots (8 inbound FKs) had been classified tier B.
+  inbound="$(psql_value "$DB_NAME" "
+    SELECT count(*)::text FROM pg_constraint con
+    JOIN pg_class c ON c.oid = con.confrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE con.contype = 'f' AND n.nspname = 'public' AND c.relname = '${t}'")"
+  if [ "${inbound:-0}" != "0" ]; then
+    echo "recovery_policy_violation tier_b_table_has_inbound_fks=$t count=$inbound" >&2
+    fail "tier_b_table_is_a_foreign_key_parent"
+  fi
 done
 
 tier_b_count="$(printf '%s\n' "$tier_b_tables" | grep -c . || true)"

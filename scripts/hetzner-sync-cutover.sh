@@ -949,6 +949,23 @@ db_logical_bytes() {
 # cannot be tier B for the backup and tier A for the cutover.
 RECOVERY_POLICY_FILE="${SYNC_CUTOVER_RECOVERY_POLICY:-${CUTOVER_DIR}/recovery-policy.tsv}"
 
+# The policy decides which tables the rollback artifact carries, so a MISSING or
+# ALTERED policy silently changes what "a complete rollback" means. If the
+# delivered manifest pins its digest, it must match; and if the policy is absent
+# entirely the wrapper refuses rather than quietly treating every table as tier A
+# and then failing the capacity gate for a reason that looks unrelated.
+assert_recovery_policy() {
+  local pinned actual
+  [ -f "${RECOVERY_POLICY_FILE}" ] \
+    || die "no recovery policy at ${RECOVERY_POLICY_FILE}; it is delivered with the wrapper, so this wrapper was not installed by a deploy of this release"
+  pinned="$(awk -F= '$1 == "delivered_policy_sha256" { print $2 }' "${WRAPPER_MANIFEST}" 2>/dev/null | tr -d '[:space:]')"
+  if [ -n "${pinned}" ]; then
+    actual="$(sha256_file "${RECOVERY_POLICY_FILE}")"
+    [ "${pinned}" = "${actual}" ] \
+      || die "the recovery policy hashes ${actual}, the delivered manifest pins ${pinned}. It was edited on this host; re-deliver it, do NOT edit it in place."
+  fi
+}
+
 tier_b_table_list() {
   [ -f "${RECOVERY_POLICY_FILE}" ] || return 0
   awk -F'\t' '/^[[:space:]]*#/ { next } NF >= 2 && $2 == "B" { print $1 }' \
@@ -1506,6 +1523,8 @@ case "${PHASE}" in
     release_set prev_scheduler_sha256 "$(scheduler_hash "${SCHEDULER}")"
     release_set phase "preflight"
     release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    assert_recovery_policy
+    release_set policy_sha256_delivered "$(sha256_file "${RECOVERY_POLICY_FILE}")"
     assert_release_record "record its own preflight"
     log "release identity recorded at ${RELEASE_RECORD} for ${EXPECTED_SHA}"
     state_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

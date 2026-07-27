@@ -641,7 +641,13 @@ STUB
     printf 'wrapper_bytes=%s\n' "$(wc -c < "${WRAPPER}" | tr -d '[:space:]')"
     printf 'cutover_required=yes\n'
     printf 'delivered_deploy_sha=%s\n' "${DEPLOY_SHA}"
+    printf 'delivered_policy_sha256=%s\n' "$(sha256_of "${REPO_ROOT}/deploy/db/recovery-policy.tsv")"
   } > "${host}/cutover/cutover-wrapper.manifest"
+
+  # The recovery policy travels with the wrapper, exactly as the real delivery
+  # installs it. Without it the wrapper sees no tier-B tables and sizes its
+  # capacity gate against the whole database.
+  cp "${REPO_ROOT}/deploy/db/recovery-policy.tsv" "${host}/cutover/recovery-policy.tsv"
 
   printf '%s' "${host}"
 }
@@ -1133,6 +1139,17 @@ if adv="$(advance_to_swap_ready "${host}")"; then
 else
   fail "R5 the running-image scenario stopped early — ${adv}"
 fi
+
+# R7/R8: the recovery policy is part of the delivered release, not scenery.
+host="$(new_host relpolicymissing)"
+rm -f "${host}/cutover/recovery-policy.tsv"
+expect_refusal "${host}" preflight "no recovery policy" \
+  "R7 a wrapper delivered without its recovery policy refuses, rather than silently treating every table as tier A and sizing itself against the whole database" || true
+
+host="$(new_host relpolicyedited)"
+printf '\nmeta_ad_daily\tB\tedited on the host\n' >> "${host}/cutover/recovery-policy.tsv"
+expect_refusal "${host}" preflight "recovery policy hashes" \
+  "R8 a recovery policy edited on the host refuses against the digest the delivery pinned" || true
 
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"

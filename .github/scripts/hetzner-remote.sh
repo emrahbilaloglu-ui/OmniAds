@@ -336,11 +336,24 @@ deliver_cutover_wrapper() {
   # release delivered this wrapper and out of which immutable image. A wrapper
   # left behind by an earlier deploy is then visible as such rather than looking
   # current because its own digest happens to match its own manifest.
+  # The recovery policy decides which tables the rollback artifact carries, so
+  # the wrapper sizes its capacity gate against it. A delivery that installed the
+  # wrapper but dropped the policy left the wrapper seeing no tier-B tables and
+  # sizing itself against the whole database — so its digest is pinned here and
+  # it is installed alongside, not left in the staging directory.
+  policy_sha="$(sha256_of_file "${staging_dir}/recovery-policy.tsv")"
+  if [ -z "${policy_sha}" ]; then
+    echo "cutover_wrapper_delivery FAILED: could not hash the extracted recovery policy"
+    cleanup_cutover_delivery
+    return 1
+  fi
+
   {
     cat "${staging_dir}/cutover-wrapper.manifest"
     printf 'delivered_deploy_sha=%s\n' "${DEPLOY_SHA}"
     printf 'delivered_worker_image=%s\n' "${expected_worker_image}"
     printf 'delivered_worker_image_id=%s\n' "${worker_image_id}"
+    printf 'delivered_policy_sha256=%s\n' "${policy_sha}"
     printf 'delivered_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "${staging_dir}/installed.manifest"
 
@@ -355,10 +368,15 @@ deliver_cutover_wrapper() {
   chmod 0700 "${cutover_dir}/.hetzner-sync-cutover.sh.tmp"
   cp "${staging_dir}/installed.manifest" "${cutover_dir}/.cutover-wrapper.manifest.tmp"
   chmod 0600 "${cutover_dir}/.cutover-wrapper.manifest.tmp"
+  cp "${staging_dir}/recovery-policy.tsv" "${cutover_dir}/.recovery-policy.tsv.tmp"
+  chmod 0600 "${cutover_dir}/.recovery-policy.tsv.tmp"
+  # Policy first: the wrapper reads the manifest to verify itself, and a manifest
+  # that names a policy digest must not become visible before the policy does.
+  mv "${cutover_dir}/.recovery-policy.tsv.tmp" "${cutover_dir}/recovery-policy.tsv"
   mv "${cutover_dir}/.cutover-wrapper.manifest.tmp" "${cutover_dir}/cutover-wrapper.manifest"
   mv "${cutover_dir}/.hetzner-sync-cutover.sh.tmp" "${cutover_dir}/hetzner-sync-cutover.sh"
 
-  echo "cutover_wrapper_installed path=${cutover_dir}/hetzner-sync-cutover.sh sha256=${actual_sha} image_id=${worker_image_id}"
+  echo "cutover_wrapper_installed path=${cutover_dir}/hetzner-sync-cutover.sh sha256=${actual_sha} policy_sha256=${policy_sha} image_id=${worker_image_id}"
   cleanup_cutover_delivery
 }
 

@@ -6,7 +6,10 @@ import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 export type RuntimeContractService = "web" | "worker";
-export type RuntimeContractHealthState = "healthy" | "invalid";
+// "staged" is a worker that registered so a release could be inspected and is
+// admitted to no lane. It is deliberately NOT "healthy": the deploy gate reads
+// this to mean "the worker is doing the work", and a staged process is not.
+export type RuntimeContractHealthState = "healthy" | "invalid" | "staged";
 export type SyncGateMode = "measure_only" | "warn_only" | "block";
 export type RuntimeContractIssueSeverity = "error" | "warning";
 

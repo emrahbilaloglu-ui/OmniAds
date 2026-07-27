@@ -196,7 +196,7 @@ export interface AdminSyncHealthPayload {
       workerId: string;
       instanceType: string;
       providerScope: string;
-      workerFreshnessState?: "online" | "stale" | "stopped";
+      workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
       status: string;
       lastHeartbeatAt: string | null;
       lastBusinessId: string | null;
@@ -321,7 +321,7 @@ export interface AdminSyncHealthPayload {
     stallFingerprints?: ProviderStallFingerprint[];
     workerOnline?: boolean;
     workerLastHeartbeatAt?: string | null;
-    workerFreshnessState?: "online" | "stale" | "stopped" | null;
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged" | null;
     workerId?: string | null;
     workerConsumeStage?: string | null;
     sourceManifestCounts?: MetaAuthoritativeBusinessOpsSnapshot["manifestCounts"];
@@ -2549,6 +2549,9 @@ async function readGoogleAdsHealthRows() {
           COUNT(*) FILTER (
             WHERE provider_scope IN ('google_ads', 'all')
               AND last_heartbeat_at > now() - interval '5 minutes'
+              -- A staged worker heartbeats provider_scope='all' and processes
+              -- nothing. Without this it reported the Google lane healthy.
+              AND status <> 'disabled'
           ) > 0
         ) AS google_worker_healthy,
         MIN(

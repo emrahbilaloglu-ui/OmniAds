@@ -109,6 +109,109 @@ else
   fi
 fi
 
+# ── The other two phases that can mutate production on their own ───────────
+#
+# run_migrations is not the only reachable phase. prepare_runtime pulls images
+# and OVERWRITES the cutover wrapper, and recreate_services replaces the running
+# containers; both are dispatched as separate workflow steps and neither goes
+# through run_migrations. Gating only run_migrations leaves both open.
+rm -f "${ROOT}/state/state" "${ROOT}/app/deploy/CUTOVER_REQUIRED"
+printf 'phase_chain=preflight,quiesce,fingerprint-pre\n' > "${ROOT}/state/state"
+
+if run_gated_phase prepare_runtime; then
+  fail "G4 prepare_runtime ran during a cutover; it would have overwritten the wrapper the cutover is executing"
+elif [ -s "${ROOT}/docker-invocations" ]; then
+  fail "G4 prepare_runtime refused only after a mutating docker command: $(tr '\n' ';' < "${ROOT}/docker-invocations")"
+else
+  pass "G4 prepare_runtime refuses during a cutover BEFORE the pull, so a delivery cannot rewrite a wrapper mid-run"
+fi
+
+if run_gated_phase recreate_services; then
+  fail "G5 recreate_services ran during a cutover"
+elif [ -s "${ROOT}/docker-invocations" ]; then
+  fail "G5 recreate_services refused only after a mutating docker command: $(tr '\n' ';' < "${ROOT}/docker-invocations")"
+else
+  pass "G5 recreate_services refuses during a cutover before recreating anything"
+fi
+
+# ── The workflow itself ────────────────────────────────────────────────────
+#
+# The host script is only half of it. The gate used to live inside the "Run
+# database migrations" step, whose condition ends in `inputs.run_migrations ==
+# 'true'` — wired to schema_changed. A release with no schema change SKIPPED
+# that step, and skipped the gate with it, then recreated the containers anyway.
+# These assertions are about the workflow's structure, which is where that bug
+# lived and where a grep for a string cannot reach.
+WORKFLOW="${REPO_ROOT}/.github/workflows/deploy-hetzner.yml"
+workflow_report="$(WORKFLOW="${WORKFLOW}" python3 - <<'PY'
+import os, re, sys
+
+path = os.environ["WORKFLOW"]
+lines = open(path).read().split("\n")
+
+# Steps in order: (index, name, condition text). The condition may be folded
+# over several lines with `if: >-`.
+steps, i = [], 0
+while i < len(lines):
+    m = re.match(r"^      - name: (.+)$", lines[i])
+    if not m:
+        i += 1
+        continue
+    name, cond, j = m.group(1).strip(), "", i + 1
+    while j < len(lines) and not re.match(r"^      - name: ", lines[j]):
+        c = re.match(r"^        if: (.*)$", lines[j])
+        if c:
+            cond = c.group(1).strip()
+            if cond in (">-", "|"):
+                cond, k = "", j + 1
+                while k < len(lines) and re.match(r"^          \S", lines[k]):
+                    cond += " " + lines[k].strip()
+                    k += 1
+        j += 1
+    steps.append((len(steps), name, cond.strip()))
+    i = j
+
+names = [s[1] for s in steps]
+def idx(pred):
+    for n, nm in enumerate(names):
+        if pred(nm):
+            return n
+    return -1
+
+gate = idx(lambda n: "Cutover gate" in n)
+problems = []
+
+if gate < 0:
+    problems.append("there is no independent 'Cutover gate' step at all")
+else:
+    gate_cond = steps[gate][2]
+    if "run_migrations" in gate_cond:
+        problems.append(
+            "the gate depends on run_migrations, so a schema-unchanged release skips it: " + gate_cond
+        )
+    # It must precede every step that can touch the host.
+    for marker in ("Prepare SSH access", "Sync deploy compose", "Prepare runtime images",
+                   "Run database migrations", "Recreate web and worker"):
+        at = idx(lambda n, m=marker: n.startswith(m))
+        if at >= 0 and at < gate:
+            problems.append(f"'{marker}' runs BEFORE the cutover gate")
+    # Everything after the gate must be success()-guarded, or a gate failure
+    # does not stop it. An explicit `if:` REPLACES the implicit success() guard.
+    for n, nm, cond in steps[gate + 1:]:
+        if cond and "success()" not in cond and "always()" not in cond and "failure()" not in cond:
+            problems.append(f"step '{nm}' has a custom if: without success(), so it runs even after the gate fails")
+
+print("PROBLEMS:" + ("|".join(problems) if problems else "none"))
+print("STEPS:%d GATE_INDEX:%d" % (len(steps), gate))
+PY
+)"
+
+if printf '%s' "${workflow_report}" | grep -q "PROBLEMS:none"; then
+  pass "W1 the deploy workflow has an independent cutover gate that precedes every host-touching step, does not depend on run_migrations, and is followed only by success()-guarded steps ($(printf '%s' "${workflow_report}" | grep -o 'STEPS:[0-9]*'))"
+else
+  fail "W1 workflow gate structure is wrong: $(printf '%s' "${workflow_report}" | sed -n 's/^PROBLEMS://p')"
+fi
+
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"
 else

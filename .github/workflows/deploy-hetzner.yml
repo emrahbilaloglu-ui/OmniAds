@@ -117,6 +117,35 @@ jobs:
           ref: ${{ steps.deploy_sha.outputs.sha }}
           fetch-depth: 1
 
+      # ── The cutover gate, on its own, before ANY host contact ──────────────
+      #
+      # This used to live inside "Run database migrations", whose condition ends
+      # in `inputs.run_migrations == 'true'`. run_migrations is wired to
+      # schema_changed, so every release WITHOUT a schema change skipped the step
+      # — and skipped the gate with it — then went straight on to recreate the
+      # containers. That is not a theoretical hole: two ops-only releases reached
+      # production unattended that way, on commits that never went through a
+      # cutover.
+      #
+      # So it is a step of its own, it depends on NOTHING but the checkout, and
+      # it sits ahead of the first thing that touches the host (Prepare SSH
+      # access → Sync deploy compose → pull → stop → recreate → migrate). It
+      # cannot be skipped by a schema-unchanged release, and every later step is
+      # `success() &&`-guarded, so a failure here stops all of them.
+      - name: Cutover gate (independent, always runs)
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f deploy/CUTOVER_REQUIRED ]; then
+            echo "ABORT deploy/CUTOVER_REQUIRED is present for ${{ steps.deploy_sha.outputs.sha }}."
+            echo "This release must go through the cutover wrapper, not the ordinary deploy."
+            echo "--- deploy/CUTOVER_REQUIRED ---"
+            cat deploy/CUTOVER_REQUIRED || true
+            exit 1
+          fi
+          echo "cutover_gate=clear sha=${{ steps.deploy_sha.outputs.sha }}"
+
       - name: Prepare SSH access
         if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
@@ -212,6 +241,7 @@ jobs:
 
       - name: Run database migrations
         if: >-
+          success() &&
           (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true') &&
           inputs.run_migrations == 'true'
         shell: bash

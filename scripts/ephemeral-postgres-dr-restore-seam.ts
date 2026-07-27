@@ -50,6 +50,16 @@ const FORBIDDEN_PORTS = new Set([5432, 15432]);
 const SOURCE_DB = "dr_restore_source";
 const TARGET_DB = "dr_restore_target";
 const USER = "postgres";
+// The application role. Production does NOT run as the superuser: adsecute_app
+// owns the database, so pg_database_owner — which owns schema public under
+// PostgreSQL 16's default ACL — resolves to it, and that is where its
+// USAGE/CREATE comes from.
+//
+// Without this role the seam was sitting in the failure configuration and
+// passing: source and target were both owned by `postgres`, so a --no-owner
+// restore was indistinguishable from a correct one and D1-D10 could not see
+// that a restore leaves the application locked out of its own database.
+const APP_ROLE = "adsecute_app";
 const LABEL = "[dr-restore-seam]";
 
 const BACKUP_SCRIPT = "deploy/db/adsecute-db-core-backup.sh";
@@ -135,7 +145,7 @@ interface Server {
   port: number;
   dataDir: string;
   logFile: string;
-  url: (db: string) => string;
+  url: (db: string, role?: string) => string;
 }
 
 function startServer(bin: string, root: string, name: string, port: number): Server {
@@ -164,7 +174,8 @@ function startServer(bin: string, root: string, name: string, port: number): Ser
     port,
     dataDir,
     logFile,
-    url: (db: string) => `postgresql://${USER}@127.0.0.1:${port}/${db}`,
+    url: (db: string, role: string = USER) =>
+      `postgresql://${role}@127.0.0.1:${port}/${db}`,
   };
 }
 
@@ -366,13 +377,27 @@ async function main() {
   try {
     // ── Source: a real migrated database with real linked authority state ────
     source = startServer(bin, tmp, "source", sourcePort);
+    // The application role, and it OWNS the database.
+    //
+    // Without this the seam sat in the exact configuration that failed in
+    // production — every object owned by the restoring superuser on BOTH sides —
+    // so a --no-owner restore was indistinguishable from a correct one and no
+    // check could see that the app is locked out of its own database afterwards.
+    run(
+      path.join(bin, "psql"),
+      ["-h", "127.0.0.1", "-p", String(sourcePort), "-U", USER, "-d", "postgres",
+       "-v", "ON_ERROR_STOP=1", "-c", `CREATE ROLE ${APP_ROLE} LOGIN`],
+      "create app role (source)",
+    );
     run(
       path.join(bin, "createdb"),
-      ["-h", "127.0.0.1", "-p", String(sourcePort), "-U", USER, SOURCE_DB],
+      ["-h", "127.0.0.1", "-p", String(sourcePort), "-U", USER, "-O", APP_ROLE, SOURCE_DB],
       "createdb (source)",
     );
 
-    const sourceUrl = source.url(SOURCE_DB);
+    // Migrations run AS the app role, so every object it creates is owned by it —
+    // which is what makes ownership.sql say something other than "postgres".
+    const sourceUrl = source.url(SOURCE_DB, APP_ROLE);
     process.env.DATABASE_URL = sourceUrl;
     process.env.DATABASE_URL_UNPOOLED = sourceUrl;
     process.env.DB_SSL_MODE = "disable";
@@ -800,6 +825,28 @@ async function main() {
       "pg_restore",
     );
 
+    // Replay the captured access metadata. This is the step the documented
+    // restore procedure was missing: pg_restore --no-owner --no-privileges
+    // reproduces structure and data and nothing about who may use them, so
+    // without this the restored database belongs entirely to the superuser and
+    // the application cannot even create a table in public.
+    const latestDir = path.join(backupRoot, "latest");
+    const accessSql = path.join(latestDir, "access.sql");
+    const ownershipSql = path.join(latestDir, "ownership.sql");
+    if (fs.existsSync(accessSql)) {
+      run(
+        path.join(bin, "psql"),
+        ["-h", "127.0.0.1", "-p", String(targetPort), "-U", USER, "-d", "postgres", "-f", accessSql],
+        "replay access.sql (roles first, so ownership has somebody to grant to)",
+      );
+    }
+    run(
+      path.join(bin, "psql"),
+      ["-h", "127.0.0.1", "-p", String(targetPort), "-U", USER, "-d", TARGET_DB,
+       "-v", "ON_ERROR_STOP=1", "-v", `restore_target_db=${TARGET_DB}`, "-f", ownershipSql],
+      "replay ownership.sql",
+    );
+
     const targetUrl = target.url(TARGET_DB);
     targetClient = new Client({ connectionString: targetUrl });
     await targetClient.connect();
@@ -1138,6 +1185,77 @@ async function main() {
     console.log(
       `${LABEL} D10 PASS co-location guard: without the explicit single-filesystem escape the backup refuses to write its archive onto the filesystem holding the data, naming archive_shares_filesystem_with_data`,
     );
+
+    // ── D11. The restored database is USABLE by the application ─────────────
+    //
+    // Every check above proves the artifact reproduces structure and data. None
+    // of them proves the application can touch the result, and on a real
+    // production restore it could not: --no-owner --no-privileges left every
+    // object owned by the restoring superuser, so pg_database_owner stopped
+    // resolving to the app role and the first migration died with "permission
+    // denied for schema public". A restore that is byte-perfect and unusable is
+    // not a recovery, and this is the check that says so.
+    //
+    // Run as the APP role. Running it as postgres would prove only that a
+    // superuser can write, which was never in doubt.
+    const appClient = new Client({ connectionString: target.url(TARGET_DB, APP_ROLE) });
+    await appClient.connect();
+    try {
+      const [identity] = await rows(
+        appClient,
+        `SELECT current_user AS role,
+                (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS is_superuser`,
+      );
+      assert(
+        identity?.role === APP_ROLE && identity?.is_superuser === false,
+        `D11: the probe is not running as an unprivileged ${APP_ROLE} (role=${String(identity?.role)} superuser=${String(identity?.is_superuser)}); a superuser writing proves nothing`,
+      );
+
+      const censusBefore = await census(targetClient);
+
+      await appClient.query("BEGIN");
+      // (a) schema-level CREATE — the exact statement class that failed.
+      await appClient.query("CREATE TABLE public.dr_access_probe (probe text)");
+      await appClient.query("DROP TABLE public.dr_access_probe");
+      // (b) full DML against a RESTORED table, as the application role.
+      await appClient.query(
+        `INSERT INTO system_capacity_snapshots (source, hostname, sampled_at, payload)
+         VALUES ('dr_access_probe', 'dr-restore-seam', now(), '{"probe":"D11"}'::jsonb)`,
+      );
+      await appClient.query(
+        `UPDATE system_capacity_snapshots SET payload = payload || '{"updated":true}'::jsonb
+          WHERE source = 'dr_access_probe'`,
+      );
+      const [seen] = await rows(
+        appClient,
+        `SELECT count(*)::int AS n FROM system_capacity_snapshots WHERE source = 'dr_access_probe'`,
+      );
+      assert(
+        Number(seen?.n) === 1,
+        `D11: the app role's own write was not visible inside its transaction (n=${String(seen?.n)})`,
+      );
+      // Rollback-safe: the proof must leave the database exactly as it found it.
+      await appClient.query("ROLLBACK");
+
+      const [after] = await rows(
+        targetClient,
+        `SELECT count(*)::int AS n FROM system_capacity_snapshots WHERE source = 'dr_access_probe'`,
+      );
+      assert(
+        Number(after?.n) === 0,
+        `D11: the probe row survived ROLLBACK (n=${String(after?.n)}); this check must not mutate the restored database`,
+      );
+      const censusAfter = await census(targetClient);
+      assert(
+        JSON.stringify(censusBefore) === JSON.stringify(censusAfter),
+        "D11: the row census moved across the access probe; something was left behind in some table",
+      );
+      console.log(
+        `${LABEL} D11 PASS restored access: ${APP_ROLE} (non-superuser) can CREATE in public, INSERT, UPDATE and SELECT its own write on the RESTORED database, and the whole probe rolls back leaving all ${Object.keys(censusAfter).length} table counts identical`,
+      );
+    } finally {
+      await appClient.end().catch(() => undefined);
+    }
 
     console.log(`${LABEL} PASS`);
   } catch (error) {

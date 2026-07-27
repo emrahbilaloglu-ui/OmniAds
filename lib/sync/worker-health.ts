@@ -53,7 +53,7 @@ export function selectProviderWorkerForBusiness(input: {
   activeLeaseOwner?: string | null;
   workers?: Array<{
     workerId: string;
-    workerFreshnessState?: "online" | "stale" | "stopped";
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
     lastHeartbeatAt?: string | null;
     lastBusinessId: string | null;
     lastConsumedBusinessId?: string | null;
@@ -78,7 +78,7 @@ export function selectLatestWorkerForProviderScope(input: {
   providerScope: string;
   workers?: Array<{
     workerId: string;
-    workerFreshnessState?: "online" | "stale" | "stopped";
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
     lastHeartbeatAt?: string | null;
     providerScope?: string | null;
     metaJson?: Record<string, unknown> | null;
@@ -104,7 +104,7 @@ export function getProviderScopeWorkerObservation(input: {
   nowMs?: number;
   workers?: Array<{
     workerId: string;
-    workerFreshnessState?: "online" | "stale" | "stopped";
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
     lastHeartbeatAt?: string | null;
     providerScope?: string | null;
     metaJson?: Record<string, unknown> | null;
@@ -142,7 +142,7 @@ export function getProviderBusinessWorkerObservation(input: {
   nowMs?: number;
   workers?: Array<{
     workerId: string;
-    workerFreshnessState?: "online" | "stale" | "stopped";
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged";
     lastHeartbeatAt?: string | null;
     lastBusinessId: string | null;
     lastConsumedBusinessId?: string | null;
@@ -251,7 +251,16 @@ export async function heartbeatSyncWorker(input: {
   `;
   await upsertRuntimeContractInstance({
     contract: runtimeContract,
-    healthState: runtimeContract.validation.pass ? "healthy" : "invalid",
+    // A staged worker registers so it can be inspected; it is not healthy in
+    // the sense the deploy gate means, which is "this process is doing the
+    // work". Saying "healthy" here satisfied half that gate for a process
+    // admitted to nothing.
+    healthState:
+      input.status === "disabled"
+        ? "staged"
+        : runtimeContract.validation.pass
+          ? "healthy"
+          : "invalid",
   }).catch(() => null);
 }
 
@@ -348,6 +357,61 @@ export async function releaseSyncRunnerLease(input: {
       AND provider_scope = ${input.providerScope}
       AND lease_owner = ${input.leaseOwner}
   `;
+}
+
+/**
+ * Every unit of work the named workers own, across every table that can grant
+ * one.
+ *
+ * A staged worker's contract is negative — it must hold NOTHING — and a
+ * heartbeat cannot show that. The heartbeat summary knows only that a process
+ * registered; whether it also took a runner lease, claimed a partition, moved a
+ * checkpoint or holds a job lock lives in six other tables. Proving "it is
+ * staged" from heartbeats alone proves only that it said so.
+ *
+ * Counts are deliberately NOT filtered by lease_expires_at: a staged worker must
+ * own zero rows, expired or not. An expired lease it still owns is a lease it
+ * took, which is the thing being ruled out.
+ */
+export async function getSyncWorkerOwnedWorkUnits(workerIds: string[]) {
+  const empty = {
+    runnerLeases: 0,
+    googleLaneLeases: 0,
+    metaPartitionClaims: 0,
+    googlePartitionClaims: 0,
+    metaCheckpointClaims: 0,
+    googleCheckpointClaims: 0,
+    jobLocks: 0,
+  };
+  if (workerIds.length === 0) return empty;
+  const sql = getDb();
+  const [row] = (await sql`
+    SELECT
+      (SELECT COUNT(*) FROM sync_runner_leases
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS runner_leases,
+      (SELECT COUNT(*) FROM google_ads_runner_leases
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS google_lane_leases,
+      (SELECT COUNT(*) FROM meta_sync_partitions
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS meta_partition_claims,
+      (SELECT COUNT(*) FROM google_ads_sync_partitions
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS google_partition_claims,
+      (SELECT COUNT(*) FROM meta_sync_checkpoints
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS meta_checkpoint_claims,
+      (SELECT COUNT(*) FROM google_ads_sync_checkpoints
+        WHERE lease_owner = ANY(${workerIds}::text[]))::int          AS google_checkpoint_claims,
+      (SELECT COUNT(*) FROM provider_sync_jobs
+        WHERE lock_owner = ANY(${workerIds}::text[])
+          AND status = 'running')::int                               AS job_locks
+  ` as Array<Record<string, unknown>>) ?? [];
+  return {
+    runnerLeases: Number(row?.runner_leases ?? 0),
+    googleLaneLeases: Number(row?.google_lane_leases ?? 0),
+    metaPartitionClaims: Number(row?.meta_partition_claims ?? 0),
+    googlePartitionClaims: Number(row?.google_partition_claims ?? 0),
+    metaCheckpointClaims: Number(row?.meta_checkpoint_claims ?? 0),
+    googleCheckpointClaims: Number(row?.google_checkpoint_claims ?? 0),
+    jobLocks: Number(row?.job_locks ?? 0),
+  };
 }
 
 export async function getSyncRunnerLeaseHealth(input: {
@@ -449,8 +513,14 @@ export async function getSyncWorkerHealthSummary(input?: {
     workers: workerRows.map((row) => {
       const metaJson = normalizeMetaJson(row.meta_json);
       return {
+      // A staged worker is fresh AND doing nothing. Reporting it "online" is
+      // the whole failure this status exists to avoid, so it gets its own
+      // state rather than being folded into the freshness ternary — every
+      // consumer of workers[] has to decide about it explicitly.
       workerFreshnessState:
-        String(row.status) === "stopped"
+        String(row.status) === "disabled"
+          ? ("staged" as const)
+          : String(row.status) === "stopped"
           ? ("stopped" as const)
           : (() => {
               const heartbeatAt = normalizeTimestamp(row.last_heartbeat_at);

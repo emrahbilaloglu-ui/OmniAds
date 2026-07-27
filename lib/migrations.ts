@@ -3997,7 +3997,7 @@ export async function runMigrations(options?: {
           instance_type      TEXT NOT NULL,
           provider_scope     TEXT NOT NULL,
           status             TEXT NOT NULL DEFAULT 'starting'
-                             CHECK (status IN ('starting', 'idle', 'running', 'stopping', 'stopped')),
+                             CHECK (status IN ('starting', 'idle', 'running', 'stopping', 'stopped', 'disabled')),
           last_heartbeat_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
           last_business_id   TEXT,
           last_partition_id  TEXT,
@@ -8620,6 +8620,23 @@ export async function runMigrations(options?: {
       // it is not, the statements have to run where nothing else is holding the
       // lock — and where the tables the batch creates definitely exist.
       await applyMetaConfigGrowthGuard(sql);
+
+      // Widen sync_worker_heartbeats.status to admit 'disabled'.
+      //
+      // A staged worker — started by the cutover with every lane off, so the
+      // release can be inspected before it is enabled — heartbeats 'disabled'.
+      // The CHECK constraint above predates that status, and CREATE TABLE IF
+      // NOT EXISTS does not touch an existing table, so on any database that
+      // already has this table the first staged heartbeat fails with 23514 and
+      // the worker crash-loops. The staging concession is worthless without
+      // this.
+      await sql.query(
+        `ALTER TABLE sync_worker_heartbeats DROP CONSTRAINT IF EXISTS sync_worker_heartbeats_status_check`,
+      );
+      await sql.query(
+        `ALTER TABLE sync_worker_heartbeats ADD CONSTRAINT sync_worker_heartbeats_status_check
+           CHECK (status IN ('starting', 'idle', 'running', 'stopping', 'stopped', 'disabled'))`,
+      );
 
       // ── Engine v3 pre-computed analytics tables (schema only) ─────────────
       await runMigrationBatchSequentially([

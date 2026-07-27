@@ -1558,6 +1558,88 @@ db_host_active_adsecute_timers() {
       done
 }
 
+# ── Continuation across releases, once production is already migrated ──────
+#
+# ATTESTATION_DIR holds one record per cutover that reached fingerprint-post.
+# It is the only thing that can license a no-op migration, so it is written by
+# the phase that proved the schema, not by an operator, and it is 0600 like
+# every other record here.
+ATTESTATION_DIR="${SYNC_CUTOVER_ATTESTATION_DIR:-${STATE_DIR}/attestations}"
+
+write_migration_attestation() {
+  local epoch="$1" schema="$2" plaintext="$3" tmp file
+  mkdir -p "${ATTESTATION_DIR}" && chmod 0700 "${ATTESTATION_DIR}"
+  file="${ATTESTATION_DIR}/${epoch}"
+  tmp="$(mktemp "${ATTESTATION_DIR}/att.XXXXXX")"
+  chmod 0600 "${tmp}"
+  {
+    printf 'attestation_version=1\n'
+    printf 'cutover_epoch=%s\n' "${epoch}"
+    printf 'deploy_sha=%s\n' "${EXPECTED_SHA}"
+    printf 'db_identity=%s\n' "$(db_identity)"
+    printf 'schema_identity_post=%s\n' "${schema}"
+    printf 'plaintext_secrets_after=%s\n' "${plaintext}"
+    printf 'verify_contract_passed=yes\n'
+    printf 'attested_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "${tmp}"
+  mv "${tmp}" "${file}"
+  chmod 0600 "${file}"
+  log "migration attestation written to ${file} (schema ${schema})"
+}
+
+# How many credential rows still hold a plaintext secret. Zero is the only
+# acceptable answer after the encryption migration, and it is re-proved on every
+# continuation rather than assumed to have stayed true.
+plaintext_secret_count() {
+  db_sql "
+    SELECT COALESCE(SUM(n), 0)::text FROM (
+      SELECT COUNT(*) AS n FROM integration_credentials
+       WHERE COALESCE(to_jsonb(integration_credentials) ->> 'access_token', '') <> ''
+         AND to_jsonb(integration_credentials) ->> 'access_token' NOT LIKE 'enc:v1:%'
+      UNION ALL
+      SELECT COUNT(*) AS n FROM integration_credentials
+       WHERE COALESCE(to_jsonb(integration_credentials) ->> 'refresh_token', '') <> ''
+         AND to_jsonb(integration_credentials) ->> 'refresh_token' NOT LIKE 'enc:v1:%'
+    ) s;
+  " | tr -d '[:space:]'
+}
+
+assert_continuation_attestation() {
+  local current_schema="$1" prior file prior_schema prior_db prior_version prior_plaintext now_plaintext
+
+  prior="${SYNC_CUTOVER_CONTINUES_FROM:-}"
+  [ -n "${prior}" ] || die "the schema identity is unchanged (${current_schema}) and no prior cutover was named. Either the migration this cutover exists to apply did not run, or this release genuinely carries no schema change — in which case set SYNC_CUTOVER_CONTINUES_FROM to the epoch of the cutover that DID apply it, so the claim can be checked instead of believed."
+
+  case "${prior}" in
+    *[!A-Za-z0-9._-]*) die "SYNC_CUTOVER_CONTINUES_FROM='${prior}' is not an epoch name" ;;
+  esac
+  file="${ATTESTATION_DIR}/${prior}"
+  [ -f "${file}" ] || die "no attestation for cutover '${prior}' at ${file}; a continuation can only be authorised by a cutover that actually reached fingerprint-post on this host"
+
+  prior_version="$(awk -F= '$1=="attestation_version"{print $2}' "${file}" | tr -d '[:space:]')"
+  [ "${prior_version}" = "1" ] \
+    || die "attestation ${file} is version '${prior_version}', this wrapper reads version 1"
+
+  prior_schema="$(awk -F= '$1=="schema_identity_post"{print $2}' "${file}" | tr -d '[:space:]')"
+  [ "${prior_schema}" = "${current_schema}" ] \
+    || die "cutover '${prior}' attested schema ${prior_schema}; this database is ${current_schema}. The schema moved since that cutover, so its attestation cannot license this one — something migrated outside a cutover."
+
+  prior_db="$(awk -F= '$1=="db_identity"{print $2}' "${file}" | tr -d '[:space:]')"
+  [ "${prior_db}" = "$(db_identity)" ] \
+    || die "cutover '${prior}' attested database ${prior_db}; this is $(db_identity). That attestation describes a different system."
+
+  # The encryption migration's outcome is re-proved, not inherited. An
+  # attestation says what WAS true; this says what is true now.
+  prior_plaintext="$(awk -F= '$1=="plaintext_secrets_after"{print $2}' "${file}" | tr -d '[:space:]')"
+  now_plaintext="$(plaintext_secret_count)"
+  [ "${now_plaintext}" = "0" ] \
+    || die "${now_plaintext} credential row(s) hold a plaintext secret. The prior cutover attested ${prior_plaintext}; plaintext has come back, so this database is not in the state that attestation describes."
+
+  log "continuation authorised by cutover ${prior}: schema ${current_schema} is byte-identical to the one it attested, same database, and ${now_plaintext} plaintext secrets remain. The migration ran and correctly changed nothing."
+  state_set continues_from "${prior}"
+  release_set continues_from "${prior}"
+}
+
 assert_database_quiescent() {
   local backends prepared foreign timers
   backends="$(active_app_backends)"
@@ -1917,17 +1999,44 @@ case "${PHASE}" in
     fi
     pre_schema="$(awk -F= '$1=="schema_identity"{print $2}' "${STATE_DIR}/fingerprint-pre")"
     post_schema="$(awk -F= '$1=="schema_identity"{print $2}' "${STATE_DIR}/fingerprint-post")"
-    [ "${pre_schema}" != "${post_schema}" ] \
-      || die "the schema identity is unchanged (${post_schema}); the migration this cutover exists to apply did not change the schema"
-    if [ "${pre_cred}" = "${post_cred}" ]; then
+    if [ "${pre_schema}" = "${post_schema}" ]; then
+      # The migration made no schema change. That is EITHER "you forgot to
+      # migrate" — which is what this guard was written to catch and must keep
+      # catching — OR a release whose migration was already applied by an
+      # earlier, audited cutover of the same schema.
+      #
+      # The second case is real and unavoidable: once a cutover has migrated
+      # production, any later release carries a migration that is correctly a
+      # no-op, and refusing it would mean either never releasing again or
+      # restoring a 24 GB backup for the sole purpose of giving the migration
+      # something to do. Both are worse than the thing the guard protects
+      # against.
+      #
+      # So the second case is allowed ONLY against evidence, never against a
+      # flag. The migration still ran for real and still had to exit 0; what
+      # changes is what counts as proof afterwards. The operator must name the
+      # prior cutover, and that cutover's own attestation must say the schema is
+      # byte-identical to the one in front of us now. Nothing is faked, nothing
+      # is skipped, and an unset or mismatched pointer refuses.
+      assert_continuation_attestation "${post_schema}"
+    fi
+    if [ "${pre_schema}" = "${post_schema}" ]; then
+      log "schema identity unchanged at ${post_schema} — a continuation, authorised above against a prior cutover's attestation"
+    elif [ "${pre_cred}" = "${post_cred}" ]; then
       log "schema identity moved ${pre_schema} -> ${post_schema}, everything else identical"
     else
       log "schema identity moved ${pre_schema} -> ${post_schema}; the only data difference is the explained plaintext-to-ciphertext credential conversion"
     fi
     state_set schema_identity_post "${post_schema}"
+    # Written here, by the phase that just proved the schema and the credential
+    # state, so a later release can be licensed by evidence this run produced
+    # rather than by an assertion someone types on the command line.
+    write_migration_attestation "$(state_get cutover_epoch)" "${post_schema}" "$(plaintext_secret_count)"
     state_chain_add fingerprint-post
     state_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    if [ "${pre_cred}" = "${post_cred}" ]; then
+    if [ "${pre_schema}" = "${post_schema}" ]; then
+      log "fingerprint-post OK — data identical, schema already at the attested identity"
+    elif [ "${pre_cred}" = "${post_cred}" ]; then
       log "fingerprint-post OK — data identical, schema advanced"
     else
       log "fingerprint-post OK — schema advanced; the only data change is the credential encryption, explained row by row"
@@ -1952,7 +2061,12 @@ case "${PHASE}" in
     release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     log "Starting web and worker on ${EXPECTED_SHA}, lanes off"
+    # SYNC_WORKER_STAGING_IDLE is what makes a disabled worker possible at all.
+    # Without it the worker treats a denied lane as fatal and crash-loops, so
+    # there is nothing to inspect and the release cannot be verified before it
+    # is enabled. It is set HERE and nowhere else, and `enable` clears it.
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
+    SYNC_WORKER_STAGING_IDLE=1 \
       docker compose up -d --force-recreate web worker
 
     for service in web worker; do
@@ -1985,10 +2099,19 @@ case "${PHASE}" in
 
     log "Proving the worker registered fresh and no old process is still heartbeating"
     worker_started_at="$(docker inspect "$(docker compose ps -q worker)" --format '{{.State.StartedAt}}')"
+    # The STAGED contract, which is a negative one: exactly one fresh worker
+    # registered as `disabled`, ZERO online workers, and — proved across every
+    # table that can grant one — zero runner leases, zero partition claims, zero
+    # checkpoint claims and zero job locks.
+    #
+    # `--min-online-workers 1` was asserted here before and is unsatisfiable with
+    # the lanes off: the worker is admitted to nothing, so nothing is online. The
+    # old assertion could only ever pass against a worker that was already doing
+    # work, which is the opposite of what this phase exists to establish.
     docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
-      --provider-scope meta --online-window-minutes 5 --min-online-workers 1 \
+      --expect-staged-idle --online-window-minutes 5 \
       --min-heartbeat-after "${worker_started_at}" \
-      || die "no fresh worker heartbeat after start; an old process may still hold work"
+      || die "the worker did not come up staged: expected exactly one fresh DISABLED heartbeat, no online workers and no leases or claims held. See the reason code above."
 
     # Re-establishing the runtime proof is what clears an earlier invalidation,
     # so an emergency stop can be recovered from without hand-editing state.
@@ -2046,6 +2169,7 @@ case "${PHASE}" in
     # the new configuration and the other the old.
     log "Recreating web and worker from that same configuration"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
+      SYNC_WORKER_STAGING_IDLE= \
       docker compose up -d --force-recreate web worker \
       || rollback_enable "docker compose could not recreate both containers"
 
@@ -2069,6 +2193,12 @@ case "${PHASE}" in
       done
       docker exec "${id}" sh -c 'test -z "${ADSECUTE_SYNC_LANE_RETENTION_ENABLED:-}"' \
         || rollback_enable "${service} has retention enabled; retention must stay off"
+      # Staging must be GONE, not merely overridden. A worker that came back
+      # still carrying it would register `disabled`, take no lease and process
+      # nothing — while every lane reads as enabled, which is the most
+      # convincing possible way to look released and do nothing.
+      docker exec "${id}" sh -c 'test -z "${SYNC_WORKER_STAGING_IDLE:-}"' \
+        || rollback_enable "${service} is still in staging idle mode after enable; it would register disabled and process nothing"
       log "${service} carries $(printf '%s' "${lanes}" | tr '\n' ' ')and retention is off"
     done
 

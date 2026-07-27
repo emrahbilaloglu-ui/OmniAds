@@ -1271,6 +1271,99 @@ printf '\nmeta_ad_daily\tB\tedited on the host\n' >> "${host}/cutover/recovery-p
 expect_refusal "${host}" preflight "recovery policy hashes" \
   "R8 a recovery policy edited on the host refuses against the digest the delivery pinned" || true
 
+# ══ K: continuation once production is already migrated ════════════════════
+#
+# After a cutover has migrated production, every LATER release carries a
+# migration that is correctly a no-op — and fingerprint-post refuses an
+# unchanged schema, because that is also what "you forgot to migrate" looks
+# like. Refusing forever would mean either never releasing again or restoring a
+# 24 GB backup to give the migration something to do.
+#
+# So a no-op is allowed against EVIDENCE and never against a flag: the operator
+# names the cutover that did apply the migration, and that cutover's own
+# attestation has to describe the schema now in front of us. The migration still
+# runs and still has to exit 0. These cases are the ways that can be wrong.
+seed_database adsecute_cont
+host="$(new_host cont)"
+mkdir -p "${host}/tmp-work"
+for phase in preflight quiesce fingerprint-pre migrate verify-contract fingerprint-post; do
+  run_phase "${host}" "${phase}" DB_NAME=adsecute_cont >/dev/null 2>&1 || true
+done
+first_epoch="$(awk -F= '$1=="cutover_epoch"{print $2}' "${host}/state/cutover/state" 2>/dev/null)"
+if [ -n "${first_epoch}" ] && [ -f "${host}/state/cutover/attestations/${first_epoch}" ]; then
+  pass "K1 a cutover that reached fingerprint-post writes a migration attestation naming the schema it proved"
+else
+  fail "K1 no attestation was written for epoch '${first_epoch}'"
+fi
+
+# The SAME database, a SECOND release. The migration is idempotent, so the
+# schema cannot move, and this is exactly the state production is in.
+cont_host="$(new_host cont2)"
+mkdir -p "${cont_host}/tmp-work"
+cp -R "${host}/state/cutover/attestations" "${cont_host}/state/" 2>/dev/null || true
+SECOND_SHA=b2c3d4e5f60718293a4b5c6d7e8f90123456789a
+retag_images_for "${cont_host}" "${SECOND_SHA}" 2>/dev/null || true
+for phase in preflight quiesce fingerprint-pre migrate verify-contract; do
+  run_phase "${cont_host}" "${phase}" DB_NAME=adsecute_cont \
+    SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+    DEPLOY_SHA="${SECOND_SHA}" >/dev/null 2>&1 || true
+done
+
+expect_refusal "${cont_host}" fingerprint-post "no prior cutover was named" \
+  "K2 an unchanged schema with NO named predecessor still refuses — the 'you forgot to migrate' case is untouched" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" || true
+
+expect_refusal "${cont_host}" fingerprint-post "no attestation for cutover" \
+  "K3 naming a cutover that never reached fingerprint-post refuses: a continuation cannot be licensed by a run that proved nothing" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" SYNC_CUTOVER_CONTINUES_FROM=never-happened || true
+
+# An attestation whose schema no longer matches: something migrated outside a
+# cutover since it was written.
+sed 's/^schema_identity_post=.*/schema_identity_post=0000000000000000000000000000000000000000000000000000000000000000/' \
+  "${cont_host}/state/attestations/${first_epoch}" > "${cont_host}/state/attestations/stale-schema"
+expect_refusal "${cont_host}" fingerprint-post "cannot license this one" \
+  "K4 an attestation describing a DIFFERENT schema refuses, so a database migrated outside a cutover cannot ride in on old evidence" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" SYNC_CUTOVER_CONTINUES_FROM=stale-schema || true
+
+# An attestation from another PostgreSQL system.
+sed 's/^db_identity=.*/db_identity=someone_else|123456789/' \
+  "${cont_host}/state/attestations/${first_epoch}" > "${cont_host}/state/attestations/foreign-db"
+expect_refusal "${cont_host}" fingerprint-post "describes a different system" \
+  "K5 an attestation from another database refuses, even with a matching schema identity" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" SYNC_CUTOVER_CONTINUES_FROM=foreign-db || true
+
+# Plaintext secrets reappearing invalidates the continuation even when the
+# schema still matches: the attestation describes a state this database is no
+# longer in.
+# The plaintext has to predate the fingerprint, or the credential census
+# refuses first for its own (also correct) reason — ciphertext becoming
+# plaintext. Re-taking fingerprint-pre with the plaintext already there isolates
+# the continuation's own re-proof: the census sees no change at all, and the
+# only thing left to catch it is "the attestation describes a state this
+# database is no longer in".
+psql_on adsecute_cont --quiet --command \
+  "UPDATE integration_credentials SET access_token='plaintext-came-back' WHERE provider_connection_id = 2;" >/dev/null 2>&1 || true
+for phase in fingerprint-pre migrate verify-contract; do
+  run_phase "${cont_host}" "${phase}" DB_NAME=adsecute_cont \
+    SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+    DEPLOY_SHA="${SECOND_SHA}" >/dev/null 2>&1 || true
+done
+expect_refusal "${cont_host}" fingerprint-post "hold a plaintext secret" \
+  "K6 plaintext secrets reappearing refuses the continuation: the encryption outcome is re-proved, never inherited" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" SYNC_CUTOVER_CONTINUES_FROM="${first_epoch}" || true
+psql_on adsecute_cont --quiet --command \
+  "UPDATE integration_credentials SET access_token='enc:v1:' || encode(sha256(convert_to(access_token,'UTF8')),'hex') WHERE access_token NOT LIKE 'enc:v1:%' AND access_token <> '' AND access_token IS NOT NULL;" >/dev/null 2>&1 || true
+
+expect_ok "${cont_host}" fingerprint-post \
+  "K7 a genuine continuation is allowed: the migration ran, changed nothing, and a prior cutover's attestation proves this exact schema on this exact database with zero plaintext secrets" \
+  DB_NAME=adsecute_cont SYNC_CUTOVER_ATTESTATION_DIR="${cont_host}/state/attestations" \
+  DEPLOY_SHA="${SECOND_SHA}" SYNC_CUTOVER_CONTINUES_FROM="${first_epoch}" || true
+
 # ══ Q: quiescence has to cover writers this cutover does not manage ════════
 #
 # The app-side scheduler is stopped by name and the containers are stopped by

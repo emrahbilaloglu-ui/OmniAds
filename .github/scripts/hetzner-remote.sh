@@ -623,6 +623,15 @@ trap on_phase_error ERR
 
 case "${phase}" in
   prepare_runtime)
+    # Before the pull, and before the wrapper delivery below.
+    #
+    # deliver_cutover_wrapper OVERWRITES ${REMOTE_APP_DIR}/cutover/hetzner-sync-cutover.sh.
+    # A cutover in flight is executing that exact file, so delivering underneath
+    # it replaces a running script's bytes mid-run. That happened: an ordinary
+    # deploy rewrote the wrapper while a preflight was reading it.
+    assert_no_cutover_in_progress
+    assert_not_cutover_required
+
     log "Checking disk headroom before pull"
     log_disk_usage
     maybe_prune_stale_deploy_artifacts
@@ -663,6 +672,10 @@ case "${phase}" in
     ;;
 
   recreate_services)
+    # A recreate is the single most production-visible thing this script does,
+    # and it is reachable independently of run_migrations. It gets the gate too.
+    assert_not_cutover_required
+    assert_no_cutover_in_progress
     log "Recreating web and worker"
     docker compose up -d --force-recreate web worker
 

@@ -241,6 +241,28 @@ as_postgres pg_dump ${conn_args[@]+"${conn_args[@]}"} \
 # `umask 077`. It is never read back or echoed by this script.
 as_postgres pg_dumpall ${conn_args[@]+"${conn_args[@]}"} --globals-only > "$TMP_DIR/globals.sql"
 
+# Roles, memberships and role-level settings WITHOUT password material.
+#
+# globals.sql is taken on a superuser connection and carries role password
+# hashes, which is why it is never read back and why the manifest declares it.
+# That makes it unusable as the thing an operator consults during a restore.
+# `--no-role-passwords` reads pg_roles instead of pg_authid, so the PASSWORD
+# clause is never selected rather than being selected and redacted — there is no
+# hash in this file to leak, and it needs no superuser to produce.
+#
+# A restore needs the roles to exist before ownership can be replayed onto them,
+# so this is the file that goes first.
+as_postgres pg_dumpall ${conn_args[@]+"${conn_args[@]}"} \
+  --globals-only --no-role-passwords > "$TMP_DIR/access.sql"
+
+# Proved, not asserted. If a future PostgreSQL changes what --no-role-passwords
+# omits, this fails the backup rather than shipping hashes in a file documented
+# as safe to read.
+if grep -qi "PASSWORD '" "$TMP_DIR/access.sql"; then
+  echo "access_sql_contains_password_material path=$TMP_DIR/access.sql" >&2
+  fail "access_sql_contains_password_material"
+fi
+
 # ── Ownership and privileges ────────────────────────────────────────────────
 #
 # The artifact is taken --no-owner --no-privileges so it restores onto a host
@@ -259,8 +281,15 @@ as_postgres pg_dumpall ${conn_args[@]+"${conn_args[@]}"} --globals-only > "$TMP_
 # does not REPLAY it. So it is recorded here, beside the artifact, in a form
 # that can be replayed deliberately after a restore.
 as_postgres psql ${conn_args[@]+"${conn_args[@]}"} --dbname="$DB_NAME" \
-  --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/ownership.sql"
-SELECT format('ALTER DATABASE %I OWNER TO %I;', d.datname, pg_get_userbyid(d.datdba))
+  -v ON_ERROR_STOP=1 --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/ownership.sql"
+-- The TARGET database name is supplied at replay time, never baked in: a
+-- restore lands under whatever name the operator chose, and emitting this
+-- database's own name makes the replay abort on a database that does not exist.
+-- chr(58) is a colon. Written literally, psql substitutes :"restore_target_db"
+-- HERE, while capturing, where the variable is unset — it interpolates inside
+-- string literals too. The placeholder has to survive into the file unexpanded
+-- so that the REPLAY can bind it.
+SELECT format('ALTER DATABASE %s OWNER TO %I;', chr(58) || '"restore_target_db"', pg_get_userbyid(d.datdba))
 FROM pg_database d WHERE d.datname = current_database()
 UNION ALL
 SELECT format('ALTER SCHEMA %I OWNER TO %I;', n.nspname, pg_get_userbyid(n.nspowner))
@@ -277,20 +306,50 @@ WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
   AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'
   AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
   AND c.relispartition = false
+  -- A serial/identity sequence is owned BY its table's column and follows it.
+  -- PostgreSQL refuses to change its owner independently ("cannot change owner
+  -- of sequence"), so emitting one makes the replay abort on a statement that
+  -- could never have worked.
+  AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_depend d
+         WHERE d.objid = c.oid AND d.classid = 'pg_class'::regclass
+           AND d.deptype IN ('a', 'i')))
 ORDER BY 1;
 SQL
 
 # The grants themselves, separately, so a reviewer can read who was given what
 # without decoding an aclitem array.
 as_postgres psql ${conn_args[@]+"${conn_args[@]}"} --dbname="$DB_NAME" \
-  --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/privileges.tsv"
-SELECT n.nspname || E'\t' || c.relname || E'\t' || COALESCE(array_to_string(c.relacl, ','), '(default)')
+  -v ON_ERROR_STOP=1 --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/privileges.tsv"
+-- relacl alone was not enough. The privilege that failed on the production
+-- restore was on the SCHEMA, not on any table: the app role lost USAGE/CREATE
+-- on public and the first migration died before touching a table at all.
+-- Default privileges matter for the same reason one step later — without them
+-- the NEXT migration creates objects nobody has been granted anything on.
+SELECT 'database' || E'\t' || datname || E'\t' || COALESCE(array_to_string(datacl, ','), '(default)')
+FROM pg_database WHERE datname = current_database()
+UNION ALL
+SELECT 'schema' || E'\t' || nspname || E'\t' || COALESCE(array_to_string(nspacl, ','), '(default)')
+FROM pg_namespace
+WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+UNION ALL
+SELECT 'default' || E'\t' || COALESCE(n.nspname, '(all)') || E'\t' || COALESCE(array_to_string(d.defaclacl, ','), '(default)')
+FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
+UNION ALL
+SELECT 'relation' || E'\t' || n.nspname || '.' || c.relname || E'\t' || COALESCE(array_to_string(c.relacl, ','), '(default)')
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
   AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
   AND c.relispartition = false
-ORDER BY 1, 2;
+ORDER BY 1;
 SQL
+
+for required_access_file in access.sql ownership.sql privileges.tsv; do
+  if [ ! -s "$TMP_DIR/$required_access_file" ]; then
+    echo "access_metadata_empty file=$required_access_file" >&2
+    fail "access_metadata_empty"
+  fi
+done
 
 # ── 2. Completeness, derived from the live catalog ───────────────────────────
 #
@@ -530,6 +589,7 @@ globals_sha256="$(checksum "$TMP_DIR/globals.sql" | awk '{print $1}')"
 # The artifact is --no-owner --no-privileges, so these two files are the ONLY
 # record of who may use what. A restore that replays the dump and not these is
 # structurally complete and functionally dead.
+access_sha256="$(checksum "$TMP_DIR/access.sql" | awk '{print $1}')"
 ownership_sha256="$(checksum "$TMP_DIR/ownership.sql" | awk '{print $1}')"
 privileges_sha256="$(checksum "$TMP_DIR/privileges.tsv" | awk '{print $1}')"
 row_census_sha256=""
@@ -555,6 +615,8 @@ fi
   echo "dump_sha256=$dump_sha256"
   echo "schema_sql_sha256=$schema_sha256"
   echo "globals_sql_sha256=$globals_sha256"
+  echo "access_sql_sha256=$access_sha256"
+  echo "access_sql_contains_role_secrets=false"
   echo "ownership_sql_sha256=$ownership_sha256"
   echo "privileges_tsv_sha256=$privileges_sha256"
   echo "catalog_tables=$catalog_tables"
@@ -576,7 +638,14 @@ fi
   echo "tier_b_bytes_total=${tier_b_bytes_total}"
   echo "tier_b_archive_dir=${archive_dir}"
   echo "tier_b_manifest=tier-b-manifest.tsv"
-  echo "restore_order=1) pg_restore full-database.dump  2) replay each tier-B archive with pg_restore --data-only"
+  echo "restore_order=1) psql -f access.sql (roles first, so ownership has somebody to grant to)  2) createdb  3) pg_restore full-database.dump  4) psql -v restore_target_db=<new_db> -v ON_ERROR_STOP=1 -f ownership.sql  5) replay each tier-B archive with pg_restore --data-only"
+  # Step 4 is not optional and not cosmetic. The artifact is --no-owner
+  # --no-privileges, so a restore without it leaves every object owned by the
+  # restoring superuser and the application role unable to use its own database:
+  # on a real production restore the first migration died with "permission
+  # denied for schema public". A restore that stops after step 3 is structurally
+  # complete and functionally dead.
+  echo "restore_access_replay_required=yes"
   echo "verify_command=sha256sum -c SHA256SUMS"
 } > "$TMP_DIR/manifest.txt"
 
@@ -588,7 +657,7 @@ fi
   cd "$TMP_DIR"
   census_file=""
   if [ -f table-row-counts.tsv ]; then census_file="table-row-counts.tsv"; fi
-  checksum full-database.dump schema.sql globals.sql ownership.sql privileges.tsv \
+  checksum full-database.dump schema.sql globals.sql access.sql ownership.sql privileges.tsv \
     catalog-tables.txt dump-tables.txt \
     dump-toc.txt object-census.txt database_size_bytes.txt ${census_file:+$census_file} manifest.txt \
     > SHA256SUMS

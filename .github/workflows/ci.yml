@@ -103,6 +103,14 @@ jobs:
       - name: Disaster-recovery backup and restore seam
         run: npm run test:dr-restore-seam
 
+      # The cutover harness fakes the worker with a shell stub that always
+      # "starts". That stub is why deploy-disabled shipped asserting a fresh
+      # ONLINE worker while every lane was off — unsatisfiable against the real
+      # worker, which treats a denied lane as fatal, and green in CI forever.
+      # This runs the REAL worker process against a real database.
+      - name: Staged idle worker seam (real worker, real PostgreSQL)
+        run: npm run test:staged-worker
+
       - name: Native ad decision database seam
         run: node --import tsx scripts/ephemeral-postgres-native-ad-decision-seam.ts
 

@@ -504,7 +504,7 @@ export interface GoogleAdsStatusResponse {
     workerBuildId?: string | null;
     workerStartedAt?: string | null;
     lastWorkerHeartbeatAt?: string | null;
-    workerFreshnessState?: "online" | "stale" | "stopped" | null;
+    workerFreshnessState?: "online" | "stale" | "stopped" | "staged" | null;
     currentWorkerBusinessId?: string | null;
     workerBatchBusinessIds?: string[];
     currentConsumeStage?: string | null;

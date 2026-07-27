@@ -1,4 +1,5 @@
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import { getSyncWorkerOwnedWorkUnits } from "@/lib/sync/worker-health";
 
 type ParsedArgs = {
   help: boolean;
@@ -6,6 +7,7 @@ type ParsedArgs = {
   onlineWindowMinutes: number;
   minOnlineWorkers: number;
   minHeartbeatAfter: string | null;
+  expectStagedIdle: boolean;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -15,9 +17,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     onlineWindowMinutes: 5,
     minOnlineWorkers: 1,
     minHeartbeatAfter: null,
+    expectStagedIdle: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--expect-staged-idle") {
+      parsed.expectStagedIdle = true;
+      continue;
+    }
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") {
       parsed.help = true;
@@ -102,7 +109,32 @@ async function main() {
     (lastHeartbeatMs != null &&
       Number.isFinite(lastHeartbeatMs) &&
       lastHeartbeatMs >= minHeartbeatAfterMs);
-  const pass = summary.onlineWorkers >= args.minOnlineWorkers && heartbeatSatisfied;
+  // Staged mode asserts the NEGATIVE contract, which the ordinary path cannot
+  // express: --min-online-workers rejects 0, and a staged worker's whole point
+  // is that zero workers are online while exactly one is registered.
+  const stagedWorkers = (summary.workers ?? []).filter(
+    (worker) => worker.status === "disabled" && worker.workerFreshnessState === "staged",
+  );
+  const owned = args.expectStagedIdle
+    ? await getSyncWorkerOwnedWorkUnits(stagedWorkers.map((worker) => worker.workerId))
+    : null;
+  const holdsNothing = owned == null || Object.values(owned).every((count) => count === 0);
+
+  let reason: string;
+  if (args.expectStagedIdle) {
+    if (stagedWorkers.length !== 1) reason = "staged_idle_not_observed";
+    else if (summary.onlineWorkers > 0) reason = "unexpected_online_workers";
+    else if (!holdsNothing) reason = "staged_worker_holds_work";
+    else if (!heartbeatSatisfied) reason = "fresh_heartbeat_not_observed";
+    else reason = "healthy";
+  } else if (summary.onlineWorkers < args.minOnlineWorkers) {
+    reason = "insufficient_online_workers";
+  } else if (!heartbeatSatisfied) {
+    reason = "fresh_heartbeat_not_observed";
+  } else {
+    reason = "healthy";
+  }
+  const pass = reason === "healthy";
 
   console.log(
     JSON.stringify(
@@ -111,12 +143,11 @@ async function main() {
         onlineWindowMinutes: args.onlineWindowMinutes,
         minOnlineWorkers: args.minOnlineWorkers,
         minHeartbeatAfter: args.minHeartbeatAfter,
+        expectStagedIdle: args.expectStagedIdle,
+        stagedWorkers: stagedWorkers.length,
+        ownedWorkUnits: owned,
         pass,
-        reason: pass
-          ? "healthy"
-          : heartbeatSatisfied
-            ? "insufficient_online_workers"
-            : "fresh_heartbeat_not_observed",
+        reason,
         summary,
       },
       null,

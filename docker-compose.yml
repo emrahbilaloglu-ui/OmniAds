@@ -36,6 +36,10 @@ services:
       CAMPAIGN_CONTEXT_MODE: ${CAMPAIGN_CONTEXT_MODE:-legacy_labels}
       NODE_ENV: production
       SYNC_WORKER_MODE: "1"
+      # Empty by default, so an ordinary deploy is unchanged. The cutover sets
+      # it to 1 for deploy-disabled, where the worker must come up ADMITTED TO
+      # NOTHING so the release can be inspected, and clears it at enable.
+      SYNC_WORKER_STAGING_IDLE: ${SYNC_WORKER_STAGING_IDLE:-}
     depends_on:
       - web
     labels:

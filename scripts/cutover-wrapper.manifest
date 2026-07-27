@@ -1,4 +1,4 @@
 wrapper_source=scripts/hetzner-sync-cutover.sh
-wrapper_sha256=e0dd9e8de85f9191a9043484001f95753162d0601631be08b80fe215b76cb7d5
-wrapper_bytes=109261
+wrapper_sha256=19052363a6916a1181584f0be68ca97eeac18a6610d081c30b4f17bd27aee672
+wrapper_bytes=117180
 cutover_required=yes

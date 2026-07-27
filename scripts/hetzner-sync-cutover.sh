@@ -1520,8 +1520,46 @@ prepared_transactions() {
     tr -d '[:space:]'
 }
 
+# Scheduled units ON THE DATABASE HOST that write to the production database.
+#
+# The app-side scheduler is stopped by name and the application containers are
+# stopped by name, and neither of those is the whole set of writers. A systemd
+# timer on the database host runs as `postgres`, so it carries no application
+# name and `active_app_backends` cannot see it; it connects, writes and
+# disconnects between two polls, so a point-in-time session check will usually
+# miss it too.
+#
+# It is not hypothetical. adsecute-db-healthcheck.timer fires every 15 minutes
+# and appends to system_capacity_snapshots. During a 90-minute restore of the
+# production database it inserted five rows into a table pg_restore was still
+# loading, and the restore died adding the primary key back:
+#
+#   could not create unique index "system_capacity_snapshots_pkey"
+#   DETAIL: Key (id)=(1) is duplicated.
+#
+# Quiescence that a background writer can walk straight through is not
+# quiescence. This refuses rather than stopping the unit itself: taking
+# ownership of units on the other host means restoring them later, and a
+# cutover that silently starts and stops things on a machine it does not
+# otherwise manage is worse than one that stops and says why.
+db_host_active_adsecute_timers() {
+  # Pick the field that ENDS in .timer rather than a fixed column. The last
+  # column of `list-timers` is ACTIVATES — the .service — and a timer-activated
+  # oneshot service reads `inactive` between firings, so asking about the
+  # service would report "nothing running" for a timer that is armed and will
+  # fire again in nine minutes. Column positions also shift with the width of
+  # the elapsed-time fields, so counting from either end is not safe.
+  db_run "systemctl list-timers --all --no-legend --no-pager 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if (\$i ~ /\\.timer\$/) print \$i}' | grep -i adsecute || true" \
+    | while IFS= read -r unit; do
+        [ -n "${unit}" ] || continue
+        if [ "$(db_run "systemctl is-active $(printf %q "${unit}") 2>/dev/null || true" | tr -d '[:space:]')" = "active" ]; then
+          printf '%s\n' "${unit}"
+        fi
+      done
+}
+
 assert_database_quiescent() {
-  local backends prepared
+  local backends prepared foreign timers
   backends="$(active_app_backends)"
   if [ -n "$(printf '%s' "${backends}" | tr -d '[:space:]')" ]; then
     printf '%s\n' "${backends}" >&2
@@ -1530,7 +1568,25 @@ assert_database_quiescent() {
   prepared="$(prepared_transactions)"
   [ "${prepared}" = "0" ] \
     || die "quiescence not reached: ${prepared} prepared transaction(s) on ${DB_NAME} hold locks that will block every DDL statement in the migration"
-  log "database quiescent: no ${APP_NAME_PREFIX} client backends, no prepared transactions"
+
+  # Anything at all besides this cutover's own connection. Named backends are
+  # only the writers we happen to recognise; this is the ones we do not.
+  foreign="$(db_sql "
+    SELECT count(*) FROM pg_stat_activity
+    WHERE datname = current_database()
+      AND pid <> pg_backend_pid()
+      AND backend_type = 'client backend';
+  " | tr -d '[:space:]')"
+  [ "${foreign}" = "0" ] \
+    || die "quiescence not reached: ${foreign} other client backend(s) are attached to ${DB_NAME}. They carry no ${APP_NAME_PREFIX} application name, so they are something this cutover does not manage — find them before migrating."
+
+  timers="$(db_host_active_adsecute_timers)"
+  if [ -n "$(printf '%s' "${timers}" | tr -d '[:space:]')" ]; then
+    printf '%s\n' "${timers}" >&2
+    die "quiescence not reached: the timer(s) listed above are ACTIVE on the database host and write to ${DB_NAME} between polls. Stop them for the duration (systemctl stop <unit>) and start them again when the cutover is done; leaving them running corrupts a restore rather than merely racing it."
+  fi
+
+  log "database quiescent: no ${APP_NAME_PREFIX} client backends, no other client backends, no prepared transactions, no active adsecute timers on the database host"
 }
 
 # ── State invariants ───────────────────────────────────────────────────────

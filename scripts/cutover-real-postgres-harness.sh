@@ -250,6 +250,30 @@ fi
 exec /bin/df "$@"
 STUB
 
+# systemd on the DATABASE host. Production has adsecute-db-healthcheck.timer
+# here, firing every 15 minutes and writing system_capacity_snapshots as the
+# postgres user — a writer with no application name, which the app-side
+# quiescence checks cannot see. Without a stub this simply does not exist on a
+# developer machine and the guard is untestable.
+cat > "${DBHOST_BIN}/systemctl" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  list-timers)
+    [ -n "${HARNESS_DBHOST_TIMER:-}" ] || exit 0
+    printf 'Mon 2026-07-27 13:19:48 UTC 9min Mon 2026-07-27 13:04:48 UTC 5min ago %s %s\n' \
+      "${HARNESS_DBHOST_TIMER}" "${HARNESS_DBHOST_TIMER%.timer}.service"
+    exit 0 ;;
+  is-active)
+    if [ "$2" = "${HARNESS_DBHOST_TIMER:-}" ] && [ "${HARNESS_DBHOST_TIMER_ACTIVE:-1}" = "1" ]; then
+      printf 'active\n'
+    else
+      printf 'inactive\n'
+    fi
+    exit 0 ;;
+esac
+exit 0
+STUB
+
 chmod +x "${DBHOST_BIN}/"*
 
 DBHOST_PATH="${DBHOST_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -1246,6 +1270,35 @@ host="$(new_host relpolicyedited)"
 printf '\nmeta_ad_daily\tB\tedited on the host\n' >> "${host}/cutover/recovery-policy.tsv"
 expect_refusal "${host}" preflight "recovery policy hashes" \
   "R8 a recovery policy edited on the host refuses against the digest the delivery pinned" || true
+
+# ══ Q: quiescence has to cover writers this cutover does not manage ════════
+#
+# The app-side scheduler is stopped by name and the containers are stopped by
+# name. Neither is the whole set of writers to the production database. A
+# systemd timer on the DATABASE host runs as postgres, carries no application
+# name, and connects/writes/disconnects between polls — so both the named-backend
+# check and a point-in-time session count can miss it entirely.
+#
+# In production adsecute-db-healthcheck.timer wrote five rows into
+# system_capacity_snapshots while pg_restore was loading that same table, and the
+# restore died putting the primary key back. Quiescence a background writer can
+# walk through is not quiescence.
+seed_database adsecute_qtimer
+host="$(new_host qtimer)"
+mkdir -p "${host}/tmp-work"
+run_phase "${host}" preflight DB_NAME=adsecute_qtimer >/dev/null 2>&1 || true
+expect_refusal "${host}" quiesce "write to adsecute_qtimer between polls" \
+  "Q1 an ACTIVE adsecute timer on the database host refuses quiesce, naming the unit — the writer that corrupted a production restore" \
+  DB_NAME=adsecute_qtimer HARNESS_DBHOST_TIMER=adsecute-db-healthcheck.timer || true
+
+seed_database adsecute_qtimeroff
+host="$(new_host qtimeroff)"
+mkdir -p "${host}/tmp-work"
+run_phase "${host}" preflight DB_NAME=adsecute_qtimeroff >/dev/null 2>&1 || true
+expect_ok "${host}" quiesce \
+  "Q2 the same timer STOPPED lets quiesce through: the guard tracks whether it is armed, not whether the unit exists" \
+  DB_NAME=adsecute_qtimeroff HARNESS_DBHOST_TIMER=adsecute-db-healthcheck.timer \
+  HARNESS_DBHOST_TIMER_ACTIVE=0 || true
 
 # ══ C: the credential generation hash may move ONLY by encryption ══════════
 #

@@ -304,9 +304,30 @@ chmod 0700 "$archive_dir" 2>/dev/null || true
 # A backup on the same filesystem as the data it protects is not a backup.
 data_dir_fs="$(psql_value "$DB_NAME" "SHOW data_directory" 2>/dev/null || echo "")"
 if [ -n "$data_dir_fs" ] && [ -d "$data_dir_fs" ]; then
-  if [ "$(stat -c %d "$data_dir_fs" 2>/dev/null || echo x)" = "$(stat -c %d "$archive_dir" 2>/dev/null || echo y)" ]; then
-    echo "backup_archive_colocated_with_data data_dir=$data_dir_fs archive=$archive_dir" >&2
-    fail "archive_shares_filesystem_with_data"
+  # Device id, portably. `stat -c` is GNU and `stat -f` is BSD; reading one and
+  # falling back to a literal made both sides differ on macOS, so the guard
+  # silently never fired — which is worse than not having it.
+  device_of() {
+    stat -c %d "$1" 2>/dev/null || stat -f %d "$1" 2>/dev/null || printf 'unknown'
+  }
+  data_device="$(device_of "$data_dir_fs")"
+  archive_device="$(device_of "$archive_dir")"
+  if [ "$data_device" = "unknown" ] || [ "$archive_device" = "unknown" ]; then
+    echo "backup_archive_device_unreadable data_dir=$data_dir_fs archive=$archive_dir" >&2
+    fail "cannot_determine_archive_filesystem"
+  fi
+  if [ "$data_device" = "$archive_device" ]; then
+    # A single-filesystem environment is real for a test harness — an ephemeral
+    # PostgreSQL and its throwaway archive live in the same temp dir — and never
+    # acceptable in production. The escape is therefore explicit, named for
+    # exactly what it gives up, and it announces itself in the log so an
+    # artifact produced under it is never mistaken for a real one.
+    if [ "${BACKUP_ARCHIVE_ALLOW_SAME_FILESYSTEM:-}" = "1" ]; then
+      echo "backup_archive_colocation_ALLOWED_for_test data_dir=$data_dir_fs archive=$archive_dir" >&2
+    else
+      echo "backup_archive_colocated_with_data data_dir=$data_dir_fs archive=$archive_dir" >&2
+      fail "archive_shares_filesystem_with_data"
+    fi
   fi
 fi
 

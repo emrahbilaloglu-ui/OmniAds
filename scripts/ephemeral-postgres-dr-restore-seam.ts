@@ -709,6 +709,9 @@ async function main() {
         PGUSER: USER,
         RETENTION_DAYS: "14",
         BACKUP_ARCHIVE_ROOT: archiveRoot,
+        // A harness has one filesystem. Set explicitly so the co-location guard
+        // is bypassed ONLY here; D10 below proves it still refuses without it.
+        BACKUP_ARCHIVE_ALLOW_SAME_FILESYSTEM: "1",
       },
     });
     const backupOutput = `${backup.stdout ?? ""}${backup.stderr ?? ""}`;
@@ -1101,6 +1104,39 @@ async function main() {
     }
     console.log(
       `${LABEL} D9 PASS tier split: ${tierBTables.length} tier-B table(s) carrying ${manifest.tier_b_rows_total} row(s) are SCHEMA-present and ROW-empty after the tier-A restore, every archive matches the manifest on bytes, sha256 and row count, and replaying each one lands the exact source count`,
+    );
+
+    // ── D10. The co-location guard still refuses without the escape ────────
+    //
+    // D1-D9 all run with BACKUP_ARCHIVE_ALLOW_SAME_FILESYSTEM=1, because a
+    // harness has one filesystem. That makes the guard untested by everything
+    // above it, so it is tested here directly: same invocation, escape removed.
+    // A backup that quietly writes its only archive next to the data it
+    // protects is not a backup, and this is the assertion that says so.
+    const guarded = spawnSync("bash", [BACKUP_SCRIPT], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+      env: {
+        ...process.env,
+        LC_ALL: "C",
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+        BACKUP_ROOT: path.join(tmp, "guard-backups"),
+        BACKUP_ARCHIVE_ROOT: path.join(tmp, "guard-archive"),
+        DB_NAME: SOURCE_DB,
+        BACKUP_DB_HOST: "127.0.0.1",
+        BACKUP_DB_PORT: String(sourcePort),
+        PGUSER: USER,
+        RETENTION_DAYS: "14",
+      },
+    });
+    const guardedOut = `${guarded.stdout ?? ""}${guarded.stderr ?? ""}`;
+    assert(
+      guarded.status !== 0 && guardedOut.includes("archive_shares_filesystem_with_data"),
+      `D10: the backup did NOT refuse to co-locate its archive with the data (exit ${guarded.status}): ${guardedOut.slice(-400)}`,
+    );
+    console.log(
+      `${LABEL} D10 PASS co-location guard: without the explicit single-filesystem escape the backup refuses to write its archive onto the filesystem holding the data, naming archive_shares_filesystem_with_data`,
     );
 
     console.log(`${LABEL} PASS`);

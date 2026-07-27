@@ -193,7 +193,7 @@ export async function heartbeatSyncWorker(input: {
   workerId: string;
   instanceType: string;
   providerScope: string;
-  status: "starting" | "idle" | "running" | "stopping" | "stopped";
+  status: "starting" | "idle" | "running" | "stopping" | "stopped" | "disabled";
   lastBusinessId?: string | null;
   lastPartitionId?: string | null;
   metaJson?: Record<string, unknown>;
@@ -397,9 +397,21 @@ export async function getSyncWorkerHealthSummary(input?: {
   const [summaryRows, workerRows] = await Promise.all([
     sql`
       SELECT
+        -- A 'disabled' worker started, registered and is admitted to
+        -- NOTHING: it heartbeats so a staged release can be inspected before it
+        -- is enabled, and it takes no lease and claims no partition. Counting it
+        -- as online is the exact failure the fatal boot refusal was written to
+        -- prevent — an operator surface reporting a healthy worker doing no
+        -- work. It is excluded here rather than at each call site so a new
+        -- reader of this data cannot miss it.
         COUNT(*) FILTER (
           WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval
+            AND status <> 'disabled'
         )::int AS online_workers,
+        COUNT(*) FILTER (
+          WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval
+            AND status = 'disabled'
+        )::int AS staged_workers,
         COUNT(*)::int AS worker_instances,
         MAX(last_heartbeat_at) AS last_heartbeat_at
       FROM sync_worker_heartbeats

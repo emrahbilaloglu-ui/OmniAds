@@ -216,6 +216,12 @@ jobs:
           }
           grep -q 'deploy/CUTOVER_REQUIRED' .github/scripts/hetzner-remote.sh
 
+          # The grep above proves the string is present; it cannot prove the
+          # ORDER, which is the property that matters. This runs the real phase
+          # against a recording docker and fails if the refusal came after any
+          # mutating command.
+          npm run test:deploy-gate-ordering
+
           # The runbook must name the path that exists ON THE HOST. `.github/`
           # is excluded from the image, so the repository path it used to print
           # is a path the operator cannot run — and a runbook that cannot be

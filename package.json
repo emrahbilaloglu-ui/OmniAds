@@ -122,6 +122,7 @@
     "test:selection-race-seam": "node --import tsx scripts/ephemeral-postgres-selection-race-seam.ts",
     "test:shopify-install-seam": "node --import tsx scripts/ephemeral-postgres-shopify-install-seam.ts",
     "test:cutover-harness": "bash scripts/cutover-real-postgres-harness.sh",
+    "test:deploy-gate-ordering": "bash scripts/deploy-gate-ordering-check.sh",
     "cutover:package": "bash scripts/cutover-wrapper-package.sh emit",
     "test:cutover-wrapper-package": "bash scripts/cutover-wrapper-package.sh verify",
     "test:entrypoint-admission-seam": "node --import tsx scripts/ephemeral-postgres-entrypoint-admission-seam.ts",

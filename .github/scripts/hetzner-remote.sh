@@ -510,6 +510,59 @@ is_positive_integer() {
   [ "$1" -gt 0 ]
 }
 
+# FAIL CLOSED on a cutover-required release.
+#
+# The ordinary main deploy builds images and then runs migrate + recreate
+# outside the cutover lock, with no quiesce, no capacity gate, no
+# pre-fingerprint and no rollback artifact. For a schema-changing Sync release
+# that is precisely the path the cutover exists to prevent, and nothing stopped
+# a release from taking it.
+#
+# Extracted so it can be called BEFORE the deploy touches the running system.
+# It used to sit inside run_migrations_service, which the phase calls after
+# `docker compose stop worker` — so a gated release stopped the production
+# worker and only then refused. A gate that fires after it has already changed
+# production is not a gate; it is a report.
+assert_not_cutover_required() {
+  # A release that requires the cutover carries `deploy/CUTOVER_REQUIRED` in the
+  # repo. The cutover driver is what removes it, so an ordinary deploy of that
+  # SHA refuses rather than migrating unattended.
+  if [ -f "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" ]; then
+    log "ABORT deploy/CUTOVER_REQUIRED is present: this release must go through the cutover workflow, not the ordinary deploy"
+    cat "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" || true
+    return 1
+  fi
+  # The check above is the repository-side one and cannot fire on this host,
+  # which has no repository. The manifest delivered out of this release's own
+  # worker image carries the same fact and does.
+  if delivered_cutover_required; then
+    log "ABORT the manifest delivered for ${DEPLOY_SHA} records cutover_required=yes: this release must go through ${REMOTE_APP_DIR}/cutover/hetzner-sync-cutover.sh, not the ordinary deploy"
+    return 1
+  fi
+  return 0
+}
+
+# A cutover already in progress owns the database. Migrating underneath it would
+# run two migration paths against one database at once.
+assert_no_cutover_in_progress() {
+  local cutover_state_file cutover_chain cutover_invalidated
+  cutover_state_file="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}/state"
+  [ -s "${cutover_state_file}" ] || return 0
+  cutover_chain="$(awk -F= '$1 == "phase_chain" { sub(/^[^=]*=/, ""); print; exit }' "${cutover_state_file}")"
+  cutover_invalidated="$(awk -F= '$1 == "invalidated" { print $2 }' "${cutover_state_file}" | tr -d '[:space:]')"
+  # A finished cutover (resume-scheduler reached) and an explicitly abandoned
+  # one (emergency-disable invalidated it, so an operator already took manual
+  # control) both hand the database back. Anything between preflight and
+  # resume-scheduler still owns it.
+  if [ -n "${cutover_chain}" ] &&
+    [ "${cutover_invalidated}" != "yes" ] &&
+    ! printf '%s' "${cutover_chain}" | grep -q 'resume-scheduler'; then
+    log "ABORT a sync cutover is in progress (phases: ${cutover_chain}); the ordinary deploy must not migrate underneath it"
+    return 1
+  fi
+  return 0
+}
+
 run_migrations_service() {
   env_file_migration_timeout_ms=""
   if [ -z "${DEPLOY_MIGRATION_TIMEOUT_MS:-}" ]; then
@@ -530,48 +583,12 @@ run_migrations_service() {
 
   export DEPLOY_MIGRATION_TIMEOUT_MS="${migration_timeout_ms}"
 
-  # FAIL CLOSED on a cutover-required release.
-  #
-  # The ordinary main deploy builds images and then runs migrate + recreate
-  # outside the cutover lock, with no quiesce, no capacity gate, no
-  # pre-fingerprint and no rollback artifact. For a schema-changing Sync release
-  # that is precisely the path the cutover exists to prevent, and nothing stopped
-  # a release from taking it.
-  #
-  # A release that requires the cutover carries `deploy/CUTOVER_REQUIRED` in the
-  # repo. The cutover driver is what removes it, so an ordinary deploy of that
-  # SHA refuses rather than migrating unattended.
-  if [ -f "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" ]; then
-    log "ABORT deploy/CUTOVER_REQUIRED is present: this release must go through the cutover workflow, not the ordinary deploy"
-    cat "${APP_DIR:-.}/deploy/CUTOVER_REQUIRED" || true
-    return 1
-  fi
-  # The check above is the repository-side one and cannot fire on this host,
-  # which has no repository. The manifest delivered out of this release's own
-  # worker image carries the same fact and does.
-  if delivered_cutover_required; then
-    log "ABORT the manifest delivered for ${DEPLOY_SHA} records cutover_required=yes: this release must go through ${REMOTE_APP_DIR}/cutover/hetzner-sync-cutover.sh, not the ordinary deploy"
-    return 1
-  fi
-  # ...and a cutover already in progress owns the database. Migrating underneath
-  # it would run two migration paths against one database at once. The state
-  # record lives where the wrapper actually writes it; the path this check used
-  # before never existed, so the guard could not fire.
-  cutover_state_file="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}/state"
-  if [ -s "${cutover_state_file}" ]; then
-    cutover_chain="$(awk -F= '$1 == "phase_chain" { sub(/^[^=]*=/, ""); print; exit }' "${cutover_state_file}")"
-    cutover_invalidated="$(awk -F= '$1 == "invalidated" { print $2 }' "${cutover_state_file}" | tr -d '[:space:]')"
-    # A finished cutover (resume-scheduler reached) and an explicitly abandoned
-    # one (emergency-disable invalidated it, so an operator already took manual
-    # control) both hand the database back. Anything between preflight and
-    # resume-scheduler still owns it.
-    if [ -n "${cutover_chain}" ] &&
-      [ "${cutover_invalidated}" != "yes" ] &&
-      ! printf '%s' "${cutover_chain}" | grep -q 'resume-scheduler'; then
-      log "ABORT a sync cutover is in progress (phases: ${cutover_chain}); the ordinary deploy must not migrate underneath it"
-      return 1
-    fi
-  fi
+  # Both gates are ALSO called at the top of the run_migrations phase, before
+  # anything stops or starts a container. They are idempotent and cheap, and
+  # keeping them here means a future caller of this function cannot reach a
+  # migration by skipping the phase wrapper.
+  assert_not_cutover_required || return 1
+  assert_no_cutover_in_progress || return 1
 
   log "Starting migrate service timeout_seconds=${migration_timeout_seconds} node_timeout_ms=${DEPLOY_MIGRATION_TIMEOUT_MS}"
   docker compose rm -f migrate >/dev/null 2>&1 || true
@@ -628,6 +645,16 @@ case "${phase}" in
     ;;
 
   run_migrations)
+    # The cutover gate runs FIRST, before anything touches the running system.
+    #
+    # It used to live inside run_migrations_service, which is called below —
+    # after `docker compose stop worker`. So an ordinary deploy of a
+    # cutover-required release stopped the production worker and only then
+    # refused. A gate that fires after it has already changed production is not
+    # a gate; it is a report.
+    assert_not_cutover_required
+    assert_no_cutover_in_progress
+
     log "Stopping worker before migrations to reduce DB contention"
     docker compose stop worker || true
 

@@ -27,6 +27,14 @@ import { getSyncReleaseCanaryBusinessIds } from "@/lib/sync/runtime-contract";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import { readConnectedGoogleAdsControlPlaneBusinesses } from "@/lib/google-ads/control-plane-runtime";
 
+// Only an explicit affirmative turns staging idle on. Anything else — unset,
+// empty, "0", "false", a typo — leaves the fatal refusal in place, so a
+// mistyped value fails safe rather than quietly staging production.
+function readBooleanEnv(raw: string | undefined) {
+  const value = raw?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "enabled";
+}
+
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -591,7 +599,7 @@ export async function runDurableWorkerRuntime(
 
   async function heartbeat(input: {
     providerScope: string;
-    status: "starting" | "idle" | "running" | "stopping" | "stopped";
+    status: "starting" | "idle" | "running" | "stopping" | "stopped" | "disabled";
     lastBusinessId?: string | null;
     lastPartitionId?: string | null;
     metaJson?: Record<string, unknown>;
@@ -638,6 +646,23 @@ export async function runDurableWorkerRuntime(
   // A refusal here is fatal to the process rather than a skipped tick: a worker
   // that may not write anything has nothing to do, and exiting lets the
   // container restart policy retry it once conditions change.
+  // STAGING IDLE, off unless explicitly asked for.
+  //
+  // A cutover brings the new build up with every lane off, proves it is the
+  // right image and that it can reach the database, and only then enables. That
+  // staging step needs a worker process that is alive to be inspected. With a
+  // fatal refusal there is nothing to inspect: the container crash-loops, and
+  // the release cannot be verified before it is enabled.
+  //
+  // The refusal is still the DEFAULT, because the reason for it is real: a
+  // worker that heartbeats `starting` every fifteen seconds while admitted to
+  // nothing looks healthy on every operator surface while doing no work. So the
+  // idle path never claims to be running — it heartbeats `disabled`, carries the
+  // refusal in its metadata, and takes no lease, claims no partition and writes
+  // nothing else. `--min-online-workers` counts online workers and will not
+  // count this one.
+  const stagingIdle = readBooleanEnv(process.env.SYNC_WORKER_STAGING_IDLE);
+  let laneRefusal: unknown = null;
   try {
     // Every lane this worker carries. If none of them may run, the worker has
     // nothing to do and must not start writing heartbeats about it.
@@ -646,6 +671,14 @@ export async function runDurableWorkerRuntime(
         scope === "google_ads" ? "google_sync" : scope === "shopify" ? "shopify_sync" : "meta_sync",
       );
     }
+  } catch (error) {
+    laneRefusal = error;
+  }
+
+  try {
+    // The growth boundary is NOT part of the staging concession. Being over
+    // budget is a reason not to write to the database at all, and a heartbeat
+    // is a write. This stays fatal in every mode.
     await assertSyncGrowthBoundary("durable_worker_boot", { fresh: true });
   } catch (error) {
     console.error("[durable-worker] boot_refused", {
@@ -654,6 +687,51 @@ export async function runDurableWorkerRuntime(
       refusal: describeSyncSafetyRefusal(error),
     });
     throw error;
+  }
+
+  if (laneRefusal && !stagingIdle) {
+    console.error("[durable-worker] boot_refused", {
+      workerId,
+      message: laneRefusal instanceof Error ? laneRefusal.message : String(laneRefusal),
+      refusal: describeSyncSafetyRefusal(laneRefusal),
+    });
+    throw laneRefusal;
+  }
+
+  if (laneRefusal) {
+    const refusal = describeSyncSafetyRefusal(laneRefusal);
+    console.warn("[durable-worker] staging_idle", {
+      workerId,
+      workerBuildId,
+      message: laneRefusal instanceof Error ? laneRefusal.message : String(laneRefusal),
+      refusal,
+    });
+    await heartbeat({
+      providerScope: "all",
+      status: "disabled",
+      force: true,
+      metaJson: { workerBuildId, workerStartedAt, adapters: providerScopes, stagingIdle: true, refusal },
+    });
+    // Heartbeat `disabled` on the same timer so the staging check can see a
+    // FRESH registration, and do nothing else until the process is stopped. No
+    // lease, no partition claim, no provider call.
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        void heartbeat({
+          providerScope: "all",
+          status: "disabled",
+          force: true,
+          metaJson: { workerBuildId, workerStartedAt, stagingIdle: true, refusal },
+        }).catch(() => null);
+      }, heartbeatIntervalMs);
+      const stop = () => {
+        clearInterval(timer);
+        resolve();
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+    });
+    return;
   }
 
   await heartbeat({

@@ -241,6 +241,57 @@ as_postgres pg_dump ${conn_args[@]+"${conn_args[@]}"} \
 # `umask 077`. It is never read back or echoed by this script.
 as_postgres pg_dumpall ${conn_args[@]+"${conn_args[@]}"} --globals-only > "$TMP_DIR/globals.sql"
 
+# ── Ownership and privileges ────────────────────────────────────────────────
+#
+# The artifact is taken --no-owner --no-privileges so it restores onto a host
+# that does not share this one's roles or tablespaces. That is the right call
+# for portability and it means the artifact describes structure and data and
+# says NOTHING about who may use them.
+#
+# Restoring it is therefore not a complete recovery. Proven the hard way: a
+# production restore came back byte-faithful and the application could not use
+# it at all — every object owned by the restoring superuser, the database owned
+# by it too, so `pg_database_owner` (which owns schema public under PostgreSQL
+# 16's default ACL) no longer resolved to the application role, and the first
+# migration died with "permission denied for schema public".
+#
+# `--no-owner` does not mean the ownership is unknown; it means the artifact
+# does not REPLAY it. So it is recorded here, beside the artifact, in a form
+# that can be replayed deliberately after a restore.
+as_postgres psql ${conn_args[@]+"${conn_args[@]}"} --dbname="$DB_NAME" \
+  --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/ownership.sql"
+SELECT format('ALTER DATABASE %I OWNER TO %I;', d.datname, pg_get_userbyid(d.datdba))
+FROM pg_database d WHERE d.datname = current_database()
+UNION ALL
+SELECT format('ALTER SCHEMA %I OWNER TO %I;', n.nspname, pg_get_userbyid(n.nspowner))
+FROM pg_namespace n
+WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'public')
+  AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'
+UNION ALL
+SELECT format('ALTER %s %I.%I OWNER TO %I;',
+         CASE c.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
+                        WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'TABLE' END,
+         n.nspname, c.relname, pg_get_userbyid(c.relowner))
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+  AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%'
+  AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+  AND c.relispartition = false
+ORDER BY 1;
+SQL
+
+# The grants themselves, separately, so a reviewer can read who was given what
+# without decoding an aclitem array.
+as_postgres psql ${conn_args[@]+"${conn_args[@]}"} --dbname="$DB_NAME" \
+  --tuples-only --no-align --quiet <<'SQL' > "$TMP_DIR/privileges.tsv"
+SELECT n.nspname || E'\t' || c.relname || E'\t' || COALESCE(array_to_string(c.relacl, ','), '(default)')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+  AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+  AND c.relispartition = false
+ORDER BY 1, 2;
+SQL
+
 # ── 2. Completeness, derived from the live catalog ───────────────────────────
 #
 # Every ordinary table PostgreSQL currently knows about, asked of the catalog at
@@ -476,6 +527,11 @@ dump_bytes="$(wc -c < "$TMP_DIR/full-database.dump" | tr -d ' ')"
 dump_sha256="$(checksum "$TMP_DIR/full-database.dump" | awk '{print $1}')"
 schema_sha256="$(checksum "$TMP_DIR/schema.sql" | awk '{print $1}')"
 globals_sha256="$(checksum "$TMP_DIR/globals.sql" | awk '{print $1}')"
+# The artifact is --no-owner --no-privileges, so these two files are the ONLY
+# record of who may use what. A restore that replays the dump and not these is
+# structurally complete and functionally dead.
+ownership_sha256="$(checksum "$TMP_DIR/ownership.sql" | awk '{print $1}')"
+privileges_sha256="$(checksum "$TMP_DIR/privileges.tsv" | awk '{print $1}')"
 row_census_sha256=""
 if [ -f "$TMP_DIR/table-row-counts.tsv" ]; then
   row_census_sha256="$(checksum "$TMP_DIR/table-row-counts.tsv" | awk '{print $1}')"
@@ -499,6 +555,8 @@ fi
   echo "dump_sha256=$dump_sha256"
   echo "schema_sql_sha256=$schema_sha256"
   echo "globals_sql_sha256=$globals_sha256"
+  echo "ownership_sql_sha256=$ownership_sha256"
+  echo "privileges_tsv_sha256=$privileges_sha256"
   echo "catalog_tables=$catalog_tables"
   echo "dump_table_data_entries=$dump_table_data_entries"
   echo "dump_sequence_set_entries=$dump_sequence_set_entries"
@@ -530,7 +588,8 @@ fi
   cd "$TMP_DIR"
   census_file=""
   if [ -f table-row-counts.tsv ]; then census_file="table-row-counts.tsv"; fi
-  checksum full-database.dump schema.sql globals.sql catalog-tables.txt dump-tables.txt \
+  checksum full-database.dump schema.sql globals.sql ownership.sql privileges.tsv \
+    catalog-tables.txt dump-tables.txt \
     dump-toc.txt object-census.txt database_size_bytes.txt ${census_file:+$census_file} manifest.txt \
     > SHA256SUMS
 )

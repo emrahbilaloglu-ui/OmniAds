@@ -170,6 +170,12 @@ async function createBaseSchema(client: Client) {
       provider TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
       provider_account_id TEXT NOT NULL,
+      -- Selection, mirroring production. The decision engine's hydration and
+      -- manifest CTEs filter on binding.is_selected, so a fixture without it
+      -- does not describe the schema this code runs against, and the seam fails
+      -- with a missing-column error rather than proving anything about
+      -- decisions.
+      is_selected BOOLEAN NOT NULL DEFAULT FALSE,
       UNIQUE (business_id, provider_account_ref_id, provider_account_id)
     );
     CREATE TABLE engine_v3_job_runs (
@@ -232,8 +238,8 @@ async function createBaseSchema(client: Client) {
   );
   await client.query(
     `INSERT INTO business_provider_accounts (
-       business_id, provider, provider_account_ref_id, provider_account_id
-     ) VALUES ($1, 'meta', $2, $3)`,
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1, 'meta', $2, $3, TRUE)`,
     [BUSINESS_ID, ACCOUNT_REF_ID, ACCOUNT_ID],
   );
   await client.query(
@@ -270,8 +276,8 @@ async function verifyCalibrationReuseAccountIdentity(
   );
   await client.query(
     `INSERT INTO business_provider_accounts (
-       business_id, provider, provider_account_ref_id, provider_account_id
-     ) VALUES ($1::text, 'meta', $2, 'act_calibrated')`,
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1::text, 'meta', $2, 'act_calibrated', TRUE)`,
     [businessId, calibratedAccountRefId],
   );
   const batchId = "00000000-0000-4000-8000-000000000983";
@@ -680,8 +686,8 @@ async function verifyGenerationBoundLargeManifestHydration(
   );
   await client.query(
     `INSERT INTO business_provider_accounts (
-       business_id, provider, provider_account_ref_id, provider_account_id
-     ) VALUES ($1, 'meta', $2, $3)`,
+       business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+     ) VALUES ($1, 'meta', $2, $3, TRUE)`,
     [businessId, providerAccountRefId, providerAccountId],
   );
   await client.query(

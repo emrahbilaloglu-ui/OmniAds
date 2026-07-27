@@ -111,14 +111,14 @@ jobs:
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout deploy ref
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.deploy_sha.outputs.sha }}
           fetch-depth: 1
 
       - name: Prepare SSH access
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           BREAK_GLASS: ${{ inputs.break_glass }}
@@ -186,7 +186,7 @@ jobs:
           echo "public_deploy_host=${public_deploy_host} public_deploy_host_ip=${public_deploy_host_ip}"
 
       - name: Sync deploy compose
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
@@ -197,7 +197,7 @@ jobs:
           run_for_each_deploy_host sync_compose_to_host
 
       - name: Prepare runtime images
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
@@ -229,7 +229,7 @@ jobs:
           run_for_each_deploy_host run_remote_phase_on_host run_migrations
 
       - name: Recreate web and worker
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
@@ -243,7 +243,7 @@ jobs:
           run_for_each_deploy_host run_remote_phase_on_host recreate_services
 
       - name: Verify local runtime readiness
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
@@ -257,7 +257,7 @@ jobs:
           run_for_each_deploy_host run_remote_phase_on_host verify_runtime
 
       - name: Persist current-build sync control plane
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
@@ -272,7 +272,7 @@ jobs:
           run_for_each_deploy_host run_remote_phase_on_host persist_control_plane
 
       - name: Verify public build propagation
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
         shell: bash
@@ -319,7 +319,7 @@ jobs:
           exit 1
 
       - name: Smoke test public ingress
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         run: |
           set -euo pipefail
@@ -328,7 +328,7 @@ jobs:
           curl -fsSI https://www.adsecute.com/about >/dev/null
 
       - name: Dispatch post-deploy verification workflow
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

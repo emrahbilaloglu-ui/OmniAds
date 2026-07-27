@@ -279,6 +279,25 @@ async function main() {
     );
     log(`S4 PASS not online: online_workers=0 with a fresh staged worker present, and it reports workerFreshnessState='staged' rather than 'online'`);
 
+    // ── S4b. A worker shutting down is not online either ────────────────────
+    //
+    // The recreate in deploy-disabled leaves the OUTGOING worker's 'stopping'
+    // heartbeat behind, and it stays inside the online window for minutes.
+    // online_workers excluded only 'disabled', so that outgoing row counted as
+    // a live worker and the staged assertion failed against a correctly staged
+    // deploy — which is exactly what happened on the production cutover.
+    await client.query(
+      `INSERT INTO sync_worker_heartbeats (worker_id, instance_type, provider_scope, status, last_heartbeat_at)
+       VALUES ('seam-outgoing-worker', 'durable_sync_worker', 'all', 'stopping', now())`,
+    );
+    const withOutgoing = await getSyncWorkerHealthSummary({ onlineWindowMinutes: 5 });
+    assert(
+      withOutgoing.onlineWorkers === 0,
+      `S4b: a 'stopping' worker counted as online (online_workers=${withOutgoing.onlineWorkers}). A worker on its way out is not doing work, and after a recreate its row is still fresh.`,
+    );
+    await client.query(`DELETE FROM sync_worker_heartbeats WHERE worker_id = 'seam-outgoing-worker'`);
+    log("S4b PASS outgoing worker: a fresh 'stopping' heartbeat does not count as an online worker, so a recreate cannot make the staged assertion fail against itself");
+
     // ── S5. The healthcheck agrees, and the OLD assertion fails ─────────────
     const staged_ok = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
       "--expect-staged-idle", "--online-window-minutes", "5"],

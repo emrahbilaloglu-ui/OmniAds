@@ -293,6 +293,8 @@ services:
   worker:
     env_file:
       - .env.production
+    environment:
+      SYNC_WORKER_STAGING_IDLE: ${SYNC_WORKER_STAGING_IDLE:-}
   migrate:
     env_file:
       - .env.production
@@ -704,6 +706,11 @@ case "\$1" in
         tmp="\${env_file}.rollout.\$\$"
         grep -v '^ADSECUTE_SYNC_' "\${env_file}" > "\${tmp}"
         {
+          # The real rollout writes a provenance COMMENT alongside the lanes.
+          # The stub did not, so the enable guard reduced that comment to the
+          # key name '#', matched no managed pattern, and rolled a perfectly
+          # good enable back — in production, with the site down.
+          printf '# managed by global-sync-rollout\n'
           printf 'ADSECUTE_SYNC_GLOBAL_ENABLED=enabled\n'
           printf 'ADSECUTE_SYNC_LANE_META_ENABLED=enabled\n'
           printf 'ADSECUTE_SYNC_LANE_GOOGLE_ADS_ENABLED=enabled\n'

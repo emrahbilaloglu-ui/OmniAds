@@ -470,7 +470,12 @@ export async function getSyncWorkerHealthSummary(input?: {
         -- reader of this data cannot miss it.
         COUNT(*) FILTER (
           WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval
-            AND status <> 'disabled'
+            -- 'stopping' and 'stopped' are not online either. A worker shutting
+            -- down heartbeats 'stopping' on its way out, and that row stays
+            -- fresh for the whole online window — so a recreate made the
+            -- OUTGOING worker count as an online one, and a staged deploy
+            -- looked like it had a live worker doing work.
+            AND status NOT IN ('disabled', 'stopping', 'stopped')
         )::int AS online_workers,
         COUNT(*) FILTER (
           WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval

@@ -2061,6 +2061,18 @@ case "${PHASE}" in
     release_set updated_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     log "Starting web and worker on ${EXPECTED_SHA}, lanes off"
+    # The compose file on this host has to be the release's.
+    #
+    # The cutover gate now refuses ahead of "Sync deploy compose", which is
+    # correct — nothing should touch the host before the gate — but it means a
+    # cutover-required release never gets its compose file delivered by the
+    # ordinary path. Without the passthrough below, `SYNC_WORKER_STAGING_IDLE=1`
+    # is silently dropped by compose and the worker crash-loops with every lane
+    # off, which reads as "the worker did not come up staged" and hides the real
+    # cause. Fail closed and say what to do instead.
+    grep -q 'SYNC_WORKER_STAGING_IDLE' docker-compose.yml \
+      || die "docker-compose.yml on this host does not pass SYNC_WORKER_STAGING_IDLE through to the worker, so the staged deploy cannot work. This release's compose file was never delivered (the cutover gate correctly stops the deploy before it syncs). Copy docker-compose.yml from ${EXPECTED_SHA} to ${APP_DIR}/docker-compose.yml and re-run."
+
     # SYNC_WORKER_STAGING_IDLE is what makes a disabled worker possible at all.
     # Without it the worker treats a denied lane as fatal and crash-loops, so
     # there is nothing to inspect and the release cannot be verified before it
@@ -2153,8 +2165,16 @@ case "${PHASE}" in
     # Prove the rollout touched nothing else. It runs in a container with the
     # whole env file bind-mounted, so "it only writes lane keys" is a claim about
     # code that is easier to verify here than to trust.
+    # Only lines that are actually KEY=VALUE assignments. A diff hunk also
+    # contains comments and blank lines, and reducing `# managed by ...` with
+    # the same sed yields the key name `#`, which matches no managed pattern and
+    # rolled the whole enable back — for a comment. The rollout is allowed to
+    # write comments; it is not allowed to write unmanaged KEYS.
     changed="$(diff "${DISABLED_ENV_BACKUP}" "${ENV_FILE}" 2>/dev/null |
-      grep -E '^[<>]' | sed -E 's/^[<>][[:space:]]*(export[[:space:]]+)?//; s/[[:space:]]*=.*$//' | sort -u || true)"
+      grep -E '^[<>]' |
+      sed -E 's/^[<>][[:space:]]*//' |
+      grep -E '^(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=' |
+      sed -E 's/^(export[[:space:]]+)?//; s/[[:space:]]*=.*$//' | sort -u || true)"
     for key in ${changed}; do
       printf '%s' "${key}" | grep -Eq "${MANAGED_ENV_KEY_PATTERN}" \
         || rollback_enable "the rollout changed unmanaged env key '${key}'"

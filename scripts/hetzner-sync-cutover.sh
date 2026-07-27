@@ -116,6 +116,33 @@ DB_NAME="${DB_NAME:-adsecute_prod}"
 # in development.
 DB_SSH="${SYNC_CUTOVER_DB_SSH:-}"
 
+# One multiplexed connection for the whole cutover, not one per statement.
+#
+# A cutover issues dozens of separate database calls. Opening a fresh SSH
+# connection for each one is fine on a quiet host and fails on a busy one: the
+# database host runs `sshd` with a MaxStartups limit, and internet-facing brute
+# force traffic keeps that queue full, so an unlucky connection is dropped and
+# the phase dies mid-backup. Observed exactly that: "drop connection ... past
+# MaxStartups" while taking the rollback artifact.
+#
+# ControlMaster reuses a single authenticated channel, so the whole cutover
+# costs one connection attempt instead of dozens. ControlPersist keeps it warm
+# between phases. ServerAlive keeps a long pg_dump from looking idle.
+DB_SSH_CONTROL_DIR="${SYNC_CUTOVER_SSH_CONTROL_DIR:-${STATE_DIR}/ssh}"
+db_ssh_opts() {
+  mkdir -p "${DB_SSH_CONTROL_DIR}" 2>/dev/null || true
+  chmod 0700 "${DB_SSH_CONTROL_DIR}" 2>/dev/null || true
+  printf '%s\n' \
+    -o BatchMode=yes \
+    -o ConnectTimeout=20 \
+    -o ConnectionAttempts=5 \
+    -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=20 \
+    -o ControlMaster=auto \
+    -o ControlPersist=900 \
+    -o "ControlPath=${DB_SSH_CONTROL_DIR}/cutover-%C"
+}
+
 # `lib/db.ts` connects with application_name `omniads-web` / `omniads-worker`.
 # Quiescence is decided on ACTUAL backends carrying that name, because that is
 # the only thing that says whether application code is touching the database
@@ -421,7 +448,8 @@ assert_image_pin() {
 db_sql_on() {
   local database="$1" statement="$2"
   if [ -n "${DB_SSH}" ]; then
-    printf '%s\n' "${statement}" | ssh -o BatchMode=yes -o ConnectTimeout=10 "${DB_SSH}" \
+    local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
+    printf '%s\n' "${statement}" | ssh "${opts[@]}" "${DB_SSH}" \
       "runuser -u postgres -- psql --dbname=$(printf %q "${database}") -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
   else
     printf '%s\n' "${statement}" | runuser -u postgres -- psql --dbname="${database}" \
@@ -434,7 +462,8 @@ db_sql() { db_sql_on "${DB_NAME}" "$1"; }
 # Run a command on the DATABASE host.
 db_run() {
   if [ -n "${DB_SSH}" ]; then
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "${DB_SSH}" "$@"
+    local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
+    ssh "${opts[@]}" "${DB_SSH}" "$@"
   else
     "$@"
   fi
@@ -443,7 +472,8 @@ db_run() {
 # Write a file on the DATABASE host from stdin.
 db_write_file() {
   if [ -n "${DB_SSH}" ]; then
-    ssh -o BatchMode=yes -o ConnectTimeout=10 "${DB_SSH}" "cat > $(printf %q "$1")"
+    local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
+    ssh "${opts[@]}" "${DB_SSH}" "cat > $(printf %q "$1")"
   else
     cat > "$1"
   fi

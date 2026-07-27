@@ -50,7 +50,7 @@ HARNESS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/adsecute-cutover-harness.XXXXXX")"
 PGDATA_DIR="${HARNESS_ROOT}/pgdata"
 PGLOG="${HARNESS_ROOT}/postgres.log"
 DBHOST_BIN="${HARNESS_ROOT}/dbhost-bin"
-DBHOST_BACKUPS="${HARNESS_ROOT}/dbhost-backups"
+APPHOST_BACKUPS="${HARNESS_ROOT}/dbhost-backups"
 PG_STARTED=0
 DB_NAME="adsecute_prod"
 DEPLOY_SHA="${DEPLOY_SHA:-a1b2c3d4e5f60718293a4b5c6d7e8f9012345678}"
@@ -209,7 +209,7 @@ seed_database "${DB_NAME}"
 
 # ── The DB host: the only place with PostgreSQL binaries ───────────────────
 
-mkdir -p "${DBHOST_BIN}" "${DBHOST_BACKUPS}"
+mkdir -p "${DBHOST_BIN}" "${APPHOST_BACKUPS}"
 
 for tool in psql pg_dump pg_restore createdb dropdb; do
   cat > "${DBHOST_BIN}/${tool}" <<STUB
@@ -317,6 +317,18 @@ if [ "\${target}" != "root@db-host" ]; then
   printf 'ssh: unknown host %s\n' "\${target}" >&2
   exit 255
 fi
+# The two hosts do not share a filesystem. The backup artifact is streamed over
+# this link and lands on the APP host, so its directory does not exist on the
+# database host at all — reaching for it from over here has to fail exactly the
+# way it failed in production, where a remote sha256sum of the local artifact
+# printed "No such file or directory", returned empty, and let a run continue
+# with an unpinned artifact. Without this the shim shares one filesystem and that
+# whole class of bug is invisible to the harness.
+case "\${words[*]}" in
+  *"${APPHOST_BACKUPS}"*)
+    printf 'harness: the database host has no %s (app-host storage reached over ssh): %s\n' "${APPHOST_BACKUPS}" "\${words[*]}" >&2
+    exit 1 ;;
+esac
 exec env PATH="${DBHOST_PATH}" /bin/sh -c "\${words[*]}"
 STUB
 
@@ -674,7 +686,7 @@ run_phase() {
     SYNC_CUTOVER_INSTALL_DIR="${host}/cutover" \
     SYNC_CUTOVER_DRAIN_SECONDS=0 \
     SYNC_CUTOVER_DB_SSH="root@db-host" \
-    SYNC_CUTOVER_BACKUP_ROOT="${DBHOST_BACKUPS}" \
+    SYNC_CUTOVER_BACKUP_ROOT="${APPHOST_BACKUPS}" \
     SYNC_CUTOVER_SCHEDULER="rootcron" \
     "$@" \
     bash "${WRAPPER}" "${phase}" 2>&1
@@ -780,11 +792,28 @@ if [ -n "${manifest_path}" ] && [ -s "${manifest_path}" ]; then
   credential_count="$(awk -F= '$1=="credential_count"{print $2}' "${manifest_path}")"
   assignment_count="$(awk -F= '$1=="assignment_count"{print $2}' "${manifest_path}")"
   connection_count="$(awk -F= '$1=="connection_count"{print $2}' "${manifest_path}")"
+  artifact_sha="$(awk -F= '$1=="artifact_sha256"{print $2}' "${manifest_path}")"
   if [ -s "${artifact}" ] && [ "${restored}" = "yes" ] &&
     [ "${credential_count}" = "2" ] && [ "${assignment_count}" = "1" ] && [ "${connection_count}" = "2" ]; then
     pass "P2 preflight produced a FRESH full backup (${artifact_bytes}B), scratch-restored it, and bound the manifest to 2 connections, 2 credentials and 1 assignment set — the rows the old core backup omitted"
   else
     fail "P2 the backup manifest is not bound to a verified fresh artifact: $(cat "${manifest_path}")"
+  fi
+
+  # P2b — the digest has to BE a digest, and it has to be THIS artifact's.
+  #
+  # The artifact is streamed over SSH to the host running this script, so for a
+  # while it was hashed on the database host, where that path does not exist:
+  # sha256sum wrote "No such file or directory" to stderr, the substitution
+  # returned empty, and the manifest pinned the artifact to nothing. Every later
+  # equality check still passed, because empty equals empty. Asserting the shape
+  # AND recomputing it here is what makes the pin real rather than self-agreeing.
+  recomputed="$(sha256_of "${artifact}" 2>/dev/null || true)"
+  if [ "${#artifact_sha}" -eq 64 ] && [ -z "${artifact_sha//[0-9a-f]/}" ] &&
+    [ "${artifact_sha}" = "${recomputed}" ]; then
+    pass "P2b the manifest pins the artifact to its own real sha256, recomputed independently"
+  else
+    fail "P2b the artifact digest is not a real pin: manifest='${artifact_sha}' recomputed='${recomputed}'"
   fi
 else
   fail "P2 preflight recorded no backup manifest"

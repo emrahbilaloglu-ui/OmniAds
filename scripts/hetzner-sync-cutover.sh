@@ -236,8 +236,11 @@ sha256_string() { printf '%s' "$1" | sha256_stdin; }
 
 file_bytes() { wc -c < "$1" | tr -d '[:space:]'; }
 
-# The same digest, computed ON THE DB HOST, where this script only has a shell.
-REMOTE_SHA256_FN='sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk "{print \$1}"; else shasum -a 256 "$1" | awk "{print \$1}"; fi; }'
+# Deliberately NO remote-hashing helper here. Every file this script needs a
+# digest of is local to it: the backup artifact is streamed back over SSH and
+# lands on this host. A helper that hashed "over there" existed once and was used
+# on the artifact, which by then only existed here — it returned empty, and the
+# manifest pinned the artifact to nothing without failing. Hash where the file is.
 
 # ── F21.1: the wrapper proves it is the wrapper that was released ──────────
 
@@ -496,17 +499,16 @@ db_run() {
 }
 
 # Write a file on the DATABASE host from stdin.
-db_write_file() {
-  if [ -n "${DB_SSH}" ]; then
-    local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
-    ssh "${opts[@]}" "${DB_SSH}" "cat > $(printf %q "$1")"
-  else
-    cat > "$1"
-  fi
-}
+# No db_write_file(). Nothing this script produces belongs on the database host:
+# the artifact is streamed back here, the manifest describes local paths, and the
+# state and release records are local by design. The one caller this helper ever
+# had was writing the backup manifest onto the wrong machine.
 
-db_read_file() {
-  db_run "cat $(printf %q "$1")"
+# Local, for the same reason db_write_file is gone: the manifest lives beside the
+# artifact on THIS host. Reading it over the SSH link found a same-named path on
+# the database host, or nothing at all.
+read_manifest_file() {
+  cat "$1"
 }
 
 # ── F21.3: root crontab block management ───────────────────────────────────
@@ -1201,15 +1203,30 @@ EOF
   artifact_bytes="$(wc -c < "${artifact}" | tr -d '[:space:]')"
   case "${artifact_bytes}" in
     "" | *[!0-9]*) : ;;
-    *) db_run "printf 'input_bytes=%s\nartifact_bytes=%s\n' $(printf %q "${dump_input}") $(printf %q "${artifact_bytes}") > $(printf %q "${BACKUP_ROOT}/last-artifact-sizing")" || true
+    *) printf 'input_bytes=%s\nartifact_bytes=%s\n' "${dump_input}" "${artifact_bytes}" \
+         > "${BACKUP_ROOT}/last-artifact-sizing" || true
        log "capacity: artifact measured ${artifact_bytes}B from a ${dump_input}B input" ;;
   esac
 
   local artifact_sha artifact_bytes artifact_created
-  artifact_sha="$(db_run "${REMOTE_SHA256_FN}; sha256_of $(printf %q "${artifact}")" | tr -d '[:space:]')"
+  # Hashed HERE, not on the database host. The dump is streamed back over SSH and
+  # lands on this host, so the artifact path does not exist over there at all —
+  # hashing remotely returned an EMPTY digest while the run carried on, and the
+  # manifest then pinned the artifact to nothing. The shape check below is what
+  # makes that failure mode loud instead of silent: an empty or malformed digest
+  # compares equal to itself, so a vacuous match is indistinguishable from a real
+  # one unless the digest is required to look like a digest.
+  # `|| artifact_sha=""` so a failed hash lands in the shape check below and gets
+  # named, instead of aborting on errexit with no explanation — or, worse, being
+  # swallowed silently the way the remote version was.
+  artifact_sha="$(sha256_file "${artifact}" 2>/dev/null | tr -d '[:space:]')" || artifact_sha=""
   artifact_bytes="$(wc -c < "${artifact}" | tr -d '[:space:]')"
   artifact_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   case "${artifact_bytes}" in "" | 0 | *[!0-9]*) die "the backup artifact ${artifact} is empty or unreadable" ;; esac
+  case "${artifact_sha}" in
+    [0-9a-f]*) [ "${#artifact_sha}" -eq 64 ] || die "the backup artifact digest is ${#artifact_sha} characters, not 64; the artifact is not pinned and nothing may proceed" ;;
+    *) die "the backup artifact digest is empty or malformed; the artifact is not pinned and nothing may proceed" ;;
+  esac
   log "backup artifact bytes=${artifact_bytes} sha256=${artifact_sha}"
 
   log "Scratch-restoring that artifact into ${scratch} and reading it back"
@@ -1291,7 +1308,17 @@ EOF
     printf 'assignment_count=%s\n' "${assignment_count:-absent}"
     printf 'scratch_restore_db=%s\n' "${scratch}"
     printf 'scratch_restore_verified=yes\n'
-  } | db_write_file "${manifest}"
+  } > "${manifest}.tmp"
+  # Written HERE, beside the artifact it describes, because that is where every
+  # reader of it runs: assert_backup_manifest stats artifact_path locally and
+  # hashes the manifest locally. Writing it over the SSH link put it on the
+  # database host — a directory of the same name existed there, so the write
+  # succeeded and left the app host with an artifact and no manifest. Atomic
+  # rename and 0600 for the same reason as the release identity record: a
+  # half-written manifest must never be readable as a whole one.
+  chmod 0600 "${manifest}.tmp"
+  mv "${manifest}.tmp" "${manifest}"
+  chmod 0600 "${manifest}"
 
   BACKUP_MANIFEST="${manifest}"
   log "verified rollback artifact: ${artifact} (${artifact_bytes}B), manifest ${manifest}"
@@ -1309,7 +1336,7 @@ assert_backup_manifest_bound() {
   local manifest_path text manifest_sha
   manifest_path="$(state_get backup_manifest_path)"
   [ -n "${manifest_path}" ] || die "the state record pins no backup manifest; re-run preflight"
-  text="$(db_read_file "${manifest_path}" 2>/dev/null || true)"
+  text="$(read_manifest_file "${manifest_path}" 2>/dev/null || true)"
   [ -n "${text}" ] || die "the backup manifest ${manifest_path} is gone from the database host; the rollback artifact this cutover was authorised against no longer exists"
   manifest_sha="$(printf '%s' "${text}" | sha256_stdin)"
   [ "${manifest_sha}" = "$(state_get backup_manifest_sha256)" ] \
@@ -1328,7 +1355,7 @@ assert_backup_manifest_bound() {
   local artifact bytes
   artifact="$(backup_manifest_value "${text}" artifact_path)"
   bytes="$(wc -c < "${artifact}" 2>/dev/null | tr -d '[:space:]' || true)"
-  [ -n "${bytes}" ] || die "the rollback artifact ${artifact} is missing from the database host"
+  [ -n "${bytes}" ] || die "the rollback artifact ${artifact} is missing from this host"
   [ "${bytes}" = "$(backup_manifest_value "${text}" artifact_bytes)" ] \
     || die "the rollback artifact is ${bytes}B, the manifest recorded $(backup_manifest_value "${text}" artifact_bytes)B; it was replaced or truncated"
   log "rollback artifact bound: epoch=$(state_get cutover_epoch) ${artifact} (${bytes}B, size re-checked; digest verified at preflight)"
@@ -1543,7 +1570,7 @@ case "${PHASE}" in
 
     log "Taking and verifying the rollback artifact for epoch ${epoch}"
     take_verified_backup "${epoch}"
-    manifest_text="$(db_read_file "${BACKUP_MANIFEST}")"
+    manifest_text="$(read_manifest_file "${BACKUP_MANIFEST}")"
     manifest_sha="$(printf '%s' "${manifest_text}" | sha256_stdin)"
 
     log "Pinning image digests"

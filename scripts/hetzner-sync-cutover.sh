@@ -106,6 +106,21 @@ CUTOVER_DIR="${SYNC_CUTOVER_INSTALL_DIR:-${APP_DIR}/cutover}"
 WRAPPER_MANIFEST="${SYNC_CUTOVER_WRAPPER_MANIFEST:-${CUTOVER_DIR}/cutover-wrapper.manifest}"
 
 # Where the FRESH cutover backup and its manifest are written ON THE DB HOST.
+# Where the rollback artifact is written.
+#
+# On the APP host, not the database host, and that is deliberate twice over.
+#
+# Capacity: the database host's root filesystem has ~31 GiB free and also holds
+# the /srv tablespace carrying 36 GiB of live indexes. A tier-A artifact of this
+# database is ~33 GiB, because tier A now includes the raw-snapshot pair whose
+# 37 GiB of TOAST is already compressed by PostgreSQL and does not shrink again.
+# Writing it there fills the filesystem the indexes need to extend into — which
+# is a production incident, not a failed backup. Measured: 239 MiB/min against
+# 17 GiB free, ~73 minutes to full.
+#
+# Independence: a rollback artifact stored on the same machine as the data it
+# protects is one hardware failure from being useless. The app host is a
+# different machine with 63 GiB free.
 BACKUP_ROOT="${SYNC_CUTOVER_BACKUP_ROOT:-/var/backups/adsecute-cutover}"
 BACKUP_MANIFEST="${SYNC_CUTOVER_BACKUP_MANIFEST:-}"
 
@@ -1075,8 +1090,8 @@ take_verified_backup() {
   # than silently by the server.
   scratch="$(printf '%s' "${scratch}" | tr -c 'a-z0-9_' '_' | cut -c1-60)"
 
-  db_run "mkdir -p $(printf %q "${dir}") && chmod 0700 $(printf %q "${dir}")" \
-    || die "could not create ${dir} on the database host"
+  mkdir -p "${dir}" && chmod 0700 "${dir}" \
+    || die "could not create ${dir} on this host"
 
   # Measured against what this artifact actually contains and where each part
   # lands — not against pg_database_size.
@@ -1096,7 +1111,9 @@ take_verified_backup() {
   dump_input="$(db_included_dump_input_bytes)"
   restored="$(db_included_restored_bytes)"
   data_dir="$(db_data_directory)"
-  free="$(db_free_bytes_for "${BACKUP_ROOT}")"
+  # The artifact filesystem is local to THIS host now, so it is measured here
+  # rather than over ssh on the database host.
+  free="$(df -Pk "${BACKUP_ROOT}" 2>/dev/null | awk 'NR==2 {print $4 * 1024}' | tr -d '[:space:]')"
   scratch_free="$(db_free_bytes_for "${data_dir}")"
   case "${free}" in "" | *[!0-9]*) die "could not read free space for ${BACKUP_ROOT} on the database host" ;; esac
   case "${dump_input}" in "" | *[!0-9]*) die "could not measure the artifact's included dataset; refusing to back up blind" ;; esac
@@ -1161,14 +1178,16 @@ EOF
   # ROOT shell on the database host create the file and pg_dump merely write to
   # its stdout. The daily backup script already does exactly this, for exactly
   # this reason.
-  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags} > $(printf %q "${artifact}")" \
+  # Streamed: pg_dump writes to ITS stdout on the database host and ssh carries
+  # the bytes here. Nothing large is ever written on the database host.
+  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=9 --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" \
     || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
 
   # Record what this artifact actually cost, so the next cutover sizes itself
   # against a measurement instead of a guess.
   # `wc -c <file` rather than `stat -c %s`: stat's flags differ between GNU and
   # BSD, and this script has to run against both.
-  artifact_bytes="$(db_run "wc -c < $(printf %q "${artifact}")" | tr -d '[:space:]')"
+  artifact_bytes="$(wc -c < "${artifact}" | tr -d '[:space:]')"
   case "${artifact_bytes}" in
     "" | *[!0-9]*) : ;;
     *) db_run "printf 'input_bytes=%s\nartifact_bytes=%s\n' $(printf %q "${dump_input}") $(printf %q "${artifact_bytes}") > $(printf %q "${BACKUP_ROOT}/last-artifact-sizing")" || true
@@ -1177,7 +1196,7 @@ EOF
 
   local artifact_sha artifact_bytes artifact_created
   artifact_sha="$(db_run "${REMOTE_SHA256_FN}; sha256_of $(printf %q "${artifact}")" | tr -d '[:space:]')"
-  artifact_bytes="$(db_run "wc -c < $(printf %q "${artifact}")" | tr -d '[:space:]')"
+  artifact_bytes="$(wc -c < "${artifact}" | tr -d '[:space:]')"
   artifact_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   case "${artifact_bytes}" in "" | 0 | *[!0-9]*) die "the backup artifact ${artifact} is empty or unreadable" ;; esac
   log "backup artifact bytes=${artifact_bytes} sha256=${artifact_sha}"
@@ -1189,7 +1208,8 @@ EOF
   # Piped, for the same reason the dump is redirected: the artifact lives in a
   # root-only directory, so the postgres user cannot even traverse to it. The
   # ROOT shell reads the file and pg_restore takes it on stdin.
-  if ! db_run "cat $(printf %q "${artifact}") | runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error"; then
+  # Streamed back the other way: the artifact is local, pg_restore is remote.
+  if ! db_run "runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error" < "${artifact}"; then
     db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
     die "the fresh backup could NOT be restored. Do not migrate: this release has no rollback."
   fi
@@ -1296,7 +1316,7 @@ assert_backup_manifest_bound() {
   # phases prove it still exists at exactly the recorded size instead, and say so.
   local artifact bytes
   artifact="$(backup_manifest_value "${text}" artifact_path)"
-  bytes="$(db_run "wc -c < $(printf %q "${artifact}")" 2>/dev/null | tr -d '[:space:]' || true)"
+  bytes="$(wc -c < "${artifact}" 2>/dev/null | tr -d '[:space:]' || true)"
   [ -n "${bytes}" ] || die "the rollback artifact ${artifact} is missing from the database host"
   [ "${bytes}" = "$(backup_manifest_value "${text}" artifact_bytes)" ] \
     || die "the rollback artifact is ${bytes}B, the manifest recorded $(backup_manifest_value "${text}" artifact_bytes)B; it was replaced or truncated"

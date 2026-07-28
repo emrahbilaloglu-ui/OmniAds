@@ -1549,12 +1549,34 @@ cutover_runner_run() {
   # its manifest AND its recovery policy from that directory, so without it the
   # runner wrapper would read ${REMOTE_APP_DIR}/cutover's manifest and refuse
   # itself. Everything else is byte-for-byte the contract cutover_epoch_run uses.
+  # Output goes to a HOST-SIDE file, not down the SSH channel.
+  #
+  # preflight emits a great deal — including container output from the docker
+  # commands it runs — and streaming that over the connection killed it: ssh
+  # returned 255 on all four attempts about 25 seconds in, before the backup
+  # even started. The bytes, not the work, were the problem.
+  #
+  # Writing to the host also keeps the full record where the audit evidence
+  # already lives, instead of only in a workflow log: a bounded tail comes back
+  # for the decision, the whole thing stays on the machine it describes.
+  local phase_log
+  phase_log="${CUTOVER_RUNNER_ROOT}/phase-${phase}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  local phase_status=0
+  set +e
   SYNC_CUTOVER_INSTALL_DIR="${dest}" \
   SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" \
   SYNC_CUTOVER_SCHEDULER="${CUTOVER_SCHEDULER:-rootcron}" \
   SYNC_CUTOVER_CONTINUES_FROM="${CUTOVER_CONTINUES_FROM:-}" \
   DEPLOY_SHA="${RUNNER_RELEASE_SHA}" \
-    bash "${dest}/hetzner-sync-cutover.sh" "${phase}"
+    bash "${dest}/hetzner-sync-cutover.sh" "${phase}" > "${phase_log}" 2>&1
+  phase_status=$?
+  set -e
+
+  log "phase log: ${phase_log} ($(wc -c < "${phase_log}" 2>/dev/null || echo 0) bytes) — last 40 lines:"
+  tail -n 40 "${phase_log}" 2>/dev/null | sed 's/^/  | /' || true
+
+  [ "${phase_status}" -eq 0 ] \
+    || die_cutover "phase '${phase}' failed with status ${phase_status}; the full log is at ${phase_log} on the host"
 
   log "phase '${phase}' returned 0; state now:"
   sed 's/^/  /' "${CUTOVER_STATE_FILE}" 2>/dev/null | grep -viE '(secret|token|password|api[_-]?key)' || true

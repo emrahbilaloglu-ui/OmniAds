@@ -82,8 +82,16 @@ ssh_with_stdin_retry() {
   # credential that can reach the database host.
   if [ "${CUTOVER_FORWARD_AGENT:-0}" = "1" ]; then
     case "${CUTOVER_FORWARD_AGENT_PHASE:-}" in
+      # cutover_runner_run drives the wrapper's own phases, which ssh to the
+      # database host, so it needs the lent identity exactly as cutover_epoch_run
+      # does. The other three runner phases are NOT here on purpose: pulling an
+      # image, unpacking it into a directory and deleting that directory never
+      # touch the database, and a phase that cannot use a credential should not
+      # be handed one. The workflow correspondingly does not even request
+      # forwarding for them.
       cutover_resume_precheck | cutover_resume_scheduler \
-        | cutover_epoch_preserve_evidence | cutover_epoch_prune_images | cutover_epoch_run)
+        | cutover_epoch_preserve_evidence | cutover_epoch_prune_images \
+        | cutover_epoch_run | cutover_runner_run)
         [ -n "${SSH_AUTH_SOCK:-}" ] \
           || { echo "agent forwarding requested but no SSH_AUTH_SOCK is present" >&2; return 1; }
         ssh_opts+=(-o ForwardAgent=yes)

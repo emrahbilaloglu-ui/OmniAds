@@ -270,9 +270,18 @@ jobs:
           case "${PHASE_INPUT}" in
             preserve-evidence) remote_phase=cutover_epoch_preserve_evidence ;;
             prune-images)      remote_phase=cutover_epoch_prune_images ;;
-            runner-pull)       remote_phase=cutover_runner_pull ;;
-            runner-install)    remote_phase=cutover_runner_install ;;
-            runner-remove)     remote_phase=cutover_runner_remove ;;
+            # These three never reach the database — they pull an image, unpack
+            # it into a directory, or delete that directory. So they do not ask
+            # for the forwarded agent at all, and the SSH layer refuses them if
+            # they ever do. Least privilege in the direction that matters: the
+            # identity that can reach the database host is lent only to phases
+            # that must use it.
+            runner-pull)       remote_phase=cutover_runner_pull
+                               export CUTOVER_FORWARD_AGENT=0 ;;
+            runner-install)    remote_phase=cutover_runner_install
+                               export CUTOVER_FORWARD_AGENT=0 ;;
+            runner-remove)     remote_phase=cutover_runner_remove
+                               export CUTOVER_FORWARD_AGENT=0 ;;
             *)
               # A wrapper phase. `runner` drives it from the isolated package,
               # leaving the installed wrapper untouched; `installed` is kept

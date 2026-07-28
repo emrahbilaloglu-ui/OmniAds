@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getActiveBusinesses = vi.fn();
+const readActiveBusinesses = vi.fn();
 const acquireSyncRunnerLease = vi.fn();
 const heartbeatSyncWorker = vi.fn();
 const renewSyncRunnerLease = vi.fn();
@@ -26,6 +27,7 @@ vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses,
+  readActiveBusinesses,
 }));
 
 vi.mock("@/lib/sync/worker-health", () => ({
@@ -63,7 +65,10 @@ describe("worker runtime heartbeat repair metadata", () => {
       allowed: true,
       reason: "ready",
     } as never);
-    getActiveBusinesses.mockResolvedValue([{ id: "biz-1", name: "Biz 1" }]);
+    readActiveBusinesses.mockResolvedValue({
+      ok: true,
+      businesses: [{ id: "biz-1", name: "Biz 1" }],
+    });
     acquireSyncRunnerLease.mockResolvedValue(true);
     renewSyncRunnerLease.mockResolvedValue(true);
     releaseSyncRunnerLease.mockResolvedValue(undefined);
@@ -210,10 +215,13 @@ describe("worker runtime heartbeat repair metadata", () => {
 
   it("limits blocked provider ticks to prioritized canaries", async () => {
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-priority";
-    getActiveBusinesses.mockResolvedValue([
-      { id: "biz-priority", name: "Priority" },
-      { id: "biz-other", name: "Other" },
-    ]);
+    readActiveBusinesses.mockResolvedValue({
+      ok: true,
+      businesses: [
+        { id: "biz-priority", name: "Priority" },
+        { id: "biz-other", name: "Other" },
+      ],
+    });
     getLatestSyncGateRecords.mockResolvedValue({
       deployGate: null,
       releaseGate: {

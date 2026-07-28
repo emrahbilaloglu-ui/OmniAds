@@ -78,7 +78,13 @@ describe("shopify customer-events pixel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
-    delete process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET;
+    // These tests used to DELETE the secret, which meant they asserted the
+    // null-token path was acceptable. It is not: webPixelCreate is a create,
+    // not an upsert, and the caller marks the shop already_registered — so a
+    // pixel written with a null token is never re-created, and every event it
+    // sends is now refused. The pixel creation refuses instead; see the
+    // dedicated test below.
+    process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET = "sh_customer_events_fixture_secret";
   });
 
   it("builds the ingest url from the app url", () => {
@@ -221,6 +227,24 @@ describe("shopify customer-events pixel", () => {
       /registerShopifyCustomerEventsPixel was called without assertStillAuthorized/,
     );
     expect(calls).toEqual([]);
+  });
+
+  it("refuses to create a pixel that could never authenticate", async () => {
+    // The ingest route fails closed on an unset secret, and a pixel is created
+    // once and never re-created — so writing one with a null token would leave
+    // the shop permanently unable to send events, unrepairable by later
+    // configuration. Stopping keeps the shop re-registerable.
+    delete process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET;
+    const authority = grant();
+    const result = await registerShopifyCustomerEventsPixel({
+      shopId: SHOP,
+      accessToken: ACCESS_TOKEN,
+      assertStillAuthorized: authority.assertStillAuthorized,
+    });
+
+    expect(result.status).toBe("stopped");
+    expect(result.created).toEqual([]);
+    expect(result.reason).toMatch(/SHOPIFY_CUSTOMER_EVENTS_SECRET/);
   });
 
   it("never puts the access token or the ingest secret into a receipt", async () => {

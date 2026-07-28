@@ -21,6 +21,28 @@ function hasAny(haystack: string, needles: string[]) {
   return needles.some((needle) => haystack.includes(needle));
 }
 
+/**
+ * Whether the message is PostgreSQL talking about our own schema.
+ *
+ * The account-checkpoint rule matches the bare substring "checkpoint", and it
+ * sits above every database rule — so `duplicate key value violates unique
+ * constraint "meta_sync_checkpoints_pkey"` was diagnosed as a Facebook account
+ * checkpoint: terminal, dead-lettered on the first attempt, and flagged
+ * actionRequired, telling the operator to go log in to Facebook and clear a
+ * checkpoint that does not exist. Our table is literally named
+ * meta_sync_checkpoints, so this collides constantly.
+ */
+function looksLikeDatabaseError(lower: string) {
+  return hasAny(lower, [
+    "meta_sync_checkpoints",
+    'relation "',
+    'column "',
+    'constraint "',
+    "violates",
+    "syntax error at or near",
+  ]);
+}
+
 export function classifyMetaSyncFailure(input: {
   error?: unknown;
   errorClass?: string | null;
@@ -44,11 +66,12 @@ export function classifyMetaSyncFailure(input: {
 
   if (
     providedClass === "account_checkpoint" ||
-    hasAny(lower, [
-      "cannot access the app",
-      "log in to www.facebook.com",
-      "checkpoint",
-    ])
+    (!looksLikeDatabaseError(lower) &&
+      hasAny(lower, [
+        "cannot access the app",
+        "log in to www.facebook.com",
+        "checkpoint",
+      ]))
   ) {
     return {
       errorClass: "account_checkpoint",
@@ -242,15 +265,26 @@ export function shouldDeadLetterMetaFailure(input: {
   maxAttempts: number;
 }) {
   if (input.terminal) return true;
-  const retryableClasses = new Set([
+
+  // Classes that genuinely should retry without limit: an infrastructure
+  // condition or a lease race resolves on its own, and dead-lettering the day
+  // would not help.
+  const alwaysRetryableClasses = new Set([
     "quota",
-    "transient",
     "operational",
     "database_timeout",
     "database_disk_pressure",
     "duplicate_upsert_batch",
     "lease_conflict",
   ]);
-  if (retryableClasses.has(input.errorClass)) return false;
+  if (alwaysRetryableClasses.has(input.errorClass)) return false;
+
+  // "transient" is the classifier's DEFAULT for any message it does not
+  // recognise, so exempting it made META_PARTITION_MAX_ATTEMPTS unreachable for
+  // every unknown failure. A deterministic 400, an out-of-memory, or a
+  // permanently oversized partition retried forever, capped at an hour, and
+  // never appeared in the dead-letter count the admin surface alarms on — the
+  // day silently never landed. Honour the attempt cap so a repeating failure
+  // becomes visible.
   return input.attemptCount + 1 >= input.maxAttempts;
 }

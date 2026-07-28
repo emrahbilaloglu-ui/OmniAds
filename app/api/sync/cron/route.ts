@@ -294,10 +294,29 @@ export async function POST(request: NextRequest) {
         // are still failures. Without this the receipt reported `synced: 13`
         // when every lane of every business had thrown.
         laneFailures: Object.entries(lanes).flatMap(([lane, outcome]) => {
-          const value = outcome.value as { error?: unknown } | null;
-          return value && typeof value === "object" && "error" in value && value.error
-            ? [{ lane, message: String(value.error) }]
-            : [];
+          const value = outcome.value as
+            | { error?: unknown; failed?: unknown; attempted?: unknown }
+            | null;
+          if (!value || typeof value !== "object") return [];
+          if ("error" in value && value.error) {
+            return [{ lane, message: String(value.error) }];
+          }
+          // A lane that RESOLVED while failing every window is still a failure.
+          // GA4 and Search Console catch their per-window errors internally and
+          // return `{ attempted, succeeded, failed }` with no `error` key, so
+          // keying only off `error` reported ok:true and full success while both
+          // lanes had failed every window for every business.
+          if (typeof value.failed === "number" && value.failed > 0) {
+            const attempted =
+              typeof value.attempted === "number" ? value.attempted : null;
+            return [
+              {
+                lane,
+                message: `${value.failed}${attempted === null ? "" : ` of ${attempted}`} window(s) failed`,
+              },
+            ];
+          }
+          return [];
         }),
       };
     }),

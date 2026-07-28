@@ -1,4 +1,4 @@
-import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { readActiveBusinesses } from "@/lib/sync/active-businesses";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import {
   assertSyncLaneEnabled,
@@ -53,6 +53,23 @@ export interface DurableWorkerRuntimeOptions {
 export interface RunnerLeaseGuard {
   isLeaseLost(): boolean;
   getLeaseLossReason(): string | null;
+}
+
+/**
+ * Raised when the runner lease is discovered lost part-way through a partition.
+ *
+ * Its own class so the partition loop can tell "another worker owns this
+ * business now" from an ordinary provider failure: the first must stop the tick
+ * and must never be reported as a completed partition, while the second is
+ * retried normally.
+ */
+export class RunnerLeaseLostError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`Runner lease lost mid-partition: ${reason}`);
+    this.name = "RunnerLeaseLostError";
+    this.reason = reason;
+  }
 }
 
 export function createRunnerLeaseGuard() {
@@ -505,16 +522,47 @@ export async function runAdapterLifecycleTick(input: {
 
     lastPartitionId = partition.partitionId;
     try {
+      // The lease is re-checked INSIDE the pipeline, not only at the top of the
+      // loop. WORKER_PARTITION_TICK_LIMIT defaults to 1, so the loop-top check
+      // above runs exactly once per tick — before any work — and fetchChunk is
+      // the long provider I/O during which a 2-minute lease is most likely to
+      // expire. Without these checks a worker that had already lost its lease
+      // ran persistChunk, advanceCheckpoint, writeFacts and completePartition
+      // to completion and reported `succeeded`, while the new lease holder was
+      // working the same business.
+      const assertLeaseStillHeld = () => {
+        if (!input.leaseGuard?.isLeaseLost()) return;
+        throw new RunnerLeaseLostError(
+          input.leaseGuard.getLeaseLossReason() ?? "runner_lease_conflict",
+        );
+      };
+
       const checkpoint = await input.adapter.getCheckpoint({ partition });
       const chunk = await input.adapter.fetchChunk({ partition, checkpoint });
+      assertLeaseStillHeld();
       await input.adapter.persistChunk({ partition, chunk });
       await input.adapter.transformChunk({ partition, chunk });
+      assertLeaseStillHeld();
       await input.adapter.advanceCheckpoint({ partition, chunk });
       await input.adapter.writeFacts({ partition, chunk });
+      assertLeaseStillHeld();
       await input.adapter.completePartition({ partition });
       succeeded += 1;
     } catch (error) {
       failed += 1;
+      if (error instanceof RunnerLeaseLostError) {
+        // Not an ordinary provider failure: another worker now owns this
+        // business. Stop the tick rather than carrying on to the next
+        // partition, and report the loss instead of a classified error.
+        failureReasons.push(error.reason);
+        console.error("[durable-worker] lifecycle_partition_lease_lost", {
+          businessId: input.businessId,
+          providerScope: input.adapter.providerScope,
+          partitionId: partition.partitionId,
+          reason: error.reason,
+        });
+        break;
+      }
       failureReasons.push(input.adapter.classifyFailure(error));
       console.error("[durable-worker] lifecycle_partition_failed", {
         businessId: input.businessId,
@@ -862,9 +910,29 @@ export async function runDurableWorkerRuntime(
         ),
       ),
     );
-    const businesses = await getActiveBusinesses(maxBusinessesPerTick, {
+    // "Could not read the business list" is NOT "there are no businesses".
+    // Swallowing the failure to [] made the worker loop forever doing nothing
+    // while every liveness surface stayed green: it kept heartbeating `idle`,
+    // so `online_workers` counted it and the container healthcheck — which only
+    // asserts heartbeat freshness — passed throughout a total sync outage.
+    const businessRead = await readActiveBusinesses(maxBusinessesPerTick, {
       prioritizedIds: prioritizedBusinessIds,
-    }).catch(() => []);
+    });
+    if (!businessRead.ok) {
+      // Deliberately does NOT heartbeat. The heartbeat status enum has no value
+      // meaning "alive but unable to discover work", and writing `idle` is
+      // exactly the lie that made this invisible. Letting the heartbeat go stale
+      // is the honest signal: `online_workers` stops counting this worker and
+      // the container healthcheck — which asserts heartbeat freshness — starts
+      // failing, which is the correct outcome for a worker that cannot work.
+      console.error("[durable-worker] business_discovery_failed", {
+        reason: businessRead.reason,
+        message: businessRead.message,
+      });
+      await sleep(pollIntervalMs);
+      continue;
+    }
+    const businesses = businessRead.businesses;
     for (const business of businesses) {
       discoveredBusinesses.add(business.id);
     }

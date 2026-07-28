@@ -123,8 +123,13 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
   const siteUrl = context.siteUrl ?? "";
   let succeeded = 0;
   let failed = 0;
+  // Counted, not assumed: the loop below can break early on an auth or
+  // quota error, and reporting the full window count as `attempted` claimed
+  // work that never happened.
+  let attempted = 0;
 
   for (const window of DATE_WINDOWS) {
+    attempted += 1;
     // Re-admitted per WINDOW. Each window is its own provider call group and
     // its own cache/job write; admitting once at the top says nothing about
     // whether the fourth window is still allowed to run.
@@ -216,9 +221,9 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
 
   logRuntimeInfo("search-console-sync", "completed", {
     businessId,
-    attempted: DATE_WINDOWS.length,
+    attempted,
     succeeded,
     failed,
   });
-  return { businessId, attempted: DATE_WINDOWS.length, succeeded, failed, skipped: false };
+  return { businessId, attempted, succeeded, failed, skipped: false };
 }

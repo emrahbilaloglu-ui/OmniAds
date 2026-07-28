@@ -74,3 +74,31 @@ describe("sync cron receipt", () => {
     expect(source).toMatch(/failed,/);
   });
 });
+
+/**
+ * GA4 and Search Console catch every per-window error internally and resolve
+ * with `{ attempted, succeeded, failed }` and NO `error` key. The first version
+ * of `laneFailures` keyed only off `value.error`, so a lane that had failed
+ * every window for every business contributed nothing: `failed` stayed 0,
+ * `succeeded` equalled `attempted`, and the cron answered ok:true with full
+ * success while two of six lanes were entirely down.
+ */
+describe("lanes that resolve while failing", () => {
+  it("counts a resolved lane result carrying a failure count", () => {
+    expect(source).toMatch(/typeof value\.failed === "number" && value\.failed > 0/);
+  });
+
+  it("still keys off an explicit error for rejected lanes", () => {
+    expect(source).toMatch(/"error" in value && value\.error/);
+  });
+
+  it("does not treat a clean resolved lane as a failure", () => {
+    // `failed: 0` must not produce a laneFailure entry.
+    const branch = source.slice(
+      source.indexOf("laneFailures: Object.entries(lanes)"),
+      source.indexOf("        }),"),
+    );
+    expect(branch).toContain("value.failed > 0");
+    expect(branch).not.toMatch(/value\.failed >= 0/);
+  });
+});

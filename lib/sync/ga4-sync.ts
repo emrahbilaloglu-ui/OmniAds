@@ -119,8 +119,13 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
 
   let succeeded = 0;
   let failed = 0;
+  // Counted, not assumed: the loop below can break early on an auth or
+  // quota error, and reporting the full window count as `attempted` claimed
+  // work that never happened.
+  let attempted = 0;
 
   for (const window of GA4_AUTO_WARM_DATE_WINDOWS) {
+    attempted += 1;
     // Re-admitted per WINDOW, before the job row that starts it.
     //
     // Admission once at the top covers a run that may take many minutes across
@@ -189,13 +194,13 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
 
   logRuntimeInfo("ga4-sync", "completed", {
     businessId,
-    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+    attempted,
     succeeded,
     failed,
   });
   return {
     businessId,
-    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+    attempted,
     succeeded,
     failed,
     skipped: false,

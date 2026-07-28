@@ -33,14 +33,22 @@ const upsertShopifyRepairIntent = vi.fn();
 const upsertShopifyCustomerEvents = vi.fn();
 const syncShopifyCommerceReports = vi.fn();
 
-vi.mock("@/lib/shopify/webhook-store", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, upsertShopifyWebhookDelivery, upsertShopifyRepairIntent };
-});
-
+// All three writers live in @/lib/shopify/warehouse — which is where the routes
+// import them from. This file used to mock a second module,
+// "@/lib/shopify/webhook-store", that does not exist in the repo. vi.mock is
+// lazy, so its factory never ran and never errored; the two vi.fn()s were simply
+// never wired to anything, and every
+// `expect(upsertShopifyWebhookDelivery).not.toHaveBeenCalled()` below passed
+// unconditionally — including if admission were moved back after persistence,
+// which is the exact regression this file exists to catch.
 vi.mock("@/lib/shopify/warehouse", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, upsertShopifyCustomerEvents };
+  return {
+    ...actual,
+    upsertShopifyCustomerEvents,
+    upsertShopifyWebhookDelivery,
+    upsertShopifyRepairIntent,
+  };
 });
 
 vi.mock("@/lib/sync/shopify-sync", async (importOriginal) => {

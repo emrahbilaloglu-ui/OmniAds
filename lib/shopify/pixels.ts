@@ -98,9 +98,30 @@ export async function registerShopifyCustomerEventsPixel(
     };
   }
 
+  // Refuse rather than create a pixel that can never work.
+  //
+  // webPixelCreate is a create, not an upsert, and the caller marks the shop
+  // already_registered afterwards — so a pixel written with a null token is
+  // never re-created. Since the ingest route now fails closed on an unset
+  // secret, such a pixel would 403 forever, and no amount of later configuration
+  // would repair it. Stopping here keeps the shop re-registerable once the
+  // secret is set.
+  const customerEventsSecret = process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET?.trim();
+  if (!customerEventsSecret) {
+    return {
+      status: "stopped",
+      stoppedBefore: "create_customer_events_web_pixel",
+      reason:
+        "SHOPIFY_CUSTOMER_EVENTS_SECRET is not configured, so the pixel would carry no token and its events would be refused. Set it and re-register.",
+      endpoint,
+      created: [],
+      notCreated: [SHOPIFY_CUSTOMER_EVENTS_PIXEL_STEP],
+    };
+  }
+
   const settings = JSON.stringify({
     endpoint,
-    authToken: process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET?.trim() || null,
+    authToken: customerEventsSecret,
   });
   const payload = await shopifyAdminGraphql<{
     webPixelCreate?: {

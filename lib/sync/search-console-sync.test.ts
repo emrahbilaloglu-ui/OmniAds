@@ -184,9 +184,12 @@ describe("syncSearchConsoleReports", () => {
 
     const result = await syncSearchConsoleReports("biz_1");
 
+    // One window was attempted, then the cooldown broke the loop. This asserted
+    // `attempted: 2` because the lane returned DATE_WINDOWS.length unconditionally,
+    // so the receipt claimed a window it never ran.
     expect(result).toEqual({
       businessId: "biz_1",
-      attempted: 2,
+      attempted: 1,
       succeeded: 0,
       failed: 1,
       skipped: false,

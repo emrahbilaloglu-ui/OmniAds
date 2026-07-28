@@ -234,6 +234,34 @@ sha256_stdin() {
 
 sha256_string() { printf '%s' "$1" | sha256_stdin; }
 
+# Retry a command until it succeeds or the budget runs out.
+#
+# Everything after `docker compose up -d --force-recreate` was checked ONCE,
+# immediately. A recreated container is one second old at that point: Next.js
+# has not bound its port and the worker has not written its first heartbeat, so
+# the checks measured startup latency rather than health. In production that
+# meant /healthz answered "connection reset", enable rolled a correct release
+# back, and the staged worker check refused a worker that was still booting.
+#
+# Bounded, so a genuinely broken release still fails — just not for being young.
+wait_for() {
+  local what="$1" attempts="$2" delay="$3"
+  shift 3
+  local attempt=1
+  while [ "${attempt}" -le "${attempts}" ]; do
+    if "$@"; then
+      [ "${attempt}" -eq 1 ] || log "${what}: ready after ${attempt} attempt(s)"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    [ "${attempt}" -le "${attempts}" ] && sleep "${delay}"
+  done
+  log "${what}: still not ready after ${attempts} attempt(s) over $((attempts * delay))s"
+  return 1
+}
+
+healthz_answers() { curl -fsS -m 10 http://127.0.0.1:3000/api/healthz >/dev/null 2>&1; }
+
 file_bytes() { wc -c < "$1" | tr -d '[:space:]'; }
 
 # Deliberately NO remote-hashing helper here. Every file this script needs a
@@ -2089,7 +2117,7 @@ case "${PHASE}" in
     done
 
     log "Checking /healthz and /build-info"
-    curl -fsS http://127.0.0.1:3000/api/healthz >/dev/null || die "/healthz did not answer"
+    wait_for "/healthz" 30 2 healthz_answers || die "/healthz did not answer within 60s of the recreate"
     build_id="$(curl -fsS http://127.0.0.1:3000/api/build-info | python3 -c 'import json,sys; print(json.load(sys.stdin).get("buildId") or "")')"
     [ "${build_id}" = "${EXPECTED_SHA}" ] || die "build-info reports '${build_id}', expected ${EXPECTED_SHA}"
 
@@ -2120,9 +2148,12 @@ case "${PHASE}" in
     # the lanes off: the worker is admitted to nothing, so nothing is online. The
     # old assertion could only ever pass against a worker that was already doing
     # work, which is the opposite of what this phase exists to establish.
-    docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
-      --expect-staged-idle --online-window-minutes 5 \
-      --min-heartbeat-after "${worker_started_at}" \
+    staged_check() {
+      docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
+        --expect-staged-idle --online-window-minutes 5 \
+        --min-heartbeat-after "${worker_started_at}" >/dev/null 2>&1
+    }
+    wait_for "staged worker" 30 2 staged_check \
       || die "the worker did not come up staged: expected exactly one fresh DISABLED heartbeat, no online workers and no leases or claims held. See the reason code above."
 
     # Re-establishing the runtime proof is what clears an earlier invalidation,
@@ -2193,7 +2224,7 @@ case "${PHASE}" in
       docker compose up -d --force-recreate web worker \
       || rollback_enable "docker compose could not recreate both containers"
 
-    curl -fsS http://127.0.0.1:3000/api/healthz >/dev/null \
+    wait_for "/healthz" 30 2 healthz_answers \
       || rollback_enable "/healthz did not answer after recreate"
     build_id="$(curl -fsS http://127.0.0.1:3000/api/build-info | python3 -c 'import json,sys; print(json.load(sys.stdin).get("buildId") or "")' || true)"
     [ "${build_id}" = "${EXPECTED_SHA}" ] \
@@ -2223,11 +2254,17 @@ case "${PHASE}" in
     done
 
     worker_started_at="$(docker inspect "$(docker compose ps -q worker)" --format '{{.State.StartedAt}}')"
+    # A freshly enabled worker registers per provider scope on its first tick,
+    # not at the instant the container starts. Checked once, immediately, this
+    # measured how fast the worker boots.
     for scope in meta google_ads shopify; do
-      docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
-        --provider-scope "${scope}" --online-window-minutes 5 --min-online-workers 1 \
-        --min-heartbeat-after "${worker_started_at}" \
-        || rollback_enable "no fresh ${scope} worker registration after the recreate"
+      scope_online() {
+        docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
+          --provider-scope "${scope}" --online-window-minutes 5 --min-online-workers 1 \
+          --min-heartbeat-after "${worker_started_at}" >/dev/null 2>&1
+      }
+      wait_for "${scope} worker registration" 45 2 scope_online \
+        || rollback_enable "no fresh ${scope} worker registration within 90s of the recreate"
       log "${scope} worker registered after ${worker_started_at}"
     done
 

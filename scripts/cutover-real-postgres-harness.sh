@@ -417,6 +417,16 @@ for arg in "\$@"; do
       exit 0 ;;
     *healthz*)
       if [ -n "\${HARNESS_HEALTHZ_FAIL:-}" ]; then exit 22; fi
+      # Slow start: refuse the first N calls, then answer. A recreated
+      # container is one second old when the phase first asks, and checking
+      # once made the phase measure startup latency instead of health —
+      # /healthz answered "connection reset" and enable rolled a correct
+      # release back. This proves the retry waits rather than getting lucky.
+      if [ -n "\${HARNESS_HEALTHZ_SLOW_START:-}" ]; then
+        n="\$(cat "${host}/healthz-calls" 2>/dev/null || echo 0)"
+        n=\$((n + 1)); printf '%s' "\$n" > "${host}/healthz-calls"
+        [ "\$n" -gt "\${HARNESS_HEALTHZ_SLOW_START}" ] || exit 7
+      fi
       printf 'ok\n'; exit 0 ;;
   esac
 done
@@ -1277,6 +1287,29 @@ host="$(new_host relpolicyedited)"
 printf '\nmeta_ad_daily\tB\tedited on the host\n' >> "${host}/cutover/recovery-policy.tsv"
 expect_refusal "${host}" preflight "recovery policy hashes" \
   "R8 a recovery policy edited on the host refuses against the digest the delivery pinned" || true
+
+# ══ T: a container is not broken for being one second old ══════════════════
+#
+# Every check after `docker compose up -d --force-recreate` used to run ONCE,
+# immediately. At that point Next.js has not bound its port and the worker has
+# not written its first heartbeat, so the checks measured startup latency and
+# called it failure — three separate times on live cutovers, once rolling a
+# correct enable back with the site down. The retries are bounded, so a
+# genuinely dead release still fails; it just does not fail for being young.
+seed_database adsecute_slowstart
+host="$(new_host slowstart)"
+mkdir -p "${host}/tmp-work"
+for phase in preflight quiesce fingerprint-pre migrate verify-contract fingerprint-post; do
+  run_phase "${host}" "${phase}" DB_NAME=adsecute_slowstart >/dev/null 2>&1 || true
+done
+expect_ok "${host}" deploy-disabled \
+  "T1 a web container that refuses the first 5 health probes still passes deploy-disabled: the phase waits for readiness instead of measuring boot time" \
+  DB_NAME=adsecute_slowstart HARNESS_HEALTHZ_SLOW_START=5 || true
+
+rm -f "${host}/healthz-calls"
+expect_refusal "${host}" enable "/healthz" \
+  "T2 a web container that NEVER answers still fails enable, so the retry is a budget and not a bypass" \
+  DB_NAME=adsecute_slowstart HARNESS_HEALTHZ_FAIL=1 || true
 
 # ══ K: continuation once production is already migrated ════════════════════
 #

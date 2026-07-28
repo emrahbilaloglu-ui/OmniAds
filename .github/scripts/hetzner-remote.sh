@@ -1594,6 +1594,25 @@ cutover_runner_pull() {
   docker image inspect "${repo}@${digest}" --format '{{.Id}}' >/dev/null 2>&1 \
     || die_cutover "pulled ${repo}@${digest} but the daemon cannot inspect it"
   log "runner image present: ${repo}@${digest}"
+
+  # A digest pull creates NO tag. The image is genuinely present, and
+  # `docker image inspect ${repo}:${sha}` still fails — which is how preflight
+  # refused with "missing image ...; pull it first" while the bytes were sitting
+  # right there. The wrapper resolves images by tag, so the tag has to exist.
+  #
+  # Tagging FROM the digest rather than pulling by tag is what keeps the pin
+  # intact: the tag can only ever point at the bytes just verified, instead of
+  # at whatever the registry currently calls that tag.
+  if [ -n "${DEPLOY_SHA:-}" ]; then
+    docker tag "${repo}@${digest}" "${repo}:${DEPLOY_SHA}" \
+      || die_cutover "pulled ${repo}@${digest} but could not tag it ${repo}:${DEPLOY_SHA}"
+    local tagged_id digest_id
+    tagged_id="$(docker image inspect "${repo}:${DEPLOY_SHA}" --format '{{.Id}}' 2>/dev/null || true)"
+    digest_id="$(docker image inspect "${repo}@${digest}" --format '{{.Id}}' 2>/dev/null || true)"
+    [ -n "${tagged_id}" ] && [ "${tagged_id}" = "${digest_id}" ] \
+      || die_cutover "tag ${repo}:${DEPLOY_SHA} does not resolve to ${digest}"
+    log "tagged ${repo}:${DEPLOY_SHA} -> ${digest} (image id ${tagged_id})"
+  fi
 }
 
 cutover_runner_remove() {

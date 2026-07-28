@@ -51,7 +51,27 @@ sha_of() {
     shasum -a 256 "$1" | awk '{print $1}'
   fi
 }
-mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
+# GNU first, BSD second — the order matters and the old order was wrong.
+#
+# `stat -f` means two different things. On BSD/macOS it is the format string, so
+# `stat -f %m file` prints an mtime. On GNU it is --file-system, so `%m` is read
+# as a FILE operand: stat fails on that operand (exit non-zero, message to
+# stderr) but still prints FILESYSTEM statistics for the real file to STDOUT.
+# The `||` then also ran the GNU form, so the captured "mtime" was filesystem
+# block and inode counts followed by an mtime.
+#
+# That made the directory-comparison checks report the installed wrapper
+# directory as CHANGED whenever anything was written anywhere on the same
+# filesystem — which installing a package necessarily does. Seven checks failed
+# on Linux while the directory was in fact byte-identical: a yardstick measuring
+# the whole disk. Probing with -c first is unambiguous on both platforms.
+mtime_of() {
+  if stat -c %Y "$1" >/dev/null 2>&1; then
+    stat -c %Y "$1"
+  else
+    stat -f %m "$1"
+  fi
+}
 # macOS `ls -l` suffixes the mode with '@' (extended attributes) or '+' (ACL);
 # GNU ls uses '.' for an SELinux context. None of those are permission bits.
 mode_of() { ls -ld "$1" | awk '{ sub(/[@+.]$/, "", $1); print $1 }'; }
@@ -512,16 +532,31 @@ if grep -qa 'CUTOVER_RUNNER_ROOT="\${CUTOVER_RUNNER_ROOT:-/var/lib/adsecute-cuto
 else
   fail "R10c the runner root default is not /var/lib/adsecute-cutover-runner"
 fi
-if awk '/^assert_no_cutover_in_progress\(\)/,/^}/' .github/scripts/hetzner-remote.sh | grep -qa 'RUNNER'; then
-  fail "R10d assert_no_cutover_in_progress grew a runner exception"
+# R10d/R10e capture first and match a STRING; they do not pipe into `grep -q`.
+#
+# These are negative checks — "if this appears, fail" — and `grep -q` exits at
+# the first match. Piped, that sends SIGPIPE upstream, `pipefail` turns the
+# pipeline non-zero, and the `if` takes the else branch: the check would report
+# PASS precisely when it found the thing it exists to catch. The failure would
+# be invisible, in the two checks that guarantee the runner path never touches
+# the ordinary deploy gate. Capturing first has no early exit and no signal.
+gate_body="$(awk '/^assert_no_cutover_in_progress\(\)/,/^}/' .github/scripts/hetzner-remote.sh)"
+if [ -z "${gate_body}" ]; then
+  fail "R10d could not read assert_no_cutover_in_progress at all; the check is blind"
 else
-  pass "R10d assert_no_cutover_in_progress is untouched by the runner path"
+  case "${gate_body}" in
+    *RUNNER*) fail "R10d assert_no_cutover_in_progress grew a runner exception" ;;
+    *)        pass "R10d assert_no_cutover_in_progress is untouched by the runner path" ;;
+  esac
 fi
-if awk '/^  (prepare_runtime|run_migrations|recreate_services)\)/,/^    ;;/' .github/scripts/hetzner-remote.sh \
-  | grep -qa 'cutover_runner_'; then
-  fail "R10e an ordinary deploy phase reaches the runner package"
+deploy_arms="$(awk '/^  (prepare_runtime|run_migrations|recreate_services)\)/,/^    ;;/' .github/scripts/hetzner-remote.sh)"
+if [ -z "${deploy_arms}" ]; then
+  fail "R10e could not read the ordinary deploy phases at all; the check is blind"
 else
-  pass "R10e no ordinary deploy phase reaches the runner package"
+  case "${deploy_arms}" in
+    *cutover_runner_*) fail "R10e an ordinary deploy phase reaches the runner package" ;;
+    *)                 pass "R10e no ordinary deploy phase reaches the runner package" ;;
+  esac
 fi
 
 if [ "${FAILURES}" -ne 0 ]; then

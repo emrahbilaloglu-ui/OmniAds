@@ -144,27 +144,60 @@ else
   fi
 fi
 
+# W4 and W5 both ask "which case arm is this line in?", and both used to answer
+# it with a pipeline ending in `grep -q`. Under `set -o pipefail` that is a trap:
+# grep -q exits at the FIRST match, the upstream awk takes SIGPIPE (141), the
+# pipeline reports failure, and the `if` silently takes the else branch. It
+# passed on macOS, where the small output was buffered and awk finished first,
+# and failed on Linux — a test that reports the opposite of the truth depending
+# on the platform's pipe buffering. Both now scan once with awk and compare a
+# captured string: no pipe, no early exit, no SIGPIPE, same answer everywhere.
+
+# Which case arms contain a CALL to assert_state_invariants. The regex matches
+# an indented bare call, so the function's own definition is not counted.
+arms_calling_invariants="$(
+  awk '
+    /^  [a-z-]+\)$/                                  { arm = $1 }
+    /^[[:space:]]+assert_state_invariants[[:space:]]*$/ { if (arm != "") print arm }
+  ' scripts/hetzner-sync-cutover.sh
+)"
+
 # ── W4: preflight stays reachable — this must never become a deadlock ───────
 # The single most important check here. If a wrapper-identity mismatch could
 # also block preflight, the fix would recreate the exact class of unfinishable
 # state it exists to prevent.
-if grep -n 'assert_state_invariants' scripts/hetzner-sync-cutover.sh \
-     | awk -F: '{print $1}' \
-     | while read -r ln; do
-         awk -v target="${ln}" 'NR <= target && /^  [a-z-]+\)$/ {ph=$1} NR == target {print ph}' \
-           scripts/hetzner-sync-cutover.sh
-       done | grep -q '^preflight)$'; then
-  fail "W4 preflight calls assert_state_invariants — a mismatch would be unrecoverable"
-else
-  pass "W4 preflight does NOT call assert_state_invariants, so a new epoch is always reachable"
-fi
+case "
+${arms_calling_invariants}
+" in
+  *"
+preflight)
+"*)
+    fail "W4 preflight calls assert_state_invariants — a mismatch would be unrecoverable"
+    ;;
+  *)
+    if [ -n "${arms_calling_invariants}" ]; then
+      pass "W4 preflight does NOT call assert_state_invariants, so a new epoch is always reachable"
+    else
+      # Nothing matched at all: the file shape changed and this check has gone
+      # blind. Blind is a failure, not a pass.
+      fail "W4 found NO phase calling assert_state_invariants; the check no longer describes this wrapper"
+    fi
+    ;;
+esac
 
 # ── W5: and preflight actually re-stamps the identity ───────────────────────
-if awk '/^  preflight\)/,/^    ;;/' scripts/hetzner-sync-cutover.sh \
-     | grep -q 'state_set wrapper_sha256'; then
+# Answered by the arm the write actually sits in, rather than by a range whose
+# terminator has to be guessed.
+arm_recording_identity="$(
+  awk '
+    /^  [a-z-]+\)$/                { arm = $1 }
+    /state_set wrapper_sha256/     { print arm; exit }
+  ' scripts/hetzner-sync-cutover.sh
+)"
+if [ "${arm_recording_identity}" = "preflight)" ]; then
   pass "W5 preflight records the running wrapper's hash, so the new epoch is self-consistent"
 else
-  fail "W5 preflight does not record wrapper_sha256; W4's escape hatch would not re-bind identity"
+  fail "W5 wrapper_sha256 is recorded in '${arm_recording_identity:-no phase at all}', not preflight; W4's escape hatch would not re-bind identity"
 fi
 
 if [ "${FAILURES}" -ne 0 ]; then

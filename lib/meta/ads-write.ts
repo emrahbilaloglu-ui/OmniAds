@@ -14,10 +14,15 @@ export interface MetaAdsWriteContext {
    * Selection is not the whole of authority. A user can reconnect Meta as a
    * different principal while the ad account stays selected by id, and the
    * token captured before that reconnect would still be POSTed — writing to a
-   * live account through a credential the user has already replaced. When the
-   * caller supplies this, the pre-POST check refuses on any change.
+   * live account through a credential the user has already replaced. The
+   * pre-POST check refuses on any change.
+   *
+   * REQUIRED, and deliberately so. While it was optional, Launchpad built its
+   * context without it and every Launchpad campaign, ad-set, ad, pause and
+   * resume silently took the "nothing to check" branch below — the exact state
+   * the guard exists to prevent. Optionality made that omission compile.
    */
-  connectionGeneration?: string | null;
+  connectionGeneration: string;
 }
 
 export interface MetaAdsWriteOptions {
@@ -204,14 +209,16 @@ export async function getMetaAdsWriteBlockFailure(
   //
   // A read failure is 503, never an optional null: "I could not tell" must not
   // be indistinguishable from "there is no generation to check".
-  const atomicAuthority = ctx.connectionGeneration
-    ? await assertProviderWriteAuthorityUnchanged({
-        businessId: ctx.businessId,
-        provider: "meta",
-        accountId: ctx.providerAccountId,
-        expectedConnectionGeneration: ctx.connectionGeneration,
-      })
-    : ({ ok: true } as const);
+  // Unconditional. This used to be a ternary that fell back to `{ ok: true }`
+  // when the caller omitted the generation, which turned a missing field into a
+  // silent pass — "there is no generation to check" was exactly the state the
+  // comment above forbids, and Launchpad sat in it.
+  const atomicAuthority = await assertProviderWriteAuthorityUnchanged({
+    businessId: ctx.businessId,
+    provider: "meta",
+    accountId: ctx.providerAccountId,
+    expectedConnectionGeneration: ctx.connectionGeneration,
+  });
   if (!atomicAuthority.ok) {
     return {
       ok: false,

@@ -9,6 +9,7 @@ const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   providerAccountId: "act_123",
   accessToken: "secret-token",
+  connectionGeneration: "1:connected",
 };
 
 const target: MetaBulkResumePreflightTarget = {

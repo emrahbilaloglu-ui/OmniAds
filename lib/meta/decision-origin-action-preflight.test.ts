@@ -89,6 +89,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -125,6 +126,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -150,6 +152,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -175,6 +178,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -203,6 +207,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -231,6 +236,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });
@@ -267,6 +273,7 @@ describe("server decision-origin action preflight", () => {
         businessId: "business_1",
         providerAccountId: "act_123",
         accessToken: "secret-token",
+        connectionGeneration: "1:connected",
       },
       now: NOW,
     });

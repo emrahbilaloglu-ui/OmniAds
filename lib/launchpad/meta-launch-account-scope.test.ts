@@ -65,6 +65,9 @@ describe("Meta Launchpad provider-account scope", () => {
         businessId: BUSINESS_ID,
         providerAccountId: "act_456",
         accessToken: "secret-token",
+        // Not decoration: while this was absent, ads-write.ts skipped the
+        // pre-POST authority compare-and-set entirely for every Launchpad write.
+        connectionGeneration: expect.stringMatching(/^\d+:connected$/),
       },
     });
   });

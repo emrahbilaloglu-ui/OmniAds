@@ -63,6 +63,7 @@ const ctx = {
   businessId: "biz-1",
   providerAccountId: "act_1",
   accessToken: "token",
+  connectionGeneration: "1:connected",
 };
 
 describe("Meta write authority at the immediate pre-POST boundary", () => {

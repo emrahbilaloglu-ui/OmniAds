@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses: vi.fn(),
+  readActiveBusinesses: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
@@ -109,9 +110,10 @@ describe("POST /api/sync/cron", () => {
     } as never);
     delete process.env.SYNC_CRON_ENFORCE_SOAK_GATE;
     delete process.env.SHOPIFY_SYNC_ENABLED;
-    vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
-      { id: "biz_1", name: "Biz 1" },
-    ] as never);
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({
+      ok: true,
+      businesses: [{ id: "biz_1", name: "Biz 1" }],
+    } as never);
     vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockResolvedValue({
@@ -580,7 +582,7 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(payload.controlPlaneOnly).toBe(true);
     expect(payload.providerScope).toBe("meta");
-    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+    expect(activeBusinesses.readActiveBusinesses).not.toHaveBeenCalled();
     expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
     expect(releaseGates.evaluateAndPersistSyncGates).toHaveBeenCalledWith({
       buildId: "build-123",
@@ -711,9 +713,10 @@ describe("sync cron admission happens BEFORE any work", () => {
       allowed: true,
       reason: "ready",
     } as never);
-    vi.mocked(activeBusinesses.getActiveBusinesses).mockResolvedValue([
-      { id: "biz_1", name: "Biz 1" },
-    ] as never);
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({
+      ok: true,
+      businesses: [{ id: "biz_1", name: "Biz 1" }],
+    } as never);
   });
 
   afterEach(() => {
@@ -741,7 +744,7 @@ describe("sync cron admission happens BEFORE any work", () => {
     expect(repairExecutor.executeAutoSyncRepairPlan).not.toHaveBeenCalled();
     expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
     expect(googleSync.enqueueGoogleAdsScheduledWork).not.toHaveBeenCalled();
-    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+    expect(activeBusinesses.readActiveBusinesses).not.toHaveBeenCalled();
   });
 
   it("does ZERO work when the growth fence refuses", async () => {
@@ -767,6 +770,6 @@ describe("sync cron admission happens BEFORE any work", () => {
     );
     const response = await POST(cronRequest());
     expect(response.status).toBe(503);
-    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+    expect(activeBusinesses.readActiveBusinesses).not.toHaveBeenCalled();
   });
 });

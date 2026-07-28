@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  LOGIN_POLICY,
+  consumeToken,
+  releasePasswordSlot,
+  tryAcquirePasswordSlot,
+} from "@/lib/auth-throttle";
+import { getTrustedClientIp } from "@/lib/request-client-ip";
 import { attachSessionCookie, createSession, verifyPassword } from "@/lib/auth";
 import { getUserByEmail } from "@/lib/account-store";
 import { listUserBusinesses } from "@/lib/access";
@@ -42,6 +49,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Keyed on the client address, never on the account: a per-account lockout
+  // would let any stranger who knows the operator's email lock the sole
+  // operator out of a live-spend dashboard. A correct password always passes.
+  const clientIp = getTrustedClientIp(request);
+  const gate = consumeToken(
+    clientIp ? `login:ip:${clientIp}` : "login:ip:unknown",
+    LOGIN_POLICY,
+    Date.now(),
+  );
+  if (!gate.allowed) {
+    logServerAuthEvent("login_rejected_rate_limited", { email });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: tr(
+          "Too many attempts. Please try again shortly.",
+          "Cok fazla deneme. Lutfen biraz sonra tekrar deneyin.",
+        ),
+      },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    );
+  }
+
   const user = await getUserByEmail(email);
   if (!user) {
     logServerAuthEvent("login_rejected_unknown_user", { email });
@@ -75,7 +105,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ok = await verifyPassword(password, user.password_hash);
+  // bcryptjs is the pure-JS build, so each compare blocks the single JS thread
+  // for ~240ms. Concurrency buys an attacker no extra guesses but does starve
+  // the event loop, so the number in flight is what actually has to be bounded.
+  if (!tryAcquirePasswordSlot()) {
+    logServerAuthEvent("login_rejected_password_capacity", { email });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: tr("Server busy. Please retry.", "Sunucu mesgul. Lutfen tekrar deneyin."),
+      },
+      { status: 429, headers: { "Retry-After": "2" } },
+    );
+  }
+  let ok: boolean;
+  try {
+    ok = await verifyPassword(password, user.password_hash);
+  } finally {
+    releasePasswordSlot();
+  }
   if (!ok) {
     logServerAuthEvent("login_rejected_bad_password", {
       email,

@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { connectionGenerationTokenFromIntegration } from "@/lib/provider-property-selection";
 import type { MetaAdsWriteContext } from "@/lib/meta/ads-write";
 import {
   normalizeMetaAddToExistingPayload,
@@ -154,7 +155,24 @@ export async function resolveMetaLaunchWriteContext(
   });
   if (!account.ok) return account;
 
-  const integration = await getIntegration(businessId, "meta").catch(() => null);
+  // A failed read is "I could not tell", not "there is nothing to check". The
+  // previous `.catch(() => null)` laundered a database outage into
+  // `meta_not_connected`, which both misreports the cause and would degrade the
+  // generation below to null.
+  let integration: Awaited<ReturnType<typeof getIntegration>>;
+  try {
+    integration = await getIntegration(businessId, "meta");
+  } catch {
+    return {
+      ok: false,
+      blocker: {
+        code: "meta_connection_unreadable",
+        message:
+          "Could not read the Meta connection. No provider write was attempted.",
+      },
+    };
+  }
+
   if (integration?.status !== "connected" || !integration.access_token) {
     return {
       ok: false,
@@ -164,12 +182,30 @@ export async function resolveMetaLaunchWriteContext(
       },
     };
   }
+
+  // The generation this token belongs to, from the SAME row, in the identical
+  // `generation:status` shape the pre-POST snapshot re-reads. Without it every
+  // Launchpad write — including a resume, which starts real spend — reached
+  // graph.facebook.com with no check that the connection still exists.
+  const connectionGeneration = connectionGenerationTokenFromIntegration(integration);
+  if (!connectionGeneration) {
+    return {
+      ok: false,
+      blocker: {
+        code: "meta_connection_generation_unknown",
+        message:
+          "Could not determine the Meta connection generation. No provider write was attempted.",
+      },
+    };
+  }
+
   return {
     ok: true,
     ctx: {
       businessId,
       providerAccountId: account.providerAccountId,
       accessToken: integration.access_token,
+      connectionGeneration,
     },
   };
 }

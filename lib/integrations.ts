@@ -865,33 +865,73 @@ export async function disconnectIntegration(
   businessId: string,
   provider: IntegrationProviderType,
 ): Promise<void> {
-  const sql = getDb();
-  const connectionRows = (await sql`
-    SELECT id
-    FROM provider_connections
-    WHERE business_id = ${businessId} AND provider = ${provider}
-    LIMIT 1
-  `) as Array<{ id: string }>;
-  const connectionId = connectionRows[0]?.id ?? null;
-  if (connectionId) {
-    await sql`
-      UPDATE provider_connections SET
-        status           = 'disconnected',
-        disconnected_at  = now(),
-        updated_at       = now()
-      WHERE id = ${connectionId}
-    `;
+  // ONE transaction, mirroring upsertIntegration. These used to be three
+  // statements that each committed on their own, so a failure between them left
+  // a live access_token behind a row that already read 'disconnected' —
+  // permanently, because the route has no retry and the UI shows it as done.
+  await runDbTransaction(async () => {
+    const sql = getDb();
+    const connectionRows = (await sql`
+      SELECT id
+      FROM provider_connections
+      WHERE business_id = ${businessId} AND provider = ${provider}
+      FOR UPDATE
+    `) as Array<{ id: string }>;
+    const connectionId = connectionRows[0]?.id ?? null;
+    if (!connectionId) return;
+
+    // Credentials first, so no ordering can ever leave a live token under a
+    // 'disconnected' label if this is refactored out of a transaction.
     await sql`
       UPDATE integration_credentials SET
         access_token     = NULL,
         refresh_token    = NULL,
         token_expires_at = NULL,
+        scopes           = NULL,
         error_message    = NULL,
         metadata         = '{}'::jsonb,
         updated_at       = now()
       WHERE provider_connection_id = ${connectionId}
     `;
-  }
+
+    // Bump the generation. Today a reader would still observe a change, because
+    // status is part of the `generation:status` token — but that makes the whole
+    // reconnect guard depend on nothing ever restoring 'connected' without
+    // going through upsertIntegration. The counter states the invariant
+    // directly instead of inferring it.
+    await sql`
+      UPDATE provider_connections SET
+        status               = 'disconnected',
+        connection_generation = connection_generation + 1,
+        disconnected_at      = now(),
+        updated_at           = now()
+      WHERE id = ${connectionId}
+    `;
+
+    // A selection that outlives its credential is authority with no grant
+    // behind it: reconnecting as a different principal silently inherits the
+    // previous principal's still-selected account ids.
+    await sql`
+      UPDATE business_provider_accounts SET
+        is_selected = FALSE,
+        updated_at  = now()
+      WHERE business_id = ${businessId} AND provider = ${provider} AND is_selected
+    `;
+
+    // Quiescence. A running cycle holds a renewable lease that disconnect could
+    // not previously shorten, so it kept ingesting rows for this provider after
+    // the user was told the integration was disconnected. Failing the lock row
+    // in the same commit stops the renewal.
+    await sql`
+      UPDATE provider_sync_jobs SET
+        status           = 'failed',
+        completed_at     = now(),
+        lock_expires_at  = now(),
+        error_message    = COALESCE(error_message, 'integration disconnected')
+      WHERE business_id = ${businessId} AND provider = ${provider}
+        AND status = 'running'
+    `;
+  });
   if (provider === "shopify" || provider === "ga4") {
     await recomputeBusinessDerivedTimezone(businessId).catch((error: unknown) => {
       console.warn("[integrations] business_timezone_recompute_failed", {
@@ -916,26 +956,48 @@ export async function disconnectAllIntegrationsForProvider(
   for (const row of impactedRows) {
     if (row.business_id) impactedBusinessIds.add(row.business_id);
   }
-  await sql`
-    UPDATE provider_connections SET
-      status           = 'disconnected',
-      disconnected_at  = now(),
-      updated_at       = now()
-    WHERE provider = ${provider}
-  `;
-  await sql`
-    UPDATE integration_credentials ic
-    SET
-      access_token     = NULL,
-      refresh_token    = NULL,
-      token_expires_at = NULL,
-      error_message    = NULL,
-      metadata         = '{}'::jsonb,
-      updated_at       = now()
-    FROM provider_connections pc
-    WHERE pc.id = ic.provider_connection_id
-      AND pc.provider = ${provider}
-  `;
+  // Same shape as disconnectIntegration, at global scale. Splitting these
+  // committed a window in which EVERY connection for the provider read
+  // disconnected while EVERY token was still live.
+  await runDbTransaction(async () => {
+    const tx = getDb();
+    await tx`
+      UPDATE integration_credentials ic
+      SET
+        access_token     = NULL,
+        refresh_token    = NULL,
+        token_expires_at = NULL,
+        scopes           = NULL,
+        error_message    = NULL,
+        metadata         = '{}'::jsonb,
+        updated_at       = now()
+      FROM provider_connections pc
+      WHERE pc.id = ic.provider_connection_id
+        AND pc.provider = ${provider}
+    `;
+    await tx`
+      UPDATE provider_connections SET
+        status               = 'disconnected',
+        connection_generation = connection_generation + 1,
+        disconnected_at      = now(),
+        updated_at           = now()
+      WHERE provider = ${provider}
+    `;
+    await tx`
+      UPDATE business_provider_accounts SET
+        is_selected = FALSE,
+        updated_at  = now()
+      WHERE provider = ${provider} AND is_selected
+    `;
+    await tx`
+      UPDATE provider_sync_jobs SET
+        status          = 'failed',
+        completed_at    = now(),
+        lock_expires_at = now(),
+        error_message   = COALESCE(error_message, 'integration disconnected')
+      WHERE provider = ${provider} AND status = 'running'
+    `;
+  });
   if (provider === "shopify" || provider === "ga4") {
     await Promise.all(
       [...impactedBusinessIds].map((businessId) =>

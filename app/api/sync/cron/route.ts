@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
-import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { readActiveBusinesses } from "@/lib/sync/active-businesses";
 import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
@@ -213,13 +213,47 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const businesses = await getActiveBusinesses().catch((err) => {
-    console.error("[sync-cron] fetch_businesses_failed", err);
-    return [] as Awaited<ReturnType<typeof getActiveBusinesses>>;
-  });
+  // "Could not read the business list" is NOT "there are no businesses".
+  // Coercing a failed read to [] made a total sync outage answer ok:true with
+  // HTTP 200 — a truthful-looking receipt for a cycle that did nothing — and it
+  // also skipped the gate/repair block below, so the very mechanism that would
+  // later reveal the outage stopped running at the same moment.
+  const businessRead = await readActiveBusinesses();
+
+  if (!businessRead.ok) {
+    console.error("[sync-cron] fetch_businesses_failed", {
+      reason: businessRead.reason,
+      message: businessRead.message,
+    });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "business_list_unreadable",
+        reason: businessRead.reason,
+        message:
+          "The active-business list could not be read. No sync work was attempted.",
+        detail: businessRead.message,
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        synced: 0,
+      },
+      { status: 503 },
+    );
+  }
+
+  const businesses = businessRead.businesses;
 
   if (businesses.length === 0) {
-    return NextResponse.json({ ok: true, synced: 0, message: "No active businesses." });
+    // A genuine zero stays a success — unchanged.
+    return NextResponse.json({
+      ok: true,
+      synced: 0,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      message: "No active businesses.",
+    });
   }
 
   const results = await Promise.allSettled(
@@ -256,6 +290,15 @@ export async function POST(request: NextRequest) {
         safetyRefusals: Object.entries(lanes).flatMap(([lane, outcome]) =>
           outcome.refusal ? [{ lane, businessId: business.id, ...outcome.refusal }] : [],
         ),
+        // Ordinary lane errors are deliberately not safety refusals, but they
+        // are still failures. Without this the receipt reported `synced: 13`
+        // when every lane of every business had thrown.
+        laneFailures: Object.entries(lanes).flatMap(([lane, outcome]) => {
+          const value = outcome.value as { error?: unknown } | null;
+          return value && typeof value === "object" && "error" in value && value.error
+            ? [{ lane, message: String(value.error) }]
+            : [];
+        }),
       };
     }),
   );
@@ -270,6 +313,32 @@ export async function POST(request: NextRequest) {
             : {}),
         },
   );
+
+  // `synced` used to be `businesses.length` — the size of the INPUT list, which
+  // nothing ever decremented, so thirteen businesses whose every lane threw
+  // still reported `synced: 13`. It now counts businesses that came back clean;
+  // `attempted` carries the old meaning. Computed here so every exit below
+  // reports the same numbers.
+  const businessFailures = results.flatMap((result, index) => {
+    if (result.status === "rejected") {
+      return [
+        {
+          businessId: businesses[index]?.id ?? null,
+          lanes: [{ lane: "business", message: String(result.reason) }],
+        },
+      ];
+    }
+    const entry = result.value as {
+      businessId?: string;
+      laneFailures?: Array<{ lane: string; message: string }>;
+    };
+    return entry.laneFailures?.length
+      ? [{ businessId: entry.businessId ?? null, lanes: entry.laneFailures }]
+      : [];
+  });
+  const attempted = businesses.length;
+  const failed = businessFailures.length;
+  const succeeded = attempted - failed;
   // Refusals are collected from the STRUCTURED classification carried on each
   // per-business result, plus any whole-business rejection. Nothing is
   // recovered by re-parsing a string.
@@ -416,7 +485,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          synced: businesses.length,
+          synced: succeeded,
+          attempted,
+          succeeded,
+          failed,
+          ...(failed > 0 ? { businessFailures } : {}),
           results: summary,
           soakGate: {
             outcome: "fail",
@@ -535,6 +608,7 @@ export async function POST(request: NextRequest) {
       "reason" in nativeAdOutcomesJob ? nativeAdOutcomesJob.reason : null,
   });
   const safetyRefused = safetyRefusals.length > 0;
+
   return NextResponse.json(
     {
       ok: !safetyRefused,
@@ -544,7 +618,11 @@ export async function POST(request: NextRequest) {
             safetyRefusals,
           }
         : {}),
-      synced: businesses.length,
+      synced: succeeded,
+      attempted,
+      succeeded,
+      failed,
+      ...(failed > 0 ? { businessFailures } : {}),
       results: summary,
       ...(soakGate ? { soakGate } : {}),
       ...(gateVerdicts ? { gateVerdicts } : {}),

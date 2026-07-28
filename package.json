@@ -130,7 +130,8 @@
     "test:cutover-build-context": "bash scripts/cutover-wrapper-build-context-check.sh",
     "test:shopify-grant-race-seam": "node --import tsx scripts/ephemeral-postgres-shopify-grant-race-seam.ts",
     "test:dr-restore-seam": "node --import tsx scripts/ephemeral-postgres-dr-restore-seam.ts",
-    "test:shopify-context-access-seam": "node --import tsx scripts/ephemeral-postgres-shopify-context-access-seam.ts"
+    "test:shopify-context-access-seam": "node --import tsx scripts/ephemeral-postgres-shopify-context-access-seam.ts",
+    "test:disconnect-quiescence-seam": "node --import tsx scripts/ephemeral-postgres-disconnect-quiescence-seam.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

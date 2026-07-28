@@ -29,12 +29,25 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   };
 });
 
+// The generation compare-and-set is now unconditional. These launch tests were
+// green while it self-disabled on a context with no connectionGeneration —
+// which is exactly the state every real Launchpad write was in. Default-admit;
+// refusals are proven in lib/meta/write-authority-toctou.test.ts.
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertProviderWriteAuthorityUnchanged: vi.fn(async () => ({ ok: true })),
+  };
+});
+
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 
 const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   providerAccountId: "act_123",
   accessToken: "secret-token",
+  connectionGeneration: "1:connected",
 };
 
 function jsonResponse(payload: unknown, init?: ResponseInit) {

@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  SIGNUP_POLICY,
+  consumeToken,
+  releasePasswordSlot,
+  tryAcquirePasswordSlot,
+} from "@/lib/auth-throttle";
+import { getTrustedClientIp } from "@/lib/request-client-ip";
 import { attachSessionCookie, createSession, hashPassword } from "@/lib/auth";
 import { acceptInvite, createBusinessWithAdminMembership, createUser, getInviteByToken, getUserByEmail } from "@/lib/account-store";
 import { listUserBusinesses } from "@/lib/access";
@@ -46,6 +53,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Signup is a worse denial-of-service vector than login: it is public, and it
+  // runs bcrypt hashing plus unbounded user and business INSERTs for every
+  // anonymous caller.
+  const clientIp = getTrustedClientIp(request);
+  const gate = consumeToken(
+    clientIp ? `signup:ip:${clientIp}` : "signup:ip:unknown",
+    SIGNUP_POLICY,
+    Date.now(),
+  );
+  if (!gate.allowed) {
+    logServerAuthEvent("signup_rejected_rate_limited", { email });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: tr(
+          "Too many attempts. Please try again shortly.",
+          "Cok fazla deneme. Lutfen biraz sonra tekrar deneyin.",
+        ),
+      },
+      { status: 429, headers: { "Retry-After": String(gate.retryAfterSeconds) } },
+    );
+  }
+
   const existing = await getUserByEmail(email);
   if (existing) {
     logServerAuthEvent("signup_rejected_email_exists", { email });
@@ -73,7 +103,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const passwordHash = await hashPassword(password);
+  if (!tryAcquirePasswordSlot()) {
+    logServerAuthEvent("signup_rejected_password_capacity", { email });
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: tr("Server busy. Please retry.", "Sunucu mesgul. Lutfen tekrar deneyin."),
+      },
+      { status: 429, headers: { "Retry-After": "2" } },
+    );
+  }
+  let passwordHash: string;
+  try {
+    passwordHash = await hashPassword(password);
+  } finally {
+    releasePasswordSlot();
+  }
   const initialLanguage = getLanguageFromCookieValue(request.cookies.get(LANGUAGE_COOKIE_NAME)?.value);
   const user = await createUser({ name, email, passwordHash, language: initialLanguage });
   let business: {

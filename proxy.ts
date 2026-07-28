@@ -96,6 +96,27 @@ function isAllowedInternalApiRequest(request: NextRequest): boolean {
   );
 }
 
+/**
+ * THIS IS NOT AUTHENTICATION.
+ *
+ * `hasSession` below is a presence check: any request carrying a non-empty
+ * `omniads_session` cookie passes, whatever the value. A real session is a
+ * random token, hashed and looked up in the `sessions` table with an expiry
+ * check (lib/auth.ts findSessionByToken) — something this proxy deliberately
+ * does not do, because it would put a database round-trip in front of every
+ * request and would still be the wrong place to make the decision.
+ *
+ * So this is a coarse routing gate: it decides whether to redirect a browser to
+ * /login, and it turns away requests with no cookie at all. AUTHORITY BELONGS TO
+ * THE ROUTE HANDLER. A route with no check of its own is not protected by
+ * anything here — `Cookie: omniads_session=x` is the whole of its security.
+ *
+ * `/api/db-test` was that route: it ran CREATE TABLE / INSERT / DROP TABLE
+ * against the production database and returned information_schema columns, with
+ * no identity check anywhere. It has been deleted, and
+ * app/api/route-authority.test.ts now fails if any route starts relying on this
+ * function alone.
+ */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(AUTH_COOKIE)?.value);

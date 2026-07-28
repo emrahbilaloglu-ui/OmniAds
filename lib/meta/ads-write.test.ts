@@ -29,12 +29,26 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   };
 });
 
+// The generation compare-and-set is now UNCONDITIONAL. It used to be skipped
+// whenever a context omitted connectionGeneration, which is why these tests
+// passed for so long without ever stating an authority: they were exercising
+// the write path with the reconnect guard switched off. Default-admit here, as
+// above; the refusal paths are proven in lib/meta/write-authority-toctou.test.ts.
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertProviderWriteAuthorityUnchanged: vi.fn(async () => ({ ok: true })),
+  };
+});
+
 const controlPlane = await import("@/lib/meta/automation-control-plane");
 
 const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
   providerAccountId: "act_123",
   accessToken: "secret-token",
+  connectionGeneration: "1:connected",
 };
 
 function jsonResponse(payload: unknown, init?: ResponseInit) {

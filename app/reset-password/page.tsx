@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AuthSurface } from "@/components/auth/auth-surface";
@@ -9,7 +9,21 @@ type AlertTone = "positive" | "caution" | "danger";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") ?? "";
+  // `null` means "not read yet" and must not render the invalid-link state,
+  // otherwise the page flashes "Reset link invalid" before the effect runs.
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    // New links carry the token in the fragment, which never reaches the
+    // server and so never enters an access log. Query-string links already
+    // sitting in inboxes keep working for their remaining lifetime.
+    const fromHash = new URLSearchParams(window.location.hash.slice(1)).get("token");
+    const fromQuery = searchParams.get("token");
+    setToken(fromHash ?? fromQuery ?? "");
+    // Strip it either way: a token left in the address bar survives in browser
+    // history and in anything the user screen-shares.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [searchParams]);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -52,6 +66,9 @@ function ResetPasswordForm() {
       setLoading(false);
     }
   }
+
+  // Still reading the fragment — say nothing rather than accuse a good link.
+  if (token === null) return null;
 
   if (!token) {
     return (

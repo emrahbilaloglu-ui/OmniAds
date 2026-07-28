@@ -251,6 +251,21 @@ async function resolveWriteContext(input: {
     "meta",
   );
 
+  // A null return is not a throw, so removing the `.catch` above did not cover
+  // this: the token can legitimately come back null (no connection row), and
+  // while the field was optional that null flowed straight into the "nothing to
+  // check" branch — the guard disabled by absence rather than by error.
+  if (!connectionGeneration) {
+    return {
+      ok: false,
+      response: jsonError(
+        503,
+        "meta_account_authority_unknown",
+        "Could not determine the Meta connection generation. No provider write was attempted.",
+      ),
+    };
+  }
+
   return {
     ok: true,
     ctx: {

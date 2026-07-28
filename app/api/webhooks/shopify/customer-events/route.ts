@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { describeSyncSafetyRefusal } from "@/lib/sync/safety-refusal";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
 import { evaluateLaneAdmission } from "@/lib/sync/global-kill-switch";
@@ -59,11 +60,41 @@ function buildEventRows(input: {
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
 }
 
+/**
+ * Constant-time secret comparison.
+ *
+ * `timingSafeEqual` throws on a length mismatch, which would itself leak the
+ * secret's length, so both sides are hashed to a fixed width first.
+ */
+function secretMatches(provided: string, configured: string): boolean {
+  const left = createHash("sha256").update(provided).digest();
+  const right = createHash("sha256").update(configured).digest();
+  return timingSafeEqual(left, right);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const providedSecret = request.headers.get("x-shopify-customer-events-secret")?.trim();
     const configuredSecret = process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET?.trim();
-    if (configuredSecret && providedSecret !== configuredSecret) {
+
+    // Fail closed when unconfigured. This used to read
+    // `if (configuredSecret && providedSecret !== configuredSecret)`, so an
+    // unset SHOPIFY_CUSTOMER_EVENTS_SECRET did not weaken the check — it
+    // removed it. The route is allow-listed as public in proxy.ts, so with no
+    // secret set anyone on the internet could POST arbitrary rows into
+    // shopify_customer_events for any shop domain they named. The variable
+    // appears in no env template, so that was the deployed state.
+    if (!configuredSecret) {
+      return NextResponse.json(
+        {
+          error: "webhook_secret_not_configured",
+          message:
+            "SHOPIFY_CUSTOMER_EVENTS_SECRET is not configured, so this webhook cannot authenticate callers.",
+        },
+        { status: 503 },
+      );
+    }
+    if (!providedSecret || !secretMatches(providedSecret, configuredSecret)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 

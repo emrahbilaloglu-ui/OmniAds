@@ -65,6 +65,9 @@ vi.mock("@/lib/db-schema-readiness", () => ({
 describe("Shopify webhook admission", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Authenticate, so these tests still reach the LANE ADMISSION guard they are
+    // about. The secret check now runs first and fails closed when unset.
+    process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET = "test-webhook-secret";
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     assertSyncGrowthBoundary.mockResolvedValue({ allowed: true, reason: "ready" });
@@ -80,6 +83,7 @@ describe("Shopify webhook admission", () => {
         headers: {
           "x-shopify-topic": "orders/create",
           "x-shopify-shop-domain": "seam.myshopify.com",
+          "x-shopify-customer-events-secret": "test-webhook-secret",
           "x-shopify-webhook-id": "wh-1",
         },
         body: JSON.stringify({ id: 1 }),
@@ -109,6 +113,7 @@ describe("Shopify webhook admission", () => {
         headers: {
           "x-shopify-topic": "customers/update",
           "x-shopify-shop-domain": "seam.myshopify.com",
+          "x-shopify-customer-events-secret": "test-webhook-secret",
         },
         body: JSON.stringify({ id: 1 }),
       }) as never,
@@ -144,6 +149,7 @@ describe("Shopify webhook admission", () => {
           headers: {
             "x-shopify-topic": "orders/create",
             "x-shopify-shop-domain": "seam.myshopify.com",
+            "x-shopify-customer-events-secret": "test-webhook-secret",
             "x-shopify-webhook-id": "wh-2",
           },
           body: JSON.stringify({ id: 1 }),
@@ -168,6 +174,7 @@ describe("Shopify webhook admission", () => {
           headers: {
             "x-shopify-topic": "customers/update",
             "x-shopify-shop-domain": "seam.myshopify.com",
+            "x-shopify-customer-events-secret": "test-webhook-secret",
           },
           body: JSON.stringify({ id: 1 }),
         }) as never,

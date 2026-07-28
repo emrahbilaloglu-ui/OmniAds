@@ -133,6 +133,7 @@
     "test:shopify-context-access-seam": "node --import tsx scripts/ephemeral-postgres-shopify-context-access-seam.ts",
     "test:disconnect-quiescence-seam": "node --import tsx scripts/ephemeral-postgres-disconnect-quiescence-seam.ts",
     "db:growth-census": "node --import tsx scripts/db-growth-census.ts",
+    "test:google-ads-finality-seam": "node --import tsx scripts/ephemeral-postgres-google-ads-finality-seam.ts",
     "test:census-least-privilege-seam": "node --import tsx scripts/ephemeral-postgres-census-least-privilege-seam.ts"
   },
   "dependencies": {

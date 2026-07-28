@@ -7318,6 +7318,69 @@ export async function runMigrations(options?: {
           ON google_ads_sync_state (business_id, scope, updated_at DESC)`.catch(
           () => {},
         ),
+        // ── Google Ads day finality ──────────────────────────────────────
+        //
+        // "Final" must mean a date was FETCHED FROM THE PROVIDER after that
+        // account's own timezone day closed — not "a row exists and time has
+        // passed". Coverage today is `SELECT DISTINCT date`, so a day read once
+        // at 01:40 and never re-read is indistinguishable from a settled one,
+        // and the D+1 path marks such a day finalize-complete without ever
+        // calling Google.
+        //
+        // A day-grain table, deliberately, rather than a column elsewhere:
+        //   - not on the twelve *_daily relations, because the day is the unit
+        //     of finality while their row grain is entity_key — the same
+        //     date-level fact would be rewritten tens of thousands of times per
+        //     account-day across twelve tables, with twelve copies to reconcile;
+        //   - not on google_ads_sync_partitions, because those are CASCADE-
+        //     pruned work-queue rows (the proof would age out with them) and
+        //     `lane` is in their unique key, so the claim would be multi-valued
+        //     across core/extended/maintenance.
+        //
+        // ABSENCE IS A STATE, and that is the point. No row = never tracked,
+        // predating this table: neither trusted as final nor treated as a
+        // re-fetch obligation for all history. A tracked-but-provisional date
+        // is `finalized_at IS NULL`. Those are physically distinct, so a
+        // pre-existing completed row is never silently read as trustworthy.
+        //
+        // Modelled on meta_authoritative_day_state, which solves this same
+        // problem for the other provider.
+        //
+        // No column is named run_id / source_run_id / last_run_id /
+        // published_by_run_id: retention-readiness refuses the retention
+        // contract for ANY google_ads_% table carrying one, which would fail
+        // the cutover's verify-contract phase.
+        orderedMigrationSteps([
+          () =>
+            sql`CREATE TABLE IF NOT EXISTS google_ads_day_finality (
+              business_id             TEXT NOT NULL,
+              provider_account_id     TEXT NOT NULL,
+              scope                   TEXT NOT NULL,
+              date                    DATE NOT NULL,
+              account_timezone        TEXT NOT NULL DEFAULT 'UTC',
+              day_closed_at           TIMESTAMPTZ,
+              finalized_at            TIMESTAMPTZ,
+              finality_source         TEXT,
+              last_fetch_completed_at TIMESTAMPTZ,
+              attempt_count           INTEGER NOT NULL DEFAULT 0,
+              created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+              PRIMARY KEY (business_id, provider_account_id, scope, date),
+              -- The load-bearing invariant: the DATABASE refuses to record
+              -- finality without proof the day had closed first, so "final"
+              -- cannot decay back into "a row exists".
+              CONSTRAINT google_ads_day_finality_close_proof_check CHECK (
+                finalized_at IS NULL
+                OR (day_closed_at IS NOT NULL AND finalized_at >= day_closed_at)
+              )
+            )`.catch(() => {}),
+          // The rolling-reread scan: "which tracked days still owe a final
+          // fetch". Partial, so it never carries the settled majority.
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_google_ads_day_finality_provisional
+              ON google_ads_day_finality (business_id, provider_account_id, scope, date DESC)
+              WHERE finalized_at IS NULL`.catch(() => {}),
+        ]),
         sql`CREATE TABLE IF NOT EXISTS google_ads_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

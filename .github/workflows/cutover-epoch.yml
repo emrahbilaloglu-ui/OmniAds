@@ -108,6 +108,12 @@ jobs:
     timeout-minutes: 240
     permissions:
       contents: read
+      # The runner package is extracted from a PRIVATE image, and the release
+      # phases recreate containers from private images too. Without this the SSH
+      # layer reports "registry auth: none supplied; anonymous pull" and the pull
+      # fails. Least privilege and ephemeral: the job's own GITHUB_TOKEN, read
+      # only, expiring with the run — no PAT is created or stored.
+      packages: read
     steps:
       - name: Validate inputs
         shell: bash
@@ -247,6 +253,8 @@ jobs:
           CUTOVER_RUNNER_IMAGE_REPO: ${{ inputs.image_repo }}
           CUTOVER_RUNNER_IMAGE_DIGEST: ${{ inputs.image_digest }}
           CUTOVER_RUNNER_WRAPPER_SHA256: ${{ inputs.wrapper_sha256 }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh

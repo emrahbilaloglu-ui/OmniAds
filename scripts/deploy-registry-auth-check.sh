@@ -241,6 +241,51 @@ else
   fail "A12 could not prove the pull precedes mutation (pull=${first_pull:-?} mutate=${first_mut:-?})"
 fi
 
+# ── A13: the whole shell must exit cleanly, not just the function ───────────
+#
+# The gap that shipped a broken deploy. Every check above exercises
+# run_remote_phase_on_host; none exercised sync_compose_to_host, and none
+# exercised what happens when the STEP SHELL EXITS. The cleanup trap
+# referenced a `local` in single quotes, so it expanded at trap time, after the
+# function had returned and the variable was gone — and under `set -u` the
+# cleanup became the failure. The function succeeded; the shell died.
+#
+# Deploy run 30358123511 failed exactly there, at "Sync deploy compose", having
+# touched no container. This asserts the end-to-end exit status under the same
+# `set -euo pipefail` the workflow step uses.
+cat > "${WORK}/bin/ssh-quiet" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "${WORK}/bin/ssh-quiet"
+cp "${WORK}/bin/ssh-quiet" "${WORK}/bin/ssh"
+
+exit_probe="${WORK}/exit-probe.sh"
+cat > "${exit_probe}" <<'PROBE'
+set -euo pipefail
+source .github/scripts/hetzner-ssh.sh
+export HETZNER_USER=probe HETZNER_PORT=22 REMOTE_APP_DIR=/var/www/adsecute
+sync_compose_to_host 10.0.0.1 primary >/dev/null
+PROBE
+
+set +e
+PATH="${WORK}/bin:${PATH}" bash "${exit_probe}" </dev/null >/dev/null 2>"${WORK}/probe.err"
+probe_status=$?
+set -e
+if [ "${probe_status}" -eq 0 ]; then
+  pass "A13 sync_compose_to_host leaves a shell that exits 0 under set -euo pipefail"
+else
+  fail "A13 the shell exited ${probe_status} after a successful sync: $(tr -d '\n' < "${WORK}/probe.err" | tail -c 120)"
+fi
+
+# ── A14: no payload temp file survives ──────────────────────────────────────
+leaked="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tmp.*' -newer "${exit_probe}" -type f 2>/dev/null | head -3 || true)"
+if [ -z "${leaked}" ]; then
+  pass "A14 no stdin payload file was left behind"
+else
+  fail "A14 payload temp file(s) survived: ${leaked}"
+fi
+
 if [ "${FAILURES}" -ne 0 ]; then
   printf '%s %s check(s) FAILED\n' "${LABEL}" "${FAILURES}" >&2
   exit 1

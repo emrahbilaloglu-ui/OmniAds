@@ -72,7 +72,14 @@ ssh_with_stdin_retry() {
   # The payload now carries a registry token on its first line, so it must not
   # survive an interrupt. mktemp already creates it 0600; this covers the paths
   # the explicit rm below cannot (signals, `set -e` unwinding a caller).
-  trap 'rm -f "${stdin_payload_file}"' EXIT INT TERM
+  #
+  # DOUBLE quotes, so the path is baked into the trap body NOW. Single quotes
+  # deferred the expansion to trap time, by which point this `local` is out of
+  # scope and `set -u` turns the cleanup itself into the failure — which is
+  # exactly how deploy run 30358123511 died at "Sync deploy compose" with
+  # `stdin_payload_file: unbound variable`, after the function had already
+  # returned successfully.
+  trap "rm -f '${stdin_payload_file}'" EXIT INT TERM
   cat > "${stdin_payload_file}"
 
   local max_attempts="${SSH_MAX_ATTEMPTS:-4}"
@@ -87,12 +94,14 @@ ssh_with_stdin_retry() {
 
     if [ "${status}" -eq 0 ]; then
       rm -f "${stdin_payload_file}"
+      trap - EXIT INT TERM
       return 0
     fi
 
     echo "ssh_attempt_failed target=${target_host} status=${status} attempt=${attempt}/${max_attempts} stdin=yes"
     if [ "${status}" -ne 255 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
       rm -f "${stdin_payload_file}"
+      trap - EXIT INT TERM
       return "${status}"
     fi
 

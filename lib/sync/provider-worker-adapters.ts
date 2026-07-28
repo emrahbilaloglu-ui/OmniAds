@@ -11,7 +11,7 @@ import type {
 import { resolveMetaCredentials } from "@/lib/api/meta";
 import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import { fetchGoogleAdsAccounts, refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
-import { getIntegration, upsertIntegration } from "@/lib/integrations";
+import { getIntegration, refreshIntegrationCredentialTokens } from "@/lib/integrations";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import {
   getGoogleAdsCheckpointHealth,
@@ -522,6 +522,11 @@ async function loadGoogleProviderAccountsForSnapshot(input: {
   refreshToken: string | null;
   tokenExpiresAt: string | null;
   scopes: string | null;
+  /**
+   * The generation the caller captured with this credential — the SAME one it
+   * hands the snapshot writer as `expectedConnectionGeneration`.
+   */
+  connectionGeneration: string;
 }) {
   const hasAdsScope = Boolean(
     input.scopes?.split(/\s+/).includes("https://www.googleapis.com/auth/adwords"),
@@ -542,22 +547,25 @@ async function loadGoogleProviderAccountsForSnapshot(input: {
     if (isExpired && input.refreshToken) {
       const refreshed = await refreshGoogleAccessToken(input.refreshToken);
       accessToken = refreshed.accessToken;
-      await upsertIntegration({
+      // The NARROW credential write path, not `upsertIntegration`.
+      //
+      // `upsertIntegration` classifies any write carrying an access token as a
+      // reconnect, so this routine refresh used to BUMP connection_generation —
+      // and this loader's own caller passes the generation it captured BEFORE
+      // the refresh as `expectedConnectionGeneration`. The worker therefore
+      // invalidated its own snapshot claim: every scheduled refresh that found
+      // an expired token failed with "the provider connection changed while its
+      // account list was being fetched". Writing only the credential leaves the
+      // generation alone, so the claim it was taken under still holds.
+      //
+      // The refresh token is not re-supplied: it did not change, and the
+      // narrow path preserves it rather than clearing it as foreign.
+      await refreshIntegrationCredentialTokens({
         businessId: input.businessId,
         provider: "google",
-        status: "connected",
         accessToken: refreshed.accessToken,
-        // The SAME refresh token, named, and a POSITIVE declaration that this
-        // is a same-principal refresh.
-        //
-        // Without it this write looked like a connect by an unknown principal:
-        // no account id is not evidence of sameness, so `upsertIntegration`
-        // cleared the refresh token as foreign — and the worker's own routine
-        // token refresh destroyed the credential it depends on, turning the
-        // next refresh into "please reconnect".
-        refreshToken: input.refreshToken,
-        samePrincipal: true,
         tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
+        expectedConnectionGeneration: input.connectionGeneration,
       });
     } else if (isExpired) {
       throw new Error(
@@ -602,6 +610,7 @@ async function refreshGoogleProviderAccountSnapshotIfNeeded(businessId: string) 
       refreshToken: integration.refresh_token,
       tokenExpiresAt: integration.token_expires_at,
       scopes: integration.scopes,
+      connectionGeneration: capturedGeneration,
     });
   const snapshot = await readProviderAccountSnapshot({
     businessId,

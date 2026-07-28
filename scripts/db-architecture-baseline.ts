@@ -167,6 +167,37 @@ function main() {
       .join("\n");
     fail(`Serving write-owner guard failed:\n${summary}`);
   }
+  // Everything the scanner can report is blocking here UNLESS it is named below
+  // as advisory. The previous shape was the opposite: three denylists of known
+  // types, so a finding type added later was silently ignored by this gate until
+  // somebody remembered to extend a list. That is the same defect shape the
+  // reachability guard exists to catch — a check that only sees what it was told
+  // to look for — so this one now fails closed on anything it does not
+  // recognise. Adding a finding type deliberately costs one line here.
+  const advisoryFindingTypes = new Set([
+    "large_mixed_concern",
+    "mixed_live_warehouse_projection",
+  ]);
+  const alreadyReportedTypes = new Set([
+    "migration_call",
+    "migration_import",
+    "state_write_call",
+    "projection_write_call",
+    "cache_write_call",
+    "refresh_trigger_call",
+    "serving_write_owner_violation",
+  ]);
+  const unrecognisedViolations = scanResult.findings.filter(
+    (finding) =>
+      !advisoryFindingTypes.has(finding.type) &&
+      !alreadyReportedTypes.has(finding.type),
+  );
+  if (unrecognisedViolations.length > 0) {
+    const summary = unrecognisedViolations
+      .map((finding) => `${finding.type} ${finding.file}: ${finding.summary}`)
+      .join("\n");
+    fail(`Request-path write-reachability guard failed:\n${summary}`);
+  }
   runCommand(process.execPath, [
     "--import",
     "tsx",

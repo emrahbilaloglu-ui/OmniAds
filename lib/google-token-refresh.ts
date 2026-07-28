@@ -1,7 +1,7 @@
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import {
   getIntegration,
-  upsertIntegration,
+  refreshIntegrationCredentialTokens,
   ProviderConnectionGenerationConflictError,
   type IntegrationProviderType,
 } from "@/lib/integrations";
@@ -84,33 +84,54 @@ export async function resolveGoogleAccessTokenWithGeneration(input: {
       `The ${provider} access token has expired and no refresh token is available. Please reconnect.`,
     );
   }
+  // Only reachable if the connection vanished between the paired reads above and
+  // now. There is no generation to bind a write-back to, so there is no safe
+  // write to make — refuse rather than persist a token under no authority.
+  if (generationAfter == null) {
+    throw new Error(
+      `The ${provider} connection disappeared while its token was being refreshed. Please reconnect.`,
+    );
+  }
 
   const refreshed = await refreshGoogleAccessToken(integration.refresh_token);
   try {
-    const updated = await upsertIntegration({
+    // The NARROW credential write path, not `upsertIntegration`.
+    //
+    // `upsertIntegration` is the connect/reconnect writer, and it has no way to
+    // tell a refresh apart from a reconnect: supplying an access token makes it
+    // `authorityChanged`, and `authorityChanged` with status "connected" makes
+    // it `isReconnect`. Every hourly refresh therefore rewrote the CONNECTION —
+    // status, provider_account_id, updated_at, connection_generation,
+    // disconnected_at — from an ordinary authenticated GET, because
+    // `executeGaqlQuery` and `resolveSearchConsoleContext` call this on the read
+    // path. The credential is the only thing a refresh actually changes, so it
+    // is the only thing written here.
+    //
+    // The generation CAS survives unchanged: it is still checked under the
+    // connection row lock, so a refresh that started before an OAuth reconnect
+    // and finished after it is still refused rather than overwriting the
+    // freshly granted credential.
+    const updated = await refreshIntegrationCredentialTokens({
       businessId: input.businessId,
       provider,
-      status: "connected",
       accessToken: refreshed.accessToken,
-      // The SAME refresh token, named explicitly, and a POSITIVE declaration
-      // that this is a same-principal credential refresh. Absence of an account
-      // id is not evidence of sameness — the GSC and GA4 callbacks legitimately
-      // supply none — so only a caller that just refreshed an existing token can
-      // assert it, and this is that caller.
-      refreshToken: integration.refresh_token,
-      samePrincipal: true,
+      // Deliberately not re-supplying the refresh token. It did not change, and
+      // `encryptIntegrationSecret` uses a fresh IV per call, so writing it back
+      // moved the stored ciphertext on every refresh for no reason at all.
       tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
       expectedConnectionGeneration: generationAfter,
     });
     return {
       accessToken: refreshed.accessToken,
-      // The generation this write COMMITTED under, taken from the returned row
-      // itself. A separate read after the write reopens the exact window this
+      // The generation this write COMMITTED under, observed under the same row
+      // lock. A separate read after the write reopens the exact window this
       // helper exists to close: a reconnect landing in between would pair the
-      // token we just minted with the generation that replaced it.
-      connectionGeneration: `${updated.connection_generation ?? 1}:${updated.status}`,
+      // token we just minted with the generation that replaced it. A refresh no
+      // longer CHANGES this value — that is the point — so it is the same
+      // generation the credential was read under.
+      connectionGeneration: updated.connectionGeneration,
       refreshed: true,
-      scopes: updated.scopes ?? null,
+      scopes: updated.scopes ?? integration.scopes ?? null,
     };
   } catch (error: unknown) {
     if (!(error instanceof ProviderConnectionGenerationConflictError)) throw error;

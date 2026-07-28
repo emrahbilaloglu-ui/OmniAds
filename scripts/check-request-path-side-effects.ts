@@ -1,6 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
-import ts from "typescript";
+import {
+  GUARDED_WRITE_TABLES,
+  IDENTITY_WRITE_HELPERS,
+  MAX_CALL_DEPTH,
+  REQUEST_PATH_WRITE_EXCEPTIONS,
+  collectEvidence,
+  createModuleGraph,
+  exceptionKey,
+  findMatchingException,
+  traceReachableWrites,
+  validateExceptionRegistry,
+  type Evidence,
+  type FunctionCall,
+  type ResolvedFunctionTarget,
+} from "./read-path-write-reachability";
 
 type FindingType =
   | "migration_call"
@@ -11,14 +25,20 @@ type FindingType =
   | "refresh_trigger_call"
   | "serving_write_owner_violation"
   | "mixed_live_warehouse_projection"
-  | "large_mixed_concern";
+  | "large_mixed_concern"
+  // ── added after a GET rewrote provider_connections through one indirection ──
+  /** A request path reaches a write to a guarded table with no registry entry. */
+  | "guarded_table_write_call"
+  /** A registry entry matches nothing any more; the hole it opened is stale. */
+  | "unused_request_path_write_exception"
+  /** The registry itself is malformed (missing reason, unknown table, …). */
+  | "write_exception_registry_defect"
+  /** A route file whose handlers could not be resolved: a blind spot, not a pass. */
+  | "route_handler_not_analyzable"
+  /** The call-graph walk hit MAX_CALL_DEPTH; results below it are unknown. */
+  | "reachability_depth_truncated";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
-
-interface Evidence {
-  line: number;
-  snippet: string;
-}
 
 interface Finding {
   type: FindingType;
@@ -30,61 +50,14 @@ interface Finding {
   transitiveSource?: string | null;
 }
 
-interface ImportBinding {
-  localName: string;
-  importedName: string | null;
-  specifier: string;
-  kind: "named" | "namespace" | "default";
-  line: number;
-  snippet: string;
-}
-
-interface ReExportBinding {
-  exportName: string;
-  importedName: string;
-  specifier: string;
-}
-
-interface FunctionCall {
-  type: "identifier" | "namespace";
-  name?: string;
-  namespace?: string;
-  propertyName?: string;
-  line: number;
-  snippet: string;
-}
-
-interface FunctionInfo {
-  name: string;
-  line: number;
-  exported: boolean;
-  bodyText: string;
-  calls: FunctionCall[];
-}
-
-interface ModuleInfo {
-  filePath: string;
-  content: string;
-  sourceFile: ts.SourceFile;
-  imports: Map<string, ImportBinding>;
-  reExports: Map<string, ReExportBinding>;
-  functions: Map<string, FunctionInfo>;
-  lineCount: number;
-  migrationImportEvidence: Evidence[];
-  migrationCallEvidence: Evidence[];
-}
-
 interface RouteGraph {
   dependencies: Set<string>;
   parents: Map<string, string | null>;
 }
 
-interface ResolvedFunctionTarget {
-  modulePath: string;
-  functionName: string;
-}
-
 const repoRoot = process.cwd();
+const moduleGraph = createModuleGraph(repoRoot);
+const { getModuleInfo, resolveModule, resolveExportedFunction } = moduleGraph;
 const routeRoot = path.join(repoRoot, "app");
 const HTTP_METHODS = new Set<HttpMethod>([
   "GET",
@@ -213,11 +186,26 @@ const servingWriteOwnerRules = [
   },
 ] as const;
 
+/**
+ * Named identity writers, used as a floor under the table-based detection.
+ *
+ * The primary detector is the TABLE: any reached function whose body writes a
+ * guarded table is flagged regardless of its name. These names exist so that a
+ * wrapper which delegates its SQL elsewhere is still recognised, and so a
+ * rename of one of them shows up as a resolvable-symbol assertion failure in
+ * lib/read-path-write-reachability.test.ts rather than as a quiet gap.
+ */
+const identityWriteHelperSymbols: ReadonlySet<string> = new Set(IDENTITY_WRITE_HELPERS);
+
 const notes = [
   "Migration detection still covers every Next HTTP route handler under app/**/route.ts.",
+  `Guarded-table reachability runs on EVERY HTTP method and is anchored on the table (${GUARDED_WRITE_TABLES.join(", ")}), not on a hand-maintained list of function names — the list is what missed upsertIntegration one hop away.`,
+  `Every request-path write to a guarded table must have an entry in REQUEST_PATH_WRITE_EXCEPTIONS (scripts/read-path-write-reachability.ts) keyed on caller->writer plus an exact table set; ${REQUEST_PATH_WRITE_EXCEPTIONS.length} are registered today.`,
+  "A registry entry that stops matching is reported as stale, so the inventory is frozen in both directions.",
+  `The call-graph walk is bounded at ${MAX_CALL_DEPTH} hops and reports truncation instead of passing quietly; dynamic import(), calls through values, class methods and export-default handlers are NOT followed.`,
   "GET/HEAD write detection is now function-scoped: it starts from exported read handlers and follows local, named, and namespace imports transitively.",
   "Read-path findings are grouped as state writes, projection writes, durable cache writes, and refresh/repair triggers.",
-  "OAuth callback GET routes that intentionally mutate integration/bootstrap state are excluded from read-only GET guard coverage.",
+  "OAuth callback GET routes are excluded from the legacy NAMED-target read-only guard, but NOT from guarded-table reachability: each one carries its own registry entry naming the tables it may write and why.",
   "User-facing serving/projection/cache writes are also checked for explicit owner-module ownership; tiny allowlists cover out-of-scope admin/reset lanes only.",
 ];
 
@@ -273,245 +261,6 @@ function discoverSourceFiles() {
   ].sort((left, right) => left.localeCompare(right));
 }
 
-function lineForOffset(content: string, offset: number) {
-  let line = 1;
-  for (let index = 0; index < offset; index += 1) {
-    if (content.charCodeAt(index) === 10) line += 1;
-  }
-  return line;
-}
-
-function collectEvidence(content: string, pattern: RegExp, limit = 5) {
-  const evidence: Evidence[] = [];
-  const globalPattern = pattern.global
-    ? pattern
-    : new RegExp(pattern.source, `${pattern.flags}g`);
-  for (const match of content.matchAll(globalPattern)) {
-    if (match.index == null) continue;
-    evidence.push({
-      line: lineForOffset(content, match.index),
-      snippet: match[0].trim(),
-    });
-    if (evidence.length >= limit) break;
-  }
-  return evidence;
-}
-
-function normalizeSnippet(snippet: string, maxLength = 220) {
-  const normalized = snippet.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
-
-function getNodeLine(sourceFile: ts.SourceFile, node: ts.Node) {
-  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-}
-
-function hasExportModifier(node: ts.Node) {
-  if (!ts.canHaveModifiers(node)) return false;
-  return (ts.getModifiers(node) ?? []).some(
-    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
-  );
-}
-
-function resolveModule(specifier: string, fromFile: string) {
-  if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
-    return null;
-  }
-
-  const basePath = specifier.startsWith("@/")
-    ? path.join(repoRoot, specifier.slice(2))
-    : path.resolve(path.dirname(fromFile), specifier);
-
-  const candidates = [
-    basePath,
-    `${basePath}.ts`,
-    `${basePath}.tsx`,
-    `${basePath}.mts`,
-    `${basePath}.cts`,
-    path.join(basePath, "index.ts"),
-    path.join(basePath, "index.tsx"),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      return path.normalize(candidate);
-    }
-  }
-
-  return null;
-}
-
-function collectFunctionCalls(
-  sourceFile: ts.SourceFile,
-  node: ts.FunctionLikeDeclarationBase,
-): FunctionCall[] {
-  const calls: FunctionCall[] = [];
-  const visit = (child: ts.Node) => {
-    if (ts.isCallExpression(child)) {
-      const line = getNodeLine(sourceFile, child);
-      const snippet = normalizeSnippet(child.getText(sourceFile));
-      if (ts.isIdentifier(child.expression)) {
-        calls.push({
-          type: "identifier",
-          name: child.expression.text,
-          line,
-          snippet,
-        });
-      } else if (
-        ts.isPropertyAccessExpression(child.expression) &&
-        ts.isIdentifier(child.expression.expression)
-      ) {
-        calls.push({
-          type: "namespace",
-          namespace: child.expression.expression.text,
-          propertyName: child.expression.name.text,
-          line,
-          snippet,
-        });
-      }
-    }
-    ts.forEachChild(child, visit);
-  };
-
-  if (node.body) {
-    ts.forEachChild(node.body, visit);
-  }
-
-  return calls;
-}
-
-function createSourceFile(filePath: string, content: string) {
-  return ts.createSourceFile(
-    filePath,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
-}
-
-const moduleInfoCache = new Map<string, ModuleInfo>();
-
-function getModuleInfo(filePath: string): ModuleInfo {
-  const cached = moduleInfoCache.get(filePath);
-  if (cached) return cached;
-
-  const content = readFile(filePath);
-  const sourceFile = createSourceFile(filePath, content);
-  const imports = new Map<string, ImportBinding>();
-  const reExports = new Map<string, ReExportBinding>();
-  const functions = new Map<string, FunctionInfo>();
-
-  for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const specifier = statement.moduleSpecifier.text;
-      const importClause = statement.importClause;
-      if (importClause?.name) {
-        imports.set(importClause.name.text, {
-          localName: importClause.name.text,
-          importedName: "default",
-          specifier,
-          kind: "default",
-          line: getNodeLine(sourceFile, statement),
-          snippet: normalizeSnippet(statement.getText(sourceFile)),
-        });
-      }
-      const namedBindings = importClause?.namedBindings;
-      if (namedBindings && ts.isNamespaceImport(namedBindings)) {
-        imports.set(namedBindings.name.text, {
-          localName: namedBindings.name.text,
-          importedName: null,
-          specifier,
-          kind: "namespace",
-          line: getNodeLine(sourceFile, statement),
-          snippet: normalizeSnippet(statement.getText(sourceFile)),
-        });
-      } else if (namedBindings && ts.isNamedImports(namedBindings)) {
-        for (const element of namedBindings.elements) {
-          const localName = element.name.text;
-          const importedName = (element.propertyName ?? element.name).text;
-          imports.set(localName, {
-            localName,
-            importedName,
-            specifier,
-            kind: "named",
-            line: getNodeLine(sourceFile, element),
-            snippet: normalizeSnippet(element.getText(sourceFile)),
-          });
-        }
-      }
-      continue;
-    }
-
-    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
-      const specifier = statement.moduleSpecifier.text;
-      if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
-        for (const element of statement.exportClause.elements) {
-          const exportName = element.name.text;
-          const importedName = (element.propertyName ?? element.name).text;
-          reExports.set(exportName, {
-            exportName,
-            importedName,
-            specifier,
-          });
-        }
-      }
-      continue;
-    }
-
-    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
-      functions.set(statement.name.text, {
-        name: statement.name.text,
-        line: getNodeLine(sourceFile, statement),
-        exported: hasExportModifier(statement),
-        bodyText: statement.body.getText(sourceFile),
-        calls: collectFunctionCalls(sourceFile, statement),
-      });
-      continue;
-    }
-
-    if (ts.isVariableStatement(statement)) {
-      const exported = hasExportModifier(statement);
-      for (const declaration of statement.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
-        if (
-          !ts.isArrowFunction(declaration.initializer) &&
-          !ts.isFunctionExpression(declaration.initializer)
-        ) {
-          continue;
-        }
-        functions.set(declaration.name.text, {
-          name: declaration.name.text,
-          line: getNodeLine(sourceFile, declaration),
-          exported,
-          bodyText: declaration.initializer.body.getText(sourceFile),
-          calls: collectFunctionCalls(sourceFile, declaration.initializer),
-        });
-      }
-    }
-  }
-
-  const info: ModuleInfo = {
-    filePath,
-    content,
-    sourceFile,
-    imports,
-    reExports,
-    functions,
-    lineCount: content.split("\n").length,
-    migrationImportEvidence: collectEvidence(
-      content,
-      /import\s+[\s\S]*?\brunMigrations\b[\s\S]*?from\s+["']@\/lib\/migrations["']|\{\s*runMigrations\s*\}\s*=\s*await\s*import\(\s*["']@\/lib\/migrations["']\s*\)/g,
-      5,
-    ),
-    migrationCallEvidence: collectEvidence(content, /\brunMigrations\s*\(/g, 5),
-  };
-
-  moduleInfoCache.set(filePath, info);
-  return info;
-}
-
 function collectRouteGraph(entrypoint: string): RouteGraph {
   const dependencies = new Set<string>();
   const parents = new Map<string, string | null>();
@@ -555,41 +304,36 @@ function buildImportChain(parents: Map<string, string | null>, targetFile: strin
   return chain;
 }
 
+/**
+ * Which HTTP handlers a route file exports, and where each one's body actually
+ * lives.
+ *
+ * `export { getGoogleAccountsRoute as GET } from "@/lib/google-api-routes"` is a
+ * handler too. Nine route files use that shape, and because the previous
+ * version of this function looked only at locally-declared functions, all nine
+ * were scanned for NOTHING — the read-path write walk never had an entry point
+ * to start from. They did not appear as failures; they appeared as silence.
+ */
 function extractRouteMethods(filePath: string) {
-  const methods: HttpMethod[] = [];
-  for (const [name, fn] of getModuleInfo(filePath).functions.entries()) {
+  const methods = new Map<HttpMethod, ResolvedFunctionTarget | null>();
+  const moduleInfo = getModuleInfo(filePath);
+
+  for (const [name, fn] of moduleInfo.functions.entries()) {
     if (fn.exported && HTTP_METHODS.has(name as HttpMethod)) {
-      methods.push(name as HttpMethod);
+      methods.set(name as HttpMethod, { modulePath: filePath, functionName: name });
     }
   }
-  return methods.sort();
-}
 
-function resolveExportedFunction(
-  modulePath: string,
-  exportName: string,
-  seen = new Set<string>(),
-): ResolvedFunctionTarget | null {
-  const loopKey = `${modulePath}:${exportName}`;
-  if (seen.has(loopKey)) return null;
-  seen.add(loopKey);
-
-  const moduleInfo = getModuleInfo(modulePath);
-  if (moduleInfo.functions.has(exportName)) {
-    return { modulePath, functionName: exportName };
+  for (const exportName of moduleInfo.reExports.keys()) {
+    if (!HTTP_METHODS.has(exportName as HttpMethod)) continue;
+    if (methods.has(exportName as HttpMethod)) continue;
+    methods.set(
+      exportName as HttpMethod,
+      resolveExportedFunction(filePath, exportName),
+    );
   }
 
-  const reExport = moduleInfo.reExports.get(exportName);
-  if (!reExport) {
-    return null;
-  }
-
-  const resolvedModule = resolveModule(reExport.specifier, modulePath);
-  if (!resolvedModule) {
-    return null;
-  }
-
-  return resolveExportedFunction(resolvedModule, reExport.importedName, seen);
+  return methods;
 }
 
 function getFindingTypeForTarget(targetName: string): FindingType | null {
@@ -785,6 +529,7 @@ function createReadWriteFinding(input: {
 function detectReadPathWriteFindingsForRouteMethod(input: {
   routeFile: string;
   method: HttpMethod;
+  entry: ResolvedFunctionTarget;
 }): Finding[] {
   const findings: Finding[] = [];
   const visited = new Set<string>();
@@ -893,10 +638,87 @@ function detectReadPathWriteFindingsForRouteMethod(input: {
     }
   };
 
-  traceFunction(
-    { modulePath: input.routeFile, functionName: input.method },
-    [`${toRepoPath(input.routeFile)}#${input.method}`],
-  );
+  traceFunction(input.entry, routeChainPrefix(input.routeFile, input.method, input.entry));
+
+  return findings;
+}
+
+/**
+ * The chain a route's handler starts from.
+ *
+ * When the handler is re-exported from a library module the chain must still
+ * begin at the ROUTE — that is the thing an operator sees in a URL, and it is
+ * what the exception registry keys `via` on.
+ */
+function routeChainPrefix(
+  routeFile: string,
+  method: HttpMethod,
+  entry: ResolvedFunctionTarget,
+) {
+  const routeLabel = `${toRepoPath(routeFile)}#${method}`;
+  const entryLabel = `${toRepoPath(entry.modulePath)}#${entry.functionName}`;
+  return routeLabel === entryLabel ? [routeLabel] : [routeLabel, entryLabel];
+}
+
+/**
+ * Every guarded-table write this route's handler can reach, minus the ones the
+ * registry sanctions.
+ *
+ * This runs on EVERY HTTP method, not just GET/HEAD. A POST that rewrites
+ * `provider_connections` is usually legitimate — but "usually" is the state the
+ * previous guard was in, and it is indistinguishable from silence. Requiring
+ * every one of them to be registered means the inventory is complete, so a NEW
+ * unregistered write fails whichever method it arrives on.
+ */
+function detectGuardedTableWriteFindings(input: {
+  routeFile: string;
+  method: HttpMethod;
+  entry: ResolvedFunctionTarget;
+  matchedExceptionKeys: Set<string>;
+}): Finding[] {
+  const findings: Finding[] = [];
+  const routeRepoPath = toRepoPath(input.routeFile);
+
+  const result = traceReachableWrites({
+    graph: moduleGraph,
+    entryModule: input.entry.modulePath,
+    entryFunction: input.entry.functionName,
+    bannedSymbols: identityWriteHelperSymbols,
+    chainPrefix: routeChainPrefix(input.routeFile, input.method, input.entry),
+  });
+
+  if (result.truncatedAtDepthLimit) {
+    findings.push({
+      type: "reachability_depth_truncated",
+      file: routeRepoPath,
+      route: routeRepoPath,
+      methods: [input.method],
+      transitiveSource: null,
+      summary: `${input.method} call graph hit the ${MAX_CALL_DEPTH}-hop bound; writes below it were not examined`,
+      evidence: [{ line: 1, snippet: `visited ${result.visitedCount} function(s)` }],
+    });
+  }
+
+  for (const write of result.writes) {
+    if (write.kind !== "table_write") continue;
+    const matched = findMatchingException(write);
+    if (matched) {
+      input.matchedExceptionKeys.add(exceptionKey(matched));
+      continue;
+    }
+    findings.push({
+      type: "guarded_table_write_call",
+      file: routeRepoPath,
+      route: routeRepoPath,
+      methods: [input.method],
+      transitiveSource: write.writeSite,
+      summary: `${input.method} route reaches an unregistered write to ${write.tables.join(", ")} in ${write.writeSite}`,
+      evidence: [
+        { line: 1, snippet: write.chain.join(" -> ") },
+        { line: write.line, snippet: write.snippet },
+      ],
+    });
+  }
 
   return findings;
 }
@@ -954,6 +776,11 @@ function printReport(findings: Finding[], modulesScanned: number, routesScanned:
     ["projection_write_call", "GET projection writes"],
     ["cache_write_call", "GET durable cache writes"],
     ["refresh_trigger_call", "GET refresh/repair triggers"],
+    ["guarded_table_write_call", "Unregistered request-path writes to guarded tables"],
+    ["unused_request_path_write_exception", "Stale write-exception registry entries"],
+    ["write_exception_registry_defect", "Write-exception registry defects"],
+    ["route_handler_not_analyzable", "Route handlers the scan could not resolve"],
+    ["reachability_depth_truncated", "Call graphs truncated at the depth bound"],
     ["serving_write_owner_violation", "Serving write-owner violations"],
     ["mixed_live_warehouse_projection", "Mixed live/warehouse/projection modules"],
     ["large_mixed_concern", "Large mixed-concern files"],
@@ -983,7 +810,7 @@ function main() {
   const migrationFindings = routeGraphs.flatMap((entry) =>
     detectMigrationFindings({
       routeFile: entry.routeFile,
-      routeMethods: entry.routeMethods,
+      routeMethods: [...entry.routeMethods.keys()].sort(),
       graph: entry.graph,
     }),
   );
@@ -991,16 +818,87 @@ function main() {
   const getWriteFindings = routeGraphs.flatMap((entry) =>
     readOnlyRouteExclusions.has(entry.routeFile)
       ? []
-      :
-    entry.routeMethods
-      .filter((method) => READ_ONLY_METHODS.has(method))
-      .flatMap((method) =>
-        detectReadPathWriteFindingsForRouteMethod({
+      : [...entry.routeMethods]
+          .filter(([method, target]) => READ_ONLY_METHODS.has(method) && target != null)
+          .flatMap(([method, target]) =>
+            detectReadPathWriteFindingsForRouteMethod({
+              routeFile: entry.routeFile,
+              method,
+              entry: target!,
+            }),
+          ),
+  );
+
+  // ── guarded-table reachability, on every method ────────────────────────────
+  const matchedExceptionKeys = new Set<string>();
+  const guardedTableFindings = routeGraphs.flatMap((entry) =>
+    [...entry.routeMethods]
+      .filter(([, target]) => target != null)
+      .flatMap(([method, target]) =>
+        detectGuardedTableWriteFindings({
           routeFile: entry.routeFile,
           method,
+          entry: target!,
+          matchedExceptionKeys,
         }),
       ),
   );
+
+  // A route file that exports handlers this scan cannot resolve is a blind
+  // spot, and a blind spot must not read as a pass.
+  const unanalyzableFindings: Finding[] = routeGraphs.flatMap((entry) => {
+    const unresolved = [...entry.routeMethods]
+      .filter(([, target]) => target == null)
+      .map(([method]) => method);
+    const repoPath = toRepoPath(entry.routeFile);
+    if (unresolved.length > 0) {
+      return [
+        {
+          type: "route_handler_not_analyzable" as const,
+          file: repoPath,
+          route: repoPath,
+          methods: unresolved,
+          transitiveSource: null,
+          summary: `Exported handler(s) ${unresolved.join(", ")} could not be resolved to a function body`,
+          evidence: [{ line: 1, snippet: "re-export target missing, default export, or non-function binding" }],
+        },
+      ];
+    }
+    if (entry.routeMethods.size === 0) {
+      return [
+        {
+          type: "route_handler_not_analyzable" as const,
+          file: repoPath,
+          route: repoPath,
+          methods: [],
+          transitiveSource: null,
+          summary: "Route file exports no recognisable HTTP handler",
+          evidence: [{ line: 1, snippet: "no exported GET/POST/... function or named re-export" }],
+        },
+      ];
+    }
+    return [];
+  });
+
+  // A registry entry that no longer matches anything is a hole nobody is using
+  // — and a hole nobody is using is a hole nobody is watching.
+  const staleExceptionFindings: Finding[] = REQUEST_PATH_WRITE_EXCEPTIONS.filter(
+    (entry) => !matchedExceptionKeys.has(exceptionKey(entry)),
+  ).map((entry) => ({
+    type: "unused_request_path_write_exception" as const,
+    file: "scripts/read-path-write-reachability.ts",
+    transitiveSource: entry.writeSite,
+    summary: `Registered request-path write exception "${exceptionKey(entry)}" no longer matches any route; delete it`,
+    evidence: [{ line: 1, snippet: entry.reason.slice(0, 200) }],
+  }));
+
+  const registryDefectFindings: Finding[] = validateExceptionRegistry().map((problem) => ({
+    type: "write_exception_registry_defect" as const,
+    file: "scripts/read-path-write-reachability.ts",
+    transitiveSource: null,
+    summary: problem,
+    evidence: [{ line: 1, snippet: problem }],
+  }));
 
   const allDependencies = new Set<string>();
   for (const routeGraph of routeGraphs) {
@@ -1021,6 +919,10 @@ function main() {
     dedupeFindings([
       ...migrationFindings,
       ...getWriteFindings,
+      ...guardedTableFindings,
+      ...unanalyzableFindings,
+      ...staleExceptionFindings,
+      ...registryDefectFindings,
       ...servingOwnerFindings,
       ...generalFindings,
     ]),

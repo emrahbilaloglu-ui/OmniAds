@@ -538,18 +538,44 @@ assert_image_pin() {
 
 # ── Two-host primitives ────────────────────────────────────────────────────
 
+# When this is set, EVERY statement db_sql_on runs is executed inside a
+# REPEATABLE READ transaction that imports the named exported snapshot, so it
+# reads the database as it stood when that snapshot was taken rather than as it
+# stands now. Empty means "read live", which is what every caller outside the
+# rollback baseline wants.
+#
+# It is a global rather than an argument on purpose: the four hash functions the
+# rollback baseline is made of are security-critical and are not being edited to
+# add a parameter. They are called exactly as they always were; only the
+# transaction they land in changes.
+SNAPSHOT_IMPORT_ID=""
+
 # Run SQL on the DATABASE host. The statement travels on STDIN rather than
 # inside a nested shell quote: a hash query contains newlines, single quotes and
 # `$` and there is no defensible way to quote that twice through ssh.
 db_sql_on() {
-  local database="$1" statement="$2"
+  local database="$1" statement="$2" script quiet=""
+  script="${statement}"
+  if [ -n "${SNAPSHOT_IMPORT_ID}" ]; then
+    snapshot_assert_id_shape "${SNAPSHOT_IMPORT_ID}" \
+      || die "refusing to run a statement against snapshot identifier '${SNAPSHOT_IMPORT_ID}': it is not a PostgreSQL exported snapshot name"
+    # SET TRANSACTION SNAPSHOT has to be the first thing in the transaction, and
+    # the transaction has to be REPEATABLE READ or the imported snapshot is
+    # discarded at the next statement. `--quiet` is what keeps the BEGIN/SET/
+    # COMMIT command tags out of a digest that is read as bare stdout.
+    script="BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+SET TRANSACTION SNAPSHOT '${SNAPSHOT_IMPORT_ID}';
+${statement}
+COMMIT;"
+    quiet=1
+  fi
   if [ -n "${DB_SSH}" ]; then
     local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
-    printf '%s\n' "${statement}" | ssh "${opts[@]}" "${DB_SSH}" \
-      "runuser -u postgres -- psql --dbname=$(printf %q "${database}") -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
+    printf '%s\n' "${script}" | ssh "${opts[@]}" "${DB_SSH}" \
+      "runuser -u postgres -- psql --dbname=$(printf %q "${database}") ${quiet:+--quiet} -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
   else
-    printf '%s\n' "${statement}" | runuser -u postgres -- psql --dbname="${database}" \
-      -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-
+    printf '%s\n' "${script}" | runuser -u postgres -- psql --dbname="${database}" \
+      ${quiet:+--quiet} -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-
   fi
 }
 
@@ -576,6 +602,322 @@ db_run() {
 # the database host, or nothing at all.
 read_manifest_file() {
   cat "$1"
+}
+
+# ── A transaction-bound snapshot for the rollback artifact ─────────────────
+#
+# WHY THIS EXISTS
+#
+# `take_verified_backup` dumps the database, scratch-restores that dump about
+# a hundred minutes later, and compares four hashes. It used to compare the
+# RESTORED copy against the LIVE database AS IT STOOD AT COMPARISON TIME. That
+# can only agree if nothing wrote to provider_connections,
+# integration_credentials, business_provider_accounts or
+# provider_account_assignments for the whole window — which is false on a
+# running system, and it aborted a production preflight for exactly that reason:
+#
+#   [16:13:52Z] backup artifact bytes=25113968381 sha256=98b2ba24...
+#   [16:14:30Z] Scratch-restoring that artifact ... and reading it back
+#   [17:53:37Z] ABORT the restored backup does not reproduce provider_connections
+#
+# The dump closed at 16:13:52 and max(provider_connections.updated_at) was
+# 16:30:06. `connection_generation_hash_on` folds updated_at into its signature,
+# so the two digests could not match. The BACKUP was fine. The BASELINE was
+# wrong, and a correct rollback artifact was thrown away in the middle of a
+# release.
+#
+# Hashing right after pg_dump returns does NOT fix this. pg_dump's snapshot
+# opens when it STARTS, so a reading taken when it finishes still races every
+# write made during the dump — the same bug with a smaller window, which is
+# worse, because it fails rarely and unreproducibly.
+#
+# The fix is the only thing that removes the race instead of shrinking it: ONE
+# exported snapshot, consumed by BOTH pg_dump and the baseline hashes. An
+# exporter session holds a REPEATABLE READ transaction open and publishes its
+# snapshot id; `pg_dump --snapshot=<id>` attaches to that snapshot, and each
+# baseline hash is read in a transaction that does `SET TRANSACTION SNAPSHOT`.
+# The baselines therefore describe exactly the rows the artifact carries, no
+# matter what the live database does during the dump or the restore.
+#
+# HOLDING A TRANSACTION OPEN ON A 70 GB PRODUCTION DATABASE IS A HAZARD
+#
+# An abandoned REPEATABLE READ transaction pins the xmin horizon and stops
+# vacuum reclaiming anything newer than it — on this database that is a real
+# incident, not an untidiness. FOUR independent things end this one:
+#
+#   1. the explicit `snapshot_release` on the success path, which runs as soon
+#      as the artifact is closed and pinned rather than at the end of the phase;
+#   2. the EXIT/INT/TERM/HUP trap, which runs it again on every failure path,
+#      including `die`, a failed dump, a failed restore and a signal;
+#   3. the exporter reads its script from a FIFO THIS PROCESS holds open. If
+#      this process dies for any reason at all — kill -9, a lost terminal, the
+#      app host rebooting — the write end closes, psql reads EOF and exits, and
+#      the transaction ends with it;
+#   4. the session sets `idle_in_transaction_session_timeout` BEFORE it opens
+#      the transaction, so even a wedged SSH channel that never delivers that
+#      EOF is bounded by the server itself.
+#
+# and `snapshot_open` additionally terminates any exporter left behind by an
+# earlier run before it starts a new one.
+#
+# Releasing early is safe. PostgreSQL only requires the exporting transaction to
+# outlive the IMPORT: pg_dump imports the snapshot within seconds of starting
+# and then holds its own, so ending the exporter mid-dump cannot change a byte
+# of the artifact. Proven in the harness (V4b).
+SNAPSHOT_HOLD_SECONDS="${SYNC_CUTOVER_SNAPSHOT_HOLD_SECONDS:-3600}"
+SNAPSHOT_OPEN_TIMEOUT="${SYNC_CUTOVER_SNAPSHOT_OPEN_TIMEOUT:-120}"
+
+# Only this wrapper ever uses this application_name prefix, so a backend wearing
+# it is either the exporter this process started or one an earlier run leaked.
+SNAPSHOT_MARKER_PREFIX='adsecute-cutover-snap-'
+
+SNAPSHOT_ID=""
+SNAPSHOT_MARKER=""
+SNAPSHOT_PID=""
+SNAPSHOT_WORKDIR=""
+SNAPSHOT_LOG=""
+SNAPSHOT_IN_OPEN=0
+SNAPSHOT_OUT_OPEN=0
+
+# The subshell depth that owns the exporter and the scratch database.
+#
+# bash does not run an EXIT trap when a command-substitution subshell ends, so
+# `x="$(snapshot_bound some_hash)"` cannot fire the cleanup below. That is the
+# behaviour every bash this script runs on has, and it is also exactly the kind
+# of thing that would be catastrophic if some future shell disagreed: a release
+# fired from inside a `$( )` would terminate the exporter in the middle of the
+# dump it is holding a snapshot for. BASH_SUBSHELL has existed since bash 3.0
+# and makes the assumption unnecessary — cleanup only ever acts in the shell
+# that opened the thing it is cleaning up.
+CUTOVER_OWNER_DEPTH=""
+
+# The scratch database the rollback artifact is restored into, while it exists.
+# Recorded so that a signal, a timeout or a die during the restore drops it too;
+# an abandoned scratch copy of a 70 GB database is not a tidiness problem.
+SCRATCH_DB=""
+
+cutover_owns_resources() {
+  [ -n "${CUTOVER_OWNER_DEPTH}" ] || return 1
+  [ "${BASH_SUBSHELL:-0}" = "${CUTOVER_OWNER_DEPTH}" ]
+}
+
+scratch_db_drop() {
+  local name="${SCRATCH_DB}"
+  [ -n "${name}" ] || return 0
+  cutover_owns_resources || return 0
+  SCRATCH_DB=""
+  db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${name}")" >/dev/null 2>&1 || true
+}
+
+# An exported snapshot name is `<hex>-<hex>-<n>`. Checked rather than trusted:
+# the id is interpolated into a SQL string literal, so anything that could carry
+# a quote must never reach the server.
+snapshot_assert_id_shape() {
+  case "$1" in
+    "") return 1 ;;
+    *[!0-9A-Fa-f-]*) return 1 ;;
+    *-*-*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# The exporter, as a function so `exec` can replace the background subshell —
+# `$!` then names the process that actually holds the session, which is what
+# makes killing it mean anything.
+snapshot_exporter_session() {
+  if [ -n "${DB_SSH}" ]; then
+    local -a opts; IFS=$'\n' read -r -d '' -a opts < <(db_ssh_opts; printf '\0')
+    exec ssh "${opts[@]}" "${DB_SSH}" \
+      "runuser -u postgres -- psql --dbname=$(printf %q "${DB_NAME}") --quiet -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-"
+  else
+    exec runuser -u postgres -- psql --dbname="${DB_NAME}" \
+      --quiet -v ON_ERROR_STOP=1 --tuples-only --no-align --file=-
+  fi
+}
+
+# Terminate exporter backends by application_name, from a SECOND connection.
+# This is the one release path that still works when the SSH channel carrying
+# the exporter is wedged rather than closed, and it is the reason a lost
+# controller cannot outlive its transaction by more than the idle bound.
+snapshot_terminate_backends() {
+  local pattern="$1" swept
+  swept="$(db_sql "SELECT COALESCE(count(pg_terminate_backend(pid)), 0)::text
+                   FROM pg_stat_activity
+                   WHERE application_name LIKE '${pattern}'
+                     AND pid <> pg_backend_pid();" 2>/dev/null | tr -d '[:space:]')" || swept=""
+  printf '%s' "${swept}"
+}
+
+# Idempotent, callable from any exit path, and it must never itself abort: it
+# runs from the EXIT trap, where a failure would replace the real diagnosis.
+snapshot_release() {
+  local swept
+  cutover_owns_resources || return 0
+  # 1. The FIFO. Closing the write end is the graceful stop: psql reads EOF and
+  #    exits, ending the transaction.
+  if [ "${SNAPSHOT_IN_OPEN}" = "1" ]; then exec 8>&-; SNAPSHOT_IN_OPEN=0; fi
+  # 2. The local process holding the session open.
+  if [ -n "${SNAPSHOT_PID}" ]; then
+    kill "${SNAPSHOT_PID}" 2>/dev/null || true
+    kill -KILL "${SNAPSHOT_PID}" 2>/dev/null || true
+    wait "${SNAPSHOT_PID}" 2>/dev/null || true
+    SNAPSHOT_PID=""
+  fi
+  if [ "${SNAPSHOT_OUT_OPEN}" = "1" ]; then exec 7>&-; SNAPSHOT_OUT_OPEN=0; fi
+  # 3. The BACKEND. Steps 1 and 2 act on this host; only this one acts on the
+  #    database, and only this one is proof.
+  if [ -n "${SNAPSHOT_MARKER}" ]; then
+    swept="$(snapshot_terminate_backends "${SNAPSHOT_MARKER}")"
+    case "${swept}" in
+      "" | 0) : ;;
+      *) log "snapshot exporter session terminated on the database host (${swept})" ;;
+    esac
+    SNAPSHOT_MARKER=""
+  fi
+  # 4. The temporary files, on this host. The FIFOs and the exporter transcript
+  #    are the only things this feature writes anywhere.
+  if [ -n "${SNAPSHOT_WORKDIR}" ]; then rm -rf "${SNAPSHOT_WORKDIR}" 2>/dev/null || true; fi
+  SNAPSHOT_WORKDIR=""
+  SNAPSHOT_LOG=""
+  SNAPSHOT_ID=""
+  SNAPSHOT_IMPORT_ID=""
+  return 0
+}
+
+# EVERY exit path, including the ones that are not exits at all. `die` reaches
+# this through EXIT; a failed pg_dump reaches it through `die`; a signal reaches
+# it directly; and a kill -9 of this process is handled by the FIFO instead.
+snapshot_cleanup_and_exit() {
+  local rc="$1"
+  trap - EXIT HUP INT TERM
+  # Order matters: the scratch database is dropped through the same SSH link the
+  # exporter uses, so it goes first, while that link is still known to work.
+  scratch_db_drop || true
+  snapshot_release || true
+  exit "${rc}"
+}
+trap 'snapshot_cleanup_and_exit "$?"' EXIT
+trap 'snapshot_cleanup_and_exit 130' INT
+trap 'snapshot_cleanup_and_exit 143' TERM
+trap 'snapshot_cleanup_and_exit 129' HUP
+
+snapshot_open() {
+  local marker line waited fifo_in fifo_out swept
+  [ -z "${SNAPSHOT_ID}" ] || die "internal error: a snapshot exporter is already open"
+  CUTOVER_OWNER_DEPTH="${BASH_SUBSHELL:-0}"
+
+  case "${SNAPSHOT_HOLD_SECONDS}" in "" | *[!0-9]*) die "SYNC_CUTOVER_SNAPSHOT_HOLD_SECONDS must be a whole number of seconds" ;; esac
+  case "${SNAPSHOT_OPEN_TIMEOUT}" in "" | *[!0-9]*) die "SYNC_CUTOVER_SNAPSHOT_OPEN_TIMEOUT must be a whole number of seconds" ;; esac
+
+  # There is deliberately no `pg_dump --help` probe here. pg_dump only honours
+  # --help and --version as argv[1]; behind `runuser -u postgres --` and any
+  # site wrapper that prepends connection flags it does not, and a probe that
+  # answers "unsupported" because of ARGUMENT ORDER would refuse every cutover
+  # on a perfectly capable host. An unsupported --snapshot instead fails the
+  # dump itself, in milliseconds, before a byte is written — and
+  # take_verified_backup names that failure for what it is.
+
+  # A run killed between opening an exporter and releasing it would leave a
+  # REPEATABLE READ transaction pinning the xmin horizon.
+  swept="$(snapshot_terminate_backends "${SNAPSHOT_MARKER_PREFIX}%")"
+  case "${swept}" in
+    "" | 0) : ;;
+    *) log "released ${swept} snapshot exporter session(s) abandoned by an earlier run" ;;
+  esac
+
+  # The one residue no shell can clean up after itself: a `kill -9` of this
+  # process leaves the FIFOs behind, because SIGKILL runs no trap. The exporter
+  # transaction is still released — the FIFO write end closes with the process —
+  # but the directory stays. Swept here, before a new one is made, so the next
+  # run heals it instead of accumulating one per abandoned cutover. Safe because
+  # LOCK_FILE means there is never a second cutover holding one of these.
+  rm -rf "${TMPDIR:-/tmp}"/cutover-snapshot.* 2>/dev/null || true
+
+  SNAPSHOT_WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/cutover-snapshot.XXXXXX")" \
+    || die "could not create a working directory for the snapshot exporter"
+  chmod 0700 "${SNAPSHOT_WORKDIR}" 2>/dev/null || true
+  fifo_in="${SNAPSHOT_WORKDIR}/in"
+  fifo_out="${SNAPSHOT_WORKDIR}/out"
+  SNAPSHOT_LOG="${SNAPSHOT_WORKDIR}/transcript"
+  mkfifo "${fifo_in}" "${fifo_out}" || die "could not create the snapshot exporter FIFOs under ${SNAPSHOT_WORKDIR}"
+  : > "${SNAPSHOT_LOG}"
+
+  marker="${SNAPSHOT_MARKER_PREFIX}$$"
+
+  # BOTH ends opened read-write BEFORE the exporter starts, so neither open()
+  # can block and there is no ordering deadlock. Holding the read end of the
+  # output FIFO is also what lets the wait below be a bounded `read -t` rather
+  # than a poll loop — `sleep` cannot be trusted to sleep in every sandbox this
+  # script is exercised in, and a poll that does not pause is not a timeout.
+  exec 8<>"${fifo_in}" || die "could not open the snapshot exporter input FIFO"
+  SNAPSHOT_IN_OPEN=1
+  exec 7<>"${fifo_out}" || die "could not open the snapshot exporter output FIFO"
+  SNAPSHOT_OUT_OPEN=1
+
+  # 8>&- 7>&-: the exporter must NOT inherit the write end of its own input
+  # FIFO. If it does, closing fd 8 here never produces the EOF that stops it,
+  # and the whole "controller dies, transaction ends" guarantee is gone.
+  snapshot_exporter_session < "${fifo_in}" > "${fifo_out}" 2>&1 7>&- 8>&- &
+  SNAPSHOT_PID=$!
+  SNAPSHOT_MARKER="${marker}"
+
+  {
+    printf "SELECT set_config('application_name', '%s', false);\n" "${marker}"
+    printf "SET statement_timeout = '%ss';\n" "${SNAPSHOT_OPEN_TIMEOUT}"
+    printf "SET idle_in_transaction_session_timeout = '%ss';\n" "${SNAPSHOT_HOLD_SECONDS}"
+    printf "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n"
+    printf "SELECT 'SNAPSHOT ' || pg_export_snapshot();\n"
+  } >&8
+
+  waited=0
+  while [ "${waited}" -lt "${SNAPSHOT_OPEN_TIMEOUT}" ]; do
+    if IFS= read -r -t 1 line <&7; then
+      printf '%s\n' "${line}" >> "${SNAPSHOT_LOG}"
+      case "${line}" in
+        "SNAPSHOT "*) SNAPSHOT_ID="$(printf '%s' "${line#SNAPSHOT }" | tr -d '[:space:]')"; break ;;
+      esac
+      continue
+    fi
+    kill -0 "${SNAPSHOT_PID}" 2>/dev/null || break
+    waited=$(( waited + 1 ))
+  done
+
+  if ! snapshot_assert_id_shape "${SNAPSHOT_ID}"; then
+    log "snapshot exporter transcript: $(tr '\n' ' ' < "${SNAPSHOT_LOG}" 2>/dev/null || true)"
+    snapshot_release
+    die "could not export a database snapshot on the database host. A backup whose baseline is read at a different instant than the dump is not a verifiable rollback, and this wrapper will not take one."
+  fi
+
+  log "snapshot ${SNAPSHOT_ID} exported and held by ${marker}; the dump and every baseline below read THIS snapshot, and the session self-releases after ${SNAPSHOT_HOLD_SECONDS}s idle even if this host disappears"
+}
+
+# Runs a command with every db_sql_on statement bound to the exported snapshot.
+# Called inside a command substitution, so the assignment is confined to that
+# subshell and there is no global to restore — a read that dies mid-way cannot
+# leave later live reads silently snapshot-bound.
+snapshot_bound() {
+  [ -n "${SNAPSHOT_ID}" ] || die "internal error: a snapshot-bound read was attempted with no snapshot open"
+  SNAPSHOT_IMPORT_ID="${SNAPSHOT_ID}"
+  "$@"
+}
+
+# A baseline that could not be read is not a baseline. Every one of these is
+# compared against the restored copy, so an empty or malformed value would make
+# the comparison vacuous — the exact failure shape the artifact digest check
+# further down already exists to prevent.
+snapshot_assert_baseline() {
+  local name="$1" value="$2"
+  case "${value}" in
+    "")
+      die "the ${name} baseline could not be read under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed" ;;
+    empty | absent)
+      return 0 ;;
+    *[!0-9a-f]*)
+      die "the ${name} baseline read under the exported snapshot is '${value}', which is not a digest; the rollback artifact cannot be verified and nothing may proceed" ;;
+    *)
+      [ "${#value}" -eq 64 ] \
+        || die "the ${name} baseline read under the exported snapshot is ${#value} characters, not 64; the rollback artifact cannot be verified and nothing may proceed" ;;
+  esac
 }
 
 # ── F21.3: root crontab block management ───────────────────────────────────
@@ -1337,6 +1679,38 @@ take_verified_backup() {
   [ "${scratch_free}" -ge "${scratch_required}" ] \
     || die "insufficient free space for the scratch restore: ${scratch_free}B free under ${data_dir}, ${scratch_required}B required to inflate a ${restored}B dataset"
 
+  # The snapshot the artifact and its baseline BOTH read. Opened before the dump
+  # and before the baselines, because being one instant is the whole point.
+  snapshot_open
+  local snapshot_id_used base_counts base_schema base_selected base_connections base_credentials base_assignments
+  snapshot_id_used="${SNAPSHOT_ID}"
+
+  log "Reading the rollback baseline under snapshot ${snapshot_id_used}"
+  base_counts="$(snapshot_bound table_counts_on "${DB_NAME}")" \
+    || die "could not read the table census under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  base_schema="$(snapshot_bound schema_identity_on "${DB_NAME}")" \
+    || die "could not read the schema identity under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  base_selected="$(snapshot_bound selected_binding_hash_on "${DB_NAME}")" \
+    || die "could not read the selected-binding baseline under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  base_connections="$(snapshot_bound connection_generation_hash_on "${DB_NAME}")" \
+    || die "could not read the provider_connections baseline under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  base_credentials="$(snapshot_bound credential_generation_hash_on "${DB_NAME}")" \
+    || die "could not read the integration_credentials baseline under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  if counts_have_table "${base_counts}" provider_account_assignments; then
+    base_assignments="$(snapshot_bound assignment_hash_on "${DB_NAME}")" \
+      || die "could not read the account-assignment baseline under the exported snapshot; the rollback artifact cannot be verified and nothing may proceed"
+  else
+    base_assignments="absent"
+  fi
+  [ -n "${base_counts}" ] \
+    || die "the table census read under the exported snapshot is empty; the rollback artifact cannot be verified and nothing may proceed"
+  snapshot_assert_baseline schema_identity "${base_schema}"
+  snapshot_assert_baseline selected_binding_hash "${base_selected}"
+  snapshot_assert_baseline connection_generation_hash "${base_connections}"
+  snapshot_assert_baseline credential_generation_hash "${base_credentials}"
+  snapshot_assert_baseline assignment_hash "${base_assignments}"
+  log "baseline under ${snapshot_id_used}: selected=${base_selected} connections=${base_connections} credentials=${base_credentials} assignments=${base_assignments}"
+
   log "Taking a FRESH full backup of ${DB_NAME} on the database host"
   exclude_flags=""
   while IFS= read -r t; do
@@ -1362,8 +1736,25 @@ EOF
   # or copied, and every other file this script writes is already 0600.
   : > "${artifact}" && chmod 0600 "${artifact}" \
     || die "could not create ${artifact} on this host"
-  db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --format=custom --compress=${BACKUP_COMPRESS_LEVEL} --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" \
-    || die "pg_dump failed; there is no rollback artifact, so nothing may proceed"
+  # --snapshot: the dump reads the SAME snapshot the baseline above was read
+  # under, so "did the artifact come back identical" is a question about the
+  # artifact and not about who wrote to the database during the two hours it
+  # takes to answer it.
+  #
+  # 8>&-: the dump must not inherit the write end of the exporter's input FIFO.
+  # A pg_dump wedged on an unresponsive database would otherwise keep that FIFO
+  # open after this process closed it, and the exporter would not see EOF.
+  local dump_err dump_err_text
+  dump_err="${SNAPSHOT_WORKDIR}/pg_dump.stderr"
+  : > "${dump_err}" 2>/dev/null || dump_err="/dev/null"
+  if ! db_run "runuser -u postgres -- pg_dump --dbname=$(printf %q "${DB_NAME}") --snapshot=$(printf %q "${snapshot_id_used}") --format=custom --compress=${BACKUP_COMPRESS_LEVEL} --no-owner --no-privileges --no-tablespaces${exclude_flags}" > "${artifact}" 2>"${dump_err}" 8>&-; then
+    dump_err_text="$(tr '\n' ' ' < "${dump_err}" 2>/dev/null || true)"
+    case "${dump_err_text}" in
+      *"unrecognized option"* | *"invalid option"* | *"unknown option"*)
+        die "pg_dump on the database host does not support --snapshot (${dump_err_text}), so the dump and its baseline cannot be bound to one snapshot. This wrapper will NOT fall back to comparing a restored backup against the live database as it stands hours later; that is the comparison that threw a good artifact away in production." ;;
+    esac
+    die "pg_dump failed (${dump_err_text}); there is no rollback artifact, so nothing may proceed"
+  fi
 
   # Record what this artifact actually cost, so the next cutover sizes itself
   # against a measurement instead of a guess.
@@ -1398,8 +1789,19 @@ EOF
   esac
   log "backup artifact bytes=${artifact_bytes} sha256=${artifact_sha}"
 
+  # The artifact is closed and pinned, and the baseline it will be judged
+  # against was read before it. NOTHING still needs the exported snapshot, so
+  # the transaction goes now rather than at the end of the phase: the scratch
+  # restore below takes as long again as the dump did, and there is no reason to
+  # pin the database's xmin horizon through it.
+  snapshot_release
+  log "snapshot ${snapshot_id_used} released; the baseline is recorded and the restore below is compared against IT, never against the live database"
+
   log "Scratch-restoring that artifact into ${scratch} and reading it back"
   db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
+  # Registered BEFORE it exists, so a createdb that half-succeeds, a restore
+  # that is killed and a signal during the read-back all drop it on the way out.
+  SCRATCH_DB="${scratch}"
   db_run "runuser -u postgres -- createdb $(printf %q "${scratch}")" \
     || die "could not create the scratch database ${scratch}; an unverified backup is not a rollback plan"
   # Piped, for the same reason the dump is redirected: the artifact lives in a
@@ -1407,7 +1809,7 @@ EOF
   # ROOT shell reads the file and pg_restore takes it on stdin.
   # Streamed back the other way: the artifact is local, pg_restore is remote.
   if ! db_run "runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error" < "${artifact}"; then
-    db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
+    scratch_db_drop
     die "the fresh backup could NOT be restored. Do not migrate: this release has no rollback."
   fi
 
@@ -1423,38 +1825,36 @@ EOF
     restored_assignments="absent"
   fi
 
-  local live_schema live_selected live_connections live_credentials live_assignments live_counts
-  live_schema="$(schema_identity_on "${DB_NAME}")"
-  live_selected="$(selected_binding_hash_on "${DB_NAME}")"
-  live_connections="$(connection_generation_hash_on "${DB_NAME}")"
-  live_credentials="$(credential_generation_hash_on "${DB_NAME}")"
-  live_counts="$(table_counts_on "${DB_NAME}")"
-  if counts_have_table "${live_counts}" provider_account_assignments; then
-    live_assignments="$(assignment_hash_on "${DB_NAME}")"
-  else
-    live_assignments="absent"
-  fi
+  scratch_db_drop
 
-  db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${scratch}")" >/dev/null 2>&1 || true
-
-  # The point of the scratch restore is not that it completed — it is that the
-  # rows the Sync migration puts at risk came back identical.
-  [ "${restored_schema}" = "${live_schema}" ] \
-    || die "the restored backup's schema identity (${restored_schema}) differs from the live database (${live_schema}); the artifact does not describe this database"
-  [ "${restored_selected}" = "${live_selected}" ] \
-    || die "the restored backup does not reproduce the selected-binding set; it is not a usable rollback"
-  [ "${restored_connections}" = "${live_connections}" ] \
-    || die "the restored backup does not reproduce provider_connections; it is not a usable rollback"
-  [ "${restored_credentials}" = "${live_credentials}" ] \
-    || die "the restored backup does not reproduce integration_credentials; it is not a usable rollback"
-  [ "${restored_assignments}" = "${live_assignments}" ] \
-    || die "the restored backup does not reproduce the account assignments; it is not a usable rollback"
+  # Compared against the BASELINE, which was read under the same snapshot the
+  # dump was taken under — never against the live database.
+  #
+  # The live database has moved on by now and is SUPPOSED to have: the whole
+  # window between the snapshot and this line is one in which the application is
+  # still running. Judging the artifact against that is what threw a good
+  # rollback away in production. The question this asks is "did the artifact
+  # come back byte-for-byte", and it is now a question with a stable answer.
+  #
+  # A baseline that could not be read never reaches here: snapshot_assert_baseline
+  # already refused. A restored value that could not be read is caught by these
+  # same comparisons, because "" never equals a 64-character digest.
+  [ "${restored_schema}" = "${base_schema}" ] \
+    || die "the restored backup's schema identity (${restored_schema}) differs from the snapshot it was taken under (${base_schema}); the artifact does not describe this database"
+  [ "${restored_selected}" = "${base_selected}" ] \
+    || die "the restored backup does not reproduce the selected-binding set as of snapshot ${snapshot_id_used} (restored ${restored_selected}, snapshot ${base_selected}); it is not a usable rollback"
+  [ "${restored_connections}" = "${base_connections}" ] \
+    || die "the restored backup does not reproduce provider_connections as of snapshot ${snapshot_id_used} (restored ${restored_connections}, snapshot ${base_connections}); it is not a usable rollback"
+  [ "${restored_credentials}" = "${base_credentials}" ] \
+    || die "the restored backup does not reproduce integration_credentials as of snapshot ${snapshot_id_used} (restored ${restored_credentials}, snapshot ${base_credentials}); it is not a usable rollback"
+  [ "${restored_assignments}" = "${base_assignments}" ] \
+    || die "the restored backup does not reproduce the account assignments as of snapshot ${snapshot_id_used} (restored ${restored_assignments}, snapshot ${base_assignments}); it is not a usable rollback"
 
   local credential_count assignment_count connection_count binding_count
-  credential_count="$(printf '%s\n' "${live_counts}" | awk -F= '$1=="integration_credentials"{print $2}')"
-  assignment_count="$(printf '%s\n' "${live_counts}" | awk -F= '$1=="provider_account_assignments"{print $2}')"
-  connection_count="$(printf '%s\n' "${live_counts}" | awk -F= '$1=="provider_connections"{print $2}')"
-  binding_count="$(printf '%s\n' "${live_counts}" | awk -F= '$1=="business_provider_accounts"{print $2}')"
+  credential_count="$(printf '%s\n' "${base_counts}" | awk -F= '$1=="integration_credentials"{print $2}')"
+  assignment_count="$(printf '%s\n' "${base_counts}" | awk -F= '$1=="provider_account_assignments"{print $2}')"
+  connection_count="$(printf '%s\n' "${base_counts}" | awk -F= '$1=="provider_connections"{print $2}')"
+  binding_count="$(printf '%s\n' "${base_counts}" | awk -F= '$1=="business_provider_accounts"{print $2}')"
 
   {
     printf 'cutover_epoch=%s\n' "${epoch}"
@@ -1466,11 +1866,17 @@ EOF
     printf 'artifact_bytes=%s\n' "${artifact_bytes}"
     printf 'artifact_created_utc=%s\n' "${artifact_created}"
     printf 'backup_scope=full_database\n'
-    printf 'schema_identity=%s\n' "${live_schema}"
-    printf 'selected_binding_hash=%s\n' "${live_selected}"
-    printf 'connection_generation_hash=%s\n' "${live_connections}"
-    printf 'credential_generation_hash=%s\n' "${live_credentials}"
-    printf 'assignment_hash=%s\n' "${live_assignments}"
+    # The hashes below describe the ARTIFACT, not the database at the moment the
+    # manifest was written. They were read under `snapshot_id`, which is the
+    # snapshot pg_dump read, so a reader of this manifest is looking at what a
+    # restore of this artifact will actually produce.
+    printf 'snapshot_id=%s\n' "${snapshot_id_used}"
+    printf 'baseline_source=exported_snapshot\n'
+    printf 'schema_identity=%s\n' "${base_schema}"
+    printf 'selected_binding_hash=%s\n' "${base_selected}"
+    printf 'connection_generation_hash=%s\n' "${base_connections}"
+    printf 'credential_generation_hash=%s\n' "${base_credentials}"
+    printf 'assignment_hash=%s\n' "${base_assignments}"
     printf 'binding_count=%s\n' "${binding_count:-absent}"
     printf 'connection_count=%s\n' "${connection_count:-absent}"
     printf 'credential_count=%s\n' "${credential_count:-absent}"

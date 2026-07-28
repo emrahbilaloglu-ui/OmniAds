@@ -224,6 +224,114 @@ exec "${PGBIN}/${tool}" -h 127.0.0.1 -p ${PGPORT} -U postgres "\$@"
 STUB
 done
 
+# A LIVE write to the two tables the rollback baseline is taken over, made after
+# the snapshot was exported. In production this was a user reconnecting an
+# account while the dump ran: max(provider_connections.updated_at) landed
+# sixteen minutes after the dump closed, and the preflight then threw a
+# perfectly good 23 GiB artifact away because the restored copy did not match a
+# database that had moved on.
+#
+# It changes `status` and `updated_at` — both are folded into
+# connection_generation_hash — and INSERTS a row, which is what makes the proof
+# non-vacuous without the harness having to re-implement the wrapper's hash SQL:
+# the manifest's connection_count is the count under the snapshot, so if it
+# still reads 2 while the live table holds 3, the baseline provably is not the
+# live database.
+cat > "${DBHOST_BIN}/harness-live-mutation" <<STUB
+#!/usr/bin/env bash
+exec "${PGBIN}/psql" -h 127.0.0.1 -p ${PGPORT} -U postgres \
+  --dbname="\${DB_NAME:-adsecute_prod}" -q -v ON_ERROR_STOP=1 -c "
+    UPDATE provider_connections SET status = 'revoked', updated_at = now() + interval '3 hours';
+    UPDATE integration_credentials SET updated_at = now() + interval '3 hours';
+    INSERT INTO provider_connections (business_id, provider, status, provider_account_id)
+    VALUES ('biz-live-write', 'meta', 'connected', 'act_live_write');
+  " < /dev/null
+STUB
+
+# psql, with one extra seam: a live write made BETWEEN the snapshot being
+# exported and the baseline hashes being read. That window is closed by exactly
+# one thing — the baselines running `SET TRANSACTION SNAPSHOT` — so it is the
+# only window that can prove the import is real rather than decorative.
+#
+# The exporter is identified by --quiet, which snapshot_exporter_session passes
+# unconditionally, and it is always the first psql to carry it: nothing before
+# it in the phase is snapshot-bound. The write then fires on the NEXT psql of
+# any shape, which is the first baseline read. Keying the trigger on "the next
+# invocation" rather than on "the next --quiet invocation" matters: a wrapper
+# that stopped importing the snapshot would also stop passing --quiet, and a
+# probe that keyed on --quiet would then quietly stop injecting anything and
+# report a pass it never earned.
+cat > "${DBHOST_BIN}/psql" <<STUB
+#!/usr/bin/env bash
+if [ "\${HARNESS_MUTATE_AT:-}" = "baseline" ]; then
+  started="${HARNESS_ROOT}/exporter-started.\${DB_NAME:-adsecute_prod}"
+  fired="${HARNESS_ROOT}/baseline-mutated.\${DB_NAME:-adsecute_prod}"
+  if [ ! -f "\${started}" ]; then
+    case " \$* " in
+      *" --quiet "*) : > "\${started}" ;;
+    esac
+  elif [ ! -f "\${fired}" ]; then
+    : > "\${fired}"
+    harness-live-mutation >/dev/null 2>&1 || true
+  fi
+fi
+exec "${PGBIN}/psql" -h 127.0.0.1 -p ${PGPORT} -U postgres "\$@"
+STUB
+
+# pg_dump, with the seams a snapshot-bound backup has to be proven against: a
+# dump slow enough for a signal to arrive while the exporter still holds its
+# transaction, a dump that fails outright, and a live write DURING the dump.
+cat > "${DBHOST_BIN}/pg_dump" <<STUB
+#!/usr/bin/env bash
+[ -z "\${HARNESS_PGDUMP_STALL:-}" ] || sleep "\${HARNESS_PGDUMP_STALL}"
+if [ -n "\${HARNESS_PGDUMP_FAIL:-}" ]; then
+  printf 'pg_dump: error: %s\n' "\${HARNESS_PGDUMP_FAIL}" >&2
+  exit 1
+fi
+case "\${HARNESS_MUTATE_AT:-}" in
+  dump | both) harness-live-mutation >/dev/null 2>&1 || exit 1 ;;
+esac
+exec "${PGBIN}/pg_dump" -h 127.0.0.1 -p ${PGPORT} -U postgres "\$@"
+STUB
+
+# pg_restore, with the restore WINDOW modelled: the live database can be written
+# while the artifact is being read back, and the restored copy itself can come
+# back wrong. Not exec'd, because the corruption has to happen after the restore
+# succeeds — that is what turns "the restore completed" into "the restore
+# reproduced the artifact", which is the only claim worth anything.
+cat > "${DBHOST_BIN}/pg_restore" <<STUB
+#!/usr/bin/env bash
+case "\${HARNESS_MUTATE_AT:-}" in
+  restore | both) harness-live-mutation >/dev/null 2>&1 || exit 1 ;;
+esac
+if [ -n "\${HARNESS_RESTORE_FAIL:-}" ]; then
+  printf 'pg_restore: error: %s\n' "\${HARNESS_RESTORE_FAIL}" >&2
+  exit 1
+fi
+# Holds the restore open while the scratch database already EXISTS, which is the
+# only window in which a signal can strand a scratch copy of the database.
+[ -z "\${HARNESS_RESTORE_STALL:-}" ] || sleep "\${HARNESS_RESTORE_STALL}"
+"${PGBIN}/pg_restore" -h 127.0.0.1 -p ${PGPORT} -U postgres "\$@"
+rc=\$?
+[ "\${rc}" -eq 0 ] || exit "\${rc}"
+if [ -n "\${HARNESS_CORRUPT_RESTORE:-}" ]; then
+  target=""
+  for arg in "\$@"; do
+    case "\$arg" in --dbname=*) target="\${arg#--dbname=}" ;; esac
+  done
+  [ -n "\${target}" ] || exit 0
+  case "\${HARNESS_CORRUPT_RESTORE}" in
+    credentials) sql="DELETE FROM integration_credentials;" ;;
+    assignments) sql="UPDATE provider_account_assignments SET account_ids = ARRAY['gone'];" ;;
+    bindings) sql="DELETE FROM business_provider_accounts WHERE provider = 'shopify';" ;;
+    *) sql="UPDATE provider_connections SET status = 'tampered';" ;;
+  esac
+  "${PGBIN}/psql" -h 127.0.0.1 -p ${PGPORT} -U postgres --dbname="\${target}" \
+    -q -v ON_ERROR_STOP=1 -c "\${sql}" < /dev/null || exit 1
+fi
+exit 0
+STUB
+
 # The real DB host runs everything as the postgres system user. Reproducing that
 # indirection matters because the wrapper's commands are built around it, and a
 # quoting mistake in `runuser -u postgres -- ...` would only ever show up here.
@@ -283,7 +391,12 @@ DBHOST_PATH="${DBHOST_BIN}:/usr/bin:/bin:/usr/sbin:/sbin"
 new_host() {
   local host="${HARNESS_ROOT}/$1"
   rm -rf "${host}"
-  mkdir -p "${host}/bin" "${host}/app" "${host}/state" "${host}/log" "${host}/cutover" "${host}/runtime"
+  # tmp-work is TMPDIR for the phase. Every scenario needs it — the wrapper
+  # mktemps for the root crontab split and for the snapshot exporter's FIFOs —
+  # and it used to be created ad hoc by whichever scenario happened to reach a
+  # phase that needed one. A host without it fails inside `mktemp` with a
+  # message about a path nobody wrote, which reads like a wrapper bug.
+  mkdir -p "${host}/bin" "${host}/app" "${host}/state" "${host}/log" "${host}/cutover" "${host}/runtime" "${host}/tmp-work"
 
   cat > "${host}/app/docker-compose.yml" <<'YAML'
 services:
@@ -1441,6 +1554,337 @@ expect_ok "${host}" quiesce \
   "Q2 the same timer STOPPED lets quiesce through: the guard tracks whether it is armed, not whether the unit exists" \
   DB_NAME=adsecute_qtimeroff HARNESS_DBHOST_TIMER=adsecute-db-healthcheck.timer \
   HARNESS_DBHOST_TIMER_ACTIVE=0 || true
+
+# ══ V: the rollback baseline is bound to ONE snapshot, and nothing leaks ═══
+#
+# THE BUG THIS SECTION EXISTS FOR
+#
+# take_verified_backup dumps the database, scratch-restores that dump about a
+# hundred minutes later, and compares four hashes. It used to compare the
+# restored copy against the LIVE database as it stood at comparison time, which
+# can only agree if nobody wrote to provider_connections,
+# integration_credentials, business_provider_accounts or
+# provider_account_assignments for the whole window. A production preflight
+# aborted on exactly that:
+#
+#   [16:13:52Z] backup artifact bytes=25113968381 sha256=98b2ba24...
+#   [17:53:37Z] ABORT the restored backup does not reproduce provider_connections
+#
+# with max(provider_connections.updated_at) at 16:30:06 — after the dump closed.
+# The artifact was correct and was thrown away.
+#
+# The wrapper now exports ONE snapshot, holds it open, dumps with
+# `pg_dump --snapshot=<id>`, and reads the four baselines in transactions that
+# `SET TRANSACTION SNAPSHOT` the same id. V2 is the production failure replayed:
+# it must now pass, and it must pass for the right reason.
+#
+# Holding a transaction open on a 70 GB database is itself a hazard, so V4 is as
+# important as V2: the exporter, the FIFOs, the temp directory and the scratch
+# database must be gone on EVERY exit path.
+
+snapshot_backends_left() {
+  psql_direct --command "SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'adsecute-cutover-snap-%';" |
+    tr -d '[:space:]'
+}
+
+scratch_databases_left() {
+  psql_direct --command "SELECT count(*) FROM pg_database WHERE datname LIKE 'adsecute_cutover_scratch%';" |
+    tr -d '[:space:]'
+}
+
+snapshot_workdirs_left() {
+  find "$1/tmp-work" -maxdepth 1 -name 'cutover-snapshot.*' 2>/dev/null | wc -l | tr -d '[:space:]'
+}
+
+# A backend does not vanish the instant its client is killed, so this waits
+# rather than sampling once — a race here would make the strongest assertion in
+# the section the flakiest.
+snapshot_backends_settled() {
+  local left="" i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    left="$(snapshot_backends_left)"
+    [ "${left}" = "0" ] && break
+    sleep 1
+  done
+  printf '%s' "${left}"
+}
+
+assert_no_snapshot_residue() {
+  local host="$1" label="$2" backends scratches workdirs
+  backends="$(snapshot_backends_settled)"
+  scratches="$(scratch_databases_left)"
+  workdirs="$(snapshot_workdirs_left "${host}")"
+  if [ "${backends}" = "0" ] && [ "${scratches}" = "0" ] && [ "${workdirs}" = "0" ]; then
+    pass "${label}"
+    return 0
+  fi
+  fail "${label} — exporter backends left=${backends}, scratch databases left=${scratches}, exporter workdirs left=${workdirs}"
+  return 1
+}
+
+# ── V1: a snapshot-bound artifact passes, and says so ──────────────────────
+seed_database adsecute_snapok
+host="$(new_host snapok)"
+expect_ok "${host}" preflight \
+  "V1 a snapshot-bound backup passes preflight against a real dump and a real scratch restore" \
+  DB_NAME=adsecute_snapok || true
+
+v1_manifest="$(awk -F= '$1=="backup_manifest_path"{print $2}' "${host}/state/cutover/state" 2>/dev/null || true)"
+if [ -n "${v1_manifest}" ] && [ -s "${v1_manifest}" ]; then
+  v1_snap="$(awk -F= '$1=="snapshot_id"{print $2}' "${v1_manifest}")"
+  v1_source="$(awk -F= '$1=="baseline_source"{print $2}' "${v1_manifest}")"
+  # `<hex>-<hex>-<n>`, the shape PostgreSQL gives an exported snapshot. Asserted
+  # because an EMPTY id would make every snapshot-bound read fall back to a live
+  # read that compares equal to itself — a vacuous pass is the failure mode this
+  # whole section is guarding against.
+  case "${v1_snap}" in
+    *[!0-9A-Fa-f-]* | "") v1_shape=0 ;;
+    *-*-*) v1_shape=1 ;;
+    *) v1_shape=0 ;;
+  esac
+  if [ "${v1_source}" = "exported_snapshot" ] && [ "${v1_shape}" = "1" ]; then
+    pass "V1b the manifest records the exported snapshot (${v1_snap}) the dump and the baseline both read"
+  else
+    fail "V1b the manifest does not name a real exported snapshot: baseline_source='${v1_source}' snapshot_id='${v1_snap}'"
+  fi
+else
+  fail "V1b preflight recorded no backup manifest for the snapshot case"
+fi
+assert_no_snapshot_residue "${host}" "V4a a SUCCESSFUL preflight leaves no exporter session, no scratch database, no FIFO and no temp directory" || true
+
+# ── V2: the production failure, replayed ───────────────────────────────────
+#
+# provider_connections and integration_credentials are written while the artifact
+# is being restored — after the snapshot was exported, exactly as they were in
+# production. The artifact was already verified against the snapshot, so this
+# must not invalidate it.
+seed_database adsecute_snapmut
+host="$(new_host snapmut)"
+expect_ok "${host}" preflight \
+  "V2 a live provider_connections/integration_credentials write DURING the restore window does not invalidate the already-verified artifact" \
+  DB_NAME=adsecute_snapmut HARNESS_MUTATE_AT=restore || true
+
+v2_manifest="$(awk -F= '$1=="backup_manifest_path"{print $2}' "${host}/state/cutover/state" 2>/dev/null || true)"
+v2_live_connections="$(psql_on adsecute_snapmut --command "SELECT count(*) FROM provider_connections;" | tr -d '[:space:]')"
+v2_live_revoked="$(psql_on adsecute_snapmut --command "SELECT count(*) FROM provider_connections WHERE status = 'revoked';" | tr -d '[:space:]')"
+v2_live_moved="$(psql_on adsecute_snapmut --command "SELECT count(*) FROM integration_credentials WHERE updated_at > now() + interval '2 hours';" | tr -d '[:space:]')"
+if [ -n "${v2_manifest}" ] && [ -s "${v2_manifest}" ]; then
+  v2_conn_count="$(awk -F= '$1=="connection_count"{print $2}' "${v2_manifest}")"
+  v2_verified="$(awk -F= '$1=="scratch_restore_verified"{print $2}' "${v2_manifest}")"
+  # NON-VACUITY, without re-implementing the wrapper's hash SQL in the test:
+  # the live table now holds THREE connections, two of them 'revoked' with a
+  # moved updated_at, while the manifest — read under the snapshot — still says
+  # two. The baseline the artifact was judged against therefore cannot be the
+  # live database, and a live-now comparison could not have matched.
+  if [ "${v2_verified}" = "yes" ] && [ "${v2_conn_count}" = "2" ] &&
+    [ "${v2_live_connections}" = "3" ] && [ "${v2_live_revoked}" = "2" ] && [ "${v2_live_moved}" = "2" ]; then
+    pass "V2b non-vacuous: the live database moved under the restore (3 connections, 2 revoked, 2 credentials re-stamped) while the verified baseline still describes the snapshot's 2 connections"
+  else
+    fail "V2b the mutation did not actually diverge the live database from the baseline: manifest connection_count=${v2_conn_count} verified=${v2_verified}; live connections=${v2_live_connections} revoked=${v2_live_revoked} credentials_moved=${v2_live_moved}"
+  fi
+else
+  fail "V2b the mutated run recorded no backup manifest"
+fi
+
+# The same write, made DURING the dump rather than during the restore. pg_dump
+# is attached to the exported snapshot, so the artifact must not contain it
+# either.
+seed_database adsecute_snapmutdump
+host="$(new_host snapmutdump)"
+expect_ok "${host}" preflight \
+  "V2c a live write DURING the dump is invisible to a snapshot-attached pg_dump, so the artifact still verifies" \
+  DB_NAME=adsecute_snapmutdump HARNESS_MUTATE_AT=dump || true
+
+# The same write again, this time landing between the snapshot being exported
+# and the baseline hashes being read. Only an actual `SET TRANSACTION SNAPSHOT`
+# closes this window: a baseline that read live rows would see this write, the
+# snapshot-attached dump would not, and the restore would be refused for a
+# divergence the artifact is not responsible for.
+seed_database adsecute_snapmutbase
+host="$(new_host snapmutbase)"
+expect_ok "${host}" preflight \
+  "V2d a live write between the snapshot export and the baseline read is invisible to the baseline, because the baseline IMPORTS the snapshot rather than reading live rows" \
+  DB_NAME=adsecute_snapmutbase HARNESS_MUTATE_AT=baseline || true
+
+v2d_manifest="$(awk -F= '$1=="backup_manifest_path"{print $2}' "${host}/state/cutover/state" 2>/dev/null || true)"
+v2d_conn_count="$(awk -F= '$1=="connection_count"{print $2}' "${v2d_manifest}" 2>/dev/null || true)"
+v2d_live="$(psql_on adsecute_snapmutbase --command "SELECT count(*) FROM provider_connections;" | tr -d '[:space:]')"
+if [ "${v2d_conn_count}" = "2" ] && [ "${v2d_live}" = "3" ]; then
+  pass "V2d-b non-vacuous: the write really landed before the baseline was read (live now holds 3 connections) and the baseline still recorded the snapshot's 2"
+else
+  fail "V2d-b the pre-baseline write did not diverge live from the baseline: manifest connection_count=${v2d_conn_count} live=${v2d_live}"
+fi
+
+# ── V3: a restored dataset that is not what the artifact held must refuse ───
+seed_database adsecute_snapcorrupt
+host="$(new_host snapcorrupt)"
+expect_refusal "${host}" preflight "does not reproduce provider_connections" \
+  "V3a a restored copy whose provider_connections came back different refuses closed" \
+  DB_NAME=adsecute_snapcorrupt HARNESS_CORRUPT_RESTORE=connections || true
+assert_no_snapshot_residue "${host}" "V4b a preflight that REFUSED at the comparison leaves no exporter session, no scratch database and no temp directory" || true
+
+seed_database adsecute_snapmissing
+host="$(new_host snapmissing)"
+expect_refusal "${host}" preflight "does not reproduce integration_credentials" \
+  "V3b a restored copy that is MISSING integration_credentials rows refuses closed" \
+  DB_NAME=adsecute_snapmissing HARNESS_CORRUPT_RESTORE=credentials || true
+
+seed_database adsecute_snapbindings
+host="$(new_host snapbindings)"
+expect_refusal "${host}" preflight "does not reproduce the selected-binding set" \
+  "V3c a restored copy missing an identity binding refuses closed" \
+  DB_NAME=adsecute_snapbindings HARNESS_CORRUPT_RESTORE=bindings || true
+
+seed_database adsecute_snaprestfail
+host="$(new_host snaprestfail)"
+expect_refusal "${host}" preflight "could NOT be restored" \
+  "V3d a restore that fails outright refuses: an unrestorable artifact is not a rollback" \
+  DB_NAME=adsecute_snaprestfail HARNESS_RESTORE_FAIL="damaged archive" || true
+assert_no_snapshot_residue "${host}" "V4c a FAILED restore drops the scratch database it created and releases the exporter" || true
+
+# ── V4: the exporter cannot outlive the run that opened it ─────────────────
+#
+# A pg_dump that fails leaves the wrapper holding an open REPEATABLE READ
+# transaction on a 70 GB database. This is the `die` path.
+seed_database adsecute_snapdumpfail
+host="$(new_host snapdumpfail)"
+expect_refusal "${host}" preflight "pg_dump failed" \
+  "V4d a pg_dump that fails while the exporter is open still refuses, and does not migrate" \
+  DB_NAME=adsecute_snapdumpfail HARNESS_PGDUMP_FAIL="connection to server was lost" || true
+assert_no_snapshot_residue "${host}" "V4e the die path released the exporter transaction, the FIFOs and the temp directory" || true
+
+# An old pg_dump has no --snapshot at all. It must be named for what it is, and
+# it must NOT quietly fall back to the comparison that caused the outage.
+seed_database adsecute_snapunsupported
+host="$(new_host snapunsupported)"
+expect_refusal "${host}" preflight "does not support --snapshot" \
+  "V4f a pg_dump without --snapshot refuses with that diagnosis instead of falling back to a live-now comparison" \
+  DB_NAME=adsecute_snapunsupported HARNESS_PGDUMP_FAIL='unrecognized option "--snapshot"' || true
+assert_no_snapshot_residue "${host}" "V4g the unsupported-pg_dump refusal leaves nothing behind either" || true
+
+# A SIGNAL, delivered while the dump is running and the exporter is holding its
+# transaction. Run inline rather than through run_phase so that $! is the
+# wrapper's own shell and the signal reaches it rather than a subshell.
+seed_database adsecute_snapsignal
+host="$(new_host snapsignal)"
+env -i \
+  PATH="${host}/bin:/usr/bin:/bin" HOME="${host}" TMPDIR="${host}/tmp-work" \
+  DEPLOY_SHA="${DEPLOY_SHA}" DB_NAME=adsecute_snapsignal REMOTE_APP_DIR="${host}/app" \
+  SYNC_CUTOVER_STATE_DIR="${host}/state/cutover" SYNC_CUTOVER_INSTALL_DIR="${host}/cutover" \
+  SYNC_CUTOVER_DRAIN_SECONDS=0 SYNC_CUTOVER_DB_SSH="root@db-host" \
+  SYNC_CUTOVER_BACKUP_ROOT="${APPHOST_BACKUPS}" SYNC_CUTOVER_SCHEDULER="rootcron" \
+  HARNESS_PGDUMP_STALL=6 \
+  bash "${WRAPPER}" preflight > "${host}/signal.out" 2>&1 &
+SIGNAL_WRAPPER_PID=$!
+signal_armed=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if [ "$(snapshot_backends_left)" != "0" ]; then signal_armed=1; break; fi
+  sleep 1
+done
+if [ "${signal_armed}" = "1" ]; then
+  kill -TERM "${SIGNAL_WRAPPER_PID}" 2>/dev/null || true
+  wait "${SIGNAL_WRAPPER_PID}" 2>/dev/null || true
+  assert_no_snapshot_residue "${host}" "V4h a SIGTERM while the exporter holds its transaction releases it, drops the FIFOs and removes the temp directory" || true
+else
+  kill -TERM "${SIGNAL_WRAPPER_PID}" 2>/dev/null || true
+  wait "${SIGNAL_WRAPPER_PID}" 2>/dev/null || true
+  fail "V4h the exporter session never appeared in pg_stat_activity, so the signal case proved nothing: $(cat "${host}/signal.out" 2>/dev/null)"
+fi
+
+# The same signal, delivered later: during the RESTORE, when the scratch
+# database already exists. This is the only window in which a signal can strand
+# a full scratch copy of the database on the DB host's data directory, which is
+# the filesystem the capacity gate exists to protect.
+seed_database adsecute_snapsigrestore
+host="$(new_host snapsigrestore)"
+env -i \
+  PATH="${host}/bin:/usr/bin:/bin" HOME="${host}" TMPDIR="${host}/tmp-work" \
+  DEPLOY_SHA="${DEPLOY_SHA}" DB_NAME=adsecute_snapsigrestore REMOTE_APP_DIR="${host}/app" \
+  SYNC_CUTOVER_STATE_DIR="${host}/state/cutover" SYNC_CUTOVER_INSTALL_DIR="${host}/cutover" \
+  SYNC_CUTOVER_DRAIN_SECONDS=0 SYNC_CUTOVER_DB_SSH="root@db-host" \
+  SYNC_CUTOVER_BACKUP_ROOT="${APPHOST_BACKUPS}" SYNC_CUTOVER_SCHEDULER="rootcron" \
+  HARNESS_RESTORE_STALL=8 \
+  bash "${WRAPPER}" preflight > "${host}/signal-restore.out" 2>&1 &
+RESTORE_WRAPPER_PID=$!
+restore_armed=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if [ "$(scratch_databases_left)" != "0" ]; then restore_armed=1; break; fi
+  sleep 1
+done
+kill -TERM "${RESTORE_WRAPPER_PID}" 2>/dev/null || true
+wait "${RESTORE_WRAPPER_PID}" 2>/dev/null || true
+if [ "${restore_armed}" = "1" ]; then
+  assert_no_snapshot_residue "${host}" "V4l a SIGTERM during the scratch RESTORE drops the scratch database it had already created" || true
+else
+  fail "V4l the scratch database never appeared, so the restore-window signal case proved nothing: $(cat "${host}/signal-restore.out" 2>/dev/null)"
+fi
+
+# SIGKILL: no trap can run, so this is the one case that rests entirely on the
+# FIFO. The exporter reads its script from a FIFO the wrapper holds open; when
+# the wrapper dies the write end closes, psql reads EOF and exits, and the
+# transaction ends with it. Nothing on the app host can clean up after SIGKILL,
+# so the temp directory IS left behind — and the next run sweeps it, which is
+# what the second half of this case asserts.
+seed_database adsecute_snapkill
+host="$(new_host snapkill)"
+env -i \
+  PATH="${host}/bin:/usr/bin:/bin" HOME="${host}" TMPDIR="${host}/tmp-work" \
+  DEPLOY_SHA="${DEPLOY_SHA}" DB_NAME=adsecute_snapkill REMOTE_APP_DIR="${host}/app" \
+  SYNC_CUTOVER_STATE_DIR="${host}/state/cutover" SYNC_CUTOVER_INSTALL_DIR="${host}/cutover" \
+  SYNC_CUTOVER_DRAIN_SECONDS=0 SYNC_CUTOVER_DB_SSH="root@db-host" \
+  SYNC_CUTOVER_BACKUP_ROOT="${APPHOST_BACKUPS}" SYNC_CUTOVER_SCHEDULER="rootcron" \
+  HARNESS_PGDUMP_STALL=6 \
+  bash "${WRAPPER}" preflight > "${host}/kill.out" 2>&1 &
+KILL_WRAPPER_PID=$!
+kill_armed=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if [ "$(snapshot_backends_left)" != "0" ]; then kill_armed=1; break; fi
+  sleep 1
+done
+kill -KILL "${KILL_WRAPPER_PID}" 2>/dev/null || true
+wait "${KILL_WRAPPER_PID}" 2>/dev/null || true
+if [ "${kill_armed}" = "1" ]; then
+  kill_left="$(snapshot_backends_settled)"
+  if [ "${kill_left}" = "0" ]; then
+    pass "V4i a kill -9 of the wrapper — where no trap can run — still ends the exporter's transaction, because the FIFO write end dies with the process"
+  else
+    fail "V4i ${kill_left} exporter session(s) survived a kill -9 of the wrapper; an abandoned REPEATABLE READ transaction pins the xmin horizon"
+  fi
+  # The residue SIGKILL necessarily leaves, and the sweep that heals it.
+  kill_workdirs="$(snapshot_workdirs_left "${host}")"
+  expect_ok "${host}" preflight \
+    "V4j the next run sweeps the exporter directory a kill -9 left behind (${kill_workdirs} before) and completes normally" \
+    DB_NAME=adsecute_snapkill || true
+  assert_no_snapshot_residue "${host}" "V4k after that run nothing is left on either host" || true
+else
+  fail "V4i the exporter session never appeared, so the kill -9 case proved nothing: $(cat "${host}/kill.out" 2>/dev/null)"
+fi
+
+# ── V5: the split-host seam ────────────────────────────────────────────────
+#
+# Everything above has to have travelled over the ssh shim. The app host has no
+# PostgreSQL client at all — psql, pg_dump and runuser there are traps that log
+# and exit 127 — so a snapshot feature that quietly reached for a local socket
+# would be talking to the wrong machine, and on production there is no database
+# on that machine to talk to.
+seed_database adsecute_snapseam
+host="$(new_host snapseam)"
+expect_ok "${host}" preflight \
+  "V5 the snapshot-bound backup completes with PostgreSQL reachable ONLY over the ssh shim" \
+  DB_NAME=adsecute_snapseam || true
+
+seam_manifest="$(awk -F= '$1=="backup_manifest_path"{print $2}' "${host}/state/cutover/state" 2>/dev/null || true)"
+seam_snap="$(awk -F= '$1=="snapshot_id"{print $2}' "${seam_manifest}" 2>/dev/null || true)"
+seam_dump_line="$(grep -c -- "--snapshot=${seam_snap}" "${host}/log/ssh" 2>/dev/null || true)"
+seam_exporter_line="$(grep -c 'psql --dbname=adsecute_snapseam --quiet' "${host}/log/ssh" 2>/dev/null || true)"
+seam_local_db=0
+[ -s "${host}/log/local-db" ] && seam_local_db=1
+if [ -n "${seam_snap}" ] && [ "${seam_dump_line}" -ge 1 ] &&
+  [ "${seam_exporter_line}" -ge 2 ] && [ "${seam_local_db}" = "0" ]; then
+  pass "V5b the seam is real: the exporter session and every snapshot-bound read crossed the ssh shim (${seam_exporter_line} invocations), pg_dump carried --snapshot=${seam_snap} across it, and the app host's psql/pg_dump/runuser were never touched"
+else
+  fail "V5b the snapshot path did not stay on the DB-host seam: snapshot=${seam_snap} dump_lines=${seam_dump_line} exporter_lines=${seam_exporter_line} local_db_touched=${seam_local_db}"
+fi
 
 # ══ C: the credential generation hash may move ONLY by encryption ══════════
 #

@@ -860,6 +860,169 @@ export async function upsertIntegration(
   return integration;
 }
 
+/**
+ * What a credential refresh reports back: the generation the write COMMITTED
+ * under, and the credential facts the caller would otherwise re-read (and, in
+ * re-reading, reopen the window this whole design exists to close).
+ */
+export interface IntegrationCredentialRefreshResult {
+  /** `generation:status`, observed under the row lock this write committed with. */
+  connectionGeneration: string;
+  scopes: string | null;
+  tokenExpiresAt: string | null;
+  /** True only when the provider handed back a NEW refresh token. */
+  refreshTokenRotated: boolean;
+}
+
+/**
+ * Persist a refreshed ACCESS TOKEN, and nothing else.
+ *
+ * `upsertIntegration` is a connect/reconnect writer. Routing an ordinary token
+ * refresh through it made every refresh indistinguishable from a reconnect:
+ * supplying an access token sets `replacesCredential`, which sets
+ * `authorityChanged`, which with `status: "connected"` sets `isReconnect`. One
+ * authenticated GET therefore rewrote `provider_connections.status`,
+ * `.provider_account_id`, `.updated_at` and `.connection_generation`, cleared
+ * `.disconnected_at`, cleared `error_message`, and re-encrypted the UNCHANGED
+ * refresh token under a fresh IV so even its ciphertext moved. Google access
+ * tokens live about an hour and `executeGaqlQuery` calls the refresh on every
+ * invocation, so this fired on a page view.
+ *
+ * A refresh is not a reconnect. It is the same grant, the same principal and the
+ * same authority, with a newer bearer token — so this writes exactly the columns
+ * that changed:
+ *
+ *   integration_credentials.access_token      always (that IS the refresh)
+ *   integration_credentials.token_expires_at  always (a new token brings its own)
+ *   integration_credentials.refresh_token     ONLY when the provider rotated it
+ *   integration_credentials.updated_at        the row genuinely changed
+ *
+ * and NOTHING in `provider_connections`, `business_provider_accounts` or
+ * `provider_account_assignments`. `SELECT ... FOR UPDATE OF connection` takes
+ * the same row lock `upsertIntegration` takes — which is what serialises this
+ * against a concurrent reconnect — without writing to the locked row.
+ *
+ * There is deliberately no `providerAccountId`, no `metadata` and no `status`
+ * parameter. This path cannot express a principal change, a Search Console
+ * selection or a status transition, so it cannot be mistaken for one and cannot
+ * be quietly grown into one. Anything that genuinely changes authority — an
+ * explicit reconnect, a different provider account, a scope change, a status
+ * change — still goes through `upsertIntegration` and still bumps
+ * `connection_generation`.
+ */
+export async function refreshIntegrationCredentialTokens(params: {
+  businessId: string;
+  provider: IntegrationProviderType;
+  /** The freshly minted access token. */
+  accessToken: string;
+  /**
+   * Supply ONLY when the provider returned a different refresh token. Omitting
+   * it leaves the stored ciphertext byte-identical; re-encrypting the same
+   * plaintext would move the at-rest value for no reason and make a routine
+   * refresh look like a credential replacement to anything hashing the row.
+   */
+  rotatedRefreshToken?: string | null;
+  tokenExpiresAt: Date;
+  /**
+   * The `generation:status` token the caller read the refresh token under, from
+   * `readProviderConnectionGenerationToken`. Mandatory: a refresh computed from
+   * a credential the user has since replaced must not land.
+   */
+  expectedConnectionGeneration: string;
+}): Promise<IntegrationCredentialRefreshResult> {
+  // Before any database work. A blank expectation compares against nothing, and
+  // surfacing it as a generation CONFLICT would be worse than useless — callers
+  // treat a conflict as "someone reconnected" and fall back to the stored token,
+  // so a caller that simply forgot to pass one would be silently tolerated.
+  if (
+    typeof params.expectedConnectionGeneration !== "string" ||
+    params.expectedConnectionGeneration.trim() === ""
+  ) {
+    throw new Error(
+      `Refusing to persist a ${params.provider} credential refresh without the connection generation it was computed under.`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const accessToken = encryptIntegrationSecret(params.accessToken);
+  const rotatedRefreshToken = encryptIntegrationSecret(
+    typeof params.rotatedRefreshToken === "string" && params.rotatedRefreshToken.trim() !== ""
+      ? params.rotatedRefreshToken
+      : null,
+  );
+
+  return runDbTransaction(async () => {
+    const sql = getDb();
+
+    // The connection row is LOCKED but never written. The lock is what makes the
+    // check below a compare-and-set rather than a check-then-act: a reconnect
+    // running `upsertIntegration` takes the same lock, so it either commits
+    // before this read (and the generation no longer matches) or waits until
+    // after this commit (and overwrites the token with its own, which is
+    // correct — the newer grant wins).
+    const currentRows = (await sql`
+      SELECT connection.id,
+             connection.status,
+             connection.connection_generation::text AS connection_generation,
+             credential.scopes
+      FROM provider_connections connection
+      LEFT JOIN integration_credentials credential
+        ON credential.provider_connection_id = connection.id
+      WHERE connection.business_id = ${params.businessId}
+        AND connection.provider = ${params.provider}
+      FOR UPDATE OF connection
+    `) as Array<{
+      id: string;
+      status: string;
+      connection_generation: string;
+      scopes: string | null;
+    }>;
+    const current = currentRows[0] ?? null;
+    const observed = current
+      ? `${current.connection_generation}:${current.status}`
+      : null;
+    if (observed == null || observed !== params.expectedConnectionGeneration) {
+      throw new ProviderConnectionGenerationConflictError({
+        businessId: params.businessId,
+        provider: params.provider,
+        expected: params.expectedConnectionGeneration,
+        observed,
+      });
+    }
+
+    // UPDATE, never INSERT ... ON CONFLICT. An upsert here would CREATE a
+    // credential row for a connection that has none — a connection whose
+    // credential was cleared by `disconnectIntegration` — resurrecting a live
+    // token behind a row the user was told is disconnected. No row to update
+    // means there is no credential to refresh, and that is an error.
+    const updatedRows = (await sql`
+      UPDATE integration_credentials SET
+        access_token     = ${accessToken},
+        refresh_token    = COALESCE(${rotatedRefreshToken}, integration_credentials.refresh_token),
+        token_expires_at = ${params.tokenExpiresAt.toISOString()},
+        updated_at       = ${now}
+      WHERE provider_connection_id = ${current.id}
+      RETURNING token_expires_at, scopes
+    `) as Array<{ token_expires_at: string | null; scopes: string | null }>;
+    const updated = updatedRows[0] ?? null;
+    if (!updated) {
+      throw new Error(
+        `No ${params.provider} credential row to refresh for this connection. Please reconnect.`,
+      );
+    }
+
+    return {
+      // The generation this write committed under, read under the lock it
+      // committed with — not from a later read, which a reconnect could land in
+      // front of and pair this token with the generation that replaced it.
+      connectionGeneration: observed,
+      scopes: updated.scopes ?? current.scopes ?? null,
+      tokenExpiresAt: updated.token_expires_at ?? null,
+      refreshTokenRotated: rotatedRefreshToken != null,
+    };
+  });
+}
+
 /** Mark an integration as disconnected */
 export async function disconnectIntegration(
   businessId: string,

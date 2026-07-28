@@ -1,3 +1,4 @@
+import { resolveDestructiveRetentionMode } from "@/lib/sync/global-kill-switch";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { clearAllProviderAccountAssignmentsForProvider } from "@/lib/provider-account-assignments";
@@ -60,6 +61,8 @@ export interface MetaCacheCleanupSummary {
 }
 
 export interface MetaCreativeMediaPruneSummary {
+  /** Set when the retention lane refused; the counts above are then all zero. */
+  skippedReason?: string;
   metaCreativeMediaDeleted: number;
   metaAdDailyUpdated: number;
   metaCreativeDailyUpdated: number;
@@ -566,6 +569,28 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
   businessId?: string | null;
   keepFromDate: string;
 }): Promise<MetaCreativeMediaPruneSummary> {
+  // The retention lane admits this, like every other delete.
+  //
+  // It did not. This function issues an unbounded DELETE against
+  // meta_creative_media and two unbounded UPDATEs, and it runs as the FIRST
+  // statement of every creative sync — so with the retention lane deliberately
+  // OFF in production, ordinary syncing was still deleting rows every tick.
+  // The call site swallows failures, so nothing said so.
+  //
+  // That contradicted the lane's own contract ("The only path that deletes.
+  // Deliberately last and deliberately separate", global-kill-switch.ts) and
+  // duplicated a policy that already exists for this exact table, lane-gated,
+  // in warehouse-retention.ts. Two retention implementations for one table, one
+  // of them ungated, is how "retention is off" stops being true.
+  const admission = resolveDestructiveRetentionMode({ requestedExecute: true });
+  if (admission.mode !== "execute") {
+    return {
+      metaCreativeMediaDeleted: 0,
+      metaAdDailyUpdated: 0,
+      metaCreativeDailyUpdated: 0,
+      skippedReason: admission.laneAdmission.reason,
+    };
+  }
   await assertMetaCleanupTablesReady(
     "meta_creative_media_prune",
     META_CREATIVE_MEDIA_PRUNE_TABLES,

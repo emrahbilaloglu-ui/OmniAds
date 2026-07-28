@@ -151,7 +151,7 @@ export async function renewProviderJobLock(input: ProviderJobLockKey & {
     UPDATE provider_sync_jobs
     SET
       business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
-      lock_expires_at = now() + (${lockMinutes} || ' minutes')::interval,
+      lock_expires_at = now() + (${lockMinutes} || ' minutes')::interval
     WHERE business_id = ${input.businessId}
       AND provider = ${input.provider}
       AND report_type = ${input.reportType}

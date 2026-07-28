@@ -941,6 +941,161 @@ const PRIOR_NATIVE_OPERATOR_EPOCH = NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION;
  * deterministically reproducible here, and it has been removed by construction
  * rather than tested for.
  */
+/**
+ * The provider job lock statements have to PARSE.
+ *
+ * `renewProviderJobLock` shipped with a trailing comma before its WHERE clause —
+ * a hard SQL syntax error, so every renewal threw and no lock was ever extended.
+ * Its only caller swallows the rejection, so locks silently expired mid-run and
+ * a second worker could take the same logical lock.
+ *
+ * `provider-job-lock.test.ts` could not see it: that test mocks the `sql` tag,
+ * so the statement text is never sent to a parser. This runs acquire → renew →
+ * release against a REAL PostgreSQL and checks the renewal actually moved the
+ * expiry, which is the only way a syntax error in a template literal surfaces.
+ */
+async function assertProviderJobLockStatementsExecute(databaseUrl: string) {
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DATABASE_URL_UNPOOLED = databaseUrl;
+  process.env.DB_SSL_MODE = "disable";
+  const { resetDbClientCache } = await import("@/lib/db");
+  resetDbClientCache();
+  const lock = await import("@/lib/sync/provider-job-lock");
+
+  const key = {
+    businessId: "lock-seam-business",
+    provider: "meta",
+    reportType: "seam_report",
+    dateRangeKey: "2026-01-01_2026-01-02",
+  };
+  const owner = "lock-seam-owner";
+
+  const acquired = await lock.acquireProviderJobLock({ ...key, ownerToken: owner, lockMinutes: 1 });
+  if (!acquired) {
+    throw new Error("provider job lock seam: could not acquire the lock to begin with");
+  }
+
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const before = await client.query<{ lock_expires_at: string }>(
+      `SELECT lock_expires_at FROM provider_sync_jobs
+        WHERE business_id = $1 AND provider = $2 AND report_type = $3 AND date_range_key = $4`,
+      [key.businessId, key.provider, key.reportType, key.dateRangeKey],
+    );
+
+    // This threw unconditionally before the fix.
+    await lock.renewProviderJobLock({ ...key, ownerToken: owner, lockMinutes: 30 });
+
+    const after = await client.query<{ lock_expires_at: string }>(
+      `SELECT lock_expires_at FROM provider_sync_jobs
+        WHERE business_id = $1 AND provider = $2 AND report_type = $3 AND date_range_key = $4`,
+      [key.businessId, key.provider, key.reportType, key.dateRangeKey],
+    );
+
+    const beforeMs = new Date(before.rows[0]!.lock_expires_at).getTime();
+    const afterMs = new Date(after.rows[0]!.lock_expires_at).getTime();
+    if (!(afterMs > beforeMs)) {
+      throw new Error(
+        `provider job lock seam: renewal did not extend the lock (before=${before.rows[0]!.lock_expires_at} after=${after.rows[0]!.lock_expires_at})`,
+      );
+    }
+
+    await lock.releaseProviderJobLock({ ...key, ownerToken: owner, status: "done" });
+    log(
+      `provider job lock ok: acquire/renew/release all execute against real PostgreSQL, and renewal extended the expiry by ${Math.round((afterMs - beforeMs) / 1000)}s`,
+    );
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/**
+ * A deleted business must stop being synced.
+ *
+ * The Google Ads worker's tick list is REPLACED by
+ * readConnectedGoogleAdsControlPlaneBusinesses (worker-runtime.ts substitutes it
+ * wholesale rather than intersecting with the active-business list), and that
+ * query used `LEFT JOIN businesses`. A business row deleted by the admin route —
+ * which does a bare `DELETE FROM businesses` and leaves provider_connections
+ * behind, since that column has no foreign key — therefore kept its connected
+ * accounts in the result and kept being synced every tick, forever, against
+ * credentials that were never removed.
+ */
+async function assertDeletedBusinessStopsSyncing(databaseUrl: string) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    // businesses.id is a uuid; a readable slug will not cast.
+    const businessId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const ownerId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    await client.query(
+      `INSERT INTO users (id, email, name, password_hash)
+       VALUES ($1, 'deleted-business-seam@adsecute.invalid', 'Seam Owner', 'not-a-real-hash')
+       ON CONFLICT (id) DO NOTHING`,
+      [ownerId],
+    );
+    await client.query(
+      `INSERT INTO businesses (id, name, owner_id) VALUES ($1, 'Seam Business', $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [businessId, ownerId],
+    );
+    await client.query(
+      `INSERT INTO provider_connections (business_id, provider, status, provider_account_id)
+       VALUES ($1, 'google', 'connected', 'acct-1')
+       ON CONFLICT DO NOTHING`,
+      [businessId],
+    );
+    const accountRef = await client.query<{ id: string }>(
+      `INSERT INTO provider_accounts (provider, external_account_id)
+       VALUES ('google', 'acct-1')
+       ON CONFLICT (provider, external_account_id)
+         DO UPDATE SET external_account_id = EXCLUDED.external_account_id
+       RETURNING id`,
+    );
+    await client.query(
+      `INSERT INTO business_provider_accounts
+         (business_id, provider, provider_account_id, provider_account_ref_id, is_selected)
+       VALUES ($1, 'google', 'acct-1', $2, TRUE)
+       ON CONFLICT DO NOTHING`,
+      [businessId, accountRef.rows[0]!.id],
+    );
+
+    process.env.DATABASE_URL = databaseUrl;
+    process.env.DATABASE_URL_UNPOOLED = databaseUrl;
+    process.env.DB_SSL_MODE = "disable";
+    const { resetDbClientCache } = await import("@/lib/db");
+    resetDbClientCache();
+    const { readConnectedGoogleAdsControlPlaneBusinesses } = await import(
+      "@/lib/google-ads/control-plane-runtime"
+    );
+
+    const before = await readConnectedGoogleAdsControlPlaneBusinesses().catch(() => null);
+    const seenBefore = (before ?? []).some((row) => row.businessId === businessId);
+    if (!seenBefore) {
+      log("deleted-business seam: fixture not visible before delete; skipping (non-vacuous check impossible)");
+      return;
+    }
+
+    // Exactly what the admin delete route does: the business row only.
+    await client.query(`DELETE FROM businesses WHERE id = $1`, [businessId]);
+
+    resetDbClientCache();
+    const after = await readConnectedGoogleAdsControlPlaneBusinesses().catch(() => null);
+    const seenAfter = (after ?? []).some((row) => row.businessId === businessId);
+    if (seenAfter) {
+      throw new Error(
+        "deleted-business seam: the Google Ads worker still lists a business whose row was deleted; it would keep syncing it every tick",
+      );
+    }
+    log(
+      "deleted-business ok: a business whose row is deleted disappears from the Google Ads worker's tick list, even though its connection and credentials survive",
+    );
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
 async function seedLegacySkipUnchangedTriggers(databaseUrl: string) {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
@@ -1959,6 +2114,8 @@ async function main() {
       "run 2: idempotency + target backfill",
     );
     await assertLegacySkipUnchangedTriggersRemoved(databaseUrl);
+    await assertProviderJobLockStatementsExecute(databaseUrl);
+    await assertDeletedBusinessStopsSyncing(databaseUrl);
     const run2Tables = await assertSchema(databaseUrl);
     reportConvergenceGap(run1Tables, run2Tables);
     await assertTargetHistoryBackfillCases(databaseUrl, targetHistoryCases);

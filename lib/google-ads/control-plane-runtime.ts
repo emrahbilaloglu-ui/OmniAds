@@ -107,7 +107,11 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
       ON connection.business_id = bpa.business_id
      AND connection.provider = bpa.provider
      AND connection.status = 'connected'
-    LEFT JOIN businesses business
+    -- INNER, not LEFT. This list REPLACES the worker's tick list
+    -- (worker-runtime.ts), so a LEFT JOIN meant a business whose row had been
+    -- deleted kept its connected accounts in the result and kept being synced
+    -- every tick, against retained credentials, forever.
+    INNER JOIN businesses business
       ON business.id::text = bpa.business_id
     LEFT JOIN (
       SELECT

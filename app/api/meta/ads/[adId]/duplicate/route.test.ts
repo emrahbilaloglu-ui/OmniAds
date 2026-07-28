@@ -44,6 +44,30 @@ function jsonResponse(payload: unknown, init?: ResponseInit) {
     status: init?.status ?? 200,
     headers: { "Content-Type": "application/json" },
   });
+
+// The write path reads the connection generation and now FAILS CLOSED on a read
+// error — it used to `.catch(() => null)`, which made ads-write skip
+// assertProviderWriteAuthorityUnchanged entirely. These tests have no database,
+// so without this mock they exercised the guard-disabled path and passed.
+vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    readProviderConnectionGenerationToken: vi.fn().mockResolvedValue("1:connected"),
+  };
+});
+
+// With the generation present, ads-write now actually performs the atomic
+// authority re-check. These tests have no database for it to read, so it is
+// stubbed to "unchanged" — the guard's own behaviour is covered by
+// lib/meta/write-authority-fail-closed.test.ts and provider-write-authority.
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertProviderWriteAuthorityUnchanged: vi.fn().mockResolvedValue({ ok: true }),
+  };
+});
 }
 
 function request(body: unknown) {

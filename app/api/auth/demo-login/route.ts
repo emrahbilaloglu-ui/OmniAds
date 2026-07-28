@@ -61,8 +61,13 @@ export async function GET(_request: NextRequest) {
     }
 
     const sql = getDb();
-    // Clear stale sessions to prevent token_hash unique constraint collisions.
-    await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
+    // Only EXPIRED sessions. This used to delete every session the demo user
+    // had, on an endpoint that is public, unauthenticated and reachable by GET
+    // — so any stranger could sign the demo account out of every device, on
+    // repeat, as an unauthenticated destructive write to production. The stated
+    // reason was token_hash collisions, which cannot happen: createSession
+    // draws a fresh random token each time.
+    await sql`DELETE FROM sessions WHERE user_id = ${userId} AND expires_at <= now()`;
 
     const { token, expiresAt } = await createSession({
       userId,

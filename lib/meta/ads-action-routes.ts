@@ -241,10 +241,15 @@ async function resolveWriteContext(input: {
   const { readProviderConnectionGenerationToken } = await import(
     "@/lib/provider-account-snapshots"
   );
+  // NOT `.catch(() => null)`. ads-write.ts treats a null generation as "there is
+  // nothing to check" and skips assertProviderWriteAuthorityUnchanged entirely,
+  // so swallowing a read error here silently disabled the reconnect guard on the
+  // pause/resume/duplicate paths — which is exactly what the comment above that
+  // check forbids: "A read failure is 503, never an optional null."
   const connectionGeneration = await readProviderConnectionGenerationToken(
     input.businessId,
     "meta",
-  ).catch(() => null);
+  );
 
   return {
     ok: true,

@@ -101,6 +101,144 @@ jobs:
       # step by step.
       - name: Database seams (canonical sequence)
         run: bash scripts/verify-database-seams.sh
+  build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: |
+          npm run build
+
+  detect-runtime-changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      runtime_changed: ${{ steps.filter.outputs.runtime_changed }}
+      schema_changed: ${{ steps.filter.outputs.schema_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect runtime-affecting changes
+        id: filter
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          runtime_changed="false"
+          schema_changed="false"
+          live_build_sha=""
+          schema_regex_parts=(
+            '^(lib/migrations(\..*)?\.ts'
+            '|scripts/run-migrations\.ts'
+            '|lib/db-schema-readiness\.ts'
+            '|app/api/migrate/route\.ts)$'
+          )
+          schema_regex="$(printf '%s' "${schema_regex_parts[@]}")"
+
+          resolve_live_build_sha() {
+            local payload
+            if ! payload="$(curl -fsSL https://adsecute.com/api/build-info 2>/dev/null)"; then
+              return 1
+            fi
+
+            python3 - "${payload}" 2>/dev/null <<'PY' || return 1
+          import json
+          import re
+          import sys
+
+          payload = json.loads(sys.argv[1])
+          build_id = str(payload.get("buildId") or "").strip()
+          if re.fullmatch(r"[0-9a-fA-F]{40}", build_id):
+              print(build_id, end="")
+              raise SystemExit(0)
+          raise SystemExit(1)
+          PY
+          }
+
+          if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+            runtime_changed="true"
+            schema_changed="true"
+            echo "No valid before SHA."
+            echo "Defaulting to runtime_changed=true schema_changed=true."
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            runtime_changed="true"
+            schema_changed="true"
+            echo "Before SHA ${BEFORE_SHA} is not available locally."
+            echo "Defaulting to runtime_changed=true schema_changed=true."
+          else
+            changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
+            printf 'Changed files:\n%s\n' "${changed_files}"
+
+            runtime_regex_parts=(
+              '^(\.github/workflows/|app/|components/|hooks/|lib/'
+              '|providers/|public/|scripts/|src/|store/'
+              # deploy/ ships INSIDE the worker image: the cutover wrapper reads
+              # deploy/db/recovery-policy.tsv from /app/deploy, and the daily
+              # backup script is installed from there. A change to either is a
+              # runtime change, and treating it as one is what makes the host
+              # actually receive it — without this, the repository says the
+              # policy changed and production keeps running the old one.
+              '|deploy/'
+              '|docs/v3-01-release-authority\.md$'
+              '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
+              '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'
+              '|instrumentation\.ts$|instrumentation\.node\.ts$'
+              '|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$'
+              '|middleware\.ts$|middleware\.test\.ts$)'
+            )
+            runtime_regex="$(printf '%s' "${runtime_regex_parts[@]}")"
+            if printf '%s\n' "${changed_files}" | grep -Eq "${runtime_regex}"; then
+              runtime_changed="true"
+              echo "Runtime-affecting change detected."
+            fi
+
+            if printf '%s\n' "${changed_files}" | grep -Eq "${schema_regex}"; then
+              schema_changed="true"
+              echo "Schema-affecting change detected."
+            fi
+          fi
+
+          if live_build_sha="$(resolve_live_build_sha)"; then
+            echo "Live build SHA resolved from public build-info: ${live_build_sha}"
+            if git cat-file -e "${live_build_sha}^{commit}" 2>/dev/null; then
+              live_changed_files="$(git diff --name-only "${live_build_sha}" "${CURRENT_SHA}")"
+              if printf '%s\n' "${live_changed_files}" | grep -Eq "${schema_regex}"; then
+                schema_changed="true"
+                echo "Schema-affecting change detected between:"
+                echo "live build ${live_build_sha}"
+                echo "current build ${CURRENT_SHA}"
+              fi
+            else
+              echo "Live build SHA ${live_build_sha} is not available locally."
+              echo "Preserving current schema_changed=${schema_changed}."
+            fi
+          else
+            echo "Unable to resolve live build SHA from public build-info."
+            echo "Preserving current schema_changed=${schema_changed}."
+          fi
+
+          echo "runtime_changed=${runtime_changed}" >> "$GITHUB_OUTPUT"
+          echo "schema_changed=${schema_changed}" >> "$GITHUB_OUTPUT"
+
 
 
   publish-web-image:

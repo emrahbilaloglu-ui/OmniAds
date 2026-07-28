@@ -25,6 +25,12 @@ stage() {
   printf '\n%s ── %02d %s\n' "${LABEL}" "${STAGE}" "$1"
 }
 
+# FIRST, and cheap. A semantically invalid workflow is rejected by GitHub before
+# any job is created — the run completes as failure with jobs: [], no check runs
+# and no logs — so CI structurally cannot catch it. Only a local check can.
+stage "Workflow semantics (undefined needs, cycles, malformed steps)"
+npm run check:workflows
+
 stage "Migrations from zero"
 npm run test:migrations-from-zero
 

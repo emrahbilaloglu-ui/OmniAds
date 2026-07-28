@@ -69,6 +69,10 @@ ssh_with_stdin_retry() {
   )
   local stdin_payload_file
   stdin_payload_file="$(mktemp)"
+  # The payload now carries a registry token on its first line, so it must not
+  # survive an interrupt. mktemp already creates it 0600; this covers the paths
+  # the explicit rm below cannot (signals, `set -e` unwinding a caller).
+  trap 'rm -f "${stdin_payload_file}"' EXIT INT TERM
   cat > "${stdin_payload_file}"
 
   local max_attempts="${SSH_MAX_ATTEMPTS:-4}"
@@ -156,9 +160,57 @@ run_remote_phase_on_host() {
   web_image_repo_q="$(printf '%q' "${WEB_IMAGE_REPO:-}")"
   worker_image_repo_q="$(printf '%q' "${WORKER_IMAGE_REPO:-}")"
 
+  local ghcr_user_q
+  ghcr_user_q="$(printf '%q' "${GHCR_PULL_USER:-}")"
+
   echo "Running remote deploy phase=${phase} on ${target_label} (${target_host})"
 
-  ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -seuo pipefail -- ${phase_q}" \
-    < .github/scripts/hetzner-remote.sh
+  # ── Ephemeral private-registry authentication ──────────────────────────────
+  #
+  # The images for the current namespace are PRIVATE. The host has no docker
+  # login and pulled anonymously, which worked only while the old packages were
+  # public. Rather than publish the new ones, the deploy carries a short-lived
+  # GITHUB_TOKEN scoped `packages: read` for the duration of one phase.
+  #
+  # HOW THE TOKEN TRAVELS. On stdin, as the first line of the payload — never in
+  # argv and never exported. An ssh command line is visible in the remote
+  # process list, and an exported variable is visible via `ps eww` to anything
+  # running as the same user. `read` consumes exactly that line, `bash -s` then
+  # reads the rest of the stream as the deploy script, and the variable is
+  # cleared before the phase runs.
+  #
+  # WHERE IT LANDS. `docker login` must write a credential file; it writes into
+  # a per-invocation mktemp DOCKER_CONFIG, never the user's ~/.docker. The trap
+  # logs out and removes that directory on EXIT, INT and TERM — success, failure
+  # and interrupt alike — so nothing outlives the phase.
+  #
+  # The wrapper below deliberately contains NO single quote: it is embedded in a
+  # single-quoted string, and ssh runs it through the remote user's login shell,
+  # which is not guaranteed to be bash. Everything here is POSIX.
+  {
+    printf '%s\n' "${GHCR_PULL_TOKEN:-}"
+    cat .github/scripts/hetzner-remote.sh
+  } | ssh_with_stdin_retry "${target_host}" \
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
+IFS= read -r __ghcr_tok || true
+__dcfg=\"\$(mktemp -d)\"
+cleanup_registry_auth() {
+  docker --config \"\${__dcfg}\" logout ghcr.io >/dev/null 2>&1 || true
+  rm -rf \"\${__dcfg}\"
+}
+trap cleanup_registry_auth EXIT INT TERM
+if [ -n \"\${__ghcr_tok}\" ]; then
+  printf %s \"\${__ghcr_tok}\" | docker --config \"\${__dcfg}\" login ghcr.io -u \"\${GHCR_USER}\" --password-stdin >/dev/null 2>&1 || {
+    echo remote-registry-login-failed >&2
+    exit 78
+  }
+  echo \"registry auth: ephemeral docker config established\"
+else
+  echo \"registry auth: none supplied; anonymous pull\"
+fi
+__ghcr_tok=
+unset __ghcr_tok
+export DOCKER_CONFIG=\"\${__dcfg}\"
+bash -seuo pipefail -- \"\${PHASE}\"
+'"
 }

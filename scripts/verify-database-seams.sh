@@ -137,6 +137,13 @@ fi
   exit 1
 }
 
+# The deploy carries a registry credential to a long-lived host. Executed, not
+# asserted: token never in argv or the phase environment, ephemeral
+# DOCKER_CONFIG cleaned on every exit path, failed login aborts before the
+# phase runs, and the anonymous legacy-rollback path still works.
+stage "Deploy registry auth (ephemeral credential handling)"
+npm run test:deploy-registry-auth
+
 stage "Pre-change schema upgrade seam (branch point)"
 npm run test:schema-upgrade-seam
 

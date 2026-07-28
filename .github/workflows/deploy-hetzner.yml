@@ -63,6 +63,11 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # The current-namespace images are PRIVATE and the host has no docker
+      # login. This grants the job's own short-lived GITHUB_TOKEN read access to
+      # the packages this repository publishes — nothing more, and it expires
+      # with the job. No PAT is created or stored, and the packages stay private.
+      packages: read
     steps:
       - name: Resolve deploy SHA
         id: deploy_sha
@@ -124,11 +129,11 @@ jobs:
       #     post-transfer defaults and builds expected_web_image from them, so
       #     pull, start and readback share one identity — already wired.
       #   .github/scripts/hetzner-ssh.sh      run_remote_phase_on_host forwards
-      #     a FIXED env list over SSH and does not yet carry these two. Until it
-      #     forwards WEB_IMAGE_REPO/WORKER_IMAGE_REPO alongside APP_IMAGE_TAG,
-      #     the remote defaults win and image_namespace=legacy is inert rather
-      #     than wrong: it cannot deploy the wrong image, it just cannot yet
-      #     reach the old one.
+      #     both over SSH alongside APP_IMAGE_TAG, so image_namespace=legacy is
+      #     live. (This comment previously said the opposite; it was written
+      #     before the forwarding landed and was left behind. A stale comment
+      #     about SSH forwarding is exactly what this repository has already
+      #     been burned by once, so it is corrected rather than deleted.)
       - name: Resolve runtime image namespace
         id: image_namespace
         shell: bash
@@ -232,6 +237,45 @@ jobs:
           fi
           echo "cutover_gate=clear sha=${{ steps.deploy_sha.outputs.sha }}"
 
+      # Proof BEFORE host mutation.
+      #
+      # If the token cannot read these exact manifests, the deploy must fail
+      # here — on the runner, having touched nothing — rather than half way
+      # through a phase on the host. This is also a genuine rehearsal: it uses
+      # the same ephemeral-DOCKER_CONFIG, password-on-stdin mechanism the host
+      # will use, so a broken mechanism fails here too.
+      - name: Verify registry access for the target images (runner-side, no host contact)
+        if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKER_CLI_EXPERIMENTAL: enabled
+        run: |
+          set -euo pipefail
+
+          cfg="$(mktemp -d)"
+          trap 'docker --config "${cfg}" logout ghcr.io >/dev/null 2>&1 || true; rm -rf "${cfg}"' EXIT
+
+          web="${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web}"
+          worker="${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}"
+
+          # --password-stdin: never in argv, never in the log.
+          printf '%s' "${GHCR_PULL_TOKEN}" \
+            | docker --config "${cfg}" login ghcr.io -u "${GHCR_PULL_USER}" --password-stdin >/dev/null
+          echo "registry login ok (ephemeral config)"
+
+          for ref in "${web}:${DEPLOY_SHA}" "${worker}:${DEPLOY_SHA}"; do
+            if docker --config "${cfg}" manifest inspect "${ref}" >/dev/null 2>&1; then
+              echo "readable: ${ref}"
+            else
+              echo "NOT readable: ${ref}" >&2
+              echo "The deploy token cannot read this manifest. Nothing on the host has been touched." >&2
+              exit 1
+            fi
+          done
+
       - name: Prepare SSH access
         if: success() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true')
         shell: bash
@@ -320,6 +364,8 @@ jobs:
           OVERRIDE_REASON: ${{ inputs.override_reason }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -339,6 +385,8 @@ jobs:
           DEPLOY_MIGRATION_TIMEOUT_SECONDS: ${{ inputs.deploy_migration_timeout_seconds || vars.DEPLOY_MIGRATION_TIMEOUT_SECONDS }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -353,6 +401,8 @@ jobs:
           OVERRIDE_REASON: ${{ inputs.override_reason }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -367,6 +417,8 @@ jobs:
           OVERRIDE_REASON: ${{ inputs.override_reason }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -381,6 +433,8 @@ jobs:
           OVERRIDE_REASON: ${{ inputs.override_reason }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          GHCR_PULL_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 

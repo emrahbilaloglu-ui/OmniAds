@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# -E (errtrace) matters as much as -e here: without it the `trap on_phase_error
+# ERR` installed below does NOT fire for a failure inside a shell function, and
+# nearly all of this script's work happens inside functions. The phase still
+# exited non-zero, so nothing unsafe proceeded — but it exited SILENTLY, with no
+# `deploy_phase=... failed_command=...` line and no diagnostics dump. During a
+# failed deploy that is the difference between a diagnosis and a guess.
+set -Eeuo pipefail
 
 phase="${1:-}"
 if [ -z "${phase}" ]; then

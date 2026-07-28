@@ -153,6 +153,27 @@ jobs:
             '|app/api/migrate/route\.ts)$'
           )
           schema_regex="$(printf '%s' "${schema_regex_parts[@]}")"
+          # Defined HERE, not inside the before/current branch below, because the
+          # live-build comparison further down needs it too and `set -u` would
+          # abort on a variable that only exists in a branch that did not run.
+          runtime_regex_parts=(
+            '^(\.github/workflows/|app/|components/|hooks/|lib/'
+            '|providers/|public/|scripts/|src/|store/'
+            # deploy/ ships INSIDE the worker image: the cutover wrapper reads
+            # deploy/db/recovery-policy.tsv from /app/deploy, and the daily
+            # backup script is installed from there. A change to either is a
+            # runtime change, and treating it as one is what makes the host
+            # actually receive it — without this, the repository says the
+            # policy changed and production keeps running the old one.
+            '|deploy/'
+            '|docs/v3-01-release-authority\.md$'
+            '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
+            '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'
+            '|instrumentation\.ts$|instrumentation\.node\.ts$'
+            '|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$'
+            '|middleware\.ts$|middleware\.test\.ts$)'
+          )
+          runtime_regex="$(printf '%s' "${runtime_regex_parts[@]}")"
 
           resolve_live_build_sha() {
             local payload
@@ -188,24 +209,6 @@ jobs:
             changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
             printf 'Changed files:\n%s\n' "${changed_files}"
 
-            runtime_regex_parts=(
-              '^(\.github/workflows/|app/|components/|hooks/|lib/'
-              '|providers/|public/|scripts/|src/|store/'
-              # deploy/ ships INSIDE the worker image: the cutover wrapper reads
-              # deploy/db/recovery-policy.tsv from /app/deploy, and the daily
-              # backup script is installed from there. A change to either is a
-              # runtime change, and treating it as one is what makes the host
-              # actually receive it — without this, the repository says the
-              # policy changed and production keeps running the old one.
-              '|deploy/'
-              '|docs/v3-01-release-authority\.md$'
-              '|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$'
-              '|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$'
-              '|instrumentation\.ts$|instrumentation\.node\.ts$'
-              '|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$'
-              '|middleware\.ts$|middleware\.test\.ts$)'
-            )
-            runtime_regex="$(printf '%s' "${runtime_regex_parts[@]}")"
             if printf '%s\n' "${changed_files}" | grep -Eq "${runtime_regex}"; then
               runtime_changed="true"
               echo "Runtime-affecting change detected."
@@ -224,6 +227,20 @@ jobs:
               if printf '%s\n' "${live_changed_files}" | grep -Eq "${schema_regex}"; then
                 schema_changed="true"
                 echo "Schema-affecting change detected between:"
+                echo "live build ${live_build_sha}"
+                echo "current build ${CURRENT_SHA}"
+              fi
+              # And the same question for runtime, which used to be asked only
+              # of the LAST PUSH. That made deployability depend on what the
+              # final commit happened to touch: a commit changing only, say,
+              # .github/scripts/ published no image, so `main` itself became
+              # un-deployable while still differing from production in app code.
+              # The condition that actually matters is this one — production
+              # differs from main in a runtime path, so an image for main must
+              # exist.
+              if printf '%s\n' "${live_changed_files}" | grep -Eq "${runtime_regex}"; then
+                runtime_changed="true"
+                echo "Runtime-affecting change detected between:"
                 echo "live build ${live_build_sha}"
                 echo "current build ${CURRENT_SHA}"
               fi

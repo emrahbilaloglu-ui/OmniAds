@@ -1,10 +1,48 @@
 export const RELEASE_AUTHORITY_SCHEMA_VERSION = "release-authority.v1" as const;
+
+/**
+ * The repository that owns releases, after the transfer to emrahbilaloglu-ui.
+ *
+ * This is the canonical answer to "where does a release come from". CI, the
+ * compose file, the remote deploy verifier and the cutover scripts cannot
+ * import TypeScript, so they carry their own literals — and a contract test
+ * (release-namespace.test.ts) asserts every one of them still agrees with
+ * these constants. That is the guard against the copies drifting apart, which
+ * is the failure mode a plain find-and-replace leaves behind.
+ */
 export const RELEASE_AUTHORITY_REPOSITORY = {
-  owner: "erhanrdn",
+  owner: "emrahbilaloglu-ui",
   name: "OmniAds",
-  fullName: "erhanrdn/OmniAds",
+  fullName: "emrahbilaloglu-ui/OmniAds",
   branch: "main",
 } as const;
+
+/** GHCR namespace that new builds publish into. */
+export const RELEASE_AUTHORITY_IMAGE_NAMESPACE = "ghcr.io/emrahbilaloglu-ui" as const;
+export const RELEASE_AUTHORITY_WEB_IMAGE =
+  `${RELEASE_AUTHORITY_IMAGE_NAMESPACE}/omniads-web` as const;
+export const RELEASE_AUTHORITY_WORKER_IMAGE =
+  `${RELEASE_AUTHORITY_IMAGE_NAMESPACE}/omniads-worker` as const;
+
+/**
+ * The pre-transfer namespace. NOT dead code, and deliberately not deleted.
+ *
+ * Every image built before the transfer — including whatever SHA production is
+ * running right now and the previous known-good SHA a rollback would target —
+ * exists only under this namespace. It was never republished under the new
+ * owner, so a rollback across the transfer boundary must pull from here.
+ * Pretending those tags exist under the new owner would produce a "manifest
+ * unknown" at the worst possible moment.
+ *
+ * The compose file therefore takes the repository as an overridable variable:
+ * an ordinary deploy uses the new default, and a legacy rollback sets
+ * WEB_IMAGE_REPO / WORKER_IMAGE_REPO to these values explicitly.
+ */
+export const RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE = "ghcr.io/erhanrdn" as const;
+export const RELEASE_AUTHORITY_LEGACY_WEB_IMAGE =
+  `${RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE}/omniads-web` as const;
+export const RELEASE_AUTHORITY_LEGACY_WORKER_IMAGE =
+  `${RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE}/omniads-worker` as const;
 
 export type ReleaseAuthorityRepositoryState = "merged";
 export type ReleaseAuthorityRuntimeState =

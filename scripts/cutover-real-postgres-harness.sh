@@ -648,7 +648,16 @@ case "\$1" in
     svc="\$(service_of "\${id}")"
     case "\${fmt}" in
       '{{.State.Status}}') cat "\${RUNTIME}/state.\${svc}" 2>/dev/null || printf 'absent\n' ;;
-      '{{.Config.Image}}') printf 'ghcr.io/erhanrdn/omniads-%s:%s\n' "\${svc}" "\${DEPLOY_SHA}" ;;
+      # What a container would report it is running. Deliberately a LITERAL, not
+      # \${WEB_IMAGE_REPO}/\${WORKER_IMAGE_REPO} read back out of the wrapper's
+      # environment: the wrapper builds its expectation from those variables, so
+      # echoing them back would make this stub agree with the wrapper by
+      # construction and the image-identity assertions would pass no matter what
+      # namespace the wrapper had settled on. An independent literal is what
+      # makes the harness able to DISAGREE, which is the only reason it is worth
+      # running. It must be updated deliberately when the default namespace
+      # changes -- that edit is the test.
+      '{{.Config.Image}}') printf 'ghcr.io/emrahbilaloglu-ui/omniads-%s:%s\n' "\${svc}" "\${DEPLOY_SHA}" ;;
       # The immutable image id the container is actually running, which is what
       # the release-identity gate compares against. HARNESS_RUNNING_IMAGE_ID
       # lets a case start a container on an image the record does not pin.

@@ -14,7 +14,7 @@ This runbook uses only deploy machinery already present in the repo:
   - `web`, `worker`, and `migrate` production services
 - `.github/workflows/ci.yml`
   - builds/tests the repo on `main`
-  - publishes `ghcr.io/erhanrdn/omniads-web:<sha>` and `ghcr.io/erhanrdn/omniads-worker:<sha>` when runtime-affecting files changed
+  - publishes `ghcr.io/emrahbilaloglu-ui/omniads-web:<sha>` and `ghcr.io/emrahbilaloglu-ui/omniads-worker:<sha>` when runtime-affecting files changed
   - dispatches `.github/workflows/deploy-hetzner.yml` after image publish succeeds
 - `.github/workflows/deploy-hetzner.yml`
   - deploys an exact full 40-character SHA to Hetzner
@@ -41,8 +41,8 @@ Why:
 
 Practical rule:
 
-- For a new release SHA, make that exact commit reachable as `main` so CI can publish `ghcr.io/erhanrdn/omniads-web:<sha>` and `ghcr.io/erhanrdn/omniads-worker:<sha>`.
-- For rollback, use a previously deployed or otherwise already-published full SHA.
+- For a new release SHA, make that exact commit reachable as `main` so CI can publish `ghcr.io/emrahbilaloglu-ui/omniads-web:<sha>` and `ghcr.io/emrahbilaloglu-ui/omniads-worker:<sha>`.
+- For rollback, use a previously deployed or otherwise already-published full SHA. If that SHA predates the repository ownership transfer, read "Rollback Across the Ownership Transfer" below before starting the cutover — its images live under a different GHCR namespace.
 
 ## Preflight
 
@@ -90,6 +90,18 @@ Those are operator-visible outputs, not automatic release blockers by themselves
 
 ## Direct Deploy
 
+**Merging is not releasing.** CI on `main` proves the code and publishes the
+exact-SHA images. It does **not** put them on a server. Production deployment is
+a separate act that a person performs.
+
+This used to be automatic: a `dispatch-deploy` job called the deploy workflow as
+soon as both images published, so every merge to `main` that touched runtime
+code shipped itself. That job has been removed permanently. Restoring it fails
+`scripts/deploy-gate-ordering-check.sh` (checks R1–R3), which asserts that no
+workflow dispatches a deploy, that `deploy-hetzner.yml` is `workflow_dispatch`
+only, and that the dispatch still enumerates its image namespace and verifies
+its SHA.
+
 The repo-supported direct production deploy path is:
 
 1. Make the target SHA the `main` branch head.
@@ -97,9 +109,20 @@ The repo-supported direct production deploy path is:
    - `build-test`
    - runtime-change detection
    - exact-SHA GHCR image publish
-   - deploy workflow dispatch
-3. Let `.github/workflows/deploy-hetzner.yml` perform the server cutover.
-4. Let `.github/workflows/post-deploy-verify.yml` capture report-only release authority and watch-window observation for the same SHA.
+   - **no deploy is dispatched — CI stops here**
+3. Confirm the images for that SHA are pullable by the app host. GHCR packages
+   are created **private** on first publish and the host pulls anonymously, so a
+   brand-new package must be made public (or the host given a `read:packages`
+   login) before the first deploy into a new namespace. Check with
+   `docker manifest inspect ghcr.io/emrahbilaloglu-ui/omniads-web:<sha>`.
+4. **Explicitly dispatch** `.github/workflows/deploy-hetzner.yml` with:
+   - `sha` — the exact 40-character lowercase commit SHA. Uppercase is refused
+     rather than normalised: a tag is case-sensitive and guessing what the
+     caller meant is how the wrong thing ships.
+   - `image_namespace` — `current` for anything built after the transfer to
+     `emrahbilaloglu-ui`, `legacy` only for a pre-transfer SHA (see *Rollback
+     Across the Ownership Transfer*).
+5. Let `.github/workflows/post-deploy-verify.yml` capture report-only release authority and watch-window observation for the same SHA.
 
 What the deploy workflow already does on the server:
 
@@ -206,6 +229,39 @@ node --import tsx scripts/verify-serving-direct-release.ts <businessId> \
 ```
 
 The current repo-supported rollback mechanism is application-image rollback only. This runbook does not add schema rollback machinery, and it does not require it for the documented serving/projection/cache hardening work.
+
+## Rollback Across the Ownership Transfer
+
+The repository was transferred from `erhanrdn/OmniAds` to `emrahbilaloglu-ui/OmniAds`. Images published after the transfer live under `ghcr.io/emrahbilaloglu-ui`, which is the default this repo now deploys from.
+
+Images published **before** the transfer were never republished under the new owner. They exist only under `ghcr.io/erhanrdn`. This includes the currently recorded rollback target in `docs/v3-01-release-authority.md` and `/api/release-authority`.
+
+Consequence: pulling a pre-transfer SHA with the default image repository fails with `manifest unknown`, because the tag does not exist under the new namespace. The commit SHA is valid in both namespaces; the *image* is not.
+
+Step 0 for any rollback — do this before the cutover, not during it:
+
+```bash
+docker manifest inspect ghcr.io/emrahbilaloglu-ui/omniads-web:<known_good_sha> >/dev/null 2>&1 && echo "new namespace" || echo "not in new namespace"
+docker manifest inspect ghcr.io/erhanrdn/omniads-web:<known_good_sha>          >/dev/null 2>&1 && echo "legacy namespace" || echo "not in legacy namespace"
+```
+
+- Found under `ghcr.io/emrahbilaloglu-ui`: run the normal rollback above. No overrides.
+- Found only under `ghcr.io/erhanrdn`: the target is pre-transfer. Pin the image repository to the legacy namespace **explicitly** for that one deploy:
+
+```bash
+WEB_IMAGE_REPO=ghcr.io/erhanrdn/omniads-web
+WORKER_IMAGE_REPO=ghcr.io/erhanrdn/omniads-worker
+APP_IMAGE_TAG=<known_good_sha>
+APP_BUILD_ID=<known_good_sha>
+```
+
+Operator notes:
+
+- Confirm the exact override variable names against `docker-compose.yml` on the release candidate before the cutover. The compose file is the authority for what the deploy actually reads; a name that does not match falls through to the default new-namespace repository and the pull fails with `manifest unknown`.
+- Both services must be pinned together. A mixed pair — legacy `web` with new-namespace `worker`, or the reverse — is a split-brain deploy of two different builds.
+- Confirm the GHCR credentials used by the deploy can still read packages under the old owner account. The transfer moved the repository; it does not guarantee package read access under `ghcr.io/erhanrdn` for the current token.
+- These overrides are for one rollback deploy only. Drop them before the next forward deploy, or that release will be pulled from the legacy namespace where its images do not exist.
+- `RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE` in `lib/release-authority/types.ts` is the in-repo record of this namespace. It is intentionally retained, not leftover. Do not "clean it up" while any pre-transfer SHA is still a viable rollback target.
 
 ## Manual Boundaries After Release
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RELEASE_AUTHORITY_REPOSITORY } from "@/lib/release-authority/types";
 
 vi.mock("@/lib/release-authority/report", () => ({
   getReleaseAuthorityReport: vi.fn(),
@@ -19,12 +20,10 @@ function buildPayload(overrides: Record<string, unknown> = {}) {
       currentMainShaSource: "github_branch_head",
     },
     release: {
-      repository: {
-        owner: "erhanrdn",
-        name: "OmniAds",
-        fullName: "erhanrdn/OmniAds",
-        branch: "main",
-      },
+      // Deliberately the real constant, not a copy: the assertions below check
+      // the served identity against a hard-coded post-transfer literal, so this
+      // fixture is what carries a reverted constant into the response.
+      repository: RELEASE_AUTHORITY_REPOSITORY,
       deployUrl: "https://adsecute.com",
       buildInfoUrl: "https://adsecute.com/api/build-info",
       releaseAuthorityUrl: "https://adsecute.com/api/release-authority",
@@ -277,6 +276,30 @@ describe("GET /api/release-authority", () => {
 
     expect(payload.surfaces[0].runtimeState).toBe("flagged");
     expect(payload.surfaces[0].flagPosture.mode).toBe("allowlist");
+  });
+
+  it("serves the post-transfer repository identity", async () => {
+    vi.mocked(reportModule.getReleaseAuthorityReport).mockResolvedValue(
+      buildPayload() as never,
+    );
+
+    const response = await GET();
+    const payload = await response.json();
+
+    // Hard-coded on purpose. The repository was transferred from
+    // erhanrdn/OmniAds to emrahbilaloglu-ui/OmniAds; anything consuming this
+    // route (post-deploy verification, the admin panel, the canonical doc)
+    // treats this field as the answer to "where does this release come from".
+    // Deriving the expectation from the constant would make the check vacuous.
+    expect(payload.release.repository).toEqual({
+      owner: "emrahbilaloglu-ui",
+      name: "OmniAds",
+      fullName: "emrahbilaloglu-ui/OmniAds",
+      branch: "main",
+    });
+    expect(JSON.stringify(payload.release.repository)).not.toContain(
+      "erhanrdn",
+    );
   });
 
   it("includes the previous known-good SHA in the canonical response", async () => {

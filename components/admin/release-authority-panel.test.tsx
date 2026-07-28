@@ -2,7 +2,10 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ReleaseAuthorityPanel } from "@/components/admin/release-authority-panel";
-import type { ReleaseAuthorityReport } from "@/lib/release-authority/types";
+import {
+  RELEASE_AUTHORITY_REPOSITORY,
+  type ReleaseAuthorityReport,
+} from "@/lib/release-authority/types";
 
 const report: ReleaseAuthorityReport = {
   schemaVersion: "release-authority.v1",
@@ -15,12 +18,9 @@ const report: ReleaseAuthorityReport = {
     currentMainShaSource: "github_branch_head",
   },
   release: {
-    repository: {
-      owner: "erhanrdn",
-      name: "OmniAds",
-      fullName: "erhanrdn/OmniAds",
-      branch: "main",
-    },
+    // The real constant, so a reverted repository identity actually reaches the
+    // rendered panel instead of being masked by a stale local copy.
+    repository: RELEASE_AUTHORITY_REPOSITORY,
     deployUrl: "https://adsecute.com",
     buildInfoUrl: "https://adsecute.com/api/build-info",
     releaseAuthorityUrl: "https://adsecute.com/api/release-authority",
@@ -137,5 +137,15 @@ describe("ReleaseAuthorityPanel", () => {
     expect(html).toContain("Legacy Meta Alias");
     expect(html).toContain("GPT Review Order");
     expect(html).toContain("/api/release-authority");
+  });
+
+  it("renders the post-transfer repository identity", () => {
+    const html = renderToStaticMarkup(<ReleaseAuthorityPanel report={report} />);
+
+    // Hard-coded post-transfer literal: an operator reading this panel must be
+    // able to see which repository the running release claims to come from, and
+    // the check must fail if the identity is reverted to the pre-transfer owner.
+    expect(html).toContain("emrahbilaloglu-ui/OmniAds");
+    expect(html).not.toContain("erhanrdn");
   });
 });

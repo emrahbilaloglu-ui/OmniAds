@@ -26,6 +26,15 @@ vi.mock("@/lib/db-schema-readiness", () => ({
  * wire shape the route publishes is the one the contract produces — a route
  * that quietly rebuilt the summary from coverage counts could not satisfy it.
  */
+vi.mock("@/lib/google-ads/control-plane-runtime", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/google-ads/control-plane-runtime")
+  >("@/lib/google-ads/control-plane-runtime");
+  // Only the DB-backed reader is stubbed. The truth resolver, the adapter and
+  // the completion ranking stay real, so these tests exercise the actual gate
+  // wiring rather than a re-implementation of it.
+  return { ...actual, readGoogleAdsCoreFreshnessEvidence: vi.fn() };
+});
 vi.mock("@/lib/google-ads/freshness-read", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/google-ads/freshness-read")>();
   return {
@@ -429,12 +438,27 @@ const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
 const incidents = await import("@/lib/sync/incidents");
 const freshnessRead = await import("@/lib/google-ads/freshness-read");
+const controlPlaneRuntime = await import("@/lib/google-ads/control-plane-runtime");
+type GoogleAdsFreshnessEvidence = Awaited<
+  ReturnType<typeof controlPlaneRuntime.readGoogleAdsCoreFreshnessEvidence>
+>;
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
       convergingFreshnessSnapshot(),
+    );
+    // The release gate measures a RECENT closed-day window, not the historical
+    // backfill range above. Keeping them separate is deliberate: a workspace
+    // mid-backfill must still be able to ship, and a stale recent window must
+    // still block, independently of each other.
+    vi.mocked(
+      controlPlaneRuntime.readGoogleAdsCoreFreshnessEvidence,
+    ).mockResolvedValue(
+      controlPlaneRuntime.toGoogleAdsCoreFreshnessEvidence(
+        convergingFreshnessSnapshot(),
+      ),
     );
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
@@ -673,6 +697,24 @@ describe("GET /api/google-ads/status", () => {
   });
 
   it("returns the explicit recent-84-day advisor readiness contract", async () => {
+    // A workspace this test calls release-ready must actually have core sync
+    // state saying so. The default fixture returns no rows at all, which the
+    // route previously papered over with a coverage-derived OR leg that has now
+    // been removed — so the fixture has to describe the workspace it claims.
+    vi.mocked(warehouse.getGoogleAdsSyncState).mockImplementation(async ({ scope }) =>
+      scope === "account_daily" || scope === "campaign_daily"
+        ? ([
+            {
+              businessId: "biz",
+              providerAccountId: "acc_1",
+              scope,
+              completedDays: 365,
+              deadLetterCount: 0,
+              latestSuccessfulSyncAt: new Date().toISOString(),
+            },
+          ] as never)
+        : ([] as never),
+    );
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_google",
       business_id: "biz",
@@ -884,6 +926,50 @@ describe("GET /api/google-ads/status", () => {
       recommendations: [],
     });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
+
+  it("feeds the release gate real freshness evidence for the recent window", async () => {
+    // Scoped deliberately to WIRING, because that is what was missing: the
+    // route computed a release-readiness candidate without ever supplying
+    // freshness, so the gate read `unknown` and failed closed on every request.
+    //
+    // It does not re-assert the gate's own verdict logic. An earlier version of
+    // this test asserted `pass: false` directly and was vacuous — it passed
+    // with all three freshness guards disabled, because this fixture has other
+    // reasons a candidate can fail. Those verdicts are proven where they are
+    // decided, in control-plane-runtime / control-plane / release-gates tests.
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz"),
+    );
+    expect(response.status).toBe(200);
+
+    expect(
+      controlPlaneRuntime.readGoogleAdsCoreFreshnessEvidence,
+    ).toHaveBeenCalledWith(expect.objectContaining({ businessId: "biz" }));
+    // Once per request, not once per scope: the gate window is a single
+    // bounded read shared by the truth resolver and the readiness candidate.
+    expect(
+      vi.mocked(controlPlaneRuntime.readGoogleAdsCoreFreshnessEvidence).mock.calls,
+    ).toHaveLength(1);
   });
 
   it("classifies heartbeat-only Google backfill as stalled runtime progress", async () => {

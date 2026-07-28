@@ -154,6 +154,114 @@ describe("sync release gates", () => {
     });
   });
 
+  it("refuses the pass when the measured range was never re-read after it closed", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        // Everything else that has ever been read as "ready": healthy activity,
+        // a draining queue, a caller asserting truthReady.
+        activityState: "busy",
+        progressState: "syncing",
+        workerOnline: true,
+        queueDepth: 6,
+        leasedPartitions: 1,
+        truthReady: true,
+        freshnessPostCloseObserved: false,
+        freshnessState: "provisional",
+        freshnessEvidenceAvailable: true,
+      }),
+    ).toMatchObject({
+      pass: false,
+      // Non-terminal and retryable: more observation clears it.
+      blockerClass: "not_release_ready",
+      evidence: {
+        freshnessPostCloseObserved: false,
+        freshnessState: "provisional",
+      },
+    });
+  });
+
+  it("fails closed when the freshness verdict could not be read at all", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "busy",
+        progressState: "syncing",
+        workerOnline: true,
+        queueDepth: 0,
+        leasedPartitions: 0,
+        truthReady: true,
+        freshnessPostCloseObserved: false,
+        freshnessState: "unknown",
+        freshnessEvidenceAvailable: false,
+      }),
+    ).toMatchObject({
+      pass: false,
+      blockerClass: "not_release_ready",
+      evidence: {
+        freshnessState: "unknown",
+        freshnessEvidenceAvailable: false,
+      },
+    });
+  });
+
+  it("passes on converging without recording it as settled", () => {
+    const verdict = releaseGates.classifyProviderReleaseTruth({
+      activityState: "busy",
+      progressState: "syncing",
+      workerOnline: true,
+      queueDepth: 6,
+      leasedPartitions: 1,
+      truthReady: true,
+      freshnessPostCloseObserved: true,
+      freshnessState: "converging",
+      freshnessEvidenceAvailable: true,
+    });
+
+    expect(verdict).toMatchObject({ pass: true, blockerClass: "none" });
+    expect(verdict.evidence.freshnessState).toBe("converging");
+    expect(verdict.evidence.freshnessState).not.toBe("settled");
+    expect(JSON.stringify(verdict)).not.toMatch(/\b(final|immutable)\b/i);
+  });
+
+  it("keeps an independently observed incident winning over unknown freshness", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "blocked",
+        progressState: "blocked",
+        workerOnline: true,
+        queueDepth: 9,
+        leasedPartitions: 0,
+        truthReady: false,
+        deadLetterPartitions: 4,
+        freshnessPostCloseObserved: false,
+        freshnessState: "unknown",
+        freshnessEvidenceAvailable: false,
+      }),
+    ).toMatchObject({
+      pass: false,
+      // The dead-lettered queue names itself. Suppressing a real incident
+      // because freshness was unreadable would be the regression.
+      blockerClass: "queue_blocked",
+    });
+  });
+
+  it("leaves a provider that supplies no post-close evidence to truthReady alone", () => {
+    // Meta's finality model is not Google's, so an omitted flag must not
+    // silently block every Meta gate.
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "busy",
+        progressState: "syncing",
+        workerOnline: true,
+        queueDepth: 6,
+        leasedPartitions: 1,
+        truthReady: true,
+      }),
+    ).toMatchObject({
+      pass: true,
+      evidence: { freshnessPostCloseObserved: null },
+    });
+  });
+
   it("classifies queued work without a worker as worker_unavailable", () => {
     expect(
       releaseGates.classifyProviderReleaseTruth({

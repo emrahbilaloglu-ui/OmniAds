@@ -15,7 +15,7 @@ set -euo pipefail
 #
 # Instead the wrapper travels inside the image the cutover is FOR. It lives at
 # `scripts/hetzner-sync-cutover.sh`, and the worker image copies `scripts/`
-# wholesale, so it is already inside `ghcr.io/erhanrdn/omniads-worker:<sha>` at
+# wholesale, so it is already inside `ghcr.io/emrahbilaloglu-ui/omniads-worker:<sha>` at
 # `/app/scripts/hetzner-sync-cutover.sh` with no build-context special case.
 # This script's only job is the digest: it writes the wrapper's SHA-256, its
 # byte count and this release's cutover requirement to

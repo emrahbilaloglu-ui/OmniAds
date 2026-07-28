@@ -16,6 +16,8 @@ Current accepted live baseline for this authority layer:
 - rollback target before the next release: `6fc971574946f65f4c7217eb4a51b6e8ed66fefb`
 - repository authority: `erhanrdn/OmniAds` `main`
 
+The `erhanrdn/OmniAds` name above records the repository as it was at the V2-01 baseline and is left unchanged on purpose: this document is a dated record, not a live contract. The repository was later transferred to `emrahbilaloglu-ui/OmniAds`. For the current release identity read `docs/v3-01-release-authority.md` or `GET /api/release-authority`. Both SHAs above predate the transfer, so their GHCR images exist only under `ghcr.io/erhanrdn`.
+
 ## Authority Rules
 
 - `documented` means this document and `/api/release-authority` explain the surface explicitly.

@@ -7,6 +7,20 @@ on:
         description: Exact commit SHA to deploy or roll back to
         required: true
         type: string
+      image_namespace:
+        description: >-
+          GHCR namespace holding the images for this SHA. Use legacy to roll
+          back to a SHA built before the transfer to emrahbilaloglu-ui.
+        required: false
+        default: current
+        # Enumerated, not free text: this decides which registry production
+        # pulls from, and a typo must be impossible to dispatch rather than
+        # merely rejected later. The bash step below re-validates it anyway,
+        # because a dispatch can also arrive over the API.
+        type: choice
+        options:
+          - current
+          - legacy
       require_current_main_head:
         description: Skip this deploy if the SHA is not the current main HEAD
         required: false
@@ -65,9 +79,14 @@ jobs:
             exit 1
           fi
 
+          # Lowercase only. Docker tags are case-sensitive and GHCR paths are
+          # lowercase, so an uppercase SHA passes a naive hex check and then
+          # either silently no-ops against main HEAD or fails at the pull.
+          # Refusing is better than normalising: if the caller sent something
+          # unexpected, we want to know rather than guess what they meant.
           case "${target_sha}" in
-            *[!0-9a-fA-F]*)
-              echo "Deploy SHA must be hexadecimal."
+            *[!0-9a-f]*)
+              echo "Deploy SHA must be lowercase hexadecimal."
               exit 1
               ;;
           esac
@@ -78,6 +97,73 @@ jobs:
           fi
 
           echo "sha=${target_sha}" >> "$GITHUB_OUTPUT"
+
+      # ── Which namespace can actually serve this SHA ────────────────────────
+      #
+      # Images built before the repository moved to emrahbilaloglu-ui exist ONLY
+      # under ghcr.io/erhanrdn. A repository transfer does not carry GHCR
+      # packages with it and they were never republished, so the age of the SHA
+      # — not the current default — decides which namespace holds it. Without a
+      # way to say so, a rollback across the transfer boundary resolves against
+      # the new namespace and dies on "manifest unknown", mid-incident, which is
+      # exactly when that is least affordable.
+      #
+      # Enumerated rather than a free-form registry string on purpose: this
+      # resolves to one of two known-good literals, so dispatching a deploy can
+      # never aim production at an arbitrary registry.
+      #
+      # `current` leaves both values EMPTY so the compose file's own default
+      # applies and an ordinary deploy behaves exactly as it does today.
+      #
+      # This step is the CI-side producer of a variable pair consumed further
+      # down the chain, in files owned elsewhere:
+      #   docker-compose.yml            resolves
+      #     ${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web} (same for
+      #     the worker, which also covers migrate) — already wired.
+      #   .github/scripts/hetzner-remote.sh   re-exports both with the same
+      #     post-transfer defaults and builds expected_web_image from them, so
+      #     pull, start and readback share one identity — already wired.
+      #   .github/scripts/hetzner-ssh.sh      run_remote_phase_on_host forwards
+      #     a FIXED env list over SSH and does not yet carry these two. Until it
+      #     forwards WEB_IMAGE_REPO/WORKER_IMAGE_REPO alongside APP_IMAGE_TAG,
+      #     the remote defaults win and image_namespace=legacy is inert rather
+      #     than wrong: it cannot deploy the wrong image, it just cannot yet
+      #     reach the old one.
+      - name: Resolve runtime image namespace
+        id: image_namespace
+        shell: bash
+        env:
+          IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+        run: |
+          set -euo pipefail
+
+          selected="${IMAGE_NAMESPACE:-current}"
+
+          case "${selected}" in
+            current)
+              web_image_repo=""
+              worker_image_repo=""
+              ;;
+            legacy)
+              web_image_repo="ghcr.io/erhanrdn/omniads-web"
+              worker_image_repo="ghcr.io/erhanrdn/omniads-worker"
+              ;;
+            *)
+              echo "image_namespace must be 'current' or 'legacy'; got '${selected}'."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "WEB_IMAGE_REPO=${web_image_repo}"
+            echo "WORKER_IMAGE_REPO=${worker_image_repo}"
+          } >> "$GITHUB_ENV"
+
+          echo "selected=${selected}" >> "$GITHUB_OUTPUT"
+
+          echo "image_namespace=${selected}"
+          echo "web_image_repo=${web_image_repo:-<compose default>}"
+          echo "worker_image_repo=${worker_image_repo:-<compose default>}"
 
       - name: Skip superseded deploys
         id: freshness

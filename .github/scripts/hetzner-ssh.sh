@@ -135,6 +135,8 @@ run_remote_phase_on_host() {
   local deploy_migration_timeout_seconds_q
   local remote_app_dir_q
   local phase_q
+  local web_image_repo_q
+  local worker_image_repo_q
 
   deploy_sha_q="$(printf '%q' "${DEPLOY_SHA}")"
   break_glass_q="$(printf '%q' "${BREAK_GLASS}")"
@@ -144,9 +146,19 @@ run_remote_phase_on_host() {
   remote_app_dir_q="$(printf '%q' "${REMOTE_APP_DIR}")"
   phase_q="$(printf '%q' "${phase}")"
 
+  # Forwarded so a legacy-namespace rollback is drivable from CI rather than only
+  # by hand on the host. Empty is the normal case and is exactly right: the
+  # remote script applies its own post-transfer default via `${VAR:-...}`, so an
+  # ordinary deploy is byte-for-byte unchanged. Set both in the calling
+  # workflow's environment ONLY to roll back to a pre-transfer SHA, whose images
+  # exist solely under the legacy ghcr.io/erhanrdn namespace — see the procedure
+  # at the top of docker-compose.yml.
+  web_image_repo_q="$(printf '%q' "${WEB_IMAGE_REPO:-}")"
+  worker_image_repo_q="$(printf '%q' "${WORKER_IMAGE_REPO:-}")"
+
   echo "Running remote deploy phase=${phase} on ${target_label} (${target_host})"
 
   ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -seuo pipefail -- ${phase_q}" \
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -seuo pipefail -- ${phase_q}" \
     < .github/scripts/hetzner-remote.sh
 }

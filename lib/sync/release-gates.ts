@@ -148,6 +148,22 @@ export type ProviderReleaseTruthInput = {
   queueDepth: number;
   leasedPartitions: number;
   truthReady: boolean;
+  /**
+   * Whether every day in the measured range was re-read AFTER it closed
+   * (`converging` or `settled`).
+   *
+   * `false` refuses the pass outright, so no already-passing shape — a drained
+   * queue, a healthy activity state, a recent successful run — can imply
+   * freshness by itself. `null`/`undefined` means the caller supplies no
+   * post-close evidence at all; that case is left to `truthReady`, which the
+   * Google Ads path already gates on this same verdict, and keeps Meta (whose
+   * finality model is not Google's) unaffected.
+   */
+  freshnessPostCloseObserved?: boolean | null;
+  /** The completion state behind the flag above, recorded as gate evidence. */
+  freshnessState?: string | null;
+  /** False means "we could not look", which is non-green AND retryable. */
+  freshnessEvidenceAvailable?: boolean | null;
   retryableFailedPartitions?: number;
   deadLetterPartitions?: number;
   staleLeasePartitions?: number;
@@ -1054,7 +1070,23 @@ export function classifyProviderReleaseTruth(input: ProviderReleaseTruthInput) {
     input.leasedPartitions === 0;
   const stalled =
     input.activityState === "stalled" || input.progressState === "partial_stuck";
-  const pass = healthyActivity && draining && input.truthReady && !blocked;
+  /**
+   * Freshness refuses the pass on its own.
+   *
+   * Belt and braces with `truthReady`: the Google Ads path already ANDs
+   * post-close observation into `truthReady`, and this second refusal means a
+   * future caller that reconstructs `truthReady` from something weaker still
+   * cannot get a pass over data captured once intraday and never re-read.
+   */
+  const freshnessUnobserved = input.freshnessPostCloseObserved === false;
+  const pass =
+    healthyActivity && draining && input.truthReady && !blocked && !freshnessUnobserved;
+  // Order unchanged on purpose. An independently observed incident — dead
+  // letters that blocked the queue, a stalled worker, stuck leases — must keep
+  // naming itself, even when freshness is `unknown`. Suppressing a real
+  // incident because we could not read freshness would be a regression, so
+  // freshness only ever lands in the residual `not_release_ready` class, which
+  // is non-terminal and retryable.
   const blockerClass: SyncBlockerClass =
     workerUnavailable
       ? "worker_unavailable"
@@ -1078,6 +1110,9 @@ export function classifyProviderReleaseTruth(input: ProviderReleaseTruthInput) {
       recentTruthState: input.recentTruthState ?? null,
       priorityTruthState: input.priorityTruthState ?? null,
       truthReady: input.truthReady,
+      freshnessPostCloseObserved: input.freshnessPostCloseObserved ?? null,
+      freshnessState: input.freshnessState ?? null,
+      freshnessEvidenceAvailable: input.freshnessEvidenceAvailable ?? null,
       retryableFailedPartitions: input.retryableFailedPartitions ?? 0,
       deadLetterPartitions: input.deadLetterPartitions ?? 0,
       staleLeasePartitions: input.staleLeasePartitions ?? 0,

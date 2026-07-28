@@ -1,9 +1,18 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildReleaseAuthorityCanonicalDoc } from "@/lib/release-authority/doc";
 import {
   buildReleaseAuthorityReport,
   reconcileReleaseAuthorityMainSha,
+  resolveRemoteMainSha,
 } from "@/lib/release-authority/report";
+import {
+  RELEASE_AUTHORITY_IMAGE_NAMESPACE,
+  RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE,
+  RELEASE_AUTHORITY_LEGACY_WEB_IMAGE,
+  RELEASE_AUTHORITY_LEGACY_WORKER_IMAGE,
+  RELEASE_AUTHORITY_WEB_IMAGE,
+  RELEASE_AUTHORITY_WORKER_IMAGE,
+} from "@/lib/release-authority/types";
 
 const ENV_KEYS = [
   "META_DECISION_OS_V1",
@@ -100,6 +109,105 @@ describe("release authority report", () => {
     expect(surface?.runtimeState).toBe("legacy");
     expect(surface?.flagPosture).toBeNull();
     expect(surface?.driftState).toBe("aligned");
+  });
+});
+
+/**
+ * The repository was transferred from `erhanrdn/OmniAds` to
+ * `emrahbilaloglu-ui/OmniAds`. These assertions are deliberately written
+ * against hard-coded post-transfer literals rather than against the constants
+ * they are protecting, so reverting the constant fails the suite instead of
+ * quietly moving both sides together.
+ */
+describe("release authority repository identity after the ownership transfer", () => {
+  const ORIGINAL_REMOTE_MAIN_OVERRIDE =
+    process.env.RELEASE_AUTHORITY_REMOTE_MAIN_SHA;
+
+  beforeEach(() => {
+    delete process.env.RELEASE_AUTHORITY_REMOTE_MAIN_SHA;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (typeof ORIGINAL_REMOTE_MAIN_OVERRIDE === "string") {
+      process.env.RELEASE_AUTHORITY_REMOTE_MAIN_SHA =
+        ORIGINAL_REMOTE_MAIN_OVERRIDE;
+    } else {
+      delete process.env.RELEASE_AUTHORITY_REMOTE_MAIN_SHA;
+    }
+  });
+
+  it("reports the new owner as the release repository", () => {
+    const report = buildReleaseAuthorityReport({
+      currentLiveSha: "f6ca8358e1bb415b2b44b414b5a5c3340ee75df0",
+      currentMainSha: "f6ca8358e1bb415b2b44b414b5a5c3340ee75df0",
+      currentMainShaSource: "git_remote",
+      nodeEnv: "test",
+      generatedAt: "2026-04-11T00:00:00.000Z",
+    });
+
+    expect(report.release.repository).toEqual({
+      owner: "emrahbilaloglu-ui",
+      name: "OmniAds",
+      fullName: "emrahbilaloglu-ui/OmniAds",
+      branch: "main",
+    });
+    expect(JSON.stringify(report.release)).not.toContain("erhanrdn");
+  });
+
+  it("resolves remote main against the new repository, not the redirecting old one", async () => {
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        requestedUrls.push(String(input));
+        return {
+          ok: true,
+          json: async () => ({
+            sha: "f6ca8358e1bb415b2b44b414b5a5c3340ee75df0",
+          }),
+        } as unknown as Response;
+      }),
+    );
+
+    const resolved = await resolveRemoteMainSha();
+
+    expect(resolved.source).toBe("github_branch_head");
+    // GitHub still redirects the pre-transfer path, so a stale literal here
+    // would return 200 and a plausible SHA. Assert the exact URL we send.
+    expect(requestedUrls).toEqual([
+      "https://api.github.com/repos/emrahbilaloglu-ui/OmniAds/commits/main",
+    ]);
+    expect(requestedUrls.join("\n")).not.toContain("erhanrdn");
+  });
+
+  it("publishes new images under the new GHCR namespace", () => {
+    expect(RELEASE_AUTHORITY_IMAGE_NAMESPACE).toBe(
+      "ghcr.io/emrahbilaloglu-ui",
+    );
+    expect(RELEASE_AUTHORITY_WEB_IMAGE).toBe(
+      "ghcr.io/emrahbilaloglu-ui/omniads-web",
+    );
+    expect(RELEASE_AUTHORITY_WORKER_IMAGE).toBe(
+      "ghcr.io/emrahbilaloglu-ui/omniads-worker",
+    );
+  });
+
+  it("keeps the legacy GHCR namespace so a pre-transfer rollback target stays pullable", () => {
+    // Not dead code and not a leftover: every image built before the transfer,
+    // including the current rollback target, exists only under this namespace.
+    // A find-and-replace that "cleans this up" turns a rollback into a
+    // "manifest unknown" at the worst possible moment.
+    expect(RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE).toBe("ghcr.io/erhanrdn");
+    expect(RELEASE_AUTHORITY_LEGACY_WEB_IMAGE).toBe(
+      "ghcr.io/erhanrdn/omniads-web",
+    );
+    expect(RELEASE_AUTHORITY_LEGACY_WORKER_IMAGE).toBe(
+      "ghcr.io/erhanrdn/omniads-worker",
+    );
+    expect(RELEASE_AUTHORITY_LEGACY_IMAGE_NAMESPACE).not.toBe(
+      RELEASE_AUTHORITY_IMAGE_NAMESPACE,
+    );
   });
 });
 

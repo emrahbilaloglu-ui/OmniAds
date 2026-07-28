@@ -480,6 +480,21 @@ export function reconcileReleaseAuthorityMainSha(
   };
 }
 
+/**
+ * Resolve the SHA that `main` currently points at in the release repository.
+ *
+ * The repository identity below is deliberately read from
+ * RELEASE_AUTHORITY_REPOSITORY rather than written as a literal. After the
+ * ownership transfer from `erhanrdn/OmniAds` to `emrahbilaloglu-ui/OmniAds`,
+ * GitHub keeps redirecting `api.github.com/repos/erhanrdn/OmniAds/...` to the
+ * new owner — so a stale literal here would keep returning 200 with a
+ * plausible SHA and nothing would look broken. That is worse than a hard
+ * failure: the redirect survives only as long as the old name is not claimed
+ * by someone else, and the day it stops (or is re-registered) `currentMainSha`
+ * silently resolves against a repository we no longer own and every
+ * `liveVsMain` verdict built on it becomes meaningless while still reporting
+ * "aligned". Keep this derived from the constant; do not inline the name.
+ */
 export async function resolveRemoteMainSha(input: {
   timeoutMs?: number;
 } = {}) {

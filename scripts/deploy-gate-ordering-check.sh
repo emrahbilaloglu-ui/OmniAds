@@ -220,6 +220,40 @@ else
   fail "W1 workflow gate structure is wrong: $(printf '%s' "${workflow_report}" | sed -n 's/^PROBLEMS://p')"
 fi
 
+# ── R1-R3: the production release boundary ────────────────────────────────────
+#
+# Merging to main used to BE deploying: a dispatch-deploy job called the deploy
+# workflow's API as soon as the images published, so nobody ever chose to
+# release. Publishing an image and putting it on a server are now separate acts,
+# and these checks exist so that separation cannot be undone quietly.
+release_boundary_offenders="$(
+  grep -rln 'workflows/deploy-hetzner\.yml/dispatches' .github/workflows/ 2>/dev/null || true
+)"
+if [ -z "${release_boundary_offenders}" ]; then
+  pass "R1 no workflow dispatches a production deploy automatically; releasing is an explicit human act"
+else
+  fail "R1 a workflow dispatches deploy-hetzner automatically: ${release_boundary_offenders}"
+fi
+
+deploy_triggers="$(
+  awk '/^on:/{f=1;next} /^[a-zA-Z]/{f=0} f' .github/workflows/deploy-hetzner.yml \
+    | grep -E '^  [a-z_]+:' | tr -d ' :' || true
+)"
+if [ "${deploy_triggers}" = "workflow_dispatch" ]; then
+  pass "R2 deploy-hetzner is workflow_dispatch only — no push, schedule or workflow_run can start a production deploy"
+else
+  fail "R2 deploy-hetzner has non-manual triggers: $(printf '%s' "${deploy_triggers}" | tr '\n' ' ')"
+fi
+
+if grep -q 'type: choice' .github/workflows/deploy-hetzner.yml \
+  && grep -qE '^ *- current$' .github/workflows/deploy-hetzner.yml \
+  && grep -qE '^ *- legacy$' .github/workflows/deploy-hetzner.yml \
+  && grep -q 'Deploy SHA must be lowercase hexadecimal' .github/workflows/deploy-hetzner.yml; then
+  pass "R3 the deploy dispatch takes a verified lowercase 40-hex SHA and an enumerated current|legacy image namespace"
+else
+  fail "R3 the deploy dispatch no longer enumerates the image namespace or no longer verifies the SHA strictly"
+fi
+
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"
 else

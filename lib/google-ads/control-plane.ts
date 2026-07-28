@@ -12,6 +12,12 @@ import {
 } from "@/lib/sync/release-gates";
 import { readSyncGateMode, type SyncGateMode } from "@/lib/sync/runtime-contract";
 import type { GoogleAdsReleaseReadinessCandidate } from "@/lib/google-ads/status-types";
+import {
+  isGoogleAdsFreshnessSettled,
+  isGoogleAdsPostCloseObserved,
+  unknownGoogleAdsFreshnessEvidence,
+  type GoogleAdsFreshnessEvidence,
+} from "@/lib/google-ads/control-plane-runtime";
 
 export interface GoogleAdsReleaseCandidateInput {
   connected: boolean;
@@ -27,6 +33,17 @@ export interface GoogleAdsReleaseCandidateInput {
   staleLeasePartitions: number;
   syncTruthState: SyncTruthState;
   truthReady?: boolean;
+  /**
+   * Post-close observation evidence for the core scopes.
+   *
+   * Optional in the TYPE only, so that callers this change does not own keep
+   * compiling. Omitting it is read as `unknown`, which withholds `truthReady`
+   * and therefore the pass. There is no argument list that produces a green
+   * candidate without freshness evidence — in particular, neither an
+   * already-`ready` `syncTruthState` nor a caller-supplied `truthReady: true`
+   * can stand in for it.
+   */
+  freshness?: GoogleAdsFreshnessEvidence | null;
   stallFingerprints: ProviderStallFingerprint[];
 }
 
@@ -37,13 +54,28 @@ export function buildGoogleAdsReleaseReadinessCandidate(
     return null;
   }
 
+  const freshness =
+    input.freshness ??
+    unknownGoogleAdsFreshnessEvidence(
+      "Google Ads freshness evidence was not supplied to the release readiness candidate.",
+    );
+  const postCloseObserved = isGoogleAdsPostCloseObserved(freshness);
+  // Conjunctive, never a fallback. `syncTruthState === "ready"` is derived from
+  // queue and activity shape, which a workspace can hold while every one of its
+  // days was captured once intraday and never re-read.
+  const truthReady =
+    (input.truthReady ?? input.syncTruthState === "ready") && postCloseObserved;
+
   const candidate = classifyProviderReleaseTruth({
     activityState: input.activityState,
     progressState: input.progressState,
     workerOnline: input.workerOnline,
     queueDepth: input.queueDepth,
     leasedPartitions: input.leasedPartitions,
-    truthReady: input.truthReady ?? input.syncTruthState === "ready",
+    truthReady,
+    freshnessPostCloseObserved: postCloseObserved,
+    freshnessState: freshness.state,
+    freshnessEvidenceAvailable: freshness.evidenceAvailable,
     retryableFailedPartitions: input.retryableFailedPartitions,
     deadLetterPartitions: input.deadLetterPartitions,
     staleLeasePartitions: input.staleLeasePartitions,
@@ -52,13 +84,23 @@ export function buildGoogleAdsReleaseReadinessCandidate(
     priorityTruthState: input.syncTruthState === "ready" ? "ready" : input.syncTruthState,
     stallFingerprints: input.stallFingerprints,
   });
-  if (input.totalQueueDepth == null) return candidate;
   return {
     ...candidate,
     evidence: {
       ...candidate.evidence,
-      queueDepth: input.totalQueueDepth,
-      releaseBlockingQueueDepth: input.queueDepth,
+      // `converging` may serve and may pass; only `settled` is completion. The
+      // two stay separate fields so no reader can collapse them, and neither is
+      // ever labelled final or immutable.
+      freshnessSettled: isGoogleAdsFreshnessSettled(freshness),
+      freshnessUnavailableReason: freshness.unavailableReason,
+      /** Fail-closed is not terminal: a later pass may still pass. */
+      freshnessRetryable: !postCloseObserved,
+      ...(input.totalQueueDepth == null
+        ? {}
+        : {
+            queueDepth: input.totalQueueDepth,
+            releaseBlockingQueueDepth: input.queueDepth,
+          }),
     },
   };
 }

@@ -144,6 +144,12 @@ jobs:
       # rather than a generated duplicate. This refuses a commit that edits the
       # cutover script without repackaging its manifest, which would otherwise
       # deploy a wrapper whose digest no longer matches the one the host checks.
+      # The repository was transferred; the old owner must not creep back into an
+      # active build/deploy path, and the historical record must not be rewritten
+      # to silence it. The guard checks both directions.
+      - name: Release owner references are current
+        run: npm run check:release-owner
+
       - name: Cutover wrapper package is current
         run: |
           set -euo pipefail
@@ -450,8 +456,29 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # The GHCR namespace has to be THIS repository's owner, not a name we like.
+    #
+    # secrets.GITHUB_TOKEN is minted for this repository, and `packages: write`
+    # grants it push access only to packages owned by the namespace this
+    # repository belongs to. After the transfer that owner is emrahbilaloglu-ui,
+    # so ghcr.io/erhanrdn is simply not writable from here any more: leaving the
+    # old value would fail the push with a 403 denied. It would not quietly
+    # publish to the wrong place, but it would break every release.
+    #
+    # The first push to the new path CREATES the package under emrahbilaloglu-ui
+    # and GitHub links this repository to it automatically, so nothing has to be
+    # provisioned by hand before the first green main build. Note the reverse is
+    # also true and is why the old namespace survives elsewhere: transferring a
+    # repository does NOT carry its GHCR packages across, so every pre-transfer
+    # image still exists only under ghcr.io/erhanrdn. That namespace is
+    # preserved in the rollback path (deploy-hetzner.yml), not here.
+    #
+    # Written as a literal rather than ghcr.io/${{ github.repository_owner }}:
+    # the cross-language contract test compares this exact string against
+    # RELEASE_AUTHORITY_WEB_IMAGE in lib/release-authority/types.ts, and an
+    # expression cannot be compared statically.
     env:
-      WEB_IMAGE: ghcr.io/erhanrdn/omniads-web
+      WEB_IMAGE: ghcr.io/emrahbilaloglu-ui/omniads-web
       BUILD_CACHE_SCOPE: app-image-build-web
     steps:
       - name: Checkout
@@ -501,8 +528,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Same namespace-and-token reasoning as publish-web-image above. Kept as a
+    # per-job literal, rather than composed from one shared workflow-level
+    # namespace, because the `env` context is not among the contexts available
+    # inside `jobs.<job_id>.env` — referencing it there is a workflow
+    # validation error, not a value. Each job still names its image exactly
+    # once and every use below goes through ${{ env.WORKER_IMAGE }}.
     env:
-      WORKER_IMAGE: ghcr.io/erhanrdn/omniads-worker
+      WORKER_IMAGE: ghcr.io/emrahbilaloglu-ui/omniads-worker
       BUILD_CACHE_SCOPE: app-image-build-worker
     steps:
       - name: Checkout
@@ -533,47 +566,27 @@ jobs:
           cache-from: type=gha,scope=${{ env.BUILD_CACHE_SCOPE }}
           cache-to: type=gha,mode=max,scope=${{ env.BUILD_CACHE_SCOPE }}
 
-  dispatch-deploy:
-    if: >-
-      always() &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.detect-runtime-changes.outputs.runtime_changed == 'true' &&
-      needs.publish-web-image.result == 'success' &&
-      needs.publish-worker-image.result == 'success'
-    needs:
-      - publish-web-image
-      - publish-worker-image
-      - detect-runtime-changes
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Dispatch deploy workflow
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          DEPLOY_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
+  # THE PRODUCTION RELEASE BOUNDARY.
+  #
+  # A `dispatch-deploy` job used to live here. It fired automatically on every
+  # push to main whose changes touched runtime code, calling the deploy
+  # workflow's dispatch API as soon as both images published. Merging was
+  # therefore the same act as deploying, and nobody chose the second one.
+  #
+  # That is removed, deliberately and permanently. CI on main proves the code
+  # and publishes the exact-SHA web and worker images; it does not put them on a
+  # server. Production deployment is a separate, explicit `workflow_dispatch` of
+  # deploy-hetzner.yml carrying a verified 40-hex lowercase SHA and an
+  # enumerated image namespace (current | legacy).
+  #
+  # This is a boundary, not a pause: it is not a commit-message marker, a
+  # temporary skip, or a repository variable, because every one of those can be
+  # flipped silently by someone who does not know why it was set. Restoring an
+  # automatic dispatch means deleting this comment and defeating
+  # scripts/check-release-owner-references.sh's sibling guard in
+  # scripts/deploy-gate-ordering-check.sh, which asserts no workflow in this
+  # repository dispatches a deploy without a human.
 
-          curl -fsSL \
-            -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/deploy-hetzner.yml/dispatches" \
-            -d @- <<EOF
-          {
-            "ref": "main",
-            "inputs": {
-              "sha": "${DEPLOY_SHA}",
-              "require_current_main_head": "true",
-              "run_migrations": "${{ needs.detect-runtime-changes.outputs.schema_changed }}"
-            }
-          }
-          EOF
 
   skip-runtime-deploy:
     if: >-

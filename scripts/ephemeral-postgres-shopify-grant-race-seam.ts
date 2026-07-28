@@ -253,6 +253,20 @@ async function main() {
     process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY =
       process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY ??
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    // G6 registers a customer-events pixel, and registration legitimately
+    // refuses when this secret is unset — the pixel would carry no token and
+    // its events would be rejected. The seam never supplied it, so G6 only
+    // passed where the ambient environment happened to have one. The repository
+    // transfer removed that ambience and G6 began failing on an assertion about
+    // Shopify grant races for a reason that has nothing to do with grant races.
+    //
+    // A seam that fabricates its own database, shop, token and transport must
+    // fabricate this too. The refusal-when-unset path keeps its own coverage in
+    // lib/shopify/pixels.test.ts, so nothing is weakened by making this
+    // hermetic.
+    process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET =
+      process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET ??
+      "sh_customer_events_grant_race_seam_secret";
 
     const db = await import("@/lib/db");
     resetDbClientCache = db.resetDbClientCache;

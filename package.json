@@ -125,6 +125,7 @@
     "test:deploy-gate-ordering": "bash scripts/deploy-gate-ordering-check.sh",
     "test:staged-worker": "node --import tsx scripts/ephemeral-postgres-staged-worker-seam.ts",
     "cutover:package": "bash scripts/cutover-wrapper-package.sh emit",
+    "check:release-owner": "bash scripts/check-release-owner-references.sh",
     "test:cutover-wrapper-package": "bash scripts/cutover-wrapper-package.sh verify",
     "test:entrypoint-admission-seam": "node --import tsx scripts/ephemeral-postgres-entrypoint-admission-seam.ts",
     "test:cutover-build-context": "bash scripts/cutover-wrapper-build-context-check.sh",

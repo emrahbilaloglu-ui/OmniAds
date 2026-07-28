@@ -1,6 +1,45 @@
+# ── Image repository: a VARIABLE, and that is load-bearing ──────────────────
+#
+# The repository was transferred from the legacy erhanrdn/OmniAds owner to
+# emrahbilaloglu-ui/OmniAds, so new builds publish to
+# ghcr.io/emrahbilaloglu-ui/omniads-{web,worker}. That is the default below, and
+# an ordinary deploy sets nothing: it gets the new namespace.
+#
+# Every image built BEFORE the transfer — including whatever SHA production is
+# running right now, and the previous known-good SHA a rollback would target —
+# exists ONLY under the legacy ghcr.io/erhanrdn namespace. Those tags were never
+# republished under the new owner. So a rollback ACROSS the transfer boundary has
+# to name the legacy namespace explicitly, or `docker compose pull` fails with
+# "manifest unknown" at the exact moment you need it to work.
+#
+# ── ROLLBACK TO A PRE-TRANSFER SHA (on the app host) ────────────────────────
+#
+#   cd /var/www/adsecute
+#   export WEB_IMAGE_REPO=ghcr.io/erhanrdn/omniads-web        # legacy namespace
+#   export WORKER_IMAGE_REPO=ghcr.io/erhanrdn/omniads-worker  # legacy namespace
+#   export APP_IMAGE_TAG=<pre-transfer-sha>
+#   export APP_BUILD_ID=<pre-transfer-sha>
+#   docker compose pull web worker
+#   docker compose up -d --force-recreate web worker
+#   docker inspect "$(docker compose ps -q web)" --format '{{.Config.Image}}'
+#
+# WORKER_IMAGE_REPO covers `migrate` as well as `worker` — they are the same
+# image. Both variables must be set in the SAME environment as every compose
+# command in the sequence; a `pull` from one namespace followed by an `up` from
+# the other is precisely the split-brain this is written to prevent. Rolling the
+# CODE back does not roll the SCHEMA back: do not re-run `migrate` as part of a
+# rollback unless you have decided separately that the older code can drive the
+# newer schema.
+#
+# Post-transfer SHAs need none of this. Leave both variables unset.
+#
+# There is deliberately NO automatic fallback from the new namespace to the old
+# one. A deploy that quietly pulled from wherever a tag happened to exist would
+# produce a split-brain nobody noticed; a genuinely missing tag has to fail loudly
+# instead. Explicit and configurable, never silent.
 services:
   web:
-    image: ghcr.io/erhanrdn/omniads-web:${APP_IMAGE_TAG:-dev-build}
+    image: ${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web}:${APP_IMAGE_TAG:-dev-build}
     restart: unless-stopped
     env_file:
       - .env.production
@@ -27,7 +66,7 @@ services:
       start_period: 30s
 
   worker:
-    image: ghcr.io/erhanrdn/omniads-worker:${APP_IMAGE_TAG:-dev-build}
+    image: ${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}:${APP_IMAGE_TAG:-dev-build}
     restart: unless-stopped
     env_file:
       - .env.production
@@ -55,8 +94,11 @@ services:
       retries: 5
       start_period: 45s
 
+  # Same image as `worker`, different command — so it takes the SAME repository
+  # variable. If these two ever resolved to different namespaces, migrations
+  # would run from a different build than the worker that reads the result.
   migrate:
-    image: ghcr.io/erhanrdn/omniads-worker:${APP_IMAGE_TAG:-dev-build}
+    image: ${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}:${APP_IMAGE_TAG:-dev-build}
     env_file:
       - .env.production
     environment:

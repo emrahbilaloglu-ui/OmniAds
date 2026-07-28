@@ -259,6 +259,15 @@ export function ReleaseAuthorityPanel({
             <h2 className="text-base font-semibold text-gray-900">Authority Source</h2>
             <div className="mt-4 space-y-3 text-sm text-gray-600">
               <p>
+                Repository:{" "}
+                <code className="font-mono text-xs">
+                  {report.release.repository.fullName}
+                </code>{" "}
+                <code className="font-mono text-xs">
+                  {report.release.repository.branch}
+                </code>
+              </p>
+              <p>
                 Manifest:{" "}
                 <code className="font-mono text-xs">
                   {report.release.featureAuthoritySource.manifestModule}

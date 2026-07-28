@@ -65,7 +65,11 @@ import {
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
 import { buildGoogleAdsReleaseReadinessCandidate } from "@/lib/google-ads/control-plane";
-import { resolveGoogleAdsControlPlaneSyncTruth } from "@/lib/google-ads/control-plane-runtime";
+import {
+  readGoogleAdsCoreFreshnessEvidence,
+  resolveGoogleAdsControlPlaneSyncTruth,
+  unknownGoogleAdsFreshnessEvidence,
+} from "@/lib/google-ads/control-plane-runtime";
 import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import {
@@ -2179,6 +2183,15 @@ export async function GET(request: NextRequest) {
           queueDepth: queueHealth?.queueDepth ?? 0,
           leasedPartitions: queueHealth?.leasedPartitions ?? 0,
         });
+  // One bounded read for the release-gate window, shared by both consumers
+  // below so the gate and the readiness candidate cannot disagree.
+  const coreFreshnessEvidence = await readGoogleAdsCoreFreshnessEvidence({
+    businessId: businessId!,
+  }).catch(() =>
+    unknownGoogleAdsFreshnessEvidence(
+      "Google Ads core freshness evidence could not be read.",
+    ),
+  );
   const googleControlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
     latestSyncStatus: effectiveLatestSync?.status ? String(effectiveLatestSync.status) : null,
     latestSyncScope:
@@ -2190,18 +2203,25 @@ export async function GET(request: NextRequest) {
       queueHealth?.deadLetterPartitions ??
       0,
     scopeStates: Object.values(statesByScope).flat(),
+    // Deliberately NOT the historical snapshot this route already holds.
+    //
+    // That snapshot spans the whole backfill range. Demanding post-close
+    // observation across all of it would make release-readiness unreachable for
+    // the entire duration of any backfill — a workspace two years deep would
+    // need two years re-read before it could ship. The gate's question is
+    // whether the data the product is serving is fresh, which is the recent
+    // window; that is the range this reader measures.
+    freshness: coreFreshnessEvidence,
   });
-  const googleStatusRouteTruthReady =
-    googleControlPlaneSyncTruth.servingReady ||
-    (coreUsable &&
-      (queueHealth?.coreBlockingDeadLetterPartitions ??
-        queueHealth?.blockingDeadLetterPartitions ??
-        queueHealth?.deadLetterPartitions ??
-        0) === 0 &&
-      (effectiveLatestSync?.status !== "failed" ||
-        !["account_daily", "campaign_daily"].includes(
-          typeof effectiveLatestSync?.scope === "string" ? effectiveLatestSync.scope : "",
-        )));
+  // Serving readiness is now the whole answer.
+  //
+  // This used to OR in a second leg — `coreUsable && no dead letters && the
+  // last sync did not fail` — every term of which is satisfied by a range
+  // captured once intraday and never re-read. That leg existed to keep the
+  // route green while the control-plane truth was coverage-derived; now that
+  // the truth requires post-close observation, the leg's only remaining effect
+  // would be to route around it.
+  const googleStatusRouteTruthReady = googleControlPlaneSyncTruth.servingReady;
   const googleReleaseReadinessCandidate =
     buildGoogleAdsReleaseReadinessCandidate({
       connected,
@@ -2221,6 +2241,10 @@ export async function GET(request: NextRequest) {
       staleLeasePartitions: advisorRelevantUnhealthyLeases,
       syncTruthState: googleUnifiedTruth.syncTruthState,
       truthReady: googleStatusRouteTruthReady,
+      // Passed again rather than inferred from truthReady: the candidate
+      // builder makes truthReady conjunctive with the verdict, so a caller
+      // asserting readiness cannot substitute for the evidence.
+      freshness: coreFreshnessEvidence,
       stallFingerprints: effectiveGoogleStallFingerprints,
     });
   const providerState = buildProviderStateContract({

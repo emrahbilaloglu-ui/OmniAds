@@ -425,6 +425,39 @@ free_disk_mb() {
   df -Pm "${mount_path}" 2>/dev/null | awk 'NR==2 {print $4}'
 }
 
+# Reclaim disk by deleting deploy images this host no longer needs.
+#
+# ── WHY THIS SWEEPS TWO NAMESPACES ─────────────────────────────────────────
+#
+# This used to match one hardcoded repository prefix. After the transfer there
+# are TWO, and getting the choice wrong breaks in one of two directions:
+#
+#   Match only the NEW namespace  → every pre-transfer image on this box becomes
+#     permanently unreachable by the sweep. Those legacy ghcr.io/erhanrdn images
+#     are the bulk of what is on disk today, so the sweep silently stops
+#     reclaiming anything and the box fills up — a prune that runs, reports
+#     success and frees nothing.
+#
+#   Match only the OLD namespace  → the sweep works today and rots tomorrow: as
+#     soon as post-transfer images accumulate, they are the ones never collected.
+#
+# So it matches BOTH. The safety question that follows is "could sweeping the old
+# namespace delete the images production is running right now?", because during
+# the first post-transfer deploys the RUNNING containers are on old-namespace
+# images. The answer is no, and the reason is the keep-list, not the match:
+#
+#   - The keep-list is built by asking Docker what the live web/worker/migrate
+#     containers are ACTUALLY running (`{{.Config.Image}}`), not by assuming a
+#     namespace. An old-namespace image under a running container reports its own
+#     old-namespace reference, lands in the keep-list verbatim, and is skipped.
+#   - It also holds this release's expected_web_image/expected_worker_image, so
+#     the images this deploy is about to start are protected before they are
+#     pulled.
+#   - Matching is exact-line (`grep -Fxq`) against full `repo:tag` references, so
+#     widening the namespace match cannot widen what the keep-list protects.
+#
+# That is what makes widening safe: the sweep decides what is a CANDIDATE by
+# namespace, and what is SPARED by observed reality. Only the candidate set grew.
 prune_stale_deploy_artifacts() {
   keep_images_file="$(mktemp)"
   {
@@ -438,12 +471,34 @@ prune_stale_deploy_artifacts() {
     done
   } | sort -u > "${keep_images_file}"
 
+  # Every repository whose images this host may reclaim: the active pair (which
+  # follow WEB_IMAGE_REPO/WORKER_IMAGE_REPO, so a legacy rollback does not turn
+  # the images it is running into prune candidates) plus the pre-transfer pair.
+  # Defined below the phase dispatch; every caller runs after that.
+  prune_repos_file="$(mktemp)"
+  printf '%s\n' \
+    "${WEB_IMAGE_REPO}" \
+    "${WORKER_IMAGE_REPO}" \
+    "${LEGACY_WEB_IMAGE_REPO}" \
+    "${LEGACY_WORKER_IMAGE_REPO}" \
+    | sort -u > "${prune_repos_file}"
+
+  # Split each `repo:tag` on its LAST colon and compare the repository as a fixed
+  # string. A regex alternation over these values would treat the dots in
+  # "ghcr.io" as wildcards and would have to be rebuilt every time a repository
+  # variable changes; this cannot drift.
   docker container prune -f || true
   docker builder prune -af || true
 
   stale_images="$(
     docker images --format '{{.Repository}}:{{.Tag}}' \
-      | grep -E '^ghcr.io/erhanrdn/omniads-(web|worker):' \
+      | while IFS= read -r candidate_ref; do
+          [ -n "${candidate_ref}" ] || continue
+          candidate_repo="${candidate_ref%:*}"
+          if grep -Fxq "${candidate_repo}" "${prune_repos_file}"; then
+            printf '%s\n' "${candidate_ref}"
+          fi
+        done \
       | sort -u \
       || true
   )"
@@ -457,7 +512,7 @@ prune_stale_deploy_artifacts() {
     docker image rm -f "${image_ref}" || true
   done <<< "${stale_images}"
 
-  rm -f "${keep_images_file}"
+  rm -f "${keep_images_file}" "${prune_repos_file}"
 }
 
 maybe_prune_stale_deploy_artifacts() {
@@ -616,8 +671,36 @@ run_migrations_service() {
 
 export APP_IMAGE_TAG="${DEPLOY_SHA}"
 export APP_BUILD_ID="${DEPLOY_SHA}"
-expected_web_image="ghcr.io/erhanrdn/omniads-web:${DEPLOY_SHA}"
-expected_worker_image="ghcr.io/erhanrdn/omniads-worker:${DEPLOY_SHA}"
+
+# The image repository, as a variable with the post-transfer default.
+#
+# EXPORTED on purpose. docker-compose.yml resolves
+# `${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web}` from this process's
+# environment, and `expected_web_image` below is built from the same variable —
+# so what compose PULLS, what compose STARTS, and what the post-deploy readback
+# ASSERTS are one exact-SHA identity that cannot disagree. Two independently
+# written literals is how a namespace change leaves one of them behind and the
+# verifier starts checking a claim nobody is making.
+#
+# ROLLBACK ACROSS THE TRANSFER BOUNDARY: pre-transfer images exist only under
+# ghcr.io/erhanrdn and were never republished, so rolling back to a pre-transfer
+# SHA means setting both variables to the legacy repositories below. From CI that
+# is `WEB_IMAGE_REPO`/`WORKER_IMAGE_REPO` in the deploy workflow's environment,
+# which `.github/scripts/hetzner-ssh.sh` forwards to this script. On the host by
+# hand, see the procedure at the top of docker-compose.yml. There is no automatic
+# fallback: an ordinary deploy of a missing tag must fail loudly rather than
+# quietly resolve somewhere else.
+export WEB_IMAGE_REPO="${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web}"
+export WORKER_IMAGE_REPO="${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}"
+
+# The pre-transfer repositories. Not overridable and not dead: `prune_stale_deploy_artifacts`
+# has to keep recognising old-namespace images as prunable for as long as any
+# remain on disk. See the reasoning there.
+LEGACY_WEB_IMAGE_REPO="ghcr.io/erhanrdn/omniads-web"
+LEGACY_WORKER_IMAGE_REPO="ghcr.io/erhanrdn/omniads-worker"
+
+expected_web_image="${WEB_IMAGE_REPO}:${DEPLOY_SHA}"
+expected_worker_image="${WORKER_IMAGE_REPO}:${DEPLOY_SHA}"
 
 trap on_phase_error ERR
 

@@ -194,8 +194,32 @@ ROOTCRON_USER="${SYNC_CUTOVER_ROOT_CRONTAB_USER:-root}"
 SCHEDULER_SPEC="${SYNC_CUTOVER_SCHEDULER:-}"
 
 EXPECTED_SHA="${DEPLOY_SHA:-}"
-EXPECTED_WEB_IMAGE="ghcr.io/erhanrdn/omniads-web:${EXPECTED_SHA}"
-EXPECTED_WORKER_IMAGE="ghcr.io/erhanrdn/omniads-worker:${EXPECTED_SHA}"
+
+# The image repository, as a variable with the post-transfer default.
+#
+# EXPORTED because this script drives `docker compose up` itself: compose
+# resolves `${WEB_IMAGE_REPO:-...}` out of this process's environment, and the
+# assertions below are built from the same two variables. That is the point —
+# what compose STARTS and what this wrapper CHECKS are one identity, so they
+# cannot disagree about which registry a release came from.
+#
+# Cutting over to a PRE-TRANSFER SHA means setting both to the legacy
+# repositories, whose images were never republished under the new owner:
+#
+#   WEB_IMAGE_REPO=ghcr.io/erhanrdn/omniads-web        # legacy, pre-transfer
+#   WORKER_IMAGE_REPO=ghcr.io/erhanrdn/omniads-worker  # legacy, pre-transfer
+#
+# Export them in the shell that runs this wrapper, so `docker compose up`, the
+# image pins and the post-swap readback all resolve the same registry. The full
+# procedure is at the top of docker-compose.yml. Nothing here falls back on its
+# own — a tag missing from the configured namespace must fail loudly rather than
+# quietly resolve somewhere else.
+WEB_IMAGE_REPO="${WEB_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-web}"
+WORKER_IMAGE_REPO="${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}"
+export WEB_IMAGE_REPO WORKER_IMAGE_REPO
+
+EXPECTED_WEB_IMAGE="${WEB_IMAGE_REPO}:${EXPECTED_SHA}"
+EXPECTED_WORKER_IMAGE="${WORKER_IMAGE_REPO}:${EXPECTED_SHA}"
 
 # Every key this cutover is allowed to change in the env file. `enable` diffs the
 # file it produced against the disabled copy and refuses if anything outside this
@@ -205,6 +229,21 @@ MANAGED_ENV_KEY_PATTERN='^ADSECUTE_SYNC_(GLOBAL_ENABLED|LANE_[A-Z0-9_]+_ENABLED)
 
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"; }
 die() { printf '[%s] ABORT %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >&2; exit 1; }
+
+# The ONE place a service name becomes an image reference.
+#
+# The deploy-disabled swap and the enable recreate each used to spell the
+# reference out again inline. Three copies of the same string is exactly how a
+# registry change updates two of them and leaves a third comparing against a
+# namespace nobody publishes to any more — a check that can now only fail, in the
+# middle of a cutover, after the containers have already been swapped.
+expected_image_for() {
+  case "$1" in
+    web) printf '%s' "${EXPECTED_WEB_IMAGE}" ;;
+    worker) printf '%s' "${EXPECTED_WORKER_IMAGE}" ;;
+    *) die "no expected image is defined for service '$1'" ;;
+  esac
+}
 
 mkdir -p "${STATE_DIR}"
 chmod 0700 "${STATE_DIR}" 2>/dev/null || true
@@ -2110,7 +2149,7 @@ case "${PHASE}" in
       docker compose up -d --force-recreate web worker
 
     for service in web worker; do
-      expected="ghcr.io/erhanrdn/omniads-${service}:${EXPECTED_SHA}"
+      expected="$(expected_image_for "${service}")"
       actual="$(docker inspect "$(docker compose ps -q "${service}")" --format '{{.Config.Image}}')"
       [ "${actual}" = "${expected}" ] || die "${service} is running ${actual}, expected ${expected}"
       log "${service} image=${actual}"
@@ -2236,7 +2275,7 @@ case "${PHASE}" in
       [ "$(docker inspect "${id}" --format '{{.State.Status}}')" = "running" ] \
         || rollback_enable "${service} is not running after the recreate"
       actual="$(docker inspect "${id}" --format '{{.Config.Image}}')"
-      [ "${actual}" = "ghcr.io/erhanrdn/omniads-${service}:${EXPECTED_SHA}" ] \
+      [ "${actual}" = "$(expected_image_for "${service}")" ] \
         || rollback_enable "${service} came back on ${actual}, not the pinned build"
       for lane in ${lanes}; do
         docker exec "${id}" sh -c "test \"\${${lane}:-}\" = enabled" \

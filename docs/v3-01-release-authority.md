@@ -6,7 +6,7 @@ Current accepted authority contract for this layer:
 
 - runtime live SHA source: `https://adsecute.com/api/build-info`
 - runtime release authority source: `https://adsecute.com/api/release-authority`
-- repository authority: `erhanrdn/OmniAds` `main`
+- repository authority: `emrahbilaloglu-ui/OmniAds` `main`
 - canonical doc path: `docs/v3-01-release-authority.md`
 - rollback target before the next release: `fe3e23f5df5e9dd7f90cc2318ea7b66920e189d2`
 

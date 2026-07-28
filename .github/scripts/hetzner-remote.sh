@@ -1088,6 +1088,537 @@ cutover_epoch_run() {
   sed 's/^/  /' "${CUTOVER_STATE_FILE}" 2>/dev/null | grep -viE '(secret|token|password|api[_-]?key)' || true
 }
 
+# ── The isolated cutover RUNNER package ────────────────────────────────────
+#
+# WHY THIS EXISTS, AND WHY IT IS NOT `deliver_cutover_wrapper`.
+#
+# The host carries a half-finished cutover whose `resume-scheduler` cannot be
+# satisfied. The supported way forward is a NEW epoch, opened by `preflight`,
+# which truncates and rewrites the state record. That needs a CORRECTED wrapper
+# on the host — and `deliver_cutover_wrapper` installs into
+# `${REMOTE_APP_DIR}/cutover`, i.e. ON TOP of the wrapper that is already there.
+# Overwriting it destroys the only evidence of what opened the stuck epoch, and
+# rewrites the bytes of a script an operator may be executing at that moment.
+#
+# So this installs BESIDE it, never over it: a self-contained, digest-pinned,
+# immutable package under `${CUTOVER_RUNNER_ROOT}`, keyed by release SHA and
+# wrapper hash. `${REMOTE_APP_DIR}/cutover` is never opened for writing by any
+# function below, and every path is checked by its PHYSICAL location — a symlink
+# planted at the destination must not be able to smuggle a write into the
+# installed directory, and string comparison alone would not see it.
+#
+# The wrapper resolves its own manifest and recovery policy from
+# `${SYNC_CUTOVER_INSTALL_DIR:-${APP_DIR}/cutover}`, so `cutover_runner_run`
+# sets SYNC_CUTOVER_INSTALL_DIR to the package directory. That is what makes the
+# runner wrapper verify itself against the RUNNER's manifest rather than the
+# installed one. Without it the runner wrapper would read the installed
+# manifest, fail its own integrity check, and the isolation would be a fiction.
+#
+# WRAPPER IDENTITY IS NOT DUPLICATED HERE. `scripts/hetzner-sync-cutover.sh`
+# already refuses any post-preflight phase whose recorded `wrapper_sha256` is
+# not its own, and `preflight` deliberately skips that check so a new epoch is
+# always reachable. Nothing below re-implements, relaxes or pre-empts that: the
+# package simply makes it possible for a second wrapper to exist on the host
+# without the two of them sharing a directory.
+#
+# NOT WIRED TO CI YET, ON PURPOSE. `.github/scripts/hetzner-ssh.sh`'s
+# `run_remote_phase_on_host` forwards a fixed list of environment variables, and
+# CUTOVER_RUNNER_IMAGE_DIGEST / CUTOVER_RUNNER_WRAPPER_SHA256 /
+# CUTOVER_RUNNER_IMAGE_REPO are NOT on it. Until they are, these phases are
+# reachable only from a shell on the host. That is deliberate: the forwarding
+# change and the workflow that dispatches it are a separate, reviewable step,
+# and half-wiring it (forwarding the digest but not the expected hash) would
+# turn the caller-supplied hash check into a no-op. `cutover-runner-package-check.sh`
+# pins them as all-or-nothing.
+CUTOVER_RUNNER_ROOT="${CUTOVER_RUNNER_ROOT:-/var/lib/adsecute-cutover-runner}"
+
+# Resolved by cutover_runner_resolve_inputs; declared here so `set -u` cannot
+# turn a mis-ordered call into an obscure unbound-variable failure.
+RUNNER_DIGEST=""
+RUNNER_IMAGE_REPO=""
+RUNNER_IMAGE_REF=""
+RUNNER_EXPECTED_WRAPPER_SHA=""
+RUNNER_RELEASE_SHA=""
+RUNNER_DIR=""
+RUNNER_RESOLVED_PATH=""
+RUNNER_PKG_WRAPPER_SHA=""
+RUNNER_PKG_MANIFEST_SHA=""
+RUNNER_PKG_POLICY_SHA=""
+
+# Lowercase-hex of an exact length, without a regex. `case` globs are available
+# in every shell this script could plausibly be run by, and a `grep -E` in a
+# command substitution that does NOT match returns 1 — which under `set -e`
+# aborts the phase instead of answering the question that was asked.
+is_lower_hex() { # <string> <length>
+  case "$1" in
+    "" | *[!0-9a-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq "$2" ]
+}
+
+# Where a path PHYSICALLY lives, symlinks resolved, whether or not it exists.
+#
+# `realpath -m` does exactly this and is GNU-only; macOS's `readlink` is not the
+# same program as GNU's. This walks up to the deepest component that DOES exist,
+# resolves that with `cd -P` (which is what actually follows symlinks), and
+# re-appends the rest. The walk is the load-bearing part: an install destination
+# does not exist yet, and a resolver that gives up on a missing path would make
+# every containment check below pass vacuously.
+resolve_physical_path() { # <path> -> physical path on stdout
+  local target head tail base
+  target="$1"
+  [ -n "${target}" ] || return 1
+  case "${target}" in
+    /*) : ;;
+    *) target="${PWD}/${target}" ;;
+  esac
+  while [ "${target}" != "/" ] && [ "${target%/}" != "${target}" ]; do
+    target="${target%/}"
+  done
+
+  head="${target}"
+  tail=""
+  while [ ! -e "${head}" ] && [ "${head}" != "/" ]; do
+    base="$(basename "${head}")"
+    tail="${base}${tail:+/${tail}}"
+    head="$(dirname "${head}")"
+  done
+
+  if [ -d "${head}" ]; then
+    head="$(cd -P -- "${head}" && pwd -P)" || return 1
+  else
+    base="$(basename "${head}")"
+    head="$(cd -P -- "$(dirname "${head}")" && pwd -P)/${base}" || return 1
+  fi
+
+  if [ -z "${tail}" ]; then
+    printf '%s\n' "${head}"
+  elif [ "${head}" = "/" ]; then
+    printf '/%s\n' "${tail}"
+  else
+    printf '%s/%s\n' "${head}" "${tail}"
+  fi
+}
+
+# Is <needle> the same path as <haystack>, or inside it? Both arguments must
+# already be physical paths — this is deliberately a pure string test, so the
+# resolution happens exactly once, at a place where its failure is visible.
+path_is_within() { # <needle> <haystack>
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  [ "$2" != "/" ] || return 0
+  case "$1" in
+    "$2" | "$2"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# The isolation gate. Sets RUNNER_RESOLVED_PATH; dies loudly on refusal.
+#
+# It sets a global rather than printing the resolved path because a `$(...)`
+# would put `die_cutover` in a subshell: the ABORT line would be captured as the
+# function's output instead of reaching the log, and the refusal would read as a
+# blank value rather than a refusal.
+cutover_runner_assert_isolated() { # <path> <label>
+  local candidate label candidate_real installed_real root_real
+  candidate="$1"
+  label="${2:-destination}"
+
+  case "${candidate}" in
+    /*) : ;;
+    *) die_cutover "REFUSING: the cutover runner ${label} '${candidate}' is not an absolute path" ;;
+  esac
+
+  candidate_real="$(resolve_physical_path "${candidate}")" \
+    || die_cutover "REFUSING: could not resolve the cutover runner ${label} '${candidate}' to a physical path"
+  installed_real="$(resolve_physical_path "${REMOTE_APP_DIR}/cutover")" \
+    || die_cutover "REFUSING: could not resolve ${REMOTE_APP_DIR}/cutover to a physical path"
+  root_real="$(resolve_physical_path "${CUTOVER_RUNNER_ROOT}")" \
+    || die_cutover "REFUSING: could not resolve the runner root ${CUTOVER_RUNNER_ROOT} to a physical path"
+
+  [ "${candidate_real}" != "/" ] \
+    || die_cutover "REFUSING: the cutover runner ${label} resolves to /"
+
+  if path_is_within "${root_real}" "${installed_real}" || path_is_within "${installed_real}" "${root_real}"; then
+    die_cutover "REFUSING: the runner root ${CUTOVER_RUNNER_ROOT} (-> ${root_real}) overlaps the installed wrapper directory ${REMOTE_APP_DIR}/cutover (-> ${installed_real}). The runner package exists precisely so that these two never share a directory."
+  fi
+  if path_is_within "${candidate_real}" "${installed_real}"; then
+    die_cutover "REFUSING: the cutover runner ${label} ${candidate} resolves to ${candidate_real}, which IS or is INSIDE the installed wrapper directory ${installed_real}. This path installs beside the installed wrapper, never over it."
+  fi
+  if path_is_within "${installed_real}" "${candidate_real}"; then
+    die_cutover "REFUSING: the cutover runner ${label} ${candidate} resolves to ${candidate_real}, which CONTAINS the installed wrapper directory ${installed_real}; writing or deleting it would reach the installed wrapper."
+  fi
+  if ! path_is_within "${candidate_real}" "${root_real}"; then
+    die_cutover "REFUSING: the cutover runner ${label} ${candidate} resolves to ${candidate_real}, which is outside the runner root ${root_real}."
+  fi
+
+  RUNNER_RESOLVED_PATH="${candidate_real}"
+}
+
+# Globals, NOT `local`: this runs from an EXIT trap, by which point the function
+# that would have declared them has returned and a `local` is out of scope —
+# under `set -u` the cleanup itself becomes the failure. That exact shape once
+# killed a deploy in `hetzner-ssh.sh`; see the trap comment there.
+CUTOVER_RUNNER_EXTRACT_CONTAINER=""
+CUTOVER_RUNNER_STAGING_DIR=""
+cutover_runner_cleanup_extraction() {
+  if [ -n "${CUTOVER_RUNNER_EXTRACT_CONTAINER:-}" ]; then
+    docker rm -f "${CUTOVER_RUNNER_EXTRACT_CONTAINER}" >/dev/null 2>&1 || true
+    CUTOVER_RUNNER_EXTRACT_CONTAINER=""
+  fi
+  if [ -n "${CUTOVER_RUNNER_STAGING_DIR:-}" ]; then
+    rm -rf "${CUTOVER_RUNNER_STAGING_DIR}"
+    CUTOVER_RUNNER_STAGING_DIR=""
+  fi
+}
+
+cutover_runner_resolve_inputs() {
+  local repo
+  RUNNER_DIGEST="${CUTOVER_RUNNER_IMAGE_DIGEST:-}"
+  RUNNER_EXPECTED_WRAPPER_SHA="${CUTOVER_RUNNER_WRAPPER_SHA256:-}"
+  RUNNER_RELEASE_SHA="${CUTOVER_RESUME_SHA:-${DEPLOY_SHA:-}}"
+
+  # A TAG is mutable: the same `:sha` can be repushed, and the whole point of
+  # this package is that what was verified is what runs. Only a content digest
+  # is accepted, and it is checked as a shape rather than trusted as a string.
+  [ -n "${RUNNER_DIGEST}" ] \
+    || die_cutover "REFUSING: CUTOVER_RUNNER_IMAGE_DIGEST is unset; the runner package is pinned by digest, never by a tag"
+  case "${RUNNER_DIGEST}" in
+    sha256:*)
+      is_lower_hex "${RUNNER_DIGEST#sha256:}" 64 \
+        || die_cutover "REFUSING: CUTOVER_RUNNER_IMAGE_DIGEST='${RUNNER_DIGEST}' is not sha256:<64 lowercase hex>"
+      ;;
+    *)
+      die_cutover "REFUSING: CUTOVER_RUNNER_IMAGE_DIGEST='${RUNNER_DIGEST}' is not a sha256 content digest. A tag is mutable and is refused here."
+      ;;
+  esac
+
+  # The caller's INDEPENDENT expectation. Without it the only cross-check would
+  # be the extracted wrapper against its own extracted manifest — a pair that a
+  # tampered image supplies together, so it proves consistency and nothing else.
+  is_lower_hex "${RUNNER_EXPECTED_WRAPPER_SHA}" 64 \
+    || die_cutover "REFUSING: CUTOVER_RUNNER_WRAPPER_SHA256='${RUNNER_EXPECTED_WRAPPER_SHA:-<unset>}' is not a 64-character lowercase hex sha256"
+
+  # Half the package key, and it lands in a filesystem path — so it is validated
+  # as 40-hex rather than interpolated as whatever arrived.
+  is_lower_hex "${RUNNER_RELEASE_SHA}" 40 \
+    || die_cutover "REFUSING: no valid release SHA (CUTOVER_RESUME_SHA/DEPLOY_SHA='${RUNNER_RELEASE_SHA:-<unset>}'); it keys the package directory and must be 40 lowercase hex"
+
+  repo="${CUTOVER_RUNNER_IMAGE_REPO:-${WORKER_IMAGE_REPO}}"
+  # No '@' and no ':' may survive this, so the reference built below cannot end
+  # up carrying a tag or a second digest.
+  case "${repo}" in
+    "" | *[!a-zA-Z0-9./_-]*)
+      die_cutover "REFUSING: cutover runner image repository '${repo}' is not a bare registry path"
+      ;;
+  esac
+
+  RUNNER_IMAGE_REPO="${repo}"
+  RUNNER_IMAGE_REF="${repo}@${RUNNER_DIGEST}"
+  RUNNER_DIR="${CUTOVER_RUNNER_ROOT}/${RUNNER_RELEASE_SHA}-${RUNNER_EXPECTED_WRAPPER_SHA:0:12}"
+}
+
+# Everything the package must still be true about itself, re-derived from the
+# bytes on disk. Called after installing, and again before every run.
+cutover_runner_verify_package() { # <dir>
+  local dir file manifest_pinned recorded
+  dir="$1"
+
+  for file in hetzner-sync-cutover.sh cutover-wrapper.manifest recovery-policy.tsv runner.manifest; do
+    [ -f "${dir}/${file}" ] \
+      || die_cutover "REFUSING: the runner package at ${dir} is missing ${file}"
+  done
+
+  RUNNER_PKG_WRAPPER_SHA="$(sha256_of_file "${dir}/hetzner-sync-cutover.sh")"
+  RUNNER_PKG_MANIFEST_SHA="$(sha256_of_file "${dir}/cutover-wrapper.manifest")"
+  RUNNER_PKG_POLICY_SHA="$(sha256_of_file "${dir}/recovery-policy.tsv")"
+
+  manifest_pinned="$(awk -F= '$1 == "wrapper_sha256" { print $2 }' "${dir}/cutover-wrapper.manifest" | tr -d '[:space:]')"
+  [ -n "${manifest_pinned}" ] \
+    || die_cutover "REFUSING: ${dir}/cutover-wrapper.manifest records no wrapper_sha256"
+  [ "${manifest_pinned}" = "${RUNNER_PKG_WRAPPER_SHA}" ] \
+    || die_cutover "REFUSING: the packaged wrapper hashes ${RUNNER_PKG_WRAPPER_SHA}, its own manifest pins ${manifest_pinned}"
+  [ "${RUNNER_EXPECTED_WRAPPER_SHA}" = "${RUNNER_PKG_WRAPPER_SHA}" ] \
+    || die_cutover "REFUSING: the packaged wrapper hashes ${RUNNER_PKG_WRAPPER_SHA}, the caller expected ${RUNNER_EXPECTED_WRAPPER_SHA}"
+
+  recorded="$(awk -F= '$1 == "image_digest" { print $2 }' "${dir}/runner.manifest" | tr -d '[:space:]')"
+  [ "${recorded}" = "${RUNNER_DIGEST}" ] \
+    || die_cutover "REFUSING: the package at ${dir} was built from image digest ${recorded:-<none>}, this invocation names ${RUNNER_DIGEST}"
+  recorded="$(awk -F= '$1 == "wrapper_sha256" { print $2 }' "${dir}/runner.manifest" | tr -d '[:space:]')"
+  [ "${recorded}" = "${RUNNER_PKG_WRAPPER_SHA}" ] \
+    || die_cutover "REFUSING: the package records wrapper_sha256=${recorded:-<none>}, the file on disk hashes ${RUNNER_PKG_WRAPPER_SHA}"
+  recorded="$(awk -F= '$1 == "policy_sha256" { print $2 }' "${dir}/runner.manifest" | tr -d '[:space:]')"
+  [ "${recorded}" = "${RUNNER_PKG_POLICY_SHA}" ] \
+    || die_cutover "REFUSING: the package records policy_sha256=${recorded:-<none>}, the file on disk hashes ${RUNNER_PKG_POLICY_SHA}"
+
+  # The same field the wrapper's own assert_recovery_policy reads. Pinned here
+  # too, so a package whose policy was swapped is refused before the wrapper is
+  # ever started rather than midway through a phase.
+  recorded="$(awk -F= '$1 == "delivered_policy_sha256" { print $2 }' "${dir}/cutover-wrapper.manifest" | tr -d '[:space:]')"
+  [ "${recorded}" = "${RUNNER_PKG_POLICY_SHA}" ] \
+    || die_cutover "REFUSING: ${dir}/cutover-wrapper.manifest pins delivered_policy_sha256=${recorded:-<none>}, the packaged policy hashes ${RUNNER_PKG_POLICY_SHA}"
+}
+
+cutover_runner_install() {
+  local staging dest incoming image_id manifest_source extracted_sha policy_sha
+
+  cutover_runner_resolve_inputs
+  cutover_runner_assert_isolated "${RUNNER_DIR}" "destination"
+  dest="${RUNNER_RESOLVED_PATH}"
+
+  # Idempotent by RE-VERIFICATION, not by rewriting. A package is named by the
+  # digest it came out of and the hash of the wrapper inside it, so "the same
+  # digest and hash" can only mean the same bytes; rewriting them would change
+  # mtimes for no reason and would put a second write near a directory a phase
+  # may be reading from.
+  if [ -e "${dest}" ]; then
+    [ -d "${dest}" ] \
+      || die_cutover "REFUSING: ${dest} exists and is not a directory"
+    log "runner package already present at ${dest}; re-verifying rather than rewriting"
+    cutover_runner_verify_package "${dest}"
+    echo "cutover_runner_package_reused image_digest=${RUNNER_DIGEST} image_ref=${RUNNER_IMAGE_REF} wrapper_sha256=${RUNNER_PKG_WRAPPER_SHA} manifest_sha256=${RUNNER_PKG_MANIFEST_SHA} policy_sha256=${RUNNER_PKG_POLICY_SHA} dest=${dest}"
+    return 0
+  fi
+
+  mkdir -p "${CUTOVER_RUNNER_ROOT}"
+  chmod 0700 "${CUTOVER_RUNNER_ROOT}"
+
+  CUTOVER_RUNNER_STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/adsecute-cutover-runner.XXXXXX")"
+  chmod 0700 "${CUTOVER_RUNNER_STAGING_DIR}"
+  staging="${CUTOVER_RUNNER_STAGING_DIR}"
+  # EXIT, not just the happy path: `die_cutover` exits, and the ERR trap exits
+  # too, so the extraction container has to be removed from somewhere that runs
+  # on every one of those paths.
+  trap cutover_runner_cleanup_extraction EXIT
+
+  log "Building an isolated cutover runner package from ${RUNNER_IMAGE_REF}"
+  # A last structural check on the reference actually handed to docker: whatever
+  # else a future edit changes, this must still be a digest reference.
+  case "${RUNNER_IMAGE_REF}" in
+    *"@${RUNNER_DIGEST}") : ;;
+    *) die_cutover "REFUSING: the resolved image reference '${RUNNER_IMAGE_REF}' is not pinned to ${RUNNER_DIGEST}" ;;
+  esac
+
+  image_id="$(docker image inspect "${RUNNER_IMAGE_REF}" --format '{{.Id}}' 2>/dev/null || true)"
+  [ -n "${image_id}" ] \
+    || die_cutover "REFUSING: ${RUNNER_IMAGE_REF} is not present on this host; pull the exact digest first"
+
+  CUTOVER_RUNNER_EXTRACT_CONTAINER="$(docker create "${RUNNER_IMAGE_REF}" true)"
+  [ -n "${CUTOVER_RUNNER_EXTRACT_CONTAINER}" ] \
+    || die_cutover "REFUSING: could not create an extraction container from ${RUNNER_IMAGE_REF}"
+
+  if ! docker cp "${CUTOVER_RUNNER_EXTRACT_CONTAINER}:${WRAPPER_IMAGE_PATH}" "${staging}/hetzner-sync-cutover.sh" ||
+    ! docker cp "${CUTOVER_RUNNER_EXTRACT_CONTAINER}:${WRAPPER_MANIFEST_IMAGE_PATH}" "${staging}/cutover-wrapper.manifest" ||
+    ! docker cp "${CUTOVER_RUNNER_EXTRACT_CONTAINER}:${WRAPPER_POLICY_IMAGE_PATH}" "${staging}/recovery-policy.tsv"; then
+    die_cutover "REFUSING: ${RUNNER_IMAGE_REF} does not carry ${WRAPPER_IMAGE_PATH}, ${WRAPPER_MANIFEST_IMAGE_PATH} and ${WRAPPER_POLICY_IMAGE_PATH}"
+  fi
+
+  docker rm -f "${CUTOVER_RUNNER_EXTRACT_CONTAINER}" >/dev/null 2>&1 || true
+  CUTOVER_RUNNER_EXTRACT_CONTAINER=""
+
+  manifest_source="$(awk -F= '$1 == "wrapper_source" { print $2 }' "${staging}/cutover-wrapper.manifest" | tr -d '[:space:]')"
+  [ "/app/${manifest_source}" = "${WRAPPER_IMAGE_PATH}" ] \
+    || die_cutover "REFUSING: the image manifest pins wrapper_source=${manifest_source:-<none>}, this extraction took ${WRAPPER_IMAGE_PATH}"
+
+  extracted_sha="$(sha256_of_file "${staging}/hetzner-sync-cutover.sh")"
+  policy_sha="$(sha256_of_file "${staging}/recovery-policy.tsv")"
+  [ -n "${policy_sha}" ] \
+    || die_cutover "REFUSING: could not hash the extracted recovery policy"
+
+  {
+    cat "${staging}/cutover-wrapper.manifest"
+    printf 'delivered_deploy_sha=%s\n' "${RUNNER_RELEASE_SHA}"
+    printf 'delivered_worker_image=%s\n' "${RUNNER_IMAGE_REF}"
+    printf 'delivered_worker_image_id=%s\n' "${image_id}"
+    printf 'delivered_policy_sha256=%s\n' "${policy_sha}"
+    printf 'delivered_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "${staging}/composed.manifest"
+
+  {
+    printf 'runner_package_version=1\n'
+    printf 'image_digest=%s\n' "${RUNNER_DIGEST}"
+    printf 'image_ref=%s\n' "${RUNNER_IMAGE_REF}"
+    printf 'image_id=%s\n' "${image_id}"
+    printf 'wrapper_sha256=%s\n' "${extracted_sha}"
+    printf 'policy_sha256=%s\n' "${policy_sha}"
+    printf 'release_sha=%s\n' "${RUNNER_RELEASE_SHA}"
+    printf 'installed_uid=%s\n' "$(id -u)"
+    printf 'installed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "${staging}/runner.manifest"
+
+  # Assembled under a sibling name and renamed into place, so a package is
+  # either wholly there or not there at all. Same parent directory, so the
+  # rename is atomic; a cross-filesystem `mv` would not be.
+  incoming="${dest}.incoming"
+  cutover_runner_assert_isolated "${incoming}" "staging destination"
+  incoming="${RUNNER_RESOLVED_PATH}"
+  rm -rf "${incoming}"
+  mkdir -p "${incoming}"
+  chmod 0700 "${incoming}"
+
+  cp "${staging}/hetzner-sync-cutover.sh" "${incoming}/hetzner-sync-cutover.sh"
+  cp "${staging}/composed.manifest" "${incoming}/cutover-wrapper.manifest"
+  cp "${staging}/recovery-policy.tsv" "${incoming}/recovery-policy.tsv"
+  cp "${staging}/runner.manifest" "${incoming}/runner.manifest"
+  # 0600, not 0700: the wrapper is started as `bash <path>`, which reads the
+  # file rather than exec'ing it, so it never needs the execute bit.
+  chmod 0600 "${incoming}"/*
+  if [ "$(id -u)" = "0" ]; then
+    chown -R 0:0 "${incoming}"
+  else
+    log "not running as root (uid=$(id -u)); leaving package ownership as the invoking user"
+  fi
+
+  # Re-checked immediately before publishing: the checks above ran against a
+  # path that did not exist yet, and something could have been planted since.
+  cutover_runner_assert_isolated "${incoming}" "staging destination"
+  cutover_runner_assert_isolated "${dest}" "destination"
+  mv "${incoming}" "${dest}"
+  chmod 0700 "${dest}"
+
+  cutover_runner_assert_isolated "${dest}" "destination"
+  cutover_runner_verify_package "${dest}"
+
+  cutover_runner_cleanup_extraction
+  trap - EXIT
+
+  echo "cutover_runner_package_installed image_digest=${RUNNER_DIGEST} image_ref=${RUNNER_IMAGE_REF} image_id=${image_id} wrapper_sha256=${RUNNER_PKG_WRAPPER_SHA} manifest_sha256=${RUNNER_PKG_MANIFEST_SHA} policy_sha256=${RUNNER_PKG_POLICY_SHA} dest=${dest}"
+  echo "cutover_runner_installed_wrapper_untouched path=${REMOTE_APP_DIR}/cutover"
+}
+
+cutover_runner_run() {
+  local phase dest installed_sha
+  phase="${CUTOVER_EPOCH_PHASE:-}"
+
+  # The SAME allowlist cutover_epoch_run enforces, including the refusal of
+  # emergency-disable. An isolated wrapper is still a wrapper: it must not open
+  # a path the installed one refuses.
+  case "${phase}" in
+    preflight | quiesce | fingerprint-pre | migrate | verify-contract | fingerprint-post | deploy-disabled | enable | resume-scheduler | status) : ;;
+    emergency-disable) die_cutover "emergency-disable is not available through this path" ;;
+    *) die_cutover "unknown or refused cutover phase '${phase}'" ;;
+  esac
+
+  cutover_runner_resolve_inputs
+  cutover_runner_assert_isolated "${RUNNER_DIR}" "destination"
+  dest="${RUNNER_RESOLVED_PATH}"
+
+  [ -d "${dest}" ] \
+    || die_cutover "REFUSING: no cutover runner package at ${dest}; run the cutover_runner_install phase first"
+  # Re-verified HERE, not trusted from install time: install and run are
+  # separate dispatches, minutes or hours apart, and anything that could edit
+  # the package in between is exactly what this is defending against.
+  cutover_runner_verify_package "${dest}"
+
+  if [ -f "${INSTALLED_WRAPPER}" ]; then
+    installed_sha="$(sha256_of_file "${INSTALLED_WRAPPER}")"
+  else
+    installed_sha="<absent>"
+  fi
+
+  # Side by side, always. Mixed-wrapper state is the failure mode this whole
+  # package risks introducing, so which two programs are on this host is a line
+  # in the log rather than something inferred afterwards from two runs.
+  log "runner wrapper    : ${dest}/hetzner-sync-cutover.sh"
+  log "  sha256          : ${RUNNER_PKG_WRAPPER_SHA}"
+  log "  image digest    : ${RUNNER_DIGEST}"
+  log "installed wrapper : ${INSTALLED_WRAPPER}"
+  log "  sha256          : ${installed_sha}"
+  if [ "${installed_sha}" = "${RUNNER_PKG_WRAPPER_SHA}" ]; then
+    log "  the runner and installed wrappers are the SAME program"
+  else
+    log "  the runner and installed wrappers DIFFER; this phase runs the runner wrapper ${RUNNER_PKG_WRAPPER_SHA}"
+  fi
+
+  [ -n "${CUTOVER_DB_SSH:-}" ] || die_cutover "no CUTOVER_DB_SSH target forwarded"
+  [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ] \
+    || die_cutover "no forwarded ssh agent; the wrapper cannot reach the database host"
+
+  log "running RUNNER wrapper phase='${phase}' for ${RUNNER_RELEASE_SHA}"
+  # SYNC_CUTOVER_INSTALL_DIR is what keeps this isolated: the wrapper resolves
+  # its manifest AND its recovery policy from that directory, so without it the
+  # runner wrapper would read ${REMOTE_APP_DIR}/cutover's manifest and refuse
+  # itself. Everything else is byte-for-byte the contract cutover_epoch_run uses.
+  SYNC_CUTOVER_INSTALL_DIR="${dest}" \
+  SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" \
+  SYNC_CUTOVER_SCHEDULER="${CUTOVER_SCHEDULER:-rootcron}" \
+  SYNC_CUTOVER_CONTINUES_FROM="${CUTOVER_CONTINUES_FROM:-}" \
+  DEPLOY_SHA="${RUNNER_RELEASE_SHA}" \
+    bash "${dest}/hetzner-sync-cutover.sh" "${phase}"
+
+  log "phase '${phase}' returned 0; state now:"
+  sed 's/^/  /' "${CUTOVER_STATE_FILE}" 2>/dev/null | grep -viE '(secret|token|password|api[_-]?key)' || true
+}
+
+# The reversible host-side fail-safe. Deletes ONE runner package directory and
+# nothing else: not state, not the installed wrapper, not a container, not an
+# image. Undoing this phase is `cutover_runner_install` again — the package is
+# reproducible from its digest, which is why removing it is safe and why nothing
+# here needs to be preserved first.
+# Fetch the exact image the runner package is built from.
+#
+# Kept SEPARATE from cutover_runner_install on purpose. Install's job is to
+# verify and refuse; if it could also fetch, a failed verification would be one
+# retry away from silently pulling something else. So this is the only step that
+# reaches the network, it names the digest explicitly, and install still refuses
+# when the digest is not already local.
+#
+# The ephemeral DOCKER_CONFIG the SSH layer exports is what authorises this; no
+# credential is created here and none outlives the phase.
+cutover_runner_pull() {
+  local repo digest
+  repo="${CUTOVER_RUNNER_IMAGE_REPO:-}"
+  digest="${CUTOVER_RUNNER_IMAGE_DIGEST:-}"
+  [ -n "${repo}" ] || die_cutover "no CUTOVER_RUNNER_IMAGE_REPO supplied"
+  case "${digest}" in
+    sha256:*) : ;;
+    *) die_cutover "CUTOVER_RUNNER_IMAGE_DIGEST must be sha256:<64 hex>, got '${digest}'" ;;
+  esac
+  is_lower_hex "${digest#sha256:}" 64 \
+    || die_cutover "CUTOVER_RUNNER_IMAGE_DIGEST is not a 64-character lowercase hex digest"
+
+  log "pulling ${repo}@${digest}"
+  docker pull "${repo}@${digest}" >/dev/null \
+    || die_cutover "could not pull ${repo}@${digest}; the runner package cannot be built from an image that is not here"
+  # By digest, so this can only confirm the thing we asked for.
+  docker image inspect "${repo}@${digest}" --format '{{.Id}}' >/dev/null 2>&1 \
+    || die_cutover "pulled ${repo}@${digest} but the daemon cannot inspect it"
+  log "runner image present: ${repo}@${digest}"
+}
+
+cutover_runner_remove() {
+  local target resolved root_real
+  if [ -n "${CUTOVER_RUNNER_DIR:-}" ]; then
+    target="${CUTOVER_RUNNER_DIR}"
+  else
+    cutover_runner_resolve_inputs
+    target="${RUNNER_DIR}"
+  fi
+
+  cutover_runner_assert_isolated "${target}" "removal target"
+  resolved="${RUNNER_RESOLVED_PATH}"
+
+  root_real="$(resolve_physical_path "${CUTOVER_RUNNER_ROOT}")" \
+    || die_cutover "REFUSING: could not resolve the runner root ${CUTOVER_RUNNER_ROOT} to a physical path"
+  [ "${resolved}" != "${root_real}" ] \
+    || die_cutover "REFUSING: ${resolved} is the runner ROOT itself; this phase removes ONE package directory"
+
+  if [ ! -e "${resolved}" ]; then
+    log "no runner package at ${resolved}; nothing to remove"
+    echo "cutover_runner_package_absent dest=${resolved}"
+    return 0
+  fi
+  [ -d "${resolved}" ] \
+    || die_cutover "REFUSING: ${resolved} is not a directory"
+
+  log "removing runner package ${resolved}"
+  ls -la "${resolved}" | sed 's/^/  /' || true
+  rm -rf "${resolved}"
+  [ ! -e "${resolved}" ] \
+    || die_cutover "the runner package at ${resolved} survived removal"
+
+  echo "cutover_runner_package_removed dest=${resolved}"
+}
+
 die_cutover() {
   log "ABORT ${1}"
   exit 1
@@ -1235,6 +1766,30 @@ case "${phase}" in
 
   cutover_epoch_run)
     cutover_epoch_run
+    ;;
+
+  # ── The isolated runner package ─────────────────────────────────────────
+  #
+  # Deliberately NOT reachable from `prepare_runtime` or any ordinary deploy
+  # phase, and deliberately NOT calling deliver_cutover_wrapper: the whole
+  # point is to leave ${REMOTE_APP_DIR}/cutover exactly as it is.
+  cutover_runner_pull)
+    log "Fetching the exact image the runner package is extracted from"
+    cutover_runner_pull
+    ;;
+
+  cutover_runner_install)
+    log "Installing an isolated, digest-pinned cutover runner package"
+    cutover_runner_install
+    ;;
+
+  cutover_runner_run)
+    cutover_runner_run
+    ;;
+
+  cutover_runner_remove)
+    log "Removing the isolated cutover runner package (the reversible fail-safe)"
+    cutover_runner_remove
     ;;
 
   cutover_resume_scheduler)

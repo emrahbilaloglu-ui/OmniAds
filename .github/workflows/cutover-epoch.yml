@@ -30,6 +30,9 @@ on:
           - status
           - preserve-evidence
           - prune-images
+          - runner-pull
+          - runner-install
+          - runner-remove
           - preflight
           - quiesce
           - fingerprint-pre
@@ -58,6 +61,36 @@ on:
         required: false
         default: ""
         type: string
+      via:
+        description: >-
+          Which wrapper drives the wrapper phases. "runner" uses the isolated,
+          digest-pinned package; "installed" uses the wrapper already on the
+          host. They cannot share an epoch — the wrapper-identity invariant
+          refuses a state opened by the other one, which is the point.
+        required: true
+        default: runner
+        type: choice
+        options:
+          - runner
+          - installed
+      image_repo:
+        description: Image the runner package is extracted from, e.g. ghcr.io/emrahbilaloglu-ui/omniads-worker.
+        required: false
+        default: ""
+        type: string
+      image_digest:
+        description: EXACT image digest, sha256:<64 hex>. Never a tag — a tag can move.
+        required: false
+        default: ""
+        type: string
+      wrapper_sha256:
+        description: >-
+          Expected sha256 of the wrapper inside that image. The external pin: it
+          is what makes the extracted manifest something to check rather than
+          something to trust.
+        required: false
+        default: ""
+        type: string
       confirm:
         description: Type "run" to confirm.
         required: true
@@ -83,6 +116,11 @@ jobs:
           INPUT_DB_SSH: ${{ inputs.db_ssh }}
           INPUT_CONFIRM: ${{ inputs.confirm }}
           INPUT_SCHEDULER: ${{ inputs.scheduler }}
+          INPUT_PHASE: ${{ inputs.phase }}
+          INPUT_VIA: ${{ inputs.via }}
+          INPUT_IMAGE_REPO: ${{ inputs.image_repo }}
+          INPUT_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          INPUT_WRAPPER_SHA: ${{ inputs.wrapper_sha256 }}
         run: |
           set -euo pipefail
 
@@ -101,6 +139,47 @@ jobs:
             echo "confirm must be the literal string 'run'." >&2
             exit 1
           }
+
+          # All three runner inputs or none. A digest without its expected
+          # wrapper hash leaves the external pin reading an empty string, which
+          # is worse than no pin because it still looks pinned.
+          # A `case`, not an `&&` chain. Both are correct under `set -e` — a
+          # failing command inside a && list is exempt unless it is the final
+          # one, so short-circuiting here does NOT exit the step (verified, not
+          # assumed). The case form is used because it states the three host
+          # phases by name instead of excluding them one !=  at a time, and a
+          # phase added later lands in a branch rather than silently inheriting
+          # whichever test happened to be last.
+          needs_runner=no
+          case "${INPUT_PHASE}" in
+            runner-*)
+              needs_runner=yes
+              ;;
+            status | preserve-evidence | prune-images)
+              : # host-level phases; no wrapper and no runner package involved
+              ;;
+            *)
+              if [ "${INPUT_VIA}" = "runner" ]; then
+                needs_runner=yes
+              fi
+              ;;
+          esac
+          if [ "${needs_runner}" = "yes" ]; then
+            case "${INPUT_IMAGE_DIGEST}" in
+              sha256:*) : ;;
+              *) echo "image_digest must be sha256:<64 hex>; a tag can move and this must not." >&2; exit 1 ;;
+            esac
+            d="${INPUT_IMAGE_DIGEST#sha256:}"
+            case "${d}" in *[!0-9a-f]* | "") echo "image_digest is not lowercase hex." >&2; exit 1 ;; esac
+            [ "${#d}" -eq 64 ] || { echo "image_digest must be 64 hex characters." >&2; exit 1; }
+            case "${INPUT_WRAPPER_SHA}" in *[!0-9a-f]* | "") echo "wrapper_sha256 must be lowercase hex." >&2; exit 1 ;; esac
+            [ "${#INPUT_WRAPPER_SHA}" -eq 64 ] || { echo "wrapper_sha256 must be 64 characters." >&2; exit 1; }
+            case "${INPUT_IMAGE_REPO}" in
+              ghcr.io/*) : ;;
+              *) echo "image_repo must be a ghcr.io repository." >&2; exit 1 ;;
+            esac
+            echo "runner inputs accepted: ${INPUT_IMAGE_REPO}@${INPUT_IMAGE_DIGEST} wrapper=${INPUT_WRAPPER_SHA}"
+          fi
           echo "accepted: phase=${{ inputs.phase }} sha=${INPUT_SHA} scheduler=${INPUT_SCHEDULER}"
 
       - name: Checkout
@@ -164,6 +243,10 @@ jobs:
           BREAK_GLASS: "false"
           OVERRIDE_REASON: ""
           PHASE_INPUT: ${{ inputs.phase }}
+          VIA_INPUT: ${{ inputs.via }}
+          CUTOVER_RUNNER_IMAGE_REPO: ${{ inputs.image_repo }}
+          CUTOVER_RUNNER_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          CUTOVER_RUNNER_WRAPPER_SHA256: ${{ inputs.wrapper_sha256 }}
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -171,8 +254,22 @@ jobs:
           case "${PHASE_INPUT}" in
             preserve-evidence) remote_phase=cutover_epoch_preserve_evidence ;;
             prune-images)      remote_phase=cutover_epoch_prune_images ;;
-            *)                 remote_phase=cutover_epoch_run
-                               export CUTOVER_EPOCH_PHASE="${PHASE_INPUT}" ;;
+            runner-pull)       remote_phase=cutover_runner_pull ;;
+            runner-install)    remote_phase=cutover_runner_install ;;
+            runner-remove)     remote_phase=cutover_runner_remove ;;
+            *)
+              # A wrapper phase. `runner` drives it from the isolated package,
+              # leaving the installed wrapper untouched; `installed` is kept
+              # only so the old epoch can still be inspected with the wrapper
+              # that opened it. Mixing them within one epoch is refused by the
+              # wrapper itself, not by this routing.
+              if [ "${VIA_INPUT}" = "runner" ]; then
+                remote_phase=cutover_runner_run
+              else
+                remote_phase=cutover_epoch_run
+              fi
+              export CUTOVER_EPOCH_PHASE="${PHASE_INPUT}"
+              ;;
           esac
 
           run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary "${remote_phase}"

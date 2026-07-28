@@ -168,6 +168,19 @@ npm run test:cutover-resume-recovery
 stage "Cutover wrapper identity (one epoch, one wrapper)"
 npm run test:cutover-wrapper-identity
 
+# The corrected wrapper has to reach the host WITHOUT overwriting the one that
+# opened the stuck epoch, so it is installed into an isolated, digest-pinned
+# package instead. The dangerous failure is not "it does not install" — it is
+# "it installs, and the destination quietly resolved into ${REMOTE_APP_DIR}/cutover
+# anyway", which a string comparison cannot see. Proven against a shell-level
+# docker fake: tags and malformed digests refused, the installed directory
+# snapshotted byte-for-byte across install and a real phase run, symlinked
+# destinations refused by realpath, and the extraction container removed on both
+# the success and the failure path.
+stage "Cutover runner package (isolated, digest-pinned, never overwrites the installed wrapper)"
+bash -n scripts/cutover-runner-package-check.sh
+npm run test:cutover-runner-package
+
 stage "Pre-change schema upgrade seam (branch point)"
 npm run test:schema-upgrade-seam
 

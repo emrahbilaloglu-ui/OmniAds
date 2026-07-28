@@ -128,6 +128,7 @@
     "verify:pre-push": "npm run check:workflows && npm run typecheck && npx eslint . && npx vitest run && bash scripts/verify-database-seams.sh",
     "test:cutover-stuck-repro": "bash scripts/cutover-stuck-state-repro.sh",
     "test:cutover-resume-recovery": "bash scripts/cutover-resume-recovery-check.sh",
+    "test:ssh-multiplex-isolation": "bash scripts/ssh-multiplex-isolation-check.sh",
     "test:cutover-wrapper-identity": "bash scripts/cutover-wrapper-identity-check.sh",
     "test:cutover-runner-package": "bash scripts/cutover-runner-package-check.sh",
     "test:deploy-registry-auth": "bash scripts/deploy-registry-auth-check.sh",

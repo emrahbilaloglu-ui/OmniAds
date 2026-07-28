@@ -91,9 +91,24 @@ ssh_with_stdin_retry() {
       # forwarding for them.
       cutover_resume_precheck | cutover_resume_scheduler \
         | cutover_epoch_preserve_evidence | cutover_epoch_prune_images \
-        | cutover_epoch_run | cutover_runner_run)
+        | cutover_epoch_run | cutover_runner_run | cutover_ssh_diagnose)
         [ -n "${SSH_AUTH_SOCK:-}" ] \
           || { echo "agent forwarding requested but no SSH_AUTH_SOCK is present" >&2; return 1; }
+        # A forwarded invocation must never REUSE a master opened without
+        # forwarding. ControlPath=~/.ssh/adsecute-deploy-%C keys only on user,
+        # host and port — not on whether the master carries an agent — and
+        # ControlPersist=600 keeps it alive for ten minutes, across jobs on a
+        # runner whose home directory survives. So a runner-pull (deliberately
+        # unforwarded) leaves a master that a preflight minutes later silently
+        # rides, arriving at the app host with no agent; the wrapper then cannot
+        # authenticate onward to the database host and reports
+        # "Permission denied (publickey,password)".
+        #
+        # PREPENDED, not appended: ssh takes the FIRST value it obtains for an
+        # option, so these must precede the multiplexing settings below to win.
+        # Appending ForwardAgent=yes to a reused master achieved nothing, which
+        # is exactly how this stayed invisible.
+        ssh_opts=(-o ControlPath=none -o ControlMaster=no "${ssh_opts[@]}")
         ssh_opts+=(-o ForwardAgent=yes)
         ;;
       *)

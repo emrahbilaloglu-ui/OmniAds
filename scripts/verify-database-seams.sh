@@ -165,6 +165,13 @@ npm run test:cutover-resume-recovery
 # a fixed wrapper beside the installed one would create. Also pins the escape
 # hatch: preflight must never be gated by this, or a mismatch becomes another
 # unfinishable cutover.
+# A forwarded recovery invocation must not ride a master opened without
+# forwarding: the shared ControlPath keys only on user/host/port, so an
+# unforwarded phase leaves a master a later forwarded phase silently reuses,
+# arriving with no agent and failing DB auth with "Permission denied".
+stage "SSH multiplex isolation (forwarded calls get their own connection)"
+npm run test:ssh-multiplex-isolation
+
 stage "Cutover wrapper identity (one epoch, one wrapper)"
 npm run test:cutover-wrapper-identity
 

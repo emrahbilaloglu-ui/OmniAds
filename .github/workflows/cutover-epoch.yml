@@ -30,6 +30,7 @@ on:
           - status
           - preserve-evidence
           - prune-images
+          - ssh-diagnose
           - runner-pull
           - runner-install
           - runner-remove
@@ -161,7 +162,7 @@ jobs:
             runner-*)
               needs_runner=yes
               ;;
-            status | preserve-evidence | prune-images)
+            status | preserve-evidence | prune-images | ssh-diagnose)
               : # host-level phases; no wrapper and no runner package involved
               ;;
             *)
@@ -276,6 +277,7 @@ jobs:
             # they ever do. Least privilege in the direction that matters: the
             # identity that can reach the database host is lent only to phases
             # that must use it.
+            ssh-diagnose)      remote_phase=cutover_ssh_diagnose ;;
             runner-pull)       remote_phase=cutover_runner_pull
                                export CUTOVER_FORWARD_AGENT=0 ;;
             runner-install)    remote_phase=cutover_runner_install

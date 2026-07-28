@@ -1597,6 +1597,44 @@ cutover_runner_run() {
 #
 # The ephemeral DOCKER_CONFIG the SSH layer exports is what authorises this; no
 # credential is created here and none outlives the phase.
+# READ-ONLY proof that the app host can authenticate onward to the database
+# host. Nothing is created, copied, or persisted; no key material is printed.
+#
+# This exists because a forwarded invocation silently rode a master opened
+# WITHOUT forwarding, so the app host had no agent and the wrapper reported
+# "Permission denied (publickey,password)" — a message that reads like a wrong
+# key or a wrong user, and is neither. The probe separates those cases: if the
+# agent is present and `true` succeeds, multiplexing was the fault; if the agent
+# is present and it still fails, the target user or authorized key is wrong.
+cutover_ssh_diagnose() {
+  [ -n "${CUTOVER_DB_SSH:-}" ] || die_cutover "no CUTOVER_DB_SSH target forwarded"
+
+  if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ]; then
+    log "agent socket present: ${SSH_AUTH_SOCK}"
+  else
+    log "agent socket ABSENT (SSH_AUTH_SOCK='${SSH_AUTH_SOCK:-<unset>}')"
+  fi
+
+  # Fingerprints only. ssh-add -l prints type, fingerprint and comment — never
+  # private material — and the comment is dropped in case it carries a name.
+  if ssh-add -l >/dev/null 2>&1; then
+    log "forwarded agent identities:"
+    ssh-add -l 2>/dev/null | awk '{print "  | " $1 " " $2}' || true
+  else
+    log "forwarded agent holds no identities (or is unreachable)"
+  fi
+
+  # BatchMode: never prompt, fail immediately, so this cannot hang a job.
+  # StrictHostKeyChecking is left at the host's own default.
+  log "probing ${CUTOVER_DB_SSH} with a non-interactive 'true'"
+  if ssh -o BatchMode=yes -o ConnectTimeout=10 "${CUTOVER_DB_SSH}" true 2>&1 | sed 's/^/  | /'; then
+    log "DB SSH PROBE OK — the app host can authenticate to the database host"
+  else
+    log "DB SSH PROBE FAILED — see the line above for the server's own reason"
+    return 1
+  fi
+}
+
 cutover_runner_pull() {
   local repo digest
   repo="${CUTOVER_RUNNER_IMAGE_REPO:-}"
@@ -1825,6 +1863,11 @@ case "${phase}" in
   # Deliberately NOT reachable from `prepare_runtime` or any ordinary deploy
   # phase, and deliberately NOT calling deliver_cutover_wrapper: the whole
   # point is to leave ${REMOTE_APP_DIR}/cutover exactly as it is.
+  cutover_ssh_diagnose)
+    log "Read-only: can the app host authenticate onward to the database host?"
+    cutover_ssh_diagnose
+    ;;
+
   cutover_runner_pull)
     log "Fetching the exact image the runner package is extracted from"
     cutover_runner_pull

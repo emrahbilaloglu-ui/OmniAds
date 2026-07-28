@@ -260,10 +260,15 @@ jobs:
             echo "the runbook does not name the installed wrapper path ${installed}" >&2
             exit 1
           }
-          grep -q "${installed}" deploy/CUTOVER_REQUIRED || {
-            echo "deploy/CUTOVER_REQUIRED does not name ${installed}" >&2
-            exit 1
-          }
+          # Only when the marker exists. It is removed after a completed
+          # cutover, and this assertion is about what the marker SAYS while it
+          # is there, not about it being there.
+          if [ -f deploy/CUTOVER_REQUIRED ]; then
+            grep -q "${installed}" deploy/CUTOVER_REQUIRED || {
+              echo "deploy/CUTOVER_REQUIRED does not name ${installed}" >&2
+              exit 1
+            }
+          fi
           ! grep -qE '^\s*(\./)?(\.github/)?scripts/hetzner-sync-cutover\.sh' docs/global-sync-rollout-runbook.md || {
             echo "the runbook still instructs running the repository copy of the wrapper" >&2
             exit 1

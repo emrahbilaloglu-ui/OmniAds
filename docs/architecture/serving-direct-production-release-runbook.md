@@ -46,7 +46,24 @@ Practical rule:
 
 ## Preflight
 
-Run these on the exact candidate SHA before releasing it directly:
+**Before pushing, run the same thing CI runs, on the final tree:**
+
+```bash
+npm run verify:pre-push
+```
+
+That is typecheck, lint, the full unit suite, then
+`scripts/verify-database-seams.sh` — the single canonical sequence the
+`database-seams` CI job invokes. There is no second list to keep in step, and
+the release-owner guard is deliberately its last stage, because earlier stages
+rewrite the tree (the cutover wrapper manifest in particular) and a guard that
+runs first vouches for a tree that no longer exists.
+
+Run it **after your last edit**, not before. A guard that passed on an earlier
+version of the tree has told you nothing about the one you are about to push;
+that is exactly how `c02aff0b5` shipped green locally and failed in CI.
+
+Then run these on the exact candidate SHA before releasing it directly:
 
 ```bash
 npm exec tsc -- -p tsconfig.json --noEmit

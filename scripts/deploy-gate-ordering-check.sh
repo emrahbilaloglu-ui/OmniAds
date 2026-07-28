@@ -254,6 +254,35 @@ else
   fail "R3 the deploy dispatch no longer enumerates the image namespace or no longer verifies the SHA strictly"
 fi
 
+# ── R4: CI and local verification cannot drift ───────────────────────────────
+#
+# The database-seams job must delegate to the canonical sequence rather than
+# re-listing seams inline. Two lists were how a guard passed locally, was never
+# re-run on the final tree, and failed on push.
+if grep -q 'bash scripts/verify-database-seams\.sh' .github/workflows/ci.yml; then
+  inline_seams="$(
+    awk '/^  database-seams:/,/^  publish-web-image:/' .github/workflows/ci.yml \
+      | grep -cE 'run: *(npm run test:|npx vitest run)' || true
+  )"
+  if [ "${inline_seams:-0}" -eq 0 ]; then
+    pass "R4 the database-seams job delegates to scripts/verify-database-seams.sh with no inline seam list to drift"
+  else
+    fail "R4 the database-seams job still runs ${inline_seams} seam(s) inline alongside the canonical sequence"
+  fi
+else
+  fail "R4 the database-seams job no longer invokes scripts/verify-database-seams.sh"
+fi
+
+# The guard must run LAST in that sequence: earlier stages rewrite the tree (the
+# wrapper manifest above all), so checking first vouches for a tree that no
+# longer exists by the end of the job.
+last_stage="$(grep -oE 'npm run [a-z:-]+' scripts/verify-database-seams.sh | tail -1)"
+if [ "${last_stage}" = "npm run check:release-owner" ]; then
+  pass "R5 the release-owner guard is the final stage, so it sees the tree that will actually be committed"
+else
+  fail "R5 the final stage of the canonical sequence is '${last_stage}', not the release-owner guard"
+fi
+
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"
 else

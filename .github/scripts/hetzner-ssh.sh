@@ -169,8 +169,11 @@ run_remote_phase_on_host() {
   web_image_repo_q="$(printf '%q' "${WEB_IMAGE_REPO:-}")"
   worker_image_repo_q="$(printf '%q' "${WORKER_IMAGE_REPO:-}")"
 
-  local ghcr_user_q
+  local ghcr_user_q cutover_resume_sha_q
   ghcr_user_q="$(printf '%q' "${GHCR_PULL_USER:-}")"
+  # Only the cutover recovery phases read this; empty for every ordinary
+  # deploy phase, which is what keeps the recovery path opt-in.
+  cutover_resume_sha_q="$(printf '%q' "${CUTOVER_RESUME_SHA:-}")"
 
   echo "Running remote deploy phase=${phase} on ${target_label} (${target_host})"
 
@@ -200,7 +203,7 @@ run_remote_phase_on_host() {
     printf '%s\n' "${GHCR_PULL_TOKEN:-}"
     cat .github/scripts/hetzner-remote.sh
   } | ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} CUTOVER_RESUME_SHA=${cutover_resume_sha_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
 IFS= read -r __ghcr_tok || true
 __dcfg=\"\$(mktemp -d)\"
 cleanup_registry_auth() {

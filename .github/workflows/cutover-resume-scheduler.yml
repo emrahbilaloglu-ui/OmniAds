@@ -1,0 +1,179 @@
+name: Cutover resume-scheduler (recovery)
+
+# The narrowest supported way out of a half-finished cutover.
+#
+# An ordinary deploy is refused while /var/lib/adsecute-cutover/state records a
+# chain that reached `enable` but never `resume-scheduler`: between those two
+# phases the cutover still owns the database, and the ordinary path must not
+# migrate underneath it. That refusal is correct and is not weakened here.
+#
+# The supported way out is to FINISH the cutover, and only the wrapper that
+# opened it may do that. This workflow does not edit state, does not use
+# break-glass, does not migrate, does not pull, does not recreate a container,
+# and does not deliver a new wrapper over the one that wrote the state. It runs
+# a read-only precheck and then the installed wrapper's own `resume-scheduler`,
+# which re-checks every invariant for itself.
+#
+# Manual only, and confirmation is required rather than defaulted: a recovery
+# that can be triggered by accident is a second incident waiting behind the
+# first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: >-
+          The deploy_sha recorded IN THE CUTOVER STATE, not necessarily current
+          main. The precheck refuses if it does not match exactly.
+        required: true
+        type: string
+      confirm:
+        description: Type "resume" to confirm. Anything else refuses.
+        required: true
+        default: "no"
+        type: string
+      precheck_only:
+        description: Run the read-only precheck and stop without resuming.
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: cutover-recovery
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+
+          case "${INPUT_SHA}" in
+            *[!0-9a-f]* | "")
+              echo "sha must be lowercase hexadecimal." >&2
+              exit 1
+              ;;
+          esac
+          if [ "${#INPUT_SHA}" -ne 40 ]; then
+            echo "sha must be exactly 40 characters." >&2
+            exit 1
+          fi
+          if [ "${INPUT_CONFIRM}" != "resume" ]; then
+            echo "confirm must be the literal string 'resume'; got '${INPUT_CONFIRM}'." >&2
+            echo "Refusing. This is a recovery path, not a routine action." >&2
+            exit 1
+          fi
+          echo "inputs accepted for ${INPUT_SHA}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Mirrors the deploy workflow's own SSH preparation, including
+      # HETZNER_KNOWN_HOSTS. No credential is created or persisted: the key is
+      # written to the ephemeral runner and dies with it.
+      - name: Prepare SSH access
+        shell: bash
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+            echo "Missing required Hetzner deploy secrets."
+            exit 1
+          fi
+
+          source .github/scripts/hetzner-ssh.sh
+
+          primary_deploy_host="${HETZNER_HOST}"
+          primary_deploy_host_ip="$(resolve_host "${primary_deploy_host}")"
+          if [ -z "${primary_deploy_host}" ]; then
+            echo "No deploy target host resolved."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${primary_deploy_host}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+
+          {
+            echo "PRIMARY_DEPLOY_HOST=${primary_deploy_host}"
+            echo "PRIMARY_DEPLOY_HOST_IP=${primary_deploy_host_ip}"
+          } >> "$GITHUB_ENV"
+
+      # Read-only. Prints the whole decision basis — wrapper identity and
+      # digest, state digest and mtime, chain, invalidated flag, lock and
+      # process state, scheduler and container health — and dies on the first
+      # thing that is not exactly as expected.
+      - name: Precheck (read only, no mutation)
+        shell: bash
+        env:
+          REMOTE_APP_DIR: /var/www/adsecute
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          BREAK_GLASS: "false"
+          OVERRIDE_REASON: ""
+        run: |
+          set -euo pipefail
+          source .github/scripts/hetzner-ssh.sh
+          run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary cutover_resume_precheck
+
+      - name: Resume the scheduler (the wrapper's own phase)
+        if: success() && inputs.precheck_only != true
+        shell: bash
+        env:
+          REMOTE_APP_DIR: /var/www/adsecute
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          BREAK_GLASS: "false"
+          OVERRIDE_REASON: ""
+        run: |
+          set -euo pipefail
+          source .github/scripts/hetzner-ssh.sh
+          run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary cutover_resume_scheduler
+
+      - name: Confirm the ordinary deploy gate is clear
+        if: success() && inputs.precheck_only != true
+        shell: bash
+        env:
+          REMOTE_APP_DIR: /var/www/adsecute
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          BREAK_GLASS: "false"
+          OVERRIDE_REASON: ""
+        run: |
+          set -euo pipefail
+          source .github/scripts/hetzner-ssh.sh
+          # A second precheck now FAILS on the chain check, and that is the
+          # proof we want: the chain no longer ends at `enable`, so this
+          # recovery has become inapplicable. Idempotent by refusal.
+          if run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary cutover_resume_precheck; then
+            echo "the precheck still applies, so resume-scheduler was not recorded" >&2
+            exit 1
+          fi
+          echo "recovery is no longer applicable — the cutover is complete"

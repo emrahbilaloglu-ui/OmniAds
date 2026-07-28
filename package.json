@@ -126,6 +126,7 @@
     "test:staged-worker": "node --import tsx scripts/ephemeral-postgres-staged-worker-seam.ts",
     "cutover:package": "bash scripts/cutover-wrapper-package.sh emit",
     "verify:pre-push": "npm run check:workflows && npm run typecheck && npx eslint . && npx vitest run && bash scripts/verify-database-seams.sh",
+    "test:cutover-resume-recovery": "bash scripts/cutover-resume-recovery-check.sh",
     "test:deploy-registry-auth": "bash scripts/deploy-registry-auth-check.sh",
     "check:workflows": "node scripts/check-workflow-semantics.mjs",
     "check:release-owner": "bash scripts/check-release-owner-references.sh",

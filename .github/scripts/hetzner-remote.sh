@@ -708,6 +708,111 @@ LEGACY_WORKER_IMAGE_REPO="ghcr.io/erhanrdn/omniads-worker"
 expected_web_image="${WEB_IMAGE_REPO}:${DEPLOY_SHA}"
 expected_worker_image="${WORKER_IMAGE_REPO}:${DEPLOY_SHA}"
 
+CUTOVER_STATE_DIR="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}"
+CUTOVER_STATE_FILE="${CUTOVER_STATE_DIR}/state"
+CUTOVER_LOCK_FILE="${CUTOVER_STATE_DIR}/lock"
+INSTALLED_WRAPPER="${REMOTE_APP_DIR}/cutover/hetzner-sync-cutover.sh"
+
+# The one chain this recovery is willing to act on. Anything else — shorter,
+# longer, reordered, or already resumed — is refused rather than interpreted.
+EXPECTED_CUTOVER_CHAIN="preflight,quiesce,fingerprint-pre,migrate,verify-contract,fingerprint-post,deploy-disabled,enable"
+
+cutover_state_get() {
+  awk -F= -v k="$1" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "${CUTOVER_STATE_FILE}"
+}
+
+# Everything here is read-only. It prints what it saw so the decision is
+# auditable from the workflow log, and dies on the first thing that is not
+# exactly as expected.
+cutover_resume_precheck() {
+  local chain invalidated state_sha state_mtime wrapper_sha wrapper_version state_version
+  local deploy_sha_recorded scheduler_spec scheduler_live holders
+
+  [ -f "${INSTALLED_WRAPPER}" ] \
+    || die_cutover "no installed wrapper at ${INSTALLED_WRAPPER}; refusing to deliver one during a recovery"
+  [ -s "${CUTOVER_STATE_FILE}" ] \
+    || die_cutover "no cutover state at ${CUTOVER_STATE_FILE}; there is nothing to resume"
+
+  wrapper_sha="$(sha256sum "${INSTALLED_WRAPPER}" | awk '{print $1}')"
+  wrapper_version="$(awk -F= '/^STATE_VERSION=/ { print $2; exit }' "${INSTALLED_WRAPPER}" | tr -d '"'"'"'[:space:]')"
+  state_sha="$(sha256sum "${CUTOVER_STATE_FILE}" | awk '{print $1}')"
+  state_mtime="$(date -u -r "${CUTOVER_STATE_FILE}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || stat -c %y "${CUTOVER_STATE_FILE}")"
+  chain="$(cutover_state_get phase_chain)"
+  invalidated="$(cutover_state_get invalidated | tr -d '[:space:]')"
+  state_version="$(cutover_state_get state_version)"
+  deploy_sha_recorded="$(cutover_state_get deploy_sha)"
+  scheduler_spec="$(cutover_state_get scheduler_spec)"
+
+  log "installed wrapper : ${INSTALLED_WRAPPER}"
+  log "  sha256          : ${wrapper_sha}"
+  log "  STATE_VERSION   : ${wrapper_version}"
+  log "state record      : ${CUTOVER_STATE_FILE}"
+  log "  sha256          : ${state_sha}"
+  log "  mtime (utc)     : ${state_mtime}"
+  log "  state_version   : ${state_version}"
+  log "  deploy_sha      : ${deploy_sha_recorded}"
+  log "  phase_chain     : ${chain}"
+  log "  invalidated     : ${invalidated:-<unset>}"
+  log "  scheduler_spec  : ${scheduler_spec}"
+
+  # Secrets are never in this file, but the redaction is explicit rather than
+  # assumed: anything that looks like a token is refused into the log.
+  if grep -qiE '(token|secret|password|api[_-]?key)[[:space:]]*=' "${CUTOVER_STATE_FILE}"; then
+    die_cutover "the state record contains a credential-shaped key; refusing to print or act on it"
+  fi
+
+  [ "${invalidated}" != "yes" ] \
+    || die_cutover "this cutover is INVALIDATED; resume-scheduler is not the legal next phase"
+  [ "${chain}" = "${EXPECTED_CUTOVER_CHAIN}" ] \
+    || die_cutover "phase_chain is '${chain}'; this recovery only acts on exactly '${EXPECTED_CUTOVER_CHAIN}'"
+  [ "${state_version}" = "${wrapper_version}" ] \
+    || die_cutover "state_version '${state_version}' != installed wrapper STATE_VERSION '${wrapper_version}'; the wrapper on this host did not open this cutover"
+  [ -n "${deploy_sha_recorded}" ] \
+    || die_cutover "the state record carries no deploy_sha"
+  [ "${deploy_sha_recorded}" = "${CUTOVER_RESUME_SHA:-}" ] \
+    || die_cutover "state deploy_sha is ${deploy_sha_recorded}; the dispatch asked for '${CUTOVER_RESUME_SHA:-<unset>}'. Refusing to resume a release the operator did not name."
+
+  # An in-flight wrapper holds this lock. flock -n fails rather than waits.
+  if command -v flock >/dev/null 2>&1; then
+    if ! flock -n 8 2>/dev/null 8>"${CUTOVER_LOCK_FILE}"; then
+      holders="$(command -v fuser >/dev/null 2>&1 && fuser "${CUTOVER_LOCK_FILE}" 2>&1 || echo unknown)"
+      die_cutover "the cutover lock is held (${holders}); a wrapper is already running"
+    fi
+    exec 8>&-
+    log "cutover lock     : free"
+  else
+    log "cutover lock     : flock unavailable; the wrapper takes it itself"
+  fi
+
+  if pgrep -f 'hetzner-sync-cutover\.sh' >/dev/null 2>&1; then
+    die_cutover "a hetzner-sync-cutover.sh process is running; refusing to act underneath it"
+  fi
+  log "wrapper process   : none running"
+
+  scheduler_live="$(systemctl is-active "${scheduler_spec#systemd:}" 2>/dev/null || true)"
+  log "scheduler live    : ${scheduler_live:-unknown} (spec ${scheduler_spec})"
+  log "container states  :"
+  docker compose ps --format '  {{.Service}}={{.State}} {{.Image}}' 2>/dev/null || true
+
+  log "PRECHECK OK — resume-scheduler is the only legal next phase"
+}
+
+cutover_resume_invoke() {
+  # The wrapper re-derives and re-checks every invariant itself; this adds no
+  # arguments beyond the SHA it already demands, and writes nothing.
+  DEPLOY_SHA="${CUTOVER_RESUME_SHA}" bash "${INSTALLED_WRAPPER}" resume-scheduler
+  log "wrapper returned 0; reading the state back"
+  DEPLOY_SHA="${CUTOVER_RESUME_SHA}" bash "${INSTALLED_WRAPPER}" status || true
+  printf '%s' "$(cutover_state_get phase_chain)" | grep -q 'resume-scheduler' \
+    || die_cutover "resume-scheduler is still absent from the chain after the wrapper returned 0"
+  log "RESUME OK — phase_chain now: $(cutover_state_get phase_chain)"
+}
+
+die_cutover() {
+  log "ABORT ${1}"
+  exit 1
+}
+
 trap on_phase_error ERR
 
 case "${phase}" in
@@ -812,6 +917,36 @@ case "${phase}" in
   persist_control_plane)
     log "Persisting current-build sync control plane"
     persist_sync_control_plane
+    ;;
+
+  # ── Cutover recovery: the narrowest path back to an ordinary deploy ────────
+  #
+  # An ordinary deploy is refused while /var/lib/adsecute-cutover/state records
+  # a chain that reached `enable` but never `resume-scheduler`. That refusal is
+  # correct — between those two phases the cutover still owns the database — and
+  # the supported way out is to finish the cutover, not to edit its state or
+  # bypass the gate.
+  #
+  # These two phases do exactly that and nothing else. They never migrate, never
+  # pull, never recreate a container, never touch retention, and never write the
+  # state file directly: the only writer is the wrapper's own `resume-scheduler`,
+  # which re-checks every invariant itself. This is a second lock on a door that
+  # already locks, because the cost of being wrong here is a cutover resumed
+  # against a runtime it does not describe.
+  #
+  # Deliberately absent: deliver_cutover_wrapper. The installed wrapper is the
+  # one that WROTE this state, quite possibly shipped inside the currently
+  # running old worker image. Overwriting it before resuming would resume a
+  # cutover with a different program than the one that opened it.
+  cutover_resume_precheck)
+    log "Cutover resume precheck — read only, no mutation"
+    cutover_resume_precheck
+    ;;
+
+  cutover_resume_scheduler)
+    log "Cutover resume — invoking the installed wrapper's own resume-scheduler"
+    cutover_resume_precheck
+    cutover_resume_invoke
     ;;
 
   *)

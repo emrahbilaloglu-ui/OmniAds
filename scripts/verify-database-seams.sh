@@ -144,6 +144,14 @@ fi
 stage "Deploy registry auth (ephemeral credential handling)"
 npm run test:deploy-registry-auth
 
+# The recovery out of a half-finished cutover must refuse every state shape but
+# one. Executed against synthetic state: wrong/reordered/already-resumed chain,
+# invalidated, foreign release, wrong wrapper version, in-flight process,
+# missing state, missing wrapper — plus proof it writes nothing and delivers no
+# wrapper over the one that opened the cutover.
+stage "Cutover resume recovery (refuses every state but one)"
+npm run test:cutover-resume-recovery
+
 stage "Pre-change schema upgrade seam (branch point)"
 npm run test:schema-upgrade-seam
 

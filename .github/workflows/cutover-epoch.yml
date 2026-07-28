@@ -255,6 +255,14 @@ jobs:
           CUTOVER_RUNNER_WRAPPER_SHA256: ${{ inputs.wrapper_sha256 }}
           GHCR_PULL_USER: ${{ github.actor }}
           GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The wrapper builds EXPECTED_WEB_IMAGE as "${WEB_IMAGE_REPO}:${SHA}"
+          # with NO default. Unset, the SSH layer still passes them as empty
+          # strings, so there is no unbound-variable error — just a malformed
+          # ":<sha>" reference that assert_image_pin cannot resolve. `status`
+          # survives that because it never checks the pin; every phase that does
+          # would fail. Same values the deploy workflow defaults to.
+          WEB_IMAGE_REPO: ghcr.io/emrahbilaloglu-ui/omniads-web
+          WORKER_IMAGE_REPO: ghcr.io/emrahbilaloglu-ui/omniads-worker
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh
@@ -297,6 +305,8 @@ jobs:
           CUTOVER_FORWARD_AGENT: "1"
           BREAK_GLASS: "false"
           OVERRIDE_REASON: ""
+          WEB_IMAGE_REPO: ghcr.io/emrahbilaloglu-ui/omniads-web
+          WORKER_IMAGE_REPO: ghcr.io/emrahbilaloglu-ui/omniads-worker
         run: |
           set -euo pipefail
           source .github/scripts/hetzner-ssh.sh

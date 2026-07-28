@@ -16,6 +16,17 @@ import {
   syncMetaRepairRange,
   syncMetaToday,
 } from "@/lib/sync/meta-sync";
+import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import {
+  GOOGLE_ADS_COMPLETION_LABELS,
+  unknownGoogleAdsCompletion,
+} from "@/lib/google-ads/completion-semantics";
+import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
+import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
 
 /**
  * POST /api/sync/refresh
@@ -461,6 +472,91 @@ function isAcceptedMetaHistoricalRefreshResult(result: unknown): result is {
   );
 }
 
+/**
+ * Google Ads had no completion answer at all on this route.
+ *
+ * Meta returns a truth-readiness object, so a caller can tell a started refresh
+ * from a verified one. Google Ads returned only `status: "started"` /
+ * `"already_running"` with `ok: true`, which a client could — and did — treat as
+ * "the refresh finished, the numbers are good". It now carries the same verdict
+ * the admin page and the scheduler read, from the same bulk evidence read.
+ *
+ * `status` itself is deliberately unchanged: it answers "did we start work",
+ * which is a different and still-legitimate question, and operator tooling
+ * keys off it.
+ */
+const GOOGLE_ADS_REFRESH_FRESHNESS_SCOPES: GoogleAdsWarehouseScope[] = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_daily",
+];
+const GOOGLE_ADS_REFRESH_FRESHNESS_WINDOW_DAYS = 14;
+const GOOGLE_ADS_REFRESH_FRESHNESS_TIMEOUT_MS = 8_000;
+
+function unknownGoogleAdsRefreshFreshness(
+  reason: string,
+  startDate: string,
+  endDate: string,
+): GoogleAdsFreshnessSummary {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    state: verdict.state,
+    label: GOOGLE_ADS_COMPLETION_LABELS[verdict.state],
+    percent: verdict.percent,
+    complete: verdict.complete,
+    mayStopPolling: verdict.mayStopPolling,
+    detail: verdict.detail,
+    startDate,
+    endDate,
+    totalDays: GOOGLE_ADS_REFRESH_FRESHNESS_WINDOW_DAYS,
+    includesOpenDay: true,
+    timeZoneSource: "default",
+    conversionLookbackDays: 0,
+    scopes: [],
+  };
+}
+
+async function getGoogleAdsRefreshFreshness(input: {
+  businessId: string;
+  now?: Date;
+}): Promise<GoogleAdsFreshnessSummary> {
+  const now = input.now ?? new Date();
+  const endDate = now.toISOString().slice(0, 10);
+  const startDate = addDaysToIsoDateUtc(
+    endDate,
+    -(GOOGLE_ADS_REFRESH_FRESHNESS_WINDOW_DAYS - 1),
+  );
+  // try/catch, not `.catch`: a refresh that already enqueued work must still
+  // return its 202 receipt, with an `unknown` verdict rather than none.
+  try {
+    const snapshot = await readGoogleAdsFreshness({
+      businessId: input.businessId,
+      scopes: GOOGLE_ADS_REFRESH_FRESHNESS_SCOPES,
+      startDate,
+      endDate,
+      now,
+      timeoutMs: GOOGLE_ADS_REFRESH_FRESHNESS_TIMEOUT_MS,
+    });
+    if (!snapshot) {
+      return unknownGoogleAdsRefreshFreshness(
+        "Google Ads freshness evidence could not be read.",
+        startDate,
+        endDate,
+      );
+    }
+    return toGoogleAdsFreshnessSummary(snapshot);
+  } catch {
+    return unknownGoogleAdsRefreshFreshness(
+      "Google Ads freshness evidence could not be read.",
+      startDate,
+      endDate,
+    );
+  }
+}
+
 async function getMetaRefreshCompletionStatus(input: {
   businessId: string;
   mode?: string | null;
@@ -836,6 +932,10 @@ export async function POST(request: NextRequest) {
             endDate,
           })
         : null;
+    const googleAdsFreshness =
+      provider === "google_ads"
+        ? await getGoogleAdsRefreshFreshness({ businessId })
+        : null;
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,
@@ -869,6 +969,12 @@ export async function POST(request: NextRequest) {
       result: syncResult.result,
     };
     if (metaCompletion) payload.truthReadiness = metaCompletion.truthReadiness;
+    if (googleAdsFreshness) {
+      payload.googleAdsFreshness = googleAdsFreshness;
+      // Published next to `ok: true` on purpose: a 202 means work was admitted,
+      // never that the range stopped moving.
+      payload.mayStopPolling = googleAdsFreshness.mayStopPolling;
+    }
     return NextResponse.json(payload, { status: 202 });
   }
 
@@ -880,6 +986,10 @@ export async function POST(request: NextRequest) {
           startDate,
           endDate,
         })
+      : null;
+  const googleAdsFreshness =
+    provider === "google_ads"
+      ? await getGoogleAdsRefreshFreshness({ businessId })
       : null;
 
   if (access.kind === "admin") {
@@ -909,5 +1019,9 @@ export async function POST(request: NextRequest) {
     result: syncResult.result,
   };
   if (metaCompletion) payload.truthReadiness = metaCompletion.truthReadiness;
+  if (googleAdsFreshness) {
+    payload.googleAdsFreshness = googleAdsFreshness;
+    payload.mayStopPolling = googleAdsFreshness.mayStopPolling;
+  }
   return NextResponse.json(payload, { status: 202 });
 }

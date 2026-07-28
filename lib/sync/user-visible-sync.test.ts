@@ -85,6 +85,8 @@ describe("user-visible sync state", () => {
           state: "ready",
         },
       },
+      // Healthy now requires freshness evidence, not just a usable core.
+      freshness: { evidenceAvailable: true, state: "converging" },
     } as never);
 
     expect(state).toMatchObject({
@@ -92,6 +94,56 @@ describe("user-visible sync state", () => {
       label: "Active",
       degradedServing: false,
     });
+  });
+
+  it("refuses Active for Google when the range was never re-read after closing", () => {
+    // Identical to the case above except for the verdict: every signal the old
+    // derivation looked at still says green, and the range is frozen.
+    const base = {
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      controlPlanePersistence: { exactRowsPresent: true },
+      releaseGate: { verdict: "pass" },
+      repairPlan: { recommendations: [] },
+      blockerClass: "none",
+      syncTruthState: "ready",
+      panel: { coreUsable: true },
+      domains: { core: { state: "ready" } },
+    };
+
+    for (const freshness of [
+      { evidenceAvailable: true, state: "provisional" },
+      { evidenceAvailable: true, state: "missing" },
+      // "We could not look" must not read as either healthy or broken.
+      { evidenceAvailable: false, state: "unknown" },
+      // A payload that reports a good state next to a failed read must not pass.
+      { evidenceAvailable: false, state: "settled" },
+      // A status payload with no freshness block at all fails closed.
+      undefined,
+    ]) {
+      const state = deriveGoogleUserVisibleSyncState({ ...base, freshness } as never);
+      expect(state.kind, JSON.stringify(freshness)).toBe("refreshing_in_background");
+      expect(state.label).toBe("Refreshing in background");
+      expect(state.kind).not.toBe("data_unavailable");
+    }
+  });
+
+  it("keeps Active once every day has been re-read after closing", () => {
+    for (const settledState of ["converging", "settled"]) {
+      const state = deriveGoogleUserVisibleSyncState({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        controlPlanePersistence: { exactRowsPresent: true },
+        releaseGate: { verdict: "pass" },
+        repairPlan: { recommendations: [] },
+        blockerClass: "none",
+        syncTruthState: "ready",
+        panel: { coreUsable: true },
+        domains: { core: { state: "ready" } },
+        freshness: { evidenceAvailable: true, state: settledState },
+      } as never);
+      expect(state.kind, settledState).toBe("healthy");
+    }
   });
 
   it("suppresses Google release-gate attention when only background backfill is incomplete", () => {

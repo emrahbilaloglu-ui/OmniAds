@@ -11,6 +11,12 @@ import {
 } from "@/lib/sync/meta-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
+import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
@@ -371,6 +377,33 @@ async function countRecentRepairAttempts(input: {
   return Number(rows[0]?.count ?? 0);
 }
 
+/**
+ * Days in the advisor window with rows that were never re-read after closing.
+ *
+ * Reported, never enqueued. The bounded rolling refresh already schedules these
+ * from `getGoogleAdsDatesDueForRefresh`; re-queueing them here would mean the
+ * ~1/min repair cycle enqueued the whole 90-day window on every pass. What the
+ * cycle owes the operator is the honest state, not more work.
+ */
+function summarizeGoogleAdvisorUnreobservedScopes(
+  freshness: GoogleAdsFreshnessSummary | null,
+) {
+  if (!freshness || !freshness.evidenceAvailable) return [];
+  return freshness.scopes
+    .filter(
+      (scope) =>
+        scope.coveredDays > 0 && scope.postCloseObservedDays < freshness.totalDays,
+    )
+    .map((scope) => ({
+      scope: scope.scope,
+      state: scope.state,
+      coveredDays: scope.coveredDays,
+      postCloseObservedDays: scope.postCloseObservedDays,
+      unreobservedDays: Math.max(0, freshness.totalDays - scope.postCloseObservedDays),
+      dueNowDays: scope.dueNowDays,
+    }));
+}
+
 async function buildGoogleAdvisorRecentGapRepairs(input: {
   businessId: string;
 }) {
@@ -381,35 +414,57 @@ async function buildGoogleAdvisorRecentGapRepairs(input: {
   const advisorWindowStart = addUtcDays(advisorWindowEnd, -89);
   const scopes = ["search_term_daily", "product_daily"] as const;
 
-  const repairs = await Promise.all(
-    scopes.map(async (scope) => {
-      const coveredDates = new Set(
-        await googleAdsWarehouse
-          .getGoogleAdsCoveredDates({
-            scope,
-            businessId: input.businessId,
-            providerAccountId: null,
-            startDate: advisorWindowStart,
-            endDate: advisorWindowEnd,
-          })
-          .catch(() => []),
-      );
-      const missingDates = enumerateUtcDays(
-        advisorWindowStart,
-        advisorWindowEnd,
-      ).filter((date) => !coveredDates.has(date));
-      return {
-        scope,
-        missingDates,
-        ranges: buildContiguousDateRanges(missingDates),
-      };
-    }),
-  );
+  const [repairs, freshness] = await Promise.all([
+    Promise.all(
+      scopes.map(async (scope) => {
+        // DATA AVAILABILITY. A date with zero rows needs a first fetch whatever
+        // its freshness, so this planner legitimately reads row existence and
+        // is deliberately unchanged. It is the CONCLUSION drawn when it finds
+        // nothing — "the window is fine" — that moved to the evidence below.
+        const coveredDates = new Set(
+          await googleAdsWarehouse
+            .getGoogleAdsCoveredDates({
+              scope,
+              businessId: input.businessId,
+              providerAccountId: null,
+              startDate: advisorWindowStart,
+              endDate: advisorWindowEnd,
+            })
+            .catch(() => []),
+        );
+        const missingDates = enumerateUtcDays(
+          advisorWindowStart,
+          advisorWindowEnd,
+        ).filter((date) => !coveredDates.has(date));
+        return {
+          scope,
+          missingDates,
+          ranges: buildContiguousDateRanges(missingDates),
+        };
+      }),
+    ),
+    // One bulk read covering both scopes, not one per scope or per date.
+    readGoogleAdsFreshness({
+      businessId: input.businessId,
+      scopes,
+      startDate: advisorWindowStart,
+      endDate: advisorWindowEnd,
+    })
+      .then(toGoogleAdsFreshnessSummary)
+      .catch(() => null),
+  ]);
 
   return {
     advisorWindowStart,
     advisorWindowEnd,
     repairs: repairs.filter((entry) => entry.ranges.length > 0),
+    freshness,
+    /**
+     * We could not read the evidence at all. Fail closed: a repair cycle that
+     * cannot verify recency has not established that there is nothing to do.
+     */
+    freshnessUnverified: !freshness?.evidenceAvailable,
+    unreobservedScopes: summarizeGoogleAdvisorUnreobservedScopes(freshness),
   };
 }
 
@@ -476,7 +531,17 @@ export async function runGoogleAdsRepairCycle(
   }).catch(() => ({
     advisorWindowStart: integrityStartDate,
     advisorWindowEnd: integrityEndDate,
-    repairs: [],
+    repairs: [] as Array<{
+      scope: GoogleAdsWarehouseScope;
+      missingDates: string[];
+      ranges: Array<{ startDate: string; endDate: string }>;
+    }>,
+    freshness: null as GoogleAdsFreshnessSummary | null,
+    // The planner itself failed, so nothing about recency was established.
+    freshnessUnverified: true,
+    unreobservedScopes: [] as ReturnType<
+      typeof summarizeGoogleAdvisorUnreobservedScopes
+    >,
   }));
   const queuedWarehouseRepairs = queueWarehouseRepairs
     ? await Promise.all(
@@ -567,6 +632,11 @@ export async function runGoogleAdsRepairCycle(
       requeuedFailed.length <= 0) ||
     (checkpointHealth?.checkpointFailures ?? 0) > 0 ||
     advisorRecentGapRepairs.repairs.length > 0 ||
+    // A cycle may only report "clean" once it can show the recent window was
+    // re-read after those days closed. Coverage alone never establishes that,
+    // and unreadable evidence establishes nothing at all.
+    advisorRecentGapRepairs.freshnessUnverified ||
+    advisorRecentGapRepairs.unreobservedScopes.length > 0 ||
     persistentIntegrityMismatch;
 
   const blockingReasons = compactBlockingReasons([
@@ -615,6 +685,28 @@ export async function runGoogleAdsRepairCycle(
             .map((entry) => entry.scope)
             .join(", ")}.`,
           { repairable: true }
+        )
+      : null,
+    advisorRecentGapRepairs.freshnessUnverified
+      ? buildBlockingReason(
+          "recent_surface_freshness_unverified",
+          `Google Ads advisor recency could not be verified for ${advisorRecentGapRepairs.advisorWindowStart}..${advisorRecentGapRepairs.advisorWindowEnd}: ${
+            advisorRecentGapRepairs.freshness?.unavailableReason ??
+            "freshness evidence could not be read"
+          }. Coverage alone does not establish that these days were re-read after they closed.`,
+          { repairable: true },
+        )
+      : null,
+    advisorRecentGapRepairs.unreobservedScopes.length > 0
+      ? buildBlockingReason(
+          "recent_surface_never_reobserved",
+          `${advisorRecentGapRepairs.unreobservedScopes
+            .map(
+              (entry) =>
+                `${entry.scope} has ${entry.unreobservedDays} day(s) with rows that were never re-read after the day closed`,
+            )
+            .join("; ")}. The bounded rolling refresh owns these days; this cycle deliberately did not enqueue them.`,
+          { repairable: true },
         )
       : null,
   ]);
@@ -673,6 +765,16 @@ export async function runGoogleAdsRepairCycle(
           ranges: entry.ranges,
         })),
         queuedRecentGapRepairs: queuedRecentGapRepairs.filter(Boolean).length,
+        /**
+         * The freshness verdict behind this cycle's recency claim. An empty
+         * `recentGapRepairScopes` means "no zero-row day", nothing more — read
+         * these fields for whether the window is actually settled.
+         */
+        recentSurfaceFreshness: advisorRecentGapRepairs.freshness,
+        recentSurfaceFreshnessUnverified: advisorRecentGapRepairs.freshnessUnverified,
+        recentSurfaceUnreobservedScopes: advisorRecentGapRepairs.unreobservedScopes,
+        recentSurfaceComplete: advisorRecentGapRepairs.freshness?.complete ?? false,
+        recentSurfaceState: advisorRecentGapRepairs.freshness?.state ?? "unknown",
         remainingIntegrityIncidentCount: integrityIncidentsAfter.length,
         integritySignature,
         integrityAttemptCount,

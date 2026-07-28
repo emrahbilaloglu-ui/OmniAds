@@ -29,6 +29,18 @@ import {
 import { evaluateAndPersistSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { executeAutoSyncRepairPlan } from "@/lib/sync/repair-executor";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
+import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  weakestGoogleAdsCompletion,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import {
+  GOOGLE_ADS_COMPLETION_LABELS,
+  unknownGoogleAdsCompletion,
+} from "@/lib/google-ads/completion-semantics";
+import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
+import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
 
 /**
  * POST /api/sync/cron
@@ -43,6 +55,103 @@ import { logRuntimeInfo } from "@/lib/runtime-logging";
 function shopifySyncEnabled() {
   const raw = process.env.SHOPIFY_SYNC_ENABLED?.trim().toLowerCase();
   return raw === "1" || raw === "true";
+}
+
+/**
+ * The Google Ads scopes the scheduler is answerable for on every tick, and the
+ * window it must keep re-reading.
+ *
+ * The cron used to publish a receipt built entirely from enqueue outcomes:
+ * `ok: true, synced: 13` said the calls returned, never whether any day in the
+ * recent window had been looked at since it closed. An operator reading a green
+ * cron receipt and a green admin page was reading two different questions, and
+ * neither of them was "is this data still being refreshed?".
+ *
+ * The verdict below is the SAME one `/api/admin/sync-health` renders and the
+ * same one the status route serves, read through the one shared bulk read.
+ */
+const GOOGLE_ADS_CRON_FRESHNESS_SCOPES: GoogleAdsWarehouseScope[] = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_daily",
+];
+const GOOGLE_ADS_CRON_FRESHNESS_WINDOW_DAYS = 14;
+const GOOGLE_ADS_CRON_FRESHNESS_TIMEOUT_MS = 8_000;
+
+function unknownGoogleAdsCronFreshness(
+  reason: string,
+  startDate: string,
+  endDate: string,
+): GoogleAdsFreshnessSummary {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    state: verdict.state,
+    label: GOOGLE_ADS_COMPLETION_LABELS[verdict.state],
+    percent: verdict.percent,
+    complete: verdict.complete,
+    mayStopPolling: verdict.mayStopPolling,
+    detail: verdict.detail,
+    startDate,
+    endDate,
+    totalDays: GOOGLE_ADS_CRON_FRESHNESS_WINDOW_DAYS,
+    includesOpenDay: true,
+    timeZoneSource: "default",
+    conversionLookbackDays: 0,
+    scopes: [],
+  };
+}
+
+/**
+ * ONE bulk freshness read for one business. Never throws and never returns a
+ * green default: a business that was deleted, disconnected, or whose connection
+ * generation moved under us reads `unknown`, which keeps the day due rather
+ * than quietly retiring it.
+ */
+async function readGoogleAdsCronFreshness(
+  businessId: string,
+  now: Date,
+): Promise<GoogleAdsFreshnessSummary> {
+  const endDate = now.toISOString().slice(0, 10);
+  const startDate = addDaysToIsoDateUtc(
+    endDate,
+    -(GOOGLE_ADS_CRON_FRESHNESS_WINDOW_DAYS - 1),
+  );
+  // try/catch, not `.catch`: a per-business lane must not be able to reject
+  // just because the evidence read misbehaved. A rejected lane loses the OTHER
+  // providers' outcomes from the receipt too.
+  try {
+    const snapshot = await readGoogleAdsFreshness({
+      businessId,
+      scopes: GOOGLE_ADS_CRON_FRESHNESS_SCOPES,
+      startDate,
+      endDate,
+      now,
+      timeoutMs: GOOGLE_ADS_CRON_FRESHNESS_TIMEOUT_MS,
+    });
+    if (!snapshot) {
+      return unknownGoogleAdsCronFreshness(
+        "Google Ads freshness evidence could not be read.",
+        startDate,
+        endDate,
+      );
+    }
+    return toGoogleAdsFreshnessSummary(snapshot);
+  } catch {
+    return unknownGoogleAdsCronFreshness(
+      "Google Ads freshness evidence could not be read.",
+      startDate,
+      endDate,
+    );
+  }
+}
+
+/** Outstanding re-reads for a business, from the verdict rather than from rows. */
+function googleAdsFreshnessDueNowDays(freshness: GoogleAdsFreshnessSummary) {
+  if (freshness.scopes.length === 0) return freshness.totalDays;
+  return Math.max(...freshness.scopes.map((scope) => scope.dueNowDays));
 }
 
 function isTruthyQueryParam(value: string | null) {
@@ -256,6 +365,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const cronStartedAt = new Date();
   const results = await Promise.allSettled(
     businesses.map(async (business) => {
       const [gads, ga4, sc, metaScheduled, shopify] = await Promise.allSettled([
@@ -267,6 +377,14 @@ export async function POST(request: NextRequest) {
           ? syncShopifyCommerceReports(business.id)
           : Promise.resolve({ skipped: true, reason: "disabled" }),
       ]);
+
+      // Read AFTER the enqueue so the receipt describes the state the tick
+      // leaves behind. One bulk read per business per pass — never one per
+      // scope and never one per date.
+      const googleAdsFreshness = await readGoogleAdsCronFreshness(
+        business.id,
+        cronStartedAt,
+      );
 
       // Classify each lane while the rejection is still an OBJECT. Stringifying
       // first is lossy in exactly the wrong direction: a capacity refusal, a
@@ -287,6 +405,10 @@ export async function POST(request: NextRequest) {
         searchConsole: lanes.searchConsole.value,
         meta: lanes.meta.value,
         shopify: lanes.shopify.value,
+        // The scheduler publishes the same verdict the UI shows, so a worker
+        // can never stop for one reason while the admin page claims another.
+        googleAdsFreshness,
+        googleAdsDueNowDays: googleAdsFreshnessDueNowDays(googleAdsFreshness),
         safetyRefusals: Object.entries(lanes).flatMap(([lane, outcome]) =>
           outcome.refusal ? [{ lane, businessId: business.id, ...outcome.refusal }] : [],
         ),
@@ -358,6 +480,49 @@ export async function POST(request: NextRequest) {
   const attempted = businesses.length;
   const failed = businessFailures.length;
   const succeeded = attempted - failed;
+  // A cron tick that enqueued cleanly still has outstanding work whenever any
+  // day in the window has not been re-read since it closed. Rolling the weakest
+  // verdict up keeps `ok: true` from reading as "Google Ads is caught up": the
+  // receipt now carries `mayStopPolling: false` alongside it.
+  const googleAdsFreshnessByBusiness = results.flatMap((result) => {
+    if (result.status !== "fulfilled") return [];
+    const entry = result.value as { googleAdsFreshness?: GoogleAdsFreshnessSummary };
+    return entry.googleAdsFreshness ? [entry.googleAdsFreshness] : [];
+  });
+  const googleAdsOverallVerdict =
+    googleAdsFreshnessByBusiness.length > 0
+      ? weakestGoogleAdsCompletion(
+          googleAdsFreshnessByBusiness.map((freshness) => ({
+            state: freshness.state,
+            percent: freshness.percent,
+            complete: freshness.complete,
+            mayStopPolling: freshness.mayStopPolling,
+            detail: freshness.detail,
+          })),
+        )
+      : unknownGoogleAdsCompletion(
+          "No Google Ads freshness evidence was produced by this cron pass.",
+        );
+  const googleAdsFreshnessReceipt = {
+    state: googleAdsOverallVerdict.state,
+    label: GOOGLE_ADS_COMPLETION_LABELS[googleAdsOverallVerdict.state],
+    percent: googleAdsOverallVerdict.percent,
+    complete: googleAdsOverallVerdict.complete,
+    mayStopPolling: googleAdsOverallVerdict.mayStopPolling,
+    detail: googleAdsOverallVerdict.detail,
+    // `unknown` is neither healthy nor terminal: the next tick must look again.
+    retryable: googleAdsOverallVerdict.state === "unknown",
+    evidenceAvailable:
+      googleAdsFreshnessByBusiness.length > 0 &&
+      googleAdsFreshnessByBusiness.every((freshness) => freshness.evidenceAvailable),
+    businessesNotSettled: googleAdsFreshnessByBusiness.filter(
+      (freshness) => !freshness.complete,
+    ).length,
+    dueNowDays: googleAdsFreshnessByBusiness.reduce(
+      (total, freshness) => total + googleAdsFreshnessDueNowDays(freshness),
+      0,
+    ),
+  };
   // Refusals are collected from the STRUCTURED classification carried on each
   // per-business result, plus any whole-business rejection. Nothing is
   // recovered by re-parsing a string.
@@ -598,6 +763,11 @@ export async function POST(request: NextRequest) {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
     failed: results.filter((r) => r.status === "rejected").length,
+    googleAdsFreshnessState: googleAdsFreshnessReceipt.state,
+    googleAdsFreshnessComplete: googleAdsFreshnessReceipt.complete,
+    googleAdsFreshnessMayStopPolling: googleAdsFreshnessReceipt.mayStopPolling,
+    googleAdsFreshnessDueNowDays: googleAdsFreshnessReceipt.dueNowDays,
+    googleAdsBusinessesNotSettled: googleAdsFreshnessReceipt.businessesNotSettled,
     soakGateOutcome: soakGate?.outcome ?? null,
     deployGateVerdict: gateVerdicts?.deployGate?.verdict ?? null,
     releaseGateVerdict: gateVerdicts?.releaseGate?.verdict ?? null,
@@ -642,6 +812,7 @@ export async function POST(request: NextRequest) {
       succeeded,
       failed,
       ...(failed > 0 ? { businessFailures } : {}),
+      googleAdsFreshness: googleAdsFreshnessReceipt,
       results: summary,
       ...(soakGate ? { soakGate } : {}),
       ...(gateVerdicts ? { gateVerdicts } : {}),

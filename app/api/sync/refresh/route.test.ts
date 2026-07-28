@@ -77,6 +77,12 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+const refreshFreshness = vi.hoisted(() => ({ readGoogleAdsFreshness: vi.fn() }));
+vi.mock("@/lib/google-ads/freshness-read", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, readGoogleAdsFreshness: refreshFreshness.readGoogleAdsFreshness };
+});
+
 const internalAuth = await import("@/lib/internal-sync-auth");
 const googleAdsSync = await import("@/lib/sync/google-ads-sync");
 const metaSync = await import("@/lib/sync/meta-sync");
@@ -88,6 +94,101 @@ const metaWarehouse = await import("@/lib/meta/warehouse");
 const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
 const providerRepair = await import("@/lib/sync/provider-repair-engine");
 const migrations = await import("@/lib/migrations");
+const completionSemantics = await import("@/lib/google-ads/completion-semantics");
+
+/**
+ * Google Ads had no completion answer on this route at all.
+ *
+ * Meta returns a truth-readiness object, so a caller can distinguish a started
+ * refresh from a verified one. Google Ads returned only
+ * `{ ok: true, status: "started" }`, which a client is free to read as "the
+ * refresh finished, the numbers are good" — over a window whose every day may
+ * have been captured while it was still open.
+ *
+ * Only the evidence READ is faked; the verdict is the real
+ * `resolveGoogleAdsCompletion`.
+ */
+const REFRESH_FRESHNESS_SCOPES = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_daily",
+] as const;
+
+function buildRefreshSnapshot(input: {
+  totalDays: number;
+  coveredDays: number;
+  postCloseObservedDays: number;
+  lookbackExhaustedDays: number;
+  includesOpenDay?: boolean;
+}) {
+  const includesOpenDay = input.includesOpenDay ?? false;
+  const verdict = completionSemantics.resolveGoogleAdsCompletion({
+    totalDays: input.totalDays,
+    coveredDays: input.coveredDays,
+    postCloseObservedDays: input.postCloseObservedDays,
+    lookbackExhaustedDays: input.lookbackExhaustedDays,
+    includesOpenDay,
+  });
+  return {
+    businessId: "biz",
+    startDate: "2026-07-13",
+    endDate: "2026-07-26",
+    totalDays: input.totalDays,
+    providerAccountIds: ["123"],
+    timeZoneSource: "account" as const,
+    includesOpenDay,
+    evidenceAvailable: true,
+    unavailableReason: null,
+    scopes: Object.fromEntries(
+      REFRESH_FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: input.coveredDays,
+          postCloseObservedDays: input.postCloseObservedDays,
+          lookbackExhaustedDays: input.lookbackExhaustedDays,
+          dueNowDays: input.totalDays - input.postCloseObservedDays,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+function buildRefreshUnavailableSnapshot(reason: string) {
+  const verdict = completionSemantics.unknownGoogleAdsCompletion(reason);
+  return {
+    businessId: "biz",
+    startDate: "2026-07-13",
+    endDate: "2026-07-26",
+    totalDays: 14,
+    providerAccountIds: [],
+    timeZoneSource: "default" as const,
+    includesOpenDay: true,
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    scopes: Object.fromEntries(
+      REFRESH_FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: 0,
+          postCloseObservedDays: 0,
+          lookbackExhaustedDays: 0,
+          dueNowDays: 0,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
 const { POST } = await import("@/app/api/sync/refresh/route");
 
 function buildRequest(body: Record<string, unknown>) {
@@ -714,22 +815,29 @@ describe("POST /api/sync/refresh", () => {
     const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      status: "already_running",
-      provider: "google_ads",
-      result: expect.objectContaining({
-        businessId: "biz",
-        queuedCore: 0,
-        queueDepth: 3,
-        leasedPartitions: 0,
-        repair: expect.objectContaining({
-          replayed: 0,
-          requeued: 0,
-          blocked: false,
+    const payload = await response.json();
+    // `status` is unchanged — it answers "did we start work", which operator
+    // tooling keys off. The freshness verdict is ADDED next to it.
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: true,
+        status: "already_running",
+        provider: "google_ads",
+        result: expect.objectContaining({
+          businessId: "biz",
+          queuedCore: 0,
+          queueDepth: 3,
+          leasedPartitions: 0,
+          repair: expect.objectContaining({
+            replayed: 0,
+            requeued: 0,
+            blocked: false,
+          }),
         }),
       }),
-    });
+    );
+    expect(payload.googleAdsFreshness).toBeDefined();
+    expect(payload.mayStopPolling).toBe(false);
   });
 
   it("returns started with repair details when Google Ads refresh replays blocked work", async () => {
@@ -758,17 +866,22 @@ describe("POST /api/sync/refresh", () => {
     const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({
-      ok: true,
-      status: "started",
-      provider: "google_ads",
-      result: expect.objectContaining({
-        repair: expect.objectContaining({
-          replayed: 1,
-          blocked: false,
+    const payload = await response.json();
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: true,
+        status: "started",
+        provider: "google_ads",
+        result: expect.objectContaining({
+          repair: expect.objectContaining({
+            replayed: 1,
+            blocked: false,
+          }),
         }),
       }),
-    });
+    );
+    expect(payload.googleAdsFreshness).toBeDefined();
+    expect(payload.mayStopPolling).toBe(false);
   });
 
   it("returns 500 and logs failed audits when enqueue throws", async () => {
@@ -1026,5 +1139,183 @@ describe("POST /api/sync/refresh", () => {
         meta: expect.objectContaining({ error: "durable_refresh_lock_acquisition_failed" }),
       })
     );
+  });
+});
+
+describe("POST /api/sync/refresh Google Ads freshness verdict", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+    delete (globalThis as typeof globalThis & { __syncRefreshInFlightKeys?: Set<string> })
+      .__syncRefreshInFlightKeys;
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    } as never);
+    vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-07-26T00:00:00.000Z",
+    } as never);
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never,
+    );
+    vi.mocked(googleAdsWarehouse.cleanupGoogleAdsObsoleteSyncJobs).mockResolvedValue(
+      undefined as never,
+    );
+    vi.mocked(googleAdsWarehouse.expireStaleGoogleAdsSyncJobs).mockResolvedValue(
+      undefined as never,
+    );
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      checkpointFailures: 0,
+    } as never);
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockResolvedValue({
+      enqueueResult: { businessId: "biz", queuedCore: 1, queueDepth: 1, leasedPartitions: 0 },
+      repair: { replayed: 0, requeued: 0, reclaimed: 0, blocked: false },
+    } as never);
+  });
+
+  const googleRefresh = () =>
+    POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+
+  it("does not let a 202 imply completion for days that are covered but never re-read", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildRefreshSnapshot({
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 0,
+        lookbackExhaustedDays: 0,
+      }),
+    );
+
+    const response = await googleRefresh();
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    // NEGATIVE CONTROL: the same evidence reports 14 of 14 covered days, so a
+    // coverage-derived verdict would say 100 / complete / stop polling.
+    expect(payload.googleAdsFreshness.scopes[0].coveredDays).toBe(14);
+    expect(payload.googleAdsFreshness.state).toBe("provisional");
+    expect(payload.googleAdsFreshness.percent).toBeLessThan(100);
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.mayStopPolling).toBe(false);
+    // The existing operator-facing fields are untouched.
+    expect(payload.ok).toBe(true);
+    expect(payload.status).toBe("started");
+    expect(payload.provider).toBe("google_ads");
+  });
+
+  it("does not call a converging window complete", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildRefreshSnapshot({
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 14,
+        lookbackExhaustedDays: 2,
+      }),
+    );
+
+    const payload = await (await googleRefresh()).json();
+
+    expect(payload.googleAdsFreshness.state).toBe("converging");
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.mayStopPolling).toBe(false);
+  });
+
+  it("reports a settled window as complete and safe to stop polling", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildRefreshSnapshot({
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 14,
+        lookbackExhaustedDays: 14,
+      }),
+    );
+
+    const payload = await (await googleRefresh()).json();
+
+    expect(payload.googleAdsFreshness.state).toBe("settled");
+    expect(payload.googleAdsFreshness.percent).toBe(100);
+    expect(payload.googleAdsFreshness.complete).toBe(true);
+    expect(payload.mayStopPolling).toBe(true);
+  });
+
+  it("fails closed to a RETRYABLE unknown when the evidence is unavailable, and still returns 202", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildRefreshUnavailableSnapshot("No Google Ads accounts are assigned to this business."),
+    );
+
+    const response = await googleRefresh();
+    const payload = await response.json();
+
+    // Not an error, and not healthy.
+    expect(response.status).toBe(202);
+    expect(payload.error).toBeUndefined();
+    expect(payload.googleAdsFreshness.state).toBe("unknown");
+    expect(payload.googleAdsFreshness.evidenceAvailable).toBe(false);
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.mayStopPolling).toBe(false);
+    expect(payload.googleAdsFreshness.unavailableReason).toContain("No Google Ads accounts");
+  });
+
+  it("fails closed when the evidence read itself rejects", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockRejectedValue(new Error("pool exhausted"));
+
+    const response = await googleRefresh();
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload.googleAdsFreshness.state).toBe("unknown");
+    expect(payload.mayStopPolling).toBe(false);
+  });
+
+  it("issues exactly ONE bulk read, covering every scope in that one call", async () => {
+    refreshFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildRefreshSnapshot({
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 14,
+        lookbackExhaustedDays: 14,
+      }),
+    );
+
+    await googleRefresh();
+
+    expect(refreshFreshness.readGoogleAdsFreshness).toHaveBeenCalledTimes(1);
+    expect(refreshFreshness.readGoogleAdsFreshness.mock.calls[0][0].scopes).toEqual([
+      ...REFRESH_FRESHNESS_SCOPES,
+    ]);
+  });
+
+  it("does not read Google Ads freshness for a Meta refresh", async () => {
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    vi.mocked(metaWarehouse.expireStaleMetaSyncJobs).mockResolvedValue(undefined as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(providerRepair.runMetaRepairCycle).mockResolvedValue({
+      enqueueResult: { businessId: "biz", queuedCore: 1 },
+      repair: { replayed: 0, requeued: 0, reclaimed: 0, blocked: false },
+    } as never);
+
+    const payload = await (
+      await POST(buildRequest({ businessId: "biz", provider: "meta" }))
+    ).json();
+
+    expect(refreshFreshness.readGoogleAdsFreshness).not.toHaveBeenCalled();
+    expect(payload.googleAdsFreshness).toBeUndefined();
   });
 });

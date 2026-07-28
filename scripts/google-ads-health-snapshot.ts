@@ -1,9 +1,28 @@
 import { getDb } from "@/lib/db";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
+import {
   configureOperationalScriptRuntime,
   runOperationalMigrationsIfEnabled,
 } from "./_operational-runtime";
+
+/**
+ * The scopes this snapshot reports coverage for. `advisorReady` used to be
+ * `completed_days >= 90` over `COUNT(DISTINCT date)` — pure row existence — so
+ * an operator triaging an incident read "advisor ready" over ninety days that
+ * may never have been re-read after they closed. The coverage counts stay
+ * (they answer the legitimate "is there data at all?"), but readiness now comes
+ * from the shared freshness verdict.
+ */
+const HEALTH_SNAPSHOT_SCOPES: GoogleAdsWarehouseScope[] = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+];
 
 async function main() {
   const runtime = configureOperationalScriptRuntime();
@@ -115,11 +134,33 @@ async function main() {
     Array<Record<string, unknown>>,
   ];
 
+  const recentStart = recent90Rows[0]?.recent_start
+    ? String(recent90Rows[0].recent_start).slice(0, 10)
+    : null;
+  const recentEnd = recent90Rows[0]?.recent_end
+    ? String(recent90Rows[0].recent_end).slice(0, 10)
+    : null;
+
+  // ONE bulk read for the whole 90-day window across every scope, not one per
+  // scope and not one per date.
+  const freshnessSnapshot =
+    recentStart && recentEnd
+      ? await readGoogleAdsFreshness({
+          businessId,
+          scopes: HEALTH_SNAPSHOT_SCOPES,
+          startDate: recentStart,
+          endDate: recentEnd,
+        })
+      : null;
+  const freshness = freshnessSnapshot ? toGoogleAdsFreshnessSummary(freshnessSnapshot) : null;
+
   const recent90Progress = buildGoogleAdsAdvisorProgress({
     connected: true,
     assignedAccountCount: 1,
     coreUsable: true,
-    advisorReady: recent90Rows.every((row) => Number(row.completed_days ?? 0) >= 90),
+    // Fail closed: no window, no evidence, or a non-settled verdict all mean
+    // "not ready". Row existence can no longer promote this to true.
+    advisorReady: freshness?.complete === true,
     coverages: recent90Rows.map((row) => ({
       completedDays: Number(row.completed_days ?? 0),
     })),
@@ -131,10 +172,25 @@ async function main() {
         businessId,
         capturedAt: new Date().toISOString(),
         recent90: {
-          startDate: recent90Rows[0]?.recent_start ? String(recent90Rows[0].recent_start) : null,
-          endDate: recent90Rows[0]?.recent_end ? String(recent90Rows[0].recent_end).slice(0, 10) : null,
+          startDate: recentStart,
+          endDate: recentEnd,
+          // Data availability only: how many days have at least one row.
           coverage: recent90Rows,
           partitionHealth: recent90PartitionRows,
+          // The completion/freshness claim, from the shared decision.
+          freshness:
+            freshness ??
+            {
+              evidenceAvailable: false,
+              unavailableReason:
+                "No Google Ads window could be derived for this business.",
+              state: "unknown",
+              label: "Unknown",
+              percent: 0,
+              complete: false,
+              mayStopPolling: false,
+              detail: "No Google Ads window could be derived for this business.",
+            },
           expectedAdvisorProgress: recent90Progress,
         },
         partitions,

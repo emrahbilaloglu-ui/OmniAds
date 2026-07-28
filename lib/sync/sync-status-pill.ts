@@ -86,12 +86,12 @@ function buildSyncingPill(percent: number, label = "Syncing"): SyncStatusPillSta
   };
 }
 
-function buildInfoPill(label: string): SyncStatusPillState {
+function buildInfoPill(label: string, percent: number | null = null): SyncStatusPillState {
   return {
     visible: true,
     label,
     tone: "info",
-    percent: null,
+    percent,
     state: "syncing",
   };
 }
@@ -186,20 +186,66 @@ function resolveGooglePercent(status: GoogleAdsStatusResponse) {
     return clampPercent(resolvedProgress.percent);
   }
 
-  const historicalCoverage = status.warehouse?.coverage?.historical;
-  const historicalPercent = percentFromCoverage(
-    historicalCoverage?.completedDays,
-    historicalCoverage?.totalDays
-  );
-  if (historicalPercent !== null) return historicalPercent;
-
-  const selectedRangeCoverage = status.warehouse?.coverage?.selectedRange;
-  const selectedRangePercent = percentFromCoverage(
-    selectedRangeCoverage?.completedDays,
-    selectedRangeCoverage?.totalDays
-  );
-  if (selectedRangePercent !== null) return selectedRangePercent;
+  // The two coverage fallbacks that used to live here —
+  // `percentFromCoverage(historical.completedDays, totalDays)` and the same for
+  // the selected range — were `COUNT(DISTINCT date) / days * 100`, so a range
+  // captured once and never re-read produced a green 100% pill. The verdict is
+  // the only remaining source; with no verdict the pill shows no percent rather
+  // than inventing one.
+  const freshnessPercent = status.freshness?.evidenceAvailable
+    ? status.freshness.percent
+    : null;
+  if (typeof freshnessPercent === "number" && Number.isFinite(freshnessPercent)) {
+    return clampPercent(freshnessPercent);
+  }
   return null;
+}
+
+/**
+ * Whether the Google Ads workspace has earned a green pill.
+ *
+ * The bar is `converging` or `settled`: every day in the measured range was
+ * re-read AFTER it closed. `converging` qualifies because a rolling range keeps
+ * its most recent days inside the conversion window and could never reach
+ * `settled`, so demanding `settled` would mean never green. Anything weaker —
+ * including a missing freshness block on an older payload — does not qualify.
+ */
+function googleAdsPillMayGoGreen(status: GoogleAdsStatusResponse) {
+  const freshness = status.freshness;
+  if (!freshness || freshness.evidenceAvailable !== true) return false;
+  return freshness.state === "converging" || freshness.state === "settled";
+}
+
+/**
+ * The green pill, but only when the evidence supports it.
+ *
+ * `buildActivePill` hard-codes `percent: 100`, and four separate branches below
+ * reached it — control-plane closure, `state === "ready"`, `percent === 100`,
+ * and the final fallthrough — none of which consulted freshness. Every one of
+ * them now goes through here.
+ */
+function buildGoogleAdsActivePill(
+  status: GoogleAdsStatusResponse,
+  label?: string,
+): SyncStatusPillState {
+  if (googleAdsPillMayGoGreen(status)) {
+    const pill = buildActivePill(label);
+    // Only a settled range may show 100; while conversions can still arrive the
+    // pill stays green but honest about the number.
+    return status.freshness?.state === "settled"
+      ? pill
+      : { ...pill, percent: Math.min(99, status.freshness?.percent ?? 99) };
+  }
+  // No freshness block at all is treated exactly like a failed read: both mean
+  // we could not look, and neither may render as progress toward done.
+  if (!status.freshness || status.freshness.evidenceAvailable !== true) {
+    return buildInfoPill("Unknown freshness");
+  }
+  const percent = resolveGooglePercent(status);
+  const freshnessLabel = status.freshness.label ?? "Refreshing";
+  return typeof percent === "number"
+    ? buildInfoPill(`${percent}% ${freshnessLabel}`, percent)
+    : buildInfoPill(freshnessLabel);
 }
 
 function resolveGoogleProgressLabel(
@@ -222,7 +268,7 @@ export function resolveGoogleAdsSyncStatusPill(
   if (isGoogleAdsControlPlaneClosed(status)) {
     return status.backgroundBackfill?.incomplete === true
       ? buildInfoPill(userVisibleState.label)
-      : buildActivePill(userVisibleState.label);
+      : buildGoogleAdsActivePill(status, userVisibleState.label);
   }
 
   const percent = resolveGooglePercent(status);
@@ -249,7 +295,7 @@ export function resolveGoogleAdsSyncStatusPill(
   }
 
   if (status.state === "ready") {
-    return buildActivePill();
+    return buildGoogleAdsActivePill(status);
   }
 
   if (status.state === "advisor_not_ready") {
@@ -278,7 +324,7 @@ export function resolveGoogleAdsSyncStatusPill(
   }
 
   if (percent === 100) {
-    return buildActivePill();
+    return buildGoogleAdsActivePill(status);
   }
 
   if (status.state === "syncing" && typeof percent === "number") {
@@ -289,7 +335,7 @@ export function resolveGoogleAdsSyncStatusPill(
     return buildAttentionPill();
   }
 
-  return buildActivePill();
+  return buildGoogleAdsActivePill(status);
 }
 
 export function resolveProviderSyncStatusPill(params: {

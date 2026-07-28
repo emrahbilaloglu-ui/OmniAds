@@ -162,6 +162,7 @@ describe("buildAdminSyncHealth", () => {
           recent_search_term_completed_days: 14,
           recent_product_completed_days: 14,
           recent_asset_completed_days: 14,
+          recent_post_close_observed_days: 14,
           recent_range_total_days: 14,
         },
       ],
@@ -182,6 +183,92 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.historicalExtendedReady).toBe(false);
     expect(payload.summary.googleAdsGlobalReopenEnabled).toBe(false);
     expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("global_backfill");
+  });
+
+  it("refuses to call the recent extended window ready on coverage alone", () => {
+    // The defect in fixture form: all three extended scopes have a row for
+    // every one of the 14 days, and not one of those days was re-read after it
+    // closed. This exact shape used to render the business fully ready.
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-frozen",
+          business_name: "Frozen Co",
+          queue_depth: 0,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: null,
+          latest_partition_activity_at: new Date().toISOString(),
+          campaign_completed_days: 400,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 400,
+          product_completed_days: 400,
+          asset_completed_days: 400,
+          active_circuit_breakers: 0,
+          compacted_partitions: 0,
+          recent_search_term_completed_days: 14,
+          recent_product_completed_days: 14,
+          recent_asset_completed_days: 14,
+          recent_post_close_observed_days: 0,
+          recent_range_total_days: 14,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: null,
+        workers: [],
+      },
+    });
+
+    const business = payload.googleAdsBusinesses?.[0];
+    expect(business?.recentExtendedReady).toBe(false);
+    // Historical coverage is genuinely met, so the conjunction is what holds
+    // "fully ready" back — proving the new leg is the one doing the work.
+    expect(business?.historicalExtendedReady).toBe(true);
+    expect(business?.progressState).not.toBe("ready");
+  });
+
+  it("becomes ready once those same days are re-read after closing", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-observed",
+          business_name: "Observed Co",
+          queue_depth: 0,
+          leased_partitions: 0,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: null,
+          latest_partition_activity_at: new Date().toISOString(),
+          campaign_completed_days: 400,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 400,
+          product_completed_days: 400,
+          asset_completed_days: 400,
+          active_circuit_breakers: 0,
+          compacted_partitions: 0,
+          recent_search_term_completed_days: 14,
+          recent_product_completed_days: 14,
+          recent_asset_completed_days: 14,
+          recent_post_close_observed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: null,
+        workers: [],
+      },
+    });
+
+    expect(payload.googleAdsBusinesses?.[0]?.recentExtendedReady).toBe(true);
   });
 
   it("classifies google ads businesses as partial_stuck when backlog is idle without leases", () => {

@@ -19,6 +19,15 @@ import {
 } from "@/lib/google-ads/history";
 import { buildGoogleAdsCoreReadiness } from "@/lib/google-ads/core-readiness";
 import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  type GoogleAdsFreshnessSnapshot,
+} from "@/lib/google-ads/freshness-read";
+import {
+  unknownGoogleAdsCompletion,
+  type GoogleAdsCompletionVerdict,
+} from "@/lib/google-ads/completion-semantics";
+import {
   getGoogleAdsCheckpointHealth,
   getGoogleAdsCoveredDates,
   getGoogleAdsDailyCoverage,
@@ -120,6 +129,22 @@ function decidePanelRecoveryMode(): GoogleAdsPanelRecoveryMode {
   return "global_backfill";
 }
 
+/**
+ * The weakest evidence that may render a surface green.
+ *
+ * Every day in the range was re-read AFTER that day closed. This is strictly
+ * stronger than "rows exist" — the signal that let a day captured at 01:40 stay
+ * green forever — and strictly weaker than `complete`, which additionally
+ * requires the configured conversion lookback to have elapsed. Anything below
+ * this (unknown, missing, provisional) must render non-green and keep polling.
+ *
+ * `unknown` fails this test, so an unreadable snapshot can never turn a surface
+ * green; it renders as still-syncing, which is retryable rather than terminal.
+ */
+function isPostCloseObserved(verdict: GoogleAdsCompletionVerdict | null | undefined) {
+  return verdict?.state === "converging" || verdict?.state === "settled";
+}
+
 function buildPanelSurfaceState(input: {
   scope: string;
   label: string;
@@ -128,10 +153,15 @@ function buildPanelSurfaceState(input: {
   readyThroughDate: string | null;
   latestBackgroundActivityAt: string | null;
   currentMode: GoogleAdsPanelRecoveryMode;
+  /** Freshness verdict for this scope over the same range. */
+  freshness: GoogleAdsCompletionVerdict | null;
 }): GoogleAdsPanelSurfaceState {
   const totalDays = Math.max(1, input.totalDays);
   const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
-  if (completedDays >= totalDays) {
+  const postCloseObserved = isPostCloseObserved(input.freshness);
+  // Coverage alone no longer earns "ready": the days must also have been
+  // re-read after they closed.
+  if (completedDays >= totalDays && postCloseObserved) {
     return {
       scope: input.scope,
       label: input.label,
@@ -140,7 +170,10 @@ function buildPanelSurfaceState(input: {
       totalDays,
       readyThroughDate: input.readyThroughDate,
       latestBackgroundActivityAt: input.latestBackgroundActivityAt,
-      message: `${input.label} is fully available for this range.`,
+      message:
+        input.freshness?.complete === true
+          ? `${input.label} is available for this range and policy-settled against our configured lookback.`
+          : `${input.label} is available for this range and still being refreshed. ${input.freshness?.detail ?? ""}`.trim(),
     };
   }
 
@@ -153,14 +186,20 @@ function buildPanelSurfaceState(input: {
     latestBackgroundActivityAt: input.latestBackgroundActivityAt,
   };
   const coverageLabel = `${completedDays}/${totalDays} days`;
+  // Rows can be present while the range has never been re-read after closing;
+  // say so rather than implying only a backfill gap.
+  const freshnessNote =
+    completedDays >= totalDays && input.freshness
+      ? ` ${input.freshness.detail}`
+      : "";
   if (input.currentMode === "safe_mode" || input.currentMode === "global_backfill") {
     return {
       ...base,
       state: "extended_limited",
       message:
         input.currentMode === "safe_mode"
-          ? `${input.label} is limited while safe mode protects core metrics. Coverage: ${coverageLabel}.`
-          : `${input.label} is rebuilding under the current global execution posture. Coverage: ${coverageLabel}.`,
+          ? `${input.label} is limited while safe mode protects core metrics. Coverage: ${coverageLabel}.${freshnessNote}`
+          : `${input.label} is rebuilding under the current global execution posture. Coverage: ${coverageLabel}.${freshnessNote}`,
     };
   }
 
@@ -168,8 +207,8 @@ function buildPanelSurfaceState(input: {
     ...base,
     state: "extended_backfilling",
     message: input.readyThroughDate
-      ? `${input.label} is backfilling in the background. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
-      : `${input.label} is backfilling in the background. Coverage: ${coverageLabel}.`,
+      ? `${input.label} is backfilling in the background. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.${freshnessNote}`
+      : `${input.label} is backfilling in the background. Coverage: ${coverageLabel}.${freshnessNote}`,
   };
 }
 
@@ -177,6 +216,8 @@ function toRangeCompletion(input: {
   completedDays: number;
   totalDays: number;
   readyThroughDate: string | null;
+  /** Freshness verdict for the same scope over the same range. */
+  freshness: GoogleAdsCompletionVerdict | null;
 }): GoogleAdsExtendedRangeCompletion {
   const totalDays = Math.max(0, input.totalDays);
   const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
@@ -184,8 +225,22 @@ function toRangeCompletion(input: {
     completedDays,
     totalDays,
     readyThroughDate: input.readyThroughDate,
-    ready: totalDays > 0 && completedDays >= totalDays,
+    // `ready` used to mean "a row exists for every day". It now additionally
+    // requires that every day was re-read after it closed.
+    ready: totalDays > 0 && completedDays >= totalDays && isPostCloseObserved(input.freshness),
   };
+}
+
+/**
+ * Downgrade a coverage-derived completion claim that the freshness snapshot
+ * cannot vouch for. Names and types are preserved; only the claim is corrected.
+ */
+function gateCompletionClaim<T extends { percent: number; complete: boolean }>(
+  coverage: T,
+  settled: boolean,
+): T {
+  if (settled) return coverage;
+  return { ...coverage, percent: Math.min(coverage.percent, 99), complete: false };
 }
 
 function clampGoogleAdsCoverageToHotWindow<
@@ -323,6 +378,10 @@ function buildGoogleDomainReadiness(input: {
   availableSurfaces: string[];
   missingSurfaces: string[];
   advisorMissingSurfaces: string[];
+  /** Whether every day of the measured range was re-read after it closed. */
+  rangePostCloseObserved: boolean;
+  /** Short, honest reason from the freshness snapshot when it was not. */
+  freshnessDetail: string;
 }) {
   const coreSurfacesReady = ["account_daily", "campaign_daily"].filter((surface) =>
     input.availableSurfaces.includes(surface)
@@ -340,7 +399,12 @@ function buildGoogleDomainReadiness(input: {
       ? "Core spend and campaign summary are still syncing."
       : deepSurfacesPending.length > 0 || input.advisorMissingSurfaces.length > 0
         ? "Core spend and campaign summary are ready. Advisor and deeper coverage are still syncing."
-        : "Google Ads core and deep reporting surfaces are ready.";
+        : // Having a row for every day is not the same as having re-read every
+          // day after it closed, so the all-clear sentence is gated on the
+          // freshness snapshot rather than on coverage.
+          input.rangePostCloseObserved
+          ? "Google Ads core and deep reporting surfaces are ready."
+          : `Google Ads reporting surfaces have data for this range but are still being refreshed. ${input.freshnessDetail}`.trim();
   return {
     coreSurfacesReady,
     deepSurfacesPending,
@@ -420,6 +484,12 @@ function buildGoogleAdsStatusDomains(input: {
   advisorNotReady: boolean;
   connected: boolean;
   assignedAccountCount: number;
+  /** Whether the selected range was re-read after each of its days closed. */
+  selectedRangePostCloseObserved: boolean;
+  /** Whether the freshness evidence could be read at all. */
+  freshnessEvidenceAvailable: boolean;
+  /** Short, honest reason from the freshness snapshot. */
+  freshnessDetail: string;
 }): {
   core: GoogleAdsStatusDomainSummary;
   selectedRange: GoogleAdsStatusDomainSummary;
@@ -459,15 +529,32 @@ function buildGoogleAdsStatusDomains(input: {
         }
       : input.selectedRangeMode === "current_day_live"
         ? {
-            state: "ready" as const,
+            // The account's day is still open, so this is never a completed
+            // range — it is a live read that keeps moving.
+            state: "partial" as const,
             label: "Visible coverage live",
-            detail: "Current-day core coverage is served from the live overlay.",
+            detail:
+              "Current-day core coverage is served from the live overlay and is still changing.",
           }
       : input.selectedRangePendingSurfaces.length > 0
         ? {
             state: "partial" as const,
             label: "Visible coverage partial",
             detail: `Extended visible coverage is still preparing for ${input.selectedRangePendingSurfaces.join(", ")}.`,
+          }
+      : // Rows for every day are not evidence that the days were re-read after
+        // they closed. Without that, this domain stays non-green and retryable.
+        !input.freshnessEvidenceAvailable
+        ? {
+            state: "syncing" as const,
+            label: "Visible coverage unverified",
+            detail: `Google Ads freshness evidence could not be read for this range. ${input.freshnessDetail}`.trim(),
+          }
+      : !input.selectedRangePostCloseObserved
+        ? {
+            state: "partial" as const,
+            label: "Visible coverage refreshing",
+            detail: input.freshnessDetail,
           }
         : {
             state: "ready" as const,
@@ -806,8 +893,34 @@ export async function GET(request: NextRequest) {
     GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS
   );
   const totalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
+  const allStateScopes = [
+    "account_daily",
+    "campaign_daily",
+    "search_term_daily",
+    "product_daily",
+    "asset_group_daily",
+    "asset_daily",
+    "geo_daily",
+    "device_daily",
+    "audience_daily",
+  ] as const;
+  // The range every completion claim on this response is measured against.
+  //
+  // It ENDS at the account's last closed day on purpose. An open day forces
+  // `provisional` by construction, and the core, advisor and D+1 decisions this
+  // response feeds are all keyed to closed days — measuring today would pin
+  // them at "never observed" forever. It STARTS at the historical warehouse
+  // window, widened when the caller selected something older, so a selected
+  // range is contained in what we measured. `freshness.startDate`/`endDate`
+  // publish the exact window, and `freshnessCoversRange` refuses to answer for
+  // anything outside it.
+  const freshnessRangeStart =
+    selectedStartDate && selectedStartDate < initialBackfillStart
+      ? selectedStartDate
+      : initialBackfillStart;
+  const freshnessRangeEnd = initialBackfillEnd;
 
-  const [accountCoverage, campaignCoverage] =
+  const [accountCoverage, campaignCoverage, rangeFreshness] =
       await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "account_daily",
@@ -825,7 +938,44 @@ export async function GET(request: NextRequest) {
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
+          // ONE bulk read for every scope this response reports on. A per-scope
+          // read would be an N+1 on the hottest endpoint in the product, and
+          // per-surface inputs are exactly how forty definitions of "complete"
+          // drifted apart in the first place.
+          readGoogleAdsFreshness({
+            businessId: businessId!,
+            scopes: allStateScopes,
+            startDate: freshnessRangeStart,
+            endDate: freshnessRangeEnd,
+            providerAccountIds: accountIds.length > 0 ? accountIds : null,
+            timeoutMs: 30_000,
+          }),
         ]);
+  const freshnessSnapshot: GoogleAdsFreshnessSnapshot = rangeFreshness;
+  const freshnessSummary = toGoogleAdsFreshnessSummary(freshnessSnapshot);
+  const freshnessEvidenceAvailable = freshnessSnapshot.evidenceAvailable;
+  const freshnessDetail = freshnessSnapshot.overall.detail;
+  const scopeFreshnessVerdict = (scope: string): GoogleAdsCompletionVerdict | null =>
+    freshnessSnapshot.scopes[scope]?.verdict ?? null;
+  const scopePostCloseObserved = (scope: string) =>
+    isPostCloseObserved(scopeFreshnessVerdict(scope));
+  const scopeCompletionVerdict = (scope: string): GoogleAdsCompletionVerdict =>
+    scopeFreshnessVerdict(scope) ??
+    unknownGoogleAdsCompletion(
+      freshnessSnapshot.unavailableReason ??
+        `No Google Ads freshness evidence was read for ${scope}.`,
+    );
+  /** Days the refresh worker still owes us. Zero means it has nothing queued. */
+  const freshnessDueNowDays = Object.values(freshnessSnapshot.scopes).reduce(
+    (max, scope) => Math.max(max, scope.dueNowDays),
+    0,
+  );
+  const outstandingRefreshWork = freshnessEvidenceAvailable && freshnessDueNowDays > 0;
+  /** Whether the snapshot can speak for a window at all. */
+  const freshnessCoversRange = (startDate: string, endDate: string) =>
+    freshnessEvidenceAvailable &&
+    startDate >= freshnessSnapshot.startDate &&
+    endDate <= freshnessSnapshot.endDate;
   const [
     rawSelectedSearchTermCoverage,
     selectedProductCoverage,
@@ -904,17 +1054,6 @@ export async function GET(request: NextRequest) {
           supportStartDate: googleAdsSearchHotWindowStart,
         })
       : rawSelectedSearchTermCoverage;
-  const allStateScopes = [
-    "account_daily",
-    "campaign_daily",
-    "search_term_daily",
-    "product_daily",
-    "asset_group_daily",
-    "asset_daily",
-    "geo_daily",
-    "device_daily",
-    "audience_daily",
-  ] as const;
   const [queueHealth, ...scopeStates] =
       await Promise.all([
           captureOptional(
@@ -998,10 +1137,25 @@ export async function GET(request: NextRequest) {
     connected,
     assignedAccountCount: accountIds.length,
     totalDays,
-    accountCoverageDays,
-    campaignCoverageDays,
     campaignReadyThroughDate: campaignCoverage?.ready_through_date ?? null,
+    // (b) availability — "is there anything to render at all?"
+    accountCoveredDays: accountCoverageDays,
+    campaignCoveredDays: campaignCoverageDays,
+    // (a) completion — the freshness evidence, from the one snapshot read above.
+    accountCompletion: scopeCompletionVerdict("account_daily"),
+    campaignCompletion: scopeCompletionVerdict("campaign_daily"),
+    accountPostCloseObservedDays:
+      freshnessSnapshot.scopes.account_daily?.postCloseObservedDays ?? 0,
+    campaignPostCloseObservedDays:
+      freshnessSnapshot.scopes.campaign_daily?.postCloseObservedDays ?? 0,
   });
+  /**
+   * The verdict for the two scopes `completionBasis` declares as required. It
+   * is the weakest of `account_daily` and `campaign_daily`: the pair is not
+   * complete because one of them is.
+   */
+  const requiredScopeFreshness = coreReadiness.historicalCompletion;
+  const requiredScopesPostCloseObserved = isPostCloseObserved(requiredScopeFreshness);
   const effectiveHistoricalTotalDays = coreReadiness.effectiveHistoricalTotalDays;
   const overallCompletedDays = coreReadiness.overallCompletedDays;
   const overallAccountCompletedDays = coreReadiness.overallAccountCompletedDays;
@@ -1016,11 +1170,24 @@ export async function GET(request: NextRequest) {
     ]
       .filter((value): value is string => Boolean(value))
       .sort((left, right) => left.localeCompare(right))[0] ?? null;
-  const requiredScopeCompletion = buildRequiredCoverage({
-    completedDays: Math.min(overallAccountCompletedDays, overallCompletedDays),
-    totalDays: effectiveHistoricalTotalDays,
-    readyThroughDate: requiredScopeReadyThroughDate,
-  });
+  /** Rows are genuinely missing — distinct from "present but never re-read". */
+  const requiredScopeCoverageIncomplete =
+    Math.min(coreReadiness.overallAccountCoveredDays, coreReadiness.overallCoveredDays) <
+    effectiveHistoricalTotalDays;
+  const requiredScopeCompletion = {
+    // `completedDays` now counts days re-read after they closed, so the ratio
+    // agrees with the percent below instead of contradicting it.
+    ...buildRequiredCoverage({
+      completedDays: Math.min(overallAccountCompletedDays, overallCompletedDays),
+      totalDays: effectiveHistoricalTotalDays,
+      readyThroughDate: requiredScopeReadyThroughDate,
+    }),
+    // The two claim-bearing fields come from the freshness verdict. Deriving
+    // them from day counts is the defect: a day read once at 01:40 satisfies
+    // that arithmetic forever.
+    percent: requiredScopeFreshness.percent,
+    complete: requiredScopeFreshness.complete,
+  };
   const extendedScopeSummaries = allStateScopes
     .filter((scope) => scope !== "account_daily" && scope !== "campaign_daily")
     .map((scope) => {
@@ -1090,16 +1257,27 @@ export async function GET(request: NextRequest) {
     .map((summary) => summary.scope);
   const productPendingSurfaces = coreReadiness.productPendingSurfaces;
   const needsBootstrap = coreReadiness.needsBootstrap;
-  const historicalProgressPercent = coreReadiness.historicalProgressPercent;
+  // Progress toward the required scopes is the freshness verdict's percent, not
+  // covered days over total days. `coreReadiness.historicalProgressPercent` is
+  // still the coverage ratio and is deliberately no longer published as progress.
+  const historicalProgressPercent = requiredScopeCompletion.percent;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate
       ? dayCountInclusive(selectedStartDate, selectedEndDate)
       : null;
   const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
-  const selectedRangeCoreIncomplete =
+  const selectedRangeCoverageIncomplete =
     !selectedRangeIsToday &&
     Boolean(selectedRangeTotalDays) &&
     selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+  // "Core is incomplete for the visible range" now also covers the case that
+  // broke the product: every day has a row, and not one of them has been
+  // re-read since it closed.
+  const selectedRangeCoreIncomplete =
+    selectedRangeCoverageIncomplete ||
+    (!selectedRangeIsToday &&
+      Boolean(selectedRangeTotalDays) &&
+      !requiredScopesPostCloseObserved);
   const backgroundRunningJobs = Number(queueHealth?.leasedPartitions ?? 0);
   const priorityRunningJobs = 0;
   const staleBackgroundJobs = 0;
@@ -1143,7 +1321,11 @@ export async function GET(request: NextRequest) {
       : effectiveLatestSync?.sync_type === "incremental_recent" ||
           effectiveLatestSync?.sync_type === "today_refresh"
         ? "Syncing recent history"
-        : "Ready";
+        : // Coverage is whole, so the honest remaining question is freshness:
+          // whether those days have been re-read since they closed.
+          !requiredScopesPostCloseObserved
+          ? "Refreshing recent data"
+          : "Ready";
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
   const recent84Start = addDaysToIsoDate(initialBackfillEnd, -(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS - 1));
@@ -1303,6 +1485,20 @@ export async function GET(request: NextRequest) {
     );
   const advisorRelevantUnhealthyLeases =
     (workerSchedulingState?.healthy ?? false) ? 0 : advisorRelevantLeasedPartitions;
+  /**
+   * The freshness verdict the advisor decision is taken against.
+   *
+   * The advisor's window ends at the last closed day, which is exactly where
+   * the one snapshot ends, so this is measured over closed days only. When the
+   * window is not inside what we measured we hand over `unknown` rather than a
+   * coverage-shaped guess — the advisor then stays not-ready and the client
+   * keeps polling.
+   */
+  const advisorRecentCompletion = freshnessCoversRange(recent84Start, initialBackfillEnd)
+    ? requiredScopeFreshness
+    : unknownGoogleAdsCompletion(
+        "Google Ads freshness evidence does not cover the advisor decision window.",
+      );
   const advisorDecision = decideGoogleAdsAdvisorReadiness({
     connected,
     assignedAccountCount: accountIds.length,
@@ -1310,6 +1506,7 @@ export async function GET(request: NextRequest) {
     recentSupportReady:
       advisorMissingSurfaces.length === 0 && advisorCoverageUnavailableCount === 0,
     snapshotAvailable,
+    recentCompletion: advisorRecentCompletion,
   });
   const advisorReady = advisorDecision.ready;
   const advisorNotReady = advisorDecision.notReady;
@@ -1318,6 +1515,10 @@ export async function GET(request: NextRequest) {
       ? null
       : advisorMissingSurfaces.length > 0
         ? "missing_recent_required_surfaces"
+        : // Surfaces are all present and the window still is not usable: say
+          // that freshness is what blocks it, not a missing surface.
+          advisorDecision.freshnessBlocked
+          ? "recent_required_awaiting_post_close_observation"
         : advisorRelevantDeadLetterPartitions > 0
           ? "recent_required_dead_letter_partitions"
           : advisorRelevantFailedPartitions > 0
@@ -1373,21 +1574,28 @@ export async function GET(request: NextRequest) {
         )
       : null,
   ]);
-  const googleRequiredCoverage = buildRequiredCoverage({
-    completedDays: Math.min(
-      Number(recent84CampaignCoverage?.completed_days ?? 0),
-      Number(recent84SearchTermCoverage?.completed_days ?? 0),
-      Number(recent84ProductCoverage?.completed_days ?? 0)
-    ),
-    totalDays: GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
-    readyThroughDate: [
-      recent84CampaignCoverage?.ready_through_date ?? null,
-      recent84SearchTermCoverage?.ready_through_date ?? null,
-      recent84ProductCoverage?.ready_through_date ?? null,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => left.localeCompare(right))[0] ?? null,
-  });
+  const googleRequiredCoverage = gateCompletionClaim(
+    buildRequiredCoverage({
+      completedDays: Math.min(
+        Number(recent84CampaignCoverage?.completed_days ?? 0),
+        Number(recent84SearchTermCoverage?.completed_days ?? 0),
+        Number(recent84ProductCoverage?.completed_days ?? 0)
+      ),
+      totalDays: GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
+      readyThroughDate: [
+        recent84CampaignCoverage?.ready_through_date ?? null,
+        recent84SearchTermCoverage?.ready_through_date ?? null,
+        recent84ProductCoverage?.ready_through_date ?? null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0] ?? null,
+    }),
+    // 100%/complete over the advisor window requires the snapshot to cover that
+    // window AND report it settled. Otherwise the counts stand but the claim
+    // does not.
+    freshnessCoversRange(recent84Start, initialBackfillEnd) &&
+      requiredScopeFreshness.complete,
+  );
   logRuntimeDebug("google-ads-status", "advisor_snapshot_gate", {
     businessId: businessId!,
     advisorWindowStart: recent84Start,
@@ -1404,11 +1612,19 @@ export async function GET(request: NextRequest) {
     advisorReady,
     advisorMissingSurfaces,
   });
+  // `overallAccountCompletedDays`/`overallCompletedDays` are post-close observed
+  // days, so the two core entries are already freshness-derived. The extended
+  // entries are gated to match, otherwise this list would mix "re-read after
+  // closing" with "has a row" and `readinessLevel` would inherit the weaker one.
   const availableSurfaces = [
     overallAccountCompletedDays >= effectiveHistoricalTotalDays ? "account_daily" : null,
     overallCompletedDays >= effectiveHistoricalTotalDays ? "campaign_daily" : null,
     ...extendedScopeSummaries
-      .filter((summary) => summary.completedDays >= summary.totalDays)
+      .filter(
+        (summary) =>
+          summary.completedDays >= summary.totalDays &&
+          scopePostCloseObserved(summary.scope),
+      )
       .map((summary) => summary.scope),
   ].filter((value): value is string => Boolean(value));
   const surfaces = buildProviderSurfaces({
@@ -1434,6 +1650,8 @@ export async function GET(request: NextRequest) {
     availableSurfaces,
     missingSurfaces: surfaces.missing,
     advisorMissingSurfaces,
+    rangePostCloseObserved: isPostCloseObserved(freshnessSnapshot.overall),
+    freshnessDetail,
   });
   const coreUsable = coreReadiness.coreUsable;
   const selectedCoverageByScope = {
@@ -1458,11 +1676,16 @@ export async function GET(request: NextRequest) {
               completedDays: selectedCoverageByScope[scope]?.completed_days ?? 0,
               totalDays: selectedRangeTotalDays ?? 0,
               readyThroughDate: selectedCoverageByScope[scope]?.ready_through_date ?? null,
+              freshness: scopeFreshnessVerdict(scope),
             }),
             historical: toRangeCompletion({
               completedDays: historicalSummary?.completedDays ?? 0,
               totalDays: historicalSummary?.totalDays ?? effectiveHistoricalTotalDays,
               readyThroughDate: historicalSummary?.readyThroughDate ?? null,
+              // The historical window is only measured by the snapshot when no
+              // narrower range was selected; otherwise this is the same scope's
+              // verdict for the range we did measure, never a coverage count.
+              freshness: scopeFreshnessVerdict(scope),
             }),
           },
         ];
@@ -1640,6 +1863,7 @@ export async function GET(request: NextRequest) {
         extendedScopeSummaries.find((summary) => summary.scope === scope)
           ?.latestBackgroundActivityAt ?? null,
       currentMode,
+      freshness: scopeFreshnessVerdict(scope),
     })
   );
   const extendedLimited = majorSurfaceStates.some((surface) => surface.state !== "ready");
@@ -1762,10 +1986,19 @@ export async function GET(request: NextRequest) {
       selectedRangeTotalDays,
       advisorMissingSurfaces,
       advisorNotReady,
+      // The gate that matters: green requires a settled verdict, and `unknown`
+      // routes to `syncing` rather than to a failure.
+      historicalCompletion: requiredScopeFreshness,
     });
   const overallState = actionRequiredState.reconnectCta
     ? "action_required"
-    : decidedOverallState;
+    : // A green top-level state is never granted on coverage alone. When the
+      // days have not been re-read since they closed — or the evidence could
+      // not be read at all — the response stays `syncing`: non-green, not a
+      // failure, and the client keeps polling.
+      decidedOverallState === "ready" && !requiredScopesPostCloseObserved
+      ? "syncing"
+      : decidedOverallState;
   const domains = buildGoogleAdsStatusDomains({
     coreUsable,
     selectedRangeCoreIncomplete,
@@ -1775,6 +2008,9 @@ export async function GET(request: NextRequest) {
     advisorNotReady,
     connected,
     assignedAccountCount: accountIds.length,
+    selectedRangePostCloseObserved: requiredScopesPostCloseObserved,
+    freshnessEvidenceAvailable,
+    freshnessDetail,
   });
   const latestGoogleActivityAt =
     queueHealth?.latestCoreActivityAt ??
@@ -1872,7 +2108,12 @@ export async function GET(request: NextRequest) {
     !meaningfulProgressRecent &&
     !quotaLimited &&
     breakerState === "closed" &&
-    overallState !== "action_required";
+    overallState !== "action_required" &&
+    // Only call it stalled when work is genuinely outstanding: missing rows, or
+    // days the refresh planner says are due now. A range that is merely inside
+    // the conversion lookback is waiting on the clock, not on a stuck worker,
+    // and an unreadable snapshot is not evidence of a stall either.
+    (requiredScopeCoverageIncomplete || outstandingRefreshWork);
   const heartbeatOnly =
     Boolean(workerSchedulingState?.hasFreshHeartbeat) &&
     backgroundBackfillIncomplete &&
@@ -1989,7 +2230,10 @@ export async function GET(request: NextRequest) {
     warehousePartial:
       selectedRangeTotalDays != null
         ? Boolean(selectedRangeCoreIncomplete)
-        : overallCompletedDays < effectiveHistoricalTotalDays,
+        : overallCompletedDays < effectiveHistoricalTotalDays ||
+          // No selected range: the historical window is the measured range, and
+          // it is only whole once its days have been re-read after closing.
+          !requiredScopesPostCloseObserved,
     syncState: overallState,
     selectedCurrentDay: selectedRangeIsToday,
     notReadyReason: summarizeStatusDegradedReason(statusDegradedReasons),
@@ -2003,11 +2247,27 @@ export async function GET(request: NextRequest) {
     excludedScopes: allStateScopes.filter(
       (scope) => !["account_daily", "campaign_daily"].includes(scope)
     ),
+    // Both numbers come from the freshness verdict for the required scopes.
     percent: requiredScopeCompletion.percent,
     complete: requiredScopeCompletion.complete,
+    // Published so no consumer can read a percent without the state that
+    // qualifies it, or without knowing whether we could look at all.
+    state: requiredScopeFreshness.state,
+    evidenceAvailable: freshnessEvidenceAvailable,
   };
   const completionBlockers = [
-    ...(!requiredScopeCompletion.complete ? ["missing_required_warehouse_coverage"] : []),
+    // Named for what is actually true, so "not complete" no longer always reads
+    // as "rows are missing".
+    ...(!freshnessEvidenceAvailable ? ["freshness_evidence_unavailable"] : []),
+    ...(freshnessEvidenceAvailable && requiredScopeFreshness.state === "missing"
+      ? ["missing_required_warehouse_coverage"]
+      : []),
+    ...(freshnessEvidenceAvailable && requiredScopeFreshness.state === "provisional"
+      ? ["awaiting_post_close_observation"]
+      : []),
+    ...(freshnessEvidenceAvailable && requiredScopeFreshness.state === "converging"
+      ? ["within_conversion_lookback"]
+      : []),
     ...googleBlockingReasons
       .map((reason) => reason.code)
       .filter(
@@ -2063,22 +2323,41 @@ export async function GET(request: NextRequest) {
   const d1ActiveRows = d1ActiveRowsRaw as Array<{
     active_count: number | string | null;
   }>;
+  // Row existence for D+1 — a data-availability fact, kept as one.
   const d1Covered =
     d1TargetDate != null &&
     d1AccountCoverage.includes(d1TargetDate) &&
     d1CampaignCoverage.includes(d1TargetDate);
   const d1ActiveCount = Number(d1ActiveRows[0]?.active_count ?? 0);
+  /**
+   * Whether yesterday was re-read after it closed. D+1 was the sharpest form of
+   * the defect: a date fetched at 01:40 satisfied `d1Covered` and was declared
+   * ready for the rest of time. The snapshot only speaks for the range it
+   * measured, so a D+1 outside that range is never upgraded to ready.
+   */
+  const d1PostCloseObserved =
+    d1TargetDate != null &&
+    freshnessCoversRange(d1TargetDate, d1TargetDate) &&
+    requiredScopesPostCloseObserved;
   const d1FinalizeState =
     d1TargetDate == null
       ? null
-      : d1Covered && d1ActiveCount === 0
-        ? "ready"
-        : d1ActiveCount > 0
-          ? "processing"
-          : "blocked";
+      : d1ActiveCount > 0
+        ? "processing"
+        : !d1Covered
+          ? "blocked"
+          : d1PostCloseObserved
+            ? "ready"
+            // Rows are there but nothing proves they were re-read after the day
+            // closed. That is work still owed, not a terminal failure.
+            : "processing";
   const d1BlockedReason =
     d1FinalizeState === "processing"
-      ? "active_partitions"
+      ? d1ActiveCount > 0
+        ? "active_partitions"
+        : !freshnessEvidenceAvailable
+          ? "freshness_evidence_unavailable"
+          : "awaiting_post_close_observation"
       : d1FinalizeState === "blocked"
         ? "missing_warehouse_coverage"
         : null;
@@ -2100,7 +2379,10 @@ export async function GET(request: NextRequest) {
     !selectedRangeCoreIncomplete &&
     (selectedRangePendingSurfaces.length > 0 ||
       productPendingSurfaces.length > 0 ||
-      advisorMissingSurfaces.length > 0);
+      advisorMissingSurfaces.length > 0 ||
+      // Rebuild truth cannot read "ready" while the measured range has not been
+      // re-read after closing, or while we cannot see the evidence at all.
+      !requiredScopesPostCloseObserved);
   const rebuildState =
     overallState === "action_required"
       ? "blocked"
@@ -2114,7 +2396,10 @@ export async function GET(request: NextRequest) {
               ? "partial_upstream_coverage"
               : "ready";
   const readinessLevel =
-    rebuildState === "ready"
+    // `surfaces.available` still answers "which surfaces have data" — the
+    // chart-rendering question — so the freshness gate is applied here, where
+    // the green level is actually claimed, rather than to availability itself.
+    rebuildState === "ready" && requiredScopesPostCloseObserved
       ? surfaceReadinessLevel
       : surfaceReadinessLevel === "ready"
         ? availableSurfaces.includes("account_daily") &&
@@ -2173,6 +2458,10 @@ export async function GET(request: NextRequest) {
     notReadyReason: providerState.notReadyReason,
     dataContract,
     platformDateBoundary,
+    // The authoritative verdict. Every completion-shaped field above and below
+    // is derived from this one snapshot, so a client can never be handed a
+    // percent from one definition and a label from another.
+    freshness: freshnessSummary,
     completionBasis,
     completionBlockers,
     runtimeProgress,
@@ -2291,7 +2580,9 @@ export async function GET(request: NextRequest) {
               label: `selected ${countInclusiveDays(selectedStartDate, selectedEndDate)}d`,
               ready:
                 selectedRangeIsToday
-                  ? coreUsable
+                  ? // Today is still open; the live overlay serves it but it is
+                    // never a completed window.
+                    false
                   : selectedRangeTotalDays != null &&
                     [
                       selectedRangeCoverage,
@@ -2300,6 +2591,11 @@ export async function GET(request: NextRequest) {
                     ].every(
                       (coverage) =>
                         Number(coverage?.completed_days ?? 0) >= selectedRangeTotalDays
+                    ) &&
+                    // Rows for every day of the window are not evidence that
+                    // the window was re-read after each day closed.
+                    ["campaign_daily", "search_term_daily", "product_daily"].every((scope) =>
+                      scopePostCloseObserved(scope),
                     ),
               startDate: selectedStartDate,
               endDate: selectedEndDate,
@@ -2313,7 +2609,14 @@ export async function GET(request: NextRequest) {
                       { name: "search_term_daily", coverage: selectedSearchTermCoverage },
                       { name: "product_daily", coverage: selectedProductCoverage },
                     ]
-                      .filter((entry) => Number(entry.coverage?.completed_days ?? 0) < selectedRangeTotalDays)
+                      .filter(
+                        (entry) =>
+                          Number(entry.coverage?.completed_days ?? 0) < selectedRangeTotalDays ||
+                          // A surface whose days have never been re-read since
+                          // they closed is still outstanding, even with a full
+                          // set of rows.
+                          !scopePostCloseObserved(entry.name),
+                      )
                       .map((entry) => entry.name)
                   : [],
             }

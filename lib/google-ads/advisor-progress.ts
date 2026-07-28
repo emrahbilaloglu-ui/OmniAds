@@ -41,6 +41,14 @@ export function buildGoogleAdsAdvisorProgress(input: {
       return sum + completedDays / GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS;
     }, 0) / Math.max(1, normalizedCoverages.length);
 
+  // 100 belongs to `advisorReady` alone.
+  //
+  // `advisorReady` is now freshness-gated upstream — it requires every day in
+  // the advisor window to have been re-read after it closed — so it is the one
+  // input here backed by evidence. The `!missingCoverage` branch below used to
+  // return 100 as well, on nothing but `completedDays >= 90` for each scope: a
+  // window captured once and never refreshed reported the advisor fully
+  // prepared. It is now capped at 99 like every other coverage-derived value.
   const percent = input.advisorReady
     ? 100
     : coverageUnavailableCount > 0 && normalizedCoverages.length > 0
@@ -49,7 +57,7 @@ export function buildGoogleAdsAdvisorProgress(input: {
           Math.min(99, Math.round(averageCoverageRatio * 100))
         )
     : !missingCoverage
-      ? 100
+      ? 99
       : Math.max(
           input.coreUsable ? 10 : 0,
           Math.min(99, Math.round(averageCoverageRatio * 100))

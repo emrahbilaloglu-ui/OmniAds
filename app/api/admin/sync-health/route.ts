@@ -19,6 +19,18 @@ import {
 } from "@/lib/sync/google-ads-sync";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  weakestGoogleAdsCompletion,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import {
+  GOOGLE_ADS_COMPLETION_LABELS,
+  unknownGoogleAdsCompletion,
+  type GoogleAdsCompletionVerdict,
+} from "@/lib/google-ads/completion-semantics";
+import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
+import {
   cleanupMetaPartitionOrchestration,
   getMetaAuthoritativeBusinessOpsSnapshot,
   replayMetaDeadLetterPartitions,
@@ -48,6 +60,258 @@ const META_RECOVERY_SCOPES: MetaWarehouseScope[] = [
   "ad_daily",
 ];
 
+/**
+ * The scopes whose freshness decides whether a Google Ads business may be shown
+ * as ready. These are the same four the admin row already counts "completed
+ * days" for, so the operator sees a verdict about the numbers in front of them.
+ */
+const GOOGLE_ADS_FRESHNESS_SCOPES: GoogleAdsWarehouseScope[] = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_daily",
+];
+
+/** Fallback recent-frontier width when the health row does not carry one. */
+const GOOGLE_ADS_DEFAULT_RECENT_RANGE_DAYS = 14;
+
+/**
+ * This endpoint iterates every business, so the freshness cost has to stay
+ * O(businesses): ONE bulk read each, never one per scope or per date. A small
+ * fan-out keeps the wall clock down without turning the health page into a
+ * connection-pool event.
+ */
+const GOOGLE_ADS_FRESHNESS_CONCURRENCY = 4;
+const GOOGLE_ADS_FRESHNESS_TIMEOUT_MS = 8_000;
+
+type AdminSyncHealthPayload = Awaited<ReturnType<typeof getAdminOperationsHealth>>["syncHealth"];
+type AdminGoogleAdsBusiness = NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]>[number];
+
+/**
+ * The wire shape this route publishes. Nothing is removed from the upstream
+ * payload — operator-facing names and types survive verbatim — the Google Ads
+ * freshness verdict is ADDED alongside them.
+ */
+type GoogleAdsFreshnessBusiness = AdminGoogleAdsBusiness & {
+  googleAdsFreshness: GoogleAdsFreshnessSummary;
+};
+
+export type AdminSyncHealthFreshnessSummary = AdminSyncHealthPayload["summary"] & {
+  googleAdsFreshnessState?: GoogleAdsFreshnessSummary["state"];
+  googleAdsFreshnessLabel?: string;
+  googleAdsFreshnessPercent?: number;
+  googleAdsFreshnessComplete?: boolean;
+  googleAdsFreshnessMayStopPolling?: boolean;
+  googleAdsFreshnessDetail?: string;
+  googleAdsFreshnessEvidenceAvailable?: boolean;
+  googleAdsFreshnessRetryable?: boolean;
+  googleAdsFreshnessBusinessesNotSettled?: number;
+};
+
+export type AdminSyncHealthFreshnessPayload = Omit<
+  AdminSyncHealthPayload,
+  "googleAdsBusinesses" | "summary"
+> & {
+  googleAdsBusinesses?: GoogleAdsFreshnessBusiness[];
+  summary: AdminSyncHealthFreshnessSummary;
+};
+
+function toVerdict(summary: GoogleAdsFreshnessSummary): GoogleAdsCompletionVerdict {
+  return {
+    state: summary.state,
+    percent: summary.percent,
+    complete: summary.complete,
+    mayStopPolling: summary.mayStopPolling,
+    detail: summary.detail,
+  };
+}
+
+function unknownFreshnessSummary(
+  reason: string,
+  startDate: string,
+  endDate: string,
+  totalDays: number,
+): GoogleAdsFreshnessSummary {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    state: verdict.state,
+    label: GOOGLE_ADS_COMPLETION_LABELS[verdict.state],
+    percent: verdict.percent,
+    complete: verdict.complete,
+    mayStopPolling: verdict.mayStopPolling,
+    detail: verdict.detail,
+    startDate,
+    endDate,
+    totalDays,
+    // Unknown clock: assume the range is still moving.
+    includesOpenDay: true,
+    timeZoneSource: "default",
+    conversionLookbackDays: 0,
+    scopes: [],
+  };
+}
+
+/**
+ * The last line of defence. If the augmentation itself fails, every Google Ads
+ * business is published as `unknown` with both readiness flags forced false —
+ * never as the upstream row-existence `true`.
+ */
+function failClosedGoogleAdsFreshness(
+  payload: AdminSyncHealthPayload,
+  reason = "Google Ads freshness evidence could not be evaluated.",
+): AdminSyncHealthFreshnessPayload {
+  const businesses = payload.googleAdsBusinesses ?? [];
+  if (businesses.length === 0) return payload as AdminSyncHealthFreshnessPayload;
+  const today = new Date().toISOString().slice(0, 10);
+  const freshness = unknownFreshnessSummary(reason, today, today, 1);
+  return {
+    ...payload,
+    googleAdsBusinesses: businesses.map((business) => ({
+      ...business,
+      googleAdsFreshness: freshness,
+      recentExtendedReady: false,
+      historicalExtendedReady: false,
+    })),
+    summary: {
+      ...payload.summary,
+      googleAdsFreshnessState: freshness.state,
+      googleAdsFreshnessLabel: freshness.label,
+      googleAdsFreshnessPercent: freshness.percent,
+      googleAdsFreshnessComplete: false,
+      googleAdsFreshnessMayStopPolling: false,
+      googleAdsFreshnessDetail: freshness.detail,
+      googleAdsFreshnessEvidenceAvailable: false,
+      googleAdsFreshnessRetryable: true,
+      googleAdsFreshnessBusinessesNotSettled: businesses.length,
+    },
+  };
+}
+
+/**
+ * Attach the freshness verdict to the Google Ads health payload, and CORRECT
+ * the readiness flags that were derived from row existence.
+ *
+ * `recentExtendedReady` and `historicalExtendedReady` upstream mean
+ * "completed_days >= totalDays", where completed_days counts dates that have at
+ * least one warehouse row. A date fetched once at 01:40 and never re-read
+ * satisfies that forever, so the admin page rendered "Recent ready yes" over
+ * numbers nobody had looked at since the day was still open. Both flags are now
+ * conjunctive with the freshness verdict.
+ *
+ * The recent window is a SUBSET of the historical window, so a recent frontier
+ * that has not been re-read post-close also disqualifies the historical claim —
+ * gating both on the one recent read is conservative in the correct direction
+ * and costs one query per business rather than two.
+ *
+ * Never throws, and never upgrades: any failure leaves an `unknown` verdict,
+ * which is non-green, retryable, and not an error.
+ */
+async function withGoogleAdsFreshness(
+  payload: AdminSyncHealthPayload,
+  now = new Date(),
+): Promise<AdminSyncHealthFreshnessPayload> {
+  const businesses = payload.googleAdsBusinesses ?? [];
+  // No Google Ads rows means there is nothing to make a claim about. The
+  // payload passes through unchanged rather than gaining an empty array it
+  // never had.
+  if (businesses.length === 0) return payload as AdminSyncHealthFreshnessPayload;
+
+  const endDate = now.toISOString().slice(0, 10);
+  const summaries = new Map<string, GoogleAdsFreshnessSummary>();
+
+  const queue = [...businesses];
+  const workers = Array.from(
+    { length: Math.min(GOOGLE_ADS_FRESHNESS_CONCURRENCY, queue.length) },
+    async () => {
+      for (let business = queue.shift(); business; business = queue.shift()) {
+        const totalDays = Math.max(
+          1,
+          Number(business.recentRangeTotalDays ?? GOOGLE_ADS_DEFAULT_RECENT_RANGE_DAYS) ||
+            GOOGLE_ADS_DEFAULT_RECENT_RANGE_DAYS,
+        );
+        const startDate = addDaysToIsoDateUtc(endDate, -(totalDays - 1));
+        // One bulk read per business per pass. `readGoogleAdsFreshness` never
+        // throws, but a throw here would still have to fail closed rather than
+        // take the rest of the businesses down with it.
+        let freshness: GoogleAdsFreshnessSummary;
+        try {
+          const snapshot = await readGoogleAdsFreshness({
+            businessId: business.businessId,
+            scopes: GOOGLE_ADS_FRESHNESS_SCOPES,
+            startDate,
+            endDate,
+            now,
+            timeoutMs: GOOGLE_ADS_FRESHNESS_TIMEOUT_MS,
+          });
+          freshness = snapshot
+            ? toGoogleAdsFreshnessSummary(snapshot)
+            : unknownFreshnessSummary(
+                "Google Ads freshness evidence could not be read.",
+                startDate,
+                endDate,
+                totalDays,
+              );
+        } catch {
+          freshness = unknownFreshnessSummary(
+            "Google Ads freshness evidence could not be read.",
+            startDate,
+            endDate,
+            totalDays,
+          );
+        }
+        summaries.set(business.businessId, freshness);
+      }
+    },
+  );
+  await Promise.all(workers);
+
+  const nextBusinesses: GoogleAdsFreshnessBusiness[] = businesses.map((business) => {
+    const freshness =
+      summaries.get(business.businessId) ??
+      unknownFreshnessSummary(
+        "Google Ads freshness evidence was not evaluated for this business.",
+        endDate,
+        endDate,
+        1,
+      );
+    return {
+      ...business,
+      googleAdsFreshness: freshness,
+      // Corrected, never widened: an upstream `false` stays `false`.
+      recentExtendedReady: business.recentExtendedReady === true && freshness.complete,
+      historicalExtendedReady:
+        business.historicalExtendedReady === true && freshness.complete,
+    };
+  });
+
+  const verdicts = nextBusinesses.map((business) => toVerdict(business.googleAdsFreshness));
+  const overall = weakestGoogleAdsCompletion(verdicts);
+  const evidenceAvailable = nextBusinesses.every(
+    (business) => business.googleAdsFreshness.evidenceAvailable,
+  );
+
+  return {
+    ...payload,
+    googleAdsBusinesses: nextBusinesses,
+    summary: {
+      ...payload.summary,
+      googleAdsFreshnessState: overall.state,
+      googleAdsFreshnessLabel: GOOGLE_ADS_COMPLETION_LABELS[overall.state],
+      googleAdsFreshnessPercent: overall.percent,
+      googleAdsFreshnessComplete: overall.complete,
+      googleAdsFreshnessMayStopPolling: overall.mayStopPolling,
+      googleAdsFreshnessDetail: overall.detail,
+      googleAdsFreshnessEvidenceAvailable: evidenceAvailable,
+      // `unknown` is neither healthy nor permanently failed: keep asking.
+      googleAdsFreshnessRetryable: overall.state === "unknown",
+      googleAdsFreshnessBusinessesNotSettled: verdicts.filter((verdict) => !verdict.complete)
+        .length,
+    },
+  };
+}
+
 type SyncRecoveryRequestBody = {
   provider?: string;
   action?:
@@ -73,7 +337,18 @@ export async function GET(request: NextRequest) {
     const adminSession = auth.session;
 
     const data = await getAdminOperationsHealth();
-    return NextResponse.json(data.syncHealth);
+    // The health payload's Google Ads readiness is derived from row existence.
+    // It is corrected here, at the wire boundary, so the admin page and any
+    // operator script read the same verdict the scheduler reads.
+    //
+    // A freshness failure must degrade the CLAIM, not the endpoint: falling
+    // through to a 500 would hide the queue, worker and dead-letter evidence an
+    // operator needs precisely when something is wrong.
+    const syncHealth = await withGoogleAdsFreshness(data.syncHealth).catch((error) => {
+      console.error("[admin/sync-health GET] google_ads_freshness_failed", error);
+      return failClosedGoogleAdsFreshness(data.syncHealth);
+    });
+    return NextResponse.json(syncHealth);
   } catch (err) {
     console.error("[admin/sync-health GET]", err);
     return NextResponse.json(

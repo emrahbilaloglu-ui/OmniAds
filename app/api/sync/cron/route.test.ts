@@ -72,6 +72,12 @@ vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
   evaluateAndPersistGoogleAdsControlPlane: vi.fn(),
 }));
 
+const cronFreshness = vi.hoisted(() => ({ readGoogleAdsFreshness: vi.fn() }));
+vi.mock("@/lib/google-ads/freshness-read", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, readGoogleAdsFreshness: cronFreshness.readGoogleAdsFreshness };
+});
+
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
@@ -93,7 +99,102 @@ const repairPlanner = await import("@/lib/sync/repair-planner");
 const repairExecutor = await import("@/lib/sync/repair-executor");
 const googleControlPlane = await import("@/lib/google-ads/control-plane-runtime");
 const dbGrowthFence = await import("@/lib/sync/db-growth-fence");
+const completionSemantics = await import("@/lib/google-ads/completion-semantics");
 const { POST } = await import("@/app/api/sync/cron/route");
+
+/**
+ * The cron receipt is what an operator and every downstream alert read to
+ * decide whether a tick left anything outstanding. It was built entirely from
+ * enqueue outcomes, so `ok: true, synced: 13` was a truthful statement about
+ * calls returning and a silent one about whether any day had been re-read since
+ * it closed.
+ *
+ * Only the evidence READ is faked below; the verdict is computed by the real
+ * `resolveGoogleAdsCompletion`, so a scheduler that went back to counting rows
+ * fails these.
+ */
+const CRON_FRESHNESS_SCOPES = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_daily",
+] as const;
+
+function buildCronSnapshot(input: {
+  businessId: string;
+  totalDays: number;
+  coveredDays: number;
+  postCloseObservedDays: number;
+  lookbackExhaustedDays: number;
+  includesOpenDay?: boolean;
+}) {
+  const includesOpenDay = input.includesOpenDay ?? false;
+  const verdict = completionSemantics.resolveGoogleAdsCompletion({
+    totalDays: input.totalDays,
+    coveredDays: input.coveredDays,
+    postCloseObservedDays: input.postCloseObservedDays,
+    lookbackExhaustedDays: input.lookbackExhaustedDays,
+    includesOpenDay,
+  });
+  return {
+    businessId: input.businessId,
+    startDate: "2026-07-13",
+    endDate: "2026-07-26",
+    totalDays: input.totalDays,
+    providerAccountIds: ["123"],
+    timeZoneSource: "account" as const,
+    includesOpenDay,
+    evidenceAvailable: true,
+    unavailableReason: null,
+    scopes: Object.fromEntries(
+      CRON_FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: input.coveredDays,
+          postCloseObservedDays: input.postCloseObservedDays,
+          lookbackExhaustedDays: input.lookbackExhaustedDays,
+          dueNowDays: input.totalDays - input.postCloseObservedDays,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+function buildCronUnavailableSnapshot(businessId: string, reason: string) {
+  const verdict = completionSemantics.unknownGoogleAdsCompletion(reason);
+  return {
+    businessId,
+    startDate: "2026-07-13",
+    endDate: "2026-07-26",
+    totalDays: 14,
+    providerAccountIds: [],
+    timeZoneSource: "default" as const,
+    includesOpenDay: true,
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    scopes: Object.fromEntries(
+      CRON_FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: 0,
+          postCloseObservedDays: 0,
+          lookbackExhaustedDays: 0,
+          dueNowDays: 0,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
 
 describe("POST /api/sync/cron", () => {
   const savedCronEnv = { ...process.env };
@@ -771,5 +872,250 @@ describe("sync cron admission happens BEFORE any work", () => {
     const response = await POST(cronRequest());
     expect(response.status).toBe(503);
     expect(activeBusinesses.readActiveBusinesses).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The scheduler must publish the SAME verdict the admin page renders.
+ *
+ * Before this, the cron receipt answered "did the enqueue calls return" and the
+ * admin page answered "do rows exist", and neither answered "has any day been
+ * re-read since it closed". A worker could go quiet for one reason while every
+ * surface claimed another.
+ */
+describe("POST /api/sync/cron Google Ads freshness receipt", () => {
+  const savedEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.CRON_SECRET = "secret";
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED = "enabled";
+    delete process.env.SYNC_CRON_ENFORCE_SOAK_GATE;
+    delete process.env.SHOPIFY_SYNC_ENABLED;
+    vi.mocked(dbGrowthFence.assertSyncGrowthBoundary).mockResolvedValue({
+      allowed: true,
+      reason: "ready",
+    } as never);
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({
+      ok: true,
+      businesses: [{ id: "biz_1", name: "Biz 1" }],
+    } as never);
+    vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 0 } as never);
+    vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: 0 } as never);
+    vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);
+    vi.mocked(searchConsoleSync.syncSearchConsoleReports).mockResolvedValue({
+      synced: true,
+    } as never);
+    vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "outside_slot",
+      snapshotDate: "2026-07-26",
+    } as never);
+    vi.mocked(decisionResponses.runMetaDecisionIgnoredMarkerIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "not_due",
+      snapshotDate: "2026-07-26",
+    } as never);
+    vi.mocked(outcomeAccrual.runMetaOutcomeAccrualIfDue).mockResolvedValue({
+      skipped: true,
+      reason: "not_due",
+      runDate: "2026-07-26",
+    } as never);
+    for (const job of [
+      creativeDecisionEngine.runEngineV3ProducerChainForActiveBusinessesIfDue,
+      creativeDecisionEngine.runNativeAdShadowChainForActiveBusinessesIfDue,
+      creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
+      creativeDecisionEngine.runAdDecisionOutcomesJobForActiveBusinessesIfDue,
+    ]) {
+      vi.mocked(job).mockResolvedValue({
+        skipped: true,
+        reason: "outside_slot",
+        asOf: "2026-07-26",
+      } as never);
+    }
+    vi.mocked(releaseGates.evaluateAndPersistSyncGates).mockResolvedValue(null as never);
+    vi.mocked(repairPlanner.evaluateAndPersistSyncRepairPlan).mockResolvedValue(null as never);
+    vi.mocked(googleControlPlane.evaluateAndPersistGoogleAdsControlPlane).mockResolvedValue(
+      null as never,
+    );
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+  });
+
+  const cronRequest = () =>
+    new NextRequest("https://example.com/api/sync/cron", {
+      method: "POST",
+      headers: { authorization: "Bearer secret" },
+    });
+
+  it("does not let a clean enqueue pass imply Google Ads is caught up when no day was re-read", async () => {
+    cronFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildCronSnapshot({
+        businessId: "biz_1",
+        totalDays: 14,
+        // Full coverage by the OLD definition...
+        coveredDays: 14,
+        // ...and nothing re-read since the days closed.
+        postCloseObservedDays: 0,
+        lookbackExhaustedDays: 0,
+      }),
+    );
+
+    const response = await POST(cronRequest());
+    const payload = (await response.json()) as Record<string, any>;
+
+    // The enqueue pass itself succeeded — that part is unchanged and true.
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    expect(payload.succeeded).toBe(1);
+    // NEGATIVE CONTROL: coverage is 14 of 14 in the very same evidence, so a
+    // coverage-derived receipt would report 100 / complete / stop polling.
+    expect(payload.results[0].googleAdsFreshness.scopes[0].coveredDays).toBe(14);
+    expect(payload.googleAdsFreshness.percent).toBeLessThan(100);
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.googleAdsFreshness.mayStopPolling).toBe(false);
+    expect(payload.googleAdsFreshness.state).toBe("provisional");
+    expect(payload.googleAdsFreshness.businessesNotSettled).toBe(1);
+    expect(payload.googleAdsFreshness.dueNowDays).toBe(14);
+  });
+
+  it("does not report a converging window as complete", async () => {
+    cronFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildCronSnapshot({
+        businessId: "biz_1",
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 14,
+        lookbackExhaustedDays: 5,
+      }),
+    );
+
+    const payload = (await (await POST(cronRequest())).json()) as Record<string, any>;
+
+    expect(payload.googleAdsFreshness.state).toBe("converging");
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.googleAdsFreshness.mayStopPolling).toBe(false);
+    expect(payload.googleAdsFreshness.percent).toBeLessThan(100);
+  });
+
+  it("reports a settled window as complete and safe to stop polling", async () => {
+    cronFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildCronSnapshot({
+        businessId: "biz_1",
+        totalDays: 14,
+        coveredDays: 14,
+        postCloseObservedDays: 14,
+        lookbackExhaustedDays: 14,
+      }),
+    );
+
+    const payload = (await (await POST(cronRequest())).json()) as Record<string, any>;
+
+    expect(payload.googleAdsFreshness.state).toBe("settled");
+    expect(payload.googleAdsFreshness.percent).toBe(100);
+    expect(payload.googleAdsFreshness.complete).toBe(true);
+    expect(payload.googleAdsFreshness.mayStopPolling).toBe(true);
+    expect(payload.googleAdsFreshness.businessesNotSettled).toBe(0);
+  });
+
+  it("fails closed to a RETRYABLE unknown when the evidence is unavailable, without failing the tick", async () => {
+    cronFreshness.readGoogleAdsFreshness.mockResolvedValue(
+      buildCronUnavailableSnapshot("biz_1", "Google Ads freshness tables are not ready yet."),
+    );
+
+    const response = await POST(cronRequest());
+    const payload = (await response.json()) as Record<string, any>;
+
+    // Not an error: the rest of the pass still happened and is still reported.
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(true);
+    // Not healthy either, and explicitly worth asking again.
+    expect(payload.googleAdsFreshness.state).toBe("unknown");
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.googleAdsFreshness.mayStopPolling).toBe(false);
+    expect(payload.googleAdsFreshness.retryable).toBe(true);
+    expect(payload.googleAdsFreshness.evidenceAvailable).toBe(false);
+  });
+
+  it("fails closed when the evidence read itself rejects", async () => {
+    cronFreshness.readGoogleAdsFreshness.mockRejectedValue(new Error("statement timeout"));
+
+    const payload = (await (await POST(cronRequest())).json()) as Record<string, any>;
+
+    expect(payload.googleAdsFreshness.state).toBe("unknown");
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.googleAdsFreshness.retryable).toBe(true);
+  });
+
+  it("issues exactly ONE bulk read per business per pass, covering every scope in that one call", async () => {
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({
+      ok: true,
+      businesses: [
+        { id: "biz_1", name: "Biz 1" },
+        { id: "biz_2", name: "Biz 2" },
+        { id: "biz_3", name: "Biz 3" },
+      ],
+    } as never);
+    cronFreshness.readGoogleAdsFreshness.mockImplementation(
+      async (input: { businessId: string }) =>
+        buildCronSnapshot({
+          businessId: input.businessId,
+          totalDays: 14,
+          coveredDays: 14,
+          postCloseObservedDays: 14,
+          lookbackExhaustedDays: 14,
+        }),
+    );
+
+    await POST(cronRequest());
+
+    expect(cronFreshness.readGoogleAdsFreshness).toHaveBeenCalledTimes(3);
+    for (const call of cronFreshness.readGoogleAdsFreshness.mock.calls) {
+      expect(call[0].scopes).toEqual([...CRON_FRESHNESS_SCOPES]);
+    }
+  });
+
+  it("rolls the WEAKEST business verdict up, so one stale business cannot be averaged away", async () => {
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValue({
+      ok: true,
+      businesses: [
+        { id: "biz_settled", name: "Settled" },
+        { id: "biz_stale", name: "Stale" },
+      ],
+    } as never);
+    cronFreshness.readGoogleAdsFreshness.mockImplementation(
+      async (input: { businessId: string }) =>
+        input.businessId === "biz_settled"
+          ? buildCronSnapshot({
+              businessId: input.businessId,
+              totalDays: 14,
+              coveredDays: 14,
+              postCloseObservedDays: 14,
+              lookbackExhaustedDays: 14,
+            })
+          : buildCronSnapshot({
+              businessId: input.businessId,
+              totalDays: 14,
+              coveredDays: 14,
+              postCloseObservedDays: 1,
+              lookbackExhaustedDays: 0,
+            }),
+    );
+
+    const payload = (await (await POST(cronRequest())).json()) as Record<string, any>;
+
+    expect(payload.googleAdsFreshness.state).toBe("provisional");
+    expect(payload.googleAdsFreshness.complete).toBe(false);
+    expect(payload.googleAdsFreshness.businessesNotSettled).toBe(1);
+  });
+
+  it("performs no freshness read at all when the cron is refused before doing work", async () => {
+    delete process.env.ADSECUTE_SYNC_GLOBAL_ENABLED;
+    const response = await POST(cronRequest());
+    expect(response.status).toBe(503);
+    expect(cronFreshness.readGoogleAdsFreshness).not.toHaveBeenCalled();
   });
 });

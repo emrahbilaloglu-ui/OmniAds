@@ -62,6 +62,11 @@ import {
   getLatestGoogleAdsSyncHealth,
 } from "@/lib/google-ads/warehouse";
 import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import {
   evaluateOverviewSummaryProjectionValidity,
   readOverviewSummaryRange,
 } from "@/lib/overview-summary-store";
@@ -95,7 +100,23 @@ import {
   getTodayIsoForTimeZoneServer,
 } from "@/lib/provider-platform-date";
 
-type WarehouseMeta = GoogleAdsReportMeta & GoogleAdsWarehouseFreshness;
+type WarehouseMeta = GoogleAdsReportMeta &
+  GoogleAdsWarehouseFreshness & {
+    /**
+     * The freshness verdict this response's `dataState` was decided from.
+     *
+     * Published so a surface that wants to say "as of" or "complete" reads the
+     * evidence instead of re-deriving it from row counts. Null means we could
+     * not read the evidence, which is itself a claim a caller must respect:
+     * it may not render the range as authoritative.
+     */
+    completion?: GoogleAdsFreshnessSummary | null;
+  };
+
+/** A warehouse freshness block that carries the verdict it was decided from. */
+type ServingFreshness = GoogleAdsWarehouseFreshness & {
+  completion?: GoogleAdsFreshnessSummary | null;
+};
 
 type GenericRow = Record<string, unknown>;
 type WarehouseContextCacheEntry = {
@@ -331,13 +352,82 @@ async function resolveWarehouseContext(input: {
   return value;
 }
 
+/**
+ * Read the freshness evidence behind a served range.
+ *
+ * ONE bulk read per response, never one per date or per scope — the snapshot
+ * covers every scope asked for in a single pass. Never throws: an unreadable
+ * snapshot returns null, which every caller must treat as "we could not tell",
+ * not as "fine".
+ */
+async function readServingCompletion(input: {
+  businessId: string;
+  scopes: readonly GoogleAdsWarehouseScope[];
+  providerAccountIds: string[];
+  startDate: string;
+  endDate: string;
+}): Promise<GoogleAdsFreshnessSummary | null> {
+  if (input.providerAccountIds.length === 0) return null;
+  try {
+    const snapshot = await readGoogleAdsFreshness({
+      businessId: input.businessId,
+      scopes: input.scopes,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      timeoutMs: 15_000,
+    });
+    return toGoogleAdsFreshnessSummary(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide the served data state from freshness EVIDENCE, not from row existence.
+ *
+ * `ready` is the claim that a range may be served as authoritative. It used to
+ * be `SELECT DISTINCT date` reaching the end of the window, so a day fetched
+ * once at 01:40 and never re-read reported ready forever. It now requires a
+ * verdict of at least `converging`: every day covered AND re-read after that
+ * day closed.
+ *
+ * Everything weaker degrades to `stale` — we hold rows we cannot vouch for —
+ * and that includes evidence we could not read at all. Failing to green is the
+ * whole point: `unknown` means we could not look, which is never a reason to
+ * tell the operator the range is settled. Note that even `ready` here is a
+ * statement about OUR re-reads; Google never promises a date has stopped
+ * changing, so no caller may render this as final or immutable.
+ */
+function resolveServingDataState(input: {
+  completion: GoogleAdsFreshnessSummary | null;
+  hasMissingWindows: boolean;
+}): GoogleAdsWarehouseDataState {
+  if (input.hasMissingWindows) return "partial";
+  const completion = input.completion;
+  if (!completion || !completion.evidenceAvailable) return "stale";
+  switch (completion.state) {
+    case "settled":
+    case "converging":
+      return "ready";
+    case "missing":
+      return "partial";
+    case "provisional":
+    case "unknown":
+    default:
+      return "stale";
+  }
+}
+
 function buildMeta(input: {
-  freshness: GoogleAdsWarehouseFreshness;
+  freshness: ServingFreshness;
   rowCounts?: Record<string, number>;
 }): WarehouseMeta {
+  const { completion = null, ...freshness } = input.freshness;
   return {
-    ...input.freshness,
-    partial: input.freshness.isPartial || input.freshness.dataState !== "ready",
+    ...freshness,
+    completion,
+    partial: freshness.isPartial || freshness.dataState !== "ready",
     failed_queries: [],
     unavailable_metrics: [],
     query_names: [],
@@ -391,6 +481,13 @@ type GoogleAdsAdvisorSupportBundle = {
   hotQueryRows: GoogleAdsSearchQueryHotDailySupportReadRow[];
   queryWeeklyRows: GoogleAdsTopQueryWeeklySupportReadRow[];
   clusterDailyRows: GoogleAdsSearchClusterDailySupportReadRow[];
+  /**
+   * Freshness verdict for the advisor's own window, read ONCE for the whole
+   * bundle. The advisor renders several windows from these rows; deriving a
+   * completion claim per window from row counts is what let a frozen day read
+   * as ready everywhere at once.
+   */
+  completion: GoogleAdsFreshnessSummary | null;
 };
 
 type GoogleAdsAdvisorAggregatedDailyRows = ReturnType<typeof aggregateDailyRowsLocally>;
@@ -449,8 +546,11 @@ function buildGoogleAdsFreshnessFromPrefetchedRows(input: {
   endDate: string;
   latestSync: Awaited<ReturnType<typeof getLatestGoogleAdsSyncHealth>> | null;
   dataState?: GoogleAdsWarehouseFreshness["dataState"];
+  completion?: GoogleAdsFreshnessSummary | null;
   warnings?: string[];
 }) {
+  // Data availability: which days the prefetched rows actually cover. This is a
+  // legitimate row-existence question and stays exactly as it was.
   const coveredDates = new Set(input.rows.map((row) => normalizeDate(row.date)));
   const missingWindows = enumerateDays(input.startDate, input.endDate).filter(
     (date) => !coveredDates.has(date),
@@ -461,10 +561,17 @@ function buildGoogleAdsFreshnessFromPrefetchedRows(input: {
       ...(input.latestSync?.last_error ? [String(input.latestSync.last_error)] : []),
     ]),
   );
-  return createGoogleAdsWarehouseFreshness({
+  return Object.assign(
+    createGoogleAdsWarehouseFreshness({
+    // Completion, unlike availability, comes from the verdict. With no verdict
+    // to hand this degrades to `stale` rather than the old `ready`, which was
+    // "rows exist for every day" wearing the word for "authoritative".
     dataState:
       input.dataState ??
-      (missingWindows.length > 0 ? "partial" : "ready"),
+      resolveServingDataState({
+        completion: input.completion ?? null,
+        hasMissingWindows: missingWindows.length > 0,
+      }),
     lastSyncedAt:
       input.rows.reduce<string | null>((latest, row) => {
         if (!row.updatedAt) return latest;
@@ -482,7 +589,9 @@ function buildGoogleAdsFreshnessFromPrefetchedRows(input: {
     isPartial: missingWindows.length > 0,
     missingWindows,
     warnings,
-  });
+    }),
+    { completion: input.completion ?? null },
+  ) satisfies ServingFreshness;
 }
 
 function buildGoogleAdsAdvisorCampaignReportFromScopedDailyRows(input: {
@@ -562,6 +671,8 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
   aggregatedProductRows?: GoogleAdsAdvisorAggregatedDailyRows;
   keywordTermSet?: Set<string>;
   productTerms?: string[];
+  /** Freshness verdict for `search_term_daily`, read once by the caller. */
+  completion?: GoogleAdsFreshnessSummary | null;
 }) {
   const hotWindow = resolveGoogleAdsSearchHotWindow({
     providerCurrentDate: input.context.providerCurrentDate,
@@ -787,10 +898,16 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
       .sort((left, right) => right.spend - left.spend);
 
     const freshness = createGoogleAdsWarehouseFreshness({
+      // `partial` still means "days are literally absent" — a row-existence
+      // fact. `ready` no longer follows from its negation: it now needs a
+      // freshness verdict saying every day was re-read after it closed.
       dataState:
-        missingWindows.length > 0 || hotWindow.requestExtendsOutsideWindow
+        hotWindow.requestExtendsOutsideWindow
           ? "partial"
-          : "ready",
+          : resolveServingDataState({
+              completion: input.completion ?? null,
+              hasMissingWindows: missingWindows.length > 0,
+            }),
       lastSyncedAt:
         (typeof input.latestSync?.updated_at === "string"
           ? input.latestSync.updated_at
@@ -816,7 +933,7 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
     return {
       rows,
       meta: buildMeta({
-        freshness,
+        freshness: Object.assign(freshness, { completion: input.completion ?? null }),
         rowCounts: { search_term_daily: rows.length },
       }),
     };
@@ -935,6 +1052,7 @@ async function buildGoogleAdsAdvisorSupportBundle(input: {
       hotQueryRows: [],
       queryWeeklyRows: [],
       clusterDailyRows: [],
+      completion: null,
     } satisfies GoogleAdsAdvisorSupportBundle;
   }
 
@@ -954,6 +1072,7 @@ async function buildGoogleAdsAdvisorSupportBundle(input: {
     queryWeeklyRows,
     clusterDailyRows,
     latestSync,
+    completion,
   ] = await Promise.all([
     readGoogleAdsDailyRange({
       scope: "campaign_daily",
@@ -1003,6 +1122,13 @@ async function buildGoogleAdsAdvisorSupportBundle(input: {
       businessId: input.businessId,
       providerAccountId,
     }).catch(() => null),
+    readServingCompletion({
+      businessId: input.businessId,
+      scopes: ["search_term_daily"],
+      providerAccountIds: input.context.providerAccountIds,
+      startDate: input.context.startDate,
+      endDate: input.context.endDate,
+    }),
   ]);
 
   return {
@@ -1014,6 +1140,7 @@ async function buildGoogleAdsAdvisorSupportBundle(input: {
     hotQueryRows,
     queryWeeklyRows,
     clusterDailyRows,
+    completion,
   } satisfies GoogleAdsAdvisorSupportBundle;
 }
 
@@ -1042,6 +1169,7 @@ function buildGoogleAdsAdvisorWindowRowsFromMatrixView(input: {
     productDailyRows: input.view.slice.productDailyRows,
     aggregatedKeywordRows: input.aggregates.keywordRows,
     aggregatedProductRows: input.aggregates.productRows,
+    completion: input.bundle.completion,
   });
   const products = buildGoogleAdsAdvisorProductReportFromScopedDailyRows({
     scopedRows: input.view.slice.productDailyRows,
@@ -1095,44 +1223,73 @@ async function buildFreshness(input: {
     businessId: input.businessId,
     providerAccountId: input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
   }).catch(() => null);
-  const coverage = await getGoogleAdsDailyCoverage({
-    scope: input.scope,
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    includeMetadata: true,
-  }).catch(() => null);
-  const coveredDates = new Set(
-    await getGoogleAdsCoveredDates({
+  const [coverage, coveredDateList, completion] = await Promise.all([
+    getGoogleAdsDailyCoverage({
       scope: input.scope,
       businessId: input.businessId,
-      providerAccountId: input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
+      providerAccountId:
+        input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
       startDate: input.startDate,
       endDate: input.endDate,
-    }).catch(() => [])
-  );
+      includeMetadata: true,
+    }).catch(() => null),
+    // DATA AVAILABILITY, not completion. This answers "which days have no rows
+    // at all", which is the only question row existence can honestly answer,
+    // and it still drives `missingWindows` exactly as before.
+    getGoogleAdsCoveredDates({
+      scope: input.scope,
+      businessId: input.businessId,
+      providerAccountId:
+        input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }).catch(() => [] as string[]),
+    readServingCompletion({
+      businessId: input.businessId,
+      scopes: [input.scope],
+      providerAccountIds: input.providerAccountIds,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }),
+  ]);
+  const coveredDates = new Set(coveredDateList);
   const missingWindows = enumerateDays(input.startDate, input.endDate).filter(
     (date) => !coveredDates.has(date)
   );
-  return createGoogleAdsWarehouseFreshness({
-    dataState:
-      input.providerAccountIds.length === 0
-        ? "connected_no_assignment"
-        : missingWindows.length > 0
-        ? "partial"
-        : "ready",
-    lastSyncedAt:
-      input.rows.reduce<string | null>((latest, row) => {
-        if (!row.updatedAt) return latest;
-        return !latest || row.updatedAt > latest ? row.updatedAt : latest;
-      }, null) ??
-      (coverage?.latest_updated_at ?? null),
-    liveRefreshedAt: input.endDate >= providerCurrentDate ? new Date().toISOString() : null,
-    isPartial: missingWindows.length > 0,
-    missingWindows,
-    warnings: latestSync && latestSync.last_error ? [String(latestSync.last_error)] : [],
-  });
+  return Object.assign(
+    createGoogleAdsWarehouseFreshness({
+      // COMPLETION. `ready` used to be the negation of `missingWindows`, so a
+      // range whose every day was read once at 01:40 and never re-read served
+      // as authoritative forever. It now needs the freshness verdict, and an
+      // unreadable verdict degrades rather than defaults green.
+      dataState:
+        input.providerAccountIds.length === 0
+          ? "connected_no_assignment"
+          : resolveServingDataState({
+              completion,
+              hasMissingWindows: missingWindows.length > 0,
+            }),
+      lastSyncedAt:
+        input.rows.reduce<string | null>((latest, row) => {
+          if (!row.updatedAt) return latest;
+          return !latest || row.updatedAt > latest ? row.updatedAt : latest;
+        }, null) ??
+        (coverage?.latest_updated_at ?? null),
+      // The "as of" claim. It used to be `now()` whenever the window touched
+      // today, which asserted a refresh that never happened. It is now the
+      // instant of the last COMPLETED fetch for this range, and null when we
+      // have no evidence of one — no evidence, no claim.
+      liveRefreshedAt:
+        input.endDate >= providerCurrentDate
+          ? (completion?.scopes.find((scope) => scope.scope === input.scope)
+              ?.latestObservationAt ?? null)
+          : null,
+      isPartial: missingWindows.length > 0,
+      missingWindows,
+      warnings: latestSync && latestSync.last_error ? [String(latestSync.last_error)] : [],
+    }),
+    { completion },
+  ) satisfies ServingFreshness;
 }
 
 function aggregateWarehouseRows(rows: GoogleAdsWarehouseDailyRow[]) {
@@ -2665,7 +2822,7 @@ async function buildGoogleAdsSearchTermsHotReport(
 
   const providerAccountId =
     context.providerAccountIds.length === 1 ? context.providerAccountIds[0] : null;
-  const [hotRows, keywordRows, productRows, latestSync] = await Promise.all([
+  const [hotRows, keywordRows, productRows, latestSync, completion] = await Promise.all([
     readGoogleAdsSearchQueryHotDailySupportRows({
       businessId: params.businessId,
       providerAccountId,
@@ -2690,6 +2847,13 @@ async function buildGoogleAdsSearchTermsHotReport(
       businessId: params.businessId,
       providerAccountId,
     }).catch(() => null),
+    readServingCompletion({
+      businessId: params.businessId,
+      scopes: ["search_term_daily"],
+      providerAccountIds: context.providerAccountIds,
+      startDate: hotWindow.effectiveStart,
+      endDate: hotWindow.effectiveEnd,
+    }),
   ]);
 
   const keywordSet = new Set(
@@ -2889,10 +3053,13 @@ async function buildGoogleAdsSearchTermsHotReport(
     .sort((left, right) => right.spend - left.spend);
 
   const freshness = createGoogleAdsWarehouseFreshness({
-    dataState:
-      missingWindows.length > 0 || hotWindow.requestExtendsOutsideWindow
-        ? "partial"
-        : "ready",
+    // `partial` stays a row-existence fact; `ready` now comes from the verdict.
+    dataState: hotWindow.requestExtendsOutsideWindow
+      ? "partial"
+      : resolveServingDataState({
+          completion,
+          hasMissingWindows: missingWindows.length > 0,
+        }),
     lastSyncedAt:
       (typeof latestSync?.updated_at === "string"
         ? latestSync.updated_at
@@ -2913,7 +3080,7 @@ async function buildGoogleAdsSearchTermsHotReport(
     rows,
     summary: { total: rows.length },
     meta: buildMeta({
-      freshness,
+      freshness: Object.assign(freshness, { completion }),
       rowCounts: { search_term_daily: rows.length },
     }),
   };

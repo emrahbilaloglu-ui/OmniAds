@@ -8,6 +8,11 @@ import {
   replayGoogleAdsDeadLetterPartitions,
 } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
+import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+  type GoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
 import { addDaysToIsoDate, enumerateDays } from "@/lib/google-ads/history";
 import {
   refreshGoogleAdsSyncStateForBusiness,
@@ -64,6 +69,15 @@ function resolveTargetWindow(input: {
   };
 }
 
+/**
+ * Which recent dates have NO warehouse rows at all.
+ *
+ * This is a data-availability question and row existence answers it honestly: a
+ * date with zero rows needs a first fetch whatever its freshness. It stays
+ * exactly as it was, and it remains the only thing that selects a repair
+ * target. What it may NOT do — and used to do — is stand in for "this window is
+ * complete" when it finds nothing; see `readRecentSurfaceFreshness`.
+ */
 async function selectMissingRecentGap(input: {
   businessId: string;
   startDate: string;
@@ -98,6 +112,49 @@ async function selectMissingRecentGap(input: {
   }
 
   return null;
+}
+
+/**
+ * Freshness evidence for the same window, in ONE bulk read across all scopes.
+ *
+ * Finding no zero-row gap only means every date has SOME row. It says nothing
+ * about whether those rows predate the day's close, which is precisely how a
+ * date captured at 01:40 came to be reported as repaired forever. Never throws;
+ * an unreadable snapshot yields an `unknown` verdict so the response degrades
+ * to "we could not tell" rather than to "nothing to do".
+ */
+async function readRecentSurfaceFreshness(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<GoogleAdsFreshnessSummary | null> {
+  try {
+    return toGoogleAdsFreshnessSummary(
+      await readGoogleAdsFreshness({
+        businessId: input.businessId,
+        scopes: REPAIR_SCOPE_PRIORITY,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      })
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Days that closed, hold rows, and have never been re-read since — per scope. */
+function summarizeUnreobservedScopes(freshness: GoogleAdsFreshnessSummary | null) {
+  if (!freshness || !freshness.evidenceAvailable) return [];
+  return freshness.scopes
+    .filter((scope) => scope.postCloseObservedDays < freshness.totalDays)
+    .map((scope) => ({
+      scope: scope.scope,
+      state: scope.state,
+      coveredDays: scope.coveredDays,
+      postCloseObservedDays: scope.postCloseObservedDays,
+      unreobservedDays: Math.max(0, freshness.totalDays - scope.postCloseObservedDays),
+      dueNowDays: scope.dueNowDays,
+    }));
 }
 
 async function getActiveRunningRepair(input: {
@@ -167,13 +224,35 @@ export async function POST(request: NextRequest) {
     startDate: body?.startDate ?? null,
     endDate: body?.endDate ?? null,
   });
-  const chosenGap = await selectMissingRecentGap({
-    businessId: resolvedBusinessId,
-    startDate: targetWindow.startDate,
-    endDate: targetWindow.endDate,
-  });
+  const [chosenGap, recentSurfaceFreshness] = await Promise.all([
+    selectMissingRecentGap({
+      businessId: resolvedBusinessId,
+      startDate: targetWindow.startDate,
+      endDate: targetWindow.endDate,
+    }),
+    readRecentSurfaceFreshness({
+      businessId: resolvedBusinessId,
+      startDate: targetWindow.startDate,
+      endDate: targetWindow.endDate,
+    }),
+  ]);
 
   if (!chosenGap) {
+    const unreobservedScopes = summarizeUnreobservedScopes(recentSurfaceFreshness);
+    const evidenceAvailable = recentSurfaceFreshness?.evidenceAvailable ?? false;
+    // "No zero-row gap" is all this endpoint ever established. Whether the
+    // window is settled is a separate question answered by the freshness
+    // verdict, and with no evidence the answer is "unknown", never "done".
+    const reason = !evidenceAvailable
+      ? `No missing recent gap found in search_term_daily, product_daily, or campaign_daily, but recency could not be verified: ${
+          recentSurfaceFreshness?.unavailableReason ??
+          "Google Ads freshness evidence could not be read."
+        }`
+      : unreobservedScopes.length > 0
+        ? `No missing recent gap found in search_term_daily, product_daily, or campaign_daily, but ${unreobservedScopes
+            .map((scope) => `${scope.scope} has ${scope.unreobservedDays} day(s) never re-read since they closed`)
+            .join("; ")}. The bounded rolling refresh owns those days; no additional repair was enqueued.`
+        : "No missing recent gap found in search_term_daily, product_daily, or campaign_daily.";
     return NextResponse.json({
       ok: true,
       outcome: "no_missing_recent_gap",
@@ -181,7 +260,14 @@ export async function POST(request: NextRequest) {
       chosenScope: null,
       chosenStartDate: null,
       chosenEndDate: null,
-      reason: "No missing recent gap found in search_term_daily, product_daily, or asset_daily.",
+      reason,
+      /** Only ever true for a `settled` verdict — never for mere coverage. */
+      complete: recentSurfaceFreshness?.complete ?? false,
+      /** Anything short of settled must be asked again, including `unknown`. */
+      retryable: !(recentSurfaceFreshness?.complete ?? false),
+      completionState: recentSurfaceFreshness?.state ?? "unknown",
+      freshness: recentSurfaceFreshness,
+      unreobservedScopes,
     });
   }
 

@@ -14,6 +14,7 @@ const readProviderAccountSnapshot = vi.fn();
 const getProviderPlatformDateBoundaries = vi.fn();
 const getProviderPlatformPreviousDate = vi.fn();
 const validateMetaLiveAccountAccess = vi.fn();
+const readGoogleAdsFreshness = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
@@ -61,6 +62,15 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsCoveredDates: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/freshness-read", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/google-ads/freshness-read")>(
+    "@/lib/google-ads/freshness-read",
+  );
+  // Only the evidence READ is faked; `toGoogleAdsFreshnessSummary` and the
+  // verdict resolution stay real so these tests exercise production's mapping.
+  return { ...actual, readGoogleAdsFreshness };
+});
+
 vi.mock("@/lib/provider-platform-date", () => ({
   getProviderPlatformDateBoundaries,
   getProviderPlatformPreviousDate,
@@ -77,6 +87,102 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/migrations", () => ({
   runMigrations,
 }));
+
+const GOOGLE_ADVISOR_SCOPES = ["search_term_daily", "product_daily"] as const;
+const GOOGLE_ADVISOR_WINDOW_DAYS = 90;
+
+const { resolveGoogleAdsCompletion, unknownGoogleAdsCompletion } = await import(
+  "@/lib/google-ads/completion-semantics"
+);
+
+function googleAdvisorFreshnessSnapshot(input: {
+  coveredDays: number;
+  postCloseObservedDays: number;
+  lookbackExhaustedDays?: number;
+}) {
+  const totalDays = GOOGLE_ADVISOR_WINDOW_DAYS;
+  const verdict = resolveGoogleAdsCompletion({
+    totalDays,
+    coveredDays: input.coveredDays,
+    postCloseObservedDays: input.postCloseObservedDays,
+    lookbackExhaustedDays: input.lookbackExhaustedDays ?? 0,
+    includesOpenDay: false,
+  });
+  return {
+    businessId: "biz-1",
+    startDate: "2026-01-07",
+    endDate: "2026-04-06",
+    totalDays,
+    providerAccountIds: ["acc-1"],
+    timeZoneSource: "account" as const,
+    includesOpenDay: false,
+    evidenceAvailable: true,
+    unavailableReason: null,
+    scopes: Object.fromEntries(
+      GOOGLE_ADVISOR_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: input.coveredDays,
+          postCloseObservedDays: input.postCloseObservedDays,
+          lookbackExhaustedDays: input.lookbackExhaustedDays ?? 0,
+          dueNowDays: totalDays - input.postCloseObservedDays,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+function googleAdvisorUnavailableSnapshot(reason: string) {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    businessId: "biz-1",
+    startDate: "2026-01-07",
+    endDate: "2026-04-06",
+    totalDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+    providerAccountIds: [] as string[],
+    timeZoneSource: "default" as const,
+    includesOpenDay: true,
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    scopes: Object.fromEntries(
+      GOOGLE_ADVISOR_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: 0,
+          postCloseObservedDays: 0,
+          lookbackExhaustedDays: 0,
+          dueNowDays: 0,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+/** Mock coverage as complete across whatever window the engine asks for. */
+function mockFullGoogleAdsCoverage(
+  mocked: { mockImplementation: (fn: (input: { startDate: string; endDate: string }) => Promise<string[]>) => unknown },
+) {
+  mocked.mockImplementation(async (input) => {
+    const dates: string[] = [];
+    const cursor = new Date(`${input.startDate}T00:00:00Z`);
+    const end = new Date(`${input.endDate}T00:00:00Z`);
+    while (cursor <= end) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+  });
+}
 
 describe("provider repair engine", () => {
   beforeEach(async () => {
@@ -121,6 +227,15 @@ describe("provider repair engine", () => {
     vi.mocked(
       googleAdsWarehouse.requeueGoogleAdsRetryableFailedPartitions,
     ).mockResolvedValue([] as never);
+    // Default: the advisor window is covered, re-read after every close, and
+    // past the conversion lookback. Tests that care override this.
+    readGoogleAdsFreshness.mockResolvedValue(
+      googleAdvisorFreshnessSnapshot({
+        coveredDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+        postCloseObservedDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+        lookbackExhaustedDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+      }),
+    );
     getProviderAccountAssignments.mockResolvedValue(null);
     readProviderAccountSnapshot.mockResolvedValue(null);
     getProviderPlatformDateBoundaries.mockResolvedValue([
@@ -1404,5 +1519,223 @@ describe("provider repair engine", () => {
         }),
       ]),
     );
+  });
+
+  /**
+   * The Google recent-gap gate used to conclude "nothing to repair" from
+   * `SELECT DISTINCT date`. Every test below pins coverage COMPLETE, so a
+   * regression to the coverage-based gate makes each of them read `blocked:
+   * false` with no blocking reason — that is the negative control.
+   */
+  describe("Google advisor recency claims", () => {
+    async function setUpQuietGoogleRepairCycle() {
+      const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+      vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
+        stalePartitionCount: 0,
+      } as never);
+      vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+        outcome: "no_matching_partitions",
+        partitions: [],
+        matchedCount: 0,
+        changedCount: 0,
+        skippedActiveLeaseCount: 0,
+      } as never);
+      vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+        outcome: "no_matching_partitions",
+        partitions: [],
+        matchedCount: 0,
+        changedCount: 0,
+        skippedActiveLeaseCount: 0,
+      } as never);
+      vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+        queueDepth: 0,
+        leasedPartitions: 0,
+        deadLetterPartitions: 0,
+        retryableFailedPartitions: 0,
+      } as never);
+      vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+        checkpointFailures: 0,
+      } as never);
+      vi.mocked(googleAdsWarehouse.getGoogleAdsWarehouseIntegrityIncidents).mockResolvedValue(
+        [] as never,
+      );
+      syncGoogleAdsRange.mockResolvedValue({
+        businessId: "biz-1",
+        attempted: 0,
+        succeeded: 0,
+        failed: 0,
+        skipped: false,
+      });
+      return googleAdsWarehouse;
+    }
+
+    it("refuses to report a clean cycle when covered days were never re-read after closing", async () => {
+      const googleAdsWarehouse = await setUpQuietGoogleRepairCycle();
+      mockFullGoogleAdsCoverage(
+        vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates) as never,
+      );
+      readGoogleAdsFreshness.mockResolvedValue(
+        googleAdvisorFreshnessSnapshot({
+          coveredDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+          postCloseObservedDays: 0,
+        }),
+      );
+
+      const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+      const result = await runGoogleAdsRepairCycle("biz-1", {
+        enqueueScheduledWork: false,
+        queueWarehouseRepairs: true,
+      });
+
+      expect(result.repair.blocked).toBe(true);
+      expect(result.repair.blockingReasons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "recent_surface_never_reobserved",
+            // Retryable: the rolling refresh will get to them.
+            repairable: true,
+          }),
+        ]),
+      );
+      expect(result.repair.meta).toEqual(
+        expect.objectContaining({
+          recentSurfaceComplete: false,
+          recentSurfaceState: "provisional",
+          recentGapRepairScopes: [],
+        }),
+      );
+      expect(
+        (result.repair.meta as { recentSurfaceUnreobservedScopes: unknown[] })
+          .recentSurfaceUnreobservedScopes,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            scope: "search_term_daily",
+            unreobservedDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+          }),
+        ]),
+      );
+      // Reported, not enqueued: the bounded rolling refresh owns these days, so
+      // the ~1/min cycle must not queue the whole 90-day window.
+      expect(syncGoogleAdsRange).not.toHaveBeenCalled();
+    });
+
+    it("fails closed and stays retryable when the freshness evidence cannot be read", async () => {
+      const googleAdsWarehouse = await setUpQuietGoogleRepairCycle();
+      mockFullGoogleAdsCoverage(
+        vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates) as never,
+      );
+      readGoogleAdsFreshness.mockResolvedValue(
+        googleAdvisorUnavailableSnapshot("Google Ads freshness tables are not ready yet."),
+      );
+
+      const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+      const result = await runGoogleAdsRepairCycle("biz-1", {
+        enqueueScheduledWork: false,
+        queueWarehouseRepairs: true,
+      });
+
+      expect(result.repair.blocked).toBe(true);
+      expect(result.repair.blockingReasons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "recent_surface_freshness_unverified",
+            repairable: true,
+          }),
+        ]),
+      );
+      expect(result.repair.meta).toEqual(
+        expect.objectContaining({
+          recentSurfaceFreshnessUnverified: true,
+          recentSurfaceComplete: false,
+          recentSurfaceState: "unknown",
+        }),
+      );
+    });
+
+    it("reports a clean cycle only when every advisor day was re-read after it closed", async () => {
+      const googleAdsWarehouse = await setUpQuietGoogleRepairCycle();
+      mockFullGoogleAdsCoverage(
+        vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates) as never,
+      );
+      readGoogleAdsFreshness.mockResolvedValue(
+        googleAdvisorFreshnessSnapshot({
+          coveredDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+          postCloseObservedDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+          lookbackExhaustedDays: GOOGLE_ADVISOR_WINDOW_DAYS,
+        }),
+      );
+
+      const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+      const result = await runGoogleAdsRepairCycle("biz-1", {
+        enqueueScheduledWork: false,
+        queueWarehouseRepairs: true,
+      });
+
+      expect(result.repair.blocked).toBe(false);
+      expect(result.repair.meta).toEqual(
+        expect.objectContaining({
+          recentSurfaceComplete: true,
+          recentSurfaceState: "settled",
+          recentSurfaceFreshnessUnverified: false,
+        }),
+      );
+    });
+
+    it("still queues genuinely missing advisor days from row existence alone", async () => {
+      const googleAdsWarehouse = await setUpQuietGoogleRepairCycle();
+      // Zero rows on 2026-04-06 for both advisor scopes: a real gap, detected
+      // exactly as before and independent of any freshness verdict.
+      vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates).mockImplementation(
+        async (input) => {
+          const dates: string[] = [];
+          const cursor = new Date(`${input.startDate}T00:00:00Z`);
+          const end = new Date(`${input.endDate}T00:00:00Z`);
+          while (cursor <= end) {
+            const date = cursor.toISOString().slice(0, 10);
+            if (date !== "2026-04-06") dates.push(date);
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+          }
+          return dates as never;
+        },
+      );
+      readGoogleAdsFreshness.mockResolvedValue(
+        googleAdvisorFreshnessSnapshot({
+          coveredDays: GOOGLE_ADVISOR_WINDOW_DAYS - 1,
+          postCloseObservedDays: GOOGLE_ADVISOR_WINDOW_DAYS - 1,
+          lookbackExhaustedDays: GOOGLE_ADVISOR_WINDOW_DAYS - 1,
+        }),
+      );
+
+      const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+      const result = await runGoogleAdsRepairCycle("biz-1", {
+        enqueueScheduledWork: false,
+        queueWarehouseRepairs: true,
+      });
+
+      expect(syncGoogleAdsRange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startDate: "2026-04-06",
+          endDate: "2026-04-06",
+          scopes: ["search_term_daily"],
+          triggerSource: "repair_recent_day:search_term_daily",
+        }),
+      );
+      expect(result.repair.meta).toEqual(
+        expect.objectContaining({
+          recentGapRepairScopes: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "product_daily",
+              missingDates: ["2026-04-06"],
+            }),
+          ]),
+        }),
+      );
+      expect(result.repair.blockingReasons).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "missing_recent_required_surfaces" }),
+        ]),
+      );
+    });
   });
 });

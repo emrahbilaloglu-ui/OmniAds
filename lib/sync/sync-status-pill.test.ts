@@ -295,18 +295,62 @@ describe("sync status pill resolver", () => {
     });
   });
 
-  it("renders an active pill for ready Google Ads", () => {
+  it("renders an active pill for ready Google Ads that was re-read after closing", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({
         connected: true,
         assignedAccountIds: ["acc_1"],
         state: "ready",
+        freshness: {
+          evidenceAvailable: true,
+          state: "settled",
+          percent: 100,
+          label: "Policy-settled",
+        },
       } as never)
     ).toMatchObject({
       label: "Active",
       tone: "success",
       state: "active",
     });
+  });
+
+  it("refuses a green Google Ads pill without freshness evidence", () => {
+    // Four separate branches used to reach the green pill — control-plane
+    // closure, state==="ready", percent===100 and the final fallthrough — and
+    // `buildActivePill` hard-codes percent 100. None consulted freshness.
+    for (const freshness of [
+      undefined,
+      { evidenceAvailable: false, state: "unknown", percent: 0, label: "Unknown" },
+      { evidenceAvailable: true, state: "provisional", percent: 42, label: "Provisional" },
+      { evidenceAvailable: true, state: "missing", percent: 0, label: "Missing data" },
+    ]) {
+      const pill = resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "ready",
+        freshness,
+      } as never);
+      expect(pill?.tone, JSON.stringify(freshness)).not.toBe("success");
+      expect(pill?.state).not.toBe("active");
+      expect(pill?.percent ?? 0).toBeLessThan(100);
+    }
+  });
+
+  it("keeps the pill green but under 100 while conversions can still arrive", () => {
+    const pill = resolveGoogleAdsSyncStatusPill({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      state: "ready",
+      freshness: {
+        evidenceAvailable: true,
+        state: "converging",
+        percent: 99,
+        label: "Refreshing",
+      },
+    } as never);
+    expect(pill).toMatchObject({ tone: "success", state: "active" });
+    expect(pill?.percent).toBe(99);
   });
 
   it("prefers shared control-plane closure for Google Ads even when provider-local state lags", () => {
@@ -372,12 +416,47 @@ describe("sync status pill resolver", () => {
           recommendations: [],
           emittedAt: "2026-04-20T07:22:20.672Z",
         },
+        freshness: {
+          evidenceAvailable: true,
+          state: "settled",
+          percent: 100,
+          label: "Policy-settled",
+        },
       } as never)
     ).toMatchObject({
       label: "Active",
       tone: "success",
       state: "active",
     });
+  });
+
+  it("does not go green on control-plane closure alone", () => {
+    // A passing release gate reaches this pill through `truthReady`, which is
+    // derived from `completedDays > 0` plus a recent successful sync — neither
+    // of which says a closed day was ever re-read. Closure may silence
+    // attention; it may not manufacture a green 100%.
+    const closedButFrozen = JSON.parse(
+      JSON.stringify({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "action_required",
+        blockerClass: "none",
+        operations: { progressState: "blocked" },
+        controlPlanePersistence: { exactRowsPresent: true, missingExact: [] },
+        releaseGate: { verdict: "pass", baseResult: "pass", blockerClass: null },
+        repairPlan: { recommendations: [] },
+        freshness: {
+          evidenceAvailable: true,
+          state: "provisional",
+          percent: 30,
+          label: "Provisional",
+        },
+      }),
+    );
+    const pill = resolveGoogleAdsSyncStatusPill(closedButFrozen as never);
+    expect(pill?.tone).not.toBe("success");
+    expect(pill?.state).not.toBe("active");
+    expect(pill?.percent ?? 0).toBeLessThan(100);
   });
 
   it("shows background refresh instead of active when Google control-plane is closed but backfill is incomplete", () => {
@@ -513,29 +592,46 @@ describe("sync status pill resolver", () => {
     });
   });
 
-  it("prefers historical Google coverage over selected-range coverage for generic sync percent", () => {
-    expect(
-      resolveGoogleAdsSyncStatusPill({
-        connected: true,
-        assignedAccountIds: ["acc_1"],
-        state: "syncing",
-        warehouse: {
-          coverage: {
-            selectedRange: {
-              completedDays: 7,
-              totalDays: 7,
-            },
-            historical: {
-              completedDays: 42,
-              totalDays: 84,
-            },
-          },
-        },
-      } as never)
-    ).toMatchObject({
-      label: "50% Syncing",
-      tone: "info",
+  it("takes the Google sync percent from the verdict, never from coverage", () => {
+    // This test used to assert `label: "50% Syncing"` from
+    // historical.completedDays / totalDays. That preference is gone: coverage
+    // is 7/7 and 42/84 here, and neither 100 nor 50 may reach the pill.
+    const pill = resolveGoogleAdsSyncStatusPill({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
       state: "syncing",
-    });
+      freshness: {
+        evidenceAvailable: true,
+        state: "provisional",
+        percent: 12,
+        label: "Provisional",
+      },
+      warehouse: {
+        coverage: {
+          selectedRange: { completedDays: 7, totalDays: 7 },
+          historical: { completedDays: 42, totalDays: 84 },
+        },
+      },
+    } as never);
+    expect(pill?.percent).toBe(12);
+    expect(pill?.percent).not.toBe(50);
+    expect(pill?.tone).not.toBe("success");
+  });
+
+  it("publishes no Google percent at all when there is no verdict to publish", () => {
+    const pill = resolveGoogleAdsSyncStatusPill({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      state: "syncing",
+      warehouse: {
+        coverage: {
+          selectedRange: { completedDays: 7, totalDays: 7 },
+          historical: { completedDays: 42, totalDays: 84 },
+        },
+      },
+    } as never);
+    // Fully covered on both ranges; inventing 100 from that is the defect.
+    expect(pill?.percent).toBeNull();
+    expect(pill?.tone).not.toBe("success");
   });
 });

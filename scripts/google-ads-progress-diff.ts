@@ -1,8 +1,31 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
+import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import { addDaysToIsoDateUtc } from "@/lib/provider-platform-date";
+import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 loadEnvConfig(process.cwd());
+
+/**
+ * The scopes and window this diff reports freshness for.
+ *
+ * `completed_days` and the partition counters below are a legitimate progress
+ * question — "did the worker move since T" — and they are unchanged. But a
+ * `completed_days` that advanced tells you a date acquired its FIRST row, not
+ * that any date was re-read after closing, so a run can look like steady
+ * progress while the whole window stays provisional. The freshness verdict is
+ * added so both movements are visible in one output.
+ */
+const PROGRESS_DIFF_SCOPES: GoogleAdsWarehouseScope[] = [
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+];
+const PROGRESS_DIFF_WINDOW_DAYS = 14;
 
 async function main() {
   configureOperationalScriptRuntime({
@@ -58,6 +81,18 @@ async function main() {
     ORDER BY scope, status
   ` as Array<Record<string, unknown>>;
 
+  const endDate = new Date().toISOString().slice(0, 10);
+  const startDate = addDaysToIsoDateUtc(endDate, -(PROGRESS_DIFF_WINDOW_DAYS - 1));
+  // ONE bulk read for every scope in the window.
+  const freshness = toGoogleAdsFreshnessSummary(
+    await readGoogleAdsFreshness({
+      businessId,
+      scopes: PROGRESS_DIFF_SCOPES,
+      startDate,
+      endDate,
+    }),
+  );
+
   console.log(
     JSON.stringify(
       {
@@ -67,6 +102,7 @@ async function main() {
         states: rows,
         partitions: partitionRows,
         runsSince: recentRuns,
+        freshness,
       },
       null,
       2

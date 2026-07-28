@@ -1,5 +1,11 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
-import { isGoogleAdsControlPlaneClosed } from "@/lib/google-ads/sync-progress-ux";
+import {
+  boundGoogleAdsWorkPercent,
+  describeGoogleAdsFreshness,
+  isGoogleAdsControlPlaneClosed,
+  resolveGoogleAdsFreshnessView,
+  type GoogleAdsFreshnessView,
+} from "@/lib/google-ads/sync-progress-ux";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 
@@ -14,6 +20,7 @@ export type GoogleIntegrationProgressStageKey =
   | "queue_worker"
   | "core_data"
   | "selected_range"
+  | "freshness"
   | "analysis"
   | "attention";
 
@@ -50,6 +57,8 @@ function getStageTitle(
       return language === "tr" ? "Çekirdek veri" : "Core data";
     case "selected_range":
       return language === "tr" ? "Görünür kapsam" : "Visible coverage";
+    case "freshness":
+      return language === "tr" ? "Veri tazeliği" : "Data freshness";
     case "analysis":
       return language === "tr" ? "Analiz / advisor" : "Analysis / advisor";
     default:
@@ -114,17 +123,133 @@ function buildSelectedRangeEvidence(
 ) {
   const range = status.warehouse?.coverage?.selectedRange;
   if (range?.totalDays && range.totalDays > 0) {
-    const readyThrough = range.readyThroughDate
+    // Deliberately worded as row presence, not readiness. These counts come
+    // from `SELECT DISTINCT date`: they say a day was written at least once,
+    // never that it was re-read after it closed. The freshness stage answers
+    // that question, and only it may.
+    const rowsThrough = range.readyThroughDate
       ? language === "tr"
-        ? `Hazır: ${range.readyThroughDate}`
-        : `Ready through ${range.readyThroughDate}`
+        ? `Kayıt: ${range.readyThroughDate}`
+        : `Rows through ${range.readyThroughDate}`
       : null;
-    return [`${range.completedDays}/${range.totalDays} ${language === "tr" ? "gün" : "days"}`, readyThrough]
+    return [
+      language === "tr"
+        ? `${range.completedDays}/${range.totalDays} gün veri`
+        : `${range.completedDays}/${range.totalDays} days with data`,
+      rowsThrough,
+    ]
       .filter(Boolean)
       .join(" • ");
   }
 
   return null;
+}
+
+function getFreshnessLabel(view: GoogleAdsFreshnessView, language: MetaUiLanguage) {
+  if (language !== "tr") return view.label;
+  switch (view.state) {
+    case "settled":
+      return "politika gereği kapandı";
+    case "converging":
+      return "yenileniyor";
+    case "provisional":
+      return "geçici";
+    case "missing":
+      return "veri eksik";
+    default:
+      return "bilinmiyor";
+  }
+}
+
+function describeFreshness(view: GoogleAdsFreshnessView, language: MetaUiLanguage) {
+  if (language !== "tr") return describeGoogleAdsFreshness(view);
+  if (view.settled) {
+    return view.conversionLookbackDays != null
+      ? `${view.conversionLookbackDays} günlük dönüşüm penceresine göre kapandı; Google bu pencere içinde dönüşümleri hâlâ revize edebilir.`
+      : "Yapılandırılmış dönüşüm penceresine göre kapandı; Google bu pencere içinde dönüşümleri hâlâ revize edebilir.";
+  }
+  switch (view.state) {
+    case "converging":
+      return "Tüm günler kapandıktan sonra yeniden okundu; dönüşüm penceresi içinde yeni dönüşümler gelebilir.";
+    case "provisional":
+      return "En az bir gün kapandıktan sonra hiç yeniden okunmadı; bu kapsam geçici.";
+    case "missing":
+      return "Seçili aralığın bir bölümünde henüz hiç veri yok.";
+    default:
+      return "Google Ads tazelik kanıtı okunamadı; doğrulanana kadar sorgulanmaya devam ediliyor.";
+  }
+}
+
+function toDayCount(value: number | null | undefined) {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value as number)) : 0;
+}
+
+function buildFreshnessEvidence(
+  status: GoogleAdsStatusResponse,
+  view: GoogleAdsFreshnessView,
+  language: MetaUiLanguage,
+) {
+  const summary = status.freshness;
+  if (!view.evidenceAvailable || !summary) return null;
+  const scopes = Array.isArray(summary.scopes) ? summary.scopes : [];
+  const totalDays = toDayCount(summary.totalDays);
+  if (scopes.length === 0 || totalDays === 0) return null;
+
+  // The weakest scope decides, exactly as it does server-side: a range is not
+  // observed because most of its surfaces were.
+  const observedDays = scopes.reduce(
+    (weakest, scope) => Math.min(weakest, toDayCount(scope.postCloseObservedDays)),
+    Number.POSITIVE_INFINITY,
+  );
+  const dueNowDays = scopes.reduce(
+    (worst, scope) => Math.max(worst, toDayCount(scope.dueNowDays)),
+    0,
+  );
+
+  const parts = [
+    language === "tr"
+      ? `${Math.min(observedDays, totalDays)}/${totalDays} gün kapanış sonrası okundu`
+      : `${Math.min(observedDays, totalDays)}/${totalDays} days re-read after close`,
+  ];
+  if (dueNowDays > 0) {
+    parts.push(
+      language === "tr" ? `${dueNowDays} gün sırada` : `${dueNowDays} days due now`,
+    );
+  }
+  return parts.join(" • ");
+}
+
+/**
+ * The stage that answers the question row existence never could: have these
+ * days been re-read since they closed?
+ *
+ * It renders in every state, including `unknown` — neutral, never green, never
+ * an error. Its absence is what let a green workspace stand over a day captured
+ * once at 01:40 and never looked at again.
+ */
+function buildFreshnessStage(
+  status: GoogleAdsStatusResponse,
+  language: MetaUiLanguage,
+  view: GoogleAdsFreshnessView,
+): GoogleIntegrationProgressStage {
+  const state: GoogleIntegrationProgressStageState = view.settled
+    ? "ready"
+    : view.state === "converging" || view.state === "provisional"
+      ? "working"
+      : // `missing` and `unknown` are neutral: one is a fact about the data, the
+        // other an admission about us. Neither is a failure the user can fix.
+        "waiting";
+
+  return {
+    key: "freshness",
+    title: getStageTitle("freshness", language),
+    state,
+    label: getFreshnessLabel(view, language),
+    detail: describeFreshness(view, language),
+    // No verdict, no number. A percent we cannot back is worse than none.
+    percent: view.evidenceAvailable ? view.percent : null,
+    evidence: buildFreshnessEvidence(status, view, language),
+  };
 }
 
 function getAnalysisEvidence(
@@ -307,6 +432,7 @@ function buildQueueStage(
 function buildCoreStage(
   status: GoogleAdsStatusResponse,
   language: MetaUiLanguage,
+  freshness: GoogleAdsFreshnessView,
 ): GoogleIntegrationProgressStage {
   const core = status.domains?.core;
   const requiredCoverage = status.requiredScopeCompletion;
@@ -350,7 +476,10 @@ function buildCoreStage(
         : "Summary and campaign data are still being prepared."),
     percent:
       state !== "ready" && requiredCoverage && !requiredCoverage.complete
-        ? clampPercent(requiredCoverage.percent)
+        ? // `requiredCoverage.percent` is completedDays/totalDays. It may show
+          // how far the backfill has walked, never more completion than the
+          // freshness verdict allows.
+          boundGoogleAdsWorkPercent(clampPercent(requiredCoverage.percent) ?? 0, freshness)
         : null,
     evidence:
       requiredCoverage?.readyThroughDate
@@ -364,6 +493,7 @@ function buildCoreStage(
 function buildSelectedRangeStage(
   status: GoogleAdsStatusResponse,
   language: MetaUiLanguage,
+  freshness: GoogleAdsFreshnessView,
 ): GoogleIntegrationProgressStage {
   const selectedRange = status.domains?.selectedRange;
   const range = status.warehouse?.coverage?.selectedRange;
@@ -375,9 +505,13 @@ function buildSelectedRangeStage(
     !range;
   const percent =
     range && range.totalDays > 0 && !range.isComplete
-      ? clampPercent((range.completedDays / Math.max(1, range.totalDays)) * 100)
+      ? // This used to be `completedDays / totalDays * 100` — row existence
+        // dressed up as progress, the arithmetic that let a day read once at
+        // 01:40 count as done forever. The verdict owns the number now, and
+        // when there is no verdict we publish no percent at all.
+        (freshness.evidenceAvailable ? freshness.percent : null)
       : showHistoricalBackfill
-        ? clampPercent(requiredCoverage.percent)
+        ? boundGoogleAdsWorkPercent(clampPercent(requiredCoverage.percent) ?? 0, freshness)
       : null;
   const state: GoogleIntegrationProgressStageState =
     showHistoricalBackfill
@@ -536,11 +670,16 @@ export function resolveGoogleIntegrationProgress(
   if (!status?.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
 
+  // One reading of the authoritative verdict, shared by every stage that would
+  // otherwise reach for coverage on its own.
+  const freshness = resolveGoogleAdsFreshnessView(status);
+
   const stages: GoogleIntegrationProgressStage[] = [
     buildConnectionStage(status, language),
     buildQueueStage(status, language),
-    buildCoreStage(status, language),
-    buildSelectedRangeStage(status, language),
+    buildCoreStage(status, language, freshness),
+    buildSelectedRangeStage(status, language, freshness),
+    buildFreshnessStage(status, language, freshness),
     buildAnalysisStage(status, language),
   ];
 

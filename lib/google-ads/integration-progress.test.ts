@@ -1,6 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { resolveGoogleIntegrationProgress } from "@/lib/google-ads/integration-progress";
+import type { GoogleAdsFreshnessSummary } from "@/lib/google-ads/freshness-read";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+
+/** Words no Google Ads freshness surface may ever use. */
+const IMMUTABILITY_CLAIMS =
+  /\b(final|finalis|finaliz|immutable|complete|frozen|locked|never change|100% synced)/i;
+
+function buildFreshness(
+  overrides: Partial<GoogleAdsFreshnessSummary> = {},
+): GoogleAdsFreshnessSummary {
+  return {
+    evidenceAvailable: true,
+    unavailableReason: null,
+    state: "provisional",
+    label: "Provisional",
+    percent: 42,
+    complete: false,
+    mayStopPolling: false,
+    detail: "4 of 7 days have not been re-read since they closed.",
+    startDate: "2026-04-13",
+    endDate: "2026-04-19",
+    totalDays: 7,
+    includesOpenDay: false,
+    timeZoneSource: "account",
+    conversionLookbackDays: 30,
+    scopes: [
+      {
+        scope: "campaign_daily",
+        state: "provisional",
+        label: "Provisional",
+        percent: 42,
+        complete: false,
+        mayStopPolling: false,
+        detail: "4 of 7 days have not been re-read since they closed.",
+        // Every day has rows; only three were ever re-read after closing.
+        coveredDays: 7,
+        postCloseObservedDays: 3,
+        lookbackExhaustedDays: 0,
+        dueNowDays: 4,
+        oldestObservationAt: "2026-04-14T01:40:00.000Z",
+        latestObservationAt: "2026-04-17T01:40:00.000Z",
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function buildGoogleStatus(
   overrides: Partial<GoogleAdsStatusResponse> = {},
@@ -306,5 +351,200 @@ describe("resolveGoogleIntegrationProgress", () => {
 
     expect(model?.attentionNeeded).toBe(true);
     expect(model?.stages.some((stage) => stage.key === "attention")).toBe(true);
+  });
+
+  describe("data freshness stage", () => {
+    it("reports a covered-but-never-re-read range as non-green and below 100", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildGoogleStatus({ freshness: buildFreshness() }),
+        "en",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        title: "Data freshness",
+        // Not "ready": ready is the only green state this component paints.
+        state: "working",
+        label: "Provisional",
+        percent: 42,
+      });
+      expect(stage?.percent).toBeLessThan(100);
+      expect(stage?.detail).not.toMatch(IMMUTABILITY_CLAIMS);
+      expect(stage?.detail).toContain("30-day conversion window");
+      // The evidence is the count that matters: days re-read after close.
+      expect(stage?.evidence).toBe("3/7 days re-read after close • 4 days due now");
+    });
+
+    it("keeps a converging range at 99 and calls it refreshing", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildGoogleStatus({
+          freshness: buildFreshness({
+            state: "converging",
+            label: "Refreshing",
+            percent: 99,
+            detail:
+              "All days re-read after closing; conversions may still arrive within the conversion window.",
+            scopes: [],
+          }),
+        }),
+        "en",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        state: "working",
+        label: "Refreshing",
+        percent: 99,
+      });
+      expect(stage?.detail).not.toMatch(IMMUTABILITY_CLAIMS);
+    });
+
+    it("only reports 100 on a settled verdict, and says what it was settled against", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildGoogleStatus({
+          freshness: buildFreshness({
+            state: "settled",
+            label: "Policy-settled",
+            percent: 100,
+            complete: true,
+            mayStopPolling: true,
+            detail: "All days re-read after closing and past the conversion window.",
+            scopes: [],
+          }),
+        }),
+        "en",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        state: "ready",
+        label: "Policy-settled",
+        percent: 100,
+      });
+      expect(stage?.detail).toBe(
+        "Settled against a 30-day conversion window; Google can still revise conversions inside it.",
+      );
+      expect(stage?.detail).not.toMatch(IMMUTABILITY_CLAIMS);
+    });
+
+    it("renders unreadable evidence as neutral and numberless, never as an error", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildGoogleStatus({
+          freshness: buildFreshness({
+            evidenceAvailable: false,
+            unavailableReason: "Google Ads freshness tables are not ready yet.",
+            state: "unknown",
+            label: "Unknown",
+            percent: 0,
+            scopes: [],
+          }),
+        }),
+        "en",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        // Neutral grey, not the amber "blocked" the user would read as a fault.
+        state: "waiting",
+        label: "Unknown",
+        // A percent we cannot back is worse than none at all.
+        percent: null,
+      });
+      expect(stage?.detail).toContain("Google Ads freshness tables are not ready yet.");
+      expect(stage?.detail).toContain("still being polled");
+      expect(stage?.evidence).toBeNull();
+    });
+
+    it("fails closed when the response carries no freshness at all", () => {
+      const model = resolveGoogleIntegrationProgress(buildGoogleStatus(), "en");
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        state: "waiting",
+        label: "Unknown",
+        percent: null,
+      });
+      expect(stage?.detail).toContain(
+        "This deployment did not report Google Ads freshness evidence.",
+      );
+    });
+
+    it("localizes the freshness verdict", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildGoogleStatus({ freshness: buildFreshness() }),
+        "tr",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "freshness");
+      expect(stage).toMatchObject({
+        title: "Veri tazeliği",
+        label: "geçici",
+        percent: 42,
+      });
+      expect(stage?.evidence).toBe("3/7 gün kapanış sonrası okundu • 4 gün sırada");
+    });
+  });
+
+  describe("visible coverage never states its own completion percent", () => {
+    function buildPartialRangeStatus(
+      freshness?: GoogleAdsFreshnessSummary,
+    ): GoogleAdsStatusResponse {
+      return buildGoogleStatus({
+        domains: {
+          core: {
+            state: "ready",
+            label: "Core ready",
+            detail: "Summary and campaign data are ready.",
+          },
+          selectedRange: {
+            state: "partial",
+            label: "Range partial",
+            detail: "Selected range surfaces are still preparing.",
+          },
+          advisor: {
+            state: "ready",
+            label: "Analysis ready",
+            detail: "Analysis inputs are ready.",
+          },
+        },
+        warehouse: {
+          rowCount: 5,
+          firstDate: "2026-04-13",
+          lastDate: "2026-04-19",
+          coverage: {
+            selectedRange: {
+              startDate: "2026-04-13",
+              endDate: "2026-04-19",
+              // 5/7 -> the old code rendered 71% straight from row existence.
+              completedDays: 5,
+              totalDays: 7,
+              readyThroughDate: "2026-04-17",
+              isComplete: false,
+            },
+          },
+        },
+        ...(freshness ? { freshness } : {}),
+      });
+    }
+
+    it("takes the visible percent from the verdict, not from completedDays/totalDays", () => {
+      const model = resolveGoogleIntegrationProgress(
+        buildPartialRangeStatus(buildFreshness()),
+        "en",
+      );
+
+      const stage = model?.stages.find((s) => s.key === "selected_range");
+      expect(stage?.percent).toBe(42);
+      expect(stage?.percent).not.toBe(71);
+      // Row presence is still shown, but named for what it is.
+      expect(stage?.evidence).toBe("5/7 days with data • Rows through 2026-04-17");
+    });
+
+    it("publishes no percent at all when there is no verdict to back one", () => {
+      const model = resolveGoogleIntegrationProgress(buildPartialRangeStatus(), "en");
+
+      const stage = model?.stages.find((s) => s.key === "selected_range");
+      expect(stage?.percent).toBeNull();
+    });
   });
 });

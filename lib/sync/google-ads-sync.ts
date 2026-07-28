@@ -42,6 +42,7 @@ import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
   getGoogleAdsDatesDueForRefresh,
+  getGoogleAdsPostCloseObservedDates,
   hasPostCloseObservation,
   recordGoogleAdsDayObservation,
   resolveAccountDayClosedAt,
@@ -2011,13 +2012,29 @@ export function normalizeGoogleAdsPartitionDateKey(value: unknown) {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Which queued core partitions may be cancelled as already-done work.
+ *
+ * The most damaging remaining use of coverage was here. Cancelling on row
+ * existence does not merely fail to enqueue a frozen day — it actively DELETES
+ * the queued work that would have re-read it, and stamps the partition
+ * "superseded by canonical warehouse coverage". A date captured once at 01:40
+ * had its own refetch cancelled on that basis.
+ *
+ * A partition may only be cancelled when the date is both covered AND has been
+ * observed after its day closed. Everything else stays queued.
+ */
 export function getGoogleAdsCoveredCorePartitionDatesToCancel(input: {
   partitionDates: string[];
   coveredDates: string[];
+  postCloseObservedDates: string[];
 }) {
   const covered = new Set(input.coveredDates);
+  const observed = new Set(input.postCloseObservedDates);
   return Array.from(
-    new Set(input.partitionDates.filter((date) => covered.has(date))),
+    new Set(
+      input.partitionDates.filter((date) => covered.has(date) && observed.has(date)),
+    ),
   ).sort();
 }
 
@@ -2051,16 +2068,32 @@ export async function cancelCoveredGoogleAdsCoreBacklog(input: {
         .filter((date): date is string => Boolean(date));
       if (partitionDates.length === 0) continue;
 
-      const coveredDates = await getGoogleAdsCoveredDates({
-        businessId: input.businessId,
-        providerAccountId,
-        scope,
-        startDate: partitionDates[0] ?? partitionDates[partitionDates.length - 1],
-        endDate: partitionDates[partitionDates.length - 1] ?? partitionDates[0],
-      }).catch(() => []);
+      const cancelStartDate =
+        partitionDates[0] ?? partitionDates[partitionDates.length - 1] ?? "";
+      const cancelEndDate =
+        partitionDates[partitionDates.length - 1] ?? partitionDates[0] ?? "";
+      const [coveredDates, postCloseObservedDates] = await Promise.all([
+        getGoogleAdsCoveredDates({
+          businessId: input.businessId,
+          providerAccountId,
+          scope,
+          startDate: cancelStartDate,
+          endDate: cancelEndDate,
+        }).catch(() => [] as string[]),
+        // Fails closed: with no observation evidence nothing is cancelled, so
+        // the queued re-read survives rather than being deleted on a guess.
+        getGoogleAdsPostCloseObservedDates({
+          businessId: input.businessId,
+          providerAccountId,
+          scope,
+          startDate: cancelStartDate,
+          endDate: cancelEndDate,
+        }).catch(() => [] as string[]),
+      ]);
       const datesToCancel = getGoogleAdsCoveredCorePartitionDatesToCancel({
         partitionDates,
         coveredDates,
+        postCloseObservedDates,
       });
       if (datesToCancel.length === 0) continue;
 
@@ -3557,25 +3590,31 @@ async function queueGoogleAdsD1FinalizePartitions(input: {
         accounts: [{ externalAccountId: input.providerAccountId }],
       })
     ).get(input.providerAccountId) ?? null;
-  const [accountRows, campaignRows] = await Promise.all([
-    getGoogleAdsCoveredDates({
+  // Whether to QUEUE the D+1 refetch, decided on observation and not coverage.
+  //
+  // This gate used to ask `getGoogleAdsCoveredDates(...).includes(targetDate)`,
+  // i.e. "does the date have any row at all". A single intraday read at 01:40
+  // leaves a row, so the D+1 refetch was never enqueued for exactly the dates
+  // that most needed it — the frozen ones. The completion RECEIPT was already
+  // bound to a post-close observation; without this the receipt simply had
+  // nothing to wait for, because the work was never queued.
+  const [accountObserved, campaignObserved] = await Promise.all([
+    hasPostCloseObservation({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       scope: "account_daily",
-      startDate: input.targetDate,
-      endDate: input.targetDate,
-    }).catch(() => [] as string[]),
-    getGoogleAdsCoveredDates({
+      date: input.targetDate,
+    }).catch(() => false),
+    hasPostCloseObservation({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       scope: "campaign_daily",
-      startDate: input.targetDate,
-      endDate: input.targetDate,
-    }).catch(() => [] as string[]),
+      date: input.targetDate,
+    }).catch(() => false),
   ]);
   const scopesToQueue = getGoogleAdsD1FinalizeScopesToQueue({
-    accountDailyCovered: accountRows.includes(input.targetDate),
-    campaignDailyCovered: campaignRows.includes(input.targetDate),
+    accountDailyObservedPostClose: accountObserved,
+    campaignDailyObservedPostClose: campaignObserved,
   });
   if (scopesToQueue.length === 0) {
     return 0;
@@ -3806,21 +3845,12 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   let queuedFinalizePartitions = 0;
   for (const account of accounts) {
     const targetDate = account.currentD1TargetDate;
-    const [accountRows, campaignRows, activeAccountRows, activeCampaignRows] = await Promise.all([
-      getGoogleAdsCoveredDates({
-        businessId: input.businessId,
-        providerAccountId: account.providerAccountId,
-        scope: "account_daily",
-        startDate: targetDate,
-        endDate: targetDate,
-      }).catch(() => [] as string[]),
-      getGoogleAdsCoveredDates({
-        businessId: input.businessId,
-        providerAccountId: account.providerAccountId,
-        scope: "campaign_daily",
-        startDate: targetDate,
-        endDate: targetDate,
-      }).catch(() => [] as string[]),
+    // Only the ACTIVE partition dates are read here. Two getGoogleAdsCoveredDates
+    // calls used to sit at the front of this list; once the receipt below was
+    // rebound to a post-close observation nothing consumed them, and array
+    // destructuring hides an unused element from ESLint, so both queries were
+    // still being issued and discarded on every account on every pass.
+    const [activeAccountRows, activeCampaignRows] = await Promise.all([
       getGoogleAdsPartitionDates({
         businessId: input.businessId,
         providerAccountId: account.providerAccountId,
@@ -4009,46 +4039,50 @@ export function planGoogleAdsRecentMaintenanceDates(input: {
   return input.recentDates.filter((date) => !blockedDates.has(date));
 }
 
+/**
+ * Which queued recent-maintenance partitions may be cancelled.
+ *
+ * Same correction as the core backlog: a covered date whose day has never been
+ * re-read since it closed still owes a fetch, so cancelling it on coverage
+ * alone would churn against the rolling refresh — cancel, re-queue, cancel —
+ * and leave the date frozen in between.
+ */
 export function getGoogleAdsCoveredRecentMaintenanceDatesToCancel(input: {
   coveredDates: string[];
+  postCloseObservedDates: string[];
   protectedDates?: string[];
 }) {
   const protectedDates = new Set(input.protectedDates ?? []);
-  return input.coveredDates.filter((date) => !protectedDates.has(date));
+  const observed = new Set(input.postCloseObservedDates);
+  return input.coveredDates.filter(
+    (date) => !protectedDates.has(date) && observed.has(date),
+  );
 }
 
+/**
+ * Which scopes still need the D+1 refetch.
+ *
+ * The inputs are deliberately named for OBSERVATION, not coverage. A date is
+ * eligible for the rollover refetch until we have actually re-read it after the
+ * account's own day closed; having a row from an intraday read says nothing
+ * about whether the closed day's numbers were ever collected.
+ */
 export function getGoogleAdsD1FinalizeScopesToQueue(input: {
-  accountDailyCovered: boolean;
-  campaignDailyCovered: boolean;
+  accountDailyObservedPostClose: boolean;
+  campaignDailyObservedPostClose: boolean;
 }) {
   const scopes: GoogleAdsWarehouseScope[] = [];
-  if (!input.accountDailyCovered) scopes.push("account_daily");
-  if (!input.campaignDailyCovered) scopes.push("campaign_daily");
+  if (!input.accountDailyObservedPostClose) scopes.push("account_daily");
+  if (!input.campaignDailyObservedPostClose) scopes.push("campaign_daily");
   return scopes;
 }
 
-export function resolveGoogleAdsCoveredD1FinalizeResolution(input: {
-  matchingRows: Array<{
-    id: string;
-    source: string;
-    status: string;
-  }>;
-}) {
-  const finalizeRows = input.matchingRows.filter(
-    (row) => row.source === "finalize_day",
-  );
-  const queuedFinalizePartitionIds = finalizeRows
-    .filter((row) => row.status === "queued")
-    .map((row) => row.id);
-  const hasLiveFinalizeLeaseOrRun = finalizeRows.some(
-    (row) => row.status === "leased" || row.status === "running",
-  );
-  return {
-    queuedFinalizePartitionIds,
-    hasLiveFinalizeLeaseOrRun,
-    shouldMarkCompleted: !hasLiveFinalizeLeaseOrRun,
-  };
-}
+// resolveGoogleAdsCoveredD1FinalizeResolution lived here. It decided, for a
+// date whose only qualification was that rows existed, to CANCEL the queued
+// finalize partitions and mark the rollover complete. Its only call site was
+// behind an unreachable `if (covered)` branch and has been removed; keeping the
+// helper around would leave a ready-made way to cancel the very re-read this
+// depends on.
 
 export async function getGoogleAdsRecent90CompletionState(input: {
   businessId: string;
@@ -4225,24 +4259,32 @@ async function enqueueMaintenancePartitions(businessId: string) {
       yesterday,
       true,
     );
-    const [coveredRecentDates, activeRecentDates] = await Promise.all([
-      getGoogleAdsCoveredDates({
-        businessId,
-        providerAccountId,
-        scope: "campaign_daily",
-        startDate: recentStartDate,
-        endDate: today,
-      }).catch(() => [] as string[]),
-      getGoogleAdsPartitionDates({
-        businessId,
-        providerAccountId,
-        lane: "maintenance",
-        scope: "campaign_daily",
-        startDate: recentStartDate,
-        endDate: today,
-        statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
-      }).catch(() => [] as string[]),
-    ]);
+    const [coveredRecentDates, activeRecentDates, observedRecentDates] =
+      await Promise.all([
+        getGoogleAdsCoveredDates({
+          businessId,
+          providerAccountId,
+          scope: "campaign_daily",
+          startDate: recentStartDate,
+          endDate: today,
+        }).catch(() => [] as string[]),
+        getGoogleAdsPartitionDates({
+          businessId,
+          providerAccountId,
+          lane: "maintenance",
+          scope: "campaign_daily",
+          startDate: recentStartDate,
+          endDate: today,
+          statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
+        }).catch(() => [] as string[]),
+        getGoogleAdsPostCloseObservedDates({
+          businessId,
+          providerAccountId,
+          scope: "campaign_daily",
+          startDate: recentStartDate,
+          endDate: today,
+        }).catch(() => [] as string[]),
+      ]);
     const blockedRecentDates = new Set([
       ...coveredRecentDates,
       ...activeRecentDates,
@@ -4250,6 +4292,7 @@ async function enqueueMaintenancePartitions(businessId: string) {
     const coveredRecentDatesToCancel =
       getGoogleAdsCoveredRecentMaintenanceDatesToCancel({
         coveredDates: coveredRecentDates,
+        postCloseObservedDates: observedRecentDates,
         protectedDates: [today, yesterday],
       });
     if (coveredRecentDatesToCancel.length > 0) {

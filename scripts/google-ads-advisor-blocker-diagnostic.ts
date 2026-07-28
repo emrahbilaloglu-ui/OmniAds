@@ -3,6 +3,10 @@ import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-r
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import { getGoogleAdsDailyCoverage, getGoogleAdsCoveredDates } from "@/lib/google-ads/warehouse";
 import {
+  readGoogleAdsFreshness,
+  toGoogleAdsFreshnessSummary,
+} from "@/lib/google-ads/freshness-read";
+import {
   configureOperationalScriptRuntime,
   runOperationalMigrationsIfEnabled,
 } from "./_operational-runtime";
@@ -75,6 +79,8 @@ async function main() {
     })
   );
 
+  // Data availability: which campaign days have no rows at all, so their
+  // partitions can be inspected below. Row existence answers this honestly.
   const coveredCampaignDates = new Set(
     await getGoogleAdsCoveredDates({
       businessId,
@@ -84,6 +90,18 @@ async function main() {
       endDate,
     })
   );
+  // Freshness evidence, in one bulk read. Without it this diagnostic answers
+  // "why is the advisor blocked?" with coverage numbers alone, so a window
+  // whose days were each fetched once at 01:40 and never re-read reads as
+  // perfectly healthy — exactly the blindness the operator is here to escape.
+  const freshness = await readGoogleAdsFreshness({
+    businessId,
+    scopes: ["campaign_daily", "search_term_daily", "product_daily"],
+    startDate,
+    endDate,
+  })
+    .then(toGoogleAdsFreshnessSummary)
+    .catch(() => null);
   const missingCampaignDates = (await sql.query(
     `
       WITH days AS (
@@ -181,6 +199,25 @@ async function main() {
         missingSurfaces: coverage
           .filter((entry) => entry.completedDays < totalDays)
           .map((entry) => entry.scope),
+        freshness,
+        /** Could we read the evidence at all? `false` invalidates the claims below. */
+        freshnessVerified: freshness?.evidenceAvailable ?? false,
+        /**
+         * Surfaces with rows for every day that were nevertheless never
+         * re-read after a day closed. `missingSurfaces` cannot see these.
+         */
+        staleSurfaces: (freshness?.evidenceAvailable ? freshness.scopes : [])
+          .filter((scope) => scope.postCloseObservedDays < (freshness?.totalDays ?? 0))
+          .map((scope) => ({
+            scope: scope.scope,
+            state: scope.state,
+            coveredDays: scope.coveredDays,
+            postCloseObservedDays: scope.postCloseObservedDays,
+            unreobservedDays:
+              (freshness?.totalDays ?? 0) - scope.postCloseObservedDays,
+            dueNowDays: scope.dueNowDays,
+            latestObservationAt: scope.latestObservationAt,
+          })),
         campaignDaily: {
           missingDates: missingCampaignDates,
           partitionSummary: campaignPartitionRows,

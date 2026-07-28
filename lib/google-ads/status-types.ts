@@ -19,6 +19,7 @@ import type { SyncGateRecord } from "@/lib/sync/release-gates";
 import type { SyncRepairPlanRecord } from "@/lib/sync/repair-planner";
 import type { SyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import type { SyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
+import type { GoogleAdsFreshnessSummary } from "@/lib/google-ads/freshness-read";
 
 export interface GoogleAdsSyncDetails {
   id?: string | null;
@@ -221,11 +222,22 @@ export interface GoogleAdsStatusResponse {
       isPrimary: boolean;
     }>;
   };
+  /**
+   * The authoritative freshness verdict for the selected range.
+   *
+   * Every other completion-shaped field on this response is derived from the
+   * same snapshot. When `evidenceAvailable` is false the state is `unknown`:
+   * not green, not failed, and still polling.
+   */
+  freshness?: GoogleAdsFreshnessSummary | null;
   completionBasis?: {
     requiredScopes: string[];
     excludedScopes: string[];
     percent: number;
     complete: boolean;
+    /** Mirrors `freshness.state` so no consumer can read one without the other. */
+    state?: GoogleAdsFreshnessSummary["state"];
+    evidenceAvailable?: boolean;
   };
   completionBlockers?: string[];
   runtimeProgress?: GoogleAdsRuntimeProgressState | null;

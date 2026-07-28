@@ -21,6 +21,14 @@
  */
 
 export type GoogleAdsCompletionState =
+  /**
+   * The evidence could not be read at all — schema not ready, query failed, no
+   * assigned accounts, unusable account timezone. Deliberately NOT "missing":
+   * missing is a fact about the data, unknown is an admission about us. Both
+   * are non-green, but only unknown means "ask again", so callers must keep
+   * polling and must never present it as a completed or failed sync.
+   */
+  | "unknown"
   /** No rows at all for part of the range. */
   | "missing"
   /** Rows exist, but at least one date has never been observed after it closed. */
@@ -29,6 +37,36 @@ export type GoogleAdsCompletionState =
   | "converging"
   /** Every date observed post-close and past the configured lookback. */
   | "settled";
+
+/**
+ * Words a surface may show. Deliberately curated here rather than left to each
+ * caller, because the wording IS the claim: "Final" and "Complete" were the
+ * labels that made a frozen day look trustworthy. `settled` renders as
+ * "Policy-settled" — settled against OUR configured lookback, not a promise
+ * from Google that the numbers have stopped moving.
+ */
+export const GOOGLE_ADS_COMPLETION_LABELS: Record<GoogleAdsCompletionState, string> = {
+  unknown: "Unknown",
+  missing: "Missing data",
+  provisional: "Provisional",
+  converging: "Refreshing",
+  settled: "Policy-settled",
+};
+
+/**
+ * The fail-closed verdict. Every read path that cannot produce evidence must
+ * return this rather than falling back to coverage, which is exactly the
+ * substitution that produced a green 100% over a day captured at 01:40.
+ */
+export function unknownGoogleAdsCompletion(reason: string): GoogleAdsCompletionVerdict {
+  return {
+    state: "unknown",
+    percent: 0,
+    complete: false,
+    mayStopPolling: false,
+    detail: reason,
+  };
+}
 
 export interface GoogleAdsCompletionInput {
   /** Calendar days in the requested range. */

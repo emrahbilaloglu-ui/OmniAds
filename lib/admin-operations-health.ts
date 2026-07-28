@@ -606,6 +606,8 @@ interface RawGoogleAdsHealthRow {
   recent_search_term_completed_days?: number | string | null;
   recent_product_completed_days?: number | string | null;
   recent_asset_completed_days?: number | string | null;
+  /** Days in the recent window re-read after close across all extended scopes. */
+  recent_post_close_observed_days?: number | string | null;
   recent_range_total_days?: number | string | null;
   extended_recent_queue_depth?: number | string | null;
   extended_recent_leased_partitions?: number | string | null;
@@ -1112,10 +1114,15 @@ export function buildAdminSyncHealth(input: {
         : googleAdsGlobalReopenEnabled
           ? "global_reopen"
           : "global_backfill";
+    // "Ready" needs both: rows must exist AND every day in the window must have
+    // been re-read after it closed. The three coverage counts alone were
+    // satisfied by a single intraday fetch that was never repeated.
+    const recentPostCloseObservedDays = Number(row.recent_post_close_observed_days ?? 0);
     const recentExtendedReady =
       recentSearchTermCompletedDays >= recentRangeTotalDays &&
       recentProductCompletedDays >= recentRangeTotalDays &&
-      recentAssetCompletedDays >= recentRangeTotalDays;
+      recentAssetCompletedDays >= recentRangeTotalDays &&
+      recentPostCloseObservedDays >= recentRangeTotalDays;
     const historicalExtendedReady =
       searchTermCompletedDays >= 365 &&
       productCompletedDays >= 365 &&
@@ -2419,6 +2426,29 @@ async function readGoogleAdsHealthRows() {
       WHERE date >= CURRENT_DATE - interval '13 days'
       GROUP BY business_id
     ),
+    -- Freshness evidence for the recent extended window.
+    --
+    -- The three counts above are row existence: a date fetched once at 01:40
+    -- and never re-read satisfies all of them, which is how this dashboard
+    -- reported a business "fully ready" over data nobody had looked at since
+    -- the day closed. A date counts here only when every one of the three
+    -- extended scopes was observed AFTER that date's day closed.
+    recent_freshness AS (
+      SELECT
+        business_id,
+        COUNT(*) FILTER (WHERE observed_scopes >= 3) AS recent_post_close_observed_days
+      FROM (
+        SELECT business_id, date, COUNT(DISTINCT scope) AS observed_scopes
+        FROM google_ads_day_finality
+        WHERE date >= CURRENT_DATE - interval '13 days'
+          AND scope IN ('search_term_daily', 'product_daily', 'asset_daily')
+          AND day_closed_at IS NOT NULL
+          AND last_observed_at IS NOT NULL
+          AND last_observed_at >= day_closed_at
+        GROUP BY business_id, date
+      ) recent_freshness_days
+      GROUP BY business_id
+    ),
     recent_ready AS (
       SELECT business_id, MIN(date)::text AS extended_recent_ready_through_date
       FROM (
@@ -2600,6 +2630,7 @@ async function readGoogleAdsHealthRows() {
       COALESCE(recent_search.recent_search_term_completed_days, 0) AS recent_search_term_completed_days,
       COALESCE(recent_product.recent_product_completed_days, 0) AS recent_product_completed_days,
       COALESCE(recent_asset.recent_asset_completed_days, 0) AS recent_asset_completed_days,
+      COALESCE(recent_freshness.recent_post_close_observed_days, 0) AS recent_post_close_observed_days,
       14::int AS recent_range_total_days,
       partition.extended_recent_queue_depth,
       partition.extended_recent_leased_partitions,
@@ -2620,6 +2651,7 @@ async function readGoogleAdsHealthRows() {
     LEFT JOIN recent_search ON recent_search.business_id = partition.business_id
     LEFT JOIN recent_product ON recent_product.business_id = partition.business_id
     LEFT JOIN recent_asset ON recent_asset.business_id = partition.business_id
+    LEFT JOIN recent_freshness ON recent_freshness.business_id = partition.business_id
     LEFT JOIN recent_ready ON recent_ready.business_id = partition.business_id
     LEFT JOIN checkpoint_latest ON checkpoint_latest.business_id = partition.business_id
     LEFT JOIN checkpoint_rollup ON checkpoint_rollup.business_id = partition.business_id

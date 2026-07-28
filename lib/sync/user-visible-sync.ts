@@ -237,6 +237,38 @@ export function deriveGoogleUserVisibleSyncState(
       degradedServing: true,
     };
   }
+
+  // "Healthy" must survive the freshness question.
+  //
+  // Everything above derives from `coreUsable` / `domains.core.state`, which
+  // are availability answers: they say the workspace has data to render, not
+  // that the data was ever re-read after its day closed. A range captured once
+  // at 01:40 satisfies both and used to render a flat green "healthy".
+  //
+  // The bar for staying healthy is `converging` or `settled` — every day in the
+  // range re-read after it closed. `converging` counts because a rolling range
+  // always has recent days inside the conversion window, so demanding `settled`
+  // would mean never healthy. Anything weaker, INCLUDING a missing freshness
+  // block (older server, failed read), demotes to a non-alarming refreshing
+  // state rather than either lying green or raising a false incident.
+  if (state.kind === "healthy") {
+    // `evidenceAvailable` is checked separately from the state. Today the
+    // fail-closed snapshot always pairs `false` with `"unknown"`, so the two are
+    // equivalent — but a future route that emits a cached state alongside a
+    // failed read would otherwise slip a stale green through.
+    const freshness = status?.freshness ?? null;
+    const freshnessState = freshness?.evidenceAvailable === true ? freshness.state : null;
+    const observedPostClose =
+      freshnessState === "converging" || freshnessState === "settled";
+    if (!observedPostClose) {
+      return {
+        kind: "refreshing_in_background" as const,
+        label: "Refreshing in background",
+        suppressRecoverableAttention: true,
+        degradedServing: true,
+      };
+    }
+  }
   return state;
 }
 

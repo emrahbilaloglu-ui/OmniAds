@@ -22,6 +22,47 @@ interface SyncIssueRow {
   completedAt: string | null;
 }
 
+/**
+ * Mirrors `GoogleAdsFreshnessSummary` from `@/lib/google-ads/freshness-read`,
+ * declared locally in the file's existing style so a client component never
+ * reaches into a server module. The states are deliberately the same five: this
+ * page must render the verdict the scheduler acted on, not its own reading of
+ * the same numbers.
+ */
+interface GoogleAdsFreshnessScopeSummaryView {
+  scope: string;
+  state: "unknown" | "missing" | "provisional" | "converging" | "settled";
+  label: string;
+  percent: number;
+  complete: boolean;
+  mayStopPolling: boolean;
+  detail: string;
+  coveredDays: number;
+  postCloseObservedDays: number;
+  lookbackExhaustedDays: number;
+  dueNowDays: number;
+  oldestObservationAt: string | null;
+  latestObservationAt: string | null;
+}
+
+interface GoogleAdsFreshnessSummaryView {
+  evidenceAvailable: boolean;
+  unavailableReason: string | null;
+  state: "unknown" | "missing" | "provisional" | "converging" | "settled";
+  label: string;
+  percent: number;
+  complete: boolean;
+  mayStopPolling: boolean;
+  detail: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  includesOpenDay: boolean;
+  timeZoneSource: "account" | "default";
+  conversionLookbackDays: number;
+  scopes: GoogleAdsFreshnessScopeSummaryView[];
+}
+
 interface SyncHealthPayload {
   globalRebuildReview?: GlobalRebuildTruthReview;
   syncEffectivenessReview?: SyncEffectivenessReview;
@@ -221,6 +262,15 @@ interface SyncHealthPayload {
     metaD1FinalizeNonTerminalCount?: number;
     syncTruthState?: string | null;
     blockerClass?: string | null;
+    googleAdsFreshnessState?: GoogleAdsFreshnessSummaryView["state"];
+    googleAdsFreshnessLabel?: string;
+    googleAdsFreshnessPercent?: number;
+    googleAdsFreshnessComplete?: boolean;
+    googleAdsFreshnessMayStopPolling?: boolean;
+    googleAdsFreshnessDetail?: string;
+    googleAdsFreshnessEvidenceAvailable?: boolean;
+    googleAdsFreshnessRetryable?: boolean;
+    googleAdsFreshnessBusinessesNotSettled?: number;
   };
   issues: SyncIssueRow[];
   workerHealth?: {
@@ -296,6 +346,7 @@ interface SyncHealthPayload {
     extendedRecentReadyThroughDate?: string | null;
     integrityIncidentCount?: number;
     integrityBlockedCount?: number;
+    googleAdsFreshness?: GoogleAdsFreshnessSummaryView;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -530,10 +581,46 @@ function formatIssueType(issue: SyncIssueRow) {
   return issue.reportType;
 }
 
+/**
+ * The freshness verdict, rendered so only `settled` can look green.
+ *
+ * `unknown` gets amber, never red and never green: it means the evidence could
+ * not be read, which is a reason to keep asking, not a completed sync and not a
+ * permanent failure.
+ */
+function GoogleAdsFreshnessBadge({
+  freshness,
+}: {
+  freshness: GoogleAdsFreshnessSummaryView | undefined;
+}) {
+  const state = freshness?.state ?? "unknown";
+  const label = freshness?.label ?? "Unknown";
+  const className =
+    state === "settled"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      : state === "missing"
+        ? "border border-red-200 bg-red-50 text-red-700"
+        : "border border-amber-200 bg-amber-50 text-amber-800";
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${className}`}>
+      {label} {freshness ? `${freshness.percent}%` : ""}
+    </span>
+  );
+}
+
 function getGoogleAdsBusinessSignals(
   business: NonNullable<SyncHealthPayload["googleAdsBusinesses"]>[number]
 ) {
   const signals: string[] = [];
+  // Freshness first: a business can have an empty queue, no dead letters and a
+  // green worker while every day in the recent window was last read while it
+  // was still open.
+  const freshness = business.googleAdsFreshness;
+  if (!freshness || !freshness.evidenceAvailable) {
+    signals.push("Freshness unknown (retry)");
+  } else if (!freshness.complete) {
+    signals.push(`Not settled: ${freshness.label}`);
+  }
   if ((business.actionRequiredDeadLetterPartitions ?? 0) > 0) {
     signals.push(
       `Reconnect required: ${(business.actionRequiredBlockingDeadLetterScopes?.length ? business.actionRequiredBlockingDeadLetterScopes : business.actionRequiredDeadLetterScopes ?? []).join(", ") || "Google Ads"}`
@@ -775,6 +862,20 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="GAds Compact" value={summary.googleAdsCompactedPartitions} help="Extended Google Ads partitions compacted or suppressed during incident containment." />
         <MetricCard label="GAds Recovery" value={summary.googleAdsRecoveryBusinesses} help="Businesses currently in Google Ads half-open recovery mode." />
         <MetricCard label="GAds Global" value={summary.googleAdsGlobalReopenEnabled ? "on" : "off"} help="Global extended-lane execution posture for Google Ads rebuild work." />
+        <MetricCard
+          label="GAds Freshness"
+          value={
+            summary.googleAdsFreshnessLabel
+              ? `${summary.googleAdsFreshnessLabel} ${summary.googleAdsFreshnessPercent ?? 0}%`
+              : null
+          }
+          help="Weakest Google Ads freshness verdict across all businesses. Only 'Policy-settled' means every day in the window was re-read after it closed and is past the conversion lookback; 'Unknown' means the evidence could not be read and must be retried, never that the sync is healthy or failed."
+        />
+        <MetricCard
+          label="GAds Not Settled"
+          value={summary.googleAdsFreshnessBusinessesNotSettled}
+          help="Businesses whose Google Ads recent window is not policy-settled. Non-zero means the scheduler still has re-reads outstanding, regardless of queue depth."
+        />
         <MetricCard label="Meta Queue" value={summary.metaQueueDepth ?? 0} help="Meta partition queue depth across all businesses." />
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
@@ -1524,6 +1625,38 @@ export default function AdminSyncHealthPage() {
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling runs in normal queue order
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <GoogleAdsFreshnessBadge freshness={business.googleAdsFreshness} />
+                        <span className="text-xs text-gray-500">
+                          {business.googleAdsFreshness
+                            ? `${business.googleAdsFreshness.startDate} → ${business.googleAdsFreshness.endDate} • observed post-close ${
+                                business.googleAdsFreshness.scopes.length > 0
+                                  ? Math.min(
+                                      ...business.googleAdsFreshness.scopes.map(
+                                        (scope) => scope.postCloseObservedDays,
+                                      ),
+                                    )
+                                  : 0
+                              }/${business.googleAdsFreshness.totalDays} • due now ${
+                                business.googleAdsFreshness.scopes.length > 0
+                                  ? Math.max(
+                                      ...business.googleAdsFreshness.scopes.map(
+                                        (scope) => scope.dueNowDays,
+                                      ),
+                                    )
+                                  : business.googleAdsFreshness.totalDays
+                              } • lookback ${business.googleAdsFreshness.conversionLookbackDays}d`
+                            : "Freshness evidence has not been published for this business."}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {business.googleAdsFreshness?.detail ??
+                          "Google Ads freshness evidence could not be read; keep polling."}
+                        {business.googleAdsFreshness &&
+                        !business.googleAdsFreshness.evidenceAvailable
+                          ? ` (${business.googleAdsFreshness.unavailableReason ?? "evidence unavailable"} — retryable)`
+                          : ""}
                       </p>
                       {business.latestPoisonReason ? (
                         <p className="mt-1 text-xs text-amber-700">

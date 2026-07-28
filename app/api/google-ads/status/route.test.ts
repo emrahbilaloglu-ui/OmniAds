@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/google-ads/status/route";
+import {
+  resolveGoogleAdsCompletion,
+  unknownGoogleAdsCompletion,
+} from "@/lib/google-ads/completion-semantics";
+import type { GoogleAdsFreshnessSnapshot } from "@/lib/google-ads/freshness-read";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -8,11 +13,26 @@ vi.mock("@/lib/access", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  getDbWithTimeout: vi.fn(),
 }));
 
 vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
+  assertDbSchemaReady: vi.fn(),
 }));
+
+/**
+ * Only the READ is doubled. `toGoogleAdsFreshnessSummary` stays real, so the
+ * wire shape the route publishes is the one the contract produces — a route
+ * that quietly rebuilt the summary from coverage counts could not satisfy it.
+ */
+vi.mock("@/lib/google-ads/freshness-read", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/google-ads/freshness-read")>();
+  return {
+    ...actual,
+    readGoogleAdsFreshness: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/integrations", () => ({
   getIntegrationMetadata: vi.fn(),
@@ -53,17 +73,18 @@ vi.mock("@/lib/google-ads/history", () => ({
   }),
 }));
 
-vi.mock("@/lib/google-ads/core-readiness", () => ({
-  buildGoogleAdsCoreReadiness: vi.fn(() => ({
-    effectiveHistoricalTotalDays: 365,
-    overallCompletedDays: 365,
-    overallAccountCompletedDays: 365,
-    historicalReadyThroughDate: "2026-03-30",
-    productPendingSurfaces: [],
-    needsBootstrap: false,
-    historicalProgressPercent: 100,
-  })),
-}));
+/**
+ * Real by default. Core readiness is where the freshness verdicts the route
+ * passes in become `historicalCompletion`; stubbing it would let the route
+ * satisfy these tests without ever reading the snapshot.
+ */
+vi.mock("@/lib/google-ads/core-readiness", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/google-ads/core-readiness")>();
+  return {
+    ...actual,
+    buildGoogleAdsCoreReadiness: vi.fn(actual.buildGoogleAdsCoreReadiness),
+  };
+});
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsCheckpointHealth: vi.fn(),
@@ -81,6 +102,8 @@ vi.mock("@/lib/google-ads/status-machine", () => ({
     ready: false,
     notReady: true,
     readinessModel: "recent_84d_required_support",
+    freshnessBlocked: false,
+    recentCompletionState: "converging" as const,
   })),
   decideGoogleAdsFullSyncPriority: vi.fn(() => ({
     required: false,
@@ -278,6 +301,114 @@ vi.mock("@/lib/sync/incidents", () => ({
   })),
 }));
 
+const FRESHNESS_SCOPES = [
+  "account_daily",
+  "campaign_daily",
+  "search_term_daily",
+  "product_daily",
+  "asset_group_daily",
+  "asset_daily",
+  "geo_daily",
+  "device_daily",
+  "audience_daily",
+] as const;
+
+/**
+ * A freshness snapshot built the way the real reader builds one: the verdict
+ * comes from `resolveGoogleAdsCompletion` over the day counts, never from a
+ * hand-written state. A fixture that hard-coded `state: "settled"` would let a
+ * broken route pass by echoing it back.
+ *
+ * The window is deliberately wide so that the advisor and D+1 sub-windows the
+ * route checks fall inside whatever "today" the test is running on.
+ */
+function buildFreshnessSnapshot(input: {
+  totalDays?: number;
+  coveredDays?: number;
+  postCloseObservedDays?: number;
+  lookbackExhaustedDays?: number;
+  includesOpenDay?: boolean;
+  dueNowDays?: number;
+  startDate?: string;
+  endDate?: string;
+}): GoogleAdsFreshnessSnapshot {
+  const totalDays = input.totalDays ?? 365;
+  const coveredDays = input.coveredDays ?? totalDays;
+  const postCloseObservedDays = input.postCloseObservedDays ?? 0;
+  const lookbackExhaustedDays = input.lookbackExhaustedDays ?? 0;
+  const includesOpenDay = input.includesOpenDay ?? false;
+  const verdict = resolveGoogleAdsCompletion({
+    totalDays,
+    coveredDays,
+    postCloseObservedDays,
+    lookbackExhaustedDays,
+    includesOpenDay,
+  });
+  return {
+    businessId: "biz",
+    startDate: input.startDate ?? "2000-01-01",
+    endDate: input.endDate ?? "2099-12-31",
+    totalDays,
+    providerAccountIds: ["acc_1"],
+    timeZoneSource: "account",
+    includesOpenDay,
+    evidenceAvailable: true,
+    unavailableReason: null,
+    scopes: Object.fromEntries(
+      FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays,
+          postCloseObservedDays,
+          lookbackExhaustedDays,
+          dueNowDays: input.dueNowDays ?? Math.max(0, totalDays - postCloseObservedDays),
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+/** What the reader returns when it could not look: every verdict `unknown`. */
+function buildUnavailableFreshnessSnapshot(reason: string): GoogleAdsFreshnessSnapshot {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    businessId: "biz",
+    startDate: "2000-01-01",
+    endDate: "2099-12-31",
+    totalDays: 365,
+    providerAccountIds: [],
+    timeZoneSource: "default",
+    includesOpenDay: true,
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    scopes: Object.fromEntries(
+      FRESHNESS_SCOPES.map((scope) => [
+        scope,
+        {
+          scope,
+          coveredDays: 0,
+          postCloseObservedDays: 0,
+          lookbackExhaustedDays: 0,
+          dueNowDays: 0,
+          oldestObservationAt: null,
+          latestObservationAt: null,
+          verdict,
+        },
+      ]),
+    ),
+    overall: verdict,
+  };
+}
+
+/** Every day re-read after it closed, all of it still inside the lookback. */
+const convergingFreshnessSnapshot = () =>
+  buildFreshnessSnapshot({ postCloseObservedDays: 365, lookbackExhaustedDays: 0 });
+
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
@@ -297,10 +428,14 @@ const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
 const incidents = await import("@/lib/sync/incidents");
+const freshnessRead = await import("@/lib/google-ads/freshness-read");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      convergingFreshnessSnapshot(),
+    );
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
       membership: {} as never,
@@ -560,6 +695,8 @@ describe("GET /api/google-ads/status", () => {
       ready: true,
       notReady: false,
       readinessModel: "recent_84d_required_support",
+      freshnessBlocked: false,
+      recentCompletionState: "converging",
     });
     vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
     vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
@@ -770,15 +907,36 @@ describe("GET /api/google-ads/status", () => {
       created_at: "",
       updated_at: "",
     });
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        totalDays: 90,
+        coveredDays: 10,
+        postCloseObservedDays: 10,
+        dueNowDays: 80,
+      }),
+    );
     vi.mocked(coreReadiness.buildGoogleAdsCoreReadiness).mockReturnValueOnce({
       effectiveHistoricalTotalDays: 90,
       overallCompletedDays: 10,
       overallAccountCompletedDays: 10,
+      overallCoveredDays: 10,
+      overallAccountCoveredDays: 10,
       historicalReadyThroughDate: "2026-01-14",
       productPendingSurfaces: [],
       needsBootstrap: false,
       historicalProgressPercent: 11,
       coreUsable: true,
+      historicalCompletion: resolveGoogleAdsCompletion({
+        totalDays: 90,
+        coveredDays: 10,
+        postCloseObservedDays: 10,
+        lookbackExhaustedDays: 0,
+        includesOpenDay: false,
+      }),
+      historicalCompletionState: "missing",
+      historicalComplete: false,
+      historicalMayStopPolling: false,
+      evidenceAvailable: true,
     } as never);
     vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
     vi.mocked(googleAdsSync.getGoogleAdsWorkerSchedulingState).mockResolvedValueOnce({
@@ -910,9 +1068,12 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.operations.stallFingerprints).toEqual(
       expect.arrayContaining(["historical_starvation", "checkpoint_not_advancing"]),
     );
+    // The status machine is mocked to "ready" here, which 10 of 90 observed
+    // days never justified. The route now refuses that green state, so the
+    // derived truth reports a stalled provider instead of a quiet refresh.
+    expect(payload.state).toBe("syncing");
     expect(payload.userVisibleSyncState).toMatchObject({
-      kind: "refreshing_in_background",
-      suppressRecoverableAttention: true,
+      kind: "using_latest_available_data",
     });
     vi.useRealTimers();
   });
@@ -938,15 +1099,36 @@ describe("GET /api/google-ads/status", () => {
       created_at: "",
       updated_at: "",
     });
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        totalDays: 365,
+        coveredDays: 120,
+        postCloseObservedDays: 120,
+        dueNowDays: 245,
+      }),
+    );
     vi.mocked(coreReadiness.buildGoogleAdsCoreReadiness).mockReturnValueOnce({
       effectiveHistoricalTotalDays: 365,
       overallCompletedDays: 120,
       overallAccountCompletedDays: 120,
+      overallCoveredDays: 120,
+      overallAccountCoveredDays: 120,
       historicalReadyThroughDate: "2025-07-14",
       productPendingSurfaces: [],
       needsBootstrap: false,
       historicalProgressPercent: 33,
       coreUsable: true,
+      historicalCompletion: resolveGoogleAdsCompletion({
+        totalDays: 365,
+        coveredDays: 120,
+        postCloseObservedDays: 120,
+        lookbackExhaustedDays: 0,
+        includesOpenDay: false,
+      }),
+      historicalCompletionState: "missing",
+      historicalComplete: false,
+      historicalMayStopPolling: false,
+      evidenceAvailable: true,
     } as never);
     vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
     vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValueOnce({
@@ -1233,11 +1415,16 @@ describe("GET /api/google-ads/status", () => {
         sync: { state: "globally_enabled" },
       },
     });
+    // Every day of the window has a row AND has been re-read since it closed,
+    // but the conversion lookback has not elapsed: 99 and not complete, not the
+    // 100/true that coverage arithmetic used to produce here.
     expect(payload.completionBasis).toEqual(
       expect.objectContaining({
         requiredScopes: ["account_daily", "campaign_daily"],
-        percent: 100,
-        complete: true,
+        percent: 99,
+        complete: false,
+        state: "converging",
+        evidenceAvailable: true,
       })
     );
   });
@@ -1555,7 +1742,274 @@ describe("GET /api/google-ads/status", () => {
     });
   });
 
+  describe("freshness-derived completion", () => {
+    const connectGoogle = () => {
+      vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+        id: "int_google",
+        business_id: "biz",
+        provider: "google",
+        status: "connected",
+        provider_account_id: null,
+        provider_account_name: null,
+        access_token: null,
+        refresh_token: null,
+        token_expires_at: null,
+        scopes: null,
+        error_message: null,
+        metadata: {},
+        connected_at: null,
+        disconnected_at: null,
+        created_at: "",
+        updated_at: "",
+      });
+    };
+
+    const collectStrings = (value: unknown, found: string[] = []): string[] => {
+      if (typeof value === "string") found.push(value);
+      else if (Array.isArray(value)) value.forEach((entry) => collectStrings(entry, found));
+      else if (value && typeof value === "object") {
+        Object.values(value as Record<string, unknown>).forEach((entry) =>
+          collectStrings(entry, found),
+        );
+      }
+      return found;
+    };
+
+    const statusRequest = () =>
+      new NextRequest(
+        "http://localhost/api/google-ads/status?businessId=biz&startDate=2026-03-01&endDate=2026-03-30",
+      );
+
+    it("refuses ready, 100% and complete for a fully covered range that was never re-read after closing", async () => {
+      connectGoogle();
+      // Coverage is deliberately left at the fully-covered default
+      // (`getGoogleAdsDailyCoverage` -> 365 of 365 days, `total_rows: 10`), which
+      // is exactly the shape that used to render green. The only thing missing
+      // is post-close observation.
+      vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+        buildFreshnessSnapshot({
+          totalDays: 30,
+          coveredDays: 30,
+          postCloseObservedDays: 0,
+          dueNowDays: 30,
+        }),
+      );
+      vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+
+      const response = await GET(statusRequest());
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+
+      // NEGATIVE CONTROL. These two assertions describe the same request: the
+      // warehouse says every day of the range has data, and completion says
+      // zero. Any field that fell back to coverage would have to report ~100
+      // here, so re-deriving `percent` from `completedDays / totalDays` fails
+      // this test rather than passing it quietly.
+      expect(payload.warehouse.coverage.selectedRange.completedDays).toBeGreaterThanOrEqual(
+        payload.warehouse.coverage.selectedRange.totalDays,
+      );
+      expect(payload.completionBasis).toMatchObject({
+        percent: 0,
+        complete: false,
+        state: "provisional",
+        evidenceAvailable: true,
+      });
+      expect(payload.freshness).toMatchObject({
+        state: "provisional",
+        label: "Provisional",
+        percent: 0,
+        complete: false,
+        mayStopPolling: false,
+      });
+
+      // Nothing anywhere on the response may read green off those rows.
+      expect(payload.state).not.toBe("ready");
+      expect(payload.readinessLevel).not.toBe("ready");
+      expect(payload.requiredScopeCompletion.complete).toBe(false);
+      expect(payload.requiredScopeCompletion.percent).toBe(0);
+      expect(payload.warehouse.coverage.selectedRange.isComplete).toBe(false);
+      expect(payload.d1FinalizeState).not.toBe("ready");
+      expect(payload.operatorTruth.rebuild.state).not.toBe("ready");
+      expect(payload.backgroundBackfill.state).not.toBe("ready");
+      expect(payload.domains.selectedRange.state).not.toBe("ready");
+      expect(payload.historicalExtendedReady).toBe(false);
+      expect(payload.recentExtendedReady).toBe(false);
+      expect(
+        Object.values(
+          payload.rangeCompletionBySurface as Record<
+            string,
+            { selectedRange: { ready: boolean }; historical: { ready: boolean } }
+          >,
+        ).every((surface) => !surface.selectedRange.ready && !surface.historical.ready),
+      ).toBe(true);
+      expect(
+        (payload.panel.surfaceStates as Array<{ state: string }>).every(
+          (surface) => surface.state !== "ready",
+        ),
+      ).toBe(true);
+      expect(payload.completionBlockers).toContain("awaiting_post_close_observation");
+    });
+
+    it("reports converging and refuses complete inside the conversion lookback", async () => {
+      connectGoogle();
+      vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+        buildFreshnessSnapshot({
+          totalDays: 30,
+          coveredDays: 30,
+          postCloseObservedDays: 30,
+          lookbackExhaustedDays: 0,
+          dueNowDays: 0,
+        }),
+      );
+
+      const response = await GET(statusRequest());
+      const payload = await response.json();
+
+      expect(payload.freshness).toMatchObject({
+        state: "converging",
+        label: "Refreshing",
+        // Deliberately capped below 100: every day was re-read, conversions can
+        // still land inside the window.
+        percent: 99,
+        complete: false,
+        mayStopPolling: false,
+      });
+      expect(payload.completionBasis).toMatchObject({
+        percent: 99,
+        complete: false,
+        state: "converging",
+      });
+      expect(payload.requiredScopeCompletion.complete).toBe(false);
+      expect(payload.completionBlockers).toContain("within_conversion_lookback");
+      expect(payload.freshness.conversionLookbackDays).toBeGreaterThan(0);
+    });
+
+    it("reports settled and 100 only when the lookback has elapsed for every day", async () => {
+      connectGoogle();
+      vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+        buildFreshnessSnapshot({
+          totalDays: 30,
+          coveredDays: 30,
+          postCloseObservedDays: 30,
+          lookbackExhaustedDays: 30,
+          dueNowDays: 0,
+        }),
+      );
+
+      const response = await GET(statusRequest());
+      const payload = await response.json();
+
+      expect(payload.freshness).toMatchObject({
+        state: "settled",
+        // Never "Final", never "Complete": settled against OUR configured
+        // lookback, which the summary publishes alongside it.
+        label: "Policy-settled",
+        percent: 100,
+        complete: true,
+        mayStopPolling: true,
+      });
+      expect(payload.completionBasis).toMatchObject({
+        percent: 100,
+        complete: true,
+        state: "settled",
+      });
+      expect(payload.requiredScopeCompletion).toMatchObject({
+        percent: 100,
+        complete: true,
+      });
+      expect(payload.completionBlockers).not.toContain("awaiting_post_close_observation");
+      expect(payload.completionBlockers).not.toContain("within_conversion_lookback");
+    });
+
+    it("fails closed and stays retryable when the freshness evidence cannot be read", async () => {
+      connectGoogle();
+      vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+        buildUnavailableFreshnessSnapshot(
+          "Google Ads freshness tables are not ready yet.",
+        ),
+      );
+      // The state machine is doubled into claiming green; the route must not
+      // pass that through when it could not read the evidence.
+      vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+
+      const response = await GET(statusRequest());
+      const payload = await response.json();
+
+      // Retryable, not terminal: a 200 with a non-green state.
+      expect(response.status).toBe(200);
+      expect(payload.state).toBe("syncing");
+      expect(payload.readinessLevel).not.toBe("ready");
+      expect(payload.freshness).toMatchObject({
+        evidenceAvailable: false,
+        state: "unknown",
+        label: "Unknown",
+        percent: 0,
+        complete: false,
+        // The client MUST keep polling: unknown means we could not look, not
+        // that there is nothing to find.
+        mayStopPolling: false,
+      });
+      expect(payload.completionBasis).toMatchObject({
+        percent: 0,
+        complete: false,
+        state: "unknown",
+        evidenceAvailable: false,
+      });
+      expect(payload.completionBlockers).toContain("freshness_evidence_unavailable");
+      expect(payload.d1FinalizeState).not.toBe("ready");
+      expect(payload.operatorTruth.rebuild.state).not.toBe("ready");
+      expect(payload.backgroundBackfill.state).not.toBe("ready");
+      // Not presented as a failure either.
+      expect(payload.state).not.toBe("action_required");
+      expect(payload.userVisibleSyncState.kind).not.toBe("healthy");
+    });
+
+    it("reads freshness once per request for every scope, never once per scope", async () => {
+      connectGoogle();
+
+      await GET(statusRequest());
+
+      // The N+1 guard. The response reports on nine scopes; one call must carry
+      // all of them.
+      expect(freshnessRead.readGoogleAdsFreshness).toHaveBeenCalledTimes(1);
+      const [call] = vi.mocked(freshnessRead.readGoogleAdsFreshness).mock.calls;
+      expect(call[0].scopes).toEqual([...FRESHNESS_SCOPES]);
+      expect(call[0].businessId).toBe("biz");
+      expect(call[0].providerAccountIds).toEqual(["acc_1"]);
+      // Measured through the last CLOSED day, never the open one.
+      expect(call[0].endDate).toBe(call[0].endDate?.slice(0, 10));
+      expect(String(call[0].startDate) <= String(call[0].endDate)).toBe(true);
+    });
+
+    it("never tells a user a Google Ads date is final or immutable", async () => {
+      connectGoogle();
+      vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+        buildFreshnessSnapshot({
+          totalDays: 30,
+          coveredDays: 30,
+          postCloseObservedDays: 30,
+          lookbackExhaustedDays: 30,
+          dueNowDays: 0,
+        }),
+      );
+
+      const response = await GET(statusRequest());
+      const payload = await response.json();
+
+      const forbidden = /\b(final|finalized|immutable|frozen)\b|will not change|won't change/i;
+      const offenders = collectStrings(payload).filter((value) => forbidden.test(value));
+      expect(offenders).toEqual([]);
+      // The strongest word we are allowed to use, on the strongest verdict.
+      expect(payload.freshness.label).toBe("Policy-settled");
+    });
+  });
+
   it("surfaces control-plane read errors without failing the route", async () => {
+    // Reset rather than re-stub: an unconsumed `mockResolvedValueOnce` from an
+    // earlier test would otherwise satisfy this call and hide the rejection.
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockReset();
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockReset();
     vi.mocked(releaseGates.getLatestSyncGateRecords).mockRejectedValue(
       new Error("gate read failed")
     );
@@ -1574,7 +2028,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.controlPlaneErrors).toEqual({
       syncGates: "gate read failed",
       repairPlan: null,
-      controlPlanePersistence: null,
+      controlPlanePersistence: "persistence read failed",
       syncIncidents: null,
     });
   });

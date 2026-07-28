@@ -498,7 +498,287 @@ async function main() {
       `${LABEL} F11 OK — an invalid timezone yields no close proof, and the scan reports only real observations`,
     );
 
-    console.log(`${LABEL} PASS — F1-F11`);
+    // ======================================================================
+    // F12-F19 — THE BULK READ every consumer now shares.
+    //
+    // The evidence table was correct and unused: forty surfaces still derived
+    // "ready", "100%", "Active" and "stop polling" from row existence. These
+    // cases exercise the aggregation those surfaces now depend on, against real
+    // PostgreSQL, because the parts that decide the answer — the conjunctive
+    // per-account threshold, GROUP BY arbitration, the coverage UNION, and what
+    // happens when the relation is gone — are decided by the database.
+    // ======================================================================
+    const { readGoogleAdsFreshness, toGoogleAdsFreshnessSummary } = await import(
+      "@/lib/google-ads/freshness-read"
+    );
+
+    const BULK_BUSINESS = "biz-bulk";
+    const ACCOUNT_A = "acc-a";
+    const ACCOUNT_B = "acc-b";
+    // Two days behind the server date, so the conservative open-day boundary
+    // used when the account clock is untrusted still leaves the range closed.
+    const bulkEnd = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    const bulkStart = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
+    const bulkDays = ["0", "1", "2"].map((offset) =>
+      new Date(Date.parse(`${bulkStart}T00:00:00Z`) + Number(offset) * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+    );
+
+    async function seedCoverage(
+      table: string,
+      accountId: string,
+      dates: string[],
+    ) {
+      for (const date of dates) {
+        await client!.query(
+          `INSERT INTO ${table} (business_id, provider_account_id, date, entity_key)
+           VALUES ($1, $2, $3::date, $4)
+           ON CONFLICT DO NOTHING`,
+          [BULK_BUSINESS, accountId, date, `entity-${accountId}`],
+        );
+      }
+    }
+
+    async function observe(
+      accountId: string,
+      scope: string,
+      dates: string[],
+      options: { lookbackExhausted?: boolean; dueInMinutes?: number } = {},
+    ) {
+      for (const date of dates) {
+        const closedAt = `${date}T21:00:00Z`;
+        await client!.query(
+          `INSERT INTO google_ads_day_finality (
+             business_id, provider_account_id, scope, date,
+             account_timezone, day_closed_at, last_observed_at,
+             metrics_settled_at, lookback_exhausted_at, next_refresh_due_at,
+             freshness_tier, observation_count
+           ) VALUES (
+             $1, $2, $3, $4::date, $5,
+             $6::timestamptz,
+             $6::timestamptz + interval '2 hours',
+             $6::timestamptz + interval '15 hours',
+             $7::timestamptz,
+             now() + ($8 || ' minutes')::interval,
+             'converging', 1
+           )
+           ON CONFLICT (business_id, provider_account_id, scope, date) DO UPDATE SET
+             last_observed_at = GREATEST(
+               google_ads_day_finality.last_observed_at, EXCLUDED.last_observed_at
+             ),
+             lookback_exhausted_at = EXCLUDED.lookback_exhausted_at,
+             next_refresh_due_at = EXCLUDED.next_refresh_due_at,
+             observation_count = google_ads_day_finality.observation_count + 1`,
+          [
+            BULK_BUSINESS,
+            accountId,
+            scope,
+            date,
+            TZ,
+            closedAt,
+            options.lookbackExhausted ? `${date}T22:00:00Z` : null,
+            String(options.dueInMinutes ?? 600),
+          ],
+        );
+      }
+    }
+
+    const bulkRange = {
+      businessId: BULK_BUSINESS,
+      scopes: ["account_daily", "campaign_daily"] as const,
+      startDate: bulkStart,
+      endDate: bulkEnd,
+      providerAccountIds: [ACCOUNT_A],
+    };
+
+    // ---- F12: THE DEFECT, end to end ------------------------------------
+    // Every day has rows and not one was re-read after its day closed. This is
+    // precisely the shape that rendered a green, non-refreshing 100% workspace.
+    await seedCoverage("google_ads_account_daily", ACCOUNT_A, bulkDays);
+    await seedCoverage("google_ads_campaign_daily", ACCOUNT_A, bulkDays);
+
+    const frozen = await readGoogleAdsFreshness(bulkRange);
+    assert(frozen.evidenceAvailable, "F12: evidence should have been readable");
+    assert(
+      frozen.scopes.account_daily!.coveredDays === bulkDays.length,
+      `F12: coverage UNION miscounted (${frozen.scopes.account_daily!.coveredDays})`,
+    );
+    assert(
+      frozen.overall.state === "provisional",
+      `F12: a covered-but-never-re-read range reported '${frozen.overall.state}'`,
+    );
+    assert(frozen.overall.percent < 100, "F12: a frozen range reported 100%");
+    assert(!frozen.overall.complete, "F12: a frozen range reported complete");
+    assert(!frozen.overall.mayStopPolling, "F12: a frozen range told the poller to stop");
+    assert(
+      frozen.scopes.campaign_daily!.dueNowDays === bulkDays.length,
+      `F12: unobserved days were not reported as outstanding work (${frozen.scopes.campaign_daily!.dueNowDays})`,
+    );
+    console.log(
+      `${LABEL} F12 OK — ${bulkDays.length}/${bulkDays.length} days covered, 0 observed => provisional, ${frozen.overall.percent}%, still polling`,
+    );
+
+    // ---- F13: the weakest scope decides ---------------------------------
+    await observe(ACCOUNT_A, "account_daily", bulkDays, { lookbackExhausted: true });
+    await observe(ACCOUNT_A, "campaign_daily", [bulkDays[0]!]);
+
+    const partial = await readGoogleAdsFreshness(bulkRange);
+    assert(
+      partial.scopes.account_daily!.verdict.state === "settled",
+      `F13: the fully observed scope reported '${partial.scopes.account_daily!.verdict.state}'`,
+    );
+    assert(
+      partial.overall.state === "provisional",
+      `F13: one lagging scope did not hold the range back (${partial.overall.state})`,
+    );
+    assert(!partial.overall.mayStopPolling, "F13: a partially observed range stopped polling");
+    console.log(
+      `${LABEL} F13 OK — account_daily settled but campaign_daily 1/${bulkDays.length} => overall provisional`,
+    );
+
+    // ---- F14: EVERY account must have looked -----------------------------
+    // The teeth for the conjunctive threshold. Account A has observed all three
+    // days; B has observed none. A business is not fresh because one of its
+    // accounts is.
+    await observe(ACCOUNT_A, "campaign_daily", bulkDays, { lookbackExhausted: true });
+    await seedCoverage("google_ads_account_daily", ACCOUNT_B, bulkDays);
+    await seedCoverage("google_ads_campaign_daily", ACCOUNT_B, bulkDays);
+
+    const oneAccount = await readGoogleAdsFreshness(bulkRange);
+    assert(
+      oneAccount.overall.state === "settled",
+      `F14: a single fully observed account did not settle (${oneAccount.overall.state})`,
+    );
+
+    const twoAccounts = await readGoogleAdsFreshness({
+      ...bulkRange,
+      providerAccountIds: [ACCOUNT_A, ACCOUNT_B],
+    });
+    assert(
+      twoAccounts.overall.state === "provisional",
+      `F14: an unobserved second account was masked by the first (${twoAccounts.overall.state})`,
+    );
+    assert(
+      twoAccounts.scopes.campaign_daily!.postCloseObservedDays === 0,
+      `F14: a day counted as observed while one account never looked (${twoAccounts.scopes.campaign_daily!.postCloseObservedDays})`,
+    );
+    assert(!twoAccounts.overall.mayStopPolling, "F14: polling stopped with an account lagging");
+    console.log(
+      `${LABEL} F14 OK — 1 account settled, adding a never-observed second account => provisional, 0 observed days`,
+    );
+
+    // ---- F15: stale observations are outstanding work --------------------
+    // A due date is one whose next refresh has already passed. If this did not
+    // hold, the rolling reread would have nothing to do and the freeze returns.
+    await client.query(
+      `UPDATE google_ads_day_finality
+         SET next_refresh_due_at = now() - interval '1 hour'
+       WHERE business_id = $1 AND provider_account_id = $2 AND scope = 'campaign_daily'`,
+      [BULK_BUSINESS, ACCOUNT_A],
+    );
+    const stale = await readGoogleAdsFreshness(bulkRange);
+    assert(
+      stale.scopes.campaign_daily!.dueNowDays === bulkDays.length,
+      `F15: overdue dates were not reported as due (${stale.scopes.campaign_daily!.dueNowDays})`,
+    );
+    assert(
+      stale.scopes.campaign_daily!.verdict.state === "settled",
+      "F15: being due for a refresh should not erase a real observation",
+    );
+    console.log(
+      `${LABEL} F15 OK — ${bulkDays.length} overdue dates reported as due while staying observed`,
+    );
+
+    // ---- F16: settled never means immutable ------------------------------
+    const settledSummary = toGoogleAdsFreshnessSummary(stale);
+    assert(
+      settledSummary.state === "settled" && settledSummary.label === "Policy-settled",
+      `F16: the strongest state rendered as '${settledSummary.label}'`,
+    );
+    assert(
+      !/final|immutable|frozen|will not change/i.test(
+        `${settledSummary.label} ${settledSummary.detail}`,
+      ),
+      `F16: settled copy implied provider immutability: "${settledSummary.detail}"`,
+    );
+    assert(
+      settledSummary.conversionLookbackDays === GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS &&
+        settledSummary.conversionLookbackDays <= 90,
+      "F16: the lookback the verdict was measured against was not published",
+    );
+    console.log(
+      `${LABEL} F16 OK — strongest state is "Policy-settled" against a ${settledSummary.conversionLookbackDays}-day window, never "final"`,
+    );
+
+    // ---- F17: an unknown range is not an empty one -----------------------
+    const noAccounts = await readGoogleAdsFreshness({ ...bulkRange, providerAccountIds: [] });
+    assert(
+      noAccounts.overall.state === "unknown" && !noAccounts.evidenceAvailable,
+      `F17: a business with no assigned accounts reported '${noAccounts.overall.state}'`,
+    );
+    assert(!noAccounts.overall.mayStopPolling, "F17: an unknown range stopped polling");
+
+    const emptyRange = await readGoogleAdsFreshness({
+      ...bulkRange,
+      businessId: "biz-that-does-not-exist",
+    });
+    assert(
+      emptyRange.overall.state === "missing",
+      `F17: a real but empty business reported '${emptyRange.overall.state}'`,
+    );
+    // The distinction that matters operationally: "we could not look" and
+    // "there is nothing there" must not render the same.
+    assert(
+      emptyRange.evidenceAvailable && !noAccounts.evidenceAvailable,
+      "F17: unknown and missing were collapsed into one state",
+    );
+    console.log(`${LABEL} F17 OK — unknown (could not look) stays distinct from missing (nothing there)`);
+
+    // ---- F18: a missing relation fails closed, not open -------------------
+    await client.query("ALTER TABLE google_ads_day_finality RENAME TO google_ads_day_finality_bak");
+    // A different scope set means a different schema-readiness cache key, so
+    // this genuinely re-probes the database rather than reading a warm "ready"
+    // from the earlier cases.
+    const brokenSchema = await readGoogleAdsFreshness({
+      ...bulkRange,
+      scopes: ["ad_daily", "keyword_daily"],
+    });
+    assert(
+      !brokenSchema.evidenceAvailable && brokenSchema.overall.state === "unknown",
+      `F18: a missing evidence table reported '${brokenSchema.overall.state}' instead of unknown`,
+    );
+    assert(brokenSchema.overall.percent === 0, "F18: a failed read reported progress");
+    assert(!brokenSchema.overall.complete, "F18: a failed read reported complete");
+    assert(!brokenSchema.overall.mayStopPolling, "F18: a failed read stopped polling");
+    await client.query("ALTER TABLE google_ads_day_finality_bak RENAME TO google_ads_day_finality");
+    console.log(`${LABEL} F18 OK — a missing evidence relation degrades to unknown, never to green`);
+
+    // ---- F19: concurrent observation during a read -----------------------
+    // A worker persisting evidence while a status request aggregates must not
+    // produce a torn or regressed answer.
+    const concurrentDay = bulkDays[0]!;
+    await Promise.all([
+      raceClient.query(
+        `UPDATE google_ads_day_finality
+            SET last_observed_at = now(), observation_count = observation_count + 1
+          WHERE business_id = $1 AND scope = 'campaign_daily' AND date = $2::date`,
+        [BULK_BUSINESS, concurrentDay],
+      ),
+      readGoogleAdsFreshness(bulkRange),
+    ]);
+    const afterRace = await readGoogleAdsFreshness(bulkRange);
+    assert(
+      afterRace.scopes.campaign_daily!.postCloseObservedDays === bulkDays.length,
+      `F19: a concurrent write lost observations (${afterRace.scopes.campaign_daily!.postCloseObservedDays})`,
+    );
+    assert(
+      afterRace.overall.state === "settled",
+      `F19: a concurrent write regressed the verdict to '${afterRace.overall.state}'`,
+    );
+    console.log(`${LABEL} F19 OK — a concurrent observation neither tears nor regresses the read`);
+
+    console.log(`${LABEL} PASS — F1-F19`);
   } catch (error) {
     if (fs.existsSync(logFile)) {
       console.error(

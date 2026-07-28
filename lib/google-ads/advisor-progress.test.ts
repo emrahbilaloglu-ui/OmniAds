@@ -54,7 +54,9 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     });
 
     expect(result.visible).toBe(false);
-    expect(result.percent).toBe(100);
+    // `advisorReady` is false here, so the only thing saying "done" is coverage
+    // of the required surfaces — which cannot reach 100 any more.
+    expect(result.percent).toBe(99);
   });
 
   it("hides advisor progress once advisor is ready", () => {
@@ -71,6 +73,9 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     });
 
     expect(result).toEqual({
+      // 100 is legitimate here and only here: `advisorReady` is gated on
+      // post-close observation upstream, so it is the one input backed by
+      // evidence rather than by row existence.
       percent: 100,
       visible: false,
       summary: "Finalizing 84-day decision snapshot support.",
@@ -111,7 +116,10 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     });
 
     expect(result).toEqual({
-      percent: 100,
+      // 99, not 100: full coverage of the advisor window is not the same as
+      // having re-read those days after they closed. Only `advisorReady`, which
+      // is freshness-gated upstream, may reach 100.
+      percent: 99,
       visible: false,
       summary: "Finalizing 84-day decision snapshot support.",
     });

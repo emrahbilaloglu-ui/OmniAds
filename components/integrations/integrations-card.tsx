@@ -10,11 +10,13 @@ import {
   SyncStatusPillSkeleton,
 } from "@/components/sync/sync-status-pill";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import { resolveGoogleAdsFreshnessView } from "@/lib/google-ads/sync-progress-ux";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 import {
   resolveGoogleAdsSyncStatusPill,
   resolveMetaSyncStatusPill,
+  type SyncStatusPillState,
 } from "@/lib/sync/sync-status-pill";
 import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { cn } from "@/lib/utils";
@@ -87,7 +89,10 @@ export function IntegrationsCard({
     provider === "meta"
       ? resolveMetaSyncStatusPill(metaSyncStatus)
       : provider === "google"
-        ? resolveGoogleAdsSyncStatusPill(googleSyncStatus)
+        ? withGoogleFreshnessTruth(
+            resolveGoogleAdsSyncStatusPill(googleSyncStatus),
+            googleSyncStatus,
+          )
         : null;
   const showSyncSkeleton =
     (provider === "meta" && metaSyncLoading) ||
@@ -273,6 +278,46 @@ export function IntegrationsCard({
       </div>
     </div>
   );
+}
+
+/**
+ * Hold the green Google Ads pill to the freshness verdict.
+ *
+ * `resolveGoogleAdsSyncStatusPill` reaches "Active" — success tone, percent 100
+ * — from a closed control plane, a passing release gate or `state === "ready"`.
+ * None of those know whether a closed day was ever re-read, and the green pill
+ * over a day captured once at 01:40 is the exact artefact this change exists to
+ * remove.
+ *
+ * The bar it must clear is `converging` or `settled`: every day in the range
+ * re-read after it closed. Not `settled` alone — with a 30-day conversion
+ * lookback a rolling range never settles, so that rule would keep the pill grey
+ * forever and teach the user to ignore it. `converging` keeps the green pill
+ * but not the 100: the percent is corrected down to the verdict's own number.
+ * Anything below the bar is demoted to an honest, non-green, still-moving pill.
+ * Attention (amber) and syncing (blue) pills are left untouched — this only
+ * ever removes a claim.
+ */
+function withGoogleFreshnessTruth(
+  pill: SyncStatusPillState | null,
+  status: GoogleAdsStatusResponse | null | undefined,
+): SyncStatusPillState | null {
+  if (!pill || pill.state !== "active") return pill;
+
+  const freshness = resolveGoogleAdsFreshnessView(status);
+  if (freshness.settled) return pill;
+  // Steady but not settled: still healthy, still not 100.
+  if (freshness.steady) return { ...pill, percent: freshness.percent };
+
+  return {
+    visible: true,
+    label: freshness.evidenceAvailable
+      ? `${freshness.percent}% ${freshness.label}`
+      : `${freshness.label} freshness`,
+    tone: "info",
+    percent: freshness.evidenceAvailable ? freshness.percent : null,
+    state: "syncing",
+  };
 }
 
 function StatusBadge({ status }: { status: ProviderViewState["status"] }) {

@@ -29,7 +29,6 @@ import {
   planGoogleAdsRecentMaintenanceDates,
   getGoogleAdsCoveredRecentMaintenanceDatesToCancel,
   getGoogleAdsD1FinalizeScopesToQueue,
-  resolveGoogleAdsCoveredD1FinalizeResolution,
   resolveGoogleAdsWorkerRequestedLimit,
   getGoogleAdsCoveredCorePartitionDatesToCancel,
   normalizeGoogleAdsPartitionDateKey,
@@ -71,13 +70,39 @@ describe("getGoogleAdsCoveredCorePartitionDatesToCancel", () => {
     );
   });
 
-  it("returns only queued core dates already covered by canonical warehouse data", () => {
+  it("returns only queued core dates that are covered AND re-read after closing", () => {
     expect(
       getGoogleAdsCoveredCorePartitionDatesToCancel({
         partitionDates: ["2026-05-01", "2026-05-02", "2026-05-02"],
         coveredDates: ["2026-05-02", "2026-05-03"],
+        postCloseObservedDates: ["2026-05-02", "2026-05-03"],
       }),
     ).toEqual(["2026-05-02"]);
+  });
+
+  it("never cancels the queued re-read for a covered but never re-observed date", () => {
+    // The most damaging form of the defect: this does not merely skip a frozen
+    // date, it DELETES the queued work that would have re-read it and stamps it
+    // "superseded by canonical warehouse coverage".
+    expect(
+      getGoogleAdsCoveredCorePartitionDatesToCancel({
+        partitionDates: ["2026-05-01", "2026-05-02"],
+        coveredDates: ["2026-05-01", "2026-05-02"],
+        postCloseObservedDates: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails closed when the observation evidence is unavailable", () => {
+    // The caller passes [] when the evidence read rejects. Cancelling nothing
+    // costs one redundant fetch; cancelling wrongly loses the day.
+    expect(
+      getGoogleAdsCoveredCorePartitionDatesToCancel({
+        partitionDates: ["2026-05-02"],
+        coveredDates: ["2026-05-02"],
+        postCloseObservedDates: [],
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -1696,67 +1721,60 @@ describe("planGoogleAdsRecentMaintenanceDates", () => {
 });
 
 describe("getGoogleAdsCoveredRecentMaintenanceDatesToCancel", () => {
-  it("cancels only covered recent dates outside protected current-day slots", () => {
+  it("cancels only re-read covered dates outside protected current-day slots", () => {
     expect(
       getGoogleAdsCoveredRecentMaintenanceDatesToCancel({
         coveredDates: ["2026-04-19", "2026-04-18", "2026-04-17", "2026-04-16"],
+        postCloseObservedDates: ["2026-04-17", "2026-04-16"],
         protectedDates: ["2026-04-19", "2026-04-18"],
       }),
     ).toEqual(["2026-04-17", "2026-04-16"]);
   });
+
+  it("keeps a covered but never re-observed date queued instead of churning it", () => {
+    // Cancelling here would fight the rolling refresh: cancel, re-queue,
+    // cancel, with the date frozen in between.
+    expect(
+      getGoogleAdsCoveredRecentMaintenanceDatesToCancel({
+        coveredDates: ["2026-04-17", "2026-04-16"],
+        postCloseObservedDates: ["2026-04-16"],
+        protectedDates: [],
+      }),
+    ).toEqual(["2026-04-16"]);
+  });
 });
 
 describe("getGoogleAdsD1FinalizeScopesToQueue", () => {
-  it("queues only scopes still missing coverage", () => {
+  it("queues every scope not yet re-read after the day closed", () => {
     expect(
       getGoogleAdsD1FinalizeScopesToQueue({
-        accountDailyCovered: true,
-        campaignDailyCovered: false,
+        accountDailyObservedPostClose: true,
+        campaignDailyObservedPostClose: false,
       }),
     ).toEqual(["campaign_daily"]);
     expect(
       getGoogleAdsD1FinalizeScopesToQueue({
-        accountDailyCovered: false,
-        campaignDailyCovered: true,
+        accountDailyObservedPostClose: false,
+        campaignDailyObservedPostClose: true,
       }),
     ).toEqual(["account_daily"]);
     expect(
       getGoogleAdsD1FinalizeScopesToQueue({
-        accountDailyCovered: true,
-        campaignDailyCovered: true,
+        accountDailyObservedPostClose: true,
+        campaignDailyObservedPostClose: true,
       }),
     ).toEqual([]);
   });
-});
 
-describe("resolveGoogleAdsCoveredD1FinalizeResolution", () => {
-  it("cancels queued finalize rows and marks completed when no live lease remains", () => {
+  it("still queues a date that already has rows but was never re-read", () => {
+    // The freeze at the QUEUEING gate. Coverage is not an input here any more;
+    // an intraday read leaves rows and no observation, and the refetch must
+    // still be enqueued or the completion receipt has nothing to wait for.
     expect(
-      resolveGoogleAdsCoveredD1FinalizeResolution({
-        matchingRows: [
-          { id: "a", source: "finalize_day", status: "queued" },
-          { id: "b", source: "recent", status: "queued" },
-        ],
+      getGoogleAdsD1FinalizeScopesToQueue({
+        accountDailyObservedPostClose: false,
+        campaignDailyObservedPostClose: false,
       }),
-    ).toEqual({
-      queuedFinalizePartitionIds: ["a"],
-      hasLiveFinalizeLeaseOrRun: false,
-      shouldMarkCompleted: true,
-    });
-  });
-
-  it("does not mark completed while a finalize row is still leased or running", () => {
-    expect(
-      resolveGoogleAdsCoveredD1FinalizeResolution({
-        matchingRows: [
-          { id: "a", source: "finalize_day", status: "leased" },
-          { id: "b", source: "finalize_day", status: "queued" },
-        ],
-      }),
-    ).toEqual({
-      queuedFinalizePartitionIds: ["b"],
-      hasLiveFinalizeLeaseOrRun: true,
-      shouldMarkCompleted: false,
-    });
+    ).toEqual(["account_daily", "campaign_daily"]);
   });
 });

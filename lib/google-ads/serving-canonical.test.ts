@@ -37,6 +37,19 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getLatestGoogleAdsSyncHealth: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/freshness-read", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/google-ads/freshness-read")>(
+    "@/lib/google-ads/freshness-read",
+  );
+  return {
+    ...actual,
+    // Only the evidence READ is faked. `toGoogleAdsFreshnessSummary` and the
+    // verdict resolution stay real, so these tests exercise the same mapping
+    // production uses rather than a restatement of it.
+    readGoogleAdsFreshness: vi.fn(),
+  };
+});
+
 vi.mock("@/lib/overview-summary-store", () => ({
   evaluateOverviewSummaryProjectionValidity: vi.fn(),
   readOverviewSummaryRange: vi.fn(),
@@ -51,8 +64,12 @@ const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const snapshots = await import("@/lib/provider-account-snapshots");
 const warehouse = await import("@/lib/google-ads/warehouse");
+const freshnessRead = await import("@/lib/google-ads/freshness-read");
 const overviewStore = await import("@/lib/overview-summary-store");
 const liveReporting = await import("@/lib/google-ads/reporting");
+const { resolveGoogleAdsCompletion, unknownGoogleAdsCompletion } = await import(
+  "@/lib/google-ads/completion-semantics"
+);
 const {
   getGoogleAdsCampaignsReport,
   getGoogleCanonicalOverviewSummary,
@@ -60,6 +77,311 @@ const {
   getGoogleAdsOverviewReport,
   getGoogleAdsProductsReport,
 } = await import("@/lib/google-ads/serving");
+
+/**
+ * The declared `meta` type is the narrow report meta; the freshness block and
+ * the completion verdict ride along on it at runtime. Read them through this
+ * so the assertions stay typed without widening the public report contract.
+ */
+function readMetaFreshness(meta: unknown) {
+  return meta as {
+    dataState: string;
+    isPartial: boolean;
+    partial: boolean;
+    missingWindows: string[];
+    liveRefreshedAt: string | null;
+    completion: {
+      state: string;
+      label: string;
+      percent: number;
+      complete: boolean;
+      mayStopPolling: boolean;
+      evidenceAvailable: boolean;
+    } | null;
+  };
+}
+
+function buildFreshnessSnapshot(input: {
+  scope: string;
+  totalDays: number;
+  coveredDays: number;
+  postCloseObservedDays: number;
+  lookbackExhaustedDays?: number;
+  includesOpenDay?: boolean;
+  latestObservationAt?: string | null;
+}) {
+  const verdict = resolveGoogleAdsCompletion({
+    totalDays: input.totalDays,
+    coveredDays: input.coveredDays,
+    postCloseObservedDays: input.postCloseObservedDays,
+    lookbackExhaustedDays: input.lookbackExhaustedDays ?? 0,
+    includesOpenDay: input.includesOpenDay ?? false,
+  });
+  return {
+    businessId: "biz",
+    startDate: "2026-03-01",
+    endDate: "2026-03-03",
+    totalDays: input.totalDays,
+    providerAccountIds: ["acc_1"],
+    timeZoneSource: "account" as const,
+    includesOpenDay: input.includesOpenDay ?? false,
+    evidenceAvailable: true,
+    unavailableReason: null,
+    scopes: {
+      [input.scope]: {
+        scope: input.scope,
+        coveredDays: input.coveredDays,
+        postCloseObservedDays: input.postCloseObservedDays,
+        lookbackExhaustedDays: input.lookbackExhaustedDays ?? 0,
+        dueNowDays: input.totalDays - input.postCloseObservedDays,
+        oldestObservationAt: input.latestObservationAt ?? null,
+        latestObservationAt: input.latestObservationAt ?? null,
+        verdict,
+      },
+    },
+    overall: verdict,
+  };
+}
+
+function buildUnavailableFreshnessSnapshot(scope: string, reason: string) {
+  const verdict = unknownGoogleAdsCompletion(reason);
+  return {
+    businessId: "biz",
+    startDate: "2026-03-01",
+    endDate: "2026-03-03",
+    totalDays: 3,
+    providerAccountIds: [] as string[],
+    timeZoneSource: "default" as const,
+    includesOpenDay: true,
+    evidenceAvailable: false,
+    unavailableReason: reason,
+    scopes: {
+      [scope]: {
+        scope,
+        coveredDays: 0,
+        postCloseObservedDays: 0,
+        lookbackExhaustedDays: 0,
+        dueNowDays: 0,
+        oldestObservationAt: null,
+        latestObservationAt: null,
+        verdict,
+      },
+    },
+    overall: verdict,
+  };
+}
+
+/**
+ * Serving must never call a range authoritative because rows exist for it.
+ *
+ * Each test here pins coverage COMPLETE — every requested day has warehouse
+ * rows — so the only thing that can move `dataState` off `ready` is the
+ * freshness verdict. That is the negative control built into the setup: if the
+ * code fell back to coverage, every assertion below would read `ready`.
+ */
+describe("google serving completion claims", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-07T12:00:00Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      status: "connected",
+    } as never);
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["acc_1"],
+    } as never);
+    vi.mocked(warehouse.getGoogleAdsDailyCoverage).mockResolvedValue({
+      latest_updated_at: "2026-03-01T01:40:00Z",
+    } as never);
+    vi.mocked(warehouse.getLatestGoogleAdsSyncHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.readGoogleAdsAggregatedRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.readGoogleAdsDailyRange).mockResolvedValue([] as never);
+    // Coverage is COMPLETE for the whole window in every test unless overridden.
+    vi.mocked(warehouse.getGoogleAdsCoveredDates).mockResolvedValue([
+      "2026-03-01",
+      "2026-03-02",
+      "2026-03-03",
+    ] as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses to serve a covered range as ready when no day was re-read after it closed", async () => {
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        scope: "campaign_daily",
+        totalDays: 3,
+        coveredDays: 3,
+        postCloseObservedDays: 0,
+      }) as never,
+    );
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+      compareMode: "none",
+    });
+
+    // Row existence says "whole range present"; the evidence says "never
+    // re-read after close". The evidence wins.
+    expect(readMetaFreshness(result.meta).missingWindows).toEqual([]);
+    expect(readMetaFreshness(result.meta).dataState).not.toBe("ready");
+    expect(readMetaFreshness(result.meta).dataState).toBe("stale");
+    expect(readMetaFreshness(result.meta).partial).toBe(true);
+    expect(readMetaFreshness(result.meta).completion).toEqual(
+      expect.objectContaining({
+        state: "provisional",
+        complete: false,
+        mayStopPolling: false,
+        evidenceAvailable: true,
+      }),
+    );
+    expect(readMetaFreshness(result.meta).completion?.label).toBe("Provisional");
+    expect(readMetaFreshness(result.meta).completion?.percent).toBeLessThan(100);
+  });
+
+  it("serves ready only once every day has been re-read after it closed", async () => {
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        scope: "campaign_daily",
+        totalDays: 3,
+        coveredDays: 3,
+        postCloseObservedDays: 3,
+        latestObservationAt: "2026-03-04T09:00:00.000Z",
+      }) as never,
+    );
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+      compareMode: "none",
+    });
+
+    expect(readMetaFreshness(result.meta).dataState).toBe("ready");
+    expect(readMetaFreshness(result.meta).completion).toEqual(
+      expect.objectContaining({ state: "converging", complete: false }),
+    );
+    // Even the strongest state never claims the provider stopped changing.
+    expect(readMetaFreshness(result.meta).completion?.label).not.toMatch(/final|immutable|complete/i);
+  });
+
+  it("still detects genuinely missing days from row existence", async () => {
+    vi.mocked(warehouse.getGoogleAdsCoveredDates).mockResolvedValue([
+      "2026-03-01",
+    ] as never);
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        scope: "campaign_daily",
+        totalDays: 3,
+        coveredDays: 1,
+        postCloseObservedDays: 1,
+      }) as never,
+    );
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+      compareMode: "none",
+    });
+
+    // The gap-detection path is untouched: zero-row days are still named, and
+    // still come from the covered-dates read, not from the freshness table.
+    expect(warehouse.getGoogleAdsCoveredDates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "campaign_daily",
+        startDate: "2026-03-01",
+        endDate: "2026-03-03",
+      }),
+    );
+    expect(readMetaFreshness(result.meta).missingWindows).toEqual(["2026-03-02", "2026-03-03"]);
+    expect(readMetaFreshness(result.meta).isPartial).toBe(true);
+    expect(readMetaFreshness(result.meta).dataState).toBe("partial");
+  });
+
+  it("fails closed and stays retryable when the freshness evidence cannot be read", async () => {
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildUnavailableFreshnessSnapshot(
+        "campaign_daily",
+        "Google Ads freshness tables are not ready yet.",
+      ) as never,
+    );
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+      compareMode: "none",
+    });
+
+    expect(readMetaFreshness(result.meta).dataState).not.toBe("ready");
+    expect(readMetaFreshness(result.meta).partial).toBe(true);
+    expect(readMetaFreshness(result.meta).completion).toEqual(
+      expect.objectContaining({
+        evidenceAvailable: false,
+        state: "unknown",
+        complete: false,
+        // `unknown` means we could not look, so a poller must keep asking.
+        mayStopPolling: false,
+      }),
+    );
+  });
+
+  it("reads the freshness evidence once per response rather than once per date", async () => {
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildFreshnessSnapshot({
+        scope: "campaign_daily",
+        totalDays: 3,
+        coveredDays: 3,
+        postCloseObservedDays: 3,
+      }) as never,
+    );
+
+    await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+      compareMode: "none",
+    });
+
+    expect(freshnessRead.readGoogleAdsFreshness).toHaveBeenCalledTimes(1);
+    expect(freshnessRead.readGoogleAdsFreshness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        scopes: ["campaign_daily"],
+        startDate: "2026-03-01",
+        endDate: "2026-03-03",
+      }),
+    );
+  });
+
+  it("never asserts an as-of instant it has no observation for", async () => {
+    vi.mocked(freshnessRead.readGoogleAdsFreshness).mockResolvedValue(
+      buildUnavailableFreshnessSnapshot("campaign_daily", "unreadable") as never,
+    );
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-04-07",
+      compareMode: "none",
+    });
+
+    // The window reaches the provider's current day, which used to stamp
+    // `liveRefreshedAt = now()` even though nothing had been refreshed.
+    expect(readMetaFreshness(result.meta).liveRefreshedAt).toBeNull();
+  });
+});
 
 describe("google canonical overview helpers", () => {
   beforeEach(() => {

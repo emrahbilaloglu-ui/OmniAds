@@ -484,6 +484,28 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
       (row) =>
         !row.pass && (row.evidence.actionRequiredDeadLetterPartitions ?? 0) > 0,
     );
+  // A gate that carries NO canary evidence has told us nothing — it has not
+  // told us everything is well.
+  //
+  // `canaries` is written into gate evidence in exactly one place
+  // (lib/google-ads/control-plane-runtime.ts), and "Decouple release gate from
+  // sync canaries" removed it from the Meta gate without updating this planner,
+  // which still sources its entire work-list from that key. So for Meta the
+  // list is permanently empty: no recommendation can ever be produced, no
+  // repair runs through the plan path, and — because clearInactiveSyncIncidents
+  // only runs when the plan is eligible — no incident is ever created OR
+  // cleared. The Meta status surface then reports operationalSyncState
+  // "healthy" with openIncidents 0 by construction, which is the most
+  // dangerous shape a health signal can take: green because it is
+  // disconnected, not because anything was checked.
+  //
+  // Treating that as "blocked, cannot evaluate" rather than "eligible, nothing
+  // wrong" changes no repair behaviour — zero recommendations already meant
+  // zero repairs — but it stops the silence being reported as health, and it
+  // stops absence-of-evidence from clearing open incidents.
+  const releaseGateCanaryEvidenceMissing =
+    Boolean(releaseGate) && !Array.isArray(releaseGate?.evidence?.canaries);
+
   const blockedReason =
     !runtimeRegistry?.contractValid ||
     runtimeRegistry?.dbFingerprintMatch === false ||
@@ -495,9 +517,11 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
           ? "break_glass_active"
           : !releaseGate
             ? "release_gate_missing"
-            : hasGoogleAdsAccountActionRequired
-              ? "account_action_required"
-              : null;
+            : releaseGateCanaryEvidenceMissing
+              ? "release_gate_canary_evidence_missing"
+              : hasGoogleAdsAccountActionRequired
+                ? "account_action_required"
+                : null;
   const eligible = blockedReason == null;
   const providerLabel = providerScope === "google_ads" ? "Google Ads" : "Meta";
   const recommendations = eligible

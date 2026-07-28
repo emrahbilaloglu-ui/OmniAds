@@ -244,6 +244,7 @@ describe("shopify customer-events pixel", () => {
 
     expect(result.status).toBe("stopped");
     expect(result.created).toEqual([]);
+    if (result.status !== "stopped") throw new Error("expected a stop");
     expect(result.reason).toMatch(/SHOPIFY_CUSTOMER_EVENTS_SECRET/);
   });
 

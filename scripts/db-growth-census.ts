@@ -17,20 +17,35 @@
  * This tool replaces the guess with a measurement.
  *
  * IT ONLY READS. There is no DELETE, UPDATE, VACUUM or DDL anywhere in this
- * file, and it takes no locks beyond an ordinary catalog read. It cannot enable
- * retention and it cannot be made to remove anything.
+ * file or in lib/db-growth-census.ts, and it takes no locks beyond an ordinary
+ * catalog read. It cannot enable retention and it cannot remove anything.
+ *
+ * IT RUNS UNDER A LEAST-PRIVILEGE ROLE. Production is `adsecute_app`, a
+ * non-superuser. Privileged probes — `pg_ls_waldir()` above all — are issued as
+ * their OWN statements and degrade to an explicit "unavailable, because …".
+ * Sharing a statement with them would let one denied function take down the
+ * database size and the entire relation census, which is strictly worse than
+ * reporting most of the picture.
  *
  * CHEAP BY DEFAULT. Everything in the default pass comes from the catalog or
- * from statistics estimates. The expensive half — exact COUNT(*) and duplicate
- * cardinality on multi-gigabyte relations — is opt-in via --exact, because on a
- * large table that is a sequential scan competing with live sync.
+ * from statistics estimates. The expensive half — an exact COUNT(*) on a
+ * multi-gigabyte relation — is opt-in via --table, because that is a sequential
+ * scan competing with live sync.
  *
  * Usage:
  *   node --import tsx scripts/db-growth-census.ts
  *   node --import tsx scripts/db-growth-census.ts --top=40
- *   node --import tsx scripts/db-growth-census.ts --exact --table=meta_config_snapshots
+ *   node --import tsx scripts/db-growth-census.ts --table=meta_config_snapshots
  */
-import { getDb } from "@/lib/db";
+import {
+  parseTop,
+  readBloatSignals,
+  readDatabaseSize,
+  readExactCount,
+  readRelationCensus,
+  readVolumeSample,
+  readWalBytes,
+} from "@/lib/db-growth-census";
 
 const LABEL = "[db-growth-census]";
 
@@ -52,132 +67,47 @@ function bytes(value: string | number | null): string {
   return `${scaled.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
 }
 
-/**
- * The whole public schema, ordered by size. Deliberately NOT filtered to a
- * known table list: filtering to names someone already suspected is exactly how
- * the unmeasured remainder stayed unmeasured.
- */
-async function relationCensus(top: number) {
-  const sql = getDb();
-  return (await sql.query(
-    `SELECT c.relname AS relation,
-            pg_total_relation_size(c.oid)::text                        AS total_bytes,
-            pg_relation_size(c.oid)::text                              AS heap_bytes,
-            pg_indexes_size(c.oid)::text                               AS index_bytes,
-            COALESCE(pg_total_relation_size(c.reltoastrelid), 0)::text AS toast_bytes,
-            c.reltuples::bigint::text                                  AS estimated_rows
-     FROM pg_class c
-     JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relkind IN ('r','p','m')
-     ORDER BY pg_total_relation_size(c.oid) DESC
-     LIMIT $1`,
-    [top],
-  )) as Array<Record<string, string>>;
-}
-
-async function databaseSize() {
-  const sql = getDb();
-  const rows = (await sql.query(
-    `SELECT current_database() AS name,
-            pg_database_size(current_database())::text AS database_bytes,
-            (SELECT COALESCE(SUM(size), 0)::text FROM pg_ls_waldir()) AS wal_bytes`,
-  )) as Array<Record<string, string>>;
-  return rows[0] ?? null;
-}
-
-/**
- * Dead-tuple and vacuum state. A large dead fraction means a meaningful share
- * of a relation is reclaimable by VACUUM FULL / pg_repack WITHOUT deleting a
- * single row — the cheapest possible win, and one the size numbers alone hide.
- */
-async function bloatSignals(top: number) {
-  const sql = getDb();
-  return (await sql.query(
-    `SELECT relname AS relation,
-            n_live_tup::text AS live_tuples,
-            n_dead_tup::text AS dead_tuples,
-            CASE WHEN n_live_tup + n_dead_tup > 0
-                 THEN ROUND(100.0 * n_dead_tup / (n_live_tup + n_dead_tup), 2)::text
-                 ELSE '0' END AS dead_pct,
-            COALESCE(last_autovacuum::text, 'never') AS last_autovacuum,
-            COALESCE(last_autoanalyze::text, 'never') AS last_autoanalyze
-     FROM pg_stat_user_tables
-     WHERE schemaname = 'public'
-     ORDER BY n_dead_tup DESC
-     LIMIT $1`,
-    [top],
-  )) as Array<Record<string, string>>;
-}
-
-/**
- * The filesystem the database host last reported, and — critically — which
- * mount point it actually measured.
- *
- * If the path the sampler was asked about is not itself a mount point, `df`
- * reported the PARENT filesystem and never measured the data directory. That
- * single fact reconciles the recorded database-larger-than-volume
- * contradiction, and nothing else in the system can see it.
- */
-async function volumeSample() {
-  const sql = getDb();
-  return (await sql
-    .query(
-      `SELECT s.captured_at::text AS captured_at,
-              EXTRACT(EPOCH FROM (now() - s.captured_at))::bigint::text AS age_seconds,
-              d->>'path'            AS path,
-              d->>'mountedOn'       AS mounted_on,
-              d->>'filesystem'      AS filesystem,
-              (d->>'totalBytes')::text     AS total_bytes,
-              (d->>'usedBytes')::text      AS used_bytes,
-              (d->>'availableBytes')::text AS available_bytes
-       FROM system_capacity_snapshots s
-       CROSS JOIN LATERAL jsonb_array_elements(s.payload->'disks') AS d
-       WHERE s.source = 'db_host_healthcheck'
-       ORDER BY s.captured_at DESC
-       LIMIT 6`,
-    )
-    .catch(() => [])) as Array<Record<string, string>>;
-}
-
-/** Opt-in and expensive: exact rows for one named relation. */
-async function exactCount(table: string) {
-  const sql = getDb();
-  if (!/^[a-z_][a-z0-9_]*$/.test(table)) {
-    throw new Error(`refusing an unsafe relation name: ${table}`);
-  }
-  const rows = (await sql.query(
-    `SELECT COUNT(*)::text AS exact_rows FROM ${table}`,
-  )) as Array<Record<string, string>>;
-  return rows[0]?.exact_rows ?? null;
-}
-
 async function main() {
-  const top = Number(arg("top") ?? 30);
+  const parsedTop = parseTop(arg("top"));
+  if ("error" in parsedTop) {
+    console.error(`${LABEL} REFUSED: ${parsedTop.error}`);
+    process.exit(2);
+  }
+  const top = parsedTop.top;
   const exactTable = arg("table");
 
-  const size = await databaseSize();
+  // Unprivileged, and first: if anything here fails the run is genuinely
+  // broken, rather than merely missing an optional probe.
+  const size = await readDatabaseSize();
   console.log(`${LABEL} database`, {
     name: size?.name ?? "unknown",
-    databaseBytes: size?.database_bytes ?? null,
-    databasePretty: bytes(size?.database_bytes ?? null),
-    walBytes: size?.wal_bytes ?? null,
-    walPretty: bytes(size?.wal_bytes ?? null),
+    databaseBytes: size?.databaseBytes ?? null,
+    databasePretty: bytes(size?.databaseBytes ?? null),
   });
 
-  const relations = await relationCensus(top);
-  const measured = relations.reduce((sum, row) => sum + Number(row.total_bytes), 0);
+  // Privileged, and isolated. Never reported as zero when it could not be read.
+  const wal = await readWalBytes();
+  console.log(
+    `${LABEL} wal`,
+    wal.available
+      ? { walBytes: wal.value, walPretty: bytes(wal.value) }
+      : { walBytes: "unavailable", reason: wal.reason },
+  );
+
+  const relations = await readRelationCensus(top);
+  const measured = relations.reduce((sum, row) => sum + Number(row.totalBytes), 0);
   console.log(`${LABEL} top ${top} relations:`);
   for (const row of relations) {
     console.log(
-      `  ${row.relation.padEnd(44)} total=${bytes(row.total_bytes).padStart(10)}` +
-        `  heap=${bytes(row.heap_bytes).padStart(10)}` +
-        `  index=${bytes(row.index_bytes).padStart(10)}` +
-        `  toast=${bytes(row.toast_bytes).padStart(10)}` +
-        `  ~rows=${row.estimated_rows}`,
+      `  ${row.relation.padEnd(44)} total=${bytes(row.totalBytes).padStart(10)}` +
+        `  heap=${bytes(row.heapBytes).padStart(10)}` +
+        `  index=${bytes(row.indexBytes).padStart(10)}` +
+        `  toast=${bytes(row.toastBytes).padStart(10)}` +
+        `  ~rows=${row.estimatedRows}`,
     );
   }
 
-  const databaseBytes = Number(size?.database_bytes ?? 0);
+  const databaseBytes = Number(size?.databaseBytes ?? 0);
   const remainder = databaseBytes - measured;
   console.log(`${LABEL} coverage`, {
     measuredTop: bytes(measured),
@@ -190,24 +120,31 @@ async function main() {
       databaseBytes > 0 ? `${((remainder / databaseBytes) * 100).toFixed(1)}%` : "unknown",
   });
 
-  console.log(`${LABEL} bloat signals (dead tuples are reclaimable WITHOUT deleting rows):`);
-  for (const row of await bloatSignals(15)) {
-    console.log(
-      `  ${row.relation.padEnd(44)} dead=${row.dead_tuples.padStart(12)}` +
-        `  live=${row.live_tuples.padStart(12)}  dead%=${row.dead_pct.padStart(6)}` +
-        `  lastAutovacuum=${row.last_autovacuum}`,
-    );
+  const bloat = await readBloatSignals(15);
+  if (!bloat.available) {
+    console.log(`${LABEL} bloat signals unavailable`, { reason: bloat.reason });
+  } else {
+    console.log(`${LABEL} bloat signals (dead tuples are reclaimable WITHOUT deleting rows):`);
+    for (const row of bloat.value) {
+      console.log(
+        `  ${row.relation.padEnd(44)} dead=${row.deadTuples.padStart(12)}` +
+          `  live=${row.liveTuples.padStart(12)}  dead%=${row.deadPct.padStart(6)}` +
+          `  lastAutovacuum=${row.lastAutovacuum}`,
+      );
+    }
   }
 
-  const volume = await volumeSample();
-  if (volume.length === 0) {
+  const volume = await readVolumeSample();
+  if (!volume.available) {
+    console.log(`${LABEL} volume sample unavailable`, { reason: volume.reason });
+  } else if (volume.value.length === 0) {
     console.log(
       `${LABEL} NO db_host_healthcheck capacity sample is available. The app cannot see the ` +
         `database host's filesystem, so there is NO evidence about free space from here.`,
     );
   } else {
     console.log(`${LABEL} last reported volumes:`);
-    for (const row of volume) {
+    for (const row of volume.value) {
       const misreported = row.mounted_on && row.path && row.mounted_on !== row.path;
       console.log(
         `  path=${row.path} mountedOn=${row.mounted_on} fs=${row.filesystem}` +
@@ -222,7 +159,13 @@ async function main() {
 
   if (exactTable) {
     console.log(`${LABEL} exact count for ${exactTable} (this is a full scan)...`);
-    console.log(`${LABEL} exact rows`, { table: exactTable, rows: await exactCount(exactTable) });
+    const exact = await readExactCount(exactTable);
+    console.log(
+      `${LABEL} exact rows`,
+      exact.available
+        ? { table: `public.${exactTable}`, rows: exact.value }
+        : { table: exactTable, rows: "unavailable", reason: exact.reason },
+    );
   }
 
   console.log(

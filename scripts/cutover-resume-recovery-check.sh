@@ -26,6 +26,14 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 mkdir -p "${WORK}/bin" "${WORK}/app/cutover" "${WORK}/state"
+make_agent_socket() {
+  rm -f "${WORK}/agent.sock"
+  # A REAL AF_UNIX socket: the precheck tests -S, and a regular file is
+  # not a socket. An earlier version of this harness used touch and every
+  # case downstream refused for the wrong reason.
+  python3 -c "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1])" "${WORK}/agent.sock"
+}
+make_agent_socket
 
 # A stand-in wrapper carrying the same STATE_VERSION the real one does, so the
 # version agreement check is exercised rather than bypassed.
@@ -49,7 +57,7 @@ write_state() { # <chain> <invalidated> <deploy_sha> <state_version>
   cat > "${WORK}/state/state" <<EOF
 state_version=${4}
 deploy_sha=${3}
-db_identity=host:5432/adsecute_prod
+db_identity=${DB_IDENTITY}
 env_file_sha256=deadbeef
 scheduler_spec=systemd:adsecute-sync.timer
 scheduler_sha256=cafebabe
@@ -59,9 +67,24 @@ updated_utc=2026-07-28T03:00:00Z
 EOF
 }
 
+# Stubs for the DB half: an agent that holds an identity, an ssh that reaches
+# the DB host and returns the recorded identity.
+DB_IDENTITY="adsecute_prod|7123456789012345678"
+make_db_stubs() { # <agent-ok> <ssh-ok> <identity>
+  printf '#!/usr/bin/env bash\n[ "%s" = "1" ] || exit 1\necho "256 SHA256:x runner (ED25519)"\n' "$1" \
+    > "${WORK}/bin/ssh-add"
+  printf '#!/usr/bin/env bash\n[ "%s" = "1" ] || exit 255\nfor a in "$@"; do case "$a" in *psql*) printf "%%s\\n" "%s"; exit 0;; esac; done\nexit 0\n' "$2" "$3" \
+    > "${WORK}/bin/ssh"
+  chmod +x "${WORK}/bin/ssh-add" "${WORK}/bin/ssh"
+  make_agent_socket
+}
+make_db_stubs 1 1 "${DB_IDENTITY}"
+
 run_precheck() { # -> exit status; output in ${WORK}/out
   set +e
   PATH="${WORK}/bin:${PATH}" \
+  CUTOVER_DB_SSH="${CUTOVER_DB_SSH_OVERRIDE-root@db.example}" \
+  SSH_AUTH_SOCK="${SSH_AUTH_SOCK_OVERRIDE-${WORK}/agent.sock}" \
   REMOTE_APP_DIR="${WORK}/app" \
   SYNC_CUTOVER_STATE_DIR="${WORK}/state" \
   CUTOVER_RESUME_SHA="${1:-${GOOD_SHA}}" \
@@ -172,6 +195,80 @@ if grep -qE 'INPUT_CONFIRM.*!= "resume"' .github/workflows/cutover-resume-schedu
 else
   fail "C12 the confirmation gate is missing or defaults to the affirmative"
 fi
+
+# ── D-series: the forwarded database identity ───────────────────────────────
+write_state "${GOOD_CHAIN}" "no" "${GOOD_SHA}" "${real_version}"
+make_db_stubs 1 1 "${DB_IDENTITY}"
+
+# D1 missing target — the wrapper would silently fall back to a local postgres.
+CUTOVER_DB_SSH_OVERRIDE="" expect_refusal "D1 a missing DB ssh target is refused" "no CUTOVER_DB_SSH target"
+unset CUTOVER_DB_SSH_OVERRIDE
+
+# D2 invalid target shapes.
+CUTOVER_DB_SSH_OVERRIDE="root@host;rm -rf /" expect_refusal "D2a a target with shell metacharacters is refused" "not a bare user@host"
+CUTOVER_DB_SSH_OVERRIDE="87.99.149.56" expect_refusal "D2b a target with no user is refused" "must be user@host"
+unset CUTOVER_DB_SSH_OVERRIDE
+
+# D3 no forwarded agent — refuse rather than fall back to a persistent key.
+SSH_AUTH_SOCK_OVERRIDE="" expect_refusal "D3a no forwarded agent is refused" "no forwarded ssh agent"
+unset SSH_AUTH_SOCK_OVERRIDE
+SSH_AUTH_SOCK_OVERRIDE="${WORK}/not-a-socket" expect_refusal "D3b a missing agent socket is refused" "no forwarded ssh agent"
+unset SSH_AUTH_SOCK_OVERRIDE
+
+make_db_stubs 0 1 "${DB_IDENTITY}"
+expect_refusal "D3c an agent holding no identity is refused" "holds no usable identity"
+
+# D4 the DB host refuses the connection.
+make_db_stubs 1 0 "${DB_IDENTITY}"
+expect_refusal "D4 an unreachable DB host is refused" "cannot reach"
+
+# D5 the database is not the one the cutover was opened against.
+make_db_stubs 1 1 "adsecute_prod|9999999999999999999"
+expect_refusal "D5 a mismatched database identity is refused" "the control path was repointed"
+
+# D6 an ordinary deploy phase can never forward the agent.
+: > "${WORK}/fwd.out"
+set +e
+( PATH="${WORK}/bin:${PATH}" SSH_AUTH_SOCK="${WORK}/agent.sock" \
+  CUTOVER_FORWARD_AGENT=1 CUTOVER_FORWARD_AGENT_PHASE=prepare_runtime \
+  HETZNER_USER=x REMOTE_APP_DIR=/tmp bash -c '
+    source .github/scripts/hetzner-ssh.sh
+    ssh_with_stdin_retry host true </dev/null
+  ' ) > "${WORK}/fwd.out" 2>&1
+fwd_status=$?
+set -e
+if [ "${fwd_status}" -ne 0 ] && grep -q "agent forwarding refused for phase" "${WORK}/fwd.out"; then
+  pass "D6 an ordinary deploy phase cannot forward the agent, even if the flag is set"
+else
+  fail "D6 prepare_runtime was allowed to forward the agent (status=${fwd_status})"
+fi
+
+# D7 forwarding is off by default for every ordinary phase.
+if grep -q 'CUTOVER_FORWARD_AGENT' .github/workflows/deploy-hetzner.yml; then
+  fail "D7 the ordinary deploy workflow mentions agent forwarding"
+else
+  pass "D7 the ordinary deploy workflow never enables agent forwarding"
+fi
+
+# D8 no key or agent material is written to the host.
+if awk '/^cutover_resume_(precheck|invoke|assert_db_reachable_and_matching)\(\)/,/^}/' \
+     .github/scripts/hetzner-remote.sh \
+   | grep -qE 'ssh-add -[^l]|cp .*id_|authorized_keys|> *~/\.ssh|IdentityFile'; then
+  fail "D8 the recovery writes key material on the host"
+else
+  pass "D8 the recovery writes no key material on the host — only the forwarded socket, removed by sshd"
+fi
+
+# D9 the runner tears the agent down whatever happens.
+if grep -q 'ssh-agent -k' .github/workflows/cutover-resume-scheduler.yml \
+  && grep -B 10 'ssh-agent -k' .github/workflows/cutover-resume-scheduler.yml | grep -q 'if: always()'; then
+  pass "D9 the ephemeral agent is stopped on every path, including failure"
+else
+  fail "D9 the agent teardown is missing or not unconditional"
+fi
+
+# Restore the good stubs so any later case is honest.
+make_db_stubs 1 1 "${DB_IDENTITY}"
 
 if [ "${FAILURES}" -ne 0 ]; then
   printf '%s %s check(s) FAILED\n' "${LABEL}" "${FAILURES}" >&2

@@ -67,6 +67,33 @@ ssh_with_stdin_retry() {
     -o ControlPath=~/.ssh/adsecute-deploy-%C
     -o ConnectionAttempts=3
   )
+
+  # ── Ephemeral agent forwarding, recovery phases only ──────────────────────
+  #
+  # The cutover wrapper reaches PostgreSQL by ssh'ing from the app host to the
+  # database host. The app host has no key that can do that — verified: it gets
+  # Permission denied — and putting one there would be a long-lived credential
+  # on a long-lived machine, which is the thing worth avoiding here.
+  #
+  # So the runner lends its own identity for the length of one connection. The
+  # key never lands on the host; only a socket the sshd removes when the session
+  # ends. It is gated TWICE — an explicit opt-in from the recovery workflow AND
+  # the phase name — because an ordinary deploy has no business holding a
+  # credential that can reach the database host.
+  if [ "${CUTOVER_FORWARD_AGENT:-0}" = "1" ]; then
+    case "${CUTOVER_FORWARD_AGENT_PHASE:-}" in
+      cutover_resume_precheck | cutover_resume_scheduler)
+        [ -n "${SSH_AUTH_SOCK:-}" ] \
+          || { echo "agent forwarding requested but no SSH_AUTH_SOCK is present" >&2; return 1; }
+        ssh_opts+=(-o ForwardAgent=yes)
+        ;;
+      *)
+        echo "agent forwarding refused for phase '${CUTOVER_FORWARD_AGENT_PHASE:-<unset>}'" >&2
+        return 1
+        ;;
+    esac
+  fi
+
   local stdin_payload_file
   stdin_payload_file="$(mktemp)"
   # The payload now carries a registry token on its first line, so it must not
@@ -174,6 +201,11 @@ run_remote_phase_on_host() {
   # Only the cutover recovery phases read this; empty for every ordinary
   # deploy phase, which is what keeps the recovery path opt-in.
   cutover_resume_sha_q="$(printf '%q' "${CUTOVER_RESUME_SHA:-}")"
+  local cutover_db_ssh_q
+  # A host target, not a credential: the credential stays in the runner's
+  # agent. Empty for every ordinary deploy phase.
+  cutover_db_ssh_q="$(printf '%q' "${CUTOVER_DB_SSH:-}")"
+  CUTOVER_FORWARD_AGENT_PHASE="${phase}"
 
   echo "Running remote deploy phase=${phase} on ${target_label} (${target_host})"
 
@@ -203,7 +235,7 @@ run_remote_phase_on_host() {
     printf '%s\n' "${GHCR_PULL_TOKEN:-}"
     cat .github/scripts/hetzner-remote.sh
   } | ssh_with_stdin_retry "${target_host}" \
-    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} CUTOVER_RESUME_SHA=${cutover_resume_sha_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
+    "mkdir -p ${remote_app_dir_q} && cd ${remote_app_dir_q} && GHCR_USER=${ghcr_user_q} PHASE=${phase_q} DEPLOY_SHA=${deploy_sha_q} BREAK_GLASS=${break_glass_q} OVERRIDE_REASON=${override_reason_q} DEPLOY_MIGRATION_TIMEOUT_MS=${deploy_migration_timeout_ms_q} DEPLOY_MIGRATION_TIMEOUT_SECONDS=${deploy_migration_timeout_seconds_q} APP_IMAGE_TAG=${deploy_sha_q} APP_BUILD_ID=${deploy_sha_q} WEB_IMAGE_REPO=${web_image_repo_q} WORKER_IMAGE_REPO=${worker_image_repo_q} CUTOVER_RESUME_SHA=${cutover_resume_sha_q} CUTOVER_DB_SSH=${cutover_db_ssh_q} REMOTE_APP_DIR=${remote_app_dir_q} bash -c '
 IFS= read -r __ghcr_tok || true
 __dcfg=\"\$(mktemp -d)\"
 cleanup_registry_auth() {

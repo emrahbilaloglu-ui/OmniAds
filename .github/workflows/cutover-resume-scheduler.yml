@@ -32,6 +32,13 @@ on:
         required: true
         default: "no"
         type: string
+      db_ssh:
+        description: >-
+          user@host of the DATABASE host, e.g. root@87.99.149.56. A target, not
+          a credential: the key stays in the runner's agent and is forwarded for
+          the length of this connection only.
+        required: true
+        type: string
       precheck_only:
         description: Run the read-only precheck and stop without resuming.
         required: false
@@ -54,6 +61,7 @@ jobs:
         env:
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_CONFIRM: ${{ inputs.confirm }}
+          INPUT_DB_SSH: ${{ inputs.db_ssh }}
         run: |
           set -euo pipefail
 
@@ -72,7 +80,19 @@ jobs:
             echo "Refusing. This is a recovery path, not a routine action." >&2
             exit 1
           fi
-          echo "inputs accepted for ${INPUT_SHA}"
+          case "${INPUT_DB_SSH}" in
+            *[!a-zA-Z0-9._@-]* | "" | *" "*)
+              echo "db_ssh must be a bare user@host target." >&2
+              exit 1
+              ;;
+            *@*) : ;;
+            *)
+              echo "db_ssh must be user@host." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "inputs accepted for ${INPUT_SHA} against ${INPUT_DB_SSH}"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,9 +135,18 @@ jobs:
           ssh-keyscan -H "${primary_deploy_host}" 2>/dev/null >> ~/.ssh/known_hosts || true
           chmod 644 ~/.ssh/known_hosts
 
+          # Ephemeral agent. The key is loaded into it and the socket lives
+          # only for this job; nothing is written to the app host, and the
+          # agent dies with the runner.
+          eval "$(ssh-agent -s)" >/dev/null
+          ssh-add ~/.ssh/id_ed25519 >/dev/null 2>&1
+          ssh-add -l >/dev/null 2>&1 || { echo "the ephemeral agent holds no identity" >&2; exit 1; }
+
           {
             echo "PRIMARY_DEPLOY_HOST=${primary_deploy_host}"
             echo "PRIMARY_DEPLOY_HOST_IP=${primary_deploy_host_ip}"
+            echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}"
+            echo "SSH_AGENT_PID=${SSH_AGENT_PID}"
           } >> "$GITHUB_ENV"
 
       # Read-only. Prints the whole decision basis — wrapper identity and
@@ -132,6 +161,8 @@ jobs:
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           DEPLOY_SHA: ${{ inputs.sha }}
           CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          CUTOVER_DB_SSH: ${{ inputs.db_ssh }}
+          CUTOVER_FORWARD_AGENT: "1"
           BREAK_GLASS: "false"
           OVERRIDE_REASON: ""
         run: |
@@ -148,6 +179,8 @@ jobs:
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           DEPLOY_SHA: ${{ inputs.sha }}
           CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          CUTOVER_DB_SSH: ${{ inputs.db_ssh }}
+          CUTOVER_FORWARD_AGENT: "1"
           BREAK_GLASS: "false"
           OVERRIDE_REASON: ""
         run: |
@@ -164,6 +197,8 @@ jobs:
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           DEPLOY_SHA: ${{ inputs.sha }}
           CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          CUTOVER_DB_SSH: ${{ inputs.db_ssh }}
+          CUTOVER_FORWARD_AGENT: "1"
           BREAK_GLASS: "false"
           OVERRIDE_REASON: ""
         run: |
@@ -177,3 +212,14 @@ jobs:
             exit 1
           fi
           echo "recovery is no longer applicable — the cutover is complete"
+
+      - name: Stop the ephemeral agent
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner is destroyed anyway; this makes the lifetime explicit
+          # rather than incidental.
+          ssh-agent -k >/dev/null 2>&1 || true
+          rm -f ~/.ssh/id_ed25519 || true
+          echo "agent stopped and runner key removed"

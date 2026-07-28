@@ -794,15 +794,69 @@ cutover_resume_precheck() {
   log "container states  :"
   docker compose ps --format '  {{.Service}}={{.State}} {{.Image}}' 2>/dev/null || true
 
+  cutover_assert_db_reachable_and_matching
+
   log "PRECHECK OK — resume-scheduler is the only legal next phase"
+}
+
+# The database half of the proof, and the reason this precheck exists at all.
+#
+# resume-scheduler re-derives db_identity and compares it to the one the cutover
+# recorded. That comparison is the whole point — a cutover resumed against a
+# different database is worse than one never resumed — but the wrapper reaches
+# PostgreSQL by ssh'ing to the DB host, and this host has no key for it. The
+# runner lends its agent for the length of one connection.
+#
+# Everything here fails CLOSED. No forwarded agent, no target, an unreachable
+# host or a mismatched identity all refuse before the wrapper is invoked, which
+# is before anything can be written.
+cutover_assert_db_reachable_and_matching() {
+  local recorded observed
+
+  [ -n "${CUTOVER_DB_SSH:-}" ] \
+    || die_cutover "no CUTOVER_DB_SSH target was forwarded; the wrapper would fall back to a local postgres this host does not have"
+  case "${CUTOVER_DB_SSH}" in
+    *[!a-zA-Z0-9._@-]* | "" | *" "*)
+      die_cutover "CUTOVER_DB_SSH '${CUTOVER_DB_SSH}' is not a bare user@host target" ;;
+    *@*) : ;;
+    *) die_cutover "CUTOVER_DB_SSH '${CUTOVER_DB_SSH}' must be user@host" ;;
+  esac
+  log "db ssh target     : ${CUTOVER_DB_SSH}"
+
+  [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ] \
+    || die_cutover "no forwarded ssh agent on this host; refusing to continue rather than fall back to a persistent key"
+  ssh-add -l >/dev/null 2>&1 \
+    || die_cutover "the forwarded agent holds no usable identity"
+  log "forwarded agent   : present, $(ssh-add -l 2>/dev/null | wc -l | tr -d ' ') identity(ies)"
+
+  # Reachability, proven rather than assumed, with BatchMode so a prompt can
+  # never hang a deploy.
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+      "${CUTOVER_DB_SSH}" true >/dev/null 2>&1 \
+    || die_cutover "cannot reach ${CUTOVER_DB_SSH} over the forwarded agent"
+  log "db host           : reachable over the forwarded agent"
+
+  recorded="$(cutover_state_get db_identity)"
+  observed="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+      "${CUTOVER_DB_SSH}" \
+      "runuser -u postgres -- psql --dbname=$(printf %q "${CUTOVER_DB_NAME:-adsecute_prod}") -v ON_ERROR_STOP=1 --tuples-only --no-align -c \"SELECT current_database() || '|' || system_identifier::text FROM pg_control_system();\"" \
+      2>/dev/null | tr -d '[:space:]')"
+
+  [ -n "${observed}" ] \
+    || die_cutover "could not read the database identity from ${CUTOVER_DB_SSH}"
+  [ "${observed}" = "${recorded}" ] \
+    || die_cutover "database identity is now '${observed}', the cutover was opened against '${recorded}'; the control path was repointed"
+  log "db identity       : matches the cutover state"
 }
 
 cutover_resume_invoke() {
   # The wrapper re-derives and re-checks every invariant itself; this adds no
   # arguments beyond the SHA it already demands, and writes nothing.
-  DEPLOY_SHA="${CUTOVER_RESUME_SHA}" bash "${INSTALLED_WRAPPER}" resume-scheduler
+  SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" DEPLOY_SHA="${CUTOVER_RESUME_SHA}" \
+    bash "${INSTALLED_WRAPPER}" resume-scheduler
   log "wrapper returned 0; reading the state back"
-  DEPLOY_SHA="${CUTOVER_RESUME_SHA}" bash "${INSTALLED_WRAPPER}" status || true
+  SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" DEPLOY_SHA="${CUTOVER_RESUME_SHA}" \
+    bash "${INSTALLED_WRAPPER}" status || true
   printf '%s' "$(cutover_state_get phase_chain)" | grep -q 'resume-scheduler' \
     || die_cutover "resume-scheduler is still absent from the chain after the wrapper returned 0"
   log "RESUME OK — phase_chain now: $(cutover_state_get phase_chain)"

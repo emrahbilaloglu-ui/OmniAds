@@ -149,6 +149,13 @@ npm run test:deploy-registry-auth
 # invalidated, foreign release, wrong wrapper version, in-flight process,
 # missing state, missing wrapper — plus proof it writes nothing and delivers no
 # wrapper over the one that opened the cutover.
+# The production deadlock, reproduced against the real wrapper: a live managed
+# cron block whose hash cannot match a state recording `absent`, no saved block
+# to restore, and emergency-disable proven to be an outage rather than a
+# recovery. Pinned so nobody "fixes" the recovery path by loosening it.
+stage "Cutover stuck-state reproduction (the deadlock is real)"
+npm run test:cutover-stuck-repro
+
 stage "Cutover resume recovery (refuses every state but one)"
 npm run test:cutover-resume-recovery
 

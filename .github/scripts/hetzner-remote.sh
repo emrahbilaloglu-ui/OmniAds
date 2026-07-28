@@ -606,7 +606,7 @@ assert_not_cutover_required() {
 # A cutover already in progress owns the database. Migrating underneath it would
 # run two migration paths against one database at once.
 assert_no_cutover_in_progress() {
-  local cutover_state_file cutover_chain cutover_invalidated
+  local cutover_state_file cutover_chain cutover_invalidated cutover_resumed
   cutover_state_file="${SYNC_CUTOVER_STATE_DIR:-/var/lib/adsecute-cutover}/state"
   [ -s "${cutover_state_file}" ] || return 0
   cutover_chain="$(awk -F= '$1 == "phase_chain" { sub(/^[^=]*=/, ""); print; exit }' "${cutover_state_file}")"
@@ -615,9 +615,18 @@ assert_no_cutover_in_progress() {
   # one (emergency-disable invalidated it, so an operator already took manual
   # control) both hand the database back. Anything between preflight and
   # resume-scheduler still owns it.
+  # Comma-anchored membership, matching the wrapper's own state_chain_has.
+  # An unanchored `grep -q 'resume-scheduler'` was a latent hole: any phase
+  # whose NAME merely contained that substring — `pre-resume-scheduler`,
+  # `resume-scheduler-verify` — would have opened this gate and let an ordinary
+  # deploy migrate underneath a live cutover. Nothing tested it.
+  case ",${cutover_chain}," in
+    *,resume-scheduler,*) cutover_resumed=yes ;;
+    *) cutover_resumed=no ;;
+  esac
   if [ -n "${cutover_chain}" ] &&
     [ "${cutover_invalidated}" != "yes" ] &&
-    ! printf '%s' "${cutover_chain}" | grep -q 'resume-scheduler'; then
+    [ "${cutover_resumed}" != "yes" ]; then
     log "ABORT a sync cutover is in progress (phases: ${cutover_chain}); the ordinary deploy must not migrate underneath it"
     return 1
   fi
@@ -795,8 +804,70 @@ cutover_resume_precheck() {
   docker compose ps --format '  {{.Service}}={{.State}} {{.Image}}' 2>/dev/null || true
 
   cutover_assert_db_reachable_and_matching
+  cutover_assert_wrapper_invariants_would_pass
 
   log "PRECHECK OK — resume-scheduler is the only legal next phase"
+}
+
+# The precheck must never say OK for an invocation the wrapper would refuse.
+#
+# The first version of this did exactly that: it asked systemctl about a
+# `rootcron` spec — a meaningless question — and never simulated the wrapper's
+# invariants at all. It reported PRECHECK OK for a state with FOUR independent
+# refusals waiting. A green precheck that is wrong is worse than no precheck,
+# because it converts a careful operator into a confident one.
+#
+# So this re-derives, with the CORRECT per-spec mechanism, the two invariants
+# that actually bite, in the order assert_state_invariants checks them.
+cutover_assert_wrapper_invariants_would_pass() {
+  local spec live_env recorded_env live_sched recorded_sched block_count end_count
+
+  spec="$(cutover_state_get scheduler_spec)"
+
+  # 1. env_file_sha256 — checked FIRST by the wrapper, and the one a credential
+  #    rotation breaks, because every compose service loads .env.production.
+  recorded_env="$(cutover_state_get env_file_sha256)"
+  if [ -f "${REMOTE_APP_DIR}/.env.production" ]; then
+    live_env="$(sha256sum "${REMOTE_APP_DIR}/.env.production" | awk '{print $1}')"
+  else
+    die_cutover "no ${REMOTE_APP_DIR}/.env.production; the wrapper would refuse"
+  fi
+  log "env sha256        : live=${live_env:0:12}… state=${recorded_env:0:12}…"
+  [ "${live_env}" = "${recorded_env}" ] \
+    || die_cutover "the env file changed outside this cutover (live ${live_env} vs state ${recorded_env}); assert_state_invariants refuses before resume-scheduler is reached"
+
+  # 2. scheduler_sha256 — per spec, with the mechanism the wrapper uses.
+  recorded_sched="$(cutover_state_get scheduler_sha256)"
+  case "${spec}" in
+    rootcron)
+      crontab -l -u root >/dev/null 2>&1 \
+        || die_cutover "the root crontab is unreadable; an empty read is not proof of absence"
+      block_count="$(crontab -l -u root 2>/dev/null | grep -c '^# BEGIN adsecute-sync$' || true)"
+      end_count="$(crontab -l -u root 2>/dev/null | grep -c '^# END adsecute-sync$' || true)"
+      log "rootcron markers  : ${block_count} BEGIN / ${end_count} END"
+      [ "${block_count}" = "1" ] && [ "${end_count}" = "1" ] \
+        || die_cutover "expected exactly one managed block, found ${block_count} BEGIN and ${end_count} END; rootcron_split would silently merge duplicates"
+      live_sched="$(crontab -l -u root 2>/dev/null | sed -n '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/p' | sha256sum | awk '{print $1}')"
+      ;;
+    systemd:*)
+      live_sched="$(systemctl show -p FragmentPath --value "${spec#systemd:}" 2>/dev/null | xargs -r sha256sum 2>/dev/null | awk '{print $1}')"
+      ;;
+    *)
+      die_cutover "this precheck does not know how to verify scheduler spec '${spec}'; refusing rather than guessing"
+      ;;
+  esac
+  log "scheduler sha256  : live=${live_sched:0:12}… state=${recorded_sched}"
+  [ "${live_sched}" = "${recorded_sched}" ] \
+    || die_cutover "the scheduler definition does not match what the cutover recorded (live ${live_sched} vs state '${recorded_sched}'); resume-scheduler would refuse. If the state records 'absent' there was never a saved block: this cutover is UNFINISHABLE and needs a new epoch, not a recovery."
+
+  # 3. The saved block resume-scheduler would restore.
+  case "${spec}" in
+    rootcron)
+      [ -s "${CUTOVER_STATE_DIR}/rootcron.block" ] \
+        || die_cutover "no saved rootcron.block; rootcron_start would refuse to invent Sync schedule entries"
+      ;;
+  esac
+  log "wrapper invariants: would pass"
 }
 
 # The database half of the proof, and the reason this precheck exists at all.
@@ -857,9 +928,164 @@ cutover_resume_invoke() {
   log "wrapper returned 0; reading the state back"
   SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" DEPLOY_SHA="${CUTOVER_RESUME_SHA}" \
     bash "${INSTALLED_WRAPPER}" status || true
-  printf '%s' "$(cutover_state_get phase_chain)" | grep -q 'resume-scheduler' \
-    || die_cutover "resume-scheduler is still absent from the chain after the wrapper returned 0"
+  case ",$(cutover_state_get phase_chain)," in
+    *,resume-scheduler,*) : ;;
+    *) die_cutover "resume-scheduler is still absent from the chain after the wrapper returned 0" ;;
+  esac
   log "RESUME OK — phase_chain now: $(cutover_state_get phase_chain)"
+}
+
+# ── Clean-epoch cutover: evidence, headroom, and the wrapper's own phases ────
+#
+# The previous cutover is unfinishable: its `resume-scheduler` fails four
+# independent invariants because the scheduler block it was meant to restore
+# never existed when it ran, and a human installed a new one afterwards. The
+# supported answer is not to adopt that block behind the wrapper's back, nor to
+# teach the deploy gate a new exception — it is to open a NEW epoch with the
+# wrapper that is already installed and manifest-pinned, which is exactly what
+# `preflight` is for: it rewrites the state record from scratch and records the
+# scheduler as it actually is.
+#
+# Nothing here edits state. The only writer is the installed wrapper.
+CUTOVER_AUDIT_ROOT="/var/lib/adsecute-cutover-audit"
+
+# Step 1. Copy the evidence somewhere the new epoch cannot overwrite, BEFORE
+# preflight truncates the state file. An audit copy, not a state edit.
+cutover_epoch_preserve_evidence() {
+  local stamp dest src digest
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  dest="${CUTOVER_AUDIT_ROOT}/${stamp}"
+  mkdir -p "${dest}"
+  chmod 0700 "${CUTOVER_AUDIT_ROOT}" "${dest}"
+
+  for src in \
+    "${CUTOVER_STATE_FILE}" \
+    "${CUTOVER_STATE_DIR}/sync-release-identity" \
+    "${CUTOVER_STATE_DIR}/image-pin" \
+    "${REMOTE_APP_DIR}/cutover/cutover-wrapper.manifest" \
+    "${REMOTE_APP_DIR}/cutover/installed.manifest"; do
+    if [ -f "${src}" ]; then
+      cp -p "${src}" "${dest}/$(basename "${src}")"
+      log "preserved $(basename "${src}") bytes=$(wc -c < "${src}" | tr -d ' ') sha256=$(sha256sum "${src}" | awk '{print $1}')"
+    else
+      log "absent (recorded as absent): ${src}"
+      printf 'ABSENT %s\n' "${src}" >> "${dest}/absent.txt"
+    fi
+  done
+
+  sha256sum "${INSTALLED_WRAPPER}" > "${dest}/installed-wrapper.sha256"
+  log "installed wrapper sha256=$(awk '{print $1}' "${dest}/installed-wrapper.sha256")"
+
+  ls -la "${CUTOVER_STATE_DIR}" > "${dest}/state-dir-listing.txt" 2>&1 || true
+  ls -la "${CUTOVER_STATE_DIR}/attestations" > "${dest}/attestations.txt" 2>&1 || true
+
+  # Cron: STRUCTURE and digests only. The managed block carries a bearer token,
+  # so no line of it is ever copied or printed.
+  crontab -l -u root 2>/dev/null > "${dest}/.cron.raw" || true
+  if [ -s "${dest}/.cron.raw" ]; then
+    {
+      printf 'total_lines=%s\n' "$(wc -l < "${dest}/.cron.raw" | tr -d ' ')"
+      printf 'begin_markers=%s\n' "$(grep -c '^# BEGIN adsecute-sync$' "${dest}/.cron.raw" || true)"
+      printf 'end_markers=%s\n' "$(grep -c '^# END adsecute-sync$' "${dest}/.cron.raw" || true)"
+      printf 'whole_sha256=%s\n' "$(sha256sum "${dest}/.cron.raw" | awk '{print $1}')"
+      printf 'block_sha256=%s\n' "$(sed -n '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/p' "${dest}/.cron.raw" | sha256sum | awk '{print $1}')"
+      printf 'outside_sha256=%s\n' "$(sed '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/d' "${dest}/.cron.raw" | sha256sum | awk '{print $1}')"
+      printf 'outside_sync_refs=%s\n' "$(sed '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/d' "${dest}/.cron.raw" | grep -ciE 'adsecute|omniads' || true)"
+    } > "${dest}/cron-structure.txt"
+    rm -f "${dest}/.cron.raw"
+    log "cron structure recorded (digests only, no line copied)"
+    cat "${dest}/cron-structure.txt" | sed 's/^/  /'
+  else
+    rm -f "${dest}/.cron.raw"
+    log "root crontab unreadable or empty"
+  fi
+
+  # Env: per-key NAMES and digests. Never a value.
+  if [ -f "${REMOTE_APP_DIR}/.env.production" ]; then
+    printf 'env_file_sha256=%s\n' "$(sha256sum "${REMOTE_APP_DIR}/.env.production" | awk '{print $1}')" \
+      > "${dest}/env-digest.txt"
+    awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ { print $1 }' "${REMOTE_APP_DIR}/.env.production" | sort \
+      > "${dest}/env-keys.txt"
+    log "env sha256=$(awk -F= '{print $2}' "${dest}/env-digest.txt") keys=$(wc -l < "${dest}/env-keys.txt" | tr -d ' ')"
+  fi
+
+  # The pre-enable env snapshots are the strongest evidence of the rotation.
+  for src in "${CUTOVER_STATE_DIR}"/env.disabled.*; do
+    [ -f "${src}" ] || continue
+    printf '%s sha256=%s bytes=%s\n' "$(basename "${src}")" \
+      "$(sha256sum "${src}" | awk '{print $1}')" "$(wc -c < "${src}" | tr -d ' ')" \
+      >> "${dest}/rotation-artifacts.txt"
+  done
+  [ -f "${dest}/rotation-artifacts.txt" ] && sed 's/^/  /' "${dest}/rotation-artifacts.txt" || true
+
+  chmod -R go-rwx "${dest}"
+  digest="$(find "${dest}" -type f -exec sha256sum {} + | sort -k2 | sha256sum | awk '{print $1}')"
+  log "AUDIT COPY COMPLETE dir=${dest} files=$(find "${dest}" -type f | wc -l | tr -d ' ') tree_sha256=${digest}"
+}
+
+# Step 2. Headroom, by removing ONLY images no container is using. Never
+# touches volumes, containers, backups, state or DB data.
+cutover_epoch_prune_images() {
+  local keep before_free after_free
+  keep="$(mktemp)"
+  # Every image id a live container is using, plus the tagged refs of the
+  # release the wrapper is pinned to.
+  docker ps -a --format '{{.Image}}' | sort -u >> "${keep}"
+  for c in $(docker ps -aq); do
+    docker inspect "${c}" --format '{{.Image}}' 2>/dev/null >> "${keep}" || true
+  done
+  sort -u -o "${keep}" "${keep}"
+  log "preserving $(wc -l < "${keep}" | tr -d ' ') image reference(s) in use:"
+  sed 's/^/  /' "${keep}"
+
+  before_free="$(df -Pm / | awk 'NR==2 {print $4}')"
+  log "free before: ${before_free} MB"
+  log "docker usage before:"; docker system df | sed 's/^/  /'
+
+  # -a removes images with no container; the keep-list above is what `docker`
+  # itself considers in use, so this cannot remove a running container's image.
+  docker image prune -af --filter "until=1h" || true
+
+  after_free="$(df -Pm / | awk 'NR==2 {print $4}')"
+  log "free after: ${after_free} MB (reclaimed $((after_free - before_free)) MB)"
+  log "docker usage after:"; docker system df | sed 's/^/  /'
+
+  # Nothing may have been removed that a container needs.
+  local missing=0
+  while IFS= read -r ref; do
+    [ -n "${ref}" ] || continue
+    docker image inspect "${ref}" >/dev/null 2>&1 || { log "MISSING AFTER PRUNE: ${ref}"; missing=1; }
+  done < "${keep}"
+  rm -f "${keep}"
+  [ "${missing}" -eq 0 ] || die_cutover "the prune removed an image a container is using"
+  log "every in-use image survived the prune"
+}
+
+# Step 3/4. Run one phase of the INSTALLED wrapper. Enumerated, never
+# emergency-disable, and the wrapper re-checks everything itself.
+cutover_epoch_run() {
+  local phase="${CUTOVER_EPOCH_PHASE:-}"
+  case "${phase}" in
+    preflight|quiesce|fingerprint-pre|migrate|verify-contract|fingerprint-post|deploy-disabled|enable|resume-scheduler|status) : ;;
+    emergency-disable) die_cutover "emergency-disable is not available through this path" ;;
+    *) die_cutover "unknown or refused cutover phase '${phase}'" ;;
+  esac
+
+  [ -f "${INSTALLED_WRAPPER}" ] || die_cutover "no installed wrapper at ${INSTALLED_WRAPPER}"
+  log "installed wrapper sha256=$(sha256sum "${INSTALLED_WRAPPER}" | awk '{print $1}')"
+  [ -n "${CUTOVER_DB_SSH:-}" ] || die_cutover "no CUTOVER_DB_SSH target forwarded"
+  [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "${SSH_AUTH_SOCK}" ] \
+    || die_cutover "no forwarded ssh agent; the wrapper cannot reach the database host"
+
+  log "running installed wrapper phase='${phase}' for ${CUTOVER_RESUME_SHA}"
+  SYNC_CUTOVER_DB_SSH="${CUTOVER_DB_SSH}" \
+  SYNC_CUTOVER_SCHEDULER="${CUTOVER_SCHEDULER:-rootcron}" \
+  SYNC_CUTOVER_CONTINUES_FROM="${CUTOVER_CONTINUES_FROM:-}" \
+  DEPLOY_SHA="${CUTOVER_RESUME_SHA}" \
+    bash "${INSTALLED_WRAPPER}" "${phase}"
+
+  log "phase '${phase}' returned 0; state now:"
+  sed 's/^/  /' "${CUTOVER_STATE_FILE}" 2>/dev/null | grep -viE '(secret|token|password|api[_-]?key)' || true
 }
 
 die_cutover() {
@@ -995,6 +1221,20 @@ case "${phase}" in
   cutover_resume_precheck)
     log "Cutover resume precheck — read only, no mutation"
     cutover_resume_precheck
+    ;;
+
+  cutover_epoch_preserve_evidence)
+    log "Preserving cutover evidence before a new epoch truncates it"
+    cutover_epoch_preserve_evidence
+    ;;
+
+  cutover_epoch_prune_images)
+    log "Reclaiming app-host headroom (unused images only)"
+    cutover_epoch_prune_images
+    ;;
+
+  cutover_epoch_run)
+    cutover_epoch_run
     ;;
 
   cutover_resume_scheduler)

@@ -1,0 +1,209 @@
+name: Cutover epoch (one phase per dispatch)
+
+# Drives ONE phase of the installed cutover wrapper per dispatch.
+#
+# Why a new epoch rather than a recovery. The previous cutover cannot be
+# finished: its `resume-scheduler` fails four independent invariants, because
+# the managed cron block it was meant to restore did not exist when it ran, and
+# a human installed a different one afterwards. The two shortcuts were both
+# rejected on purpose — teaching the deploy gate an exception weakens the gate,
+# and delivering a newer wrapper is not even reachable (both delivery sites sit
+# behind the very refusal we are stuck behind).
+#
+# So this uses the wrapper that is ALREADY installed and manifest-pinned, and
+# the phase it already has for this: `preflight` rewrites the state record from
+# scratch and records the scheduler as it actually is. Nothing here edits state;
+# the only writer is the wrapper, and it re-checks every invariant itself.
+#
+# One phase per dispatch, deliberately: each phase is read back before the next
+# is chosen, so a refusal is inspected rather than retried.
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: The single phase to run.
+        required: true
+        default: status
+        type: choice
+        options:
+          - status
+          - preserve-evidence
+          - prune-images
+          - preflight
+          - quiesce
+          - fingerprint-pre
+          - migrate
+          - verify-contract
+          - fingerprint-post
+          - deploy-disabled
+          - enable
+          - resume-scheduler
+      sha:
+        description: The release this epoch is for (40-hex lowercase).
+        required: true
+        type: string
+      db_ssh:
+        description: user@host of the DATABASE host. A target, not a credential.
+        required: true
+        default: root@87.99.149.56
+        type: string
+      scheduler:
+        description: SYNC_CUTOVER_SCHEDULER spec.
+        required: true
+        default: rootcron
+        type: string
+      continues_from:
+        description: SYNC_CUTOVER_CONTINUES_FROM attestation, only where the wrapper requires it.
+        required: false
+        default: ""
+        type: string
+      confirm:
+        description: Type "run" to confirm.
+        required: true
+        default: "no"
+        type: string
+
+concurrency:
+  group: cutover-recovery
+  cancel-in-progress: false
+
+jobs:
+  phase:
+    runs-on: ubuntu-latest
+    # preflight takes a verified ~25 GB rollback artifact; that is the long pole.
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - name: Validate inputs
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_DB_SSH: ${{ inputs.db_ssh }}
+          INPUT_CONFIRM: ${{ inputs.confirm }}
+          INPUT_SCHEDULER: ${{ inputs.scheduler }}
+        run: |
+          set -euo pipefail
+
+          case "${INPUT_SHA}" in *[!0-9a-f]* | "") echo "sha must be lowercase hex." >&2; exit 1 ;; esac
+          [ "${#INPUT_SHA}" -eq 40 ] || { echo "sha must be 40 characters." >&2; exit 1; }
+          case "${INPUT_DB_SSH}" in
+            *[!a-zA-Z0-9._@-]* | "" | *" "*) echo "db_ssh must be a bare user@host." >&2; exit 1 ;;
+            *@*) : ;;
+            *) echo "db_ssh must be user@host." >&2; exit 1 ;;
+          esac
+          case "${INPUT_SCHEDULER}" in
+            rootcron | none | systemd:* | cron:* | compose:*) : ;;
+            *) echo "scheduler spec '${INPUT_SCHEDULER}' is not supported." >&2; exit 1 ;;
+          esac
+          [ "${INPUT_CONFIRM}" = "run" ] || {
+            echo "confirm must be the literal string 'run'." >&2
+            exit 1
+          }
+          echo "accepted: phase=${{ inputs.phase }} sha=${INPUT_SHA} scheduler=${INPUT_SCHEDULER}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # The key is written to the ephemeral runner and loaded into an agent that
+      # dies with the job. Nothing persists on the app host.
+      - name: Prepare SSH access and ephemeral agent
+        shell: bash
+        env:
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+            echo "Missing required Hetzner deploy secrets." >&2
+            exit 1
+          fi
+
+          source .github/scripts/hetzner-ssh.sh
+          primary_deploy_host="${HETZNER_HOST}"
+          primary_deploy_host_ip="$(resolve_host "${primary_deploy_host}")"
+          [ -n "${primary_deploy_host}" ] || { echo "No deploy target host resolved." >&2; exit 1; }
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${primary_deploy_host}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+
+          eval "$(ssh-agent -s)" >/dev/null
+          ssh-add ~/.ssh/id_ed25519 >/dev/null 2>&1
+          ssh-add -l >/dev/null 2>&1 || { echo "the ephemeral agent holds no identity" >&2; exit 1; }
+
+          {
+            echo "PRIMARY_DEPLOY_HOST=${primary_deploy_host}"
+            echo "PRIMARY_DEPLOY_HOST_IP=${primary_deploy_host_ip}"
+            echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}"
+            echo "SSH_AGENT_PID=${SSH_AGENT_PID}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the phase
+        shell: bash
+        env:
+          REMOTE_APP_DIR: /var/www/adsecute
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          CUTOVER_DB_SSH: ${{ inputs.db_ssh }}
+          CUTOVER_SCHEDULER: ${{ inputs.scheduler }}
+          CUTOVER_CONTINUES_FROM: ${{ inputs.continues_from }}
+          CUTOVER_FORWARD_AGENT: "1"
+          BREAK_GLASS: "false"
+          OVERRIDE_REASON: ""
+          PHASE_INPUT: ${{ inputs.phase }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/hetzner-ssh.sh
+
+          case "${PHASE_INPUT}" in
+            preserve-evidence) remote_phase=cutover_epoch_preserve_evidence ;;
+            prune-images)      remote_phase=cutover_epoch_prune_images ;;
+            *)                 remote_phase=cutover_epoch_run
+                               export CUTOVER_EPOCH_PHASE="${PHASE_INPUT}" ;;
+          esac
+
+          run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary "${remote_phase}"
+
+      - name: Read the state back
+        if: always()
+        shell: bash
+        env:
+          REMOTE_APP_DIR: /var/www/adsecute
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          DEPLOY_SHA: ${{ inputs.sha }}
+          CUTOVER_RESUME_SHA: ${{ inputs.sha }}
+          CUTOVER_DB_SSH: ${{ inputs.db_ssh }}
+          CUTOVER_SCHEDULER: ${{ inputs.scheduler }}
+          CUTOVER_EPOCH_PHASE: status
+          CUTOVER_FORWARD_AGENT: "1"
+          BREAK_GLASS: "false"
+          OVERRIDE_REASON: ""
+        run: |
+          set -euo pipefail
+          source .github/scripts/hetzner-ssh.sh
+          # Read-back is unconditional: a refusal is as worth recording as a
+          # success, and the next phase is chosen from what this prints.
+          run_remote_phase_on_host "${PRIMARY_DEPLOY_HOST}" primary cutover_epoch_run || true
+
+      - name: Stop the ephemeral agent
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-agent -k >/dev/null 2>&1 || true
+          rm -f ~/.ssh/id_ed25519 || true
+          echo "agent stopped and runner key removed"

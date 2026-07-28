@@ -53,14 +53,35 @@ for tool in docker systemctl pgrep fuser sha256sum; do
 done
 command -v sha256sum >/dev/null 2>&1 && rm -f "${WORK}/bin/sha256sum"
 
+
+# A FINISHABLE cutover: env file present and matching, a saved block to restore,
+# and a live crontab with exactly one managed block.
+printf 'CRON_SECRET=fixture\nDATABASE_URL=postgres://x\n' > "${WORK}/app/.env.production"
+ENV_SHA="$(shasum -a 256 "${WORK}/app/.env.production" | awk '{print $1}')"
+
+cat > "${WORK}/crontab" <<'CRON'
+17 4 * * * /usr/local/bin/certbot renew --quiet
+# BEGIN adsecute-sync
+*/10 * * * * curl -fsS -X POST http://127.0.0.1:3000/api/sync/cron -H "Authorization: Bearer FIXTURE" >/tmp/x.log 2>&1
+# END adsecute-sync
+CRON
+cat > "${WORK}/bin/crontab" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-l" ]; then cat "${WORK}/crontab"; exit 0; fi
+cat > "${WORK}/crontab"
+STUB
+chmod +x "${WORK}/bin/crontab"
+BLOCK_SHA="$(sed -n '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/p' "${WORK}/crontab" | shasum -a 256 | awk '{print $1}')"
+sed -n '/^# BEGIN adsecute-sync$/,/^# END adsecute-sync$/p' "${WORK}/crontab" > "${WORK}/state/rootcron.block"
+
 write_state() { # <chain> <invalidated> <deploy_sha> <state_version>
   cat > "${WORK}/state/state" <<EOF
 state_version=${4}
 deploy_sha=${3}
 db_identity=${DB_IDENTITY}
-env_file_sha256=deadbeef
-scheduler_spec=systemd:adsecute-sync.timer
-scheduler_sha256=cafebabe
+env_file_sha256=${ENV_SHA}
+scheduler_spec=rootcron
+scheduler_sha256=${BLOCK_SHA}
 phase_chain=${1}
 invalidated=${2}
 updated_utc=2026-07-28T03:00:00Z
@@ -102,7 +123,7 @@ expect_refusal() { # <case> <needle>
   elif grep -q "${needle}" "${WORK}/out"; then
     pass "${name}"
   else
-    fail "${name} — refused, but not for the expected reason: $(tail -2 "${WORK}/out" | tr '\n' ' ')"
+    fail "${name} — wrong reason: $(grep -a ABORT "${WORK}/out" | head -1)"
   fi
 }
 
@@ -111,7 +132,7 @@ write_state "${GOOD_CHAIN}" "no" "${GOOD_SHA}" "${real_version}"
 if run_precheck; then
   pass "C1 the exact expected chain ending in enable, not invalidated, is accepted"
 else
-  fail "C1 the legitimate state was refused: $(tail -3 "${WORK}/out" | tr '\n' ' ')"
+  fail "C1 refused: $(grep -a ABORT "${WORK}/out" | head -1)"
 fi
 
 # ── C2 wrong chain: shorter, longer, reordered ──────────────────────────────
@@ -195,6 +216,43 @@ if grep -qE 'INPUT_CONFIRM.*!= "resume"' .github/workflows/cutover-resume-schedu
 else
   fail "C12 the confirmation gate is missing or defaults to the affirmative"
 fi
+
+# ── E-series: the UNFINISHABLE state must be refused, not adopted ───────────
+# This is production's actual shape. The precheck must refuse it, and say why,
+# rather than report OK for an invocation with four refusals waiting.
+write_state "${GOOD_CHAIN}" "no" "${GOOD_SHA}" "${real_version}"
+make_db_stubs 1 1 "${DB_IDENTITY}"
+
+sed -i.bak 's/^scheduler_sha256=.*/scheduler_sha256=absent/' "${WORK}/state/state"
+expect_refusal "E1 scheduler_sha256=absent with a LIVE block is refused, and names the need for a new epoch" "UNFINISHABLE"
+sed -i.bak "s/^scheduler_sha256=.*/scheduler_sha256=${BLOCK_SHA}/" "${WORK}/state/state"
+
+mv "${WORK}/state/rootcron.block" "${WORK}/state/rootcron.block.away"
+expect_refusal "E2 a missing saved block is refused — rootcron_start would refuse to invent entries" "refuse to invent"
+mv "${WORK}/state/rootcron.block.away" "${WORK}/state/rootcron.block"
+
+cp "${WORK}/app/.env.production" "${WORK}/env.bak"
+printf 'CRON_SECRET=ROTATED\nDATABASE_URL=postgres://x\n' > "${WORK}/app/.env.production"
+expect_refusal "E3 a rotated env file is refused — the invariant the wrapper checks FIRST" "changed outside this cutover"
+cp "${WORK}/env.bak" "${WORK}/app/.env.production"
+
+cp "${WORK}/crontab" "${WORK}/cron.bak"
+cat >> "${WORK}/crontab" <<'CRON2'
+# BEGIN adsecute-sync
+*/5 * * * * echo second
+# END adsecute-sync
+CRON2
+expect_refusal "E4 duplicate managed blocks are refused — rootcron_split would silently merge them" "exactly one managed block"
+cp "${WORK}/cron.bak" "${WORK}/crontab"
+
+printf '#!/usr/bin/env bash\nexit 1\n' > "${WORK}/bin/crontab"; chmod +x "${WORK}/bin/crontab"
+expect_refusal "E5 an unreadable crontab is refused — empty is not proof of absence" "not proof of absence"
+cat > "${WORK}/bin/crontab" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-l" ]; then cat "${WORK}/crontab"; exit 0; fi
+cat > "${WORK}/crontab"
+STUB
+chmod +x "${WORK}/bin/crontab"
 
 # ── D-series: the forwarded database identity ───────────────────────────────
 write_state "${GOOD_CHAIN}" "no" "${GOOD_SHA}" "${real_version}"

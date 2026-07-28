@@ -8,6 +8,15 @@ export interface ProviderPlatformBoundary {
   businessId: string;
   providerAccountId: string | null;
   timeZone: string;
+  /**
+   * Whether `timeZone` came from the account snapshot or is the "UTC" default.
+   *
+   * Without this the two are indistinguishable, and a finality decision for a
+   * Los Angeles account whose snapshot row is missing would settle its day
+   * seven hours early. Any caller reasoning about day CLOSURE must refuse on
+   * "default"; callers that only need a display date may proceed.
+   */
+  timeZoneSource: "account" | "default";
   currentDate: string;
   previousDate: string;
   isPrimary: boolean;
@@ -60,14 +69,32 @@ export async function getProviderPlatformDateBoundaries(input: {
   }
 
   return accountIds.map((providerAccountId, index) => {
-    const timeZone =
-      snapshot?.accounts.find((account) => account.id === providerAccountId)?.timezone ?? "UTC";
+    const snapshotTimeZone = snapshot?.accounts.find(
+      (account) => account.id === providerAccountId,
+    )?.timezone;
+    // An unusable zone is treated as unknown rather than allowed to throw out
+    // of the map: every caller of this function swallows a rejection into the
+    // server's UTC date, which is the same silent substitution in a worse
+    // disguise.
+    let timeZone = "UTC";
+    let timeZoneSource: "account" | "default" = "default";
+    if (snapshotTimeZone && snapshotTimeZone.trim().length > 0) {
+      try {
+        getTodayIsoForTimeZoneServer(snapshotTimeZone);
+        timeZone = snapshotTimeZone;
+        timeZoneSource = "account";
+      } catch {
+        timeZone = "UTC";
+        timeZoneSource = "default";
+      }
+    }
     const currentDate = getTodayIsoForTimeZoneServer(timeZone);
     return {
       provider: input.provider,
       businessId: input.businessId,
       providerAccountId,
       timeZone,
+      timeZoneSource,
       currentDate,
       previousDate: addDaysToIsoDateUtc(currentDate, -1),
       isPrimary: index === 0,

@@ -7357,29 +7357,95 @@ export async function runMigrations(options?: {
               provider_account_id     TEXT NOT NULL,
               scope                   TEXT NOT NULL,
               date                    DATE NOT NULL,
-              account_timezone        TEXT NOT NULL DEFAULT 'UTC',
+              account_timezone        TEXT,
               day_closed_at           TIMESTAMPTZ,
-              finalized_at            TIMESTAMPTZ,
-              finality_source         TEXT,
-              last_fetch_completed_at TIMESTAMPTZ,
-              attempt_count           INTEGER NOT NULL DEFAULT 0,
+              last_observed_at        TIMESTAMPTZ,
+              metrics_settled_at      TIMESTAMPTZ,
+              lookback_exhausted_at   TIMESTAMPTZ,
+              next_refresh_due_at     TIMESTAMPTZ,
+              freshness_tier          TEXT,
+              observation_count       INTEGER NOT NULL DEFAULT 0,
               created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
               updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-              PRIMARY KEY (business_id, provider_account_id, scope, date),
-              -- The load-bearing invariant: the DATABASE refuses to record
-              -- finality without proof the day had closed first, so "final"
-              -- cannot decay back into "a row exists".
-              CONSTRAINT google_ads_day_finality_close_proof_check CHECK (
-                finalized_at IS NULL
-                OR (day_closed_at IS NOT NULL AND finalized_at >= day_closed_at)
-              )
+              PRIMARY KEY (business_id, provider_account_id, scope, date)
             )`.catch(() => {}),
-          // The rolling-reread scan: "which tracked days still owe a final
-          // fetch". Partial, so it never carries the settled majority.
+          // Additive for a database that already has the first shape of this
+          // table. It shipped with a `finalized_at` that asserted permanent
+          // immutability after one post-close fetch — which Google does not
+          // offer: conversions can be attributed back to a click date for up to
+          // the configured conversion window (1-90 days, default 30), and
+          // reports are revised days later for invalid traffic and late
+          // conversions. These columns replace that single bit with the five
+          // distinguishable facts.
           () =>
-            sql`CREATE INDEX IF NOT EXISTS idx_google_ads_day_finality_provisional
-              ON google_ads_day_finality (business_id, provider_account_id, scope, date DESC)
-              WHERE finalized_at IS NULL`.catch(() => {}),
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS metrics_settled_at TIMESTAMPTZ`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS lookback_exhausted_at TIMESTAMPTZ`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS next_refresh_due_at TIMESTAMPTZ`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS freshness_tier TEXT`.catch(() => {}),
+          () =>
+            sql`ALTER TABLE google_ads_day_finality
+              ADD COLUMN IF NOT EXISTS observation_count INTEGER NOT NULL DEFAULT 0`.catch(
+              () => {},
+            ),
+          // Drop the immutability constraint and the column behind it, then
+          // install the honest invariant. A DO block because PostgreSQL has no
+          // IF NOT EXISTS for constraints, and this must be re-entrant: the
+          // runner has no ledger and re-executes every statement on every run.
+          () =>
+            sql.query(`
+              DO $google_ads_day_finality_shape$
+              BEGIN
+                IF EXISTS (
+                  SELECT 1 FROM pg_constraint
+                  WHERE conname = 'google_ads_day_finality_close_proof_check'
+                ) THEN
+                  ALTER TABLE google_ads_day_finality
+                    DROP CONSTRAINT google_ads_day_finality_close_proof_check;
+                END IF;
+                ALTER TABLE google_ads_day_finality DROP COLUMN IF EXISTS finalized_at;
+                ALTER TABLE google_ads_day_finality DROP COLUMN IF EXISTS finality_source;
+                ALTER TABLE google_ads_day_finality DROP COLUMN IF EXISTS last_fetch_completed_at;
+                ALTER TABLE google_ads_day_finality DROP COLUMN IF EXISTS attempt_count;
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_constraint
+                  WHERE conname = 'google_ads_day_finality_settlement_proof_check'
+                ) THEN
+                  -- A settlement claim requires proof the day actually closed.
+                  -- This is the honest analogue of the constraint it replaces:
+                  -- it refuses fabricated settlement, and deliberately does NOT
+                  -- assert that an observed day can never change again.
+                  ALTER TABLE google_ads_day_finality
+                    ADD CONSTRAINT google_ads_day_finality_settlement_proof_check CHECK (
+                      (metrics_settled_at IS NULL OR day_closed_at IS NOT NULL)
+                      AND (lookback_exhausted_at IS NULL OR day_closed_at IS NOT NULL)
+                      AND (next_refresh_due_at IS NULL OR last_observed_at IS NOT NULL)
+                    );
+                END IF;
+              END
+              $google_ads_day_finality_shape$
+            `),
+          // The due-scan: "which dates owe a re-read now". Partial on the
+          // schedule rather than on a finality bit, because no date is ever
+          // permanently done.
+          () =>
+            sql`CREATE INDEX IF NOT EXISTS idx_google_ads_day_finality_due
+              ON google_ads_day_finality (business_id, provider_account_id, scope, next_refresh_due_at)`.catch(
+              () => {},
+            ),
+          () =>
+            sql`DROP INDEX IF EXISTS idx_google_ads_day_finality_provisional`.catch(
+              () => {},
+            ),
         ]),
         sql`CREATE TABLE IF NOT EXISTS google_ads_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),

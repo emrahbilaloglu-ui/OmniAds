@@ -41,6 +41,13 @@ import {
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import type { ProviderReplayReasonCode } from "@/lib/sync/provider-orchestration";
 import {
+  getGoogleAdsDatesDueForRefresh,
+  hasPostCloseObservation,
+  recordGoogleAdsDayObservation,
+  resolveAccountDayClosedAt,
+  resolveGoogleAdsFreshnessTier,
+} from "@/lib/google-ads/day-finality";
+import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   getActivePartitionBlockingStatuses,
@@ -115,6 +122,7 @@ import {
 } from "@/lib/provider-account-reference-store";
 import {
   getProviderPlatformCurrentDate,
+  getProviderPlatformDateBoundaries,
 } from "@/lib/provider-platform-date";
 import {
   markProviderDayRolloverFinalizeCompleted,
@@ -3327,6 +3335,155 @@ async function resolveGoogleAdsCurrentDate(
   });
 }
 
+/**
+ * The account boundary for ONE account, or null when it cannot be trusted.
+ *
+ * Deliberately not getProviderPlatformCurrentDate: that helper silently returns
+ * the FIRST account's date when the id does not match, so a business with a
+ * Sydney and a Los Angeles account would settle one of them on the other's
+ * clock. Any decision about day closure must refuse instead.
+ */
+async function resolveTrustedGoogleAdsBoundary(input: {
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const boundaries = await getProviderPlatformDateBoundaries({
+    provider: "google",
+    businessId: input.businessId,
+  }).catch(() => []);
+  const boundary = boundaries.find(
+    (candidate) => candidate.providerAccountId === input.providerAccountId,
+  );
+  if (!boundary || boundary.timeZoneSource !== "account") return null;
+  return boundary;
+}
+
+/**
+ * Record freshness evidence for the dates a completed partition actually
+ * refreshed.
+ *
+ * A core or maintenance partition fetches both account_daily and
+ * campaign_daily in one pass, so both scopes are recorded; every other lane
+ * records only its own scope.
+ */
+async function recordGoogleAdsDayFreshnessForPartition(input: {
+  businessId: string;
+  providerAccountId: string;
+  lane: GoogleAdsSyncLane;
+  scope: GoogleAdsWarehouseScope;
+  partitionDate: string;
+}) {
+  const boundary = await resolveTrustedGoogleAdsBoundary({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
+  if (!boundary) {
+    console.warn("[google-ads-sync] day_freshness_skipped_untrusted_timezone", {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      partitionDate: input.partitionDate,
+    });
+    return;
+  }
+  const dayClosedAt = resolveAccountDayClosedAt({
+    date: input.partitionDate,
+    timeZone: boundary.timeZone,
+  });
+  const tier = resolveGoogleAdsFreshnessTier({
+    date: input.partitionDate,
+    accountToday: boundary.currentDate,
+    dayClosedAt,
+  });
+  const scopes: GoogleAdsWarehouseScope[] =
+    input.lane === "core" || input.lane === "maintenance"
+      ? ["account_daily", "campaign_daily"]
+      : [input.scope];
+  for (const scope of scopes) {
+    await recordGoogleAdsDayObservation({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      scope,
+      date: input.partitionDate,
+      accountTimezone: boundary.timeZone,
+      dayClosedAt,
+      tier,
+    });
+  }
+}
+
+/**
+ * Per-pass cap on rolling rereads, divided across the business's accounts.
+ *
+ * Sized from the real accounting rather than a hard-coded cadence. One
+ * core/maintenance date costs 4 provider POSTs (customer_summary + the three
+ * campaign queries) against a 5,000/business/day budget, and the maintenance
+ * lane's own share of that budget is 85%. The per-pass cap bounds a burst; the
+ * persisted per-date schedule bounds the daily total; dividing by account count
+ * keeps the business-level budget flat as accounts are added.
+ */
+export const GOOGLE_ADS_FRESHNESS_REREAD_PER_PASS = Math.max(
+  1,
+  Number(process.env.GOOGLE_ADS_FRESHNESS_REREAD_PER_PASS ?? 2),
+);
+
+export function resolveGoogleAdsFreshnessRereadLimit(input: {
+  accountCount: number;
+  perPass?: number;
+}) {
+  const perPass = input.perPass ?? GOOGLE_ADS_FRESHNESS_REREAD_PER_PASS;
+  const accounts = Math.max(1, input.accountCount);
+  // Never zero: one account-heavy business must still make progress, just
+  // slowly, rather than silently never refreshing.
+  return Math.max(1, Math.floor(perPass / accounts));
+}
+
+/**
+ * Enqueue the bounded set of dates whose freshness schedule says they are due.
+ *
+ * Lane `maintenance` and a dedicated source, deliberately: a reread on `core`
+ * is cancelled every worker tick by cancelCoveredGoogleAdsCoreBacklog, and one
+ * using `source: "recent"` is cancelled by the covered-recent sweep in this very
+ * function — either would make the fix silently inert. `freshness_refresh` is
+ * matched by neither, is registered in priorityResetSources so the upsert
+ * actually revives a succeeded partition, and carries a lease priority between
+ * genuinely-missing recent work and backfill.
+ */
+async function enqueueGoogleAdsFreshnessRereads(input: {
+  businessId: string;
+  providerAccountId: string;
+  accountCount: number;
+  today: string;
+  recentStartDate: string;
+}) {
+  const limit = resolveGoogleAdsFreshnessRereadLimit({
+    accountCount: input.accountCount,
+  });
+  const dueDates = await getGoogleAdsDatesDueForRefresh({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    scope: "campaign_daily",
+    startDate: input.recentStartDate,
+    endDate: input.today,
+    limit,
+  }).catch(() => [] as string[]);
+  let queued = 0;
+  for (const date of dueDates) {
+    const row = await queueGoogleAdsSyncPartition({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      lane: "maintenance",
+      scope: "campaign_daily",
+      partitionDate: date,
+      status: "queued",
+      priority: 5,
+      source: "freshness_refresh",
+      attemptCount: 0,
+    }).catch(() => null);
+    if (row) queued += 1;
+  }
+  return queued;
+}
+
 async function getMissingDatesForScope(input: {
   businessId: string;
   scope: GoogleAdsWarehouseScope;
@@ -3683,9 +3840,62 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
       }).catch(() => [] as string[]),
     ]);
 
-    const covered =
-      accountRows.includes(targetDate) && campaignRows.includes(targetDate);
-    if (covered && activeAccountRows.length === 0 && activeCampaignRows.length === 0) {
+    // A rollover completion receipt must follow a real post-close fetch.
+    //
+    // This used to read: `covered = accountRows.includes(targetDate) &&
+    // campaignRows.includes(targetDate)`, where "covered" is
+    // getGoogleAdsCoveredDates — mere row existence. So a day whose only write
+    // was an intraday read at 01:40 satisfied it, and this branch wrote
+    // d1_finalize_completed_at = now() without ever contacting Google. Elapsed
+    // time and prior coverage are not evidence; only an observation taken after
+    // the account's own day closed is.
+    //
+    // Fail closed on an unknown zone. Defaulting to UTC would settle a Los
+    // Angeles account's day seven hours early, and the old code could not even
+    // tell the two apart.
+    if (account.boundary.timeZoneSource !== "account") {
+      console.warn("[google-ads-sync] d1_finalize_skipped_unknown_timezone", {
+        businessId: input.businessId,
+        providerAccountId: account.providerAccountId,
+        targetDate,
+      });
+      continue;
+    }
+    const dayClosedAt = resolveAccountDayClosedAt({
+      date: targetDate,
+      timeZone: account.boundary.timeZone,
+    });
+    if (!dayClosedAt) {
+      console.warn("[google-ads-sync] d1_finalize_skipped_unresolved_day_close", {
+        businessId: input.businessId,
+        providerAccountId: account.providerAccountId,
+        targetDate,
+        timeZone: account.boundary.timeZone,
+      });
+      continue;
+    }
+
+    const [accountObserved, campaignObserved] = await Promise.all([
+      hasPostCloseObservation({
+        businessId: input.businessId,
+        providerAccountId: account.providerAccountId,
+        scope: "account_daily",
+        date: targetDate,
+      }).catch(() => false),
+      hasPostCloseObservation({
+        businessId: input.businessId,
+        providerAccountId: account.providerAccountId,
+        scope: "campaign_daily",
+        date: targetDate,
+      }).catch(() => false),
+    ]);
+    const observedPostClose = accountObserved && campaignObserved;
+
+    if (
+      observedPostClose &&
+      activeAccountRows.length === 0 &&
+      activeCampaignRows.length === 0
+    ) {
       await markProviderDayRolloverFinalizeCompleted({
         provider: "google_ads",
         businessId: input.businessId,
@@ -3694,7 +3904,7 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
       }).catch(() => null);
       continue;
     }
-    if (covered) continue;
+    if (observedPostClose) continue;
 
     const matchingRows = matchingCandidates.filter(
       (row) =>
@@ -3702,38 +3912,12 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
         String(row.partition_date).slice(0, 10) === targetDate &&
         row.status !== "cancelled",
     );
-    if (covered) {
-      const coveredResolution = resolveGoogleAdsCoveredD1FinalizeResolution({
-        matchingRows: matchingRows.map((row) => ({
-          id: String(row.id),
-          source: String(row.source),
-          status: String(row.status),
-        })),
-      });
-      if (coveredResolution.queuedFinalizePartitionIds.length > 0) {
-        await sql`
-          UPDATE google_ads_sync_partitions
-          SET
-            status = 'cancelled',
-            lease_owner = NULL,
-            lease_expires_at = NULL,
-            finished_at = COALESCE(finished_at, now()),
-            business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
-            last_error = COALESCE(last_error, 'covered D-1 finalize partition superseded by canonical warehouse coverage'),
-            updated_at = now()
-          WHERE id = ANY(${coveredResolution.queuedFinalizePartitionIds}::uuid[])
-        `;
-      }
-      if (coveredResolution.shouldMarkCompleted) {
-        await markProviderDayRolloverFinalizeCompleted({
-          provider: "google_ads",
-          businessId: input.businessId,
-          providerAccountId: account.providerAccountId,
-          targetDate,
-        }).catch(() => null);
-      }
-      continue;
-    }
+    // The covered-resolution branch that stood here has been removed rather
+    // than revived. It was unreachable — `covered` was a const and the guard
+    // above returned before it — and both of its actions are now wrong: it
+    // CANCELLED queued finalize partitions because rows existed, which would
+    // delete the very re-read this fix depends on, and it marked the rollover
+    // complete with no fetch, which is the defect itself.
     const hasActiveAuthoritativeRow = matchingRows.some(
       (row) => row.source === "finalize_day" && !stalledPartitionIds.includes(String(row.id)),
     );
@@ -4111,6 +4295,28 @@ async function enqueueMaintenancePartitions(businessId: string) {
       providerAccountId,
       targetDate: yesterday,
     }).catch(() => 0);
+
+    // The bounded rolling reread.
+    //
+    // Every date in the window that is due — never observed, or past its tier's
+    // next_refresh_due_at — is re-queued, including dates that already have
+    // rows. Row existence is exactly what used to freeze them.
+    //
+    // Frequency is governed by the persisted schedule, not by this planner. The
+    // planner runs roughly once a MINUTE (the worker's consumeBusiness fallback,
+    // not just the 10-minute cron), so a per-pass reread of even one date would
+    // cost ~5,760 provider calls a day against a 5,000/business/day budget. The
+    // due-scan makes a freshly observed date ineligible until its cadence
+    // elapses, so cost is set by the tiers, and the per-pass cap below divides
+    // by account count so adding accounts cannot multiply past the budget.
+    await enqueueGoogleAdsFreshnessRereads({
+      businessId,
+      providerAccountId,
+      accountCount: accountIds.length,
+      today,
+      recentStartDate,
+    }).catch(() => 0);
+
     if (blockedRecentDates.has(today)) continue;
     await queueGoogleAdsSyncPartition({
       businessId,
@@ -5933,6 +6139,32 @@ async function processGoogleAdsPartition(input: {
       partitionStatus: "succeeded",
       outcome: completed,
     });
+    // Freshness evidence, recorded ONLY here.
+    //
+    // This sits after the lease-guarded completion returned ok, which itself
+    // only happens once the provider fetch and every required write have
+    // succeeded under an unexpired lease at the matching epoch. So the evidence
+    // cannot be produced by elapsed time, by prior coverage, by a replay that
+    // discarded its fetch, or by a crash before persistence — in every one of
+    // those cases we never reach this line and the date simply stays due.
+    //
+    // Fails closed on an unknown zone: without a real account timezone we
+    // cannot say when the day closed, and guessing UTC would settle a Los
+    // Angeles day seven hours early.
+    if (completed.ok) {
+      await recordGoogleAdsDayFreshnessForPartition({
+        businessId: input.partition.businessId,
+        providerAccountId: input.partition.providerAccountId,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+        partitionDate: input.partition.partitionDate,
+      }).catch((error: unknown) => {
+        console.warn("[google-ads-sync] day_freshness_record_failed", {
+          partitionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     if (!completed.ok) {
       const denialSnapshot = await logGoogleAdsCompletionDenied({
         partitionId,

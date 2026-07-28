@@ -1,181 +1,156 @@
 import { describe, expect, it } from "vitest";
 import {
-  GOOGLE_ADS_DAY_SETTLE_HOURS,
-  GOOGLE_ADS_FINALITY_REREAD_WINDOW_DAYS,
+  GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS,
+  GOOGLE_ADS_METRICS_SETTLE_HOURS,
+  GOOGLE_ADS_TIER_REFRESH_MINUTES,
   hoursIntoAccountDay,
   resolveAccountDayClosedAt,
-  resolveGoogleAdsDateTruthState,
-  resolveGoogleAdsRereadDates,
+  resolveGoogleAdsFreshnessTier,
 } from "./day-finality";
 
 /**
- * Google Ads coverage is `SELECT DISTINCT date` — mere row existence. A date
- * read once at 01:40 becomes "covered", every later tick that day skips it, and
- * the D+1 path then marks it finalize-complete without calling Google. These
- * tests pin the state machine that replaces "a row exists and time passed" with
- * "the provider was fetched after this account's day closed".
+ * Google publishes no instant at which a date stops changing: clicks/cost carry
+ * ~1h freshness, last-click conversions ~3h and other models ~15h, reports are
+ * revised "one or more days" later for invalid traffic and late conversions,
+ * and a conversion can be attributed back to its click date for the whole
+ * conversion window — 1 to 90 days, default 30.
  *
- * Pure functions only. The database invariant — that finality cannot be
- * recorded without a closed-day proof — is enforced by a CHECK constraint and
- * proven against real PostgreSQL in
- * scripts/ephemeral-postgres-google-ads-finality-seam.ts.
+ * So these tests pin a model with NO terminal state. The strongest thing any
+ * tier asserts is "past the configured lookback", which is a policy horizon we
+ * chose, not a provider guarantee.
  */
-describe("resolveGoogleAdsDateTruthState", () => {
+describe("resolveGoogleAdsFreshnessTier", () => {
   const accountToday = "2026-07-28";
+  const closedAt = new Date("2026-07-27T21:00:00Z"); // Istanbul close of 07-27
 
-  it("treats the account's own today as provisional, always", () => {
-    // The intraday freeze starts here: today must never be finalizable, no
-    // matter how many rows already exist for it.
+  it("treats the account's own day as open, however many rows exist", () => {
     expect(
-      resolveGoogleAdsDateTruthState({
+      resolveGoogleAdsFreshnessTier({
         date: accountToday,
         accountToday,
-        hoursIntoAccountToday: 23.9,
+        dayClosedAt: null,
+        now: new Date("2026-07-28T23:00:00Z"),
       }),
-    ).toBe("provisional");
+    ).toBe("open");
   });
 
-  it("treats a future date as provisional rather than settled", () => {
+  it("keeps a just-closed day settling until the metrics lag elapses", () => {
+    // Google reports up to ~15h for non-last-click attribution models.
     expect(
-      resolveGoogleAdsDateTruthState({
-        date: "2026-07-29",
-        accountToday,
-        hoursIntoAccountToday: 12,
-      }),
-    ).toBe("provisional");
-  });
-
-  it("keeps the just-closed day provisional until the settle delay elapses", () => {
-    // Google restates a just-closed day for a while. Finalizing at 00:00:01
-    // would record a number that is about to change.
-    expect(
-      resolveGoogleAdsDateTruthState({
+      resolveGoogleAdsFreshnessTier({
         date: "2026-07-27",
         accountToday,
-        hoursIntoAccountToday: GOOGLE_ADS_DAY_SETTLE_HOURS - 0.1,
+        dayClosedAt: closedAt,
+        now: new Date(closedAt.getTime() + (GOOGLE_ADS_METRICS_SETTLE_HOURS - 1) * 3_600_000),
       }),
-    ).toBe("provisional");
+    ).toBe("settling");
   });
 
-  it("settles the just-closed day once the settle delay has elapsed", () => {
+  it("moves to converging once metrics settle — NOT to a terminal state", () => {
+    const tier = resolveGoogleAdsFreshnessTier({
+      date: "2026-07-27",
+      accountToday,
+      dayClosedAt: closedAt,
+      now: new Date(closedAt.getTime() + (GOOGLE_ADS_METRICS_SETTLE_HOURS + 1) * 3_600_000),
+    });
+    expect(tier).toBe("converging");
+    // The point of the model: settled metrics do not mean settled conversions.
+    expect(tier).not.toBe("aged");
+  });
+
+  it("stays converging for the whole conversion window, because late conversions land", () => {
+    const almostExhausted = new Date(
+      closedAt.getTime() + (GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS * 24 - 1) * 3_600_000,
+    );
     expect(
-      resolveGoogleAdsDateTruthState({
+      resolveGoogleAdsFreshnessTier({
         date: "2026-07-27",
         accountToday,
-        hoursIntoAccountToday: GOOGLE_ADS_DAY_SETTLE_HOURS,
+        dayClosedAt: closedAt,
+        now: almostExhausted,
       }),
-    ).toBe("settled");
+    ).toBe("converging");
   });
 
-  it("treats older dates as settled regardless of the hour", () => {
+  it("only ages a date past the configured lookback, and even then keeps a heartbeat", () => {
     expect(
-      resolveGoogleAdsDateTruthState({
-        date: "2026-07-20",
+      resolveGoogleAdsFreshnessTier({
+        date: "2026-07-27",
         accountToday,
-        hoursIntoAccountToday: 0,
+        dayClosedAt: closedAt,
+        now: new Date(
+          closedAt.getTime() + (GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS * 24 + 1) * 3_600_000,
+        ),
       }),
-    ).toBe("settled");
-  });
-});
-
-describe("resolveGoogleAdsRereadDates", () => {
-  const accountToday = "2026-07-28";
-
-  it("is bounded by the window whatever the state of history", () => {
-    // The whole point of a bounded window: no amount of unfinalized history can
-    // make one pass re-read more than this.
-    const dates = resolveGoogleAdsRereadDates({ accountToday, finalDates: [] });
-    expect(dates).toHaveLength(GOOGLE_ADS_FINALITY_REREAD_WINDOW_DAYS);
-    expect(dates[0]).toBe(accountToday);
+    ).toBe("aged");
+    // Finite on purpose: "aged" is a horizon, not immutability.
+    expect(Number.isFinite(GOOGLE_ADS_TIER_REFRESH_MINUTES.aged)).toBe(true);
+    expect(GOOGLE_ADS_TIER_REFRESH_MINUTES.aged).toBeGreaterThan(0);
   });
 
-  it("always includes today, because today is always mutable", () => {
-    // Even if something wrongly recorded today as final, it must be re-read.
-    const dates = resolveGoogleAdsRereadDates({
-      accountToday,
-      finalDates: ["2026-07-27", "2026-07-26"],
-    });
-    expect(dates).toContain(accountToday);
-  });
-
-  it("skips dates that already carry finality evidence", () => {
-    const dates = resolveGoogleAdsRereadDates({
-      accountToday,
-      finalDates: ["2026-07-27"],
-    });
-    expect(dates).not.toContain("2026-07-27");
-    expect(dates).toContain("2026-07-26");
-  });
-
-  it("re-reads a date with NO finality record, which is how pre-existing days recover", () => {
-    // Absence is a third state: never tracked. It is neither trusted as final
-    // nor an obligation to re-read all history — the window bounds it.
-    const dates = resolveGoogleAdsRereadDates({ accountToday, finalDates: [] });
-    expect(dates).toEqual(["2026-07-28", "2026-07-27", "2026-07-26"]);
-  });
-
-  it("honours an explicit window and never returns fewer than one day", () => {
+  it("never claims settlement when the day close is unknown", () => {
+    // No close proof means we cannot reason about elapsed time at all.
     expect(
-      resolveGoogleAdsRereadDates({ accountToday, finalDates: [], windowDays: 7 }),
-    ).toHaveLength(7);
-    expect(
-      resolveGoogleAdsRereadDates({ accountToday, finalDates: [], windowDays: 0 }),
-    ).toHaveLength(1);
+      resolveGoogleAdsFreshnessTier({
+        date: "2026-07-01",
+        accountToday,
+        dayClosedAt: null,
+        now: new Date("2026-07-28T12:00:00Z"),
+      }),
+    ).toBe("settling");
+  });
+
+  it("honours the documented 1-90 day conversion window bound", () => {
+    expect(GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS).toBeGreaterThanOrEqual(1);
+    expect(GOOGLE_ADS_CONVERSION_LOOKBACK_DAYS).toBeLessThanOrEqual(90);
+  });
+
+  it("refreshes hotter tiers more often than colder ones", () => {
+    const { open, settling, converging, aged } = GOOGLE_ADS_TIER_REFRESH_MINUTES;
+    expect(open).toBeLessThan(settling);
+    expect(settling).toBeLessThan(converging);
+    expect(converging).toBeLessThan(aged);
   });
 });
 
 describe("account-clock helpers", () => {
   it("reads the hour from the account's own zone, not the server's", () => {
-    // 2026-07-28T02:30Z is 05:30 in Istanbul and 19:30 the previous day in LA.
     const reference = new Date("2026-07-28T02:30:00Z");
     expect(hoursIntoAccountDay("Europe/Istanbul", reference)).toBeCloseTo(5.5, 1);
     expect(hoursIntoAccountDay("America/Los_Angeles", reference)).toBeCloseTo(19.5, 1);
   });
 
   it("resolves the closing instant of a day in the account's zone", () => {
-    // Istanbul is UTC+3 year-round: 2026-07-27 closes at 2026-07-27T21:00Z.
-    const closed = resolveAccountDayClosedAt({
-      date: "2026-07-27",
-      timeZone: "Europe/Istanbul",
-    });
-    expect(closed).not.toBeNull();
-    expect(closed!.toISOString()).toBe("2026-07-27T21:00:00.000Z");
+    expect(
+      resolveAccountDayClosedAt({ date: "2026-07-27", timeZone: "Europe/Istanbul" })!.toISOString(),
+    ).toBe("2026-07-27T21:00:00.000Z");
   });
 
   it("resolves the closing instant across a DST spring-forward", () => {
-    // America/Los_Angeles springs forward on 2026-03-08 (a 23-hour day), so
-    // 2026-03-08 closes at 07:00Z rather than 08:00Z.
-    const closed = resolveAccountDayClosedAt({
-      date: "2026-03-08",
-      timeZone: "America/Los_Angeles",
-    });
-    expect(closed).not.toBeNull();
-    expect(closed!.toISOString()).toBe("2026-03-09T07:00:00.000Z");
+    // 2026-03-08 is a 23-hour day in Los Angeles.
+    expect(
+      resolveAccountDayClosedAt({
+        date: "2026-03-08",
+        timeZone: "America/Los_Angeles",
+      })!.toISOString(),
+    ).toBe("2026-03-09T07:00:00.000Z");
   });
 
   it("resolves the closing instant across a DST fall-back", () => {
-    // 2026-11-01 is a 25-hour day in Los Angeles; it closes at 08:00Z.
-    const closed = resolveAccountDayClosedAt({
-      date: "2026-11-01",
-      timeZone: "America/Los_Angeles",
-    });
-    expect(closed).not.toBeNull();
-    expect(closed!.toISOString()).toBe("2026-11-02T08:00:00.000Z");
+    // 2026-11-01 is a 25-hour day in Los Angeles.
+    expect(
+      resolveAccountDayClosedAt({
+        date: "2026-11-01",
+        timeZone: "America/Los_Angeles",
+      })!.toISOString(),
+    ).toBe("2026-11-02T08:00:00.000Z");
   });
 
-  it("never claims a day closed in the future relative to its own zone", () => {
-    // The closing instant must be after the day started, in every zone tested.
-    for (const timeZone of [
-      "Europe/Istanbul",
-      "America/Los_Angeles",
-      "Australia/Sydney",
-      "UTC",
-    ]) {
-      const closed = resolveAccountDayClosedAt({ date: "2026-07-27", timeZone });
-      expect(closed, timeZone).not.toBeNull();
-      expect(closed!.getTime(), timeZone).toBeGreaterThan(
-        new Date("2026-07-27T00:00:00Z").getTime() - 15 * 3600_000,
-      );
-    }
+  it("REFUSES an invalid timezone rather than silently using UTC", () => {
+    // Silently defaulting to UTC would finalize a Los Angeles account's day
+    // seven hours early. Returning null forces the caller to fail closed.
+    expect(resolveAccountDayClosedAt({ date: "2026-07-27", timeZone: "Not/AZone" })).toBeNull();
+    expect(resolveAccountDayClosedAt({ date: "2026-07-27", timeZone: "" })).toBeNull();
+    expect(resolveAccountDayClosedAt({ date: "2026-07-27", timeZone: "   " })).toBeNull();
   });
 });

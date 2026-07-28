@@ -290,6 +290,9 @@ function buildGoogleAdsSourceLeasePrioritySql() {
       WHEN 'recent' THEN 110
       WHEN 'core_success' THEN 105
       WHEN 'recent_recovery' THEN 100
+      -- Below genuinely-missing recent work, above backfill: a stale-but-present
+      -- date matters less than a gap, and more than history.
+      WHEN 'freshness_refresh' THEN 60
       WHEN 'historical' THEN 20
       WHEN 'core_historical_recovery' THEN 18
       WHEN 'historical_recovery' THEN 15
@@ -1360,6 +1363,9 @@ export async function queueGoogleAdsSyncPartition(
     "core_historical_recovery",
     "historical_recovery",
     "core_success",
+    // Without this entry the upsert leaves an already-succeeded partition at
+    // 'succeeded' and the rolling reread is silently inert.
+    "freshness_refresh",
   ];
   const rows = (await sql`
     INSERT INTO google_ads_sync_partitions (
@@ -1491,7 +1497,45 @@ export async function queueGoogleAdsSyncPartition(
     )
     RETURNING id, status
   `) as Array<{ id: string; status: GoogleAdsPartitionStatus }>;
-  return rows[0] ?? null;
+  const queued = rows[0] ?? null;
+
+  // Requeueing a terminal partition MUST invalidate its checkpoint, or the
+  // requeue is theatre.
+  //
+  // resolvePhaseAwareReplayDecision returns startChunkIndex = totalChunks for a
+  // checkpoint in finalize/succeeded, so the write loop runs zero iterations:
+  // Google is called and billed, and its answer is discarded, while the
+  // partition re-succeeds on the stale rows. The partition upsert above resets
+  // status but has never touched google_ads_sync_checkpoints, whose key is
+  // (partition_id, checkpoint_scope) and whose partition id is stable across
+  // the upsert — so the stale checkpoint always survived.
+  //
+  // Scoped to rows that are NOT currently leased by a live worker, so this can
+  // never yank a checkpoint out from under an in-flight attempt; that worker's
+  // own lease-epoch guard remains the authority.
+  if (queued && queued.status === "queued") {
+    await sql`
+      UPDATE google_ads_sync_checkpoints AS checkpoint
+      SET
+        status = 'queued',
+        phase = 'fetch_raw',
+        page_index = 0,
+        next_page_token = NULL,
+        provider_cursor = NULL,
+        raw_snapshot_ids = '[]'::jsonb,
+        rows_fetched = 0,
+        rows_written = 0,
+        finished_at = NULL,
+        updated_at = now()
+      FROM google_ads_sync_partitions AS partition
+      WHERE checkpoint.partition_id = partition.id
+        AND partition.id = ${queued.id}::uuid
+        AND partition.status = 'queued'
+        AND partition.lease_owner IS NULL
+        AND checkpoint.status = 'succeeded'
+    `.catch(() => undefined);
+  }
+  return queued;
 }
 
 export async function leaseGoogleAdsSyncPartitions(input: {
@@ -2080,15 +2124,17 @@ export async function backfillGoogleAdsRunningCheckpointsForTerminalPartition(in
     updated_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
       SET
+        -- A running checkpoint is NEVER promoted to succeeded from the parent's
+        -- status. The bulk_upsert checkpoint is written BEFORE its chunk's fact
+        -- rows, so inferring child success from parent success can mark a chunk
+        -- complete whose rows were never committed — and it would launder any
+        -- freshness gate placed in the write path. Terminal-but-unproven closes
+        -- as 'failed', which is retryable and honest.
         status = CASE
-          WHEN terminal_partition.partition_status = 'succeeded' THEN 'succeeded'
           WHEN terminal_partition.partition_status = 'cancelled' THEN 'cancelled'
           ELSE 'failed'
         END,
-        phase = CASE
-          WHEN terminal_partition.partition_status = 'succeeded' THEN 'finalize'
-          ELSE checkpoint.phase
-        END,
+        phase = checkpoint.phase,
         next_page_token = CASE
           WHEN terminal_partition.partition_status = 'succeeded' THEN NULL
           ELSE checkpoint.next_page_token
@@ -2222,15 +2268,14 @@ export async function completeGoogleAdsPartitionAttempt(input: {
     closed_checkpoints AS (
       UPDATE google_ads_sync_checkpoints checkpoint
       SET
+        -- Same rule as the sibling backfill: parent success is not evidence of
+        -- child success, because the running checkpoint predates its own fact
+        -- write.
         status = CASE
-          WHEN input_values.partition_status = 'succeeded' THEN 'succeeded'
           WHEN input_values.partition_status = 'cancelled' THEN 'cancelled'
           ELSE 'failed'
         END,
-        phase = CASE
-          WHEN input_values.partition_status = 'succeeded' THEN 'finalize'
-          ELSE checkpoint.phase
-        END,
+        phase = checkpoint.phase,
         next_page_token = CASE
           WHEN input_values.partition_status = 'succeeded' THEN NULL
           ELSE checkpoint.next_page_token

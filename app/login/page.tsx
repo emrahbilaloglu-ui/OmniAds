@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveSignInError } from "@/lib/auth-google-errors";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -64,7 +65,7 @@ function LoginPageClient() {
       setEmail(inviteEmail);
       return;
     }
-    const googleError = searchParams.get("error");
+    const googleError = resolveSignInError(searchParams.get("error"));
     if (googleError) {
       setError(googleError);
     }
@@ -204,12 +205,24 @@ function LoginPageClient() {
 
   return (
     <AuthSurface titleOnBrandLine title={t.signIn} description="Sign in to your workspace.">
-      <div className="ad-auth-form">
+      {/* A real <form>. These inputs used to sit in a bare <div> with a
+          type="button" submit, so pressing Enter after typing a password did
+          nothing on every auth screen in the product. */}
+      <form
+        className="ad-auth-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleLogin();
+        }}
+      >
         <label className="ad-auth-label" htmlFor="email">
           {t.email}
           <input
             id="email"
             type="email"
+            name="email"
+            autoComplete="username"
+            required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             className="ad-auth-input"
@@ -220,13 +233,20 @@ function LoginPageClient() {
           <input
             id="password"
             type="password"
+            name="password"
+            autoComplete="current-password"
+            required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className="ad-auth-input"
           />
         </label>
-        {error ? <p className="ad-auth-alert ad-auth-alert-danger">{error}</p> : null}
-        <button type="button" className="ad-auth-primary" onClick={handleLogin} disabled={loading}>
+        {error ? (
+          <p className="ad-auth-alert ad-auth-alert-danger" role="alert" aria-live="assertive">
+            {error}
+          </p>
+        ) : null}
+        <button type="submit" className="ad-auth-primary" disabled={loading}>
           {loading ? t.signingIn : t.signIn}
         </button>
         <button
@@ -248,7 +268,7 @@ function LoginPageClient() {
             Create account
           </Link>
         </div>
-      </div>
+      </form>
     </AuthSurface>
   );
 }

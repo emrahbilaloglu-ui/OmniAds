@@ -47,16 +47,19 @@ export function MarketingNavbar() {
           </div>
 
           <button
-            className="md:hidden text-muted-foreground hover:text-foreground"
+            type="button"
+            className="md:hidden rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
             onClick={() => setOpen(!open)}
-            aria-label="Toggle menu"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            aria-controls="marketing-mobile-menu"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
 
         {open && (
-          <div className="md:hidden border-t border-border pb-4 pt-3 flex flex-col gap-1">
+          <nav id="marketing-mobile-menu" className="md:hidden border-t border-border pb-4 pt-3 flex flex-col gap-1">
             <Link href="/product" className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" onClick={() => setOpen(false)}>
               Product
             </Link>
@@ -80,7 +83,7 @@ export function MarketingNavbar() {
                 Get started
               </Link>
             </div>
-          </div>
+          </nav>
         )}
       </div>
     </header>

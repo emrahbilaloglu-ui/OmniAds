@@ -1515,7 +1515,26 @@
     margin-bottom: 2px;
   }
 
-  .ad-auth-mark {
+  .ad-auth-mark-link {
+  display: inline-flex;
+  border-radius: 6px;
+}
+
+.ad-auth-mark-link:focus-visible {
+  outline: 2px solid var(--adc-focus);
+  outline-offset: 2px;
+}
+
+/* The two links in .ad-auth-row styled colour only, so keyboard users fell
+   back to the UA default ring on "Forgot password?" and "Create account" —
+   the only controls on these screens without a visible focus state. */
+.ad-auth-row a:focus-visible {
+  outline: 2px solid var(--adc-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ad-auth-mark {
     width: 10px;
     height: 10px;
     border-radius: 2px;
@@ -7568,4 +7587,24 @@
       padding: 8px;
     }
   }
+}
+
+/* Skip link: off-screen until focused, then pinned top-left above everything. */
+.ad-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+}
+
+.ad-skip-link:focus-visible {
+  left: 0.75rem;
+  top: 0.75rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.5rem;
+  background: var(--foreground, #0a0a0a);
+  color: var(--background, #ffffff);
+  font-size: 0.875rem;
+  outline: 2px solid var(--background, #ffffff);
+  outline-offset: 2px;
 }

@@ -8,6 +8,7 @@ import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { BusinessGuard } from "@/components/layout/business-guard";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import { DesktopSidebar } from "@/components/layout/sidebar";
 import { SidebarContent } from "@/components/layout/sidebar-content";
 import { Topbar } from "@/components/layout/topbar";
@@ -76,7 +77,7 @@ function LegacyDashboardFrame({ userName, children }: DashboardFrameProps) {
       <DesktopSidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar userName={userName} />
-        <main className="flex-1 overflow-y-auto bg-neutral-50 p-3 sm:p-4 md:p-6">
+        <main id="main-content" className="flex-1 overflow-y-auto bg-neutral-50 p-3 sm:p-4 md:p-6">
           <BusinessGuard>{children}</BusinessGuard>
         </main>
       </div>
@@ -87,6 +88,7 @@ function LegacyDashboardFrame({ userName, children }: DashboardFrameProps) {
 function ConsoleTopbar({ userName }: { userName: string }) {
   return (
     <header className="ad-console-topbar">
+      <MobileNav variant="console" />
       <div className="ad-console-brand flex min-w-0 items-center gap-2">
         <BrandLogo
           className="gap-2"
@@ -103,19 +105,17 @@ function ConsoleTopbar({ userName }: { userName: string }) {
         <PlatformSwitcher />
       </div>
       <div className="min-w-0 flex-1" />
+      {/* The "Jump or act… ⌘K" control was removed rather than restyled: it had
+          no onClick, and no command palette or ⌘K key handler exists anywhere in
+          the repo. It advertised a way to navigate that was never there. */}
       <button
         type="button"
-        className="hidden h-7 items-center gap-2 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2.5 text-[12px] text-[var(--adc-ink3)] md:inline-flex"
+        disabled
+        title="Notifications are not available yet"
+        className="grid h-7 w-7 place-items-center rounded-[6px] border border-[var(--adc-b1)] text-[var(--adc-ink3)] opacity-60"
+        aria-label="Notifications (not available yet)"
       >
-        Jump or act...
-        <span className="rounded border border-[var(--adc-b2)] px-1 font-mono text-[10px]">⌘K</span>
-      </button>
-      <button
-        type="button"
-        className="grid h-7 w-7 place-items-center rounded-[6px] border border-[var(--adc-b1)] text-[var(--adc-ink2)] hover:bg-[var(--adc-s3)]"
-        aria-label="Notifications"
-      >
-        <Bell className="h-3.5 w-3.5" />
+        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
       <PersonalAccountMenu userName={userName} />
     </header>
@@ -236,6 +236,7 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           </button>
         </aside>
         <main
+          id="main-content"
           className="min-w-0 flex-1 overflow-y-auto bg-[var(--adc-s1)]"
           data-mobile-surface={mobileSurface ?? "none"}
         >

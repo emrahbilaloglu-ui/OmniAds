@@ -36,18 +36,27 @@ export default function ForgotPasswordPage() {
       title="Reset your password"
       description="Enter your email address to request a reset link."
     >
-      <div className="ad-auth-form">
+      <form
+        className="ad-auth-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void requestReset();
+        }}
+      >
         <label className="ad-auth-label">
           Email
           <input
             type="email"
+            name="email"
+            autoComplete="username"
+            required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             className="ad-auth-input"
             placeholder="you@company.com"
           />
         </label>
-        <button type="button" className="ad-auth-primary" onClick={requestReset} disabled={loading}>
+        <button type="submit" className="ad-auth-primary" disabled={loading}>
           {loading ? "Checking reset setup..." : "Send reset link"}
         </button>
         {message ? (
@@ -67,7 +76,7 @@ export default function ForgotPasswordPage() {
           <Link href="/login">Back to sign in</Link>
           <span />
         </div>
-      </div>
+      </form>
     </AuthSurface>
   );
 }

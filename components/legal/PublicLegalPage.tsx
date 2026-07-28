@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { ReactNode } from "react";
-import { BrandLogo } from "@/components/brand/BrandLogo";
+import { MarketingFooter } from "@/components/marketing/MarketingFooter";
+import { MarketingNavbar } from "@/components/marketing/MarketingNavbar";
 
 interface PublicLegalPageProps {
   title: string;
@@ -8,30 +8,18 @@ interface PublicLegalPageProps {
   children: ReactNode;
 }
 
-const LEGAL_LINKS = [
-  { href: "/about", label: "About Us" },
-  { href: "/privacy", label: "Privacy Policy" },
-  { href: "/terms", label: "Terms of Service" },
-  { href: "/ai-transparency", label: "AI Transparency" },
-  { href: "/contact", label: "Contact" },
-  { href: "/security", label: "Security" },
-];
-
 export function PublicLegalPage({ title, subtitle, children }: PublicLegalPageProps) {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="border-b border-border">
-        <div className="mx-auto max-w-3xl px-5 sm:px-8 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <BrandLogo markClassName="h-7 w-7" size={28} />
-          </Link>
-          <Link href="/" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            ← Back to home
-          </Link>
-        </div>
-      </header>
+      {/* The real marketing header, not a reduced copy of it.
+          These six pages are exactly where the footer sends people — Privacy,
+          Terms, Security, About, Contact, AI Transparency — and each one used to
+          replace the header with a logo and a "back to home" link. A visitor who
+          followed a footer link lost the product nav and, more to the point,
+          lost every way to sign in or sign up without going back first. */}
+      <MarketingNavbar />
 
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
       <div className="mx-auto w-full max-w-3xl px-5 py-12 sm:px-8 sm:py-16">
         <header className="mb-10">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -49,17 +37,11 @@ export function PublicLegalPage({ title, subtitle, children }: PublicLegalPagePr
           {children}
         </article>
 
-        <footer className="mt-12 border-t pt-6">
-          <nav className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-            {LEGAL_LINKS.map((link) => (
-              <Link key={link.href} href={link.href} className="hover:text-foreground">
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </footer>
       </div>
       </main>
+      {/* One footer for the whole public site. The bespoke legal-links strip
+          this replaces already duplicated what MarketingFooter carries. */}
+      <MarketingFooter />
     </div>
   );
 }

@@ -73,6 +73,11 @@ export default async function RootLayout({
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable} antialiased`}
       >
+        {/* Keyboard users had to tab through the entire header on every page.
+            Visible only when focused, so it changes nothing visually. */}
+        <a href="#main-content" className="ad-skip-link">
+          Skip to main content
+        </a>
         <QueryProvider>
           <RouteRecoveryListener />
           {children}

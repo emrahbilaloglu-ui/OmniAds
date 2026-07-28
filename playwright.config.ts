@@ -46,6 +46,18 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // The shell itself: public header and authenticated navigation, on
+      // desktop and mobile. Runs against the SAME reviewer fixture as the
+      // reviewer smoke, so it needs no credentials of its own.
+      name: "shell-smoke-chromium",
+      testMatch: /app-shell-smoke\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "playwright/.auth/reviewer.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
       name: "commercial-smoke-chromium",
       testMatch: /commercial-truth-smoke\.spec\.ts/,
       use: {

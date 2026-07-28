@@ -177,7 +177,13 @@ function SignupPageClient() {
       title="Create your account"
       description={inviteToken ? t.inviteSubtitle : "Create your account first; business setup happens after sign up."}
     >
-      <div className="ad-auth-form">
+      <form
+        className="ad-auth-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSignup();
+        }}
+      >
         <label className="ad-auth-label">
           Name
           <input
@@ -191,6 +197,9 @@ function SignupPageClient() {
           Email
           <input
             type="email"
+            name="email"
+            autoComplete="username"
+            required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             className="ad-auth-input"
@@ -202,14 +211,21 @@ function SignupPageClient() {
           Password
           <input
             type="password"
+            name="password"
+            autoComplete="new-password"
+            required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className="ad-auth-input"
             placeholder="Password (min 8 chars)"
           />
         </label>
-        {error ? <p className="ad-auth-alert ad-auth-alert-danger">{error}</p> : null}
-        <button type="button" className="ad-auth-primary" onClick={handleSignup} disabled={loading}>
+        {error ? (
+          <p className="ad-auth-alert ad-auth-alert-danger" role="alert" aria-live="assertive">
+            {error}
+          </p>
+        ) : null}
+        <button type="submit" className="ad-auth-primary" disabled={loading}>
           {loading ? t.creating : "Create account"}
         </button>
         <button
@@ -231,7 +247,7 @@ function SignupPageClient() {
             Sign in
           </Link>
         </div>
-      </div>
+      </form>
     </AuthSurface>
   );
 }

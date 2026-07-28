@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ChevronDown, HelpCircle, LogOut, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,17 +68,15 @@ export function PersonalAccountMenu({ userName }: PersonalAccountMenuProps) {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="text-sm font-medium">{userName}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="gap-2">
-          <Settings className="h-4 w-4" />
-          {t.accountSettings}
-        </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2">
-          <HelpCircle className="h-4 w-4" />
-          {t.helpDocs}
-        </DropdownMenuItem>
-        <DropdownMenuItem className="gap-2">
-          <Sparkles className="h-4 w-4" />
-          {t.whatsNew}
+        {/* Account Settings now actually goes somewhere. "Help & Docs" and
+            "What's New" were removed rather than left in place: neither had an
+            onClick or an href, and no docs or changelog route exists — three of
+            the four items in this menu did nothing when clicked. */}
+        <DropdownMenuItem asChild className="gap-2">
+          <Link href="/settings">
+            <Settings className="h-4 w-4" />
+            {t.accountSettings}
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

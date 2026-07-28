@@ -71,13 +71,21 @@ function ResetPasswordForm() {
 
   return (
     <AuthSurface titleOnBrandLine title="Choose a new password" description="Enter a new password for your account.">
-      <div className="ad-auth-form">
+      <form
+        className="ad-auth-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
         {!done ? (
           <>
             <label className="ad-auth-label">
               New password
               <input
                 type="password"
+                autoComplete="new-password"
+                required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 className="ad-auth-input"
@@ -88,13 +96,15 @@ function ResetPasswordForm() {
               Confirm password
               <input
                 type="password"
+                autoComplete="new-password"
+                required
                 value={confirm}
                 onChange={(event) => setConfirm(event.target.value)}
                 className="ad-auth-input"
                 placeholder="Re-enter your new password"
               />
             </label>
-            <button type="button" className="ad-auth-primary" onClick={submit} disabled={loading}>
+            <button type="submit" className="ad-auth-primary" disabled={loading}>
               {loading ? "Updating..." : "Update password"}
             </button>
           </>
@@ -116,7 +126,7 @@ function ResetPasswordForm() {
           <Link href="/login">Back to sign in</Link>
           <span />
         </div>
-      </div>
+      </form>
     </AuthSurface>
   );
 }

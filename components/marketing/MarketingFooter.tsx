@@ -85,7 +85,7 @@ export function MarketingFooter() {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-border">
+        <div className="mt-12 pt-8 border-t space-y-3 border-border">
           <p className="max-w-3xl text-sm text-muted-foreground">
             Adsecute uses OpenAI services for selected AI-powered features, including marketing
             insights, recommendation support, and analytical summaries.{" "}

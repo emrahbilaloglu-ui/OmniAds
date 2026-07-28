@@ -218,10 +218,31 @@ jobs:
         run: |
           set -euo pipefail
           bash -n .github/scripts/hetzner-remote.sh
-          test -f deploy/CUTOVER_REQUIRED || {
-            echo "deploy/CUTOVER_REQUIRED is absent; this release claims it does not need the cutover" >&2
-            exit 1
-          }
+
+          # The marker is present only while a cutover is PENDING; the commit
+          # after a completed cutover removes it, and every ordinary release
+          # after that has none. Asserting it always exists would have made this
+          # step block every post-cutover deploy forever.
+          #
+          # What must always hold is that the marker and the delivered manifest
+          # AGREE — a repository that still demands the cutover while shipping a
+          # manifest saying otherwise would send a schema-changing release down
+          # the ordinary path.
+          if [ -f deploy/CUTOVER_REQUIRED ]; then
+            echo "cutover pending: deploy/CUTOVER_REQUIRED present"
+            grep -q '^cutover_required=yes$' scripts/cutover-wrapper.manifest || {
+              echo "deploy/CUTOVER_REQUIRED exists but the manifest does not say cutover_required=yes" >&2
+              exit 1
+            }
+          else
+            echo "no cutover pending: deploy/CUTOVER_REQUIRED absent"
+            grep -q '^cutover_required=no$' scripts/cutover-wrapper.manifest || {
+              echo "deploy/CUTOVER_REQUIRED is absent but the manifest still says cutover_required=yes; run npm run cutover:package" >&2
+              exit 1
+            }
+          fi
+
+          # The refusal itself must stay wired regardless of today's state.
           grep -q 'deploy/CUTOVER_REQUIRED' .github/scripts/hetzner-remote.sh
 
           # The grep above proves the string is present; it cannot prove the

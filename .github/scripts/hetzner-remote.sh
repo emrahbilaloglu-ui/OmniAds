@@ -979,6 +979,17 @@ cutover_epoch_preserve_evidence() {
   ls -la "${CUTOVER_STATE_DIR}" > "${dest}/state-dir-listing.txt" 2>&1 || true
   ls -la "${CUTOVER_STATE_DIR}/attestations" > "${dest}/attestations.txt" 2>&1 || true
 
+  # NAMES only, and logged rather than merely filed. An attestation's CONTENTS
+  # record schema and database identity, so they stay on the host; the file
+  # names are just epoch labels and are what a continuation has to reference.
+  #
+  # Logged here on purpose. fingerprint-post refuses when the schema identity is
+  # unchanged and no prior epoch is named, and fingerprint-post runs AFTER
+  # quiesce — so a missing attestation would otherwise be discovered with the
+  # site already down. This is the read that makes that knowable beforehand.
+  attestation_names="$(ls -1 "${CUTOVER_STATE_DIR}/attestations" 2>/dev/null | tr '\n' ' ' || true)"
+  log "attestations present: ${attestation_names:-none}"
+
   # Cron: STRUCTURE and digests only. The managed block carries a bearer token,
   # so no line of it is ever copied or printed.
   crontab -l -u root 2>/dev/null > "${dest}/.cron.raw" || true

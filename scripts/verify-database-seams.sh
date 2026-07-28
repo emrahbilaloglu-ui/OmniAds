@@ -159,6 +159,15 @@ npm run test:cutover-stuck-repro
 stage "Cutover resume recovery (refuses every state but one)"
 npm run test:cutover-resume-recovery
 
+# A cutover epoch belongs to exactly ONE wrapper. preflight always recorded the
+# hash but nothing read it back, so two wrappers on one host could take turns
+# driving a single state record — which is precisely the state that delivering
+# a fixed wrapper beside the installed one would create. Also pins the escape
+# hatch: preflight must never be gated by this, or a mismatch becomes another
+# unfinishable cutover.
+stage "Cutover wrapper identity (one epoch, one wrapper)"
+npm run test:cutover-wrapper-identity
+
 stage "Pre-change schema upgrade seam (branch point)"
 npm run test:schema-upgrade-seam
 

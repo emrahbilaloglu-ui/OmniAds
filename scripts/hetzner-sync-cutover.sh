@@ -2149,11 +2149,30 @@ assert_database_quiescent() {
 env_file_hash() { sha256_file "${ENV_FILE}"; }
 
 assert_state_invariants() {
-  local recorded
+  local recorded running
   [ "$(state_get state_version)" = "${STATE_VERSION}" ] \
     || die "the state record is version '$(state_get state_version)', this wrapper writes version ${STATE_VERSION}; the two do not describe the same cutover. Start from preflight."
   [ "$(state_get deploy_sha)" = "${EXPECTED_SHA}" ] \
     || die "this cutover was opened for $(state_get deploy_sha); DEPLOY_SHA is now ${EXPECTED_SHA}. One state directory cannot hold two releases."
+  # Every phase after preflight belongs to the wrapper that opened the epoch.
+  #
+  # preflight already RECORDED this hash, but nothing ever read it back, so two
+  # different wrappers could take turns driving one state record and each would
+  # believe it was continuing its own work. state_version does not catch it:
+  # both write version 2. That is a live hazard the moment a second wrapper
+  # exists on the host — which is exactly what delivering a fixed wrapper
+  # alongside the installed one creates.
+  #
+  # preflight deliberately does NOT call this function, so opening a fresh
+  # epoch is always reachable and this can never become a deadlock: the way
+  # past a refusal here is to run preflight with the wrapper you intend to
+  # finish with, not to edit state.
+  recorded="$(state_get wrapper_sha256)"
+  running="$(sha256_file "${BASH_SOURCE[0]}")"
+  [ -n "${recorded}" ] \
+    || die "the state record does not say which wrapper opened this cutover, so this phase cannot prove it belongs to the same one. Refusing rather than guessing. Open a new epoch with preflight."
+  [ "${recorded}" = "${running}" ] \
+    || die "this cutover was opened by wrapper ${recorded}, and the wrapper running now is ${running}. A cutover is a single wrapper's proof about a single release; continuing another wrapper's state would mix two of them. Run the phase with the wrapper that opened it, or open a new epoch with preflight."
   assert_image_pin
   recorded="$(db_identity)"
   [ "${recorded}" = "$(state_get db_identity)" ] \

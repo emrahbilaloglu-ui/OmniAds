@@ -666,6 +666,9 @@ export async function runDurableWorkerRuntime(
   let stagingRefreshInFlight: Promise<unknown> | null = null;
   let stagingRefreshBusy = false;
   let resolveStagingIdle: (() => void) | null = null;
+  // Which scopes this process has actually written a heartbeat row for. The
+  // shutdown below retires exactly these and invents none.
+  const registeredScopes = new Set<string>();
   let nextPruneAt = startedAtMs + pruneIntervalMs;
   let nextGoogleAdsRetentionAt = startedAtMs + googleAdsRetentionIntervalMs;
   let nextMetaRetentionAt = startedAtMs + metaRetentionIntervalMs;
@@ -686,6 +689,7 @@ export async function runDurableWorkerRuntime(
     const now = Date.now();
     if (!input.force && now - lastHeartbeatAt < heartbeatIntervalMs) return;
     lastHeartbeatAt = now;
+    registeredScopes.add(input.providerScope);
     await heartbeatSyncWorker({
       workerId: buildProviderHeartbeatWorkerId(workerId, input.providerScope),
       instanceType: "durable_sync_worker",
@@ -713,6 +717,21 @@ export async function runDurableWorkerRuntime(
   //
   // So: stop the refresh first, let any write already in flight finish, then
   // write `stopping` exactly once.
+  //
+  // EVERY SCOPE, not just `all`.
+  //
+  // A worker registers one row per provider scope plus the `all` row, and only
+  // `all` used to be retired on the way out. `online_workers` counts any row
+  // that is fresh and not disabled/stopping/stopped, so the per-scope rows —
+  // left at `running` or `idle` — kept the departed worker online for the whole
+  // five-minute window. A recreate therefore made the OUTGOING worker fail
+  // `deploy-disabled`'s zero-online assertion on behalf of the incoming staged
+  // one, and the phase polls for sixty seconds, so it could never outlast it.
+  //
+  // Only scopes this process actually registered are retired. Writing `stopping`
+  // for a scope that was never registered would CREATE a row for work this
+  // worker never claimed — and a staged worker, which registers `all` alone,
+  // would invent three.
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -723,11 +742,19 @@ export async function runDurableWorkerRuntime(
     if (stagingRefreshInFlight) {
       await stagingRefreshInFlight.catch(() => null);
     }
-    await heartbeat({
-      providerScope: "all",
-      status: "stopping",
-      force: true,
-    }).catch(() => null);
+    // `all` last: it is the canonical row the deploy gate reads, so it is the
+    // one whose write should be the final word on this worker.
+    const retiring = [
+      ...Array.from(registeredScopes).filter((scope) => scope !== "all"),
+      "all",
+    ];
+    for (const providerScope of retiring) {
+      await heartbeat({
+        providerScope,
+        status: "stopping",
+        force: true,
+      }).catch(() => null);
+    }
     resolveStagingIdle?.();
   };
 

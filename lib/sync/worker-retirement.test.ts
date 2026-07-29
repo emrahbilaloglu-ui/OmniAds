@@ -1,0 +1,268 @@
+/**
+ * Retirement of the outgoing worker, case by case.
+ *
+ * The incident this exists for: after a recreate the old worker's `all` row is
+ * `stopping` but its meta / shopify / google_ads rows are still `running` or
+ * `idle` and still fresh, so `online_workers` counts a worker that has exited
+ * and `deploy-disabled` refuses the staged worker on its behalf.
+ *
+ * Retirement must fix exactly that and nothing wider. Every refusal below is a
+ * way of accidentally hiding a worker that is still doing work.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const sqlMock = vi.fn();
+const getSyncWorkerOwnedWorkUnits = vi.fn();
+
+vi.mock("@/lib/db", () => ({ getDb: () => sqlMock }));
+vi.mock("@/lib/sync/worker-health", () => ({ getSyncWorkerOwnedWorkUnits }));
+
+const INSTANCE = "sync-worker:18:dbgah1xc";
+const OLD_BUILD = "8de30c461c51d3e76e7cd5cc4fb71984751d014e";
+const NEW_BUILD = "cd3a07261ad53c1f3e070eb8e71d3a485d94bd91";
+const STARTED = "2026-07-29T12:22:03.480Z";
+
+const NO_WORK = {
+  runnerLeases: 0,
+  googleLaneLeases: 0,
+  metaPartitionClaims: 0,
+  googlePartitionClaims: 0,
+  metaCheckpointClaims: 0,
+  googleCheckpointClaims: 0,
+  jobLocks: 0,
+};
+
+/** The exact production shape: `all` retired, the three lanes left behind. */
+function incidentRows() {
+  return [
+    row("all", "stopping", "2026-07-29T17:49:55.000Z"),
+    row("google_ads", "idle", "2026-07-29T17:49:10.000Z"),
+    row("meta", "running", "2026-07-29T17:49:50.000Z"),
+    row("shopify", "idle", "2026-07-29T17:49:46.000Z"),
+  ];
+}
+
+function row(scope: string, status: string, heartbeatAt: string, overrides: Record<string, unknown> = {}) {
+  return {
+    worker_id: scope === "all" ? INSTANCE : `${INSTANCE}::${scope}`,
+    provider_scope: scope,
+    status,
+    last_heartbeat_at: heartbeatAt,
+    meta_json: { workerBuildId: OLD_BUILD, workerStartedAt: STARTED },
+    ...overrides,
+  };
+}
+
+/**
+ * The tagged-template `sql` is driven by call order: SELECTs return the row set
+ * queued for them, UPDATEs return their RETURNING result.
+ */
+function queueSql(sequence: Array<Array<Record<string, unknown>>>) {
+  let index = 0;
+  sqlMock.mockImplementation(() => Promise.resolve(sequence[index++] ?? []));
+}
+
+async function load() {
+  return await import("@/lib/sync/worker-retirement");
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.resetModules();
+  getSyncWorkerOwnedWorkUnits.mockResolvedValue(NO_WORK);
+});
+
+describe("capture", () => {
+  it("records every scope the outgoing worker registered, with its identity", async () => {
+    queueSql([incidentRows()]);
+    const { captureOutgoingWorkerCensus } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    expect(census.runtimeInstanceId).toBe(INSTANCE);
+    expect(census.buildId).toBe(OLD_BUILD);
+    expect(census.workerStartedAt).toBe(STARTED);
+    expect(census.rows.map((r) => r.providerScope).sort()).toEqual([
+      "all",
+      "google_ads",
+      "meta",
+      "shopify",
+    ]);
+    expect(census.rows.find((r) => r.providerScope === "meta")?.status).toBe("running");
+  });
+
+  it("refuses when the worker has no rows at all", async () => {
+    queueSql([[]]);
+    const { captureOutgoingWorkerCensus, WorkerRetirementRefusal } = await load();
+    await expect(
+      captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE }),
+    ).rejects.toBeInstanceOf(WorkerRetirementRefusal);
+  });
+
+  it("refuses an ambiguous worker with two rows for one scope", async () => {
+    queueSql([[row("meta", "running", "2026-07-29T17:49:50.000Z"), row("meta", "idle", "2026-07-29T17:49:51.000Z")]]);
+    const { captureOutgoingWorkerCensus } = await load();
+    await expect(captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE })).rejects.toThrow(
+      /more than one row for scope meta/,
+    );
+  });
+});
+
+describe("retire: the incident shape", () => {
+  it("retires exactly the lane rows the old shutdown left behind", async () => {
+    queueSql([incidentRows()]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    queueSql([
+      incidentRows(),
+      [{ worker_id: `${INSTANCE}::google_ads` }],
+      [{ worker_id: `${INSTANCE}::meta` }],
+      [{ worker_id: `${INSTANCE}::shopify` }],
+    ]);
+    const result = await retireStoppedSyncWorker({ census, containerStopped: true });
+
+    expect(result.retiredWorkerIds.sort()).toEqual([
+      `${INSTANCE}::google_ads`,
+      `${INSTANCE}::meta`,
+      `${INSTANCE}::shopify`,
+    ]);
+    // `all` was already `stopping`; it is left alone rather than rewritten.
+    expect(result.alreadyTerminalWorkerIds).toEqual([INSTANCE]);
+  });
+
+  it("never advances last_heartbeat_at, so a departed worker cannot look fresh", async () => {
+    queueSql([incidentRows()]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+    queueSql([incidentRows(), [{ worker_id: "x" }], [{ worker_id: "y" }], [{ worker_id: "z" }]]);
+    await retireStoppedSyncWorker({ census, containerStopped: true });
+
+    const statements = sqlMock.mock.calls.map(([strings]) => (strings as string[]).join("?"));
+    const updates = statements.filter((s) => s.includes("UPDATE sync_worker_heartbeats"));
+    expect(updates).toHaveLength(3);
+    for (const statement of updates) {
+      expect(statement).toContain("status = 'stopping'");
+      expect(statement).not.toContain("last_heartbeat_at = now()");
+      // Guarded on the censused timestamp, at millisecond resolution on BOTH
+      // sides: timestamptz keeps microseconds and the census only survives as a
+      // JavaScript Date, so an untruncated equality guard matches nothing and
+      // every retirement refuses as a phantom concurrent write.
+      expect(statement).toContain("date_trunc('milliseconds', last_heartbeat_at)");
+      expect(statement).toContain("date_trunc('milliseconds',");
+    }
+  });
+});
+
+describe("retire: refusals", () => {
+  async function censusThen(live: Array<Record<string, unknown>>, owned = NO_WORK) {
+    queueSql([incidentRows()]);
+    const mod = await load();
+    const census = await mod.captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+    getSyncWorkerOwnedWorkUnits.mockResolvedValue(owned);
+    queueSql([live, [{ worker_id: "a" }], [{ worker_id: "b" }], [{ worker_id: "c" }]]);
+    return { mod, census };
+  }
+
+  it("refuses without an explicit container-stopped assertion", async () => {
+    const { mod, census } = await censusThen(incidentRows());
+    await expect(
+      mod.retireStoppedSyncWorker({ census, containerStopped: false }),
+    ).rejects.toThrow(/did not assert that the outgoing container is stopped/);
+  });
+
+  // The liveness proof: a process that is still running moves its own timestamps.
+  it("refuses when a row has beaten since the census", async () => {
+    const moved = incidentRows().map((r) =>
+      r.provider_scope === "meta" ? { ...r, last_heartbeat_at: "2026-07-29T17:51:00.000Z" } : r,
+    );
+    const { mod, census } = await censusThen(moved);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /has beaten since the census/,
+    );
+  });
+
+  it("refuses when a censused row has vanished", async () => {
+    const { mod, census } = await censusThen(incidentRows().filter((r) => r.provider_scope !== "meta"));
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /no longer exists/,
+    );
+  });
+
+  it("refuses when a scope appeared after the capture", async () => {
+    const extra = [...incidentRows(), row("search_console", "running", "2026-07-29T17:50:30.000Z")];
+    const { mod, census } = await censusThen(extra);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /the census did not record/,
+    );
+  });
+
+  // Cross-run retirement: same worker id, different run.
+  it("refuses when the rows now report a different build", async () => {
+    const rebuilt = incidentRows().map((r) => ({
+      ...r,
+      meta_json: { workerBuildId: NEW_BUILD, workerStartedAt: STARTED },
+    }));
+    const { mod, census } = await censusThen(rebuilt);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /now reports build/,
+    );
+  });
+
+  it("refuses when the rows now report a different start time", async () => {
+    const restarted = incidentRows().map((r) => ({
+      ...r,
+      meta_json: { workerBuildId: OLD_BUILD, workerStartedAt: "2026-07-29T18:30:00.000Z" },
+    }));
+    const { mod, census } = await censusThen(restarted);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /this is a different run/,
+    );
+  });
+
+  it.each([
+    ["runnerLeases", { ...NO_WORK, runnerLeases: 1 }],
+    ["metaPartitionClaims", { ...NO_WORK, metaPartitionClaims: 2 }],
+    ["jobLocks", { ...NO_WORK, jobLocks: 1 }],
+  ])("refuses when the worker still holds %s", async (_label, owned) => {
+    const { mod, census } = await censusThen(incidentRows(), owned);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /still holds/,
+    );
+  });
+
+  it("refuses if a row changes between the check and the write", async () => {
+    queueSql([incidentRows()]);
+    const mod = await load();
+    const census = await mod.captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+    // The guarded UPDATE matches nothing: the worker came back to life.
+    queueSql([incidentRows(), []]);
+    await expect(mod.retireStoppedSyncWorker({ census, containerStopped: true })).rejects.toThrow(
+      /changed while it was being retired/,
+    );
+  });
+});
+
+describe("retire: blast radius", () => {
+  it("touches only rows belonging to the censused instance", async () => {
+    queueSql([incidentRows()]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+    queueSql([incidentRows(), [{ worker_id: "a" }], [{ worker_id: "b" }], [{ worker_id: "c" }]]);
+    await retireStoppedSyncWorker({ census, containerStopped: true });
+
+    const params = sqlMock.mock.calls.flatMap(([, ...values]) => values as unknown[]);
+    const targeted = params.filter(
+      (value): value is string => typeof value === "string" && value.startsWith("sync-worker:"),
+    );
+    for (const workerId of targeted) {
+      expect(workerId.startsWith(INSTANCE)).toBe(true);
+    }
+    // The scoping predicate is the id or the id plus the scope separator, never
+    // a bare prefix that a different worker's id could also satisfy.
+    const selects = sqlMock.mock.calls
+      .map(([strings]) => (strings as string[]).join("?"))
+      .filter((s) => s.includes("FROM sync_worker_heartbeats") && s.includes("SELECT"));
+    expect(selects.some((s) => s.includes("worker_id LIKE"))).toBe(true);
+    expect(params).toContain(`${INSTANCE}::%`);
+  });
+});

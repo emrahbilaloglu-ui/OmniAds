@@ -2759,6 +2759,37 @@ case "${PHASE}" in
     grep -q 'SYNC_WORKER_STAGING_IDLE' docker-compose.yml \
       || die "docker-compose.yml on this host does not pass SYNC_WORKER_STAGING_IDLE through to the worker, so the staged deploy cannot work. This release's compose file was never delivered (the cutover gate correctly stops the deploy before it syncs). Copy docker-compose.yml from ${EXPECTED_SHA} to ${APP_DIR}/docker-compose.yml and re-run."
 
+    # THE OUTGOING WORKER, captured while it is still running.
+    #
+    # A worker registers one row per provider scope plus `all`, and a worker on
+    # a build older than this one retires only `all` on the way out. The lane
+    # rows stay at `running`/`idle` and stay inside the five-minute online
+    # window, so `online_workers` counts a process that has already exited and
+    # the staged assertion below fails on the outgoing worker's behalf — for
+    # five minutes, against a sixty-second deadline it can never outlast.
+    #
+    # The incoming release therefore retires its predecessor. The census is
+    # taken NOW, before the recreate, because the whole safety of the operation
+    # is that it compares the database afterwards against a picture it did not
+    # itself produce. It is taken from the NEW image because the retirement
+    # tooling only exists there; a one-off container reads the database while
+    # the old worker is still running and writes nothing.
+    outgoing_census="${CUTOVER_DIR}/outgoing-worker-census.json"
+    outgoing_container_id="$(docker compose ps -q worker || true)"
+    if [ -n "${outgoing_container_id}" ]; then
+      log "Capturing the outgoing worker's scope census before the recreate"
+      docker run --rm --env-file "${APP_DIR}/.env.production" \
+        -e APP_BUILD_ID="${EXPECTED_SHA}" \
+        --entrypoint node "$(expected_image_for worker)" \
+        --import tsx scripts/sync-worker-retire.ts capture --online-instance \
+        > "${outgoing_census}" 2>"${CUTOVER_DIR}/outgoing-worker-census.err" \
+        || die "could not capture the outgoing worker's scope census; retiring it afterwards would be unguarded. See ${CUTOVER_DIR}/outgoing-worker-census.err"
+      log "outgoing worker: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["runtimeInstanceId"], "build="+str(d["buildId"]), "scopes="+",".join(sorted(r["providerScope"] for r in d["rows"])))' "${outgoing_census}")"
+    else
+      outgoing_census=""
+      log "no worker container is running; there is no outgoing worker to retire"
+    fi
+
     # SYNC_WORKER_STAGING_IDLE is what makes a disabled worker possible at all.
     # Without it the worker treats a denied lane as fatal and crash-loops, so
     # there is nothing to inspect and the release cannot be verified before it
@@ -2794,6 +2825,35 @@ case "${PHASE}" in
         fi
       done
     done
+
+    # RETIRE the outgoing worker, now that it is provably gone.
+    #
+    # The container id captured before the recreate must no longer exist as a
+    # running container — that is the proof this side of the operation can make,
+    # and it is asserted explicitly rather than inferred. Everything else is
+    # proven by the retirement itself against the census: unchanged heartbeats,
+    # matching build and start time, no scope that appeared afterwards, and no
+    # lease, claim or lock held anywhere. Any of those failing refuses and
+    # nothing is written.
+    if [ -n "${outgoing_census}" ]; then
+      still_running="$(docker inspect "${outgoing_container_id}" --format '{{.State.Running}}' 2>/dev/null || echo false)"
+      [ "${still_running}" = "false" ] \
+        || die "the outgoing worker container ${outgoing_container_id} is still running after the recreate; refusing to retire a live worker's rows"
+      log "Retiring the outgoing worker's scope rows (it is proven stopped)"
+      docker run --rm --env-file "${APP_DIR}/.env.production" \
+        -e APP_BUILD_ID="${EXPECTED_SHA}" \
+        -v "${outgoing_census}:/tmp/outgoing-census.json:ro" \
+        --entrypoint node "$(expected_image_for worker)" \
+        --import tsx scripts/sync-worker-retire.ts retire \
+        --census /tmp/outgoing-census.json --container-stopped \
+        > "${CUTOVER_DIR}/outgoing-worker-retire.json" 2>&1 \
+        || {
+          grep -aoE '"(reason|message)":[^,}]*' "${CUTOVER_DIR}/outgoing-worker-retire.json" \
+            | sed 's/^/  | /' | head -6 || true
+          die "retiring the outgoing worker refused; the full payload is at ${CUTOVER_DIR}/outgoing-worker-retire.json. This is a refusal, not a failure to try: the outgoing worker is not provably gone, or it still holds work."
+        }
+      log "outgoing worker retired: $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("retired="+",".join(d["retiredWorkerIds"]) if d["retiredWorkerIds"] else "retired=(none)", "already_terminal="+",".join(d["alreadyTerminalWorkerIds"]))' "${CUTOVER_DIR}/outgoing-worker-retire.json")"
+    fi
 
     log "Proving the worker registered fresh and no old process is still heartbeating"
     worker_started_at="$(docker inspect "$(docker compose ps -q worker)" --format '{{.State.StartedAt}}')"

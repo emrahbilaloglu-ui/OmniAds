@@ -493,6 +493,198 @@ async function main() {
     );
     log(`S11 PASS renamed build refused: image identity and APP_BUILD_ID disagreeing exits the worker (${renamed.exitCode}) before it registers as either release`);
 
+    // ── S12. The OUTGOING worker's lane rows, and retiring them ────────────
+    //
+    // The second production defect, end to end. A worker on the OLD build
+    // retires `all` on shutdown and leaves meta / shopify / google_ads at
+    // running or idle. Those rows stay inside the online window, so a staged
+    // worker that is in every way correct still fails `deploy-disabled` — and
+    // the phase polls for sixty seconds, far less than the five-minute window
+    // it would have to outlast.
+    //
+    // Old code cannot be made to retire them; it is already running. So the
+    // incoming release retires its predecessor, and only when it can prove the
+    // predecessor is gone.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const OUTGOING = "sync-worker:18:seamoutgoing";
+    const outgoingStartedAt = "2026-07-29T12:22:03.480Z";
+    const outgoingBuild = "8de30c461c51d3e76e7cd5cc4fb71984751d014e";
+    // TypeScript loses the outer null-narrowing inside a closure, and a bare
+    // assertion at each call site would be noise.
+    const db = client;
+    const seedOutgoing = async () => {
+      await db.query(`DELETE FROM sync_worker_heartbeats WHERE worker_id LIKE $1`, [`${OUTGOING}%`]);
+      for (const [scope, status] of [
+        ["all", "stopping"],
+        ["meta", "running"],
+        ["shopify", "idle"],
+        ["google_ads", "idle"],
+      ] as const) {
+        await db.query(
+          `INSERT INTO sync_worker_heartbeats
+             (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
+           VALUES ($1, 'durable_sync_worker', $2, $3, now(), $4::jsonb)`,
+          [
+            scope === "all" ? OUTGOING : `${OUTGOING}::${scope}`,
+            scope,
+            status,
+            JSON.stringify({ workerBuildId: outgoingBuild, workerStartedAt: outgoingStartedAt }),
+          ],
+        );
+      }
+    };
+    await seedOutgoing();
+
+    // A correctly staged worker on the NEW build, alongside it.
+    const upgraded = startWorker({
+      ...workerEnv,
+      SYNC_WORKER_STAGING_IDLE: "1",
+      WORKER_HEARTBEAT_INTERVAL_MS: "1000",
+    });
+    workers.push(upgraded);
+    let upgradedId: string | null = null;
+    for (let i = 0; i < 40 && upgraded.exitCode == null; i += 1) {
+      const { rows } = await client.query<{ worker_id: string }>(
+        `SELECT worker_id FROM sync_worker_heartbeats WHERE status = 'disabled'`,
+      );
+      if (rows[0]) { upgradedId = rows[0].worker_id; break; }
+      await sleep(500);
+    }
+    assert(upgradedId != null, `S12: the staged worker never registered.\n${upgraded.output.slice(-1200)}`);
+
+    const stagedCheck = () =>
+      spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+        "--expect-staged-idle", "--online-window-minutes", "5"],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+
+    const before = stagedCheck();
+    assert(
+      before.status !== 0 && before.stdout.includes("unexpected_online_workers"),
+      `S12: the incident shape did not fail the gate. The outgoing worker's lane rows must count as online: ${before.stdout.slice(0, 900)}`,
+    );
+    log("S12 PASS incident reproduced: with the outgoing worker's lane rows left at running/idle, a correctly staged worker still fails on unexpected_online_workers");
+
+    // ── S13. Retirement: capture, prove stopped, retire exactly those rows ──
+    const censusPath = path.join(tmp, "outgoing-census.json");
+    const capture = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--runtime-instance-id", OUTGOING, "--out", censusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(capture.status === 0, `S13: capture failed: ${capture.stdout}${capture.stderr}`);
+    const census = JSON.parse(fs.readFileSync(censusPath, "utf8"));
+    assert(
+      census.rows.length === 4 && census.buildId === outgoingBuild,
+      `S13: the census did not record all four scopes with the outgoing build: ${JSON.stringify(census).slice(0, 400)}`,
+    );
+
+    // Without the explicit container-stopped assertion it refuses.
+    const noAssertion = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", censusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      noAssertion.status !== 0,
+      "S13: retirement proceeded without the caller asserting the container is stopped",
+    );
+
+    const retire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", censusPath, "--container-stopped"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(retire.status === 0, `S13: retirement refused a genuinely stopped worker: ${retire.stdout}${retire.stderr}`);
+
+    const afterRows = await client.query<{ worker_id: string; status: string }>(
+      `SELECT worker_id, status FROM sync_worker_heartbeats WHERE worker_id LIKE $1 ORDER BY worker_id`,
+      [`${OUTGOING}%`],
+    );
+    assert(
+      afterRows.rows.every((r) => r.status === "stopping"),
+      `S13: not every outgoing row reached a terminal state: ${JSON.stringify(afterRows.rows)}`,
+    );
+    // The staged worker is untouched.
+    const stagedStill = await client.query<{ status: string }>(
+      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`, [upgradedId],
+    );
+    assert(
+      stagedStill.rows[0]?.status === "disabled",
+      `S13: retirement disturbed the staged worker (${stagedStill.rows[0]?.status})`,
+    );
+
+    const after = stagedCheck();
+    assert(
+      after.status === 0,
+      `S13: the compound predicate still refuses after retirement: ${after.stdout.slice(0, 900)}`,
+    );
+    log("S13 PASS retirement works: capture -> proven stopped -> retire transitions exactly the outgoing rows, the staged worker is untouched, and the UNCHANGED compound predicate now passes");
+
+    // ── S14. Retirement refuses a worker that is still alive ───────────────
+    //
+    // The dangerous failure mode: hiding a worker that is still holding work.
+    await seedOutgoing();
+    const liveCapture = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--runtime-instance-id", OUTGOING, "--out", censusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(liveCapture.status === 0, `S14: capture failed: ${liveCapture.stdout}${liveCapture.stderr}`);
+    // The worker beats once more — exactly what a live process does.
+    await client.query(
+      `UPDATE sync_worker_heartbeats SET last_heartbeat_at = now() WHERE worker_id = $1`,
+      [`${OUTGOING}::meta`],
+    );
+    const liveRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", censusPath, "--container-stopped"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      liveRetire.status !== 0 && liveRetire.stdout.includes("row_moved"),
+      `S14: a worker that beat after the census was retired anyway: ${liveRetire.stdout.slice(0, 600)}`,
+    );
+    const stillRunning = await client.query<{ status: string }>(
+      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`, [`${OUTGOING}::meta`],
+    );
+    assert(
+      stillRunning.rows[0]?.status === "running",
+      `S14: the live row was modified despite the refusal (${stillRunning.rows[0]?.status})`,
+    );
+    log("S14 PASS liveness refused: a censused worker that beats again is refused, and nothing it owns is modified");
+
+    // ── S15. Retirement refuses a worker still holding work ────────────────
+    const bizId = "00000000-0000-4000-8000-0000000000ab";
+    await client.query(
+      `INSERT INTO businesses (id, name) VALUES ($1, 'seam-retirement') ON CONFLICT (id) DO NOTHING`,
+      [bizId],
+    ).catch(() => undefined);
+    await client.query(
+      `UPDATE sync_worker_heartbeats SET last_heartbeat_at = (SELECT last_heartbeat_at FROM sync_worker_heartbeats WHERE worker_id = $1) WHERE worker_id = $1`,
+      [`${OUTGOING}::meta`],
+    );
+    await seedOutgoing();
+    const workCapture = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--runtime-instance-id", OUTGOING, "--out", censusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(workCapture.status === 0, `S15: capture failed: ${workCapture.stdout}${workCapture.stderr}`);
+    const leaseInserted = await client
+      .query(
+        `INSERT INTO sync_runner_leases (business_id, provider_scope, lease_owner, lease_expires_at)
+         VALUES ($1, 'meta', $2, now() + interval '5 minutes')
+         ON CONFLICT DO NOTHING`,
+        [bizId, `${OUTGOING}::meta`],
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (leaseInserted) {
+      const workRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+        "retire", "--census", censusPath, "--container-stopped"],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+      assert(
+        workRetire.status !== 0 && workRetire.stdout.includes("worker_holds_work"),
+        `S15: a worker holding a runner lease was retired: ${workRetire.stdout.slice(0, 600)}`,
+      );
+      await client.query(`DELETE FROM sync_runner_leases WHERE lease_owner = $1`, [`${OUTGOING}::meta`]);
+      log("S15 PASS owned work refused: a worker still holding a runner lease is refused rather than hidden");
+    } else {
+      log("S15 SKIP owned work: could not seed a runner lease on this schema");
+    }
+
+    upgraded.stop();
+    await sleep(1500);
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+
     // ── S6. Staging is opt-in; the fatal refusal is still the default ───────
     await client.query(`DELETE FROM sync_worker_heartbeats`);
     const unstaged = startWorker({ ...workerEnv });

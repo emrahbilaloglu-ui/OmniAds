@@ -585,7 +585,13 @@ image_id_for() {
   esac
 }
 
-service_of() { printf '%s' "\${1#container-}"; }
+# A container id is `container-<svc>-g<generation>`. The generation is what
+# makes a recreate produce a NEW id, so the wrapper can ask whether the
+# container it captured before the recreate is still running and get a truthful
+# answer. Without it every id is eternal and container replacement is invisible.
+service_of() { s="\${1#container-}"; printf '%s' "\${s%%-g*}"; }
+generation_of() { case "\$1" in *-g*) printf '%s' "\${1##*-g}" ;; *) printf '1' ;; esac; }
+current_generation() { cat "\${RUNTIME}/gen.\$1" 2>/dev/null || printf '1'; }
 
 db_sql_via_shim() {
   printf '%s\n' "\$1" | ssh -o BatchMode=yes root@db-host \\
@@ -594,6 +600,7 @@ db_sql_via_shim() {
 
 recreate_service() {
   local svc="\$1"
+  printf '%s\n' "\$(( \$(current_generation "\${svc}") + 1 ))" > "\${RUNTIME}/gen.\${svc}"
   printf 'running\n' > "\${RUNTIME}/state.\${svc}"
   printf '%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%S).000000000Z" > "\${RUNTIME}/started.\${svc}"
   # A container freezes its environment when it is created. Snapshotting the env
@@ -638,7 +645,7 @@ case "\$1" in
           svc="\$3"
           state="\$(cat "\${RUNTIME}/state.\${svc}" 2>/dev/null || printf 'absent')"
           [ "\${state}" = "absent" ] && exit 0
-          printf 'container-%s\n' "\${svc}"
+          printf 'container-%s-g%s\n' "\${svc}" "\$(current_generation "\${svc}")"
           exit 0
         fi
         if [ "\$2" = "--services" ]; then printf 'web\nworker\nmigrate\n'; exit 0; fi
@@ -774,6 +781,12 @@ case "\$1" in
     svc="\$(service_of "\${id}")"
     case "\${fmt}" in
       '{{.State.Status}}') cat "\${RUNTIME}/state.\${svc}" 2>/dev/null || printf 'absent\n' ;;
+      # Per-ID, not per-service: a container superseded by a recreate is not
+      # running any more even though its service is.
+      '{{.State.Running}}')
+        if [ "\$(generation_of "\${id}")" != "\$(current_generation "\${svc}")" ]; then printf 'false\n';
+        elif [ "\$(cat "\${RUNTIME}/state.\${svc}" 2>/dev/null)" = "running" ]; then printf 'true\n';
+        else printf 'false\n'; fi ;;
       # What a container would report it is running. Deliberately a LITERAL, not
       # \${WEB_IMAGE_REPO}/\${WORKER_IMAGE_REPO} read back out of the wrapper's
       # environment: the wrapper builds its expectation from those variables, so
@@ -814,8 +827,45 @@ case "\$1" in
     exit \$? ;;
 
   run)
+    # The outgoing-worker retirement runs as a one-off container from the NEW
+    # image, because the tooling exists only there. The harness answers it from
+    # the same RUNTIME state the rest of the stub uses, so the wrapper's
+    # ordering, its refusals and its parsing are all exercised for real even
+    # though no image is pulled.
     for arg in "\$@"; do
       case "\$arg" in
+        capture)
+          if [ -n "\${HARNESS_RETIRE_CAPTURE_FAIL:-}" ]; then exit 1; fi
+          cat <<'CENSUS'
+{
+  "runtimeInstanceId": "sync-worker:18:harnessoutgoing",
+  "buildId": "harness-old-build",
+  "workerStartedAt": "2026-07-01T00:00:00.000Z",
+  "capturedAt": "2026-07-01T00:00:01.000Z",
+  "rows": [
+    {"workerId":"sync-worker:18:harnessoutgoing","providerScope":"all","status":"stopping","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
+    {"workerId":"sync-worker:18:harnessoutgoing::meta","providerScope":"meta","status":"running","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
+    {"workerId":"sync-worker:18:harnessoutgoing::shopify","providerScope":"shopify","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
+    {"workerId":"sync-worker:18:harnessoutgoing::google_ads","providerScope":"google_ads","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"}
+  ]
+}
+CENSUS
+          exit 0 ;;
+        retire)
+          if [ -n "\${HARNESS_RETIRE_FAIL:-}" ]; then
+            printf '{"pass":false,"reason":"worker_holds_work","message":"harness: the outgoing worker still holds work"}\n'
+            exit 1
+          fi
+          cat <<'RETIRED'
+{
+  "pass": true,
+  "runtimeInstanceId": "sync-worker:18:harnessoutgoing",
+  "retiredWorkerIds": ["sync-worker:18:harnessoutgoing::meta","sync-worker:18:harnessoutgoing::shopify","sync-worker:18:harnessoutgoing::google_ads"],
+  "alreadyTerminalWorkerIds": ["sync-worker:18:harnessoutgoing"],
+  "ownedWorkUnits": {"runnerLeases":0,"jobLocks":0}
+}
+RETIRED
+          exit 0 ;;
         *pg_control_system*)
           if [ -n "\${HARNESS_RUNTIME_DB_IDENTITY:-}" ]; then
             printf '%s' "\${HARNESS_RUNTIME_DB_IDENTITY}"

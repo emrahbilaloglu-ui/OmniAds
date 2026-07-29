@@ -311,3 +311,69 @@ describe("the ordinary online contract is unchanged", () => {
     ).toThrow(/invalid ISO timestamp/);
   });
 });
+
+describe("the outgoing worker's lane rows are what fail the gate", () => {
+  // The exact production shape. The old worker's shutdown retired `all` only,
+  // so its three lane rows stayed fresh and non-terminal and counted as online.
+  const OLD = "sync-worker:18:dbgah1xc";
+  function outgoingLaneRows(status = "idle"): WorkerHealthRow[] {
+    return [
+      {
+        workerId: OLD,
+        providerScope: "all",
+        status: "stopping",
+        workerFreshnessState: "online",
+        lastHeartbeatAt: new Date(NOW - 5_000).toISOString(),
+        metaJson: {},
+      },
+      ...["meta", "shopify", "google_ads"].map((scope) => ({
+        workerId: `${OLD}::${scope}`,
+        providerScope: scope,
+        status: scope === "meta" ? "running" : status,
+        workerFreshnessState: "online" as const,
+        lastHeartbeatAt: new Date(NOW - 150_000).toISOString(),
+        metaJson: {},
+      })),
+    ];
+  }
+
+  it("refuses while the departed worker's lane rows are still non-terminal", () => {
+    const { result } = evaluate({
+      workers: [stagedRow(), ...outgoingLaneRows()],
+      onlineWorkers: 3,
+    });
+    expect(result.reason).toBe("unexpected_online_workers");
+    // Everything ABOUT the staged worker was already correct — the staged
+    // worker is not what is wrong here.
+    expect(result.stagedIsThisRun).toBe(true);
+    expect(result.stagedBuildIdMatches).toBe(true);
+    expect(result.holdsNothing).toBe(true);
+  });
+
+  it("passes once those exact rows are retired to stopping", () => {
+    const retired = outgoingLaneRows().map((row) => ({ ...row, status: "stopping" }));
+    const { result } = evaluate({ workers: [stagedRow(), ...retired], onlineWorkers: 0 });
+    expect(result.pass).toBe(true);
+    expect(result.reason).toBe("healthy");
+  });
+
+  // Retirement must not be able to buy a pass by hiding a worker that is
+  // genuinely still running: the predicate is unchanged, so a live worker that
+  // was never retired still refuses.
+  it("still refuses an unrelated worker that is genuinely online", () => {
+    const retired = outgoingLaneRows().map((row) => ({ ...row, status: "stopping" }));
+    const other: WorkerHealthRow = {
+      workerId: "sync-worker:99:someoneelse::meta",
+      providerScope: "meta",
+      status: "running",
+      workerFreshnessState: "online",
+      lastHeartbeatAt: new Date(NOW - 1_000).toISOString(),
+      metaJson: {},
+    };
+    const { result } = evaluate({
+      workers: [stagedRow(), ...retired, other],
+      onlineWorkers: 1,
+    });
+    expect(result.reason).toBe("unexpected_online_workers");
+  });
+});

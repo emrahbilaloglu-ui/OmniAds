@@ -444,3 +444,78 @@ describe("ordinary worker behaviour is unchanged", () => {
     await runtime;
   });
 });
+
+describe("shutdown retires every scope the worker registered", () => {
+  beforeEach(() => {
+    delete process.env.SYNC_WORKER_STAGING_IDLE;
+    process.env.ADSECUTE_SYNC_GLOBAL_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_META_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED = "enabled";
+    process.env.ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED = "enabled";
+  });
+
+  // THE second defect. `online_workers` counts any fresh row that is not
+  // disabled/stopping/stopped, and only `all` used to be retired — so meta,
+  // shopify and google_ads kept a departed worker "online" for the whole
+  // five-minute window while deploy-disabled polls for sixty seconds.
+  it("writes stopping for each provider scope, not only all", async () => {
+    const { runDurableWorkerRuntime } = await importRuntime();
+    const runtime = runDurableWorkerRuntime({
+      adapters: [
+        { ...stagedAdapter, providerScope: "meta" },
+        { ...stagedAdapter, providerScope: "google_ads" },
+        { ...stagedAdapter, providerScope: "shopify" },
+      ] as never,
+    });
+    await settle(12);
+
+    process.emit("SIGTERM");
+    await runtime;
+    await settle(6);
+
+    const stopping = calls().filter((call) => call.status === "stopping");
+    expect(stopping.map((call) => call.providerScope).sort()).toEqual([
+      "all",
+      "google_ads",
+      "meta",
+      "shopify",
+    ]);
+    // `all` is the canonical row the gate reads, so it is the last word.
+    expect(stopping[stopping.length - 1].providerScope).toBe("all");
+    // Exactly one stopping per scope.
+    expect(new Set(stopping.map((c) => c.providerScope)).size).toBe(stopping.length);
+  });
+
+  it("invents no scope it never registered", async () => {
+    const { runDurableWorkerRuntime } = await importRuntime();
+    const runtime = runDurableWorkerRuntime({
+      adapters: [{ ...stagedAdapter, providerScope: "meta" }] as never,
+    });
+    await settle(12);
+    process.emit("SIGTERM");
+    await runtime;
+
+    const stopping = calls().filter((call) => call.status === "stopping");
+    expect(stopping.map((call) => call.providerScope).sort()).toEqual(["all", "meta"]);
+  });
+});
+
+describe("a staged worker retires only its own single row", () => {
+  // A staged worker registers `all` and nothing else. Retiring three lanes it
+  // never claimed would CREATE rows describing work it never did.
+  it("writes stopping for all, and for no provider scope", async () => {
+    const { runDurableWorkerRuntime } = await importRuntime();
+    const runtime = runDurableWorkerRuntime({
+      adapters: [
+        { ...stagedAdapter, providerScope: "meta" },
+        { ...stagedAdapter, providerScope: "shopify" },
+      ] as never,
+    });
+    await settle(15);
+    process.emit("SIGTERM");
+    await runtime;
+
+    const stopping = calls().filter((call) => call.status === "stopping");
+    expect(stopping.map((call) => call.providerScope)).toEqual(["all"]);
+  });
+});

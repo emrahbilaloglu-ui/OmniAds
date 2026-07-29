@@ -315,8 +315,183 @@ async function main() {
     );
     log("S5 PASS healthcheck: --expect-staged-idle passes and --min-online-workers 1 fails against the same staged worker, so the two modes cannot be confused");
 
+    // ── S7. The registration is DURABLE, and it refreshes ──────────────────
+    //
+    // Registering once is not the contract; `deploy-disabled` polls for up to a
+    // minute and needs the row to still be there, still `disabled`, and getting
+    // fresher, for as long as the process is up.
+    const beforeRefresh = await client.query<{ status: string; at: Date }>(
+      `SELECT status, last_heartbeat_at AS at FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [stagedId],
+    );
+    await sleep(2500);
+    const afterRefresh = await client.query<{ status: string; at: Date; n: string }>(
+      `SELECT status, last_heartbeat_at AS at,
+              (SELECT count(*) FROM sync_worker_heartbeats WHERE status = 'disabled')::text AS n
+         FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [stagedId],
+    );
+    assert(
+      afterRefresh.rows[0]?.status === "disabled",
+      `S7: the staged row became '${afterRefresh.rows[0]?.status}' while the process was still up`,
+    );
+    assert(
+      afterRefresh.rows[0].at.getTime() > beforeRefresh.rows[0].at.getTime(),
+      "S7: the staged heartbeat did not advance; the gate would time out against a live worker",
+    );
+    assert(
+      afterRefresh.rows[0].n === "1",
+      `S7: the staged worker is no longer a singleton (${afterRefresh.rows[0].n} disabled rows)`,
+    );
+    log("S7 PASS registration durable: the staged row stays 'disabled', stays a singleton, and its heartbeat advances while the process is up");
+
+    // ── S8. The pinned build identity, end to end ──────────────────────────
+    //
+    // What the worker wrote has to BE the release the orchestrator pinned. The
+    // heartbeat metadata and the runtime contract are written by different code
+    // paths, and the check requires both.
+    const buildOk = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+      "--expect-staged-idle", "--online-window-minutes", "5",
+      "--expect-build-id", "staged-worker-seam"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      buildOk.status === 0,
+      `S8: --expect-build-id refused the identity the worker was actually started with: ${buildOk.stdout}${buildOk.stderr}`,
+    );
+    const buildWrong = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+      "--expect-staged-idle", "--online-window-minutes", "5",
+      "--expect-build-id", "some-other-release"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      buildWrong.status !== 0 &&
+        buildWrong.stdout.includes("staged_worker_build_identity_mismatch"),
+      `S8: a staged worker on the WRONG build passed. That is a stale APP_BUILD_ID certifying a release it did not build: ${buildWrong.stdout}${buildWrong.stderr}`,
+    );
+    log("S8 PASS build identity: --expect-build-id passes for the release the worker really is and refuses any other, so a stale env file cannot rename the running build");
+
+    // ── S9. A registration from an earlier run does not certify this one ────
+    //
+    // The row is fresh and correctly staged; it just belongs to a process that
+    // started before this container did. Without the run check, a worker that
+    // never came up at all is certified by its predecessor.
+    const futureStart = new Date(Date.now() + 60_000).toISOString();
+    const notThisRun = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+      "--expect-staged-idle", "--online-window-minutes", "5",
+      "--min-heartbeat-after", futureStart],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      notThisRun.status !== 0 &&
+        notThisRun.stdout.includes("staged_worker_is_not_this_run"),
+      `S9: a staged worker that predates the container start passed: ${notThisRun.stdout}${notThisRun.stderr}`,
+    );
+    log("S9 PASS wrong run refused: a correctly staged row that predates this container's start is refused, so a previous run cannot certify one that never booted");
+
+    // ── S10. Shutdown moves the row once, and nothing puts it back ──────────
+    //
+    // THE production incident, at the level it actually happened. Every scope's
+    // heartbeat upserts ON CONFLICT (worker_id) and `all` maps to the bare
+    // worker id, so `stopping` and the staged registration are the SAME ROW.
+    // Two signal handlers used to fire on one SIGTERM and a refresh tick could
+    // still be in flight, so the row's final value was decided by a race.
     staged.stop();
-    await sleep(1500);
+    await sleep(2500);
+    const afterStop = await client.query<{ status: string; at: Date }>(
+      `SELECT status, last_heartbeat_at AS at FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [stagedId],
+    );
+    assert(
+      afterStop.rows[0]?.status === "stopping",
+      `S10: after SIGTERM the staged row is '${afterStop.rows[0]?.status}', not 'stopping'. A refresh landed after the shutdown and resurrected a worker that no longer exists.`,
+    );
+    await sleep(2000);
+    const settledAfterStop = await client.query<{ status: string; at: Date }>(
+      `SELECT status, last_heartbeat_at AS at FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [stagedId],
+    );
+    assert(
+      settledAfterStop.rows[0]?.status === "stopping" &&
+        settledAfterStop.rows[0].at.getTime() === afterStop.rows[0].at.getTime(),
+      "S10: the row kept changing after shutdown; the refresh timer outlived the process's own shutdown",
+    );
+    const stagedAfterStop = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+      "--expect-staged-idle", "--online-window-minutes", "5"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      stagedAfterStop.status !== 0,
+      `S10: --expect-staged-idle still passes against a worker that has shut down: ${stagedAfterStop.stdout}`,
+    );
+    log("S10 PASS shutdown is final: SIGTERM moves the row disabled -> stopping exactly once, nothing puts 'disabled' back, and the staged assertion stops passing");
+
+    // ── S10b. The same invariant with a refresh always outstanding ──────────
+    //
+    // Driving the refresh as fast as the event loop allows means a write is
+    // essentially always in flight when the signal lands. This is a GUARD, not
+    // a reproduction: pooled writes complete in the order they were issued, so
+    // an earlier `disabled` returning after a later `stopping` is not something
+    // this harness can force. It holds the ordering against a future change —
+    // a retry, a second connection, a queue — that would make the two
+    // genuinely concurrent on the one upsert key they share.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const contended = startWorker({
+      ...workerEnv,
+      SYNC_WORKER_STAGING_IDLE: "1",
+      WORKER_HEARTBEAT_INTERVAL_MS: "1",
+    });
+    workers.push(contended);
+    let contendedId: string | null = null;
+    for (let i = 0; i < 40 && contended.exitCode == null; i += 1) {
+      const { rows } = await client.query<{ worker_id: string }>(
+        `SELECT worker_id FROM sync_worker_heartbeats WHERE status = 'disabled'`,
+      );
+      if (rows[0]) {
+        contendedId = rows[0].worker_id;
+        break;
+      }
+      await sleep(250);
+    }
+    assert(
+      contendedId != null,
+      `S10b: the contended worker never registered.\n${contended.output.slice(-1500)}`,
+    );
+    await sleep(1000);
+    contended.stop();
+    await sleep(3000);
+    const contendedRow = await client.query<{ status: string }>(
+      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [contendedId],
+    );
+    assert(
+      contendedRow.rows[0]?.status === "stopping",
+      `S10b: with a refresh in flight the row settled on '${contendedRow.rows[0]?.status}' instead of 'stopping'. Shutdown raced its own refresh for the same upsert key, and the deploy gate reads whichever won.`,
+    );
+    log("S10b PASS no race: with a refresh outstanding at every instant, SIGTERM still settles the row on 'stopping' — shutdown drains the refresh instead of racing it");
+
+    // ── S11. A renamed build refuses to start at all ────────────────────────
+    //
+    // docker-compose `environment:` overrides the image's own ENV, so a stale
+    // .env.production renames the running build without changing a byte of it.
+    // The worker must not register under either name.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const renamed = startWorker({
+      ...workerEnv,
+      SYNC_WORKER_STAGING_IDLE: "1",
+      ADSECUTE_IMAGE_BUILD_ID: "staged-worker-seam",
+      APP_BUILD_ID: "a-stale-release-from-the-env-file",
+    });
+    workers.push(renamed);
+    for (let i = 0; i < 40 && renamed.exitCode == null; i += 1) await sleep(500);
+    assert(
+      renamed.exitCode != null && renamed.exitCode !== 0,
+      `S11: a worker whose APP_BUILD_ID disagrees with the image it was built from stayed up.\n${renamed.output.slice(-1500)}`,
+    );
+    const renamedRows = await client.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM sync_worker_heartbeats`,
+    );
+    assert(
+      renamedRows.rows[0].n === "0",
+      `S11: it wrote ${renamedRows.rows[0].n} heartbeat(s) before refusing; the identity must be settled before anything is written`,
+    );
+    log(`S11 PASS renamed build refused: image identity and APP_BUILD_ID disagreeing exits the worker (${renamed.exitCode}) before it registers as either release`);
 
     // ── S6. Staging is opt-in; the fatal refusal is still the default ───────
     await client.query(`DELETE FROM sync_worker_heartbeats`);

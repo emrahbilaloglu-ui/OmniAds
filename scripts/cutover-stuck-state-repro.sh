@@ -147,12 +147,20 @@ if grep -A 5 '^rootcron_start()' scripts/hetzner-sync-cutover.sh \
 else
   fail "R4a could not find the saved-block guard in rootcron_start"
 fi
-if grep -A 12 '^rootcron_start()' scripts/hetzner-sync-cutover.sh \
-     | grep -q 'the managed block is already present'; then
-  pass "R4b and refuses again because a block IS present — the third"
-else
-  fail "R4b could not find the already-present guard"
-fi
+# Scanned across the WHOLE function, not a fixed -A 12 window: the guard moved
+# further down when the adoption branch was added, and a line-count window turns
+# a relocated guard into a phantom regression. The refusal is now CONDITIONAL —
+# a present block that is byte-identical to the recorded one is adopted, and one
+# that DIFFERS is still refused — so assert the differing case explicitly.
+rootcron_start_body="$(awk '/^rootcron_start\(\)/,/^}/' scripts/hetzner-sync-cutover.sh)"
+case "${rootcron_start_body}" in
+  *"the managed block is already present and DIFFERS"*)
+    pass "R4b and refuses a present block that DIFFERS from the saved one — the third" ;;
+  *"the managed block is already present"*)
+    pass "R4b and refuses again because a block IS present — the third" ;;
+  *)
+    fail "R4b could not find the already-present guard anywhere in rootcron_start" ;;
+esac
 
 # ── R5: emergency-disable is an outage, not a recovery ──────────────────────
 if awk '/^  emergency-disable\)/,/;;/' scripts/hetzner-sync-cutover.sh \

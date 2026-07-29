@@ -25,6 +25,11 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV APP_BUILD_ID=$APP_BUILD_ID
+# The same identity under a name docker-compose.yml never mentions.
+# `environment:` overrides the image's own ENV, so a stale APP_BUILD_ID on the
+# host silently renames the running build. This copy cannot be overwritten from
+# the host, so the process can prove which image it actually is.
+ENV ADSECUTE_IMAGE_BUILD_ID=$APP_BUILD_ID
 COPY --from=builder /app/.next/standalone /app
 COPY --from=builder /app/.next/static /app/.next/static
 COPY --from=builder /app/public /app/public
@@ -40,6 +45,11 @@ LABEL org.opencontainers.image.revision=$APP_BUILD_ID
 LABEL com.adsecute.release.role=worker-runner
 ENV NODE_ENV=production
 ENV APP_BUILD_ID=$APP_BUILD_ID
+# The same identity under a name docker-compose.yml never mentions.
+# `environment:` overrides the image's own ENV, so a stale APP_BUILD_ID on the
+# host silently renames the running build. This copy cannot be overwritten from
+# the host, so the process can prove which image it actually is.
+ENV ADSECUTE_IMAGE_BUILD_ID=$APP_BUILD_ID
 ENV SYNC_WORKER_MODE=1
 COPY --from=builder /app/package.json /app/package-lock.json /app/
 COPY --from=deps /app/node_modules /app/node_modules

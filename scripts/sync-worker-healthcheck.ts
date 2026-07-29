@@ -1,5 +1,9 @@
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 import { getSyncWorkerOwnedWorkUnits } from "@/lib/sync/worker-health";
+import {
+  evaluateWorkerHealth,
+  selectStagedWorkers,
+} from "@/lib/sync/staged-worker-predicate";
 
 type ParsedArgs = {
   help: boolean;
@@ -8,6 +12,7 @@ type ParsedArgs = {
   minOnlineWorkers: number;
   minHeartbeatAfter: string | null;
   expectStagedIdle: boolean;
+  expectBuildId: string | null;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -18,6 +23,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     minOnlineWorkers: 1,
     minHeartbeatAfter: null,
     expectStagedIdle: false,
+    expectBuildId: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -66,6 +72,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--expect-build-id") {
+      const value = argv[index + 1]?.trim();
+      if (!value) {
+        throw new Error("missing value for --expect-build-id");
+      }
+      parsed.expectBuildId = value;
+      index += 1;
+      continue;
+    }
 
     throw new Error(`unknown argument: ${arg}`);
   }
@@ -75,7 +90,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 function printUsage() {
   console.log(
-    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>]",
+    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--expect-build-id <sha>]",
   );
 }
 
@@ -93,48 +108,27 @@ async function main() {
     onlineWindowMinutes: args.onlineWindowMinutes,
   });
 
-  const minHeartbeatAfterMs =
-    args.minHeartbeatAfter != null ? new Date(args.minHeartbeatAfter).getTime() : null;
-  if (
-    minHeartbeatAfterMs != null &&
-    (!Number.isFinite(minHeartbeatAfterMs) || Number.isNaN(minHeartbeatAfterMs))
-  ) {
-    throw new Error("invalid ISO timestamp for --min-heartbeat-after");
-  }
-
-  const lastHeartbeatMs =
-    summary.lastHeartbeatAt != null ? new Date(summary.lastHeartbeatAt).getTime() : null;
-  const heartbeatSatisfied =
-    minHeartbeatAfterMs == null ||
-    (lastHeartbeatMs != null &&
-      Number.isFinite(lastHeartbeatMs) &&
-      lastHeartbeatMs >= minHeartbeatAfterMs);
-  // Staged mode asserts the NEGATIVE contract, which the ordinary path cannot
-  // express: --min-online-workers rejects 0, and a staged worker's whole point
-  // is that zero workers are online while exactly one is registered.
-  const stagedWorkers = (summary.workers ?? []).filter(
-    (worker) => worker.status === "disabled" && worker.workerFreshnessState === "staged",
-  );
+  // The staged registrations. Selected before the owned-work query because
+  // that query is scoped to exactly these worker ids.
+  const stagedWorkers = selectStagedWorkers({
+    workers: summary.workers,
+    nowMs: Date.now(),
+    onlineWindowMinutes: args.onlineWindowMinutes,
+  });
   const owned = args.expectStagedIdle
     ? await getSyncWorkerOwnedWorkUnits(stagedWorkers.map((worker) => worker.workerId))
     : null;
-  const holdsNothing = owned == null || Object.values(owned).every((count) => count === 0);
 
-  let reason: string;
-  if (args.expectStagedIdle) {
-    if (stagedWorkers.length !== 1) reason = "staged_idle_not_observed";
-    else if (summary.onlineWorkers > 0) reason = "unexpected_online_workers";
-    else if (!holdsNothing) reason = "staged_worker_holds_work";
-    else if (!heartbeatSatisfied) reason = "fresh_heartbeat_not_observed";
-    else reason = "healthy";
-  } else if (summary.onlineWorkers < args.minOnlineWorkers) {
-    reason = "insufficient_online_workers";
-  } else if (!heartbeatSatisfied) {
-    reason = "fresh_heartbeat_not_observed";
-  } else {
-    reason = "healthy";
-  }
-  const pass = reason === "healthy";
+  const evaluation = evaluateWorkerHealth({
+    summary,
+    stagedWorkers,
+    ownedWorkUnits: owned,
+    expectStagedIdle: args.expectStagedIdle,
+    expectBuildId: args.expectBuildId,
+    minHeartbeatAfter: args.minHeartbeatAfter,
+    minOnlineWorkers: args.minOnlineWorkers,
+  });
+  const { pass, reason } = evaluation;
 
   console.log(
     JSON.stringify(
@@ -144,7 +138,14 @@ async function main() {
         minOnlineWorkers: args.minOnlineWorkers,
         minHeartbeatAfter: args.minHeartbeatAfter,
         expectStagedIdle: args.expectStagedIdle,
+        expectBuildId: args.expectBuildId,
         stagedWorkers: stagedWorkers.length,
+        stagedWorkerId: evaluation.stagedWorkerId,
+        stagedWorkerStartedAt: evaluation.stagedWorkerStartedAt,
+        stagedWorkerBuildId: evaluation.stagedWorkerBuildId,
+        stagedWorkerContractBuildId: evaluation.stagedWorkerContractBuildId,
+        stagedIsThisRun: evaluation.stagedIsThisRun,
+        stagedBuildIdMatches: evaluation.stagedBuildIdMatches,
         ownedWorkUnits: owned,
         pass,
         reason,

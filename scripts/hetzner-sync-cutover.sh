@@ -787,13 +787,22 @@ snapshot_release() {
 # EVERY exit path, including the ones that are not exits at all. `die` reaches
 # this through EXIT; a failed pg_dump reaches it through `die`; a signal reaches
 # it directly; and a kill -9 of this process is handled by the FIFO instead.
+INCOMPLETE_ARTIFACT_DIR=""
+INCOMPLETE_ARTIFACT_FILE=""
+
 snapshot_cleanup_and_exit() {
   local rc="$1"
   trap - EXIT HUP INT TERM
+  # Writers first, then the file. snapshot_release terminates the exporter and
+  # scratch_db_drop closes the restore, so by the time discard runs, nothing
+  # should still hold the dump open — and discard re-checks that anyway.
   # Order matters: the scratch database is dropped through the same SSH link the
   # exporter uses, so it goes first, while that link is still known to work.
   scratch_db_drop || true
   snapshot_release || true
+  if [ "${rc}" -ne 0 ] && [ -n "${INCOMPLETE_ARTIFACT_FILE}" ]; then
+    discard_incomplete_artifact "${INCOMPLETE_ARTIFACT_DIR}" "${INCOMPLETE_ARTIFACT_FILE}" || true
+  fi
   exit "${rc}"
 }
 trap 'snapshot_cleanup_and_exit "$?"' EXIT
@@ -1021,7 +1030,52 @@ rootcron_start() {
   rootcron_read > "${tmp}"
   rootcron_split "${tmp}" "${outside}" "${block}" >/dev/null \
     || die "the root crontab is unparseable; refusing to rewrite it"
-  [ ! -s "${block}" ] || die "the managed block is already present; the scheduler was restarted by something else"
+  # ADOPTION, not a bypass. A block that is already present is only acceptable
+  # when it is provably the SAME block this cutover recorded — otherwise the
+  # original refusal stands.
+  #
+  # This exists because an earlier failed epoch removed the managed block and
+  # never restored it, so THIS epoch's quiesce found nothing to stop, recorded
+  # no rootcron keys, and could never satisfy a comparison against them. The
+  # scheduler is nonetheless running the exact definition preflight recorded.
+  # Refusing forever would leave phase_chain short of resume-scheduler and block
+  # every ordinary deploy, for a scheduler that is demonstrably correct.
+  #
+  # Four independent proofs, every one required, any mismatch refuses:
+  #   1. the live block body is byte-identical to the saved block body
+  #   2. its hash equals scheduler_sha256 as recorded at preflight
+  #   3. its bearer token hashes to the CURRENT CRON_SECRET (not a stale one)
+  #   4. unrelated crontab lines match the saved rootcron.outside
+  if [ -s "${block}" ]; then
+    local saved_body live_body saved_outside live_hash env_secret blk_secret
+    saved_body="$(mktemp)"; live_body="$(mktemp)"
+    awk 'BEGIN{b=0} /^# BEGIN adsecute-sync/{b=1;next} /^# END adsecute-sync/{b=0;next} b==1{print}' "${saved_block}" > "${saved_body}"
+    awk 'BEGIN{b=0} /^# BEGIN adsecute-sync/{b=1;next} /^# END adsecute-sync/{b=0;next} b==1{print}' "${block}" > "${live_body}"
+    cmp -s "${saved_body}" "${live_body}" \
+      || { rm -f "${saved_body}" "${live_body}"; die "the managed block is already present and DIFFERS from the one this cutover saved; the scheduler was restarted by something else"; }
+    rm -f "${saved_body}" "${live_body}"
+
+    live_hash="$(sha256_file "${saved_block}")"
+    [ "${live_hash}" = "$(state_get scheduler_sha256)" ] \
+      || die "the present managed block hashes ${live_hash}, but this cutover recorded scheduler_sha256=$(state_get scheduler_sha256)"
+
+    env_secret="$(awk -F= '$1=="CRON_SECRET"{sub(/^CRON_SECRET=/,""); print; exit}' "${ENV_FILE}" | tr -d '"')"
+    blk_secret="$(grep -oE 'Bearer [^"]+' "${saved_block}" | head -1 | sed 's/^Bearer //')"
+    [ -n "${env_secret}" ] && [ "${env_secret}" = "${blk_secret}" ] \
+      || die "the present managed block does not carry the current CRON_SECRET; it would call the endpoint with a stale credential"
+
+    saved_outside="${STATE_DIR}/rootcron.outside"
+    if [ -s "${saved_outside}" ]; then
+      cmp -s "${saved_outside}" "${outside}" \
+        || die "unrelated root crontab lines differ from the saved rootcron.outside; reconcile by hand before resuming"
+    else
+      die "no saved rootcron.outside to compare unrelated crontab lines against; refusing to adopt a scheduler state that cannot be proven"
+    fi
+
+    log "managed block already present and byte-identical to the recorded definition (hash ${live_hash}); adopting it rather than rewriting the crontab"
+    rm -f "${tmp}" "${outside}" "${block}" "${rebuilt}" 2>/dev/null || true
+    return 0
+  fi
   [ "$(sha256_file "${outside}")" = "$(state_get rootcron_outside_sha256)" ] \
     || die "unrelated root crontab lines changed while the Sync block was out. Someone else edited the crontab during the cutover; reconcile by hand before resuming."
 
@@ -1596,11 +1650,113 @@ assert_capacity_for_migration() {
     || die "insufficient free space on the database host: ${free}B free, ${required}B required for a ${logical}B database"
 }
 
+# Remove ONLY this epoch's own incomplete artifact, and only when it is
+# provably safe to do so. Fail closed at every step: any doubt leaves the file.
+#
+# A preflight that dies mid-dump leaves a partial multi-GB file that no manifest
+# describes and nothing can use — the run that filled the app disk to 99% left
+# exactly one 8,055,459,840-byte full.dump behind. It is the writing run's job to
+# clean up after itself, but ONLY its own mess.
+#
+# The four conditions are all necessary:
+#   1. the directory belongs to the epoch this process is running (string match
+#      against backup_dir_for_epoch, not a glob, not a "latest" heuristic)
+#   2. it sits under BACKUP_ROOT after path resolution, so a crafted or
+#      symlinked epoch name cannot walk out of the backup tree
+#   3. NO manifest exists beside it — a manifest means the artifact was verified
+#      and is somebody's rollback position; this must never touch one
+#   4. no process holds the file open, so the dump is genuinely stopped
+discard_incomplete_artifact() { # <dir> <artifact>
+  local dir="$1" artifact="$2" expected resolved root_resolved
+  [ -n "${dir}" ] && [ -n "${artifact}" ] || return 0
+  [ -f "${artifact}" ] || return 0
+
+  expected="$(backup_dir_for_epoch "$(state_get cutover_epoch)")"
+  [ "${dir}" = "${expected}" ] \
+    || { log "keeping ${artifact}: it does not belong to the current epoch"; return 0; }
+
+  resolved="$(cd "${dir}" 2>/dev/null && pwd -P)" || return 0
+  root_resolved="$(cd "${BACKUP_ROOT}" 2>/dev/null && pwd -P)" || return 0
+  case "${resolved}/" in
+    "${root_resolved}"/*) : ;;
+    *) log "keeping ${artifact}: ${resolved} is outside ${root_resolved}"; return 0 ;;
+  esac
+
+  if [ -e "${dir}/cutover-backup.manifest" ]; then
+    log "keeping ${artifact}: a manifest describes it, so it is a verified rollback artifact"
+    return 0
+  fi
+
+  if command -v fuser >/dev/null 2>&1 && fuser "${artifact}" >/dev/null 2>&1; then
+    log "keeping ${artifact}: a process still holds it open"
+    return 0
+  fi
+
+  local bytes
+  bytes="$(wc -c < "${artifact}" 2>/dev/null || echo 0)"
+  rm -f "${artifact}" \
+    && log "discarded this epoch's incomplete artifact ${artifact} (${bytes}B, no manifest, no writer)"
+  rmdir "${dir}" 2>/dev/null && log "removed the now-empty ${dir}" || true
+}
+
+# Refuse a lanes-on environment BEFORE any expensive or irreversible work.
+#
+# verify-contract already requires every lane off, but it runs AFTER quiesce —
+# so a lanes-on env was only discovered once the site was down and a ~25 GB
+# artifact had already been produced. That happened twice. preflight pins
+# env_file_sha256, and assert_state_invariants then refuses any later change,
+# so the lanes MUST be off before the epoch opens; there is no way to correct it
+# mid-epoch. This check states that up front instead of letting a 2.3-hour dump
+# discover it.
+#
+# This does not replace or weaken verify-contract: that check still runs, still
+# reads the same file, and still refuses independently.
+CUTOVER_LANE_SWITCHES="ADSECUTE_SYNC_GLOBAL_ENABLED ADSECUTE_SYNC_LANE_META_SYNC_ENABLED ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED ADSECUTE_SYNC_LANE_SOURCE_INGEST_ENABLED ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED"
+
+assert_lanes_off_for_preflight() {
+  local key value missing="" on=""
+  for key in ${CUTOVER_LANE_SWITCHES}; do
+    if ! grep -qE "^${key}=" "${ENV_FILE}"; then
+      missing="${missing} ${key}"
+      continue
+    fi
+    value="$(awk -F= -v k="${key}" '$1==k{sub(/^[^=]*=/,""); print; exit}' "${ENV_FILE}" | tr -d '"'"'"'[:space:]')"
+    case "${value}" in
+      "" ) : ;;
+      * ) on="${on} ${key}=${value}" ;;
+    esac
+  done
+
+  # Retention is checked the same way but reported separately: it is never
+  # enabled by the rollout script and must stay off through a cutover.
+  local retention
+  if grep -qE '^ADSECUTE_SYNC_LANE_RETENTION_ENABLED=' "${ENV_FILE}"; then
+    retention="$(awk -F= '$1=="ADSECUTE_SYNC_LANE_RETENTION_ENABLED"{sub(/^[^=]*=/,""); print; exit}' "${ENV_FILE}" | tr -d '"'"'"'[:space:]')"
+  else
+    missing="${missing} ADSECUTE_SYNC_LANE_RETENTION_ENABLED"
+    retention=""
+  fi
+
+  [ -z "${missing}" ] \
+    || die "cannot prove the Sync lanes are off:${missing} absent from ${ENV_FILE}. An ambiguous switch is not an off switch. Run the rollout disable step and re-check before opening a cutover."
+  [ -z "${retention}" ] \
+    || die "Sync retention is ENABLED (ADSECUTE_SYNC_LANE_RETENTION_ENABLED=${retention}). Retention must stay off through a cutover; disable it before opening one."
+  [ -z "${on}" ] \
+    || die "Sync lanes are still ENABLED:${on}. preflight pins env_file_sha256 and every later phase refuses a changed env file, so a lanes-on epoch can never reach verify-contract. Run the rollout disable step FIRST (global-sync-rollout.ts disable in the pinned image), then re-run preflight."
+
+  log "lane prerequisite: all 7 switches off and retention off in ${ENV_FILE}"
+}
+
 take_verified_backup() {
   local epoch="$1" dir artifact manifest scratch free logical prior_input prior_bytes sizing_basis artifact_bytes dump_input restored data_dir scratch_free artifact_required scratch_required exclude_flags
   dir="$(backup_dir_for_epoch "${epoch}")"
   artifact="${dir}/full.dump"
   manifest="${dir}/cutover-backup.manifest"
+  # Claimed here so a failure ANYWHERE below can identify this run's own file.
+  # Cleared once the manifest exists, because from that instant the artifact is
+  # verified and must never be removed by a later failure in this same run.
+  INCOMPLETE_ARTIFACT_DIR="${dir}"
+  INCOMPLETE_ARTIFACT_FILE="${artifact}"
   scratch="adsecute_cutover_scratch_${epoch}"
   # PostgreSQL identifiers are limited to 63 bytes and the epoch carries a sha
   # prefix and a timestamp, so the scratch name is truncated deliberately rather
@@ -1662,12 +1818,44 @@ take_verified_backup() {
     "" | *[!0-9]*) artifact_required=$(( dump_input / 8 )) ; sizing_basis="no_prior_measurement" ;;
     *)
       if [ "${prior_input}" -gt 0 ] 2>/dev/null; then
-        artifact_required=$(( dump_input * prior_bytes * 3 / prior_input ))
+        # SCALED TO MiB BEFORE MULTIPLYING. The obvious form,
+        #   dump_input * prior_bytes * 3 / prior_input
+        # OVERFLOWS signed 64-bit: 62380605440 * 25148412597 is about 1.6e21
+        # against a 9.2e18 ceiling. It wraps to a small or negative number,
+        # sinks below the floor, and the floor is then reported as if it were a
+        # measured requirement. That is not theoretical — it logged
+        # "required=2147483648B" for an artifact that reached 25.15 GB and let a
+        # preflight start with 11.12 GB free, filling the disk to 99%.
+        local dump_mib prior_mib
+        dump_mib=$(( dump_input / 1048576 ))
+        prior_mib=$(( prior_input / 1048576 ))
+        if [ "${prior_mib}" -gt 0 ]; then
+          # Project THIS dump's artifact from the measured ratio. No blanket
+          # 3x multiplier: the floor below already pins it to the last real
+          # artifact, and the reserve below adds the headroom deliberately,
+          # so the requirement stays "the full artifact plus a stated margin"
+          # rather than an unexplained multiple nobody can size against.
+          artifact_required=$(( prior_bytes / prior_mib * dump_mib ))
+        else
+          artifact_required="${prior_bytes}"
+        fi
         sizing_basis="measured_ratio_${prior_bytes}_over_${prior_input}"
       else
         artifact_required=$(( dump_input / 8 )); sizing_basis="no_prior_measurement"
       fi ;;
   esac
+  # FLOOR AT THE LAST MEASURED ARTIFACT, never at a constant. A previous run
+  # produced a real number of bytes for a comparable dataset; requiring less
+  # than that is requiring less than we know it takes.
+  if [ -n "${prior_bytes}" ] && [ "${prior_bytes}" -gt 0 ] 2>/dev/null; then
+    if [ "${artifact_required}" -lt "${prior_bytes}" ]; then artifact_required="${prior_bytes}"; fi
+  fi
+  # Conservative reserve on top: the larger of 5 GiB and 10%, so the filesystem
+  # is not driven to the last byte and pg_dump does not die mid-write.
+  local reserve
+  reserve=$(( artifact_required / 10 ))
+  if [ "${reserve}" -lt 5368709120 ]; then reserve=5368709120; fi
+  artifact_required=$(( artifact_required + reserve ))
   if [ "${artifact_required}" -lt 2147483648 ]; then artifact_required=2147483648; fi
   log "capacity: artifact sizing basis=${sizing_basis}"
   scratch_required=$(( restored + restored / 4 ))
@@ -1896,6 +2084,10 @@ EOF
   chmod 0600 "${manifest}"
 
   BACKUP_MANIFEST="${manifest}"
+  # Ownership released: the manifest exists, so this artifact is verified and a
+  # later failure in this run must not discard it.
+  INCOMPLETE_ARTIFACT_DIR=""
+  INCOMPLETE_ARTIFACT_FILE=""
   log "verified rollback artifact: ${artifact} (${artifact_bytes}B), manifest ${manifest}"
 }
 
@@ -2274,6 +2466,8 @@ case "${PHASE}" in
 
     log "Verifying the env file the runtime actually sources"
     [ -f "${ENV_FILE}" ] || die "missing ${ENV_FILE}"
+    # BEFORE capacity, snapshot or dump: a lanes-on epoch is unfinishable.
+    assert_lanes_off_for_preflight
     grep -q "\.env\.production" "${APP_DIR}/docker-compose.yml" \
       || die "docker-compose.yml does not reference .env.production; the target is wrong"
 
@@ -2612,13 +2806,51 @@ case "${PHASE}" in
     # the lanes off: the worker is admitted to nothing, so nothing is online. The
     # old assertion could only ever pass against a worker that was already doing
     # work, which is the opposite of what this phase exists to establish.
+    # The reason code is KEPT, not discarded.
+    #
+    # This check previously redirected everything to /dev/null, so when it
+    # failed the abort said "See the reason code above" and there was no reason
+    # code above — 30 identical silent attempts, then a dead epoch. Diagnosing
+    # it afterwards was impossible because the container had already been
+    # recreated. The healthcheck emits JSON with an explicit `reason` and a
+    # per-predicate breakdown; that is exactly what has to survive.
+    #
+    # Secrets: the payload is worker/lease/heartbeat state and carries no
+    # credential, but the metaJson is filtered anyway on the same denylist the
+    # state read-back uses, so a future field cannot leak one silently.
+    #
+    # --expect-build-id is what stops this from proving only that SOME worker
+    # staged. docker-compose interpolates APP_BUILD_ID from the host, and
+    # `environment:` overrides the image's own copy — so a `.env.production`
+    # left behind by an earlier release renames the running build without
+    # changing it. The staged worker must report the pinned target from both
+    # its own metadata and its runtime contract, or this phase refuses.
+    # Not `local`: the phase bodies are a top-level `case`, not a function, and
+    # `local` there is a hard error that kills the phase at exactly the point
+    # this diagnostic was added to illuminate.
+    staged_log="${CUTOVER_DIR}/staged-check.json"
     staged_check() {
       docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
         --expect-staged-idle --online-window-minutes 5 \
-        --min-heartbeat-after "${worker_started_at}" >/dev/null 2>&1
+        --expect-build-id "${EXPECTED_SHA}" \
+        --min-heartbeat-after "${worker_started_at}" > "${staged_log}" 2>&1
     }
-    wait_for "staged worker" 30 2 staged_check \
-      || die "the worker did not come up staged: expected exactly one fresh DISABLED heartbeat, no online workers and no leases or claims held. See the reason code above."
+    if ! wait_for "staged worker" 30 2 staged_check; then
+      log "staged worker: last observed predicate state ->"
+      if [ -s "${staged_log}" ]; then
+        grep -aoE '"(reason|pass|stagedWorkers|stagedWorkerId|stagedWorkerStartedAt|stagedWorkerBuildId|stagedWorkerContractBuildId|stagedIsThisRun|stagedBuildIdMatches|expectBuildId|onlineWorkers|workerInstances|runnerLeases|googleLaneLeases|metaPartitionClaims|googlePartitionClaims|metaCheckpointClaims|googleCheckpointClaims|jobLocks|minHeartbeatAfter|expectStagedIdle)":[^,}]*' "${staged_log}" \
+          | grep -viE '(secret|token|password|api[_-]?key)' | sed 's/^/  | /' | head -30 || true
+      else
+        log "  | the healthcheck produced NO output at all — the worker process is not answering"
+      fi
+      # The worker's own boot refusal, which is where a fatal pre-staging
+      # failure (lane admission, growth boundary) actually announces itself and
+      # which is otherwise lost when the container is recreated.
+      log "staged worker: worker container log tail ->"
+      docker compose logs --no-color --tail 25 worker 2>/dev/null \
+        | grep -viE '(secret|token|password|api[_-]?key)' | sed 's/^/  | /' || true
+      die "the worker did not come up staged: expected exactly one fresh DISABLED heartbeat from THIS run on ${EXPECTED_SHA}, no online workers and no leases or claims held. The observed predicate state and worker log are printed above, and the full healthcheck payload is at ${staged_log}."
+    fi
 
     # Re-establishing the runtime proof is what clears an earlier invalidation,
     # so an emergency stop can be recovered from without hand-editing state.

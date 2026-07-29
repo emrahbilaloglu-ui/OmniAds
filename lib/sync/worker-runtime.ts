@@ -8,7 +8,10 @@ import {
   describeSyncSafetyRefusal,
   type SyncSafetyRefusal,
 } from "@/lib/sync/safety-refusal";
-import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
+import {
+  assertImmutableBuildIdentity,
+  getCurrentRuntimeBuildId,
+} from "@/lib/build-runtime";
 import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters";
 import type { ProviderLeasePlan } from "@/lib/sync/provider-status-truth";
 import {
@@ -629,13 +632,40 @@ export async function runDurableWorkerRuntime(
   );
   const stallExitMs = envNumber("WORKER_STALL_EXIT_MS", 300_000);
   const workerStartedAt = new Date().toISOString();
-  const workerBuildId = getCurrentRuntimeBuildId();
+  // STAGING IDLE, off unless explicitly asked for. Read here because the build
+  // identity below is enforced strictly for a staged worker: the whole point of
+  // the staged phase is to prove WHICH release is running, and an identity that
+  // silently falls back proves nothing.
+  const stagingIdle = readBooleanEnv(process.env.SYNC_WORKER_STAGING_IDLE);
+  // The identity this process is allowed to claim, resolved BEFORE anything is
+  // written. `getCurrentRuntimeBuildId()` answers "dev-build" when it has
+  // nothing, and a heartbeat carrying "dev-build" — or carrying a stale
+  // APP_BUILD_ID from an env file the image predates — is worse than no
+  // heartbeat, because the deploy gate compares it to the pinned target and a
+  // wrong answer is indistinguishable from a right one until much later.
+  //
+  // Enforced where identity is load-bearing: in production, and in staged mode
+  // wherever it runs. Elsewhere the old fallback is kept byte-for-byte so a
+  // developer with no APP_BUILD_ID still gets a worker.
+  const buildIdentityEnforced =
+    stagingIdle || process.env.NODE_ENV === "production";
+  const workerBuildId = buildIdentityEnforced
+    ? assertImmutableBuildIdentity({ context: "durable_worker_boot" })
+    : getCurrentRuntimeBuildId();
   const startedAtMs = Date.now();
   const discoveredBusinesses = new Set<string>();
   const lastAutoHealAtByKey = new Map<string, number>();
   const lastConsumeBusinessFallbackAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
+  // Staged-idle lifecycle. Declared with the rest of the runtime state because
+  // the ONE shutdown handler below has to be able to stop the refresh before it
+  // writes `stopping`; a second handler registered later cannot, and that is
+  // exactly how the staged evidence was being overwritten.
+  let stagingRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let stagingRefreshInFlight: Promise<unknown> | null = null;
+  let stagingRefreshBusy = false;
+  let resolveStagingIdle: (() => void) | null = null;
   let nextPruneAt = startedAtMs + pruneIntervalMs;
   let nextGoogleAdsRetentionAt = startedAtMs + googleAdsRetentionIntervalMs;
   let nextMetaRetentionAt = startedAtMs + metaRetentionIntervalMs;
@@ -670,13 +700,35 @@ export async function runDurableWorkerRuntime(
     });
   }
 
+  // ONE shutdown, and it runs at most once.
+  //
+  // The staged path used to register its own `process.once` stop handler on top
+  // of this one. Both fired on the same signal: this handler wrote `stopping`
+  // and the staged handler cleared the refresh — and because every heartbeat for
+  // a scope upserts ON CONFLICT (worker_id), `stopping` landed on the SAME ROW
+  // as the staged `disabled` registration and replaced it. The evidence the
+  // deploy gate exists to read was destroyed by the process that produced it,
+  // and a late refresh tick could just as easily land after `stopping` and put
+  // `disabled` back. Neither order is a shutdown that happened once.
+  //
+  // So: stop the refresh first, let any write already in flight finish, then
+  // write `stopping` exactly once.
   const shutdown = async () => {
+    if (shuttingDown) return;
     shuttingDown = true;
+    if (stagingRefreshTimer) {
+      clearInterval(stagingRefreshTimer);
+      stagingRefreshTimer = null;
+    }
+    if (stagingRefreshInFlight) {
+      await stagingRefreshInFlight.catch(() => null);
+    }
     await heartbeat({
       providerScope: "all",
       status: "stopping",
       force: true,
     }).catch(() => null);
+    resolveStagingIdle?.();
   };
 
   process.on("SIGINT", shutdown);
@@ -708,8 +760,8 @@ export async function runDurableWorkerRuntime(
   // idle path never claims to be running — it heartbeats `disabled`, carries the
   // refusal in its metadata, and takes no lease, claims no partition and writes
   // nothing else. `--min-online-workers` counts online workers and will not
-  // count this one.
-  const stagingIdle = readBooleanEnv(process.env.SYNC_WORKER_STAGING_IDLE);
+  // count this one. `stagingIdle` is read at the top of the runtime, with the
+  // build identity it makes load-bearing.
   let laneRefusal: unknown = null;
   try {
     // Every lane this worker carries. If none of them may run, the worker has
@@ -754,31 +806,68 @@ export async function runDurableWorkerRuntime(
       message: laneRefusal instanceof Error ? laneRefusal.message : String(laneRefusal),
       refusal,
     });
-    await heartbeat({
-      providerScope: "all",
-      status: "disabled",
-      force: true,
-      metaJson: { workerBuildId, workerStartedAt, adapters: providerScopes, stagingIdle: true, refusal },
-    });
+    const stagedMetaJson = {
+      workerBuildId,
+      workerStartedAt,
+      adapters: providerScopes,
+      stagingIdle: true,
+      refusal,
+    };
+    // The REGISTRATION, and the only thing that makes this worker ready.
+    //
+    // Awaited and deliberately NOT caught: if the evidence cannot be persisted
+    // there is nothing to inspect, and a process that idles anyway just makes
+    // the deploy gate spend its whole timeout discovering that. Throwing here
+    // exits non-zero with the reason in the container log, which is what the
+    // gate's diagnostics read.
+    try {
+      await heartbeat({
+        providerScope: "all",
+        status: "disabled",
+        force: true,
+        metaJson: stagedMetaJson,
+      });
+    } catch (error) {
+      console.error("[durable-worker] staged_registration_failed", {
+        workerId,
+        workerBuildId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    // A signal during that first write means the process is already going away.
+    // `shutdown` has written `stopping` on this same row; starting a refresh now
+    // would put `disabled` back on a worker that no longer exists.
+    if (shuttingDown) return;
     // Heartbeat `disabled` on the same timer so the staging check can see a
     // FRESH registration, and do nothing else until the process is stopped. No
     // lease, no partition claim, no provider call.
+    //
+    // There is no second signal handler here. The one registered at the top of
+    // the runtime stops this timer, waits for a tick already in flight, writes
+    // `stopping` once and then resolves this promise — so the row moves
+    // disabled → stopping and never back.
     await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        void heartbeat({
+      resolveStagingIdle = resolve;
+      stagingRefreshTimer = setInterval(() => {
+        // Ticks never overlap and never outlive the shutdown that stopped them.
+        if (shuttingDown || stagingRefreshBusy) return;
+        stagingRefreshBusy = true;
+        stagingRefreshInFlight = heartbeat({
           providerScope: "all",
           status: "disabled",
           force: true,
-          metaJson: { workerBuildId, workerStartedAt, stagingIdle: true, refusal },
-        }).catch(() => null);
+          metaJson: stagedMetaJson,
+        })
+          .catch(() => null)
+          .finally(() => {
+            stagingRefreshBusy = false;
+            stagingRefreshInFlight = null;
+          });
       }, heartbeatIntervalMs);
-      const stop = () => {
-        clearInterval(timer);
-        resolve();
-      };
-      process.once("SIGINT", stop);
-      process.once("SIGTERM", stop);
     });
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
     return;
   }
 

@@ -413,10 +413,23 @@ services:
       - .env.production
 YAML
 
+  # The env file a cutover is allowed to open against: every lane explicitly
+  # off, which is what `rollout:disable` leaves behind and what preflight now
+  # requires before it will pin env_file_sha256 for the epoch. An ABSENT switch
+  # is not an off switch, so these are written out rather than omitted — a
+  # fixture that omits them would only ever prove the prerequisite refuses.
   cat > "${host}/app/.env.production" <<ENVFILE
 DATABASE_URL=postgresql://postgres@127.0.0.1:${PGPORT}/${DB_NAME}
 NEXTAUTH_SECRET=unrelated-value
 CRON_SECRET=unrelated-cron-secret
+ADSECUTE_SYNC_GLOBAL_ENABLED=
+ADSECUTE_SYNC_LANE_META_SYNC_ENABLED=
+ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED=
+ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED=
+ADSECUTE_SYNC_LANE_SOURCE_INGEST_ENABLED=
+ADSECUTE_SYNC_LANE_CRON_ENQUEUE_ENABLED=
+ADSECUTE_SYNC_LANE_ASSIGNMENT_MUTATION_ENABLED=
+ADSECUTE_SYNC_LANE_RETENTION_ENABLED=
 ENVFILE
 
   # A production root crontab: the managed Sync/AI block sits between unrelated

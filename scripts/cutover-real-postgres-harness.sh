@@ -844,9 +844,9 @@ case "\$1" in
   "capturedAt": "2026-07-01T00:00:01.000Z",
   "rows": [
     {"workerId":"sync-worker:18:harnessoutgoing","providerScope":"all","status":"stopping","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
-    {"workerId":"sync-worker:18:harnessoutgoing::meta","providerScope":"meta","status":"running","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
-    {"workerId":"sync-worker:18:harnessoutgoing::shopify","providerScope":"shopify","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
-    {"workerId":"sync-worker:18:harnessoutgoing::google_ads","providerScope":"google_ads","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"}
+    {"workerId":"sync-worker:18:harnessoutgoing:meta","providerScope":"meta","status":"running","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
+    {"workerId":"sync-worker:18:harnessoutgoing:shopify","providerScope":"shopify","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"},
+    {"workerId":"sync-worker:18:harnessoutgoing:google_ads","providerScope":"google_ads","status":"idle","lastHeartbeatAt":"2026-07-01T00:00:00.000Z"}
   ]
 }
 CENSUS
@@ -860,7 +860,7 @@ CENSUS
 {
   "pass": true,
   "runtimeInstanceId": "sync-worker:18:harnessoutgoing",
-  "retiredWorkerIds": ["sync-worker:18:harnessoutgoing::meta","sync-worker:18:harnessoutgoing::shopify","sync-worker:18:harnessoutgoing::google_ads"],
+  "retiredWorkerIds": ["sync-worker:18:harnessoutgoing:meta","sync-worker:18:harnessoutgoing:shopify","sync-worker:18:harnessoutgoing:google_ads"],
   "alreadyTerminalWorkerIds": ["sync-worker:18:harnessoutgoing"],
   "ownedWorkUnits": {"runnerLeases":0,"jobLocks":0}
 }

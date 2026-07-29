@@ -106,19 +106,25 @@ function metaString(metaJson: unknown, key: string): string | null {
 /**
  * Every heartbeat row belonging to one runtime instance.
  *
- * A worker's rows are `<workerId>` for the `all` scope and `<workerId>::<scope>`
- * for the rest, so the instance owns exactly the rows whose id is the bare id or
- * begins with it followed by the separator. Matching on a bare prefix would also
- * catch an unrelated worker whose id happens to start with the same characters,
- * which is why the separator is part of the pattern.
+ * A worker's rows are `<workerId>` for the `all` scope and `<workerId>:<scope>`
+ * for the rest — a SINGLE colon, and the worker id itself already contains
+ * colons (`sync-worker:<pid>:<suffix>`). So the id cannot be split positionally
+ * and a prefix match would also catch an unrelated worker whose id happens to
+ * start with the same characters.
+ *
+ * `provider_scope` is the exact discriminator: the row is this instance's if it
+ * is the `all` row with this id, or a scoped row whose id is this id followed by
+ * a colon and that row's own scope. Reconstructing the id from the column the
+ * writer used leaves nothing to parse and nothing to guess.
  */
 async function readRowsForInstance(runtimeInstanceId: string) {
   const sql = getDb();
   return (await sql`
     SELECT worker_id, provider_scope, status, last_heartbeat_at, meta_json
       FROM sync_worker_heartbeats
-     WHERE worker_id = ${runtimeInstanceId}
-        OR worker_id LIKE ${runtimeInstanceId + "::%"}
+     WHERE (provider_scope = 'all' AND worker_id = ${runtimeInstanceId})
+        OR (provider_scope <> 'all'
+            AND worker_id = ${runtimeInstanceId} || ':' || provider_scope)
      ORDER BY provider_scope
   `) as Array<Record<string, unknown>>;
 }
@@ -143,8 +149,16 @@ export async function discoverOnlineWorkerInstance(input?: {
 }): Promise<string> {
   const onlineWindowMinutes = Math.max(1, input?.onlineWindowMinutes ?? 5);
   const sql = getDb();
+  // The instance id is recovered by removing the row's OWN scope suffix, not by
+  // splitting on a separator the worker id also contains.
   const rows = (await sql`
-    SELECT DISTINCT split_part(worker_id, '::', 1) AS runtime_instance_id
+    SELECT DISTINCT
+      CASE
+        WHEN provider_scope = 'all' THEN worker_id
+        WHEN worker_id LIKE ('%:' || provider_scope)
+          THEN left(worker_id, length(worker_id) - length(provider_scope) - 1)
+        ELSE worker_id
+      END AS runtime_instance_id
       FROM sync_worker_heartbeats
      WHERE last_heartbeat_at > now() - (${String(onlineWindowMinutes)} || ' minutes')::interval
        AND status NOT IN ('disabled', 'stopping', 'stopped')
@@ -295,16 +309,10 @@ export async function retireStoppedSyncWorker(input: {
         { workerId: row.workerId },
       );
     }
-    const liveHeartbeat = isoOrNull(liveRow.last_heartbeat_at);
-    if (liveHeartbeat !== row.lastHeartbeatAt) {
-      throw new WorkerRetirementRefusal(
-        "row_moved",
-        `${row.workerId} has beaten since the census (${row.lastHeartbeatAt} -> ${liveHeartbeat}); the worker is alive`,
-        { workerId: row.workerId, censusHeartbeatAt: row.lastHeartbeatAt, liveHeartbeatAt: liveHeartbeat },
-      );
-    }
     // A run that reused the worker id is a DIFFERENT worker. Retiring it in the
     // old one's name is the cross-run retirement this binding exists to stop.
+    // Checked before anything else, because it decides whether the row in front
+    // of us is even the one the census describes.
     const liveBuildId = metaString(liveRow.meta_json, "workerBuildId");
     if (census.buildId != null && liveBuildId != null && liveBuildId !== census.buildId) {
       throw new WorkerRetirementRefusal(
@@ -325,9 +333,28 @@ export async function retireStoppedSyncWorker(input: {
         { workerId: row.workerId, liveStartedAt, censusStartedAt: census.workerStartedAt },
       );
     }
+    // A TERMINAL row needs no liveness proof, because it IS one.
+    //
+    // This ordering is load-bearing. The outgoing worker writes its own
+    // `stopping` on the way out, and that write advances the `all` row's
+    // heartbeat — so checking movement first refused the exact sequence this
+    // operation exists to handle: capture while running, stop, retire. A row
+    // that has reached `stopping`, `stopped` or `disabled` is not a worker that
+    // is still doing work, whatever its timestamp says.
     if (TERMINAL_STATUSES.has(String(liveRow.status))) {
       alreadyTerminal.push(row.workerId);
       continue;
+    }
+    // For a row that is still `running` or `idle`, an advanced heartbeat is the
+    // liveness proof and the refusal stands: a process that is still alive moves
+    // its own timestamps, and retiring it would hide a worker holding work.
+    const liveHeartbeat = isoOrNull(liveRow.last_heartbeat_at);
+    if (liveHeartbeat !== row.lastHeartbeatAt) {
+      throw new WorkerRetirementRefusal(
+        "row_moved",
+        `${row.workerId} is still ${String(liveRow.status)} and has beaten since the census (${row.lastHeartbeatAt} -> ${liveHeartbeat}); the worker is alive`,
+        { workerId: row.workerId, censusHeartbeatAt: row.lastHeartbeatAt, liveHeartbeatAt: liveHeartbeat },
+      );
     }
     toRetire.push(row);
   }

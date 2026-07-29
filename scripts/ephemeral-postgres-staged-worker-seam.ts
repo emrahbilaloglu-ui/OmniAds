@@ -525,7 +525,7 @@ async function main() {
              (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
            VALUES ($1, 'durable_sync_worker', $2, $3, now(), $4::jsonb)`,
           [
-            scope === "all" ? OUTGOING : `${OUTGOING}::${scope}`,
+            scope === "all" ? OUTGOING : `${OUTGOING}:${scope}`,
             scope,
             status,
             JSON.stringify({ workerBuildId: outgoingBuild, workerStartedAt: outgoingStartedAt }),
@@ -625,7 +625,7 @@ async function main() {
     // The worker beats once more — exactly what a live process does.
     await client.query(
       `UPDATE sync_worker_heartbeats SET last_heartbeat_at = now() WHERE worker_id = $1`,
-      [`${OUTGOING}::meta`],
+      [`${OUTGOING}:meta`],
     );
     const liveRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
       "retire", "--census", censusPath, "--container-stopped"],
@@ -635,7 +635,7 @@ async function main() {
       `S14: a worker that beat after the census was retired anyway: ${liveRetire.stdout.slice(0, 600)}`,
     );
     const stillRunning = await client.query<{ status: string }>(
-      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`, [`${OUTGOING}::meta`],
+      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`, [`${OUTGOING}:meta`],
     );
     assert(
       stillRunning.rows[0]?.status === "running",
@@ -651,7 +651,7 @@ async function main() {
     ).catch(() => undefined);
     await client.query(
       `UPDATE sync_worker_heartbeats SET last_heartbeat_at = (SELECT last_heartbeat_at FROM sync_worker_heartbeats WHERE worker_id = $1) WHERE worker_id = $1`,
-      [`${OUTGOING}::meta`],
+      [`${OUTGOING}:meta`],
     );
     await seedOutgoing();
     const workCapture = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
@@ -663,7 +663,7 @@ async function main() {
         `INSERT INTO sync_runner_leases (business_id, provider_scope, lease_owner, lease_expires_at)
          VALUES ($1, 'meta', $2, now() + interval '5 minutes')
          ON CONFLICT DO NOTHING`,
-        [bizId, `${OUTGOING}::meta`],
+        [bizId, `${OUTGOING}:meta`],
       )
       .then(() => true)
       .catch(() => false);
@@ -675,14 +675,100 @@ async function main() {
         workRetire.status !== 0 && workRetire.stdout.includes("worker_holds_work"),
         `S15: a worker holding a runner lease was retired: ${workRetire.stdout.slice(0, 600)}`,
       );
-      await client.query(`DELETE FROM sync_runner_leases WHERE lease_owner = $1`, [`${OUTGOING}::meta`]);
+      await client.query(`DELETE FROM sync_runner_leases WHERE lease_owner = $1`, [`${OUTGOING}:meta`]);
       log("S15 PASS owned work refused: a worker still holding a runner lease is refused rather than hidden");
     } else {
       log("S15 SKIP owned work: could not seed a runner lease on this schema");
     }
 
+    // ── S16. A REAL worker, captured alive, stopped, then retired ──────────
+    //
+    // S12-S15 seed the outgoing rows, which models the end state and proves
+    // nothing about how the database reaches it. A real shutdown ALSO advances
+    // the `all` row's heartbeat as it writes its own `stopping`, and a liveness
+    // check placed ahead of the terminal short-circuit refuses exactly that —
+    // the sequence this whole operation exists for. Only stopping a real worker
+    // exercises it.
     upgraded.stop();
+    await sleep(2000);
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+
+    const realWorker = startWorker({
+      ...workerEnv,
+      ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_META_SYNC_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED: "enabled",
+    });
+    workers.push(realWorker);
+    let realScopes = 0;
+    for (let i = 0; i < 60 && realWorker.exitCode == null; i += 1) {
+      const { rows } = await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM sync_worker_heartbeats
+          WHERE status NOT IN ('disabled','stopping','stopped')`,
+      );
+      realScopes = Number(rows[0]?.n ?? 0);
+      if (realScopes >= 2) break;
+      await sleep(500);
+    }
+    assert(
+      realScopes >= 2,
+      `S16: the real worker never registered its scopes (saw ${realScopes}).\n${realWorker.output.slice(-1500)}`,
+    );
+
+    // Captured WHILE IT IS RUNNING, which is the only honest moment for it.
+    const realCensusPath = path.join(tmp, "real-census.json");
+    const realCapture = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--online-instance", "--out", realCensusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(realCapture.status === 0, `S16: capture of the live worker failed: ${realCapture.stdout}${realCapture.stderr}`);
+    const realCensus = JSON.parse(fs.readFileSync(realCensusPath, "utf8"));
+    const censusAll = realCensus.rows.find((r: { providerScope: string }) => r.providerScope === "all");
+    assert(censusAll != null, "S16: the census recorded no `all` row for the live worker");
+
+    // Now stop it for real. Its own shutdown writes `stopping` and MOVES the
+    // timestamps of every scope it retires.
+    realWorker.stop();
+    for (let i = 0; i < 40 && realWorker.exitCode == null; i += 1) await sleep(250);
     await sleep(1500);
+    const movedAll = await client.query<{ status: string; at: Date }>(
+      `SELECT status, last_heartbeat_at AS at FROM sync_worker_heartbeats WHERE worker_id = $1`,
+      [realCensus.runtimeInstanceId],
+    );
+    // `stopping` then a final `stopped`: the ordinary path writes both on the way
+    // out. Either is terminal, and which one lands last is not what this proves.
+    assert(
+      ["stopping", "stopped"].includes(String(movedAll.rows[0]?.status)),
+      `S16: the stopped worker's all row is '${movedAll.rows[0]?.status}', which is not a terminal state`,
+    );
+    assert(
+      movedAll.rows[0].at.getTime() > new Date(censusAll.lastHeartbeatAt).getTime(),
+      "S16: the all row did not advance on shutdown, so this does not exercise the sequence at all",
+    );
+
+    const realRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", realCensusPath, "--container-stopped"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      realRetire.status === 0,
+      `S16: retirement refused a genuinely stopped REAL worker whose all row moved during its own shutdown: ${realRetire.stdout}${realRetire.stderr}`,
+    );
+    const realAfter = await client.query<{ worker_id: string; status: string }>(
+      `SELECT worker_id, status FROM sync_worker_heartbeats WHERE worker_id LIKE $1`,
+      [`${realCensus.runtimeInstanceId}%`],
+    );
+    assert(
+      realAfter.rows.length > 0 &&
+        realAfter.rows.every((r) => ["stopping", "stopped"].includes(r.status)),
+      `S16: not every scope of the real worker is terminal: ${JSON.stringify(realAfter.rows)}`,
+    );
+    const zeroOnline = await getSyncWorkerHealthSummary({ onlineWindowMinutes: 5 });
+    assert(
+      zeroOnline.onlineWorkers === 0,
+      `S16: online_workers is ${zeroOnline.onlineWorkers} after retiring the real worker; the compound predicate would still refuse`,
+    );
+    log(`S16 PASS real sequence: a live worker was captured while running, stopped for real — its own shutdown moved the all row's timestamp, which is the movement a liveness check placed too early would refuse — and retirement then accepted it across ${realAfter.rows.length} scope(s), leaving online_workers at 0`);
+
     await client.query(`DELETE FROM sync_worker_heartbeats`);
 
     // ── S6. Staging is opt-in; the fatal refusal is still the default ───────

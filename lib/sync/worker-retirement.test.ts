@@ -44,7 +44,7 @@ function incidentRows() {
 
 function row(scope: string, status: string, heartbeatAt: string, overrides: Record<string, unknown> = {}) {
   return {
-    worker_id: scope === "all" ? INSTANCE : `${INSTANCE}::${scope}`,
+    worker_id: scope === "all" ? INSTANCE : `${INSTANCE}:${scope}`,
     provider_scope: scope,
     status,
     last_heartbeat_at: heartbeatAt,
@@ -115,16 +115,16 @@ describe("retire: the incident shape", () => {
 
     queueSql([
       incidentRows(),
-      [{ worker_id: `${INSTANCE}::google_ads` }],
-      [{ worker_id: `${INSTANCE}::meta` }],
-      [{ worker_id: `${INSTANCE}::shopify` }],
+      [{ worker_id: `${INSTANCE}:google_ads` }],
+      [{ worker_id: `${INSTANCE}:meta` }],
+      [{ worker_id: `${INSTANCE}:shopify` }],
     ]);
     const result = await retireStoppedSyncWorker({ census, containerStopped: true });
 
     expect(result.retiredWorkerIds.sort()).toEqual([
-      `${INSTANCE}::google_ads`,
-      `${INSTANCE}::meta`,
-      `${INSTANCE}::shopify`,
+      `${INSTANCE}:google_ads`,
+      `${INSTANCE}:meta`,
+      `${INSTANCE}:shopify`,
     ]);
     // `all` was already `stopping`; it is left alone rather than rewritten.
     expect(result.alreadyTerminalWorkerIds).toEqual([INSTANCE]);
@@ -257,12 +257,107 @@ describe("retire: blast radius", () => {
     for (const workerId of targeted) {
       expect(workerId.startsWith(INSTANCE)).toBe(true);
     }
-    // The scoping predicate is the id or the id plus the scope separator, never
-    // a bare prefix that a different worker's id could also satisfy.
+    // Scoping is by the provider_scope COLUMN, not by parsing the id. The id
+    // contains colons of its own (`sync-worker:<pid>:<suffix>`), so a
+    // positional split or a bare prefix match would both be wrong — and a
+    // prefix match would additionally catch an unrelated worker whose id starts
+    // with the same characters.
     const selects = sqlMock.mock.calls
       .map(([strings]) => (strings as string[]).join("?"))
       .filter((s) => s.includes("FROM sync_worker_heartbeats") && s.includes("SELECT"));
-    expect(selects.some((s) => s.includes("worker_id LIKE"))).toBe(true);
-    expect(params).toContain(`${INSTANCE}::%`);
+    expect(selects.some((s) => s.includes("provider_scope = 'all' AND worker_id ="))).toBe(true);
+    expect(selects.some((s) => s.includes("|| ':' || provider_scope"))).toBe(true);
+    expect(selects.every((s) => !s.includes("worker_id LIKE"))).toBe(true);
+  });
+});
+
+describe("retire: the real stop SEQUENCE, not just the resulting state", () => {
+  // The gap that shipped. Seeding rows with `all` already `stopping` models the
+  // end state and proves nothing about how the database got there. In reality
+  // the outgoing worker writes its own `stopping` on the way out, which
+  // ADVANCES the `all` row's heartbeat — so a liveness check that runs before
+  // the terminal short-circuit refuses the exact sequence this exists for.
+  it("retires the lanes after the old worker's shutdown moved the all row", async () => {
+    queueSql([[
+      row("all", "idle", "2026-07-29T19:00:00.000Z"),
+      row("meta", "running", "2026-07-29T19:00:01.000Z"),
+      row("shopify", "idle", "2026-07-29T19:00:02.000Z"),
+    ]]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    // The worker is stopped. Old-build shutdown retires `all` ONLY, and that
+    // write moves its timestamp. The lane rows are left exactly as censused.
+    queueSql([
+      [
+        row("all", "stopping", "2026-07-29T19:00:30.000Z"),
+        row("meta", "running", "2026-07-29T19:00:01.000Z"),
+        row("shopify", "idle", "2026-07-29T19:00:02.000Z"),
+      ],
+      [{ worker_id: `${INSTANCE}:meta` }],
+      [{ worker_id: `${INSTANCE}:shopify` }],
+    ]);
+    const result = await retireStoppedSyncWorker({ census, containerStopped: true });
+    expect(result.retiredWorkerIds.sort()).toEqual([
+      `${INSTANCE}:meta`,
+      `${INSTANCE}:shopify`,
+    ]);
+    expect(result.alreadyTerminalWorkerIds).toEqual([INSTANCE]);
+  });
+
+  // The steady state from the next upgrade onward: the new shutdown retires
+  // every scope itself, so retirement arrives to find the work already done.
+  it("is a no-op against a worker that retired every scope itself", async () => {
+    queueSql([[
+      row("all", "idle", "2026-07-29T19:00:00.000Z"),
+      row("meta", "running", "2026-07-29T19:00:01.000Z"),
+    ]]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    queueSql([[
+      row("all", "stopping", "2026-07-29T19:00:31.000Z"),
+      row("meta", "stopping", "2026-07-29T19:00:30.000Z"),
+    ]]);
+    const result = await retireStoppedSyncWorker({ census, containerStopped: true });
+    expect(result.retiredWorkerIds).toEqual([]);
+    expect(result.alreadyTerminalWorkerIds.sort()).toEqual([INSTANCE, `${INSTANCE}:meta`]);
+  });
+
+  // The refusal must survive the reordering: a row that is still non-terminal
+  // and has moved is a live worker, and hiding it is the whole danger.
+  it("still refuses a non-terminal row that moved", async () => {
+    queueSql([[
+      row("all", "idle", "2026-07-29T19:00:00.000Z"),
+      row("meta", "running", "2026-07-29T19:00:01.000Z"),
+    ]]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    queueSql([[
+      row("all", "stopping", "2026-07-29T19:00:30.000Z"),
+      row("meta", "running", "2026-07-29T19:00:29.000Z"),
+    ]]);
+    await expect(
+      retireStoppedSyncWorker({ census, containerStopped: true }),
+    ).rejects.toThrow(/is still running and has beaten since the census/);
+  });
+
+  // Identity is checked ahead of the terminal short-circuit, so a different run
+  // that happens to be terminal cannot be retired in the old one's name.
+  it("refuses a terminal row belonging to a different run", async () => {
+    queueSql([[row("all", "idle", "2026-07-29T19:00:00.000Z")]]);
+    const { captureOutgoingWorkerCensus, retireStoppedSyncWorker } = await load();
+    const census = await captureOutgoingWorkerCensus({ runtimeInstanceId: INSTANCE });
+
+    queueSql([[
+      {
+        ...row("all", "stopping", "2026-07-29T19:00:30.000Z"),
+        meta_json: { workerBuildId: NEW_BUILD, workerStartedAt: STARTED },
+      },
+    ]]);
+    await expect(
+      retireStoppedSyncWorker({ census, containerStopped: true }),
+    ).rejects.toThrow(/now reports build/);
   });
 });

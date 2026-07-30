@@ -701,12 +701,82 @@ cutover_owns_resources() {
   [ "${BASH_SUBSHELL:-0}" = "${CUTOVER_OWNER_DEPTH}" ]
 }
 
+# The last scratch name this run owned, kept after SCRATCH_DB is cleared so a
+# failure can still name what was left behind.
+SCRATCH_DB_LAST=""
+
+# Drops this run's scratch database and PROVES it is gone.
+#
+#   returns 0  nothing to do, or the database is provably absent
+#   returns 1  cleanup failed, was refused, or could not be proven
+#
+# WHY THE OLD ONE WAS NOT ENOUGH
+#
+# It ended `>/dev/null 2>&1 || true`. On 2026-07-30 the operator session was
+# severed, its credential was withdrawn, and this drop then could not
+# authenticate to the database host at all — so an 11 GB half-restored copy of a
+# 72 GB production database sat in pgdata with no error in any log, on either
+# host, anywhere. A cleanup that cannot fail is a cleanup that cannot be trusted;
+# `|| true` converted a real failure into silence.
+#
+# So: the outcome is captured, `--if-exists` means "already gone" is success, and
+# the absence is then CONFIRMED by asking the catalogue. If that confirmation
+# cannot be obtained, this reports failure rather than assuming the happy case.
 scratch_db_drop() {
-  local name="${SCRATCH_DB}"
+  local name="${SCRATCH_DB}" out rc remaining
   [ -n "${name}" ] || return 0
   cutover_owns_resources || return 0
+
+  # ── refuse anything that is not unmistakably this run's scratch database ──
+  # A drop is irreversible, so identity is established before the verb, never
+  # after. These cases are not expected to happen; that is exactly why they are
+  # checked, because if one ever does the cost is the production database.
+  # Production and template names are checked FIRST. Both guards refuse, so the
+  # ordering is not a safety question — it is a legibility one: if this ever
+  # fires, the operator must read "that is the production database", not the
+  # milder "that is not a scratch name".
+  case "${name}" in
+    "${DB_NAME}" | postgres | template0 | template1)
+      log "REFUSING to drop '${name}': that is a production or template database"
+      return 1 ;;
+  esac
+  case "${name}" in
+    adsecute_cutover_scratch_*) : ;;
+    *) log "REFUSING to drop '${name}': it is not a cutover scratch name"; return 1 ;;
+  esac
+
+  SCRATCH_DB_LAST="${name}"
   SCRATCH_DB=""
-  db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${name}")" >/dev/null 2>&1 || true
+
+  # Refuse while anything is still connected: dropdb would fail anyway, but the
+  # refusal names the reason instead of leaving a bare non-zero exit.
+  out="$(db_sql_on postgres \
+    "SELECT count(*) FROM pg_stat_activity WHERE datname = '${name}';" 2>&1 | tr -d '[:space:]')"
+  case "${out}" in
+    0) : ;;
+    [0-9]*) log "REFUSING to drop ${name}: ${out} backend(s) still connected"; return 1 ;;
+    *)      log "SCRATCH CLEANUP UNPROVEN for ${name}: could not read connection count (${out})"
+            return 1 ;;
+  esac
+
+  out="$(db_run "runuser -u postgres -- dropdb --if-exists $(printf %q "${name}")" 2>&1)"
+  rc=$?
+  if [ "${rc}" -ne 0 ]; then
+    log "SCRATCH CLEANUP FAILED for ${name} (exit ${rc}): ${out}"
+    return 1
+  fi
+
+  # PROVE it. dropdb returning 0 over a link that has just been withdrawn is
+  # exactly the evidence that was missing before.
+  remaining="$(db_sql_on postgres \
+    "SELECT count(*) FROM pg_database WHERE datname = '${name}';" 2>&1 | tr -d '[:space:]')"
+  case "${remaining}" in
+    0) log "scratch database ${name} dropped and proven absent"; return 0 ;;
+    [0-9]*) log "SCRATCH CLEANUP FAILED: ${name} still present after dropdb reported success"
+            return 1 ;;
+    *) log "SCRATCH CLEANUP UNPROVEN for ${name}: absence could not be confirmed (${remaining})"
+       return 1 ;;
+  esac
 }
 
 # An exported snapshot name is `<hex>-<hex>-<n>`. Checked rather than trusted:
@@ -789,6 +859,11 @@ snapshot_release() {
 # it directly; and a kill -9 of this process is handled by the FIFO instead.
 INCOMPLETE_ARTIFACT_DIR=""
 INCOMPLETE_ARTIFACT_FILE=""
+# Which epoch and which process claimed the two above. Recorded so reclamation
+# binds to THIS invocation rather than to whatever the state record has since
+# committed — see discard_incomplete_artifact.
+INCOMPLETE_ARTIFACT_EPOCH=""
+INCOMPLETE_ARTIFACT_OWNER_PID=""
 
 snapshot_cleanup_and_exit() {
   local rc="$1"
@@ -798,7 +873,19 @@ snapshot_cleanup_and_exit() {
   # should still hold the dump open — and discard re-checks that anyway.
   # Order matters: the scratch database is dropped through the same SSH link the
   # exporter uses, so it goes first, while that link is still known to work.
-  scratch_db_drop || true
+  #
+  # A scratch cleanup that cannot be PROVEN is now terminal. It used to be
+  # `|| true`, so the run could report success while leaving an 11 GB orphan on
+  # the database host — the failure mode was invisible precisely on the path
+  # where it mattered. Nothing is done TO production here: the run simply
+  # refuses to call itself clean, and says exactly what is still there.
+  if ! scratch_db_drop; then
+    log "ABORT scratch cleanup could not be proven for ${SCRATCH_DB_LAST:-<unknown>};"
+    log "      a scratch copy may still occupy the database host. Production is"
+    log "      untouched. Drop it only after confirming its identity by hand:"
+    log "      runuser -u postgres -- dropdb --if-exists ${SCRATCH_DB_LAST:-<name>}"
+    if [ "${rc}" -eq 0 ]; then rc=75; fi
+  fi
   snapshot_release || true
   if [ "${rc}" -ne 0 ] && [ -n "${INCOMPLETE_ARTIFACT_FILE}" ]; then
     discard_incomplete_artifact "${INCOMPLETE_ARTIFACT_DIR}" "${INCOMPLETE_ARTIFACT_FILE}" || true
@@ -1667,13 +1754,54 @@ assert_capacity_for_migration() {
 #      and is somebody's rollback position; this must never touch one
 #   4. no process holds the file open, so the dump is genuinely stopped
 discard_incomplete_artifact() { # <dir> <artifact>
-  local dir="$1" artifact="$2" expected resolved root_resolved
+  local dir="$1" artifact="$2" expected resolved root_resolved committed
   [ -n "${dir}" ] && [ -n "${artifact}" ] || return 0
   [ -f "${artifact}" ] || return 0
 
-  expected="$(backup_dir_for_epoch "$(state_get cutover_epoch)")"
+  # ── binding to THIS invocation, not to the state record ──────────────────
+  #
+  # The old test was `dir == backup_dir_for_epoch(state_get cutover_epoch)`.
+  # That reads the epoch the state record has COMMITTED, and preflight commits
+  # its epoch only after the backup is verified — so a preflight that died
+  # mid-restore always found its own artifact "foreign" and kept it. On
+  # 2026-07-30 that left a 25,302,238,753-byte unmanifested dump on the app
+  # host permanently, and it is why the disk sits ~16 points higher than it
+  # should. The artifact was this run's own; the reference point was wrong.
+  #
+  # The binding is now to the run: INCOMPLETE_ARTIFACT_* are set by
+  # take_verified_backup for the directory THIS process created, and
+  # INCOMPLETE_ARTIFACT_EPOCH/OWNER_PID record which epoch and which process
+  # claimed them. Self-consistency of that claim is checked, so a corrupted or
+  # inherited value cannot widen what may be removed.
+  [ -n "${INCOMPLETE_ARTIFACT_EPOCH}" ] \
+    || { log "keeping ${artifact}: no epoch was recorded for it by this run"; return 0; }
+  [ "${INCOMPLETE_ARTIFACT_OWNER_PID}" = "$$" ] \
+    || { log "keeping ${artifact}: claimed by pid ${INCOMPLETE_ARTIFACT_OWNER_PID}, not this process ($$)"; return 0; }
+  expected="$(backup_dir_for_epoch "${INCOMPLETE_ARTIFACT_EPOCH}")"
   [ "${dir}" = "${expected}" ] \
-    || { log "keeping ${artifact}: it does not belong to the current epoch"; return 0; }
+    || { log "keeping ${artifact}: it is not the directory this run claimed for epoch ${INCOMPLETE_ARTIFACT_EPOCH}"; return 0; }
+
+  # If the state record HAS since committed this epoch, the artifact is the
+  # current rollback position and must never be removed by a later failure.
+  committed="$(state_get cutover_epoch 2>/dev/null || printf '')"
+  [ "${committed}" != "${INCOMPLETE_ARTIFACT_EPOCH}" ] \
+    || { log "keeping ${artifact}: epoch ${committed} is committed in the state record, so this is the current rollback artifact"; return 0; }
+
+  # Nor may it be removed if anything at all still points at it: the state
+  # record's manifest path, an attestation for the epoch, or any other file
+  # under STATE_DIR that names it. Obligations are checked before deletion,
+  # never inferred from their absence elsewhere.
+  case "$(state_get backup_manifest_path 2>/dev/null || printf '')" in
+    "${dir}"/*) log "keeping ${artifact}: the state record's backup_manifest_path points into it"; return 0 ;;
+  esac
+  if [ -e "${STATE_DIR}/attestations/${INCOMPLETE_ARTIFACT_EPOCH}" ]; then
+    log "keeping ${artifact}: an attestation exists for epoch ${INCOMPLETE_ARTIFACT_EPOCH}"
+    return 0
+  fi
+  if grep -rlqF "${INCOMPLETE_ARTIFACT_EPOCH}" "${STATE_DIR}" 2>/dev/null; then
+    log "keeping ${artifact}: something under ${STATE_DIR} still references epoch ${INCOMPLETE_ARTIFACT_EPOCH}"
+    return 0
+  fi
 
   resolved="$(cd "${dir}" 2>/dev/null && pwd -P)" || return 0
   root_resolved="$(cd "${BACKUP_ROOT}" 2>/dev/null && pwd -P)" || return 0
@@ -1687,7 +1815,16 @@ discard_incomplete_artifact() { # <dir> <artifact>
     return 0
   fi
 
-  if command -v fuser >/dev/null 2>&1 && fuser "${artifact}" >/dev/null 2>&1; then
+  # Fail CLOSED on an unprovable writer check. This used to read
+  # `command -v fuser && fuser ...`, so on a host without fuser the whole
+  # condition was false and the file was deleted having proven nothing about who
+  # was writing to it. "I could not check" and "nothing holds it" are different
+  # answers and only one of them permits deletion.
+  if ! command -v fuser >/dev/null 2>&1; then
+    log "keeping ${artifact}: fuser is unavailable, so no-writer cannot be proven"
+    return 0
+  fi
+  if fuser "${artifact}" >/dev/null 2>&1; then
     log "keeping ${artifact}: a process still holds it open"
     return 0
   fi
@@ -1757,6 +1894,8 @@ take_verified_backup() {
   # verified and must never be removed by a later failure in this same run.
   INCOMPLETE_ARTIFACT_DIR="${dir}"
   INCOMPLETE_ARTIFACT_FILE="${artifact}"
+  INCOMPLETE_ARTIFACT_EPOCH="${epoch}"
+  INCOMPLETE_ARTIFACT_OWNER_PID="$$"
   scratch="adsecute_cutover_scratch_${epoch}"
   # PostgreSQL identifiers are limited to 63 bytes and the epoch carries a sha
   # prefix and a timestamp, so the scratch name is truncated deliberately rather
@@ -1997,7 +2136,11 @@ EOF
   # ROOT shell reads the file and pg_restore takes it on stdin.
   # Streamed back the other way: the artifact is local, pg_restore is remote.
   if ! db_run "runuser -u postgres -- pg_restore --dbname=$(printf %q "${scratch}") --no-owner --no-privileges --exit-on-error" < "${artifact}"; then
-    scratch_db_drop
+    # `|| log` rather than a bare call: scratch_db_drop can now return non-zero,
+    # and under errexit that would abort here and LOSE the `die` message below —
+    # which is the single most important line this script ever prints. The
+    # cleanup outcome is reported, then the real reason for stopping is stated.
+    scratch_db_drop || log "and its scratch database could not be cleaned up either"
     die "the fresh backup could NOT be restored. Do not migrate: this release has no rollback."
   fi
 
@@ -2013,7 +2156,13 @@ EOF
     restored_assignments="absent"
   fi
 
-  scratch_db_drop
+  # The readback is finished, so the scratch copy has served its purpose. Its
+  # removal must be proven before this run may call the backup verified: a
+  # rollback artifact whose verification left a 70 GB orphan behind is not a
+  # clean result, and the operator has to hear about it here rather than
+  # discover it on the next capacity check.
+  scratch_db_drop \
+    || die "the scratch database ${scratch} could not be provably cleaned up; refusing to report a verified backup while a scratch copy may still occupy the database host"
 
   # Compared against the BASELINE, which was read under the same snapshot the
   # dump was taken under — never against the live database.
@@ -2088,6 +2237,8 @@ EOF
   # later failure in this run must not discard it.
   INCOMPLETE_ARTIFACT_DIR=""
   INCOMPLETE_ARTIFACT_FILE=""
+  INCOMPLETE_ARTIFACT_EPOCH=""
+  INCOMPLETE_ARTIFACT_OWNER_PID=""
   log "verified rollback artifact: ${artifact} (${artifact_bytes}B), manifest ${manifest}"
 }
 

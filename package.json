@@ -146,7 +146,10 @@
     "test:census-least-privilege-seam": "node --import tsx scripts/ephemeral-postgres-census-least-privilege-seam.ts",
     "test:worker-stop-grace": "bash scripts/worker-stop-grace-check.sh",
     "test:harness-generator-safety": "bash scripts/harness-generator-safety-check.sh",
-    "test:cutover-staged-diagnostics": "bash scripts/cutover-staged-diagnostics-check.sh"
+    "test:cutover-staged-diagnostics": "bash scripts/cutover-staged-diagnostics-check.sh",
+    "test:cutover-scratch-cleanup": "bash scripts/cutover-scratch-cleanup-check.sh",
+    "test:operator-hardening": "bash scripts/operator-hardening-check.sh",
+    "test:cutover-self-cleanup": "bash scripts/cutover-self-cleanup-check.sh"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

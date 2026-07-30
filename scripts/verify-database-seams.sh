@@ -188,6 +188,26 @@ stage "Cutover runner package (isolated, digest-pinned, never overwrites the ins
 bash -n scripts/cutover-runner-package-check.sh
 npm run test:cutover-runner-package
 
+# The 2026-07-30 severance. A preflight lost its invoker mid scratch-restore and
+# left an 11 GB orphaned database plus a 25 GB unmanifested dump, and NOTHING
+# reported either: the scratch drop ended `|| true`, and artifact reclamation
+# compared against the epoch the state record had COMMITTED — which preflight
+# only writes at the end, so a run could never reclaim its own artifact. These
+# three cover the cleanup contract, the artifact-binding contract, and the
+# operator driver that must now survive its invoker instead of taking the
+# credential down with it.
+stage "Cutover scratch cleanup (proven absent, or a real failure)"
+bash -n scripts/cutover-scratch-cleanup-check.sh
+npm run test:cutover-scratch-cleanup
+
+stage "Cutover self-cleanup (reclaims only its own unreferenced artifact)"
+bash -n scripts/cutover-self-cleanup-check.sh
+npm run test:cutover-self-cleanup
+
+stage "Operator hardening (disconnect survival, ordered teardown, non-vacuous evidence)"
+bash -n scripts/operator-hardening-check.sh
+npm run test:operator-hardening
+
 stage "Pre-change schema upgrade seam (branch point)"
 npm run test:schema-upgrade-seam
 

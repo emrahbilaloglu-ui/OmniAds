@@ -68,6 +68,16 @@ services:
   worker:
     image: ${WORKER_IMAGE_REPO:-ghcr.io/emrahbilaloglu-ui/omniads-worker}:${APP_IMAGE_TAG:-dev-build}
     restart: unless-stopped
+    # Time to clean up after itself before SIGKILL.
+    #
+    # The worker's shutdown releases the runner lease and the partitions it
+    # holds. Docker's default grace is 10 seconds, which a mid-flight provider
+    # tick cannot finish inside — so the worker was killed before its own
+    # cleanup ran and left a partition lease orphaned for the ~6 minutes until
+    # it expired. That orphan is what made `deploy-disabled` refuse to retire a
+    # worker it had already proven dead. Letting the existing cleanup actually
+    # run removes the orphan at its source instead of waiting it out.
+    stop_grace_period: 90s
     env_file:
       - .env.production
     environment:

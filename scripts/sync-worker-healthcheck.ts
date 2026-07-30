@@ -1,7 +1,11 @@
+import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 import { getSyncWorkerOwnedWorkUnits } from "@/lib/sync/worker-health";
 import {
+  buildCompactStagedSummary,
   evaluateWorkerHealth,
+  readStagedRuntimeInstance,
   selectStagedWorkers,
 } from "@/lib/sync/staged-worker-predicate";
 
@@ -13,6 +17,7 @@ type ParsedArgs = {
   minHeartbeatAfter: string | null;
   expectStagedIdle: boolean;
   expectBuildId: string | null;
+  summaryOut: string | null;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -24,6 +29,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     minHeartbeatAfter: null,
     expectStagedIdle: false,
     expectBuildId: null,
+    summaryOut: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -72,6 +78,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--summary-out") {
+      const value = argv[index + 1]?.trim();
+      if (!value) {
+        throw new Error("missing value for --summary-out");
+      }
+      parsed.summaryOut = value;
+      index += 1;
+      continue;
+    }
     if (arg === "--expect-build-id") {
       const value = argv[index + 1]?.trim();
       if (!value) {
@@ -90,7 +105,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 function printUsage() {
   console.log(
-    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--expect-build-id <sha>]",
+    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--expect-build-id <sha>] [--summary-out <file>]",
   );
 }
 
@@ -129,6 +144,37 @@ async function main() {
     minOnlineWorkers: args.minOnlineWorkers,
   });
   const { pass, reason } = evaluation;
+
+  // A bounded artifact for machine consumption, written BEFORE the verbose
+  // payload goes to stdout. Callers must read this file rather than parse
+  // stdout: the verbose form embeds every heartbeat row, passes 64 KiB on a real
+  // host, and a truncated capture of it silently loses the fields that matter.
+  if (args.summaryOut) {
+    const { getDb } = await import("@/lib/db");
+    const compact = buildCompactStagedSummary({
+      generatedAt: new Date().toISOString(),
+      evaluation,
+      onlineWorkers: summary.onlineWorkers,
+      onlineWindowMinutes: args.onlineWindowMinutes,
+      expectBuildId: args.expectBuildId,
+      minHeartbeatAfter: args.minHeartbeatAfter,
+      stagedWorkerCount: stagedWorkers.length,
+      ownedWorkUnits: owned,
+      // NOT caught. A read that fails must surface, not degrade to "no runtime
+      // row" — silently swallowing it is the same fail-open shape as the
+      // truncated payload this whole artifact exists to prevent.
+      runtimeInstance: evaluation.stagedWorkerId
+        ? await readStagedRuntimeInstance(getDb() as never, evaluation.stagedWorkerId)
+        : null,
+    });
+    const payload = `${JSON.stringify(compact, null, 2)}\n`;
+    fs.writeFileSync(args.summaryOut, payload, { mode: 0o600 });
+    // Size and digest, so a caller can prove the file it read is the file that
+    // was written and was not truncated in transit.
+    console.log(
+      `summary_out=${args.summaryOut} summary_bytes=${Buffer.byteLength(payload)} summary_sha256=${createHash("sha256").update(payload).digest("hex")}`,
+    );
+  }
 
   console.log(
     JSON.stringify(

@@ -255,12 +255,21 @@ export async function heartbeatSyncWorker(input: {
     // the sense the deploy gate means, which is "this process is doing the
     // work". Saying "healthy" here satisfied half that gate for a process
     // admitted to nothing.
-    healthState:
-      input.status === "disabled"
-        ? "staged"
-        : runtimeContract.validation.pass
-          ? "healthy"
-          : "invalid",
+    // Canonical values only. `health_state` is binary in this schema and in the
+    // one place that reads it: `buildRuntimeRegistrySnapshot` collapses anything
+    // that is not 'healthy' into 'invalid', and both consumers — the runtime
+    // contract check and the release gate — branch on `=== "healthy"`. A third
+    // value therefore has no reader to distinguish it, the CHECK constraint never
+    // admitted it, and production holds 2,504 rows of which none is 'staged':
+    // every staged worker's runtime row was silently discarded by a swallowed
+    // constraint violation.
+    //
+    // So the row records process health, which for a staged worker is genuinely
+    // healthy — it started, validated and is answering. That it is admitted to no
+    // WORK is a different fact, proven where it belongs: the `disabled`/`all`
+    // heartbeat plus the exact run, container, image, build and start identity
+    // the staged predicate already requires.
+    healthState: runtimeContract.validation.pass ? "healthy" : "invalid",
   }).catch(() => null);
 }
 

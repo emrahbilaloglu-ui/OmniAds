@@ -208,6 +208,7 @@ function summarizeRuntimeServingReadiness(
     contractValid: registry.contractValid,
     webPresent: registry.webPresent,
     workerPresent: registry.workerPresent,
+    workerActive: registry.workerActive,
     dbFingerprintMatch: registry.dbFingerprintMatch,
     configFingerprintMatch: registry.configFingerprintMatch,
     serviceHealth: {
@@ -229,6 +230,11 @@ function summarizeRuntimeServingReadiness(
             healthState: registry.serviceHealth.worker.healthState,
             fresh: registry.serviceHealth.worker.fresh,
             lastSeenAt: registry.serviceHealth.worker.lastSeenAt,
+            // Recorded so a stored pass can be re-read later as a statement
+            // about the ACTIVE worker, and a refusal names the staged process
+            // instead of leaving the reason to be inferred.
+            stagingIdle: registry.serviceHealth.worker.stagingIdle,
+            instanceId: registry.serviceHealth.worker.instanceId,
           }
         : null,
     },
@@ -1165,9 +1171,14 @@ export async function evaluateDeployGate(input?: {
     .filter((entry) => !entry.observation.hasFreshHeartbeat)
     .map((entry) => entry.providerScope);
   const allHeartbeatsFresh = staleProviderScopes.length === 0;
+  // `workerActive`, not `workerPresent`: see evaluateReleaseGate below. This gate
+  // also requires fresh per-provider heartbeats, which a staged worker cannot
+  // produce, so it was already refusing — but on a downstream term rather than on
+  // the identity, and the summary named a stale provider scope instead of the
+  // staged process that caused it.
   const servicesHealthy =
     registry.webPresent &&
-    registry.workerPresent &&
+    registry.workerActive &&
     registry.serviceHealth.web?.healthState === "healthy" &&
     registry.serviceHealth.worker?.healthState === "healthy";
   const baseResult: SyncGateBaseResult =
@@ -1254,9 +1265,19 @@ export async function evaluateReleaseGate(input?: {
   });
   const mode = gateModeForKind("release_gate");
   const registry = await getRuntimeRegistryStatus({ buildId });
+  // `workerActive`, not `workerPresent`.
+  //
+  // This gate's only worker term was "a fresh worker row on this build reads
+  // healthy". During deploy-disabled that is true of the STAGED worker: same
+  // service, same runtime_role, same build id — deploy-disabled starts the
+  // release's own worker on purpose — a genuinely 'healthy' process health, and a
+  // `provider_scopes` array that is a static per-service constant rather than the
+  // lane admission set. Nothing in the row distinguished it, so a release with no
+  // worker doing any work could pass a serving-readiness gate. Unlike the deploy
+  // gate this one has no per-provider heartbeat term to catch it downstream.
   const servicesHealthy =
     registry.webPresent &&
-    registry.workerPresent &&
+    registry.workerActive &&
     registry.serviceHealth.web?.healthState === "healthy" &&
     registry.serviceHealth.worker?.healthState === "healthy";
   const baseResult: SyncGateBaseResult =

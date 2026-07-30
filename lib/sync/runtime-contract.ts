@@ -9,7 +9,13 @@ export type RuntimeContractService = "web" | "worker";
 // "staged" is a worker that registered so a release could be inspected and is
 // admitted to no lane. It is deliberately NOT "healthy": the deploy gate reads
 // this to mean "the worker is doing the work", and a staged process is not.
-export type RuntimeContractHealthState = "healthy" | "invalid" | "staged";
+/**
+ * Binary, deliberately. The only reader collapses anything that is not 'healthy'
+ * into 'invalid', and both consumers branch on `=== "healthy"`. A third value was
+ * declared here once without a reader or a CHECK constraint to match, so every
+ * write of it violated the constraint and was swallowed.
+ */
+export type RuntimeContractHealthState = "healthy" | "invalid";
 export type SyncGateMode = "measure_only" | "warn_only" | "block";
 export type RuntimeContractIssueSeverity = "error" | "warning";
 
@@ -35,6 +41,25 @@ export interface RuntimeContractConfigSummary {
   releaseCanaryHasMandatoryCanary: boolean;
   deployGateMode: SyncGateMode;
   releaseGateMode: SyncGateMode;
+  /**
+   * Whether this process is the STAGED worker: started for inspection during a
+   * cutover, admitted to no lane, holding no lease and doing no work.
+   *
+   * It is recorded because nothing else in the runtime row could tell the two
+   * apart. `service`, `runtime_role` and `build_id` are identical by design —
+   * deploy-disabled deliberately starts the release's own worker — `health_state`
+   * is binary and genuinely 'healthy' for a staged process (it started,
+   * validated and answers), and `provider_scopes` is a static per-service
+   * constant, not the lane admission set. So a staged worker's row was
+   * indistinguishable from the active production worker's, and it satisfied the
+   * release gate's worker-health term as if it were doing the work.
+   *
+   * Deliberately NOT part of `configFingerprint`: that fingerprint is compared
+   * between the web and worker rows, and a term only the worker can carry would
+   * make them disagree during every staged deploy — refusing for a fingerprint
+   * mismatch instead of for the reason that actually applies.
+   */
+  workerStagingIdle: boolean;
 }
 
 export interface RuntimeContract {
@@ -68,6 +93,15 @@ export interface RuntimeRegistryInstance {
   lastSeenAt: string | null;
   contract: RuntimeContract | null;
   fresh: boolean;
+  /**
+   * `true` staged, `false` proven active, `null` the row does not say.
+   *
+   * `null` is not "active": a row that cannot state which it is cannot be used
+   * to prove the active worker is up, so the gates treat it as unproven and
+   * refuse. Only rows written before this field existed can be `null`, and a
+   * gate is always evaluated against rows written by the build it is gating.
+   */
+  stagingIdle: boolean | null;
 }
 
 export interface RuntimeRegistryStatus {
@@ -81,6 +115,14 @@ export interface RuntimeRegistryStatus {
   };
   webPresent: boolean;
   workerPresent: boolean;
+  /**
+   * The selected worker row is a proven ACTIVE worker — not staged, and not a
+   * row that declines to say. This is what "the worker is up" has to mean for a
+   * gate: deploy-disabled starts the release's own worker with every lane off,
+   * so "a fresh healthy worker row exists on this build" is also true of a
+   * process admitted to no work at all.
+   */
+  workerActive: boolean;
   dbFingerprintMatch: boolean;
   configFingerprintMatch: boolean;
   issues: string[];
@@ -342,6 +384,13 @@ export function buildRuntimeContract(input?: {
     ),
     deployGateMode: readSyncGateMode("SYNC_DEPLOY_GATE_MODE", env),
     releaseGateMode: readSyncGateMode("SYNC_RELEASE_GATE_MODE", env),
+    // Same accepted spellings as the worker entrypoint's own gate, so the row
+    // cannot say "not staged" about a process that started staged.
+    workerStagingIdle:
+      service === "worker" &&
+      ["1", "true", "yes", "enabled"].includes(
+        env.SYNC_WORKER_STAGING_IDLE?.trim().toLowerCase() ?? "",
+      ),
   };
   const issues = buildValidationIssues({
     env,
@@ -520,9 +569,23 @@ export async function getRuntimeRegistryStatus(input?: {
         contract_json,
         started_at,
         last_seen_at,
+        -- One row per service, and a STAGED row must not mask an active one.
+        --
+        -- Ordering by recency alone made the newest row win, which during a
+        -- cutover is the staged worker: it is started after the outgoing worker
+        -- stopped, on the same build, with the same service and role. An active
+        -- worker whose row was a few seconds older simply disappeared from the
+        -- gate's view. Proven-active rows are therefore preferred over staged and
+        -- over rows that do not say, and recency decides only within a class.
         ROW_NUMBER() OVER (
           PARTITION BY service
-          ORDER BY last_seen_at DESC, updated_at DESC
+        -- COALESCE, not a bare comparison: a row whose contract predates this
+        -- field yields NULL, and NULL sorts FIRST under DESC in PostgreSQL — the
+        -- unknown row would have been preferred over the proven one.
+          ORDER BY
+            COALESCE((contract_json -> 'config' ->> 'workerStagingIdle') = 'false', false) DESC,
+            last_seen_at DESC,
+            updated_at DESC
         ) AS service_rank
       FROM sync_runtime_instances
       WHERE build_id = ${buildId}
@@ -555,6 +618,11 @@ export async function getRuntimeRegistryStatus(input?: {
       const fresh =
         lastSeenAt != null &&
         nowMs - new Date(lastSeenAt).getTime() <= freshnessWindowMs;
+      const contract = normalizeRuntimeContract(row.contract_json);
+      // A row written before this field existed carries no answer, and an absent
+      // answer is not "active" — the guard is a typeof check rather than a
+      // truthiness one so that `false` is read as the proof it is.
+      const declaredStagingIdle = contract?.config?.workerStagingIdle;
       accumulator[service] = {
         instanceId: String(row.instance_id),
         service,
@@ -569,8 +637,9 @@ export async function getRuntimeRegistryStatus(input?: {
           String(row.health_state) === "healthy" ? "healthy" : "invalid",
         startedAt: normalizeTimestamp(row.started_at),
         lastSeenAt,
-        contract: normalizeRuntimeContract(row.contract_json),
+        contract,
         fresh,
+        stagingIdle: typeof declaredStagingIdle === "boolean" ? declaredStagingIdle : null,
       } satisfies RuntimeRegistryInstance;
       return accumulator;
     },
@@ -592,6 +661,20 @@ export async function getRuntimeRegistryStatus(input?: {
   }
   if (normalizedRows.worker && normalizedRows.worker.healthState !== "healthy") {
     issues.push("Worker runtime contract is invalid.");
+  }
+  // Named separately from "not observed" and from "invalid", because it is
+  // neither: the process is up and its contract is sound, it is simply not the
+  // worker doing the work. A gate that reported this as healthy would be
+  // reporting a staged deploy as a serving release.
+  if (normalizedRows.worker?.stagingIdle === true) {
+    issues.push(
+      "Worker runtime instance is the STAGED worker for this build: it is admitted to no lane and does no work.",
+    );
+  }
+  if (normalizedRows.worker && normalizedRows.worker.stagingIdle == null) {
+    issues.push(
+      "Worker runtime instance does not state whether it is staged; it cannot be accepted as the active worker.",
+    );
   }
 
   const dbFingerprintMatch =
@@ -618,6 +701,8 @@ export async function getRuntimeRegistryStatus(input?: {
     serviceHealth: normalizedRows,
     webPresent: Boolean(normalizedRows.web?.fresh),
     workerPresent: Boolean(normalizedRows.worker?.fresh),
+    workerActive:
+      Boolean(normalizedRows.worker?.fresh) && normalizedRows.worker?.stagingIdle === false,
     dbFingerprintMatch,
     configFingerprintMatch,
     issues,

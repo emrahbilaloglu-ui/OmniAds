@@ -58,6 +58,75 @@ DEPLOY_SHA="${DEPLOY_SHA:-a1b2c3d4e5f60718293a4b5c6d7e8f9012345678}"
 pass() { printf '%s PASS %s\n' "${LABEL}" "$1"; }
 fail() { printf '%s FAIL %s\n' "${LABEL}" "$1" >&2; FAILURES=$((FAILURES + 1)); }
 
+# The strict staged-proof verifier is a REAL program that the fake container has
+# to execute. run_phase deliberately sanitizes PATH down to the stub bin plus
+# /usr/bin and /bin, so `node` is not resolvable by name in there: the first
+# version of that check never ran the verifier at all, and its refusal said only
+# "node: command not found" — a phase failing closed for a reason that had
+# nothing to do with the evidence. The interpreter is resolved here, absolutely,
+# and baked into the stub. A missing interpreter is a hard stop, because a
+# scenario that cannot run the verifier proves nothing about it.
+HARNESS_NODE_BIN="${HARNESS_NODE_BIN:-$(command -v node || true)}"
+if [ -z "${HARNESS_NODE_BIN}" ] || [ ! -x "${HARNESS_NODE_BIN}" ]; then
+  printf '%s FAIL node is required: this harness executes scripts/verify-staged-proof.ts for real\n' \
+    "${LABEL}" >&2
+  exit 1
+fi
+
+# ── Test-only diagnostics, on the failure path only ─────────────────────────
+#
+# cleanup() removes the fake host, and it has to: these runs create real
+# PostgreSQL data directories and env files. But it also removed the strict
+# verifier's field-level failure list, so a failing deploy-disabled could only
+# ever be read as "the staged proof artifact did not verify" with no field named
+# and nothing left on disk to name it from.
+#
+# This prints that list — bounded, and filtered on the same denylist the wrapper
+# applies to its own diagnostics — and, when HARNESS_DIAGNOSTIC_DIR is set, also
+# copies the small proof files there before cleanup runs. It is called only after
+# a check has ALREADY been counted as failed; it never touches FAILURES, never
+# returns anything a caller branches on, and never alters an exit status, so it
+# cannot turn a failing scenario into a passing one. Production cleanup is
+# unchanged: HARNESS_ROOT is still removed unconditionally.
+SECRET_DENYLIST='(secret|token|password|api[_-]?key|PRIVATE KEY)'
+
+dump_phase_diagnostics() {
+  local host="$1" tag="$2"
+  local dir file target
+  # Two directories, because the wrapper keeps them apart: the STATE dir holds
+  # the state record and the release identity, the INSTALL dir holds the proof
+  # artifacts a phase produced. A dump that only knew one of them would report
+  # "no diagnostics" for exactly the failure this exists to explain.
+  for dir in "${host}/state/cutover" "${host}/cutover"; do
+    for file in staged-proof-verify.json staged-summary.json state sync-release-identity; do
+      [ -s "${dir}/${file}" ] || continue
+      printf '%s      diag[%s] %s ->\n' "${LABEL}" "${tag}" "${file}" >&2
+      { grep -av -E "${SECRET_DENYLIST}" "${dir}/${file}" || true; } | head -45 | sed 's/^/  | /' >&2 || true
+      if [ -n "${HARNESS_DIAGNOSTIC_DIR:-}" ]; then
+        mkdir -p "${HARNESS_DIAGNOSTIC_DIR}" 2>/dev/null || continue
+        target="${HARNESS_DIAGNOSTIC_DIR}/${FAILURES}-${tag}.${file}"
+        { grep -av -E "${SECRET_DENYLIST}" "${dir}/${file}" || true; } > "${target}" 2>/dev/null || true
+        chmod 600 "${target}" 2>/dev/null || true
+      fi
+    done
+  done
+}
+
+# Test-only: stop after a named checkpoint so a single failing scenario can be
+# iterated on without the whole matrix. The exit status is still the failure
+# count, and the line says plainly that this was not a full run, so stopping
+# early can never be mistaken for — or reported as — a green harness.
+harness_stop_after() {
+  [ "${HARNESS_STOP_AFTER:-}" = "$1" ] || return 0
+  if [ "${FAILURES}" -eq 0 ]; then
+    printf '%s stopped after %s with 0 failures (HARNESS_STOP_AFTER: NOT a full run)\n' "${LABEL}" "$1"
+    exit 0
+  fi
+  printf '%s stopped after %s with %s failure(s) (HARNESS_STOP_AFTER: NOT a full run)\n' \
+    "${LABEL}" "$1" "${FAILURES}" >&2
+  exit 1
+}
+
 cleanup() {
   if [ "${PG_STARTED}" = "1" ]; then
     "${PGBIN}/pg_ctl" -D "${PGDATA_DIR}" -m immediate stop >/dev/null 2>&1 || true
@@ -585,11 +654,39 @@ image_id_for() {
   esac
 }
 
-# A container id is `container-<svc>-g<generation>`. The generation is what
+# A container id is container-SVC-gN, where N is a generation. That is what
 # makes a recreate produce a NEW id, so the wrapper can ask whether the
 # container it captured before the recreate is still running and get a truthful
 # answer. Without it every id is eternal and container replacement is invisible.
+#
+# NOTE: this shim is generated through an UNQUOTED heredoc. Backticks and
+# angle brackets in comments here are EXECUTED at generation time, which once
+# broke the shim silently and left a digest command reading stdin forever.
+# Prose only, no backticks, no redirection characters.
 service_of() { s="\${1#container-}"; printf '%s' "\${s%%-g*}"; }
+
+# Digest of an EXPLICIT existing regular file. Never stdin.
+#
+# The stdin fallback is what hung: a path that expanded empty made shasum wait on
+# a terminal for seventeen minutes with no output and no error. Redirecting from
+# /dev/null makes that impossible, and an unusable path is reported rather than
+# waited on. macOS has shasum, Debian has sha256sum; both are handled because
+# picking one and hoping is how a digest silently becomes empty.
+shim_sha256() {
+  if [ "\$#" -ne 1 ] || [ -z "\${1:-}" ]; then
+    printf 'shim_sha256: needs exactly one non-empty file path\n' >&2
+    return 2
+  fi
+  if [ ! -f "\$1" ] || [ ! -r "\$1" ]; then
+    printf 'shim_sha256: not a readable regular file: %s\n' "\$1" >&2
+    return 2
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "\$1" < /dev/null | awk '{print \$1}'
+  else
+    shasum -a 256 "\$1" < /dev/null | awk '{print \$1}'
+  fi
+}
 generation_of() { case "\$1" in *-g*) printf '%s' "\${1##*-g}" ;; *) printf '1' ;; esac; }
 current_generation() { cat "\${RUNTIME}/gen.\$1" 2>/dev/null || printf '1'; }
 
@@ -600,6 +697,7 @@ db_sql_via_shim() {
 
 recreate_service() {
   local svc="\$1"
+  printf '%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%S).000000000Z" > "\${RUNTIME}/finished.\${svc}"
   printf '%s\n' "\$(( \$(current_generation "\${svc}") + 1 ))" > "\${RUNTIME}/gen.\${svc}"
   printf 'running\n' > "\${RUNTIME}/state.\${svc}"
   printf '%s\n' "\$(date -u +%Y-%m-%dT%H:%M:%S).000000000Z" > "\${RUNTIME}/started.\${svc}"
@@ -655,6 +753,135 @@ case "\$1" in
         for svc in "\$@"; do printf 'exited\n' > "\${RUNTIME}/state.\${svc}"; done
         exit 0 ;;
       rm) exit 0 ;;
+      exec)
+        shift
+        # Drop compose's own flags, then dispatch on the program being run.
+        while [ \$# -gt 0 ]; do
+          case "\$1" in -T|-d|--no-TTY) shift ;; *) break ;; esac
+        done
+        svc="\$1"; shift
+        case "\$*" in
+          *sync-worker-healthcheck.ts*)
+            # A recreated container has an empty /tmp, so the artifact from an
+            # earlier run of this phase on this host cannot be inherited. Without
+            # this, a sabotage case that writes no artifact would be verified
+            # against the PREVIOUS run's file and the phase would refuse — or
+            # worse, pass — for a reason unrelated to the sabotage.
+            rm -f "\${RUNTIME}/incontainer/staged-summary.json"
+            if [ -n "\${HARNESS_STAGED_EXEC_SILENT:-}" ]; then
+              # The old behaviour: exit 0 with nothing on stdout. It must NOT pass.
+              exit 0
+            fi
+            if [ -n "\${HARNESS_STAGED_CHECK_FAIL:-}" ]; then
+              printf '{"pass":false,"reason":"staged_idle_not_observed"}\n'
+              exit 1
+            fi
+            mkdir -p "\${RUNTIME}/incontainer"
+            # The artifact must name the release under test and THIS container's
+            # start time, or the verifier below would be checking a fixture
+            # against itself rather than against the phase's own pins, which are
+            # --expect-build-id DEPLOY_SHA and --min-heartbeat-after the value
+            # docker inspect reports for State.StartedAt.
+            #
+            # Written with the real values, not placeholders patched afterwards:
+            # this was a sed -i with no backup suffix, which is GNU-only. On BSD
+            # sed the substitution expression was consumed as the suffix, the
+            # edit failed, the stub has no set -e so nothing surfaced, and the
+            # artifact kept its literal placeholders. Generating the values in
+            # place removes the portability trap and the silent-failure path with
+            # it. A staged scenario may override the build id to prove that a
+            # wrong identity is refused.
+            started="\$(cat "\${RUNTIME}/started.worker" 2>/dev/null || printf '2026-07-01T00:00:00.000000000Z')"
+            art_build="\${HARNESS_STAGED_ARTIFACT_BUILD_ID:-\${DEPLOY_SHA}}"
+            art_started="\${HARNESS_STAGED_ARTIFACT_STARTED_AT:-\${started}}"
+            art_health="\${HARNESS_STAGED_ARTIFACT_HEALTH_STATE:-healthy}"
+            cat > "\${RUNTIME}/incontainer/staged-summary.json" <<ART
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-01T00:06:00.000Z",
+  "pass": true,
+  "reason": "healthy",
+  "onlineWindowMinutes": 5,
+  "expectBuildId": "\${art_build}",
+  "minHeartbeatAfter": "\${art_started}",
+  "stagedWorkerCount": 1,
+  "stagedWorkerId": "sync-worker:1:harnessstaged",
+  "stagedWorkerStartedAt": "\${art_started}",
+  "stagedWorkerBuildId": "\${art_build}",
+  "stagedWorkerContractBuildId": "\${art_build}",
+  "stagedIsThisRun": true,
+  "stagedBuildIdMatches": true,
+  "heartbeatSatisfied": true,
+  "holdsNothing": true,
+  "onlineWorkers": 0,
+  "ownedWorkUnits": {
+    "runnerLeases": 0,
+    "googleLaneLeases": 0,
+    "metaPartitionClaims": 0,
+    "googlePartitionClaims": 0,
+    "metaCheckpointClaims": 0,
+    "googleCheckpointClaims": 0,
+    "jobLocks": 0
+  },
+  "runtimeInstance": {
+    "instanceId": "sync-worker:1:harnessstaged",
+    "buildId": "\${art_build}",
+    "healthState": "\${art_health}",
+    "updatedAt": "2026-07-01T00:05:59.000Z"
+  },
+  "runtimeInstanceMatchesStaged": true
+}
+ART
+            bytes="\$(wc -c < "\${RUNTIME}/incontainer/staged-summary.json" | tr -d ' ')"
+            digest="\$(shim_sha256 "\${RUNTIME}/incontainer/staged-summary.json")" || {
+              printf 'staged-summary digest failed\n' >&2
+              exit 1
+            }
+            if [ -n "\${HARNESS_STAGED_DIGEST_LIE:-}" ]; then
+              digest="0000000000000000000000000000000000000000000000000000000000000000"
+            fi
+            if [ -n "\${HARNESS_STAGED_NO_SUMMARY_LINE:-}" ]; then
+              printf '{"pass":true,"reason":"healthy"}\n'
+              exit 0
+            fi
+            if [ -n "\${HARNESS_STAGED_MALFORMED_SUMMARY_LINE:-}" ]; then
+              # The key is present but the size and digest are not. This is the
+              # case the strict pattern match exists for: a line that looks like
+              # the report and carries none of the numbers it has to carry.
+              printf 'summary_out=/tmp/staged-summary.json summary_bytes= summary_sha256=\n'
+              printf '{"pass":true,"reason":"healthy"}\n'
+              exit 0
+            fi
+            printf 'summary_out=/tmp/staged-summary.json summary_bytes=%s summary_sha256=%s\n' "\${bytes}" "\${digest}"
+            printf '{"pass":true,"reason":"healthy"}\n'
+            exit 0 ;;
+          *verify-staged-proof.ts*)
+            # The REAL verifier, against the artifact the phase actually copied
+            # out, with the phase's own pins. Nothing is simulated here.
+            summary=""; expect_build=""; min_after=""; expect_bytes=""; expect_sha=""
+            while [ \$# -gt 0 ]; do
+              case "\$1" in
+                --summary) summary="\$2"; shift 2 ;;
+                --expect-build-id) expect_build="\$2"; shift 2 ;;
+                --min-heartbeat-after) min_after="\$2"; shift 2 ;;
+                --expect-bytes) expect_bytes="\$2"; shift 2 ;;
+                --expect-sha256) expect_sha="\$2"; shift 2 ;;
+                *) shift ;;
+              esac
+            done
+            host_copy="\${RUNTIME}/incontainer/staged-summary.json"
+            [ -f "\${host_copy}" ] || { printf '{"verified":false,"failures":["no artifact"]}\n'; exit 1; }
+            # Absolute interpreter, and from the repo root: PATH here is the stub
+            # bin plus /usr/bin and /bin, and the tsx loader and the @/ alias both
+            # resolve relative to the working directory, not to the script.
+            cd "${REPO_ROOT}" || { printf '{"verified":false,"failures":["repo root unavailable"]}\n'; exit 1; }
+            "${HARNESS_NODE_BIN}" --import tsx scripts/verify-staged-proof.ts \
+              --summary "\${host_copy}" --expect-build-id "\${expect_build}" \
+              --min-heartbeat-after "\${min_after}" \
+              --expect-bytes "\${expect_bytes}" --expect-sha256 "\${expect_sha}"
+            exit \$? ;;
+        esac
+        exit 0 ;;
       up)
         shift
         migrate_requested=0
@@ -773,7 +1000,7 @@ case "\$1" in
     fmt=""
     while [ \$# -gt 0 ]; do
       case "\$1" in
-        --format) fmt="\$2"; shift 2 ;;
+        --format | -f) fmt="\$2"; shift 2 ;;
         -*) shift ;;
         *) [ -z "\${id}" ] && id="\$1"; shift ;;
       esac
@@ -806,9 +1033,34 @@ case "\$1" in
       *org.opencontainers.image.revision*)
         printf '%s\n' "\${HARNESS_RUNNING_IMAGE_REVISION:-\${HARNESS_IMAGE_REVISION:-\${DEPLOY_SHA:-}}}" ;;
       '{{.State.StartedAt}}') cat "\${RUNTIME}/started.\${svc}" 2>/dev/null || printf '2026-07-01T00:00:00.000000000Z\n' ;;
+      # When a superseded container exited. The post-stop retirement proof is
+      # bound to this, so a stub that cannot answer it would make the wrapper
+      # refuse for want of an exit time rather than exercise the proof.
+      '{{.State.FinishedAt}}')
+        if [ "\$(generation_of "\${id}")" != "\$(current_generation "\${svc}")" ]; then
+          cat "\${RUNTIME}/finished.\${svc}" 2>/dev/null || printf '2026-07-01T00:05:00.000000000Z\n'
+        else
+          printf '0001-01-01T00:00:00Z\n'
+        fi ;;
       *) printf '\n' ;;
     esac
     exit 0 ;;
+
+  cp)
+    shift
+    src="\$1"; dest="\$2"
+    case "\${src}" in
+      *:/tmp/staged-summary.json)
+        host_copy="\${RUNTIME}/incontainer/staged-summary.json"
+        [ -f "\${host_copy}" ] || exit 1
+        cp "\${host_copy}" "\${dest}" || exit 1
+        if [ -n "\${HARNESS_STAGED_TRUNCATE:-}" ]; then
+          # Exactly the production failure: fewer bytes arrive than were written.
+          head -c 120 "\${host_copy}" > "\${dest}"
+        fi
+        exit 0 ;;
+    esac
+    exit 1 ;;
 
   exec)
     shift
@@ -983,6 +1235,7 @@ expect_ok() {
     return 0
   fi
   fail "${what} — phase '${phase}' failed: ${out}"
+  dump_phase_diagnostics "${host}" "${phase}"
   return 1
 }
 
@@ -1003,6 +1256,7 @@ expect_refusal() {
   local out
   if out="$(run_phase "${host}" "${phase}" "$@")"; then
     fail "${what} — phase '${phase}' SUCCEEDED when it had to refuse: ${out}"
+    dump_phase_diagnostics "${host}" "${phase}"
     return 1
   fi
   if printf '%s' "${out}" | grep -q "${needle}"; then
@@ -1010,6 +1264,7 @@ expect_refusal() {
     return 0
   fi
   fail "${what} — phase '${phase}' refused for the wrong reason: ${out}"
+  dump_phase_diagnostics "${host}" "${phase}"
   return 1
 }
 
@@ -1218,6 +1473,8 @@ fi
 
 expect_ok "${host}" deploy-disabled \
   "P16 deploy-disabled brings both processes up on the pinned build with every lane off and proves a fresh worker registration" || true
+
+harness_stop_after P16
 
 # ══ N: a partial recreate failure during enable ════════════════════════════
 
@@ -2006,6 +2263,157 @@ host="$(credential_case mutate_plain adsecute_credplain credplain)"
 expect_refusal "${host}" fingerprint-post "not a plaintext-to-ciphertext conversion" \
   "C6 a plaintext secret changed to a DIFFERENT plaintext is refused, and would leave plaintext behind" \
   DB_NAME=adsecute_credplain HARNESS_MIGRATE_CREDENTIALS=mutate_plain || true
+
+# ══ E: the staged proof EVIDENCE, end to end ═══════════════════════════════
+#
+# A rehearsal once reported PASSED while its own extraction had failed: the
+# verbose health payload passed 64 KiB, the shell capture truncated it, the JSON
+# parse raised, the staged worker id came out empty, the next command ran against
+# a fallthrough path, and the verdict stood on the checker's exit code alone.
+#
+# deploy-disabled therefore does not accept an exit code as evidence. It reads a
+# BOUNDED artifact out of the container, checks the byte count and digest the
+# writer declared, and hands the file to a separate strict verifier that exits
+# nonzero. These cases exercise that chain for real — the verifier below is
+# scripts/verify-staged-proof.ts itself, not a stand-in — and then break it one
+# link at a time. Every break must refuse, and must refuse for its own reason.
+seed_database adsecute_evidence
+host="$(new_host evidence)"
+mkdir -p "${host}/tmp-work"
+for phase in preflight quiesce fingerprint-pre migrate verify-contract fingerprint-post; do
+  run_phase "${host}" "${phase}" DB_NAME=adsecute_evidence >/dev/null 2>&1 || true
+done
+
+expect_ok "${host}" deploy-disabled \
+  "E1 deploy-disabled runs the whole evidence chain: the staged check writes a compact artifact, the phase copies it out of the container, the declared bytes and digest agree, and the strict verifier accepts it" \
+  DB_NAME=adsecute_evidence || true
+
+evidence_report="${host}/cutover/staged-proof-verify.json"
+evidence_artifact="${host}/cutover/staged-summary.json"
+
+# The verifier RAN. Its report is a machine-readable document of its own making,
+# and the byte count in it is the count of the file the phase actually copied.
+# This is the check that would have caught the version of this harness whose
+# verifier could not start at all: PATH inside the phase is sanitized, `node` was
+# not resolvable, and the refusal read "node: command not found" — a phase
+# failing closed on the absence of an interpreter while appearing to fail closed
+# on the evidence.
+evidence_bytes="$(sed -n 's/.*"bytes": \([0-9]*\).*/\1/p' "${evidence_report}" 2>/dev/null | head -1)"
+if [ -s "${evidence_report}" ] &&
+  grep -q '"verified": true' "${evidence_report}" &&
+  grep -q '"failures": \[\]' "${evidence_report}" &&
+  [ -n "${evidence_bytes}" ] &&
+  [ "${evidence_bytes}" = "$(wc -c < "${evidence_artifact}" | tr -d ' ')" ]; then
+  pass "E2 the strict verifier really executed: its own report says verified with no failures over exactly the ${evidence_bytes} bytes the phase copied out"
+else
+  fail "E2 the verifier did not produce a report of the copied artifact: $(head -5 "${evidence_report}" 2>/dev/null)"
+fi
+
+# The artifact names the release under test and this container's start time.
+# A fixture that still carried its placeholders would be verified against
+# itself: `sed -i` with no backup suffix is GNU-only, on BSD sed the expression
+# was consumed as the suffix, the edit failed, and — the stub having no `set -e`
+# — the literal placeholders survived into the artifact unnoticed.
+if grep -q "\"stagedWorkerBuildId\": \"${DEPLOY_SHA}\"" "${evidence_artifact}" &&
+  grep -q "\"buildId\": \"${DEPLOY_SHA}\"" "${evidence_artifact}" &&
+  ! grep -q 'HARNESS_' "${evidence_artifact}"; then
+  pass "E3 the artifact is bound to the pinned release and carries no unsubstituted placeholder, so the verifier compared it against the phase's own pins"
+else
+  fail "E3 the artifact does not name ${DEPLOY_SHA} or still holds a placeholder: $(cat "${evidence_artifact}")"
+fi
+
+# ── Now break each link ────────────────────────────────────────────────────
+
+# THE ORIGINAL FAILURE MODE: exec exits 0 and prints nothing at all.
+expect_refusal "${host}" deploy-disabled "the healthcheck produced NO output at all" \
+  "E4 a staged check that exits 0 with NO output cannot pass: silence is not a verdict, and the phase says so instead of proceeding" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_EXEC_SILENT=1 || true
+
+# Output, a passing verdict, but no report of the artifact it wrote.
+expect_refusal "${host}" deploy-disabled "the worker did not come up staged" \
+  "E5 a staged check that claims pass but never reports its artifact's size and digest is not accepted, however healthy its JSON looks" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_NO_SUMMARY_LINE=1 || true
+
+# The report line is present in shape and empty of numbers.
+expect_refusal "${host}" deploy-disabled "did not report its artifact's size and digest" \
+  "E6 a size/digest report with the key present and the numbers missing is refused by the strict pattern rather than read as zero" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_MALFORMED_SUMMARY_LINE=1 || true
+
+# The artifact is never written, so there is nothing to copy out.
+expect_refusal "${host}" deploy-disabled "did not come up staged" \
+  "E7 a staged check whose predicate genuinely fails refuses at the predicate, before any artifact is read, and prints its reason code" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_CHECK_FAIL=1 || true
+
+# THE 64 KiB INCIDENT, in the small: fewer bytes arrive than were written.
+expect_refusal "${host}" deploy-disabled "the staged proof artifact is truncated" \
+  "E8 an artifact truncated in transit is caught by the byte count the writer declared, which is the failure that once slipped through as PASSED" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_TRUNCATE=1 || true
+
+# Right length, wrong content: only the digest can see this.
+expect_refusal "${host}" deploy-disabled "the staged proof artifact did not verify" \
+  "E9 an artifact whose declared digest does not match its bytes is refused, so a same-length substitution cannot pass the byte count" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_DIGEST_LIE=1 || true
+
+if grep -q 'does not match the writer' "${evidence_report}" 2>/dev/null; then
+  pass "E10 and the refusal names the field: the preserved verifier payload states the digest disagreement rather than only that something failed"
+else
+  fail "E10 the verifier payload did not name the digest mismatch: $(head -8 "${evidence_report}" 2>/dev/null)"
+fi
+
+# A well-formed, intact artifact that proves the WRONG release. Bytes and digest
+# agree, so only the identity pins can refuse it — which is the whole reason the
+# verifier takes --expect-build-id rather than trusting the document.
+expect_refusal "${host}" deploy-disabled "the staged proof artifact did not verify" \
+  "E11 an intact artifact naming a DIFFERENT build is refused: a proof that some worker staged is not a proof that this release staged" \
+  DB_NAME=adsecute_evidence \
+  HARNESS_STAGED_ARTIFACT_BUILD_ID=8de30c461c51d3e76e7cd5cc4fb71984751d014e || true
+
+if grep -q 'stagedWorkerBuildId' "${evidence_report}" 2>/dev/null &&
+  grep -q 'runtimeInstance.buildId' "${evidence_report}" 2>/dev/null; then
+  pass "E12 both identity paths are named in the refusal: the heartbeat metadata and the runtime row are checked separately, so a proof quoting only one cannot pass"
+else
+  fail "E12 the verifier payload did not name the build mismatch: $(head -12 "${evidence_report}" 2>/dev/null)"
+fi
+
+# A start time from before this container existed: the previous process's
+# registration, which is exactly what --min-heartbeat-after exists to exclude.
+expect_refusal "${host}" deploy-disabled "the staged proof artifact did not verify" \
+  "E13 an artifact whose staged worker started BEFORE this container is refused, so an old process's registration cannot stand in for this run's" \
+  DB_NAME=adsecute_evidence \
+  HARNESS_STAGED_ARTIFACT_STARTED_AT=2026-06-01T00:00:00.000000000Z || true
+
+if grep -q 'precedes the container start' "${evidence_report}" 2>/dev/null; then
+  pass "E14 and the refusal names the run boundary it violated"
+else
+  fail "E14 the verifier payload did not name the start-time violation: $(head -12 "${evidence_report}" 2>/dev/null)"
+fi
+
+# THE REJECTED ALTERNATIVE. `health_state` is binary in this schema: the CHECK
+# admits 'healthy' and 'invalid', one reader collapses everything that is not
+# 'healthy' to 'invalid', and production holds no third value. A writer emitting
+# 'staged' was writing a value no consumer distinguished and the constraint never
+# admitted. Widening the column was considered and rejected on that evidence, so
+# a runtime row carrying a third value must be refused here rather than absorbed.
+expect_refusal "${host}" deploy-disabled "the staged proof artifact did not verify" \
+  "E15 a runtime row whose health_state is 'staged' is refused: the column is binary, no reader distinguishes a third value, and a proof resting on one is not a proof" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_ARTIFACT_HEALTH_STATE=staged || true
+
+if grep -q 'healthState' "${evidence_report}" 2>/dev/null &&
+  grep -q 'binary' "${evidence_report}" 2>/dev/null; then
+  pass "E16 and the refusal explains the contract: staging is proven by the disabled/all heartbeat and the run identity, not by inventing a health value"
+else
+  fail "E16 the verifier payload did not name the health_state contract: $(head -12 "${evidence_report}" 2>/dev/null)"
+fi
+
+expect_refusal "${host}" deploy-disabled "the staged proof artifact did not verify" \
+  "E17 a runtime row reading 'invalid' is refused too, so the binary model is enforced in both directions rather than only against unknown values" \
+  DB_NAME=adsecute_evidence HARNESS_STAGED_ARTIFACT_HEALTH_STATE=invalid || true
+
+# And the chain still works afterwards: none of the sabotage above left the host
+# in a state where a correct deploy-disabled can no longer prove itself.
+expect_ok "${host}" deploy-disabled \
+  "E18 after every one of those refusals a correct deploy-disabled still proves itself, so the evidence chain refuses without wedging the cutover" \
+  DB_NAME=adsecute_evidence || true
 
 if [ "${FAILURES}" -eq 0 ]; then
   printf '%s PASS all checks\n' "${LABEL}"

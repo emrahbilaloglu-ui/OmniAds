@@ -92,4 +92,54 @@ describe("runtime contract", () => {
     expect(webContract.config).toEqual(workerContract.config);
     expect(webContract.configFingerprint).toBe(workerContract.configFingerprint);
   });
+
+  // The staged worker has to be identifiable from its own runtime row. Nothing
+  // else in that row can distinguish it: service, runtime_role and build_id are
+  // identical by design because deploy-disabled starts the release's own worker,
+  // health_state is binary and genuinely 'healthy' for a process that started and
+  // validated, and provider_scopes is a static per-service constant rather than
+  // the lane admission set.
+  it("records that a worker is the staged one, in every spelling the entrypoint accepts", async () => {
+    const { buildRuntimeContract } = await import("@/lib/sync/runtime-contract");
+    for (const value of ["1", "true", "yes", "enabled", "ENABLED", " True "]) {
+      const contract = buildRuntimeContract({
+        service: "worker",
+        env: { ...process.env, SYNC_WORKER_STAGING_IDLE: value },
+      });
+      expect(contract.config.workerStagingIdle).toBe(true);
+    }
+    for (const value of ["", "0", "false", "no"]) {
+      const contract = buildRuntimeContract({
+        service: "worker",
+        env: { ...process.env, SYNC_WORKER_STAGING_IDLE: value },
+      });
+      expect(contract.config.workerStagingIdle).toBe(false);
+    }
+    // The variable is meaningless for web, and must never make a web row claim
+    // to be a staged worker.
+    expect(
+      buildRuntimeContract({
+        service: "web",
+        env: { ...process.env, SYNC_WORKER_STAGING_IDLE: "1" },
+      }).config.workerStagingIdle,
+    ).toBe(false);
+  });
+
+  // Deliberately outside the fingerprint: that value is compared BETWEEN the web
+  // and worker rows, so a term only the worker can carry would make them disagree
+  // during every staged deploy — the gate would refuse for a fingerprint mismatch
+  // instead of for the staged worker that actually applies.
+  it("keeps the staged flag out of the config fingerprint, so web and worker still agree during a staged deploy", async () => {
+    const { buildRuntimeContract } = await import("@/lib/sync/runtime-contract");
+    const web = buildRuntimeContract({ service: "web", env: { ...process.env } });
+    const staged = buildRuntimeContract({
+      service: "worker",
+      env: { ...process.env, SYNC_WORKER_STAGING_IDLE: "1" },
+    });
+
+    expect(staged.config.workerStagingIdle).toBe(true);
+    expect(web.config.workerStagingIdle).toBe(false);
+    expect(staged.config).not.toEqual(web.config);
+    expect(staged.configFingerprint).toBe(web.configFingerprint);
+  });
 });

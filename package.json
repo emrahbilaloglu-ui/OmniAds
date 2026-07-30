@@ -121,7 +121,7 @@
     "test:legacy-replay-seam": "node --import tsx scripts/ephemeral-postgres-legacy-replay-seam.ts",
     "test:selection-race-seam": "node --import tsx scripts/ephemeral-postgres-selection-race-seam.ts",
     "test:shopify-install-seam": "node --import tsx scripts/ephemeral-postgres-shopify-install-seam.ts",
-    "test:cutover-harness": "bash scripts/cutover-real-postgres-harness.sh",
+    "test:cutover-harness": "bash scripts/with-timeout.sh 900 bash scripts/cutover-real-postgres-harness.sh",
     "test:deploy-gate-ordering": "bash scripts/deploy-gate-ordering-check.sh",
     "test:staged-worker": "node --import tsx scripts/ephemeral-postgres-staged-worker-seam.ts",
     "cutover:package": "bash scripts/cutover-wrapper-package.sh emit",
@@ -143,7 +143,10 @@
     "test:disconnect-quiescence-seam": "node --import tsx scripts/ephemeral-postgres-disconnect-quiescence-seam.ts",
     "db:growth-census": "node --import tsx scripts/db-growth-census.ts",
     "test:google-ads-finality-seam": "node --import tsx scripts/ephemeral-postgres-google-ads-finality-seam.ts",
-    "test:census-least-privilege-seam": "node --import tsx scripts/ephemeral-postgres-census-least-privilege-seam.ts"
+    "test:census-least-privilege-seam": "node --import tsx scripts/ephemeral-postgres-census-least-privilege-seam.ts",
+    "test:worker-stop-grace": "bash scripts/worker-stop-grace-check.sh",
+    "test:harness-generator-safety": "bash scripts/harness-generator-safety-check.sh",
+    "test:cutover-staged-diagnostics": "bash scripts/cutover-staged-diagnostics-check.sh"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

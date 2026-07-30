@@ -2839,16 +2839,34 @@ case "${PHASE}" in
       still_running="$(docker inspect "${outgoing_container_id}" --format '{{.State.Running}}' 2>/dev/null || echo false)"
       [ "${still_running}" = "false" ] \
         || die "the outgoing worker container ${outgoing_container_id} is still running after the recreate; refusing to retire a live worker's rows"
-      log "Retiring the outgoing worker's scope rows (it is proven stopped)"
+      # Its exact exit time. "Stopped" alone cannot bound WHEN it last wrote, and
+      # a graceful shutdown keeps heartbeating until it finishes — so movement
+      # after the census is expected and movement after this instant is not.
+      outgoing_finished_at="$(docker inspect "${outgoing_container_id}" --format '{{.State.FinishedAt}}' 2>/dev/null || true)"
+      [ -n "${outgoing_finished_at}" ] \
+        || die "docker did not report an exit time for ${outgoing_container_id}; without it a write made after the process died cannot be told from one made while it was shutting down"
+      log "outgoing worker exited at ${outgoing_finished_at}"
+      # Its own budget, not the staged check's.
+      #
+      # A runner lease is renewed while a worker is working and lapses on its own
+      # about two minutes after it stops, and the recreate catches the worker
+      # mid-tick — so one lease still in force here is the ordinary case. The
+      # retirement waits for THOSE EXACT ROWS to reach zero and refuses if they
+      # have not by the deadline; it is not a sleep standing in for a proof. The
+      # staged predicate's 30x2s budget below is deliberately left alone, so this
+      # wait cannot borrow against the proof that actually matters.
+      log "Retiring the outgoing worker's scope rows (it is proven stopped; waiting up to ${SYNC_CUTOVER_RETIRE_WAIT_SECONDS:-180}s for any lease still in force to lapse)"
       docker run --rm --env-file "${APP_DIR}/.env.production" \
         -e APP_BUILD_ID="${EXPECTED_SHA}" \
         -v "${outgoing_census}:/tmp/outgoing-census.json:ro" \
         --entrypoint node "$(expected_image_for worker)" \
         --import tsx scripts/sync-worker-retire.ts retire \
         --census /tmp/outgoing-census.json --container-stopped \
+        --container-finished-at "${outgoing_finished_at}" \
+        --wait-for-held-work-seconds "${SYNC_CUTOVER_RETIRE_WAIT_SECONDS:-180}" \
         > "${CUTOVER_DIR}/outgoing-worker-retire.json" 2>&1 \
         || {
-          grep -aoE '"(reason|message)":[^,}]*' "${CUTOVER_DIR}/outgoing-worker-retire.json" \
+          grep -aoE '"(reason|message|canonicalStatus|canonicalHeartbeatAt|stabilityWindowMs|containerFinishedAt|waitedMs)":[^,}]*' "${CUTOVER_DIR}/outgoing-worker-retire.json" \
             | sed 's/^/  | /' | head -6 || true
           die "retiring the outgoing worker refused; the full payload is at ${CUTOVER_DIR}/outgoing-worker-retire.json. This is a refusal, not a failure to try: the outgoing worker is not provably gone, or it still holds work."
         }
@@ -2889,11 +2907,23 @@ case "${PHASE}" in
     # `local` there is a hard error that kills the phase at exactly the point
     # this diagnostic was added to illuminate.
     staged_log="${CUTOVER_DIR}/staged-check.json"
+    staged_summary="${CUTOVER_DIR}/staged-summary.json"
     staged_check() {
       docker compose exec -T worker node --import tsx scripts/sync-worker-healthcheck.ts \
         --expect-staged-idle --online-window-minutes 5 \
         --expect-build-id "${EXPECTED_SHA}" \
-        --min-heartbeat-after "${worker_started_at}" > "${staged_log}" 2>&1
+        --min-heartbeat-after "${worker_started_at}" \
+        --summary-out /tmp/staged-summary.json > "${staged_log}" 2>&1 || return 1
+      # A checker that printed NOTHING is not a passing checker. `docker compose
+      # exec` exits 0 in cases where the program inside never produced a verdict
+      # — a container that is up but not yet answering, an interpreter that could
+      # not be resolved — and an exit code with no output behind it is precisely
+      # the fail-open shape this phase exists to remove. The artifact's own
+      # size/digest line is the minimum evidence that the checker ran to
+      # completion and wrote the file, so its absence is a failed attempt and
+      # the wait continues rather than the phase proceeding on silence.
+      [ -s "${staged_log}" ] || return 1
+      grep -aq 'summary_out=' "${staged_log}" || return 1
     }
     if ! wait_for "staged worker" 30 2 staged_check; then
       log "staged worker: last observed predicate state ->"
@@ -2911,6 +2941,48 @@ case "${PHASE}" in
         | grep -viE '(secret|token|password|api[_-]?key)' | sed 's/^/  | /' || true
       die "the worker did not come up staged: expected exactly one fresh DISABLED heartbeat from THIS run on ${EXPECTED_SHA}, no online workers and no leases or claims held. The observed predicate state and worker log are printed above, and the full healthcheck payload is at ${staged_log}."
     fi
+
+    # THE EVIDENCE, verified separately from the verdict.
+    #
+    # The checker's exit code is one input. It is not proof that the proof was
+    # read: a rehearsal once reported success while its own extraction had
+    # failed — the verbose payload passed 64 KiB, the capture truncated it, the
+    # parse raised, the staged worker id came out empty, and the verdict stood.
+    # So the checker writes a BOUNDED artifact, and that artifact is verified
+    # field by field by a separate program that exits non-zero. Truncation,
+    # invalid JSON, an empty id, a missing runtime row, a wrong build or run, or
+    # a zero-work disagreement all abort the phase here.
+    log "Verifying the staged proof artifact"
+    staged_container="$(docker compose ps -q worker)"
+    [ -n "${staged_container}" ] || die "the staged worker container vanished before its proof could be verified"
+    [ "$(docker inspect "${staged_container}" --format '{{.State.Running}}')" = "true" ] \
+      || die "the staged worker was not alive when its proof was taken"
+    docker cp "${staged_container}:/tmp/staged-summary.json" "${staged_summary}" \
+      || die "the staged worker wrote no compact proof artifact at /tmp/staged-summary.json"
+    # `|| true` then an explicit emptiness check, deliberately: under `pipefail` a
+    # grep that matches nothing fails the whole substitution, and the phase would
+    # exit with NO message at all. A silent abort is the same fail-open shape this
+    # verification exists to remove, so the absence is turned into a stated reason.
+    summary_line="$(grep -aoE 'summary_out=[^ ]+ summary_bytes=[0-9]+ summary_sha256=[0-9a-f]+' "${staged_log}" | tail -1 || true)"
+    [ -n "${summary_line}" ] || die "the staged check did not report its artifact's size and digest; the artifact cannot be shown intact"
+    expect_bytes="$(printf '%s' "${summary_line}" | sed -n 's/.*summary_bytes=\([0-9]*\).*/\1/p')"
+    expect_sha="$(printf '%s' "${summary_line}" | sed -n 's/.*summary_sha256=\([0-9a-f]*\).*/\1/p')"
+    actual_bytes="$(wc -c < "${staged_summary}" | tr -d ' ')"
+    [ -n "${expect_bytes}" ] && [ -n "${expect_sha}" ] \
+      || die "could not read the artifact's declared size and digest from ${staged_log}"
+    [ "${actual_bytes}" = "${expect_bytes}" ] \
+      || die "the staged proof artifact is truncated: read ${actual_bytes} bytes, the writer declared ${expect_bytes}"
+    docker compose exec -T worker node --import tsx scripts/verify-staged-proof.ts \
+      --summary /tmp/staged-summary.json \
+      --expect-build-id "${EXPECTED_SHA}" \
+      --min-heartbeat-after "${worker_started_at}" \
+      --expect-bytes "${expect_bytes}" --expect-sha256 "${expect_sha}" \
+      > "${CUTOVER_DIR}/staged-proof-verify.json" 2>&1 \
+      || {
+        grep -aoE '"failures": \[|"[^"]+"' "${CUTOVER_DIR}/staged-proof-verify.json" | head -20 | sed 's/^/  | /' || true
+        die "the staged proof artifact did not verify; the phase refuses rather than accept a checker exit code as evidence. Full payload at ${CUTOVER_DIR}/staged-proof-verify.json"
+      }
+    log "staged proof verified: $(grep -aoE '"stagedWorkerId": "[^"]*"' "${staged_summary}" | head -1)"
 
     # Re-establishing the runtime proof is what clears an earlier invalidation,
     # so an emergency stop can be recovered from without hand-editing state.

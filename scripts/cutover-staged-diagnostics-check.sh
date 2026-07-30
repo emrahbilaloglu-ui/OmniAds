@@ -96,3 +96,67 @@ else
 fi
 [ "$F" -ne 0 ] && { printf '%s %s FAILED\n' "$L" "$F" >&2; exit 1; }
 printf '%s PASS — the failed predicate and worker refusal are surfaced, and outgoing-worker retirement is captured early, proven stopped and refused when unsafe\n' "$L"
+# The retirement's wait budget is its own, and the staged predicate's is not
+# touched — a wait that borrowed from the staged budget would trade the proof
+# that matters for one that does not.
+case "$PHASE" in
+  *'--wait-for-held-work-seconds'*) pass "D16 retirement has its own bounded wait budget" ;;
+  *) fail "D16 retirement has no bounded wait for a lease still in force" ;;
+esac
+case "$BODY" in
+  *'wait_for "staged worker" 30 2'*) pass "D17 the staged predicate budget is still 30x2s" ;;
+  *) fail "D17 the staged predicate budget was altered to accommodate the wait" ;;
+esac
+[ "$F" -ne 0 ] && { printf '%s %s FAILED\n' "$L" "$F" >&2; exit 1; }
+printf '%s PASS — retirement waits on its own budget without weakening the staged proof\n' "$L"
+# The post-stop proof needs the container's exact exit time, or it cannot tell a
+# write made during a graceful shutdown from one made after the process died.
+case "$PHASE" in
+  *'--container-finished-at'*) pass "D18 retirement is bound to the container's exact exit time" ;;
+  *) fail "D18 retirement has no FinishedAt binding" ;;
+esac
+case "$PHASE" in
+  *'did not report an exit time'*) pass "D19 a missing exit time refuses rather than proceeding" ;;
+  *) fail "D19 a missing exit time is not refused" ;;
+esac
+# Its per-predicate evidence has to reach the operator on failure.
+for k in canonicalStatus stabilityWindowMs containerFinishedAt; do
+  case "$PHASE" in *"$k"*) : ;; *) fail "D20 retirement diagnostic '$k' is not surfaced"; esac
+done
+case "$PHASE" in *stabilityWindowMs*) pass "D20 the post-stop predicates are surfaced on failure" ;; esac
+[ "$F" -ne 0 ] && { printf '%s %s FAILED\n' "$L" "$F" >&2; exit 1; }
+printf '%s PASS — the post-stop proof is exit-time bound and its predicates are surfaced\n' "$L"
+# THE EVIDENCE CHAIN. The checker's exit code is not proof that its proof was
+# read: a rehearsal once reported success while its extraction had raised, its
+# staged worker id was empty, and the verdict stood anyway.
+case "$PHASE" in
+  *'--summary-out /tmp/staged-summary.json'*) pass "D21 the staged check writes a bounded proof artifact" ;;
+  *) fail "D21 the staged check writes no bounded artifact; callers must parse the huge verbose payload" ;;
+esac
+case "$PHASE" in
+  *'verify-staged-proof.ts'*) pass "D22 that artifact is verified by a separate fail-closed program" ;;
+  *) fail "D22 nothing independently verifies the staged proof artifact" ;;
+esac
+case "$PHASE" in
+  *'is truncated: read '*) pass "D23 a truncated artifact aborts the phase" ;;
+  *) fail "D23 truncation is not detected" ;;
+esac
+case "$PHASE" in
+  *'did not verify; the phase refuses rather than accept a checker exit code as evidence'*)
+    pass "D24 a failed verification aborts rather than deferring to the exit code" ;;
+  *) fail "D24 a failed verification does not abort" ;;
+esac
+case "$PHASE" in
+  *'was not alive when its proof was taken'*) pass "D25 the staged container must be alive at proof time" ;;
+  *) fail "D25 a dead staged container could still be certified" ;;
+esac
+# Ordering: the artifact is verified BEFORE the phase records success.
+vy="$(printf '%s\n' "$PHASE" | grep -n 'verify-staged-proof.ts' | head -1 | cut -d: -f1)"
+ok="$(printf '%s\n' "$PHASE" | grep -n 'deploy-disabled OK' | head -1 | cut -d: -f1)"
+if [ -n "$vy" ] && [ -n "$ok" ] && [ "$vy" -lt "$ok" ]; then
+  pass "D26 the artifact is verified before the phase is recorded as complete"
+else
+  fail "D26 verification does not precede phase completion (verify=$vy ok=$ok)"
+fi
+[ "$F" -ne 0 ] && { printf '%s %s FAILED\n' "$L" "$F" >&2; exit 1; }
+printf '%s PASS — the evidence chain fails closed: bounded artifact, independent verification, truncation detected\n' "$L"

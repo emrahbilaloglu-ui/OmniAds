@@ -65,6 +65,7 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
         worker: {
           instanceId: "worker:test:1",
@@ -79,10 +80,12 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
       },
       webPresent: true,
       workerPresent: true,
+      workerActive: true,
       dbFingerprintMatch: true,
       configFingerprintMatch: true,
       issues: [],
@@ -476,6 +479,7 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
         worker: {
           instanceId: "worker:test:1",
@@ -490,10 +494,12 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
       },
       webPresent: true,
       workerPresent: true,
+      workerActive: true,
       dbFingerprintMatch: false,
       configFingerprintMatch: true,
       issues: ["Web and worker DB fingerprints do not match."],
@@ -551,6 +557,7 @@ describe("sync release gates", () => {
       runtimeRegistry: expect.objectContaining({
         webPresent: true,
         workerPresent: true,
+        workerActive: true,
         contractValid: true,
       }),
     });
@@ -580,6 +587,7 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
         worker: {
           instanceId: "worker:test:1",
@@ -594,10 +602,12 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
       },
       webPresent: true,
       workerPresent: true,
+      workerActive: true,
       dbFingerprintMatch: false,
       configFingerprintMatch: true,
       issues: ["Web and worker DB fingerprints do not match."],
@@ -634,11 +644,13 @@ describe("sync release gates", () => {
           lastSeenAt: "2026-04-15T00:00:00.000Z",
           contract: null,
           fresh: true,
+          stagingIdle: false,
         },
         worker: null,
       },
       webPresent: true,
       workerPresent: false,
+      workerActive: false,
       dbFingerprintMatch: true,
       configFingerprintMatch: true,
       issues: ["Worker runtime registry heartbeat missing."],
@@ -808,5 +820,143 @@ describe("sync release gates", () => {
         { verdict: "misconfigured" },
       ] as never),
     ).toBe(true);
+  });
+
+  // ── A staged worker is not the active worker ──────────────────────────────
+  //
+  // deploy-disabled starts the release's OWN worker with every lane off, so the
+  // staged process writes a runtime row whose service, runtime_role and build_id
+  // are identical to the active worker's, whose health_state is genuinely
+  // 'healthy' (it started, validated and answers), and whose provider_scopes is a
+  // static per-service constant rather than the lane admission set. The release
+  // gate's only worker term was "a fresh healthy worker row exists on this
+  // build", which that row satisfies while doing no work at all — and unlike the
+  // deploy gate it has no per-provider heartbeat term to catch it downstream.
+  describe("staged worker identity", () => {
+    const WORKER = {
+      instanceId: "worker:test:1",
+      service: "worker" as const,
+      runtimeRole: "worker" as const,
+      buildId: "dev-build",
+      providerScopes: ["meta"],
+      dbFingerprint: "db",
+      configFingerprint: "cfg",
+      healthState: "healthy" as const,
+      startedAt: "2026-04-15T00:00:00.000Z",
+      lastSeenAt: "2026-04-15T00:00:00.000Z",
+      contract: null,
+      fresh: true,
+    };
+
+    function registry(worker: { stagingIdle: boolean | null }, issues: string[] = []) {
+      return {
+        sampledAt: "2026-04-15T00:00:00.000Z",
+        buildId: "dev-build",
+        freshnessWindowMinutes: 10,
+        contractValid: true,
+        serviceHealth: {
+          web: { ...WORKER, instanceId: "web:test:1", service: "web" as const, runtimeRole: "web" as const, stagingIdle: false },
+          worker: { ...WORKER, stagingIdle: worker.stagingIdle },
+        },
+        webPresent: true,
+        workerPresent: true,
+        // Exactly what getRuntimeRegistryStatus computes: fresh AND provably
+        // not staged. A test that hard-coded `true` here would be asserting
+        // its own fixture rather than the rule.
+        workerActive: worker.stagingIdle === false,
+        dbFingerprintMatch: true,
+        configFingerprintMatch: true,
+        issues,
+      };
+    }
+
+    it("passes the release gate for a worker proven ACTIVE, and records the proof in the evidence", async () => {
+      process.env.SYNC_RELEASE_GATE_MODE = "block";
+      vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue(
+        registry({ stagingIdle: false }) as never,
+      );
+
+      const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+      expect(verdict.baseResult).toBe("pass");
+      expect(verdict.verdict).toBe("pass");
+      const evidence = verdict.evidence as Record<string, never>;
+      const readiness = evidence.runtimeRegistry as unknown as {
+        workerActive: boolean;
+        serviceHealth: { worker: { stagingIdle: boolean | null; instanceId: string } };
+      };
+      expect(readiness.workerActive).toBe(true);
+      expect(readiness.serviceHealth.worker.stagingIdle).toBe(false);
+      expect(readiness.serviceHealth.worker.instanceId).toBe("worker:test:1");
+    });
+
+    it("REFUSES the release gate when the only worker on the build is the staged one", async () => {
+      process.env.SYNC_RELEASE_GATE_MODE = "block";
+      vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue(
+        registry({ stagingIdle: true }, [
+          "Worker runtime instance is the STAGED worker for this build: it is admitted to no lane and does no work.",
+        ]) as never,
+      );
+
+      const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+      expect(verdict.baseResult).toBe("fail");
+      expect(verdict.verdict).toBe("blocked");
+      expect(verdict.blockerClass).toBe("service_unavailable");
+      expect(verdict.summary).toContain("STAGED worker");
+      expect(
+        (verdict.evidence as { runtimeRegistry: { workerActive: boolean } })
+          .runtimeRegistry.workerActive,
+      ).toBe(false);
+    });
+
+    // Fail-closed on silence. A row that does not say which it is cannot be used
+    // to prove the active worker is up, so it is refused rather than assumed.
+    it("REFUSES the release gate when the worker row does not state whether it is staged", async () => {
+      process.env.SYNC_RELEASE_GATE_MODE = "block";
+      vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue(
+        registry({ stagingIdle: null }, [
+          "Worker runtime instance does not state whether it is staged; it cannot be accepted as the active worker.",
+        ]) as never,
+      );
+
+      const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+      expect(verdict.baseResult).toBe("fail");
+      expect(verdict.blockerClass).toBe("service_unavailable");
+      expect(verdict.summary).toContain("does not state whether it is staged");
+    });
+
+    // The deploy gate was already refusing, on its per-provider heartbeat term.
+    // It must refuse on the identity too, so the reason names the staged process
+    // rather than a stale provider scope that is merely its consequence.
+    it("REFUSES the deploy gate for a staged worker on the identity, not only on a downstream heartbeat", async () => {
+      process.env.SYNC_DEPLOY_GATE_MODE = "block";
+      vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue(
+        registry({ stagingIdle: true }) as never,
+      );
+
+      const verdict = await releaseGates.evaluateDeployGate({ persist: false });
+
+      expect(verdict.baseResult).toBe("fail");
+      expect(verdict.verdict).toBe("blocked");
+      expect(
+        (verdict.evidence as { runtimeRegistry: { workerActive: boolean } })
+          .runtimeRegistry.workerActive,
+      ).toBe(false);
+    });
+
+    // measure_only must not become a bypass: the base result still says fail.
+    it("still records a staged worker as a base FAILURE under measure_only", async () => {
+      process.env.SYNC_RELEASE_GATE_MODE = "measure_only";
+      vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue(
+        registry({ stagingIdle: true }) as never,
+      );
+
+      const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+      expect(verdict.baseResult).toBe("fail");
+      expect(verdict.verdict).toBe("measure_only");
+    });
   });
 });

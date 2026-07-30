@@ -191,3 +191,224 @@ export function evaluateWorkerHealth(input: {
     holdsNothing,
   };
 }
+
+/**
+ * The staged worker's own row in `sync_runtime_instances`.
+ *
+ * Read here so the compact summary is self-contained: the heartbeat metadata and
+ * the runtime row are written by different code paths, and a proof that quotes
+ * only one of them cannot show they agree.
+ */
+export async function readStagedRuntimeInstance(
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<Array<Record<string, unknown>>>,
+  instanceId: string,
+): Promise<{ instanceId: string; buildId: string | null; healthState: string | null; updatedAt: string | null } | null> {
+  const rows = await sql`
+    SELECT instance_id, build_id, health_state, updated_at
+      FROM sync_runtime_instances
+     WHERE instance_id = ${instanceId}
+     LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    instanceId: String(row.instance_id),
+    buildId: row.build_id == null ? null : String(row.build_id),
+    healthState: row.health_state == null ? null : String(row.health_state),
+    updatedAt: row.updated_at == null ? null : new Date(String(row.updated_at)).toISOString(),
+  };
+}
+
+/** Every field of the compact summary. Bounded by construction: no arrays of rows. */
+export const COMPACT_SUMMARY_SCHEMA_VERSION = 1;
+
+/**
+ * A bounded, machine-readable statement of the staged predicate.
+ *
+ * The verbose payload embeds every heartbeat row and grows past 64 KiB on a real
+ * host. A caller that pipes that through a shell capture gets a truncated
+ * document, and a truncated document that is then parsed leniently — or parsed
+ * strictly by a step whose failure is not propagated — turns a broken extraction
+ * into a green result. That happened: JSON parsing raised, the staged worker id
+ * came out empty, and the rehearsal still printed PASSED.
+ *
+ * So the proof gets its own artifact: small, fixed-shape, and containing exactly
+ * the fields a caller must check. It carries no row arrays, so its size does not
+ * grow with the fleet.
+ */
+export function buildCompactStagedSummary(input: {
+  generatedAt: string;
+  evaluation: WorkerHealthEvaluation;
+  onlineWorkers: number;
+  onlineWindowMinutes: number;
+  expectBuildId: string | null;
+  minHeartbeatAfter: string | null;
+  stagedWorkerCount: number;
+  ownedWorkUnits: Record<string, number> | null;
+  runtimeInstance: Awaited<ReturnType<typeof readStagedRuntimeInstance>>;
+}) {
+  const e = input.evaluation;
+  const runtime = input.runtimeInstance;
+  return {
+    schemaVersion: COMPACT_SUMMARY_SCHEMA_VERSION,
+    generatedAt: input.generatedAt,
+    pass: e.pass,
+    reason: e.reason,
+    onlineWindowMinutes: input.onlineWindowMinutes,
+    expectBuildId: input.expectBuildId,
+    minHeartbeatAfter: input.minHeartbeatAfter,
+    stagedWorkerCount: input.stagedWorkerCount,
+    stagedWorkerId: e.stagedWorkerId,
+    stagedWorkerStartedAt: e.stagedWorkerStartedAt,
+    stagedWorkerBuildId: e.stagedWorkerBuildId,
+    stagedWorkerContractBuildId: e.stagedWorkerContractBuildId,
+    stagedIsThisRun: e.stagedIsThisRun,
+    stagedBuildIdMatches: e.stagedBuildIdMatches,
+    heartbeatSatisfied: e.heartbeatSatisfied,
+    holdsNothing: e.holdsNothing,
+    onlineWorkers: input.onlineWorkers,
+    ownedWorkUnits: input.ownedWorkUnits,
+    runtimeInstance: runtime,
+    // The heartbeat metadata and the runtime row must name the same build, or the
+    // two writers disagree about which release is staged.
+    runtimeInstanceMatchesStaged:
+      runtime != null &&
+      e.stagedWorkerId != null &&
+      runtime.instanceId === e.stagedWorkerId &&
+      runtime.buildId != null &&
+      runtime.buildId === e.stagedWorkerBuildId,
+  };
+}
+
+/**
+ * Independently verify a compact staged proof, or say exactly why not.
+ *
+ * The checker's exit code is not evidence on its own. The rehearsal that
+ * "passed" had the checker exit 0 while its own extraction raised, produced an
+ * empty worker id, and printed PASSED anyway — a proof chain that fails open. So
+ * the artifact is verified here field by field, against the same expectations the
+ * caller pinned, and every shortfall is named rather than summarised.
+ *
+ * This is a pure function so each refusal can be asserted without a database, a
+ * container or a host.
+ */
+export function verifyCompactStagedProof(input: {
+  summary: unknown;
+  expectBuildId: string;
+  minHeartbeatAfter: string;
+  /** Bytes actually read, checked against the artifact's own declared length. */
+  observedBytes?: number;
+  expectedBytes?: number;
+  requirePass?: boolean;
+}): { ok: boolean; failures: string[] } {
+  const failures: string[] = [];
+  const fail = (message: string) => failures.push(message);
+  const requirePass = input.requirePass ?? true;
+
+  if (
+    input.observedBytes != null &&
+    input.expectedBytes != null &&
+    input.observedBytes !== input.expectedBytes
+  ) {
+    fail(
+      `artifact truncated in transit: read ${input.observedBytes} bytes, the writer reported ${input.expectedBytes}`,
+    );
+  }
+
+  if (input.summary == null || typeof input.summary !== "object" || Array.isArray(input.summary)) {
+    fail("the proof artifact is not a JSON object");
+    return { ok: false, failures };
+  }
+  const s = input.summary as Record<string, unknown>;
+
+  if (s.schemaVersion !== COMPACT_SUMMARY_SCHEMA_VERSION) {
+    fail(
+      `unexpected schemaVersion ${JSON.stringify(s.schemaVersion)}; this verifier understands ${COMPACT_SUMMARY_SCHEMA_VERSION}`,
+    );
+  }
+
+  const str = (key: string): string | null =>
+    typeof s[key] === "string" && (s[key] as string).trim().length > 0 ? (s[key] as string) : null;
+
+  if (requirePass) {
+    if (s.pass !== true) fail(`pass is ${JSON.stringify(s.pass)}, not true`);
+    if (s.reason !== "healthy") fail(`reason is ${JSON.stringify(s.reason)}, not "healthy"`);
+  }
+  if (s.stagedWorkerCount !== 1) {
+    fail(`stagedWorkerCount is ${JSON.stringify(s.stagedWorkerCount)}, not exactly 1`);
+  }
+
+  // The failure that started this: an empty id read as success.
+  const stagedWorkerId = str("stagedWorkerId");
+  if (stagedWorkerId == null) fail("stagedWorkerId is missing or empty");
+
+  const startedAt = str("stagedWorkerStartedAt");
+  if (startedAt == null) {
+    fail("stagedWorkerStartedAt is missing or empty");
+  } else {
+    const startedMs = new Date(startedAt).getTime();
+    const boundMs = new Date(input.minHeartbeatAfter).getTime();
+    if (!Number.isFinite(startedMs)) fail(`stagedWorkerStartedAt ${startedAt} is not a timestamp`);
+    else if (!Number.isFinite(boundMs)) fail(`minHeartbeatAfter ${input.minHeartbeatAfter} is not a timestamp`);
+    else if (startedMs < boundMs) {
+      fail(`stagedWorkerStartedAt ${startedAt} precedes the container start ${input.minHeartbeatAfter}`);
+    }
+  }
+
+  for (const key of ["stagedWorkerBuildId", "stagedWorkerContractBuildId"] as const) {
+    const value = str(key);
+    if (value !== input.expectBuildId) {
+      fail(`${key} is ${JSON.stringify(s[key])}, expected ${input.expectBuildId}`);
+    }
+  }
+  if (s.stagedIsThisRun !== true) fail(`stagedIsThisRun is ${JSON.stringify(s.stagedIsThisRun)}`);
+  if (s.stagedBuildIdMatches !== true) {
+    fail(`stagedBuildIdMatches is ${JSON.stringify(s.stagedBuildIdMatches)}`);
+  }
+  if (s.onlineWorkers !== 0) fail(`onlineWorkers is ${JSON.stringify(s.onlineWorkers)}, not 0`);
+
+  // Zero-work has to be stated AND agreed: a null owned-work map with
+  // holdsNothing true would be a vacuous pass.
+  const owned = s.ownedWorkUnits;
+  if (owned == null || typeof owned !== "object" || Array.isArray(owned)) {
+    fail("ownedWorkUnits is missing; zero work was never established");
+  } else {
+    const entries = Object.entries(owned as Record<string, unknown>);
+    if (entries.length === 0) fail("ownedWorkUnits is empty; zero work was never established");
+    for (const [key, value] of entries) {
+      if (typeof value !== "number") fail(`ownedWorkUnits.${key} is not a number`);
+      else if (value !== 0) fail(`ownedWorkUnits.${key} is ${value}, not 0`);
+    }
+    if (s.holdsNothing !== true) {
+      fail(`holdsNothing is ${JSON.stringify(s.holdsNothing)} while ownedWorkUnits reads zero`);
+    }
+  }
+
+  // The runtime row is written by a different code path than the heartbeat
+  // metadata, so a proof quoting only one cannot show they agree.
+  const runtime = s.runtimeInstance;
+  if (runtime == null || typeof runtime !== "object" || Array.isArray(runtime)) {
+    fail("runtimeInstance is missing; sync_runtime_instances was never corroborated");
+  } else {
+    const r = runtime as Record<string, unknown>;
+    if (r.instanceId !== stagedWorkerId) {
+      fail(`runtimeInstance.instanceId ${JSON.stringify(r.instanceId)} is not the staged worker ${JSON.stringify(stagedWorkerId)}`);
+    }
+    if (r.buildId !== input.expectBuildId) {
+      fail(`runtimeInstance.buildId is ${JSON.stringify(r.buildId)}, expected ${input.expectBuildId}`);
+    }
+    // `health_state` is binary. A row reading anything else means a value was
+    // written that the schema does not admit and no reader distinguishes — which
+    // is how staged runtime rows were being discarded unnoticed.
+    if (r.healthState !== "healthy") {
+      fail(
+        `runtimeInstance.healthState is ${JSON.stringify(r.healthState)}; this column is binary and a staged worker's process health is 'healthy' — staging is proven by the disabled/all heartbeat and the run identity, not here`,
+      );
+    }
+  }
+  if (s.runtimeInstanceMatchesStaged !== true) {
+    fail(`runtimeInstanceMatchesStaged is ${JSON.stringify(s.runtimeInstanceMatchesStaged)}`);
+  }
+
+  return { ok: failures.length === 0, failures };
+}

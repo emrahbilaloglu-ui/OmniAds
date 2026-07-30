@@ -29,7 +29,7 @@ function usage() {
     [
       "usage:",
       "  node --import tsx scripts/sync-worker-retire.ts capture (--runtime-instance-id <id> | --online-instance) [--out <file>]",
-      "  node --import tsx scripts/sync-worker-retire.ts retire --census <file> --container-stopped",
+      "  node --import tsx scripts/sync-worker-retire.ts retire --census <file> --container-stopped --container-finished-at <iso> [--wait-for-held-work-seconds <n>] [--heartbeat-interval-ms <n>]",
     ].join("\n"),
   );
 }
@@ -79,7 +79,39 @@ async function main() {
     // Absent flag means absent assertion, and an absent assertion is a refusal.
     const containerStopped = argv.includes("--container-stopped");
     const census = JSON.parse(fs.readFileSync(censusPath, "utf8")) as OutgoingWorkerCensus;
-    const result = await retireStoppedSyncWorker({ census, containerStopped });
+    // A runner lease is renewed while working and lapses on its own within a
+    // couple of minutes of the worker stopping, so the caller may budget a wait
+    // for THOSE EXACT ROWS to reach zero. Absent, the default is no wait at all:
+    // waiting is a deliberate decision with a budget the caller owns.
+    const waitSecondsRaw = argValue(argv, "--wait-for-held-work-seconds");
+    const waitSeconds = waitSecondsRaw == null ? 0 : Number(waitSecondsRaw);
+    if (!Number.isFinite(waitSeconds) || waitSeconds < 0) {
+      throw new Error("--wait-for-held-work-seconds must be a non-negative number");
+    }
+    // The container's exact exit time. Required: "stopped" cannot bound WHEN the
+    // worker last wrote, and a graceful shutdown legitimately writes after the
+    // census was taken. Without this the proof cannot distinguish a write made
+    // while shutting down from one made after the process was gone.
+    const containerFinishedAt = argValue(argv, "--container-finished-at");
+    if (!containerFinishedAt) {
+      throw new Error("retire requires --container-finished-at <iso> (docker inspect .State.FinishedAt)");
+    }
+    const intervalRaw = argValue(argv, "--heartbeat-interval-ms");
+    const heartbeatIntervalMs = intervalRaw == null ? undefined : Number(intervalRaw);
+    if (heartbeatIntervalMs != null && (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0)) {
+      throw new Error("--heartbeat-interval-ms must be a positive number");
+    }
+    const result = await retireStoppedSyncWorker({
+      census,
+      containerStopped,
+      containerFinishedAt,
+      heartbeatIntervalMs:
+        heartbeatIntervalMs ??
+        (process.env.WORKER_HEARTBEAT_INTERVAL_MS
+          ? Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS)
+          : undefined),
+      waitForHeldWorkMs: Math.round(waitSeconds * 1000),
+    });
     console.log(JSON.stringify({ pass: true, ...result }, null, 2));
     process.exit(0);
   }

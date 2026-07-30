@@ -523,7 +523,9 @@ async function main() {
         await db.query(
           `INSERT INTO sync_worker_heartbeats
              (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
-           VALUES ($1, 'durable_sync_worker', $2, $3, now(), $4::jsonb)`,
+           VALUES ($1, 'durable_sync_worker', $2, $3,
+                   CASE WHEN $2 = 'all' THEN now() ELSE now() - interval '3 seconds' END,
+                   $4::jsonb)`,
           [
             scope === "all" ? OUTGOING : `${OUTGOING}:${scope}`,
             scope,
@@ -578,7 +580,8 @@ async function main() {
 
     // Without the explicit container-stopped assertion it refuses.
     const noAssertion = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
-      "retire", "--census", censusPath],
+      "retire", "--census", censusPath,
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString()],
       { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
     assert(
       noAssertion.status !== 0,
@@ -586,7 +589,9 @@ async function main() {
     );
 
     const retire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
-      "retire", "--census", censusPath, "--container-stopped"],
+      "retire", "--census", censusPath, "--container-stopped",
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
       { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
     assert(retire.status === 0, `S13: retirement refused a genuinely stopped worker: ${retire.stdout}${retire.stderr}`);
 
@@ -628,11 +633,19 @@ async function main() {
       [`${OUTGOING}:meta`],
     );
     const liveRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
-      "retire", "--census", censusPath, "--container-stopped"],
+      "retire", "--census", censusPath, "--container-stopped",
+      // The container exited BEFORE that extra beat, so the beat cannot be part
+      // of its shutdown.
+      "--container-finished-at", new Date(Date.now() - 60_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
       { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    // The refusal is now named more precisely than "it moved": the row wrote past
+    // the canonical shutdown write, so it is not this worker's shutdown. Movement
+    // BEFORE that point is the graceful-stop case and S19 proves it is accepted.
     assert(
-      liveRetire.status !== 0 && liveRetire.stdout.includes("row_moved"),
-      `S14: a worker that beat after the census was retired anyway: ${liveRetire.stdout.slice(0, 600)}`,
+      liveRetire.status !== 0 &&
+        /heartbeat_after_container_exit|wrote_during_stability_window/.test(liveRetire.stdout),
+      `S14: a worker that beat past its own shutdown was retired anyway: ${liveRetire.stdout.slice(0, 600)}`,
     );
     const stillRunning = await client.query<{ status: string }>(
       `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1`, [`${OUTGOING}:meta`],
@@ -641,7 +654,7 @@ async function main() {
       stillRunning.rows[0]?.status === "running",
       `S14: the live row was modified despite the refusal (${stillRunning.rows[0]?.status})`,
     );
-    log("S14 PASS liveness refused: a censused worker that beats again is refused, and nothing it owns is modified");
+    log("S14 PASS liveness refused: a worker that beats after its container exited is refused, and nothing it owns is modified");
 
     // ── S15. Retirement refuses a worker still holding work ────────────────
     const bizId = "00000000-0000-4000-8000-0000000000ab";
@@ -669,7 +682,9 @@ async function main() {
       .catch(() => false);
     if (leaseInserted) {
       const workRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
-        "retire", "--census", censusPath, "--container-stopped"],
+        "retire", "--census", censusPath, "--container-stopped",
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
         { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
       assert(
         workRetire.status !== 0 && workRetire.stdout.includes("worker_holds_work"),
@@ -747,7 +762,9 @@ async function main() {
     );
 
     const realRetire = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
-      "retire", "--census", realCensusPath, "--container-stopped"],
+      "retire", "--census", realCensusPath, "--container-stopped",
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
       { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
     assert(
       realRetire.status === 0,
@@ -770,6 +787,548 @@ async function main() {
     log(`S16 PASS real sequence: a live worker was captured while running, stopped for real — its own shutdown moved the all row's timestamp, which is the movement a liveness check placed too early would refuse — and retirement then accepted it across ${realAfter.rows.length} scope(s), leaving online_workers at 0`);
 
     await client.query(`DELETE FROM sync_worker_heartbeats`);
+
+    // ── S17. Provenance stamps must not block retirement ──────────────────
+    //
+    // The live-host refusal. A real worker's checkpoints keep `lease_owner`
+    // forever with `lease_expires_at IS NULL` — 185 meta and 161 google on
+    // production — because that column records who last ADVANCED the checkpoint,
+    // not who holds it. Gating retirement on rows that merely bear the name
+    // means no worker that has ever done work can be retired, which is why every
+    // seeded seam above passed while the real host refused.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const STAMPED = "sync-worker:18:seamstamped";
+    const stampedStartedAt = "2026-07-29T12:22:03.480Z";
+    const stampedBuild = "8de30c461c51d3e76e7cd5cc4fb71984751d014e";
+    for (const [scope, status] of [["all", "stopping"], ["meta", "running"]] as const) {
+      await db.query(
+        `INSERT INTO sync_worker_heartbeats
+           (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
+         VALUES ($1, 'durable_sync_worker', $2, $3,
+                 CASE WHEN $2 = 'all' THEN now() ELSE now() - interval '3 seconds' END,
+                 $4::jsonb)`,
+        [
+          scope === "all" ? STAMPED : `${STAMPED}:${scope}`,
+          scope, status,
+          JSON.stringify({ workerBuildId: stampedBuild, workerStartedAt: stampedStartedAt }),
+        ],
+      );
+    }
+    // Provenance: the owner names this worker, but the lease is NOT in force.
+    //
+    // On production the shape is a checkpoint with `lease_expires_at IS NULL`;
+    // here it is a runner lease already lapsed. Both are the same fact — a row
+    // bearing the worker's name that nobody holds — and a runner lease needs no
+    // partition/account FK chain, so the proof does not depend on constructing
+    // one. What matters is that the two definitions DISAGREE about this row and
+    // that only the held-work one gates.
+    const stampBiz = "00000000-0000-4000-8000-0000000000cd";
+    await client.query(
+      `INSERT INTO businesses (id, name) VALUES ($1, 'seam-stamped') ON CONFLICT (id) DO NOTHING`,
+      [stampBiz],
+    ).catch(() => undefined);
+    await client.query(
+      `INSERT INTO sync_runner_leases (business_id, provider_scope, lease_owner, lease_expires_at)
+       VALUES ($1, 'meta', $2, now() - interval '10 minutes')
+       ON CONFLICT (business_id, provider_scope) DO UPDATE
+         SET lease_owner = EXCLUDED.lease_owner, lease_expires_at = EXCLUDED.lease_expires_at`,
+      [stampBiz, `${STAMPED}:meta`],
+    );
+
+    // The two definitions must genuinely differ on this row, or the test proves
+    // nothing: the shared helper counts it, the held-work rule does not.
+    const { getSyncWorkerOwnedWorkUnits } = await import("@/lib/sync/worker-health");
+    const { readHeldWorkForWorker } = await import("@/lib/sync/worker-retirement");
+    const ownedStamp = await getSyncWorkerOwnedWorkUnits([`${STAMPED}:meta`]);
+    const heldStamp = await readHeldWorkForWorker([`${STAMPED}:meta`]);
+    assert(
+      ownedStamp.runnerLeases === 1,
+      `S17: the shared owned-work helper must still count a lapsed row by name (got ${ownedStamp.runnerLeases}); if it does not, this case proves nothing`,
+    );
+    assert(
+      heldStamp.runnerLeases === 0,
+      `S17: a LAPSED lease is still being counted as held (${heldStamp.runnerLeases}); that is the live-host refusal`,
+    );
+
+    const stampCensus = path.join(tmp, "stamped-census.json");
+    const sCap = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--runtime-instance-id", STAMPED, "--out", stampCensus],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(sCap.status === 0, `S17: capture failed: ${sCap.stdout}${sCap.stderr}`);
+    const sRet = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", stampCensus, "--container-stopped",
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      sRet.status === 0,
+      `S17: a lapsed lease bearing the worker's name blocked retirement, which is the exact live-host refusal: ${sRet.stdout}${sRet.stderr}`,
+    );
+    const sPayload = JSON.parse(sRet.stdout.slice(sRet.stdout.indexOf("{")));
+    assert(
+      Object.values(sPayload.heldWork as Record<string, number>).every((n) => n === 0),
+      `S17: heldWork should be zero for a lapsed lease: ${JSON.stringify(sPayload.heldWork)}`,
+    );
+    assert(
+      sPayload.ownedWorkUnits.runnerLeases === 1,
+      `S17: the report should still SHOW the row by name, for the operator: ${JSON.stringify(sPayload.ownedWorkUnits)}`,
+    );
+    // The row itself is not touched: retirement writes only heartbeat rows.
+    const stampAfter = await client.query<{ lease_owner: string }>(
+      `SELECT lease_owner FROM sync_runner_leases WHERE business_id = $1 AND provider_scope = 'meta'`,
+      [stampBiz],
+    );
+    assert(
+      stampAfter.rows[0]?.lease_owner === `${STAMPED}:meta`,
+      "S17: retirement modified a lease row; its blast radius is sync_worker_heartbeats only",
+    );
+    await client.query(`DELETE FROM sync_runner_leases WHERE lease_owner LIKE $1`, [`${STAMPED}%`]);
+    log("S17 PASS provenance not held: a lapsed lease bearing the worker's name is counted by the shared helper but NOT held, so retirement proceeds, reports it for the operator, and leaves the row untouched");
+
+    // ── S18. A lease still IN FORCE refuses, and the bounded wait clears it ─
+    await client.query(`DELETE FROM sync_worker_heartbeats WHERE worker_id LIKE $1`, [`${STAMPED}%`]);
+    for (const [scope, status] of [["all", "stopping"], ["meta", "running"]] as const) {
+      await db.query(
+        `INSERT INTO sync_worker_heartbeats
+           (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
+         VALUES ($1, 'durable_sync_worker', $2, $3,
+                 CASE WHEN $2 = 'all' THEN now() ELSE now() - interval '3 seconds' END,
+                 $4::jsonb)`,
+        [
+          scope === "all" ? STAMPED : `${STAMPED}:${scope}`,
+          scope, status,
+          JSON.stringify({ workerBuildId: stampedBuild, workerStartedAt: stampedStartedAt }),
+        ],
+      );
+    }
+    const liveLease = await client
+      .query(
+        `INSERT INTO sync_runner_leases (business_id, provider_scope, lease_owner, lease_expires_at)
+         VALUES ($1, 'meta', $2, now() + interval '6 seconds')
+         ON CONFLICT (business_id, provider_scope) DO UPDATE
+           SET lease_owner = EXCLUDED.lease_owner, lease_expires_at = EXCLUDED.lease_expires_at`,
+        [stampBiz, `${STAMPED}:meta`],
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (liveLease) {
+      const wCap = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+        "capture", "--runtime-instance-id", STAMPED, "--out", stampCensus],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+      assert(wCap.status === 0, `S18: capture failed: ${wCap.stdout}${wCap.stderr}`);
+
+      // No budget: a lease in force refuses immediately.
+      const noWait = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+        "retire", "--census", stampCensus, "--container-stopped",
+      "--container-finished-at", new Date(Date.now() + 5_000).toISOString(),
+      "--heartbeat-interval-ms", "1000"],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+      assert(
+        noWait.status !== 0 && noWait.stdout.includes("worker_holds_work"),
+        `S18: a lease in force was accepted with no wait budget: ${noWait.stdout.slice(0, 500)}`,
+      );
+
+      // With a budget, it waits for THAT row to lapse and then proceeds.
+      const waited = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+        "retire", "--census", stampCensus, "--container-stopped",
+        "--container-finished-at", new Date(Date.now() + 120_000).toISOString(),
+        "--heartbeat-interval-ms", "500",
+        "--wait-for-held-work-seconds", "40"],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+      assert(
+        waited.status === 0,
+        `S18: the bounded wait did not clear a lease that lapses in 6s: ${waited.stdout}${waited.stderr}`,
+      );
+      const wPayload = JSON.parse(waited.stdout.slice(waited.stdout.indexOf("{")));
+      assert(
+        wPayload.waitedForHeldWorkMs > 0,
+        `S18: retirement reported no wait despite a lease in force at the start: ${JSON.stringify(wPayload.waitedForHeldWorkMs)}`,
+      );
+      await client.query(`DELETE FROM sync_runner_leases WHERE lease_owner LIKE $1`, [`${STAMPED}%`]);
+      log(`S18 PASS lease in force: refused with no budget, then cleared by waiting ${wPayload.waitedForHeldWorkMs}ms for that exact row to lapse — a deadline that passes still refuses`);
+    } else {
+      log("S18 SKIP lease in force: could not seed a runner lease on this schema");
+    }
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+
+    // ── S19. THE INCIDENT, against a real worker and a real graceful stop ──
+    //
+    // Production refused `row_moved` because `google_ads` legitimately advanced
+    // between the pre-stop census and the moment the container reached stopped:
+    // a graceful shutdown keeps beating while it finishes. Comparing every
+    // post-stop row to the pre-stop census is therefore incompatible with any
+    // real graceful stop — and blindly accepting movement would hide a live
+    // worker. This proves the replacement: movement is accepted only when it is
+    // bounded by the canonical shutdown write and the container's own exit, and
+    // only when a two-sample window shows nothing writing now.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const graceful = startWorker({
+      ...workerEnv,
+      ADSECUTE_SYNC_GLOBAL_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_META_SYNC_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_GOOGLE_SYNC_ENABLED: "enabled",
+      ADSECUTE_SYNC_LANE_SHOPIFY_SYNC_ENABLED: "enabled",
+      WORKER_HEARTBEAT_INTERVAL_MS: "500",
+    });
+    workers.push(graceful);
+    let scopes = 0;
+    for (let i = 0; i < 60 && graceful.exitCode == null; i += 1) {
+      const { rows } = await client.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM sync_worker_heartbeats
+          WHERE status NOT IN ('disabled','stopping','stopped')`,
+      );
+      scopes = Number(rows[0]?.n ?? 0);
+      if (scopes >= 2) break;
+      await sleep(400);
+    }
+    assert(scopes >= 2, `S19: the worker never registered its scopes.\n${graceful.output.slice(-1200)}`);
+
+    // Captured while it is RUNNING — the immutable identity/scope binding.
+    const gCensusPath = path.join(tmp, "graceful-census.json");
+    const gCap = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "capture", "--online-instance", "--out", gCensusPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(gCap.status === 0, `S19: capture failed: ${gCap.stdout}${gCap.stderr}`);
+    const gCensus = JSON.parse(fs.readFileSync(gCensusPath, "utf8"));
+
+    // Let it keep beating AFTER the census, which is the incident's precondition.
+    await sleep(1500);
+    graceful.stop();
+    for (let i = 0; i < 60 && graceful.exitCode == null; i += 1) await sleep(250);
+    assert(graceful.exitCode != null, "S19: the worker did not exit");
+    const finishedAt = new Date().toISOString();
+    await sleep(500);
+
+    // The precondition really happened: at least one scope moved past its census.
+    const post = await client.query<{ worker_id: string; last_heartbeat_at: Date }>(
+      `SELECT worker_id, last_heartbeat_at FROM sync_worker_heartbeats
+        WHERE worker_id = $1 OR worker_id LIKE $2`,
+      [gCensus.runtimeInstanceId, `${gCensus.runtimeInstanceId}:%`],
+    );
+    const movedScopes = post.rows.filter((r) => {
+      const censused = gCensus.rows.find((c: { workerId: string }) => c.workerId === r.worker_id);
+      return censused && r.last_heartbeat_at.getTime() > new Date(censused.lastHeartbeatAt).getTime();
+    });
+    assert(
+      movedScopes.length > 0,
+      "S19: no row advanced after the census, so this run does not reproduce the incident at all",
+    );
+
+    const gRet = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", gCensusPath, "--container-stopped",
+      "--container-finished-at", finishedAt, "--heartbeat-interval-ms", "500"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      gRet.status === 0,
+      `S19: retirement refused a real graceful stop whose rows advanced during it — the exact production refusal: ${gRet.stdout}${gRet.stderr}`,
+    );
+    const gPayload = JSON.parse(gRet.stdout.slice(gRet.stdout.indexOf("{")));
+    assert(
+      Array.isArray(gPayload.diagnostics?.movedDuringGracefulStop) &&
+        gPayload.diagnostics.movedDuringGracefulStop.length > 0,
+      `S19: the proof did not record the movement it accepted: ${JSON.stringify(gPayload.diagnostics)}`,
+    );
+    const gAfter = await client.query<{ status: string }>(
+      `SELECT status FROM sync_worker_heartbeats WHERE worker_id = $1 OR worker_id LIKE $2`,
+      [gCensus.runtimeInstanceId, `${gCensus.runtimeInstanceId}:%`],
+    );
+    assert(
+      gAfter.rows.every((r) => ["stopping", "stopped"].includes(r.status)),
+      `S19: not every scope is terminal after retirement: ${JSON.stringify(gAfter.rows)}`,
+    );
+    const gOnline = await getSyncWorkerHealthSummary({ onlineWindowMinutes: 5 });
+    assert(
+      gOnline.onlineWorkers === 0,
+      `S19: online_workers is ${gOnline.onlineWorkers}; the compound predicate would still refuse`,
+    );
+    log(`S19 PASS the incident, resolved: a real worker's scope advanced ${movedScopes.length} time(s) after the census during a genuine graceful stop, retirement ACCEPTED it on positive post-stop proof (canonical terminal + exit-time bound + two-sample silence), and online_workers fell to 0`);
+
+    // ── S20. A write after the proof still refuses ─────────────────────────
+    //
+    // The accepted movement above must not become a licence to accept any
+    // movement. A row that advances past the canonical shutdown write is not
+    // this worker's shutdown, whatever the census said.
+    const laneId = `${gCensus.runtimeInstanceId}:meta`;
+    await client.query(
+      `UPDATE sync_worker_heartbeats SET status = 'running', last_heartbeat_at = now() + interval '1 hour'
+        WHERE worker_id = $1`,
+      [laneId],
+    );
+    const gRet2 = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-retire.ts",
+      "retire", "--census", gCensusPath, "--container-stopped",
+      "--container-finished-at", finishedAt, "--heartbeat-interval-ms", "500"],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(
+      gRet2.status !== 0 && /heartbeat_after_container_exit/.test(gRet2.stdout),
+      `S20: a row writing an hour after the container exited was accepted: ${gRet2.stdout.slice(0, 700)}`,
+    );
+    log("S20 PASS movement is not blanket-accepted: a row that writes after the container's exit still refuses, so accepting graceful-stop movement is not a licence to accept any movement");
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+
+    // ── S21. The EVIDENCE chain, against a real database ───────────────────
+    //
+    // The rehearsal that "passed" while broken: the verbose payload passed 64 KiB,
+    // the shell capture truncated it, the parse raised, the staged worker id came
+    // out empty, and the verdict stood. The checker's exit code was 0 and that
+    // was allowed to stand for the whole proof. So the artifact is bounded, and
+    // it is verified by a separate program that exits non-zero.
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    const evidenceWorker = startWorker({
+      ...workerEnv,
+      SYNC_WORKER_STAGING_IDLE: "1",
+      WORKER_HEARTBEAT_INTERVAL_MS: "1000",
+    });
+    workers.push(evidenceWorker);
+    let evidenceId: string | null = null;
+    for (let i = 0; i < 40 && evidenceWorker.exitCode == null; i += 1) {
+      const { rows } = await client.query<{ worker_id: string }>(
+        `SELECT worker_id FROM sync_worker_heartbeats WHERE status = 'disabled'`,
+      );
+      if (rows[0]) { evidenceId = rows[0].worker_id; break; }
+      await sleep(400);
+    }
+    assert(evidenceId != null, `S21: the staged worker never registered.\n${evidenceWorker.output.slice(-1200)}`);
+
+    // Bulk the verbose payload past 64 KiB, exactly as a real fleet does, so the
+    // artifact's boundedness is proven against the condition that broke it.
+    for (let i = 0; i < 260; i += 1) {
+      await client.query(
+        `INSERT INTO sync_worker_heartbeats
+           (worker_id, instance_type, provider_scope, status, last_heartbeat_at, meta_json)
+         VALUES ($1, 'durable_sync_worker', 'meta', 'stopped', now() - interval '2 hours', $2::jsonb)`,
+        [
+          `sync-worker:${i}:seamnoise`,
+          JSON.stringify({
+            consumeStage: "lifecycle_tick_succeeded".repeat(4),
+            batchBusinessIds: Array.from({ length: 8 }, (_, n) => `biz-${i}-${n}`),
+            runtimeContract: { buildId: "staged-worker-seam", issueCodes: [] },
+          }),
+        ],
+      );
+    }
+    const summaryPath = path.join(tmp, "staged-summary.json");
+    const verbosePath = path.join(tmp, "staged-verbose.json");
+    const check = spawnSync("node", ["--import", "tsx", "scripts/sync-worker-healthcheck.ts",
+      "--expect-staged-idle", "--online-window-minutes", "5",
+      "--summary-out", summaryPath],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    fs.writeFileSync(verbosePath, check.stdout);
+    assert(check.status === 0, `S21: the staged predicate refused: ${check.stdout.slice(-800)}`);
+    assert(
+      check.stdout.length > 65_536,
+      `S21: the verbose payload is only ${check.stdout.length} bytes, so this does not exercise the truncation condition`,
+    );
+    const artifact = fs.readFileSync(summaryPath, "utf8");
+    assert(
+      artifact.length < 2_048,
+      `S21: the compact artifact is ${artifact.length} bytes; it must not grow with the fleet`,
+    );
+    const declared = /summary_bytes=(\d+) summary_sha256=([0-9a-f]+)/.exec(check.stdout);
+    assert(declared != null, "S21: the checker did not declare the artifact's size and digest");
+    assert(
+      Number(declared[1]) === Buffer.byteLength(artifact),
+      `S21: declared ${declared[1]} bytes but the artifact is ${Buffer.byteLength(artifact)}`,
+    );
+    const parsedArtifact = JSON.parse(artifact);
+    assert(
+      parsedArtifact.stagedWorkerId === evidenceId,
+      `S21: the artifact names ${parsedArtifact.stagedWorkerId}, the staged worker is ${evidenceId}`,
+    );
+    const actualInstances = await client.query<{ instance_id: string; service: string; build_id: string }>(
+      `SELECT instance_id, service, build_id FROM sync_runtime_instances ORDER BY updated_at DESC LIMIT 6`,
+    );
+    assert(
+      parsedArtifact.runtimeInstance?.instanceId === evidenceId &&
+        parsedArtifact.runtimeInstanceMatchesStaged === true,
+      `S21: the artifact does not corroborate sync_runtime_instances.\n` +
+        `  artifact.runtimeInstance = ${JSON.stringify(parsedArtifact.runtimeInstance)}\n` +
+        `  staged worker id         = ${evidenceId}\n` +
+        `  rows present             = ${JSON.stringify(actualInstances.rows)}`,
+    );
+    log(`S21 PASS bounded evidence: the verbose payload is ${check.stdout.length} bytes (past the 64 KiB that truncated), the compact artifact is ${Buffer.byteLength(artifact)} bytes, declares its own size and digest, names the exact staged worker and corroborates its runtime row`);
+
+    // ── S22. The verifier refuses a damaged artifact ───────────────────────
+    const startedAtForVerify = parsedArtifact.stagedWorkerStartedAt as string;
+    const verify = (file: string, extra: string[] = []) =>
+      spawnSync("node", ["--import", "tsx", "scripts/verify-staged-proof.ts",
+        "--summary", file, "--expect-build-id", "staged-worker-seam",
+        "--min-heartbeat-after", startedAtForVerify, ...extra],
+        { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+
+    const good = verify(summaryPath, ["--expect-bytes", declared[1], "--expect-sha256", declared[2]]);
+    assert(good.status === 0, `S22: the verifier refused an intact artifact: ${good.stdout}${good.stderr}`);
+
+    // Truncated at 200 bytes, which is what the shell capture effectively did.
+    const truncPath = path.join(tmp, "staged-summary-truncated.json");
+    fs.writeFileSync(truncPath, artifact.slice(0, 200));
+    const trunc = verify(truncPath, ["--expect-bytes", declared[1], "--expect-sha256", declared[2]]);
+    assert(
+      trunc.status !== 0 && /truncated in transit|not valid JSON|digest/.test(trunc.stdout),
+      `S22: a truncated artifact verified: ${trunc.stdout}`,
+    );
+
+    // The exact symptom: an empty staged worker id that once read as success.
+    const emptyIdPath = path.join(tmp, "staged-summary-emptyid.json");
+    fs.writeFileSync(emptyIdPath, JSON.stringify({ ...parsedArtifact, stagedWorkerId: "" }));
+    const emptyId = verify(emptyIdPath);
+    assert(
+      emptyId.status !== 0 && /stagedWorkerId is missing or empty/.test(emptyId.stdout),
+      `S22: an empty staged worker id verified: ${emptyId.stdout}`,
+    );
+
+    // Missing runtime row, and a wrong build.
+    const noRuntimePath = path.join(tmp, "staged-summary-noruntime.json");
+    fs.writeFileSync(noRuntimePath, JSON.stringify({ ...parsedArtifact, runtimeInstance: null, runtimeInstanceMatchesStaged: false }));
+    assert(verify(noRuntimePath).status !== 0, "S22: an artifact with no runtime row verified");
+    const wrongBuild = spawnSync("node", ["--import", "tsx", "scripts/verify-staged-proof.ts",
+      "--summary", summaryPath, "--expect-build-id", "some-other-release",
+      "--min-heartbeat-after", startedAtForVerify],
+      { cwd: REPO_ROOT, env: { ...process.env, ...workerEnv }, encoding: "utf8" });
+    assert(wrongBuild.status !== 0, "S22: an artifact for the wrong build verified");
+
+    // And the whole point: checker exit 0 does not rescue a damaged artifact.
+    assert(
+      check.status === 0 && trunc.status !== 0,
+      "S22: the checker's exit 0 must not make a truncated artifact acceptable",
+    );
+    log("S22 PASS verifier fails closed: intact verifies; truncated, empty-id, missing-runtime and wrong-build all refuse — and the checker's own exit 0 does not rescue any of them");
+
+    // ── S23. A staged runtime row must not stand in for the active worker ───
+    //
+    // The release gate's only worker term was "a fresh worker row on this build
+    // reads healthy". During deploy-disabled that describes the STAGED worker
+    // exactly: same service, same runtime_role, same build_id — the phase starts
+    // the release's own worker on purpose — a genuinely 'healthy' process health,
+    // and a provider_scopes array that is a static per-service constant, not the
+    // lane admission set. Nothing in the row distinguished the two.
+    //
+    // This runs against real PostgreSQL because the fix is partly an ORDER BY. A
+    // mock would happily agree that the newest row is the right one, and that is
+    // the bug: during a cutover the newest worker row is the staged one.
+    const { getRuntimeRegistryStatus } = await import("@/lib/sync/runtime-contract");
+    // A local the closures below can narrow: `client` is nullable at this scope.
+    const regClient = client;
+    if (!regClient) throw new Error("S23: no database client");
+    const REG_BUILD = "registry-seam-build";
+    const contractJson = (service: string, staging: boolean | "absent") => {
+      const config: Record<string, unknown> = { deployGateMode: "block", releaseGateMode: "block" };
+      if (staging !== "absent") config.workerStagingIdle = staging;
+      return JSON.stringify({
+        contractVersion: 1,
+        service,
+        runtimeRole: service,
+        buildId: REG_BUILD,
+        config,
+        validation: { pass: true, issues: [] },
+      });
+    };
+    const seedInstance = async (input: {
+      instanceId: string;
+      service: string;
+      staging: boolean | "absent";
+      ageSeconds?: number;
+      buildId?: string;
+    }) => {
+      await regClient.query(
+        `INSERT INTO sync_runtime_instances (
+           instance_id, service, runtime_role, build_id, db_fingerprint, config_fingerprint,
+           provider_scopes, health_state, contract_json, started_at, last_seen_at, updated_at
+         ) VALUES ($1,$2,$2,$3,'db','cfg',ARRAY['meta']::text[],'healthy',$4::jsonb,
+           now() - ($5 || ' seconds')::interval, now() - ($5 || ' seconds')::interval,
+           now() - ($5 || ' seconds')::interval)`,
+        [
+          input.instanceId,
+          input.service,
+          input.buildId ?? REG_BUILD,
+          contractJson(input.service, input.staging),
+          String(input.ageSeconds ?? 0),
+        ],
+      );
+    };
+    const resetInstances = () => regClient.query(`DELETE FROM sync_runtime_instances`);
+
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:reg:active", service: "worker", staging: false });
+    let reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.workerActive === true && reg.serviceHealth.worker?.stagingIdle === false,
+      `S23 active-only: a proven active worker was not accepted: ${JSON.stringify({ workerActive: reg.workerActive, stagingIdle: reg.serviceHealth.worker?.stagingIdle, issues: reg.issues })}`,
+    );
+
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:reg:staged", service: "worker", staging: true });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.workerPresent === true &&
+        reg.workerActive === false &&
+        reg.serviceHealth.worker?.healthState === "healthy" &&
+        reg.issues.some((issue) => issue.includes("STAGED worker")),
+      `S23 staged-only: the staged worker was accepted as active: ${JSON.stringify({ workerPresent: reg.workerPresent, workerActive: reg.workerActive, healthState: reg.serviceHealth.worker?.healthState, issues: reg.issues })}`,
+    );
+
+    // THE ORDER BY. The staged row is the NEWEST — which is what a cutover
+    // produces, because the staged worker starts after the outgoing one stopped.
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:reg:active", service: "worker", staging: false, ageSeconds: 30 });
+    await seedInstance({ instanceId: "worker:reg:staged", service: "worker", staging: true, ageSeconds: 0 });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.serviceHealth.worker?.instanceId === "worker:reg:active" && reg.workerActive === true,
+      `S23 duplicate: the newer STAGED row masked the active worker: selected ${reg.serviceHealth.worker?.instanceId}, workerActive=${reg.workerActive}`,
+    );
+
+    // A row that does not say which it is cannot prove the active worker is up.
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:reg:legacy", service: "worker", staging: "absent" });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.serviceHealth.worker?.stagingIdle === null &&
+        reg.workerActive === false &&
+        reg.issues.some((issue) => issue.includes("does not state whether it is staged")),
+      `S23 unstated: a row that declines to say was read as active: ${JSON.stringify({ stagingIdle: reg.serviceHealth.worker?.stagingIdle, workerActive: reg.workerActive, issues: reg.issues })}`,
+    );
+    // ...and it must not be preferred over a row that does say.
+    await seedInstance({ instanceId: "worker:reg:active", service: "worker", staging: false, ageSeconds: 30 });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.serviceHealth.worker?.instanceId === "worker:reg:active" && reg.workerActive === true,
+      `S23 unstated ordering: the unstated row outranked the proven one (NULL sorts first under DESC in PostgreSQL): selected ${reg.serviceHealth.worker?.instanceId}`,
+    );
+
+    // Wrong build: another release's rows are not this release's evidence.
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:other", service: "worker", staging: false, buildId: "some-other-release" });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.serviceHealth.worker === null && reg.workerActive === false,
+      `S23 wrong build: a worker row from another release satisfied this build: ${JSON.stringify(reg.serviceHealth.worker)}`,
+    );
+
+    // The transition deploy-disabled -> enable: the staged container is replaced,
+    // the new worker registers under a new instance id, and the gate must follow
+    // the live process rather than the stale staged row it left behind.
+    await resetInstances();
+    await seedInstance({ instanceId: "web:reg:1", service: "web", staging: false });
+    await seedInstance({ instanceId: "worker:reg:staged", service: "worker", staging: true, ageSeconds: 120 });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(reg.workerActive === false, "S23 transition: staged-only was accepted before enable ran");
+    await seedInstance({ instanceId: "worker:reg:enabled", service: "worker", staging: false, ageSeconds: 0 });
+    reg = await getRuntimeRegistryStatus({ buildId: REG_BUILD });
+    assert(
+      reg.serviceHealth.worker?.instanceId === "worker:reg:enabled" && reg.workerActive === true,
+      `S23 transition: after enable the active worker was not selected: ${JSON.stringify({ selected: reg.serviceHealth.worker?.instanceId, workerActive: reg.workerActive })}`,
+    );
+    await resetInstances();
+    log("S23 PASS staged is not active: a staged runtime row is present and healthy but never satisfies the gate's worker term; a newer staged row does not mask an active one; an unstated row is refused and does not outrank a proven one; another release's row is not this one's evidence; and after enable the live worker is selected");
+
+    await client.query(`DELETE FROM sync_worker_heartbeats`);
+    evidenceWorker.stop();
+    await sleep(1200);
 
     // ── S6. Staging is opt-in; the fatal refusal is still the default ───────
     await client.query(`DELETE FROM sync_worker_heartbeats`);

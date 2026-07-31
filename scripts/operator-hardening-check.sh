@@ -39,6 +39,17 @@ export OP_WEB_DIGEST="sha256:333333333333333333333333333333333333333333333333333
 export OP_WORKER_DIGEST="sha256:4444444444444444444444444444444444444444444444444444444444444444"
 export OP_ENV_SHA_ENABLED="5555555555555555555555555555555555555555555555555555555555555555"
 
+# The suite must not depend on the developer's ~/.ssh. run.sh correctly refuses
+# to start without its operator key, and a CI runner has none — so on CI that
+# guard fired before any stub could be reached and group 8 sat for 25s waiting
+# for a connection that was never going to happen. The failure was real, but it
+# was this harness being unportable, not the product misbehaving. A dummy file
+# satisfies the existence guard; the stubbed ssh-add never reads its contents,
+# and no real key is involved anywhere in this suite.
+printf 'not-a-real-key\n' > "${TMP}/operator-key"
+chmod 600 "${TMP}/operator-key"
+export OP_KEY="${TMP}/operator-key"
+
 PASS=0; FAIL=0
 ok()   { printf '  PASS  %s\n' "$*"; PASS=$((PASS+1)); }
 bad()  { printf '  FAIL  %s\n' "$*"; FAIL=$((FAIL+1)); }

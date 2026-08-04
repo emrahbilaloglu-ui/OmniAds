@@ -90,18 +90,51 @@ if [ "${OP_PHASE}" = "preflight" ]; then
     # This is NOT a weakening of the gate. The default is still refusal. To
     # proceed, the caller must name the exact epoch it intends to supersede, that
     # name must match what is actually in the state record, and that epoch must
-    # still be at preflight — so a stale value, a typo, an accidental re-run, or
-    # an epoch with in-flight cutover work cannot fire it. The intent is recorded
-    # in the phase log either way.
+    # be provably finished with — so a stale value, a typo, an accidental re-run,
+    # or an epoch with in-flight cutover work cannot fire it. The intent is
+    # recorded in the phase log either way.
     [ -n "${OP_SUPERSEDE_EPOCH:-}" ] \
       || die "an epoch opened by THIS runner already exists (state wrapper_sha256=${SW}); a second preflight would open a second epoch. Refusing. To deliberately supersede a stale epoch, set OP_SUPERSEDE_EPOCH to its exact id."
     CUR_EPOCH="$(awk -F= '$1=="cutover_epoch"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
     [ "${OP_SUPERSEDE_EPOCH}" = "${CUR_EPOCH}" ] \
       || die "OP_SUPERSEDE_EPOCH='${OP_SUPERSEDE_EPOCH}' does not match the epoch in the state record ('${CUR_EPOCH}'). Refusing to supersede an epoch that is not the one actually there."
     CUR_CHAIN="$(awk -F= '$1=="phase_chain"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
-    [ "${CUR_CHAIN}" = "preflight" ] \
-      || die "epoch ${CUR_EPOCH} has already progressed past preflight (phase_chain=${CUR_CHAIN}); superseding it here would abandon in-flight cutover work. Refusing."
-    log "single-epoch guard: DELIBERATE SUPERSEDE of ${CUR_EPOCH} (phase_chain=${CUR_CHAIN}), authorised by OP_SUPERSEDE_EPOCH"
+    # "still at preflight" was a PROXY for what actually matters — that
+    # superseding strands no in-flight cutover work — and the proxy is wrong in
+    # both directions. An epoch that reaches `fingerprint-pre`, fails, and is
+    # fully rolled back has nothing in flight, yet its artifact is now stale by
+    # exactly the length of the failure; refusing there leaves no sanctioned way
+    # forward at all, which is how an operator ends up hand-editing state. So the
+    # proxy is replaced by the invariant itself, in two parts, both of which must
+    # hold.
+    #
+    # PART 1 — the epoch must not have reached a phase whose effects a supersede
+    # cannot take back. `quiesce` only stops things and `fingerprint-pre` only
+    # reads; restoring production undoes both. From `migrate` onward the schema,
+    # the runtime images or the scheduler have been moved toward the new release,
+    # and a fresh preflight would silently inherit a half-moved system.
+    for ph in ${CUR_CHAIN//,/ }; do
+      case "${ph}" in
+        preflight | quiesce | fingerprint-pre) : ;;
+        *) die "epoch ${CUR_EPOCH} reached '${ph}' (phase_chain=${CUR_CHAIN}); from migrate onward a supersede would inherit a half-moved release. Refusing." ;;
+      esac
+    done
+    # PART 2 — production must actually be back up. The runtime and the scheduler
+    # are precisely what a failed quiesce leaves stopped, so proving both restored
+    # is proving there is nothing left to strand. Nothing needs proving here about
+    # a running wrapper: Gate 5 refuses the phase outright if one exists, before
+    # the wrapper is ever invoked.
+    RUNNING="$(docker ps --filter status=running --format '{{.Names}}' 2>/dev/null | grep -c '^adsecute-' || true)"
+    [ "${RUNNING:-0}" -ge 2 ] \
+      || die "epoch ${CUR_EPOCH} is being superseded but only ${RUNNING:-0} adsecute container(s) are running; production is not restored, so this would strand a stopped runtime. Refusing."
+    BLOCK_SHA="$(awk -F= '$1=="rootcron_block_sha256"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
+    if [ -n "${BLOCK_SHA}" ]; then
+      LIVE_CRON="$(crontab -l 2>/dev/null | sha256sum | awk '{print $1}')"
+      [ "${LIVE_CRON}" != "${BLOCK_SHA}" ] \
+        || die "epoch ${CUR_EPOCH} is being superseded but the live crontab still hashes to its quiesce block (${BLOCK_SHA}); the scheduler was never released. Refusing."
+      log "supersede precondition: scheduler released (live crontab ${LIVE_CRON} is not the quiesce block)"
+    fi
+    log "single-epoch guard: DELIBERATE SUPERSEDE of ${CUR_EPOCH} (phase_chain=${CUR_CHAIN}), production proven restored (${RUNNING} containers up), authorised by OP_SUPERSEDE_EPOCH"
   else
     log "single-epoch guard OK: no epoch for this runner yet"
   fi
@@ -137,12 +170,23 @@ log "phase log (host-side, full): ${PHASE_LOG}"
 # process — `pkill -f hetzner-sync-cutover` would also hit a concurrent run and
 # is exactly the kind of broad sweep this procedure refuses. The PID file sits
 # beside the log so a later, credential-free connection can find it.
+#
+# SYNC_CUTOVER_CONTINUES_FROM defaults to empty, which is byte-for-byte what
+# cutover_runner_run establishes. It is non-empty only when the operator names a
+# prior cutover, and it is needed for a release whose migration is a genuine
+# no-op: `fingerprint-post` refuses an unchanged schema unless some earlier
+# cutover's attestation accounts for it, so the "no schema change" claim is
+# checked rather than believed. Forwarding it trusts nothing — the wrapper
+# re-derives everything itself: the attestation must exist on THIS host, be
+# version 1, carry a schema_identity_post byte-identical to the live schema and
+# the same db_identity, and the plaintext-secret count is re-proved now instead
+# of inherited. A wrong or invented name fails every one of those.
 PID_FILE="${PHASE_LOG%.log}.pid"
 status=0
 SYNC_CUTOVER_INSTALL_DIR="${OP_RUNNER_DIR}" \
 SYNC_CUTOVER_DB_SSH="${OP_DB_SSH}" \
 SYNC_CUTOVER_SCHEDULER="${OP_SCHEDULER}" \
-SYNC_CUTOVER_CONTINUES_FROM="" \
+SYNC_CUTOVER_CONTINUES_FROM="${OP_CONTINUES_FROM:-}" \
 DEPLOY_SHA="${OP_SHA}" \
 WEB_IMAGE_REPO="${OP_WEB_REPO}" \
 WORKER_IMAGE_REPO="${OP_WORKER_REPO}" \

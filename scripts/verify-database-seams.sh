@@ -213,6 +213,15 @@ stage "Cutover self-cleanup (reclaims only its own unreferenced artifact)"
 bash -n scripts/cutover-self-cleanup-check.sh
 npm run test:cutover-self-cleanup
 
+# Same 2026-08-04 blocker, one layer up: once `migrate` refused, the epoch sat at
+# fingerprint-pre with a stale artifact and the single-epoch guard's `phase_chain
+# = "preflight"` proxy left no sanctioned way to open a fresh one. The guard now
+# checks the invariant it was standing in for — a fully reversible chain, and
+# production proven restored — instead of the proxy.
+stage "Cutover supersede guard (refuses by default, allows only a reversible chain)"
+bash -n scripts/cutover-supersede-guard-check.sh
+npm run test:cutover-supersede-guard
+
 stage "Operator hardening (disconnect survival, ordered teardown, non-vacuous evidence)"
 bash -n scripts/operator-hardening-check.sh
 npm run test:operator-hardening

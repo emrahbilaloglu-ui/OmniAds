@@ -279,8 +279,13 @@ case "${MODE}" in
     ;;
   phase)
     note "running exactly ONE wrapper phase: ${PHASE}"
+    # OP_SUPERSEDE_EPOCH is forwarded only when the caller set it. Empty by
+    # default, so the host-side single-epoch guard keeps refusing a second
+    # preflight unless an exact epoch id was named deliberately.
+    [ -z "${OP_SUPERSEDE_EPOCH:-}" ] || note "supersede requested for epoch ${OP_SUPERSEDE_EPOCH}"
     ssh "${SSH_OPTS[@]}" "${OP_APP_HOST}" \
-      "${COMMON_ENV} OP_PHASE=$(printf %q "${PHASE}") bash -s" \
+      "${COMMON_ENV} OP_PHASE=$(printf %q "${PHASE}") \
+       OP_SUPERSEDE_EPOCH=$(printf %q "${OP_SUPERSEDE_EPOCH:-}") bash -s" \
       < "${HERE}/host-phase.sh" 2>&1 | redact
     ;;
 esac

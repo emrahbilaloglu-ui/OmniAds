@@ -74,9 +74,37 @@ SW=""
 [ -f "${OP_STATE_DIR}/state" ] && \
   SW="$(awk -F= '$1=="wrapper_sha256"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
 if [ "${OP_PHASE}" = "preflight" ]; then
-  [ "${SW}" != "${OP_WRAPPER_SHA}" ] \
-    || die "an epoch opened by THIS runner already exists (state wrapper_sha256=${SW}); a second preflight would open a second epoch. Refusing."
-  log "single-epoch guard OK: no epoch for this runner yet"
+  if [ "${SW}" = "${OP_WRAPPER_SHA}" ]; then
+    # An epoch opened by THIS runner already exists. Refusing is the default,
+    # because a second preflight would otherwise silently abandon the first.
+    #
+    # DELIBERATE SUPERSEDE. There is exactly one legitimate reason to open a
+    # second epoch with the same runner: the existing one's rollback artifact has
+    # gone stale. A preflight artifact is a point-in-time backup and production
+    # keeps writing until `quiesce` stops it — so an epoch parked at
+    # `phase_chain=preflight` for days no longer guarantees zero data loss, and
+    # continuing it to quiesce would silently accept that loss. The wrapper's own
+    # sanctioned semantics for this are precisely "run preflight again": it
+    # rewrites the state record from scratch and takes a fresh artifact.
+    #
+    # This is NOT a weakening of the gate. The default is still refusal. To
+    # proceed, the caller must name the exact epoch it intends to supersede, that
+    # name must match what is actually in the state record, and that epoch must
+    # still be at preflight — so a stale value, a typo, an accidental re-run, or
+    # an epoch with in-flight cutover work cannot fire it. The intent is recorded
+    # in the phase log either way.
+    [ -n "${OP_SUPERSEDE_EPOCH:-}" ] \
+      || die "an epoch opened by THIS runner already exists (state wrapper_sha256=${SW}); a second preflight would open a second epoch. Refusing. To deliberately supersede a stale epoch, set OP_SUPERSEDE_EPOCH to its exact id."
+    CUR_EPOCH="$(awk -F= '$1=="cutover_epoch"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
+    [ "${OP_SUPERSEDE_EPOCH}" = "${CUR_EPOCH}" ] \
+      || die "OP_SUPERSEDE_EPOCH='${OP_SUPERSEDE_EPOCH}' does not match the epoch in the state record ('${CUR_EPOCH}'). Refusing to supersede an epoch that is not the one actually there."
+    CUR_CHAIN="$(awk -F= '$1=="phase_chain"{print $2}' "${OP_STATE_DIR}/state" | tr -d '[:space:]')"
+    [ "${CUR_CHAIN}" = "preflight" ] \
+      || die "epoch ${CUR_EPOCH} has already progressed past preflight (phase_chain=${CUR_CHAIN}); superseding it here would abandon in-flight cutover work. Refusing."
+    log "single-epoch guard: DELIBERATE SUPERSEDE of ${CUR_EPOCH} (phase_chain=${CUR_CHAIN}), authorised by OP_SUPERSEDE_EPOCH"
+  else
+    log "single-epoch guard OK: no epoch for this runner yet"
+  fi
 else
   [ "${SW}" = "${OP_WRAPPER_SHA}" ] \
     || die "no epoch opened by this runner (state wrapper_sha256=${SW:-<none>}); run preflight first. Refusing to cross wrapper identities."

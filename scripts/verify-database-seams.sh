@@ -200,6 +200,15 @@ stage "Cutover scratch cleanup (proven absent, or a real failure)"
 bash -n scripts/cutover-scratch-cleanup-check.sh
 npm run test:cutover-scratch-cleanup
 
+# The 2026-08-04 blocker: `migrate` refused because the capacity sample it reads
+# is produced only by the DB-host healthcheck timer, which `quiesce` must stop.
+# 137 GB was free; the gate failed purely on the age of its evidence, with the
+# site already down. migrate now refreshes that sample itself and gates on the
+# evidence rather than on the sampler's exit code.
+stage "Cutover migration capacity sample (migrate refreshes its own evidence)"
+bash -n scripts/cutover-migration-capacity-sample-check.sh
+npm run test:cutover-migration-capacity-sample
+
 stage "Cutover self-cleanup (reclaims only its own unreferenced artifact)"
 bash -n scripts/cutover-self-cleanup-check.sh
 npm run test:cutover-self-cleanup

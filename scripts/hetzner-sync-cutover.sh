@@ -2770,6 +2770,62 @@ case "${PHASE}" in
     assert_capacity_for_migration
     log "Re-proving quiescence immediately before the migration acquires locks"
     assert_database_quiescent
+    # ── the migration's heavy-step guard needs evidence quiesce has just killed ──
+    #
+    # `assertMigrationCapacityForHeavyStep` refuses a heavy relation rewrite
+    # unless a `db_host_healthcheck` capacity sample is younger than 900s. The
+    # ONLY producer of that sample is adsecute-db-healthcheck.timer on the
+    # database host — and `quiesce`, two phases earlier, is REQUIRED to stop it,
+    # because it writes to adsecute_prod between polls and corrupts a restore
+    # rather than merely racing it.
+    #
+    # So after quiescence the sample can only age, and by the time migrations run
+    # it is always stale. On 2026-08-04 this refused at 1090s with 137 GB actually
+    # free: two gates in the same release, mutually unsatisfiable. The timer's
+    # period is OnUnitActiveSec=15m, exactly the 900s threshold, so the sample
+    # sits at the limit even when nothing has been stopped.
+    #
+    # Refreshing it here does NOT weaken that guard. It runs the same sanctioned
+    # sampler the timer runs, which takes a REAL df of the database host's data
+    # directory, and leaves the guard free to refuse on the actual number. What it
+    # removes is a false dependency on a timer the cutover itself must disable.
+    # Placed AFTER the quiescence proof so that proof is taken against a genuinely
+    # idle database, and immediately BEFORE the migration so the sample is as
+    # fresh as it can be. The wrapper is the only writer at this point, and the
+    # row is host-owned telemetry the rollback artifact will simply not contain.
+    log "Refreshing the capacity sample the migration's heavy-step guard reads"
+    capacity_sampler_rc=0
+    capacity_sampler_out="$(db_run "/usr/local/bin/adsecute-db-healthcheck.sh" 2>&1)" \
+      || capacity_sampler_rc=$?
+    # Deliberately NOT gated on that exit code. The sampler writes the capacity
+    # row FIRST and only then reports backup age and disk thresholds, so a stale
+    # backup on the database host exits non-zero while the sample this phase needs
+    # is already durable. Coupling the migration to backup health would invent a
+    # dependency that does not exist. Its verdict is logged either way, so a
+    # failure is visible rather than swallowed, and the evidence itself is what
+    # the next check requires.
+    log "capacity sampler exit=${capacity_sampler_rc} verdict=$(printf '%s' "${capacity_sampler_out}" | grep -aoE 'status=[a-z_]+|capacity_snapshot_insert=[a-z]+' | tr '\n' ' ')"
+    # `system_capacity_snapshots` is itself created by a migration
+    # (lib/migrations.ts CREATE TABLE IF NOT EXISTS), so on a database that has
+    # not reached that migration yet the table simply does not exist. The app-side
+    # guard tolerates exactly that — it probes with to_regclass and `.catch`es —
+    # and refuses only if it then reaches a heavy step. This probe is written the
+    # same way so a first-ever migration is not blocked by a table it is about to
+    # create. to_regclass returns NULL rather than erroring, so it is safe to ask
+    # before the relation exists.
+    capacity_table="$(db_sql "SELECT COALESCE(to_regclass('system_capacity_snapshots')::text, 'absent');" | tr -d '[:space:]')"
+    if [ "${capacity_table}" = "absent" ]; then
+      log "system_capacity_snapshots does not exist yet; this database predates it, so the migration's own heavy-step guard will decide"
+    else
+      capacity_sample_age="$(db_sql "SELECT COALESCE(round(EXTRACT(EPOCH FROM (clock_timestamp() - max(sampled_at))))::text, 'none') FROM system_capacity_snapshots WHERE source = 'db_host_healthcheck';" | tr -d '[:space:]')"
+      case "${capacity_sample_age}" in
+        "" | none | *[!0-9]*)
+          die "the capacity table exists but holds no db_host_healthcheck sample after running the sampler (exit ${capacity_sampler_rc}); the migration's heavy-step guard would refuse on evidence that is not there, and this wrapper will not migrate blind" ;;
+      esac
+      [ "${capacity_sample_age}" -lt 900 ] \
+        || die "the capacity sample is still ${capacity_sample_age}s old immediately after refreshing it (sampler exit ${capacity_sampler_rc}); the sampler is not writing or the database clock disagrees, and the migration guard cannot be satisfied honestly"
+      log "capacity sample refreshed: ${capacity_sample_age}s old, within the 900s the migration guard requires"
+    fi
     log "Running migrations from the pinned image against the DB host"
     APP_IMAGE_TAG="${EXPECTED_SHA}" APP_BUILD_ID="${EXPECTED_SHA}" \
       docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate \

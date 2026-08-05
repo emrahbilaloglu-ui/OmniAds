@@ -6234,6 +6234,126 @@ export async function quarantineGoogleAdsTerminalActionRequiredPartitions(input:
   };
 }
 
+/**
+ * Cancel queued work for a scope this account has provably never been able to read.
+ *
+ * WHY THIS EXISTS
+ *
+ * On 2026-08-05, one connected Google Ads account (TheSwaf) held four scopes —
+ * ad_daily, audience_daily, device_daily, keyword_daily — with 793 partitions
+ * each and ZERO successes, ever. They had returned PERMISSION_DENIED in May,
+ * and the scheduler went on manufacturing more: 40 new partitions in June, 31
+ * in July, 5 in August. ~2,700 partitions that can never complete, growing
+ * monotonically, keeping the queue permanently "unhealthy" and burying the one
+ * fact an operator needed: this account cannot read those four surfaces.
+ *
+ * The scheduler has no notion of a scope being unavailable for an account, so
+ * nothing ever stopped. This gives it one, derived from evidence rather than
+ * configuration.
+ *
+ * WHY ALL FOUR CONDITIONS
+ *
+ * "Never succeeded" alone would cut off a freshly connected account before its
+ * first run, so it is never sufficient on its own:
+ *
+ *   1. zero successful partitions EVER for this business+account+scope;
+ *   2. at least one dead letter on that scope carrying a terminal access
+ *      failure — the account's own refusal, not our inference;
+ *   3. the scope has been scheduled for at least `minimumAgeDays`, so a new or
+ *      still-warming account is never affected;
+ *   4. there is queued work to cancel.
+ *
+ * Cancelled, never deleted: the rows keep their history and carry the reason,
+ * so the decision is auditable and reversible. And it is self-correcting — the
+ * moment one partition for that scope succeeds, condition 1 fails and this
+ * stops touching it, so restored access needs no intervention here.
+ */
+export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
+  businessId: string;
+  minimumAgeDays?: number;
+  limit?: number;
+}): Promise<{
+  scopes: Array<{ providerAccountId: string; scope: string; cancelled: number }>;
+  cancelledTotal: number;
+}> {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const minimumAgeDays = Math.max(7, input.minimumAgeDays ?? 30);
+  const limit = Math.max(1, Math.min(input.limit ?? 2000, 5000));
+  const rows = (await sql`
+    WITH unreadable AS (
+      SELECT
+        partition.provider_account_id,
+        partition.scope
+      FROM google_ads_sync_partitions partition
+      WHERE partition.business_id = ${input.businessId}
+      GROUP BY partition.provider_account_id, partition.scope
+      HAVING
+        -- (1) never once succeeded
+        count(*) FILTER (WHERE partition.status = 'succeeded') = 0
+        -- (3) and has been scheduled long enough that a warming account is safe
+        AND min(partition.created_at) <= now() - (${minimumAgeDays} || ' days')::interval
+        -- (4) and there is something to cancel
+        AND count(*) FILTER (WHERE partition.status = 'queued') > 0
+        -- (2) and the account itself refused this surface terminally
+        AND count(*) FILTER (
+          WHERE partition.status = 'dead_letter'
+            AND partition.last_error ILIKE ANY (ARRAY[
+              '%PERMISSION_DENIED%',
+              '%permission denied%',
+              '%does not have permission%',
+              '%provider_request_failed:permission%',
+              '%permission:status_403%',
+              '%google_ads_scope_action_required%'
+            ])
+        ) > 0
+    ),
+    doomed AS (
+      SELECT partition.id, partition.provider_account_id, partition.scope
+      FROM google_ads_sync_partitions partition
+      JOIN unreadable
+        ON unreadable.provider_account_id = partition.provider_account_id
+       AND unreadable.scope = partition.scope
+      WHERE partition.business_id = ${input.businessId}
+        AND partition.status = 'queued'
+      ORDER BY partition.partition_date ASC
+      LIMIT ${limit}
+    )
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'cancelled',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      last_error = concat(
+        'google_ads_scope_unreadable: this Google Ads account has never returned data for ',
+        doomed.scope,
+        ' and refused it with a terminal access error. Queued work was cancelled; grant access to this surface to resume it.'
+      ),
+      finished_at = COALESCE(partition.finished_at, now()),
+      updated_at = now()
+    FROM doomed
+    WHERE partition.id = doomed.id
+    RETURNING partition.provider_account_id, partition.scope
+  `) as Array<{ provider_account_id: string; scope: string }>;
+
+  const tally = new Map<string, { providerAccountId: string; scope: string; cancelled: number }>();
+  for (const row of rows) {
+    const key = `${row.provider_account_id}::${row.scope}`;
+    const entry = tally.get(key) ?? {
+      providerAccountId: String(row.provider_account_id),
+      scope: String(row.scope),
+      cancelled: 0,
+    };
+    entry.cancelled += 1;
+    tally.set(key, entry);
+  }
+  return {
+    scopes: Array.from(tally.values()).sort((a, b) => b.cancelled - a.cancelled),
+    cancelledTotal: rows.length,
+  };
+}
+
 export async function requeueGoogleAdsRetryableFailedPartitions(input: {
   businessId: string;
   limit?: number;

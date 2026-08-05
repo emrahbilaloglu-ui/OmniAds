@@ -66,6 +66,7 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsCheckpointHealth: vi.fn(),
   getGoogleAdsWarehouseIntegrityIncidents: vi.fn(),
   getGoogleAdsCoveredDates: vi.fn(),
+  cancelGoogleAdsUnreadableScopeBacklog: vi.fn(),
 }));
 
 vi.mock("@/lib/google-ads/freshness-read", async () => {
@@ -251,6 +252,11 @@ describe("provider repair engine", () => {
     vi.mocked(
       googleAdsWarehouse.requeueGoogleAdsRetryableFailedPartitions,
     ).mockResolvedValue([] as never);
+    // Default: nothing unreadable, so every pre-existing test keeps its old path.
+    vi.mocked(googleAdsWarehouse.cancelGoogleAdsUnreadableScopeBacklog).mockResolvedValue({
+      scopes: [],
+      cancelledTotal: 0,
+    } as never);
     // Default: the advisor window is covered, re-read after every close, and
     // past the conversion lookback. Tests that care override this.
     readGoogleAdsFreshness.mockResolvedValue(
@@ -524,6 +530,58 @@ describe("provider repair engine", () => {
     // Reporting a backlog that no longer exists would keep the page red for a
     // whole tick after the work was already done.
     expect(result.repair.blocked).toBe(false);
+  });
+
+  // ── Surfaces a connected account provably cannot read ────────────────────
+  //
+  // Incident of 2026-08-05: one connected Google Ads account held ad_daily,
+  // audience_daily, device_daily and keyword_daily with 793 partitions each and
+  // ZERO successes ever, after refusing them with PERMISSION_DENIED in May. The
+  // scheduler kept adding more — 40 in June, 31 in July, 5 in August — so ~2,700
+  // partitions that could never complete kept the queue permanently unhealthy
+  // and buried the one actionable fact.
+  it("cancels the backlog for an unreadable scope and says why", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(
+      googleAdsWarehouse.cancelGoogleAdsUnreadableScopeBacklog,
+    ).mockResolvedValue({
+      scopes: [
+        { providerAccountId: "acc-1", scope: "ad_daily", cancelled: 680 },
+        { providerAccountId: "acc-1", scope: "keyword_daily", cancelled: 680 },
+      ],
+      cancelledTotal: 1360,
+    } as never);
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    const reason = (result.repair.blockingReasons ?? []).find(
+      (entry) => entry.code === "scope_unreadable_for_account",
+    );
+    expect(reason).toBeDefined();
+    // The operator needs the surfaces named, not a count of unhappy rows.
+    expect(reason?.detail).toContain("ad_daily");
+    expect(reason?.detail).toContain("keyword_daily");
+    expect(reason?.detail).toContain("1360");
+    // Only granting access in Google restores it, so nothing here can repair it.
+    expect(reason?.repairable).toBe(false);
+  });
+
+  it("stays silent when every scope is readable", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(
+      (result.repair.blockingReasons ?? []).map((entry) => entry.code),
+    ).not.toContain("scope_unreadable_for_account");
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {

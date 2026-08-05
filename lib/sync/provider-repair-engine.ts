@@ -511,6 +511,25 @@ export async function runGoogleAdsRepairCycle(
       recoveryKinds: ["replayable_transient"],
     })
     .catch(() => null);
+  // Work for surfaces this account has provably never been able to read.
+  //
+  // One connected account held four scopes with 793 partitions each and zero
+  // successes ever, after refusing them with PERMISSION_DENIED — and the
+  // scheduler kept adding more every month. ~2,700 partitions that can never
+  // complete, keeping the queue permanently unhealthy and burying the single
+  // fact worth acting on. Cancelling them is not hiding the problem: the rows
+  // keep the reason, and the account-action blocking reason below still says
+  // the surfaces need access.
+  const unreadableScopeCancellation = await googleAdsWarehouse
+    .cancelGoogleAdsUnreadableScopeBacklog({ businessId })
+    .catch(() => null);
+  if ((unreadableScopeCancellation?.cancelledTotal ?? 0) > 0) {
+    logRuntimeWarn("google-ads-repair", "unreadable_scope_backlog_cancelled", {
+      businessId,
+      cancelledTotal: unreadableScopeCancellation?.cancelledTotal ?? 0,
+      scopes: unreadableScopeCancellation?.scopes ?? [],
+    });
+  }
   const requeuedFailed = await googleAdsWarehouse
     .requeueGoogleAdsRetryableFailedPartitions({ businessId })
     .catch(() => []);
@@ -710,6 +729,20 @@ export async function runGoogleAdsRepairCycle(
       ? buildBlockingReason(
           "account_action_required",
           `${terminalActionRequiredDeadLetters} Google Ads partition(s) require Google account, OAuth, or customer-access action. Auto replay is intentionally disabled for these rows.`,
+          { repairable: false },
+        )
+      : null,
+    (unreadableScopeCancellation?.cancelledTotal ?? 0) > 0
+      ? buildBlockingReason(
+          "scope_unreadable_for_account",
+          `This Google Ads account has never returned data for ${(
+            unreadableScopeCancellation?.scopes ?? []
+          )
+            .map((entry) => entry.scope)
+            .join(", ")} and refused those surfaces with a terminal access error. ${
+            unreadableScopeCancellation?.cancelledTotal ?? 0
+          } queued partition(s) that could never complete were cancelled. Grant the account access to these surfaces to resume them.`,
+          // Not repairable here: only granting access in Google restores it.
           { repairable: false },
         )
       : null,

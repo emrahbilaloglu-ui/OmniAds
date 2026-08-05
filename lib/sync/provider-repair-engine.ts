@@ -21,6 +21,7 @@ import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getProviderQuotaBudgetState } from "@/lib/provider-request-governance";
 import {
   getProviderPlatformDateBoundaries,
   getProviderPlatformPreviousDate,
@@ -543,7 +544,55 @@ export async function runGoogleAdsRepairCycle(
       typeof summarizeGoogleAdvisorUnreobservedScopes
     >,
   }));
-  const queuedWarehouseRepairs = queueWarehouseRepairs
+  // ── Daily-budget admission, before ANY repair work is issued ──────────────
+  //
+  // THE INCIDENT THIS PREVENTS (observed 2026-08-04, one business, 21,282
+  // failures in 24h; 159,418 over 7 days against 14 successes).
+  //
+  // This cycle runs about once a minute per business and, until now, re-issued
+  // every repair range unconditionally. `syncGoogleAdsRange` does the work
+  // inline, so once a business exhausted its daily Google Ads request budget
+  // each range failed immediately on `ProviderRequestCooldownError`. The
+  // integrity incidents that produced those ranges therefore never cleared,
+  // so the next pass rebuilt exactly the same ranges — roughly 900 doomed API
+  // attempts per hour, around the clock, until UTC midnight reset the budget.
+  //
+  // `classifyGoogleAdsSyncFailure` already returns the correct backoff for this
+  // ("retry after the daily reset"), and `buildGoogleAdsLaneAdmissionPolicy`
+  // already gates the normal lane on budget pressure — but this engine calls
+  // `syncGoogleAdsRange` directly and so bypassed both. The fix is to consult
+  // the same authoritative budget state the lane uses, rather than to invent a
+  // second notion of "exhausted" from error strings.
+  //
+  // Fail OPEN on an unreadable budget: a governance read that fails must not
+  // silently stop repair work, which is the one job this engine has.
+  const repairBudgetState = await getProviderQuotaBudgetState({
+    provider: "google",
+    businessId,
+  }).catch(() => null);
+  const dailyBudgetExhausted = repairBudgetState
+    ? !repairBudgetState.withinDailyBudget
+    : false;
+  const budgetResetAt = (() => {
+    const reset = new Date();
+    reset.setUTCHours(24, 0, 0, 0);
+    return reset.toISOString();
+  })();
+  const repairAdmissionAllowed = queueWarehouseRepairs && !dailyBudgetExhausted;
+  if (dailyBudgetExhausted) {
+    logRuntimeInfo("google-ads-repair", "budget_hold", {
+      businessId,
+      quotaDate: repairBudgetState?.quotaDate ?? null,
+      callCount: repairBudgetState?.callCount ?? null,
+      suppressedIntegrityRanges: integrityRepairRanges.length,
+      suppressedRecentGapRanges: advisorRecentGapRepairs.repairs.reduce(
+        (total, repair) => total + repair.ranges.length,
+        0,
+      ),
+      retryAfterUtc: budgetResetAt,
+    });
+  }
+  const queuedWarehouseRepairs = repairAdmissionAllowed
     ? await Promise.all(
         integrityRepairRanges.map((range) =>
           syncGoogleAdsRange({
@@ -560,7 +609,7 @@ export async function runGoogleAdsRepairCycle(
         ),
       )
     : [];
-  const queuedRecentGapRepairs = queueWarehouseRepairs
+  const queuedRecentGapRepairs = repairAdmissionAllowed
     ? await Promise.all(
         advisorRecentGapRepairs.repairs.flatMap((repair) =>
           repair.ranges.map((range) =>
@@ -626,6 +675,7 @@ export async function runGoogleAdsRepairCycle(
     quarantinedTerminal?.changedCount ?? 0,
   );
   const blocked =
+    dailyBudgetExhausted ||
     terminalActionRequiredDeadLetters > 0 ||
     (deadLetterPartitionsBefore > 0 && deadLetterReplayChanged <= 0) ||
     ((queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 &&
@@ -640,6 +690,21 @@ export async function runGoogleAdsRepairCycle(
     persistentIntegrityMismatch;
 
   const blockingReasons = compactBlockingReasons([
+    dailyBudgetExhausted
+      ? buildBlockingReason(
+          "daily_request_budget_exhausted",
+          `Google Ads daily request budget is spent for this business (quotaDate=${
+            repairBudgetState?.quotaDate ?? "unknown"
+          }, calls=${
+            repairBudgetState?.callCount ?? "unknown"
+          }). ${integrityRepairRanges.length} integrity range(s) and ${advisorRecentGapRepairs.repairs.reduce(
+            (total, repair) => total + repair.ranges.length,
+            0,
+          )} recent-gap range(s) were NOT issued; retrying before the budget resets at ${budgetResetAt} would fail on arrival and starve every other business.`,
+          // Not repairable by this engine: only the UTC daily reset clears it.
+          { repairable: false },
+        )
+      : null,
     terminalActionRequiredDeadLetters > 0
       ? buildBlockingReason(
           "account_action_required",

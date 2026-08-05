@@ -4,6 +4,7 @@ import { resolveGoogleAccessTokenWithGeneration } from "@/lib/google-token-refre
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 import { classifyGoogleRequestAuditSource } from "@/lib/google-request-audit";
+import { classifyGoogleAdsSyncFailure } from "@/lib/sync/google-ads-error-classification";
 import { createHash } from "node:crypto";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
@@ -32,11 +33,79 @@ interface GoogleAdsApiError {
           errors?: Array<{
             errorCode?: string;
             message?: string;
+            // Google puts the actionable part of an INVALID_ARGUMENT here: the
+            // top-level message is only ever "Request contains an invalid
+            // argument.", while the rejected field is named in this location.
+            location?: {
+              fieldPathElements?: Array<{
+                fieldName?: string;
+                index?: number;
+              }>;
+            };
           }>;
         };
       };
     }>;
   };
+}
+
+/**
+ * Fold Google's per-field detail into the message the sync layer persists.
+ *
+ * WHY THIS EXISTS
+ *
+ * An INVALID_ARGUMENT arrives as `error.message = "Request contains an invalid
+ * argument."` and nothing else — 22 of those a day were being stored verbatim,
+ * naming neither the field nor the query, so nobody could act on them. Google
+ * does say which field it rejected, but only inside `details[].location`.
+ *
+ * WHY IT IS GUARDED
+ *
+ * `last_error` is also the string the retry classifier reads. Google's detail
+ * text is written for humans and can easily contain "unavailable", "timeout" or
+ * "permission denied" — appending it naively can flip a TERMINAL error to
+ * `transient` (retry forever) or to `account_action_required` (stop retrying a
+ * recoverable one). Both were reproduced against the real classifier. So the
+ * free text is kept ONLY when it provably does not move the classification;
+ * otherwise just the structured parts (field, queryName) are added, which are
+ * identifiers and carry no classifier vocabulary.
+ */
+export function buildDiagnosedGoogleAdsErrorMessage(input: {
+  message: string;
+  detailMessage?: string | null;
+  fieldPathElements?: Array<{ fieldName?: string; index?: number }> | null;
+  queryName?: string | null;
+}) {
+  const fieldPath = (input.fieldPathElements ?? [])
+    .map((element) =>
+      element?.index == null
+        ? element?.fieldName
+        : `${element?.fieldName}[${element.index}]`,
+    )
+    .filter(Boolean)
+    .join(".");
+  const detail =
+    input.detailMessage && input.detailMessage !== input.message
+      ? input.detailMessage
+      : null;
+  const assemble = (includeDetail: boolean) =>
+    [
+      input.message,
+      includeDetail && detail ? `detail=${detail}` : null,
+      fieldPath ? `field=${fieldPath}` : null,
+      input.queryName ? `queryName=${input.queryName}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+  const baseline = classifyGoogleAdsSyncFailure({
+    message: input.message,
+  }).errorClass;
+  const withDetail = assemble(true);
+  return classifyGoogleAdsSyncFailure({ message: withDetail }).errorClass ===
+    baseline
+    ? withDetail
+    : assemble(false);
 }
 
 export class GoogleAdsQueryError extends Error {
@@ -361,6 +430,10 @@ export async function executeGaqlQuery(params: {
     requestPath: params.source ?? params.queryName ?? params.queryFamily ?? "google_ads_gaql",
     execute: async () => {
       let lastError: GoogleAdsQueryError | null = null;
+      // Every candidate skipped because a recent failure is still inside its TTL.
+      // Recorded so an all-skipped run can say WHY nothing was attempted rather
+      // than reporting an uncaptured error (see the throw at the end).
+      const skippedKnownFailedContexts: string[] = [];
 
       logRuntimeDebug("google-ads-search", "live_start", {
         source: params.source ?? "unknown",
@@ -384,6 +457,7 @@ export async function executeGaqlQuery(params: {
 
       for (const loginCustomerId of attemptSequence) {
         if (isFailedLoginContext(params.businessId, params.customerId, loginCustomerId)) {
+          skippedKnownFailedContexts.push(loginCustomerId ?? "__none__");
           continue;
         }
         const controller = new AbortController();
@@ -448,8 +522,15 @@ export async function executeGaqlQuery(params: {
           if (entry) apiErrorCode = String(entry[1]);
         }
 
-        lastError = new GoogleAdsQueryError({
+        const diagnosedMessage = buildDiagnosedGoogleAdsErrorMessage({
           message,
+          detailMessage: firstDetailError?.message ?? null,
+          fieldPathElements: firstDetailError?.location?.fieldPathElements ?? null,
+          queryName: params.queryName ?? null,
+        });
+
+        lastError = new GoogleAdsQueryError({
+          message: diagnosedMessage,
           status: response.status,
           apiStatus: error.error?.status,
           apiErrorCode,
@@ -504,7 +585,26 @@ export async function executeGaqlQuery(params: {
         throw lastError;
       }
 
-      throw new Error("Google Ads query failed without a captured error.");
+      // The leading sentence is load-bearing: `google-ads-sync` matches it to
+      // escalate an ambiguous fetch failure to `scope_action_required`. Keep it
+      // verbatim and APPEND the diagnosis rather than replacing it.
+      //
+      // Reaching here with candidates present means every one of them was
+      // skipped by the known-failed-login-context TTL, so no request was ever
+      // sent. Saying "no captured error" is true but useless — it reads as a
+      // mystery when the cause is recorded in memory a few lines above.
+      if (skippedKnownFailedContexts.length > 0) {
+        throw new Error(
+          `Google Ads query failed without a captured error. No request was sent: all ${
+            skippedKnownFailedContexts.length
+          } login context(s) [${skippedKnownFailedContexts.join(
+            ", ",
+          )}] are inside the recent-failure TTL for customer ${normalizedCustomerId}, so every attempt was skipped. This clears itself when the TTL expires.`,
+        );
+      }
+      throw new Error(
+        `Google Ads query failed without a captured error. The attempt sequence for customer ${normalizedCustomerId} was empty, so no request was sent.`,
+      );
     },
   });
 }

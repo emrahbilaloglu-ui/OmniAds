@@ -15,6 +15,7 @@ const getProviderPlatformDateBoundaries = vi.fn();
 const getProviderPlatformPreviousDate = vi.fn();
 const validateMetaLiveAccountAccess = vi.fn();
 const readGoogleAdsFreshness = vi.fn();
+const getProviderQuotaBudgetState = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
@@ -48,6 +49,10 @@ vi.mock("@/lib/provider-account-assignments", () => ({
 
 vi.mock("@/lib/provider-account-snapshots", () => ({
   readProviderAccountSnapshot,
+}));
+
+vi.mock("@/lib/provider-request-governance", () => ({
+  getProviderQuotaBudgetState,
 }));
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
@@ -190,6 +195,18 @@ describe("provider repair engine", () => {
     vi.setSystemTime(new Date("2026-04-13T12:00:00Z"));
     vi.resetAllMocks();
     runMigrations.mockResolvedValue(undefined);
+    // Healthy budget by default: repair admission must behave exactly as it did
+    // before the daily-budget gate existed unless a test says otherwise.
+    getProviderQuotaBudgetState.mockResolvedValue({
+      provider: "google",
+      businessId: "biz-1",
+      quotaDate: "2026-04-13",
+      callCount: 10,
+      withinDailyBudget: true,
+      maintenanceAllowed: true,
+      extendedAllowed: true,
+      pressure: 0.1,
+    });
     getDb.mockReturnValue(
       vi.fn(async () => [{ count: 0 }]) as never,
     );
@@ -254,6 +271,135 @@ describe("provider repair engine", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  // ── Daily-budget admission for the Google repair cycle ────────────────────
+  //
+  // Incident of 2026-08-04: one business produced 21,282 failed `repair_window`
+  // jobs in 24h (159,418 over 7 days, against 14 successes). The cycle runs
+  // ~1/min and re-issued every repair range unconditionally; with the daily
+  // Google Ads request budget spent, each range failed on arrival, the integrity
+  // incidents never cleared, and the next pass rebuilt the identical ranges.
+  async function setupGoogleIntegrityRepairScenario() {
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(
+      googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration,
+    ).mockResolvedValue({ stalePartitionCount: 0 } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      checkpointFailures: 0,
+    } as never);
+    vi.mocked(
+      googleAdsWarehouse.getGoogleAdsWarehouseIntegrityIncidents,
+    ).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acc-1",
+        date: "2026-04-01",
+        scope: "system",
+        severity: "error",
+        metricsCompared: ["spend"],
+        delta: {},
+        repairRecommended: true,
+        repairStatus: "pending",
+        suspectedCause: "account_campaign_drift",
+      },
+    ] as never);
+  }
+
+  it("issues no Google repair work while the daily request budget is spent", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    getProviderQuotaBudgetState.mockResolvedValue({
+      provider: "google",
+      businessId: "biz-1",
+      quotaDate: "2026-04-13",
+      callCount: 25000,
+      withinDailyBudget: false,
+      maintenanceAllowed: false,
+      extendedAllowed: false,
+      pressure: 1.4,
+    });
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    // The whole point: not one doomed API attempt is issued.
+    expect(syncGoogleAdsRange).not.toHaveBeenCalled();
+    // ...and the hold is reported, never silently swallowed.
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "daily_request_budget_exhausted",
+          repairable: false,
+        }),
+      ]),
+    );
+  });
+
+  it("resumes Google repair work once the daily budget is available again", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    // beforeEach already supplies a healthy budget; assert the gate is not
+    // sticky, so a budget hold cannot become a permanent repair outage.
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(syncGoogleAdsRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        startDate: "2026-04-01",
+        endDate: "2026-04-01",
+        syncType: "repair_window",
+      }),
+    );
+    expect(
+      (result.repair.blockingReasons ?? []).map((reason) => reason.code),
+    ).not.toContain("daily_request_budget_exhausted");
+  });
+
+  it("still repairs when the budget state cannot be read", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    // Fail OPEN. A governance read that throws must not silently stop repair
+    // work — that would turn a monitoring outage into a data outage.
+    getProviderQuotaBudgetState.mockRejectedValue(
+      new Error("quota usage table unavailable"),
+    );
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(syncGoogleAdsRange).toHaveBeenCalled();
+    expect(
+      (result.repair.blockingReasons ?? []).map((reason) => reason.code),
+    ).not.toContain("daily_request_budget_exhausted");
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {

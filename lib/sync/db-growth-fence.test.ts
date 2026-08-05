@@ -673,3 +673,192 @@ describe("production volume calibration", () => {
     ).resolves.toMatchObject({ allowed: true, reason: "ready" });
   });
 });
+
+/**
+ * THE INCIDENT THIS ENCODES (found 2026-08-05; frozen since at least 08-04)
+ *
+ * Google Ads sync was refused on every single cycle with
+ *   physical_projected_free_space_low — "Consuming the remaining 87,841,162,217
+ *   bytes of logical budget would leave -10,100,773,865 bytes free, below the
+ *   42,949,672,960 byte floor."
+ *
+ * The arithmetic was right and the fence was doing its job. What was wrong is
+ * that the budget it defended is a STATIC 160 GiB while the volume is 221 GB
+ * with a 40 GiB floor — admission needs `budget <= databaseBytes + available -
+ * floor`, about 118 GB here. No amount of live data could satisfy 160 GiB, so
+ * the refusal was permanent and nothing could ever clear it.
+ *
+ * Downstream: the worker recorded `capacity_refused` in a heartbeat, reported
+ * itself idle, never took a runner lease, and so never claimed a partition.
+ * 6,453 partitions sat queued, 6,376 never attempted once, oldest created three
+ * and a half months earlier.
+ */
+describe("db growth fence — budget is bounded by what the volume can hold", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  // The exact production shape, in bytes, from the worker's own safetyRefusal.
+  const PROD_TOTAL = 221_348_159_488;
+  const PROD_USED = 142_495_780_864;
+  const PROD_AVAILABLE = 77_740_388_352;
+  const PROD_DB_BYTES = 83_957_529_623;
+
+  function productionShapedRows() {
+    return FENCED_TABLES.map((table) => ({
+      database_bytes: PROD_DB_BYTES,
+      database_name: DB_NAME,
+      table_name: table,
+      table_bytes: 1 * GiB,
+      capacity_id: "6320",
+      capacity_sampled_at: new Date().toISOString(),
+      capacity_age_seconds: 120,
+      capacity_payload: capacityPayload({
+        database: { name: DB_NAME, sizeBytes: PROD_DB_BYTES, sizePretty: "78 GB" },
+        disks: [
+          {
+            path: PHYSICAL_DATA_PATH,
+            totalBytes: PROD_TOTAL,
+            usedBytes: PROD_USED,
+            availableBytes: PROD_AVAILABLE,
+          },
+        ],
+      }),
+    }));
+  }
+
+  it("admits the exact production shape that was permanently refused", async () => {
+    // Proof the old behaviour was unsatisfiable: with the CONFIGURED budget the
+    // physical evaluator still refuses this very telemetry.
+    expect(
+      evaluatePhysicalCapacity({
+        telemetryAvailable: true,
+        snapshot: {
+          id: "6320",
+          sampledAt: new Date().toISOString(),
+          ageSeconds: 120,
+          payload: productionShapedRows()[0].capacity_payload,
+        },
+        databaseName: DB_NAME,
+        databaseBytes: PROD_DB_BYTES,
+        databaseBudgetBytes: DEFAULT_DATABASE_BUDGET_BYTES,
+      }).admitted,
+    ).toBe(false);
+
+    installDb(productionShapedRows());
+    const decision = await evaluateDbGrowthFence({ env: {} });
+
+    expect(decision.allowed).toBe(true);
+    expect(decision.reason).toBe("ready");
+    // Lowered to what the disk can honour, never above the configured value.
+    expect(decision.databaseBudgetBytes).toBeLessThan(DEFAULT_DATABASE_BUDGET_BYTES);
+    expect(decision.databaseBudgetBytes).toBe(
+      PROD_DB_BYTES + PROD_AVAILABLE - MINIMUM_VOLUME_FREE_BYTES,
+    );
+  });
+
+  it("never raises the budget above the configured value", async () => {
+    // Huge free space: the honourable ceiling would exceed the configured budget,
+    // so the configured budget must remain the hard cap.
+    installDb(sizes());
+    const decision = await evaluateDbGrowthFence({ env: {} });
+    expect(decision.databaseBudgetBytes).toBe(DEFAULT_DATABASE_BUDGET_BYTES);
+  });
+
+  it("is not an override: a volume already under the floor still refuses", async () => {
+    installDb(
+      FENCED_TABLES.map((table) => ({
+        database_bytes: PROD_DB_BYTES,
+        database_name: DB_NAME,
+        table_name: table,
+        table_bytes: 1 * GiB,
+        capacity_id: "1",
+        capacity_sampled_at: new Date().toISOString(),
+        capacity_age_seconds: 120,
+        capacity_payload: capacityPayload({
+          disks: [
+            {
+              path: PHYSICAL_DATA_PATH,
+              totalBytes: PROD_TOTAL,
+              usedBytes: PROD_TOTAL - 1 * GiB,
+              availableBytes: 1 * GiB, // far below the 40 GiB floor
+            },
+          ],
+        }),
+      })),
+    );
+    const decision = await evaluateDbGrowthFence({ env: {} });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toBe("physical_free_space_low");
+  });
+
+  it("grants only the sliver the volume can actually spare, and warns", async () => {
+    // 41 GiB free against a 40 GiB floor is exactly 1 GiB of legitimate
+    // headroom. The fence must admit that sliver and no more — and because the
+    // live database then sits at ~98.7% of the effective budget, it must WARN
+    // rather than admit silently. (A volume BELOW the floor never reaches this
+    // path at all: `free_space_low` denies first, which the test above pins.)
+    const tightAvailable = 41 * GiB; // barely above the 40 GiB floor
+    installDb(
+      FENCED_TABLES.map((table) => ({
+        database_bytes: PROD_DB_BYTES,
+        database_name: DB_NAME,
+        table_name: table,
+        table_bytes: 1 * GiB,
+        capacity_id: "1",
+        capacity_sampled_at: new Date().toISOString(),
+        capacity_age_seconds: 120,
+        capacity_payload: capacityPayload({
+          disks: [
+            {
+              path: PHYSICAL_DATA_PATH,
+              totalBytes: PROD_TOTAL,
+              usedBytes: PROD_TOTAL - tightAvailable,
+              availableBytes: tightAvailable,
+            },
+          ],
+        }),
+      })),
+    );
+    const decision = await evaluateDbGrowthFence({ env: {} });
+    expect(decision.allowed).toBe(true);
+    // Exactly the spare capacity, not a byte more.
+    expect(decision.databaseBudgetBytes).toBe(
+      PROD_DB_BYTES + tightAvailable - MINIMUM_VOLUME_FREE_BYTES,
+    );
+    expect(decision.databaseBudgetBytes - PROD_DB_BYTES).toBe(1 * GiB);
+    // Nearly full against that ceiling, so this must not pass silently.
+    expect(decision.warning).toBe(true);
+  });
+
+  it("re-admits by itself once the volume grows, with no config change", async () => {
+    // The self-healing property: same static constant, more disk, admitted.
+    const grownAvailable = 160 * GiB;
+    installDb(
+      FENCED_TABLES.map((table) => ({
+        database_bytes: PROD_DB_BYTES,
+        database_name: DB_NAME,
+        table_name: table,
+        table_bytes: 1 * GiB,
+        capacity_id: "1",
+        capacity_sampled_at: new Date().toISOString(),
+        capacity_age_seconds: 120,
+        capacity_payload: capacityPayload({
+          disks: [
+            {
+              path: PHYSICAL_DATA_PATH,
+              totalBytes: PROD_TOTAL + grownAvailable,
+              usedBytes: PROD_USED,
+              availableBytes: grownAvailable,
+            },
+          ],
+        }),
+      })),
+    );
+    const decision = await evaluateDbGrowthFence({ env: {} });
+    expect(decision.allowed).toBe(true);
+    expect(decision.databaseBudgetBytes).toBe(DEFAULT_DATABASE_BUDGET_BYTES);
+  });
+});

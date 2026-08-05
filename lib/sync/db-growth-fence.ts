@@ -775,7 +775,7 @@ export async function evaluateDbGrowthFence(input?: {
   // authorise writing into a full disk.
   const head = rows[0] ?? {};
   const rawSampledAt = head.capacity_sampled_at;
-  const physical = evaluatePhysicalCapacity({
+  const physicalInput = {
     telemetryAvailable: true,
     snapshot:
       head.capacity_id == null && rawSampledAt == null
@@ -797,7 +797,58 @@ export async function evaluateDbGrowthFence(input?: {
     databaseName: head.database_name == null ? null : String(head.database_name),
     databaseBytes,
     databaseBudgetBytes: databaseBudget,
-  });
+  };
+  let physical = evaluatePhysicalCapacity(physicalInput);
+
+  // ── The budget must never exceed what this volume can physically honour ───
+  //
+  // THE INCIDENT THIS FIXES (found 2026-08-05, frozen since at least 08-04)
+  //
+  // Google Ads sync was refused on every cycle with
+  //   physical_projected_free_space_low — "Consuming the remaining 87.8 GB of
+  //   logical budget would leave -10.1 GB free, below the 42.9 GB floor."
+  // The refusal is arithmetically correct and the fence was doing its job. The
+  // defect is that the budget it was defending is a STATIC constant (160 GiB)
+  // while the volume is 221 GB with a 40 GiB floor: admission needs
+  // `budget <= databaseBytes + available - floor`, which here is ~118 GB. No
+  // value of live data could ever satisfy 160 GiB, so the refusal was permanent.
+  //
+  // Nothing surfaced it. The worker recorded `capacity_refused` in a heartbeat
+  // meta_json, reported itself `idle`, never took a runner lease, and therefore
+  // never claimed a partition: 6,453 partitions sat queued — 6,376 of them never
+  // attempted once, the oldest created three and a half months earlier.
+  //
+  // So the ceiling is now DERIVED from the same telemetry the fence already
+  // read. This only ever LOWERS the budget — exactly what the refusal message
+  // prescribes ("Lower the budget or add disk; do not raise the budget") — and
+  // it is not an override: `free_space_low` still refuses, a database already
+  // larger than the honourable ceiling still refuses below as
+  // `database_budget_exceeded`, and the configured value remains the hard cap.
+  // The system now re-admits itself the moment disk is added or data compacts,
+  // instead of waiting for someone to notice a constant had gone stale.
+  let databaseBudgetEffective = databaseBudget;
+  if (
+    !physical.admitted &&
+    physical.reason === "projected_free_space_low" &&
+    physical.availableBytes != null
+  ) {
+    const honourableBudget =
+      databaseBytes + physical.availableBytes - MINIMUM_VOLUME_FREE_BYTES;
+    if (honourableBudget > databaseBytes) {
+      databaseBudgetEffective = Math.min(databaseBudget, honourableBudget);
+      console.warn("[db-growth-fence] lowering budget to what the volume can hold", {
+        configuredBudgetBytes: databaseBudget,
+        effectiveBudgetBytes: databaseBudgetEffective,
+        databaseBytes,
+        availableBytes: physical.availableBytes,
+        minimumFreeBytes: MINIMUM_VOLUME_FREE_BYTES,
+      });
+      physical = evaluatePhysicalCapacity({
+        ...physicalInput,
+        databaseBudgetBytes: databaseBudgetEffective,
+      });
+    }
+  }
   if (!physical.admitted) {
     const reason = PHYSICAL_FENCE_REASON[physical.reason as Exclude<PhysicalCapacityReason, "ok">];
     console.error("[db-growth-fence] refused on physical capacity", {
@@ -808,7 +859,7 @@ export async function evaluateDbGrowthFence(input?: {
     });
     return denied({
       reason,
-      budget: databaseBudget,
+      budget: databaseBudgetEffective,
       errorMessage: physical.detail,
       evaluatedAt,
       databaseBytes,
@@ -829,7 +880,7 @@ export async function evaluateDbGrowthFence(input?: {
     if (!Number.isFinite(budget)) {
       return denied({
         reason: "measurement_invalid",
-        budget: databaseBudget,
+        budget: databaseBudgetEffective,
         errorMessage: `Budget for ${table} is not a positive number.`,
         evaluatedAt,
       });
@@ -839,8 +890,8 @@ export async function evaluateDbGrowthFence(input?: {
 
   let offender: DbGrowthFenceDecision["offender"] = null;
   let reason: DbGrowthFenceReason = "ready";
-  if (databaseBytes >= databaseBudget) {
-    offender = { table: "database", bytes: databaseBytes, budget: databaseBudget };
+  if (databaseBytes >= databaseBudgetEffective) {
+    offender = { table: "database", bytes: databaseBytes, budget: databaseBudgetEffective };
     reason = "database_budget_exceeded";
   } else {
     for (const table of FENCED_TABLES) {
@@ -866,7 +917,7 @@ export async function evaluateDbGrowthFence(input?: {
         reason,
         warning: true,
         databaseBytes,
-        databaseBudgetBytes: databaseBudget,
+        databaseBudgetBytes: databaseBudgetEffective,
         tableBytes,
         offender,
         evaluatedAt,
@@ -885,7 +936,7 @@ export async function evaluateDbGrowthFence(input?: {
       reason,
       warning: false,
       databaseBytes,
-      databaseBudgetBytes: databaseBudget,
+      databaseBudgetBytes: databaseBudgetEffective,
       tableBytes,
       offender,
       evaluatedAt,
@@ -896,7 +947,7 @@ export async function evaluateDbGrowthFence(input?: {
   }
 
   const warning =
-    databaseBytes >= databaseBudget * DEFAULT_WARNING_RATIO ||
+    databaseBytes >= databaseBudgetEffective * DEFAULT_WARNING_RATIO ||
     FENCED_TABLES.some(
       (table) =>
         (tableBytes[table] ?? 0) >=
@@ -908,7 +959,7 @@ export async function evaluateDbGrowthFence(input?: {
     reason: "ready",
     warning,
     databaseBytes,
-    databaseBudgetBytes: databaseBudget,
+    databaseBudgetBytes: databaseBudgetEffective,
     tableBytes,
     offender: null,
     evaluatedAt,

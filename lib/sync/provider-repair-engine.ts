@@ -51,6 +51,7 @@ type MetaRepairStageName =
   | "runMetaRepairCycle.quarantine_terminal_action_required"
   | "runMetaRepairCycle.replay_dead_letters"
   | "runMetaRepairCycle.replay_stale_action_required_dead_letters"
+  | "runMetaRepairCycle.replay_superseded_dead_letters"
   | "runMetaRepairCycle.requeue_retryable_failed"
   | "runMetaRepairCycle.recover_d1_finalize"
   | "runMetaRepairCycle.integrity_incidents"
@@ -937,6 +938,50 @@ export async function runMetaRepairCycle(
         onError: () => null,
       })
     : null;
+  // Dead letters the account's OWN later success has already contradicted.
+  //
+  // The two replay passes above are driven with `replayable_transient` and
+  // `terminal_action_required`. A partition classified `unknown` is picked up
+  // by neither and stays dead forever — 22 of them across 11 businesses on
+  // 2026-08-05, all `account_daily` carrying Meta's generic "Invalid parameter"
+  // (errorClass=payload, recoveryKind=unknown). They died in June/July after
+  // 151-298 attempts each and were still counted as an unhealthy queue in
+  // August, while the same scope had 11,098 successful partitions.
+  //
+  // Only scopes the account has since proven working are revisited, so this
+  // cannot thrash against a genuinely broken surface — and it goes through the
+  // ordinary replay path, keeping its lane, growth-boundary and selection
+  // checks rather than mutating partitions directly.
+  const supersededScopes = await metaWarehouse
+    .getMetaSupersededDeadLetterScopes({ businessId })
+    .catch(() => [] as string[]);
+  const supersededDeadLetterReplays = supersededScopes.length
+    ? await captureMetaRepairStage({
+        businessId,
+        stage: "runMetaRepairCycle.replay_superseded_dead_letters",
+        stageRecords: stageTimings,
+        run: async () => {
+          const results = [];
+          for (const scope of supersededScopes) {
+            results.push(
+              await metaWarehouse.replayMetaDeadLetterPartitions({
+                businessId,
+                scope: scope as Parameters<
+                  typeof metaWarehouse.replayMetaDeadLetterPartitions
+                >[0]["scope"],
+                sources: options?.metaDeadLetterSources ?? null,
+                recoveryKinds: ["unknown"],
+              }),
+            );
+          }
+          return results;
+        },
+        onError: () => null,
+      })
+    : null;
+  const supersededDeadLetterReplayChanged = (
+    supersededDeadLetterReplays ?? []
+  ).reduce((total, result) => total + (result?.changedCount ?? 0), 0);
   const requeuedFailed = await captureMetaRepairStage({
     businessId,
     stage: "runMetaRepairCycle.requeue_retryable_failed",
@@ -1101,7 +1146,15 @@ export async function runMetaRepairCycle(
         ReturnType<typeof validateMetaLiveAccountAccess>
       > | null
     )?.status ?? null;
-  const unknownDeadLetters = replayedDeadLetters?.unknownMatchedCount ?? 0;
+  // The unknown-kind count is taken from the first replay pass, which ran
+  // before the superseded-scope pass below revived any of them. Subtracting
+  // what was actually revived keeps this cycle's verdict truthful instead of
+  // reporting a backlog that no longer exists until the next tick.
+  const unknownDeadLetters = Math.max(
+    0,
+    (replayedDeadLetters?.unknownMatchedCount ?? 0) -
+      supersededDeadLetterReplayChanged,
+  );
   const replayableDeadLetters =
     replayedDeadLetters?.replayableMatchedCount ??
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0

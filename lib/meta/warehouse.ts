@@ -7755,6 +7755,57 @@ export async function replayMetaDeadLetterPartitions(input: {
   };
 }
 
+
+/**
+ * Scopes whose dead letters are provably superseded by later success.
+ *
+ * WHY THIS EXISTS
+ *
+ * A dead letter carries the classification it was given at the moment it died.
+ * `replayMetaDeadLetterPartitions` is only ever driven with
+ * `replayable_transient` and `terminal_action_required`, so a partition
+ * classified `unknown` is picked up by neither and stays dead forever.
+ *
+ * That is not hypothetical. On 2026-08-05 production held 22 such partitions
+ * across 11 businesses, every one of them `account_daily` with Meta's generic
+ * "Invalid parameter" — which classifies as errorClass=payload,
+ * recoveryKind=unknown. They had been retried 151-298 times each, died in
+ * June/July, and were still being counted as an unhealthy queue in August,
+ * while the SAME scope had 11,098 successful partitions.
+ *
+ * A May classification is not evidence about August. This returns the scopes
+ * where the account itself has since proven the scope works — a later
+ * `succeeded` partition on the same business and scope — so the caller can
+ * retry exactly those and nothing else. Blanket replay of `unknown` would
+ * thrash against genuinely broken surfaces; this only revisits a verdict the
+ * account's own later success has already contradicted.
+ */
+export async function getMetaSupersededDeadLetterScopes(input: {
+  businessId: string;
+}): Promise<string[]> {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT DISTINCT dead.scope
+    FROM meta_sync_partitions dead
+    WHERE dead.business_id = ${input.businessId}
+      AND dead.status = 'dead_letter'
+      AND EXISTS (
+        SELECT 1
+        FROM meta_sync_partitions ok
+        WHERE ok.business_id = dead.business_id
+          AND ok.scope = dead.scope
+          AND ok.status = 'succeeded'
+          -- Strictly later than the death, so a success that PREDATES the
+          -- failure can never be read as a contradiction of it.
+          AND ok.finished_at > dead.updated_at
+      )
+  `) as Array<{ scope: string | null }>;
+  return rows
+    .map((row) => (row.scope == null ? "" : String(row.scope)))
+    .filter((scope) => scope.length > 0);
+}
+
 export async function getMetaDeadLetterRecoverySummary(input: {
   businessId: string;
   limit?: number;

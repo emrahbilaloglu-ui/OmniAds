@@ -41,6 +41,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaQueueHealth: vi.fn(),
   getMetaCanonicalDriftIncidents: vi.fn(),
   getMetaWarehouseIntegrityIncidents: vi.fn(),
+  getMetaSupersededDeadLetterScopes: vi.fn(),
 }));
 
 vi.mock("@/lib/provider-account-assignments", () => ({
@@ -221,6 +222,12 @@ describe("provider repair engine", () => {
       d1FinalizeRecoveryQueued: false,
       requeueResult: null,
     });
+    {
+      const mw = await import("@/lib/meta/warehouse");
+      // Default: nothing superseded, so every pre-existing test exercises the
+      // same path it did before the superseded-scope pass was added.
+      vi.mocked(mw.getMetaSupersededDeadLetterScopes).mockResolvedValue([] as never);
+    }
     refreshMetaSyncStateForBusiness.mockResolvedValue(undefined);
     refreshGoogleAdsSyncStateForBusiness.mockResolvedValue(undefined);
     syncGoogleAdsRange.mockResolvedValue(undefined);
@@ -400,6 +407,123 @@ describe("provider repair engine", () => {
     expect(
       (result.repair.blockingReasons ?? []).map((reason) => reason.code),
     ).not.toContain("daily_request_budget_exhausted");
+  });
+
+  // ── Dead letters the account's own later success has contradicted ────────
+  //
+  // Incident of 2026-08-05: 22 Meta partitions across 11 businesses sat
+  // dead-lettered since June/July, every one `account_daily` carrying Meta's
+  // generic "Invalid parameter" (errorClass=payload, recoveryKind=unknown).
+  // Replay is only ever driven with `replayable_transient` and
+  // `terminal_action_required`, so nothing ever picked them up — while the same
+  // scope had 11,098 successful partitions. A May verdict is not evidence about
+  // August.
+  async function setupMetaCleanCycle() {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+      unknownMatchedCount: 0,
+      replayableMatchedCount: 0,
+      terminalActionRequiredCount: 0,
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+    return metaWarehouse;
+  }
+
+  it("replays dead letters only for scopes the account has since proven working", async () => {
+    const metaWarehouse = await setupMetaCleanCycle();
+    vi.mocked(metaWarehouse.getMetaSupersededDeadLetterScopes).mockResolvedValue([
+      "account_daily",
+    ] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    // The stranded class is `unknown`, and only for the proven scope.
+    expect(metaWarehouse.replayMetaDeadLetterPartitions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        scope: "account_daily",
+        recoveryKinds: ["unknown"],
+      }),
+    );
+  });
+
+  it("does not touch unknown dead letters for scopes with no later success", async () => {
+    const metaWarehouse = await setupMetaCleanCycle();
+    vi.mocked(metaWarehouse.getMetaSupersededDeadLetterScopes).mockResolvedValue([] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    // Blanket replay of `unknown` would thrash a genuinely broken surface.
+    expect(metaWarehouse.replayMetaDeadLetterPartitions).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recoveryKinds: ["unknown"] }),
+    );
+  });
+
+  it("clears the unknown-backlog verdict in the same cycle it revives them", async () => {
+    const metaWarehouse = await setupMetaCleanCycle();
+    // The first pass reports 3 stranded unknowns...
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValueOnce({
+      outcome: "replayed",
+      partitions: [],
+      matchedCount: 3,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+      unknownMatchedCount: 3,
+      replayableMatchedCount: 0,
+      terminalActionRequiredCount: 0,
+    } as never);
+    // ...and the superseded pass revives exactly those 3.
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValueOnce({
+      outcome: "replayed",
+      partitions: [],
+      matchedCount: 3,
+      changedCount: 3,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+      unknownMatchedCount: 0,
+      replayableMatchedCount: 0,
+      terminalActionRequiredCount: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaSupersededDeadLetterScopes).mockResolvedValue([
+      "account_daily",
+    ] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    // Reporting a backlog that no longer exists would keep the page red for a
+    // whole tick after the work was already done.
+    expect(result.repair.blocked).toBe(false);
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {

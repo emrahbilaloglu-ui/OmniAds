@@ -11,6 +11,7 @@ const buildGoogleAdsWorkerLeasePlan = vi.fn();
 const cancelCoveredGoogleAdsCoreBacklog = vi.fn();
 const syncGoogleAdsReports = vi.fn();
 const releaseGoogleAdsLeasedPartitionsForWorker = vi.fn();
+const getProviderQuotaBudgetState = vi.fn();
 
 const resolveMetaCredentials = vi.fn();
 const getMetaCheckpointHealth = vi.fn();
@@ -48,6 +49,10 @@ class MockProviderAccountSnapshotRefreshError extends Error {
 
 vi.mock("@/lib/google-ads-gaql", () => ({
   getConnectedAssignedGoogleAccounts,
+}));
+
+vi.mock("@/lib/provider-request-governance", () => ({
+  getProviderQuotaBudgetState,
 }));
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
@@ -125,6 +130,9 @@ vi.mock("@/lib/sync/shopify-sync", () => ({
 describe("provider-worker-adapters", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Healthy budget by default so pre-existing tests exercise the same path
+    // they did before the adapter learned to check it.
+    getProviderQuotaBudgetState.mockResolvedValue({ withinDailyBudget: true });
     mergeAutoRepairResult.mockImplementation((base, results) => ({
       ...(base ?? {}),
       meta: {
@@ -842,5 +850,68 @@ describe("provider-worker-adapters", () => {
         latestCheckpointScope: "account_daily",
       }),
     });
+  });
+});
+
+// THE INCIDENT THIS ENCODES (2026-08-06)
+//
+// This adapter is the path the durable worker actually takes, and it had no
+// admission check of any kind. One account with its 5,000-request daily budget
+// spent — 4,951 of those calls errors — took 40 of 40 runs in a half-hour while
+// three businesses that had used 12 to 16 calls were served nothing. Its
+// requests fail on arrival, and instant failures cycle ticks faster than real
+// work does, so the more broken an account is the more of the worker it takes.
+//
+// A gate was added to buildGoogleAdsLaneAdmissionPolicy first. That was the
+// wrong path — it governs syncGoogleAdsReports, not this adapter — and the
+// exhausted account went on running for fifteen minutes after it shipped.
+describe("googleAdsWorkerAdapter.leasePartitions — daily request budget", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    leaseGoogleAdsSyncPartitions.mockResolvedValue([]);
+  });
+
+  it("leases nothing while the daily budget is spent", async () => {
+    getProviderQuotaBudgetState.mockResolvedValue({ withinDailyBudget: false });
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+
+    const leased = await googleAdsWorkerAdapter.leasePartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 4,
+      plan: null,
+    } as never);
+
+    expect(leased).toEqual([]);
+    expect(leaseGoogleAdsSyncPartitions).not.toHaveBeenCalled();
+  });
+
+  it("leases normally while the budget holds", async () => {
+    getProviderQuotaBudgetState.mockResolvedValue({ withinDailyBudget: true });
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+
+    await googleAdsWorkerAdapter.leasePartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 4,
+      plan: null,
+    } as never);
+
+    expect(leaseGoogleAdsSyncPartitions).toHaveBeenCalled();
+  });
+
+  it("fails OPEN when the budget cannot be read", async () => {
+    // A governance outage must not become a sync outage.
+    getProviderQuotaBudgetState.mockRejectedValue(new Error("quota table unavailable"));
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+
+    await googleAdsWorkerAdapter.leasePartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 4,
+      plan: null,
+    } as never);
+
+    expect(leaseGoogleAdsSyncPartitions).toHaveBeenCalled();
   });
 });

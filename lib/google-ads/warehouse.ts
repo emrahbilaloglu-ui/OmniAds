@@ -6350,6 +6350,12 @@ export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
         -- that needs repair when what it actually needs is a permission grant.
         -- The reason travels with the row either way, and the probe re-tests
         -- them on schedule.
+        -- NEVER park a probe. The probe exists to re-test a parked surface, so
+        -- parking it is the cycle undoing its own work: revive -> probe ->
+        -- cancel put three surfaces back to 793 parked rows within minutes,
+        -- with zero queued left to answer the question the probe was asking.
+        -- A probe is the one queued row that must be allowed to run.
+        AND partition.last_error NOT LIKE 'google_ads_scope_probe%'
         AND (
           partition.status = 'queued'
           OR (

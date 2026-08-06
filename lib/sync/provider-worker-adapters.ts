@@ -1,4 +1,5 @@
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
+import { getProviderQuotaBudgetState } from "@/lib/provider-request-governance";
 import type {
   ProviderSyncAdapter,
   ProviderSyncCheckpointState,
@@ -918,6 +919,30 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     return { partitions };
   },
   async leasePartitions(input) {
+    // Lease nothing for a business whose daily Google Ads request budget is
+    // spent.
+    //
+    // This is the path the durable worker actually takes, and it had no
+    // admission check of any kind. On 2026-08-06 one exhausted account
+    // (5,000/5,000 calls, 4,951 of them errors) took 40 of 40 runs in a
+    // half-hour while three businesses with 12-16 calls used got nothing.
+    // Its requests fail on arrival, and because those failures are instant it
+    // cycles through ticks far faster than an account doing real work — the
+    // more broken it is, the more of the worker it takes.
+    //
+    // A gate was added to `buildGoogleAdsLaneAdmissionPolicy` first, which was
+    // the wrong path: that policy governs `syncGoogleAdsReports`, not the
+    // lifecycle adapter, and the exhausted account kept running for 15 minutes
+    // after it shipped. Measured, not assumed.
+    //
+    // Fails OPEN: an unreadable budget must never stop leasing.
+    const budgetState = await getProviderQuotaBudgetState({
+      provider: "google",
+      businessId: input.businessId,
+    }).catch(() => null);
+    if (budgetState && !budgetState.withinDailyBudget) {
+      return [];
+    }
     const leased = await leaseGoogleAdsPartitionsWithPlan({
       businessId: input.businessId,
       workerId: input.workerId,

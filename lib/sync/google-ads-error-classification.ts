@@ -33,14 +33,40 @@ export function classifyGoogleAdsSyncFailure(input: {
   const upper = rawMessage.toUpperCase();
   const providedClass = input.errorClass?.trim().toLowerCase() ?? "";
 
+  // A surface that was paused stays paused, but it is NOT an account verdict.
+  //
+  // The pause message says it outright — "a terminal access failure for the
+  // same surface" — yet folding it into `account_action_required` stamped a
+  // per-surface problem with the one class the account-wide lease block keys
+  // on. Production showed the consequence: TheSwaf's keyword_daily paused,
+  // every other surface on that account stopped for 24 hours, and the only
+  // work that ran all morning was the paused surface failing again. The same
+  // account read ad_daily, device_daily and campaign_daily without trouble.
+  //
+  // `scope_action_required` is already carried as terminal and action-required
+  // by the scope-level lists in lib/google-ads/warehouse.ts, and is absent from
+  // the account-wide block list there. Emitting it keeps the surface stopped
+  // while leaving the rest of the account alone.
+  if (
+    providedClass === "scope_action_required" ||
+    lower.includes("google_ads_scope_action_required")
+  ) {
+    return {
+      errorClass: "scope_action_required",
+      terminal: true,
+      retryDelayMinutes: 0,
+      recoveryKind: "terminal_action_required",
+      actionRequired: true,
+      reasonCode: "google_ads_scope_action_required",
+    };
+  }
+
   if (
     providedClass === "account_action_required" ||
     providedClass === "invalid_grant" ||
     providedClass === "unauthenticated" ||
     providedClass === "authentication_error" ||
-    providedClass === "scope_action_required" ||
     hasAny(lower, [
-      "google_ads_scope_action_required",
       "invalid_grant",
       "token has been expired or revoked",
       "refresh token",

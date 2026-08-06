@@ -51,7 +51,6 @@ describe("classifyGoogleAdsSyncFailure", () => {
       "UNAUTHENTICATED: login required",
       "PERMISSION_DENIED: user permission denied for customer hierarchy",
       "google_ads_product_daily_fetch_failed: query=product_performance_legacy: message=provider_request_failed:permission:status_403",
-      "google_ads_scope_action_required: product_daily sync is paused because this Google Ads account recently returned a terminal access failure",
       "CUSTOMER_NOT_ENABLED: account suspended",
     ]) {
       const classification = classifyGoogleAdsSyncFailure({ message });
@@ -70,6 +69,34 @@ describe("classifyGoogleAdsSyncFailure", () => {
         }),
       ).toBe(true);
     }
+  });
+
+  it("keeps a paused surface terminal without stamping it as an account verdict", () => {
+    const classification = classifyGoogleAdsSyncFailure({
+      message:
+        "google_ads_scope_action_required: product_daily sync is paused because this Google Ads account recently returned a terminal access failure",
+    });
+
+    // Still terminal and still action-required: the surface stays stopped.
+    expect(classification).toMatchObject({
+      errorClass: "scope_action_required",
+      terminal: true,
+      recoveryKind: "terminal_action_required",
+      actionRequired: true,
+    });
+    expect(
+      shouldDeadLetterGoogleAdsFailure({
+        errorClass: classification.errorClass,
+        terminal: classification.terminal,
+        attemptCount: 0,
+        maxAttempts: 3,
+      }),
+    ).toBe(true);
+
+    // The point of the split: this class is absent from the account-wide lease
+    // block, so one paused surface no longer stops every other surface on the
+    // account. Production ran only the paused surface for a whole morning.
+    expect(classification.errorClass).not.toBe("account_action_required");
   });
 
   it("keeps unknown application classes out of automatic replay by default", () => {

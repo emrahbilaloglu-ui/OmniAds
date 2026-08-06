@@ -1598,6 +1598,24 @@ describe("getGoogleAdsQueueHealth", () => {
               "google_ads_product_daily_fetch_failed: message=provider_request_failed:permission:status_403",
             error_class: "transient",
             error_message: null,
+            // Three months old. The leasing list must drop it; the reporting
+            // list must keep it. An unbounded exclusion held 2,828 ready
+            // partitions unleasable in production on evidence this stale.
+            evidence_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+            is_historical_quarantined: false,
+          },
+          {
+            id: "terminal-current",
+            lane: "extended",
+            scope: "keyword_daily",
+            source: "core_success",
+            partition_date: "2026-05-01",
+            last_error:
+              "google_ads_keyword_daily_fetch_failed: message=provider_request_failed:permission:status_403",
+            error_class: "transient",
+            error_message: null,
+            // Minutes old, so this surface stays excluded from leasing.
+            evidence_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
             is_historical_quarantined: false,
           },
           {
@@ -1641,10 +1659,21 @@ describe("getGoogleAdsQueueHealth", () => {
 
     const result = await getGoogleAdsQueueHealth({ businessId: "biz-1" });
 
-    expect(result.actionRequiredDeadLetterPartitions).toBe(1);
-    expect(result.actionRequiredBlockingDeadLetterPartitions).toBe(1);
-    expect(result.actionRequiredDeadLetterScopes).toEqual(["product_daily"]);
+    // Two terminal dead letters now: one stale, one current.
+    expect(result.actionRequiredDeadLetterPartitions).toBe(2);
+    expect(result.actionRequiredBlockingDeadLetterPartitions).toBe(2);
+    // Reporting keeps both, however old — an operator should see every surface
+    // that needs action. Leasing keeps only the current verdict, so a stale one
+    // stops holding a surface unleasable after it starts reading again.
+    expect(result.actionRequiredDeadLetterScopes).toEqual([
+      "keyword_daily",
+      "product_daily",
+    ]);
+    expect(result.recentActionRequiredDeadLetterScopes).toEqual([
+      "keyword_daily",
+    ]);
     expect(result.actionRequiredBlockingDeadLetterScopes).toEqual([
+      "keyword_daily",
       "product_daily",
     ]);
     expect(result.coreBlockingDeadLetterPartitions).toBe(0);

@@ -5508,6 +5508,9 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       partition.last_error,
       latest_run.error_class,
       latest_run.error_message,
+      -- When the verdict was produced, so a stale one can be told apart from a
+      -- live one. Falls back to the row only when no run exists.
+      COALESCE(latest_run.updated_at, partition.updated_at) AS evidence_at,
       (
         partition.lane = 'extended'
         AND (
@@ -5526,7 +5529,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       ) AS is_historical_quarantined
     FROM google_ads_sync_partitions partition
     LEFT JOIN LATERAL (
-      SELECT run.error_class, run.error_message
+      SELECT run.error_class, run.error_message, run.updated_at
       FROM google_ads_sync_runs run
       WHERE run.partition_id = partition.id
       ORDER BY run.updated_at DESC
@@ -5585,6 +5588,33 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       )
       .map(({ row: deadLetter }) => deadLetter.scope),
   );
+  // The same scopes, but only where the verdict is still current.
+  //
+  // The list above has no recency bound at all, which is right for reporting —
+  // an operator should see every surface that needs action, however old. It is
+  // wrong for LEASING: used there, a 2026-05-20 geo_daily dead letter excluded
+  // geo_daily from every lease step forever, long after the surface started
+  // reading again. Production showed the end state: 2,829 partitions queued and
+  // ready, none retry-deferred, none leasable, because seven ancient dead
+  // letters covered every scope in the queue.
+  //
+  // Nothing is loosened. A surface whose terminal verdict is current is still
+  // excluded; it simply stops being excluded on the strength of evidence that
+  // has since been overtaken. If the surface is still broken it fails again and
+  // re-arms the exclusion within the window.
+  const recentActionRequiredDeadLetterScopes = sortedGoogleAdsScopes(
+    classifiedDeadLetters
+      .filter(({ row: deadLetter, classification }) => {
+        if (classification.recoveryKind !== "terminal_action_required") return false;
+        const evidenceAt = deadLetter.evidence_at
+          ? new Date(deadLetter.evidence_at).getTime()
+          : Number.NaN;
+        // No usable timestamp keeps the historical behaviour: stay excluded.
+        if (!Number.isFinite(evidenceAt)) return true;
+        return Date.now() - evidenceAt <= ACTION_REQUIRED_SCOPE_EXCLUSION_WINDOW_MS;
+      })
+      .map(({ row: deadLetter }) => deadLetter.scope),
+  );
   const actionRequiredBlockingDeadLetterScopes = sortedGoogleAdsScopes(
     classifiedDeadLetters
       .filter(
@@ -5621,6 +5651,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     actionRequiredDeadLetterPartitions,
     actionRequiredBlockingDeadLetterPartitions,
     actionRequiredDeadLetterScopes,
+    recentActionRequiredDeadLetterScopes,
     actionRequiredBlockingDeadLetterScopes,
     coreBlockingDeadLetterPartitions,
     coreActionRequiredBlockingDeadLetterPartitions,
@@ -6032,8 +6063,13 @@ type GoogleAdsDeadLetterCandidateRow = {
   error_message: string | null;
 };
 
+// Matches the account-wide lease block's window, so a scope stops being excluded
+// on the same terms an account stops being blocked.
+const ACTION_REQUIRED_SCOPE_EXCLUSION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 type GoogleAdsDeadLetterHealthRow = GoogleAdsDeadLetterCandidateRow & {
   is_historical_quarantined: boolean | null;
+  evidence_at: string | Date | null;
 };
 
 export interface GoogleAdsTerminalActionRequiredQuarantineResult {

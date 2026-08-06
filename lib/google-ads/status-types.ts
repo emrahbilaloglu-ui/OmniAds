@@ -371,6 +371,8 @@ export interface GoogleAdsStatusResponse {
     actionRequiredDeadLetterPartitions?: number;
     actionRequiredBlockingDeadLetterPartitions?: number;
     actionRequiredDeadLetterScopes?: string[];
+    /** Same scopes, bounded to a current verdict; use this for leasing. */
+    recentActionRequiredDeadLetterScopes?: string[];
     actionRequiredBlockingDeadLetterScopes?: string[];
     advisorRelevantDeadLetterPartitions?: number;
     historicalDeadLetterPartitions?: number;

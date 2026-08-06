@@ -1292,7 +1292,15 @@ export function getGoogleAdsActionRequiredLeaseExcludedScopes(
 ) {
   const scopes = [
     ...(queueHealth?.actionRequiredBlockingDeadLetterScopes ?? []),
-    ...(queueHealth?.actionRequiredDeadLetterScopes ?? []),
+    // Leasing uses the recency-bounded list. The unbounded one stays the
+    // reporting view: an operator should see every surface needing action
+    // however old, but an ancient verdict must not keep a surface unleasable
+    // after it has started reading again. Falls back to the unbounded list when
+    // the bounded one is absent, so an older payload cannot silently widen what
+    // gets leased.
+    ...(queueHealth?.recentActionRequiredDeadLetterScopes ??
+      queueHealth?.actionRequiredDeadLetterScopes ??
+      []),
   ];
   return Array.from(
     new Set(

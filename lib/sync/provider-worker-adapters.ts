@@ -378,6 +378,7 @@ async function leaseGoogleAdsPartitionsWithPlan(input: {
       scopeFilter: (step.scopeFilter as GoogleAdsWarehouseScope[] | undefined) ?? undefined,
       excludedScopeFilter:
         (step.excludedScopeFilter as GoogleAdsWarehouseScope[] | undefined) ?? undefined,
+      probeOnly: step.probeOnly === true,
       startDate: step.startDate ?? null,
       endDate: step.endDate ?? null,
     });

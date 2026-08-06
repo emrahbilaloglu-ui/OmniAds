@@ -737,6 +737,30 @@ describe("provider repair engine", () => {
     expect(leaseBody).toContain("OR last_error LIKE 'google_ads_scope_probe%'");
   });
 
+  it("keeps an ungated probe step so a probe survives every other gate", async () => {
+    // Every other lease step can legitimately fall to limit 0: historical work
+    // waits on the recent-90 frontier, extended waits on budget and breaker.
+    // When they all do, the plan has no steps and the worker reports
+    // "skipped_no_partitions" while thousands of rows sit queued — measured on
+    // TheSwaf, six scopes at 0/90 recent days and 1,462 rows queued. The probe
+    // must survive that, because those gates are what it exists to re-test.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/sync/google-ads-sync.ts", "utf8");
+    expect(source).toContain('key: "scope_probe"');
+    expect(source).toContain("probeOnly: true");
+    // Declared BEFORE the limit filter, so it is never dropped with the rest.
+    const probeIndex = source.indexOf('key: "scope_probe"');
+    const filterIndex = source.indexOf("].filter((step) => step.limit > 0)");
+    expect(probeIndex).toBeGreaterThan(-1);
+    expect(probeIndex).toBeLessThan(filterIndex);
+
+    const warehouse = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    // A probe-only step leases probes and nothing else.
+    expect(warehouse).toContain(
+      "AND ($11::boolean IS NOT TRUE OR last_error LIKE 'google_ads_scope_probe%')",
+    );
+  });
+
   it("surfaces Meta cleanup summary on successful repair", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

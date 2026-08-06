@@ -1547,6 +1547,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: GoogleAdsWarehouseScope[];
   excludedScopeFilter?: GoogleAdsWarehouseScope[];
+  probeOnly?: boolean;
   startDate?: string | null;
   endDate?: string | null;
 }) {
@@ -1660,7 +1661,8 @@ export async function leaseGoogleAdsSyncPartitions(input: {
               )
           )
           AND (
-            $6::text IS NULL
+            $11::boolean IS TRUE
+            OR $6::text IS NULL
             OR $6::text = 'all'
             OR (
               $6::text = 'recent_only'
@@ -1683,6 +1685,14 @@ export async function leaseGoogleAdsSyncPartitions(input: {
               )
             )
           )
+          -- A probe-only step leases nothing but probes. It exists because the
+          -- gates a probe must cross are the same gates it is testing: parked
+          -- surfaces leave the recent-90 frontier incomplete, an incomplete
+          -- frontier blocks historical extended work, and the probes are
+          -- historical-sourced — so the one row sent to break that circle was
+          -- caught by it. Six TheSwaf scopes sat at 0/90 recent days with 1,462
+          -- rows queued and the worker reporting no partitions at all.
+          AND ($11::boolean IS NOT TRUE OR last_error LIKE 'google_ads_scope_probe%')
           AND ($8::date IS NULL OR partition_date >= $8::date)
           AND ($9::date IS NULL OR partition_date <= $9::date)
           AND (
@@ -1738,6 +1748,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
       input.startDate ? normalizeDate(input.startDate) : null,
       input.endDate ? normalizeDate(input.endDate) : null,
       input.excludedScopeFilter ?? [],
+      input.probeOnly === true,
     ],
   )) as Array<Record<string, unknown>>;
 

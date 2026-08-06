@@ -1518,6 +1518,17 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       limit: maintenanceLeasePlan.maintenanceLimit,
       excludedScopeFilter: actionRequiredExcludedScopes,
     },
+    {
+      // Always present, never gated. Every other step can legitimately fall to
+      // limit 0 — historical work waits on the recent-90 frontier, extended
+      // waits on budget and breaker — and when they all do, the plan has no
+      // steps and the worker reports "no partitions" while thousands sit
+      // queued. A probe must survive that, because the gates it would be
+      // stopped by are precisely the ones it exists to re-test.
+      key: "scope_probe",
+      limit: 5,
+      probeOnly: true,
+    },
   ].filter((step) => step.limit > 0);
   if (fallbackLeasePlan && fallbackLeasePlan.limit > 0) {
     steps.push({

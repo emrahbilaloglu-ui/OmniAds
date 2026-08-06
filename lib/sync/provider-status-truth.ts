@@ -94,6 +94,11 @@ export interface ProviderLeasePlanStep {
   sourceFilter?: "all" | "recent_only" | "historical_only";
   scopeFilter?: string[];
   excludedScopeFilter?: string[];
+  /**
+   * Lease ONLY re-test probes. A probe exists to ask whether a parked surface
+   * reads again, so it must not inherit the gates it is testing.
+   */
+  probeOnly?: boolean;
   startDate?: string | null;
   endDate?: string | null;
 }

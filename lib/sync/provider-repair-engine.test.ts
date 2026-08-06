@@ -68,6 +68,7 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsCoveredDates: vi.fn(),
   cancelGoogleAdsUnreadableScopeBacklog: vi.fn(),
   reviveGoogleAdsRestoredScopeBacklog: vi.fn(),
+  probeGoogleAdsParkedScopes: vi.fn(),
 }));
 
 vi.mock("@/lib/google-ads/freshness-read", async () => {
@@ -261,6 +262,10 @@ describe("provider repair engine", () => {
     vi.mocked(googleAdsWarehouse.reviveGoogleAdsRestoredScopeBacklog).mockResolvedValue({
       scopes: [],
       revivedTotal: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.probeGoogleAdsParkedScopes).mockResolvedValue({
+      probes: [],
+      probedTotal: 0,
     } as never);
     // Default: the advisor window is covered, re-read after every close, and
     // past the conversion lookback. Tests that care override this.
@@ -633,6 +638,50 @@ describe("provider repair engine", () => {
 
     // Cancel-then-revive would park a working surface for a whole cycle.
     expect(order).toEqual(["revive", "cancel"]);
+  });
+
+  it("probes parked surfaces so a park can never become permanent", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(googleAdsWarehouse.probeGoogleAdsParkedScopes).mockResolvedValue({
+      probes: [{ providerAccountId: "acc-1", scope: "ad_daily", partitionDate: "2026-08-05" }],
+      probedTotal: 1,
+    } as never);
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(googleAdsWarehouse.probeGoogleAdsParkedScopes).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: "biz-1" }),
+    );
+  });
+
+  it("orders revive, probe, then cancel so the loop cannot deadlock", async () => {
+    await setupGoogleIntegrityRepairScenario();
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    const order: string[] = [];
+    vi.mocked(googleAdsWarehouse.reviveGoogleAdsRestoredScopeBacklog).mockImplementation(
+      (async () => { order.push("revive"); return { scopes: [], revivedTotal: 0 }; }) as never,
+    );
+    vi.mocked(googleAdsWarehouse.probeGoogleAdsParkedScopes).mockImplementation(
+      (async () => { order.push("probe"); return { probes: [], probedTotal: 0 }; }) as never,
+    );
+    vi.mocked(googleAdsWarehouse.cancelGoogleAdsUnreadableScopeBacklog).mockImplementation(
+      (async () => { order.push("cancel"); return { scopes: [], cancelledTotal: 0 }; }) as never,
+    );
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    // Probe must land before cancel, or the cycle would park the probe it just
+    // issued and the surface would never be re-tested.
+    expect(order).toEqual(["revive", "probe", "cancel"]);
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {

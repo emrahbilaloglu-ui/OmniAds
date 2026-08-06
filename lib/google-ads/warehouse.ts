@@ -6466,6 +6466,129 @@ export async function reviveGoogleAdsRestoredScopeBacklog(input: {
   };
 }
 
+/**
+ * Re-test a parked surface periodically, so a park can never become permanent.
+ *
+ * WHY THIS EXISTS — A DEADLOCK IN THE PARK/REVIVE PAIR
+ *
+ * `cancelGoogleAdsUnreadableScopeBacklog` parks a surface the account refused,
+ * and `reviveGoogleAdsRestoredScopeBacklog` brings the work back once a later
+ * `succeeded` partition proves the surface reads again. Together those two look
+ * like a closed loop. They are not: parking removes every queued partition, so
+ * nothing is ever attempted, so no success can ever be recorded, so revival can
+ * never fire. Parked means parked forever.
+ *
+ * That was not theoretical. TheSwaf's four surfaces were parked on evidence of
+ * four to seven attempts made on 2026-05-20 — 793 partitions each, of which
+ * fewer than 1% had ever been tried — and after parking there were zero queued
+ * rows left that could ever produce the success revival waits for.
+ *
+ * So the loop needs a heartbeat. Every `probeIntervalDays` this requeues
+ * exactly ONE parked partition per surface: the newest date, which is the most
+ * likely to hold data. If the surface reads again the probe succeeds and
+ * revival restores the rest on the next cycle; if it is still refused the probe
+ * dead-letters and the interval starts over. The cost of being wrong about a
+ * park is therefore one API call per surface per interval, and permanent
+ * blindness is not a reachable state.
+ *
+ * It never probes a surface that already has queued work — that work is itself
+ * the test, and a second one would just be duplicate load.
+ */
+export async function probeGoogleAdsParkedScopes(input: {
+  businessId: string;
+  probeIntervalDays?: number;
+  limit?: number;
+}): Promise<{
+  probes: Array<{ providerAccountId: string; scope: string; partitionDate: string | null }>;
+  probedTotal: number;
+}> {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const probeIntervalDays = Math.max(1, input.probeIntervalDays ?? 7);
+  const limit = Math.max(1, Math.min(input.limit ?? 25, 100));
+  const rows = (await sql`
+    WITH parked AS (
+      SELECT
+        partition.provider_account_id,
+        partition.scope,
+        max(partition.updated_at) AS parked_at
+      FROM google_ads_sync_partitions partition
+      WHERE partition.business_id = ${input.businessId}
+        AND (
+          (partition.status = 'cancelled'
+            AND partition.last_error LIKE 'google_ads_scope_unreadable%')
+          OR (partition.status = 'dead_letter'
+            AND partition.last_error ILIKE ANY (ARRAY[
+              '%PERMISSION_DENIED%',
+              '%permission denied%',
+              '%does not have permission%',
+              '%provider_request_failed:permission%',
+              '%permission:status_403%',
+              '%google_ads_scope_action_required%'
+            ]))
+        )
+      GROUP BY partition.provider_account_id, partition.scope
+      HAVING max(partition.updated_at)
+             <= now() - (${probeIntervalDays} || ' days')::interval
+    ),
+    eligible AS (
+      SELECT parked.provider_account_id, parked.scope
+      FROM parked
+      -- Queued work IS the test. Probing alongside it would only duplicate load.
+      WHERE NOT EXISTS (
+        SELECT 1 FROM google_ads_sync_partitions pending
+        WHERE pending.business_id = ${input.businessId}
+          AND pending.provider_account_id = parked.provider_account_id
+          AND pending.scope = parked.scope
+          AND pending.status IN ('queued', 'leased', 'running')
+      )
+      LIMIT ${limit}
+    ),
+    probe AS (
+      SELECT DISTINCT ON (candidate.provider_account_id, candidate.scope)
+        candidate.id,
+        candidate.provider_account_id,
+        candidate.scope,
+        candidate.partition_date
+      FROM google_ads_sync_partitions candidate
+      JOIN eligible
+        ON eligible.provider_account_id = candidate.provider_account_id
+       AND eligible.scope = candidate.scope
+      WHERE candidate.business_id = ${input.businessId}
+        AND candidate.status IN ('cancelled', 'dead_letter')
+      -- Newest date first: the most likely to actually hold data, so a refusal
+      -- is about access rather than about an empty historical day.
+      ORDER BY candidate.provider_account_id, candidate.scope, candidate.partition_date DESC
+    )
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'queued',
+      attempt_count = 0,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      finished_at = NULL,
+      last_error = concat(
+        'google_ads_scope_probe: re-testing whether ',
+        probe.scope,
+        ' reads again for this account after being parked.'
+      ),
+      updated_at = now()
+    FROM probe
+    WHERE partition.id = probe.id
+    RETURNING partition.provider_account_id, partition.scope, partition.partition_date
+  `) as Array<{ provider_account_id: string; scope: string; partition_date: unknown }>;
+
+  return {
+    probes: rows.map((row) => ({
+      providerAccountId: String(row.provider_account_id),
+      scope: String(row.scope),
+      partitionDate: normalizeDate(row.partition_date),
+    })),
+    probedTotal: rows.length,
+  };
+}
+
 export async function requeueGoogleAdsRetryableFailedPartitions(input: {
   businessId: string;
   limit?: number;

@@ -528,6 +528,22 @@ export async function runGoogleAdsRepairCycle(
       scopes: restoredScopeRevival?.scopes ?? [],
     });
   }
+  // A park must never be permanent. Revival waits for a success, and parking
+  // removes every queued row, so without a heartbeat no success can ever be
+  // recorded and the pair deadlocks: parked means parked forever. This requeues
+  // exactly one partition per parked surface every few days, so the loop can
+  // discover restored access by itself. Cost of a wrong park: one API call per
+  // surface per interval.
+  const parkedScopeProbe = await googleAdsWarehouse
+    .probeGoogleAdsParkedScopes({ businessId })
+    .catch(() => null);
+  if ((parkedScopeProbe?.probedTotal ?? 0) > 0) {
+    logRuntimeInfo("google-ads-repair", "parked_scope_probe", {
+      businessId,
+      probedTotal: parkedScopeProbe?.probedTotal ?? 0,
+      probes: parkedScopeProbe?.probes ?? [],
+    });
+  }
   // Work for surfaces this account has provably never been able to read.
   //
   // One connected account held four scopes with 793 partitions each and zero

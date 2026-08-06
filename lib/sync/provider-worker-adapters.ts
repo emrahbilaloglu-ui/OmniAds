@@ -1,5 +1,6 @@
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { getProviderQuotaBudgetState } from "@/lib/provider-request-governance";
+import { logRuntimeWarn } from "@/lib/runtime-logging";
 import type {
   ProviderSyncAdapter,
   ProviderSyncCheckpointState,
@@ -920,6 +921,33 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     return { partitions };
   },
   async leasePartitions(input) {
+    // INSTRUMENTATION, not behaviour.
+    //
+    // A business can report `skipped_no_partitions` while thousands of rows sit
+    // queued, because the plan's steps are filtered by `limit > 0` and every
+    // limit is computed at lease time and then thrown away. Five separate
+    // hypotheses for TheSwaf were each disproved by measurement, and the one
+    // remaining suspect — the step limits — is the only part of the path that
+    // leaves no trace. This records it, so the next question is answered by
+    // evidence rather than by another guess.
+    const explainEmptyLease = (leasedCount: number) => {
+      if (leasedCount > 0) return;
+      logRuntimeWarn("google-ads-worker", "lease_returned_nothing", {
+        businessId: input.businessId,
+        requestedLimit: input.plan?.requestedLimit ?? null,
+        stepCount: input.plan?.steps?.length ?? 0,
+        steps: (input.plan?.steps ?? []).map((step) => ({
+          key: step.key,
+          lane: step.lane ?? null,
+          limit: step.limit,
+          sourceFilter: step.sourceFilter ?? null,
+          probeOnly: step.probeOnly === true,
+          scopeFilterCount: step.scopeFilter?.length ?? 0,
+          excludedScopeCount: step.excludedScopeFilter?.length ?? 0,
+        })),
+        fairnessInputs: input.plan?.fairnessInputs ?? null,
+      });
+    };
     // Lease nothing for a business whose daily Google Ads request budget is
     // spent.
     //
@@ -950,6 +978,7 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
       limit: input.limit,
       plan: input.plan,
     });
+    explainEmptyLease(leased.length);
     return leased.map((partition) => mapGoogleAdsPartition(partition));
   },
   async getCheckpoint(input) {

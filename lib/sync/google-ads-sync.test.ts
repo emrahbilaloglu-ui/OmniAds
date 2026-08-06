@@ -1778,3 +1778,67 @@ describe("getGoogleAdsD1FinalizeScopesToQueue", () => {
     ).toEqual(["account_daily", "campaign_daily"]);
   });
 });
+
+// THE INCIDENT THIS ENCODES (2026-08-06)
+//
+// One business exhausted its 5,000-request daily budget (4,951 of those calls
+// were errors) and then consumed the ENTIRE Google worker: 40 of 40 runs in a
+// 30-minute window were its own, every one failing on "Daily Google Ads request
+// budget reached". Three other businesses — 12, 12 and 16 calls used out of
+// 5,000 — were served nothing at all, and work parked for re-testing sat
+// unprocessed behind them.
+//
+// The failures are instant, which is exactly why they are so expensive: a
+// business that fails on arrival cycles through ticks far faster than one doing
+// real work. `classifyGoogleAdsSyncFailure` already prescribes backing off
+// until the daily reset for this error; admission simply never applied it,
+// because `core` was hardcoded to "admit".
+describe("google ads lane admission — daily request budget", () => {
+  it("suspends every lane, core included, once the daily budget is spent", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 100,
+      extendedQueueDepth: 50,
+      withinDailyBudget: false,
+    });
+
+    expect(policy.lanePolicy.core).toBe("suspended");
+    expect(policy.lanePolicy.maintenance).toBe("suspended");
+    expect(policy.lanePolicy.extended).toBe("suspended");
+    expect(policy.withinDailyBudget).toBe(false);
+  });
+
+  it("leaves core admitted while the budget holds", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 100,
+      extendedQueueDepth: 50,
+      withinDailyBudget: true,
+    });
+
+    expect(policy.lanePolicy.core).toBe("admit");
+    expect(policy.withinDailyBudget).toBe(true);
+  });
+
+  it("fails OPEN when the budget cannot be read", () => {
+    // A governance read that fails must not stop core sync; that would turn a
+    // monitoring outage into a data outage.
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 100,
+      extendedQueueDepth: 50,
+    });
+
+    expect(policy.lanePolicy.core).toBe("admit");
+    expect(policy.withinDailyBudget).toBe(true);
+  });
+});

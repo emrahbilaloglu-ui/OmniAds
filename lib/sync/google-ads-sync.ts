@@ -974,15 +974,19 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
   maintenanceBudgetAllowed?: boolean;
   extendedBudgetAllowed?: boolean;
   extendedCanaryEligible?: boolean;
+  withinDailyBudget?: boolean;
   recoveryMode?: "open" | "half_open" | "closed";
 }) {
   const workerCapacityAvailable =
     input.workerCapacityAvailable ?? input.workerHealthy;
+  // Fail OPEN: an unreadable budget must never stop core work.
+  const withinDailyBudget = input.withinDailyBudget ?? true;
   const quotaPressure = input.quotaPressure ?? 0;
   const maintenanceBudgetAllowed = input.maintenanceBudgetAllowed ?? true;
   const extendedBudgetAllowed = input.extendedBudgetAllowed ?? true;
   const extendedCanaryEligible = input.extendedCanaryEligible ?? true;
   const suspendExtendedRecent =
+    !withinDailyBudget ||
     input.safeModeEnabled ||
     !input.workerHealthy ||
     !workerCapacityAvailable ||
@@ -995,6 +999,7 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
       "closed" ||
     quotaPressure >= GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT;
   const suspendMaintenance =
+    !withinDailyBudget ||
     !maintenanceBudgetAllowed ||
     !workerCapacityAvailable ||
     (input.maintenanceQueueDepth ?? 0) >=
@@ -1011,8 +1016,17 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
     extendedBudgetAllowed,
     extendedCanaryEligible,
     recoveryMode: input.recoveryMode ?? (input.breakerOpen ? "open" : "closed"),
+    withinDailyBudget,
     lanePolicy: {
-      core: "admit",
+      // Core is the one lane that used to be admitted unconditionally. With the
+      // daily request budget spent every core request fails on arrival, and
+      // because those failures are instant the business consumes worker ticks
+      // far faster than a healthy one — 40 of 40 runs in a 30-minute window on
+      // 2026-08-06, all from a single exhausted business, while three others
+      // with untouched budgets got nothing. Suspending the whole business until
+      // the daily reset is what `classifyGoogleAdsSyncFailure` already
+      // prescribes for this error; it just had no effect at admission.
+      core: withinDailyBudget ? "admit" : "suspended",
       maintenance: suspendMaintenance ? "suspended" : "admit",
       extended: suspendExtendedRecent ? "suspended" : "admit",
       extendedRecent: suspendExtendedRecent ? "suspended" : "admit",
@@ -1819,6 +1833,7 @@ export async function getGoogleAdsIncidentPolicy(input: {
     quotaPressure: budgetState?.pressure ?? 0,
     maintenanceBudgetAllowed: budgetState?.maintenanceAllowed ?? true,
     extendedBudgetAllowed: budgetState?.extendedAllowed ?? false,
+    withinDailyBudget: budgetState?.withinDailyBudget ?? true,
     extendedCanaryEligible,
     recoveryMode,
   });
@@ -6612,6 +6627,7 @@ export interface GoogleAdsSyncResult {
     | "skipped_existing_background_lock"
     | "skipped_no_partitions"
     | "skipped_worker_state_guard"
+    | "skipped_daily_request_budget_exhausted"
     | "consume_failed_before_leasing"
     | "consume_failed_after_leasing"
     | "consume_completed_without_progress"
@@ -6949,6 +6965,23 @@ export async function syncGoogleAdsReports(
     businessId,
     queueHealth: initialQueueHealth,
   }).catch(() => null);
+  // A business whose daily request budget is spent is skipped for the whole
+  // tick rather than leased and burned. Every request it makes fails on
+  // arrival, and because those failures are instant it consumes the worker far
+  // faster than a healthy business does: 40 of 40 runs in a 30-minute window on
+  // 2026-08-06 came from one exhausted account while three others, with 12 to
+  // 16 calls used out of 5,000, were served nothing at all. Skipping frees the
+  // tick for them and costs the exhausted business nothing it could have had.
+  if (initialIncidentPolicy && initialIncidentPolicy.withinDailyBudget === false) {
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+      outcome: "skipped_daily_request_budget_exhausted",
+    };
+  }
   const effectiveInitialIncidentPolicy =
     applyGoogleAdsFullSyncPriorityPolicyOverride({
       policy: initialIncidentPolicy,

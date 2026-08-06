@@ -1596,6 +1596,16 @@ export async function leaseGoogleAdsSyncPartitions(input: {
           AND (
             COALESCE(array_length($10::text[], 1), 0) = 0
             OR NOT (scope = ANY($10::text[]))
+            -- A probe is the deliberate exception to this exclusion.
+            --
+            -- Scopes with an action-required dead letter are excluded from
+            -- every lease step, which is right for ordinary work and fatal for
+            -- the one row sent to ask whether that verdict still holds: the
+            -- probe targets precisely those scopes, so it could never be
+            -- leased. Seven probes sat at attempt_count = 0 for hours because
+            -- of this — the mechanism produced rows on schedule and could not
+            -- ask its own question.
+            OR last_error LIKE 'google_ads_scope_probe%'
           )
           AND NOT EXISTS (
             SELECT 1

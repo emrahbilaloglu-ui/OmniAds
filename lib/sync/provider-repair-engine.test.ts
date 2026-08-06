@@ -723,6 +723,20 @@ describe("provider repair engine", () => {
     expect(probeBody).toContain("priority = GREATEST(partition.priority, 100)");
   });
 
+  it("exempts probe rows from the action-required scope exclusion", async () => {
+    // Every lease step excludes scopes carrying an action-required dead letter.
+    // That is right for ordinary work and fatal for the probe, which targets
+    // exactly those scopes to ask whether the verdict still holds: seven probes
+    // sat at attempt_count = 0 for hours, unleasable by construction.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    const leaseStart = source.indexOf("export async function leaseGoogleAdsSyncPartitions");
+    expect(leaseStart).toBeGreaterThan(-1);
+    const leaseBody = source.slice(leaseStart, source.indexOf("\nexport ", leaseStart + 10));
+    expect(leaseBody).toContain("NOT (scope = ANY($10::text[]))");
+    expect(leaseBody).toContain("OR last_error LIKE 'google_ads_scope_probe%'");
+  });
+
   it("surfaces Meta cleanup summary on successful repair", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

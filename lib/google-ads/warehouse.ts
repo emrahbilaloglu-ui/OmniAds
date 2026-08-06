@@ -1620,10 +1620,44 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             ) latest_action_run ON true
             WHERE action_partition.business_id = google_ads_sync_partitions.business_id
               AND action_partition.provider_account_id = google_ads_sync_partitions.provider_account_id
-              -- Account-wide (no scope match): a 403/auth failure is an account
+              -- Account-wide by default: a 403/auth failure is usually an account
               -- credential problem, so one broken scope must block leasing for
               -- every scope on that account instead of letting fresh queued
               -- partitions in other scopes keep hammering the broken account.
+              --
+              -- The exception is proved, not assumed. If another surface on the
+              -- SAME account succeeded after this failure was recorded, then the
+              -- credential plainly works and the verdict describes one surface,
+              -- not the account. Blocking everything on that evidence stops work
+              -- that is demonstrably fine: measured in production, keyword_daily
+              -- returns a genuine PERMISSION_DENIED for TheSwaf and IwaStore
+              -- while ad_daily, device_daily and campaign_daily read normally on
+              -- those same accounts — and the correct per-surface verdict halted
+              -- every working surface for 24 hours.
+              --
+              -- So the block narrows to the failing scope only when the account
+              -- has demonstrated it still works elsewhere. With no such success
+              -- the account-wide block stands unchanged, which is the case that
+              -- matters: a revoked or expired credential fails every surface, so
+              -- nothing succeeds and nothing narrows.
+              AND (
+                action_partition.scope = google_ads_sync_partitions.scope
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM google_ads_sync_partitions healthy
+                  WHERE healthy.business_id = action_partition.business_id
+                    AND healthy.provider_account_id = action_partition.provider_account_id
+                    AND healthy.scope <> action_partition.scope
+                    AND healthy.status = 'succeeded'
+                    -- Anchored to the same 24-hour window as the failure, NOT to
+                    -- the moment the failure was recorded. Requiring a success
+                    -- strictly after it is circular: the block is precisely what
+                    -- stops those successes, so the condition could never become
+                    -- true. Measured read-only against production, that stricter
+                    -- form opened nothing at all.
+                    AND healthy.finished_at >= now() - interval '24 hours'
+                )
+              )
               AND action_partition.status = 'dead_letter'
               -- Recency is judged by when the FAILING EVIDENCE was produced, not
               -- by when the row was last touched.

@@ -528,9 +528,17 @@ describe("google ads warehouse ownership safety", () => {
     expect(queries.join("\n")).not.toContain(
       "AND action_partition.updated_at >= now() - interval '24 hours'",
     );
-    expect(queries.join("\n")).not.toContain(
-      "action_partition.scope = google_ads_sync_partitions.scope",
+    // The block is account-wide unless the account proves it still works. A
+    // scope match alone would make it per-scope always, which is why this was
+    // previously asserted absent; it now appears only as the narrowing branch
+    // of an OR whose other side requires that NO other surface on the account
+    // succeeded after the failure. A revoked credential fails everywhere, so
+    // nothing succeeds, so nothing narrows — the account-wide block stands.
+    expect(queries.join("\n")).toContain(
+      "action_partition.scope = google_ads_sync_partitions.scope\n                OR NOT EXISTS (",
     );
+    expect(queries.join("\n")).toContain("healthy.scope <> action_partition.scope");
+    expect(queries.join("\n")).toContain("healthy.status = 'succeeded'");
     expect(queries.join("\n")).toContain("latest_action_run.error_class");
     expect(params[0]?.at(9)).toEqual(["product_daily"]);
   });

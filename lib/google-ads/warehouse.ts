@@ -5606,12 +5606,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     classifiedDeadLetters
       .filter(({ row: deadLetter, classification }) => {
         if (classification.recoveryKind !== "terminal_action_required") return false;
-        const evidenceAt = deadLetter.evidence_at
-          ? new Date(deadLetter.evidence_at).getTime()
-          : Number.NaN;
-        // No usable timestamp keeps the historical behaviour: stay excluded.
-        if (!Number.isFinite(evidenceAt)) return true;
-        return Date.now() - evidenceAt <= ACTION_REQUIRED_SCOPE_EXCLUSION_WINDOW_MS;
+        return isGoogleAdsActionVerdictCurrent(deadLetter.evidence_at);
       })
       .map(({ row: deadLetter }) => deadLetter.scope),
   );
@@ -5621,6 +5616,19 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
         ({ row: deadLetter, classification }) =>
           classification.recoveryKind === "terminal_action_required" &&
           !deadLetter.is_historical_quarantined,
+      )
+      .map(({ row: deadLetter }) => deadLetter.scope),
+  );
+  // Bounding only the other list left this one unbounded, and the leasing union
+  // takes both — production still reported six excluded scopes with the bound
+  // in place. Same window, same reasoning.
+  const recentActionRequiredBlockingDeadLetterScopes = sortedGoogleAdsScopes(
+    classifiedDeadLetters
+      .filter(
+        ({ row: deadLetter, classification }) =>
+          classification.recoveryKind === "terminal_action_required" &&
+          !deadLetter.is_historical_quarantined &&
+          isGoogleAdsActionVerdictCurrent(deadLetter.evidence_at),
       )
       .map(({ row: deadLetter }) => deadLetter.scope),
   );
@@ -5652,6 +5660,7 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
     actionRequiredBlockingDeadLetterPartitions,
     actionRequiredDeadLetterScopes,
     recentActionRequiredDeadLetterScopes,
+    recentActionRequiredBlockingDeadLetterScopes,
     actionRequiredBlockingDeadLetterScopes,
     coreBlockingDeadLetterPartitions,
     coreActionRequiredBlockingDeadLetterPartitions,
@@ -6066,6 +6075,14 @@ type GoogleAdsDeadLetterCandidateRow = {
 // Matches the account-wide lease block's window, so a scope stops being excluded
 // on the same terms an account stops being blocked.
 const ACTION_REQUIRED_SCOPE_EXCLUSION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// A dead letter with no usable timestamp counts as current, so missing data can
+// never widen what gets leased.
+function isGoogleAdsActionVerdictCurrent(evidenceAt: string | Date | null) {
+  const at = evidenceAt ? new Date(evidenceAt).getTime() : Number.NaN;
+  if (!Number.isFinite(at)) return true;
+  return Date.now() - at <= ACTION_REQUIRED_SCOPE_EXCLUSION_WINDOW_MS;
+}
 
 type GoogleAdsDeadLetterHealthRow = GoogleAdsDeadLetterCandidateRow & {
   is_historical_quarantined: boolean | null;

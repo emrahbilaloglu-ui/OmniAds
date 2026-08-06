@@ -1672,6 +1672,11 @@ describe("getGoogleAdsQueueHealth", () => {
     expect(result.recentActionRequiredDeadLetterScopes).toEqual([
       "keyword_daily",
     ]);
+    // Both lists feed the leasing union, so both must be bounded. Bounding only
+    // one left production reporting six excluded scopes with the fix deployed.
+    expect(result.recentActionRequiredBlockingDeadLetterScopes).toEqual([
+      "keyword_daily",
+    ]);
     expect(result.actionRequiredBlockingDeadLetterScopes).toEqual([
       "keyword_daily",
       "product_daily",

@@ -215,6 +215,7 @@ export interface AdminSyncHealthPayload {
     actionRequiredBlockingDeadLetterPartitions?: number;
     actionRequiredDeadLetterScopes?: string[];
     recentActionRequiredDeadLetterScopes?: string[];
+    recentActionRequiredBlockingDeadLetterScopes?: string[];
     actionRequiredBlockingDeadLetterScopes?: string[];
     oldestQueuedPartition: string | null;
     latestPartitionActivityAt: string | null;

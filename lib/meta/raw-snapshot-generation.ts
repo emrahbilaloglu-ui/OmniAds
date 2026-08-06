@@ -155,7 +155,12 @@ export function resolveMetaRawSnapshotResumeState<
         "raw pages exist without their checkpoint",
       );
     }
-    return { pages, nextPageIndex: 0 };
+    return {
+      pages,
+      nextPageIndex: 0,
+      resumeCursor: null,
+      rewoundToDurableFrontier: false,
+    };
   }
 
   if (pages.length === 0) {
@@ -165,14 +170,50 @@ export function resolveMetaRawSnapshotResumeState<
         `checkpoint records ${checkpoint.rowsFetched} rows but no raw page is durable`,
       );
     }
-    return { pages, nextPageIndex: 0 };
+    return {
+      pages,
+      nextPageIndex: 0,
+      resumeCursor: null,
+      rewoundToDurableFrontier: false,
+    };
   }
 
   const lastPageIndex = last?.page_index;
+  const durableFrontier = (lastPageIndex ?? -1) + 1;
+
+  // A checkpoint exactly one page ahead of the durable raw generation is not
+  // corruption — it is the expected crash state, and it must heal itself.
+  //
+  // The fetch loop writes the checkpoint for page N BEFORE it writes raw page
+  // N (`upsertOwnedMetaCheckpointOrThrow` then `recordMetaRawSnapshot`). Any
+  // interruption between those two writes durably leaves checkpoint = N and
+  // raw pages = [0..N-1]. The validator below demanded checkpoint.pageIndex
+  // === lastPageIndex for a `fetch_raw` checkpoint, so it read that ordinary
+  // window as fatal and threw on every subsequent resume, forever: the
+  // checkpoint was never rewound, so each retry rebuilt the same verdict.
+  //
+  // Measured in production 2026-08-06: `page_index checkpoint=1 raw=0` on
+  // Halıcızade (133 runs), Bilsem Zeka (83) and EMOLOS (64) — 280 failed runs
+  // in seven days on three businesses, one signature, none of it recoverable
+  // without a human.
+  //
+  // The durable raw pages are the truth and the checkpoint is the claim, so
+  // the claim yields: resume AT the frontier and re-fetch the page that never
+  // landed. Re-fetching is idempotent; trusting the checkpoint's own cursor
+  // here would not be, because that cursor points one page PAST the gap and
+  // would skip the missing page's rows silently. That is why this rewinds to
+  // the last durable page's cursor rather than simply widening the check.
+  if (checkpoint.phase === "fetch_raw" && checkpoint.pageIndex === durableFrontier) {
+    return {
+      pages,
+      nextPageIndex: durableFrontier,
+      resumeCursor: last?.provider_cursor ?? null,
+      rewoundToDurableFrontier: true,
+    };
+  }
+
   const expectedCheckpointPage =
-    checkpoint.phase === "fetch_raw"
-      ? lastPageIndex
-      : (lastPageIndex ?? -1) + 1;
+    checkpoint.phase === "fetch_raw" ? lastPageIndex : durableFrontier;
   const mismatches: string[] = [];
 
   if (checkpoint.pageIndex !== expectedCheckpointPage) {
@@ -205,7 +246,9 @@ export function resolveMetaRawSnapshotResumeState<
 
   return {
     pages,
-    nextPageIndex: (lastPageIndex ?? -1) + 1,
+    nextPageIndex: durableFrontier,
+    resumeCursor: null,
+    rewoundToDurableFrontier: false,
   };
 }
 

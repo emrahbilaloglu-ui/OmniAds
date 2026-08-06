@@ -262,6 +262,29 @@ function providerCanAutoRefresh(
   return provider === "google" || provider === "ga4" || provider === "search_console";
 }
 
+/**
+ * Whether a stored `token_expires_at` is evidence the PROVIDER will reject us.
+ *
+ * For Google-family providers the stamp is authoritative: the token really is
+ * refused past it, which is why they carry a refresh token to get ahead of it.
+ *
+ * For Meta it is not. The stamp is our own note taken at grant time, never
+ * re-derived and never confirmed against Meta, and Meta's long-lived tokens
+ * routinely keep working past it. Treating it as expiry meant the UI announced
+ * a failure that the provider had not declared and that no user action could
+ * clear: measured 2026-08-06, all 12 Meta rows in `provider_connections` were
+ * `connected` and every one of them held an access token, while 10 sat behind
+ * an "Expired / Action required" badge sourced entirely from this column.
+ *
+ * So Meta's freshness is decided by asking Meta. `validateMetaLiveAccountAccess`
+ * is that question, and the repair engine already treats its verdict as the
+ * authority on whether a Meta auth failure is real. The badge now waits for the
+ * same evidence: a warning appears when Meta actually rejects, not before.
+ */
+function providerExpiryStampIsAuthoritative(provider: IntegrationProvider) {
+  return provider !== "meta";
+}
+
 function getDomainsForState(state: IntegrationsStore, businessId: string) {
   return normalizeBusinessProviderDomains(
     state.domainsByBusinessId[businessId],
@@ -377,6 +400,7 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               }
 
               const isExpired =
+                providerExpiryStampIsAuthoritative(provider) &&
                 Boolean(row.token_expires_at) &&
                 new Date(row.token_expires_at as string).getTime() <= Date.now();
               const nextStatus: ProviderConnectionStatus =

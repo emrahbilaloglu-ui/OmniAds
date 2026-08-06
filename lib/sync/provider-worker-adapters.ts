@@ -944,6 +944,14 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
           probeOnly: step.probeOnly === true,
           scopeFilterCount: step.scopeFilter?.length ?? 0,
           excludedScopeCount: step.excludedScopeFilter?.length ?? 0,
+          // The date window is logged because omitting it is what made this
+          // log lie by silence. It recorded every filter EXCEPT these two,
+          // so an empty lease caused purely by the frontier clamp read as
+          // "all limits positive, nothing excluded, still nothing leased" —
+          // and five hypotheses were spent on the filters that were visible.
+          // A step's window is part of why it leased nothing; print it.
+          startDate: step.startDate ?? null,
+          endDate: step.endDate ?? null,
         })),
         fairnessInputs: input.plan?.fairnessInputs ?? null,
       });

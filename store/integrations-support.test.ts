@@ -159,4 +159,43 @@ describe("deriveProviderViewState", () => {
     const state = useIntegrationsStore.getState();
     expect(state.domainsByBusinessId[businessId]?.google.connection.status).toBe("expired");
   });
+
+  it("keeps Meta connected when only our own stored expiry stamp is in the past", () => {
+    // Meta never told us the token was refused; the stamp is our note from
+    // grant time. Measured in production, 10 of 12 connected Meta rows showed
+    // "Expired / Action required" on this evidence alone.
+    const businessId = "biz-meta-stale-stamp";
+    useIntegrationsStore.getState().clearAllState();
+    useIntegrationsStore.getState().setManifestConnections(businessId, [
+      {
+        provider: "meta",
+        status: "connected",
+        id: "int_meta",
+        token_expires_at: "2026-03-20T10:00:00.000Z",
+        refresh_token: null,
+        has_refresh_token: false,
+      },
+    ]);
+
+    const state = useIntegrationsStore.getState();
+    expect(state.domainsByBusinessId[businessId]?.meta.connection.status).toBe("connected");
+  });
+
+  it("still surfaces Meta as needing attention when the provider actually rejects", () => {
+    const businessId = "biz-meta-real-failure";
+    useIntegrationsStore.getState().clearAllState();
+    useIntegrationsStore.getState().setManifestConnections(businessId, [
+      {
+        provider: "meta",
+        status: "error",
+        id: "int_meta",
+        token_expires_at: null,
+        refresh_token: null,
+        has_refresh_token: false,
+      },
+    ]);
+
+    const state = useIntegrationsStore.getState();
+    expect(state.domainsByBusinessId[businessId]?.meta.connection.status).toBe("error");
+  });
 });

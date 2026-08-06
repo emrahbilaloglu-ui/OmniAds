@@ -100,6 +100,49 @@ describe("Meta raw snapshot generation restore", () => {
     ).toThrowError(/checkpoint records 1 rows but no raw page is durable/);
   });
 
+  it("rewinds to the durable raw frontier when the checkpoint is one page ahead", () => {
+    // The exact production signature: `page_index checkpoint=1 raw=0`, left by
+    // an interruption between the checkpoint write and the raw page write.
+    const pages = [page("page-0", 0, "2026-07-05T02:00:00Z", "next-1")];
+
+    expect(
+      resolveMetaRawSnapshotResumeState({
+        pages,
+        checkpoint: {
+          phase: "fetch_raw",
+          pageIndex: 1,
+          nextPageUrl: "next-2",
+          providerCursor: "next-2",
+          // Counts the rows of the page that never became durable.
+          rowsFetched: 99,
+        },
+      }),
+    ).toMatchObject({
+      nextPageIndex: 1,
+      rewoundToDurableFrontier: true,
+      // Must be page 0's cursor, NOT the checkpoint's "next-2": resuming from
+      // the checkpoint would skip page 1 entirely and lose its rows silently.
+      resumeCursor: "next-1",
+    });
+  });
+
+  it("still rejects a checkpoint further ahead than one interrupted page", () => {
+    const pages = [page("page-0", 0, "2026-07-05T02:00:00Z", "next-1")];
+
+    expect(() =>
+      resolveMetaRawSnapshotResumeState({
+        pages,
+        checkpoint: {
+          phase: "fetch_raw",
+          pageIndex: 3,
+          nextPageUrl: "next-4",
+          providerCursor: "next-4",
+          rowsFetched: 3,
+        },
+      }),
+    ).toThrowError(MetaRawSnapshotRestoreError);
+  });
+
   it("accepts a completed generation at a post-fetch checkpoint", () => {
     const pages = [page("page-0", 0, "2026-07-05T02:00:00Z", null)];
     expect(

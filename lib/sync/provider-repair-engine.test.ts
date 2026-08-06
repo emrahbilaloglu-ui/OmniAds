@@ -737,6 +737,71 @@ describe("provider repair engine", () => {
     expect(leaseBody).toContain("OR last_error LIKE 'google_ads_scope_probe%'");
   });
 
+  it("lets revive and probe see a dead letter still carrying the restored marker", async () => {
+    // Revive sets status='queued' and stamps last_error with the restored
+    // marker. If such a row dies again without recording a new reason, it holds
+    // dead_letter status AND a "reads again" message — unleasable (dead_letter
+    // is not a leasable status) and unrevivable (the message no longer looks
+    // like a permission failure). Measured 2026-08-06: 82 partitions in that
+    // state and the parked ARRAY matched exactly zero of them, so the park was
+    // permanent by construction. Both escape hatches must recognise it.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+
+    for (const fn of [
+      "export async function reviveGoogleAdsRestoredScopeBacklog",
+      "export async function probeGoogleAdsParkedScopes",
+    ]) {
+      const start = source.indexOf(fn);
+      expect(start).toBeGreaterThan(-1);
+      const body = source.slice(start, source.indexOf("\nexport ", start + 10));
+      expect(body).toContain("'%google_ads_scope_restored%'");
+    }
+
+    // The proof requirement must survive: revival still demands a success for
+    // the same account and scope recorded AFTER the park, so recognising the
+    // marker cannot resurrect a surface that is genuinely still refused.
+    const reviveStart = source.indexOf(
+      "export async function reviveGoogleAdsRestoredScopeBacklog",
+    );
+    const reviveBody = source.slice(
+      reviveStart,
+      source.indexOf("\nexport ", reviveStart + 10),
+    );
+    expect(reviveBody).toContain("ok.status = 'succeeded'");
+    expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
+  });
+
+  it("does not clamp the core lease step to the historical replay frontier", async () => {
+    // `historicalLeaseStartDate` collapses to recent90Start while recent-90 is
+    // incomplete. On the core lane that is a deadlock, not a priority: a core
+    // backlog dated entirely before the frontier becomes unleasable, and the
+    // frontier can only advance on core work the clamp forbids. Measured
+    // 2026-08-06: IwaStore and Grandmix each held 134 queued core rows from
+    // 2024, zero inside the window, leasing nothing for hours.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/sync/google-ads-sync.ts", "utf8");
+    const coreStart = source.indexOf('key: "core"');
+    expect(coreStart).toBeGreaterThan(-1);
+    const coreBody = source.slice(coreStart, source.indexOf("},", coreStart));
+    expect(coreBody).not.toContain("startDate");
+    // The upper bound stays: today's date is still incomplete.
+    expect(coreBody).toContain("endDate: fullSyncPriority.yesterday");
+  });
+
+  it("records the lease step date window when a lease returns nothing", async () => {
+    // The window was the one filter the empty-lease log did not print, so an
+    // empty lease caused purely by it read as "limits positive, nothing
+    // excluded, still nothing leased".
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/sync/provider-worker-adapters.ts", "utf8");
+    const logStart = source.indexOf("lease_returned_nothing");
+    expect(logStart).toBeGreaterThan(-1);
+    const logBody = source.slice(logStart, logStart + 2000);
+    expect(logBody).toContain("startDate: step.startDate ?? null");
+    expect(logBody).toContain("endDate: step.endDate ?? null");
+  });
+
   it("keeps an ungated probe step so a probe survives every other gate", async () => {
     // Every other lease step can legitimately fall to limit 0: historical work
     // waits on the recent-90 frontier, extended waits on budget and breaker.

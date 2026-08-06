@@ -2466,19 +2466,25 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     },
   });
 
-  let nextPageUrl: string | null = resolveMetaRawSnapshotFetchUrl({
-    checkpoint,
-    initialPageUrl: buildMetaBulkCoreInsightsUrl({
-      accountId: input.accountId,
-      accessToken: input.credentials.accessToken,
-      since: normalizedDay,
-      until: normalizedDay,
-    }),
-  });
   const restoreState = resolveMetaRawSnapshotResumeState({
     pages: restoredPages,
     checkpoint,
   });
+  // When the resume rewound to the durable raw frontier, the checkpoint's own
+  // cursor must NOT be used: it points one page past the page that never
+  // landed, so following it would skip that page's rows without any error.
+  // The last durable page's cursor is the one that re-fetches the gap.
+  let nextPageUrl: string | null = restoreState.rewoundToDurableFrontier
+    ? restoreState.resumeCursor
+    : resolveMetaRawSnapshotFetchUrl({
+        checkpoint,
+        initialPageUrl: buildMetaBulkCoreInsightsUrl({
+          accountId: input.accountId,
+          accessToken: input.credentials.accessToken,
+          since: normalizedDay,
+          until: normalizedDay,
+        }),
+      });
   let pageIndex = restoreState.nextPageIndex;
   let throttleCount = 0;
   let lastUsagePercent = 0;

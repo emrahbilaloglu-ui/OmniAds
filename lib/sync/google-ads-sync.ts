@@ -1489,9 +1489,32 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
   const steps: ProviderLeasePlan["steps"] = [
     {
       key: "core",
+      // The core lane is deliberately NOT clamped to the historical replay
+      // frontier, unlike every extended step below.
+      //
+      // `historicalLeaseStartDate` collapses to `recent90Start` while the
+      // recent-90 window is incomplete. That is right for backfill: it stops
+      // history from running ahead of user-visible dates. Applied to the core
+      // lane it is a deadlock, because a core backlog can lie entirely BEFORE
+      // that frontier and then no core row is leasable at all — while the
+      // frontier itself can only advance on core work that the clamp forbids.
+      //
+      // Measured in production 2026-08-06: IwaStore and Grandmix each held 134
+      // queued core partitions dated 2024-04-21..2024-06-26, ZERO of them
+      // inside the recent-90 window, and `lease_returned_nothing` fired on
+      // both for hours with every step limit > 0 and every other lease
+      // predicate passing. The empty-lease instrumentation recorded limits,
+      // lanes and scope exclusions but not these two dates, which is why five
+      // earlier hypotheses died on the wrong suspect.
+      //
+      // Dropping the floor cannot let backfill outrank recent work: the lease
+      // orders by source priority, where `core_historical_recovery` scores 18
+      // against 100-120 for every recent source. Ordering already delivers
+      // recent-first; the clamp only ever decided whether old core work could
+      // run AT ALL. `endDate` is kept — leasing today's incomplete date is a
+      // different question, and that one the frontier answers correctly.
       lane: "core",
       limit: GOOGLE_ADS_CORE_WORKER_LIMIT,
-      startDate: historicalLeaseStartDate,
       endDate: fullSyncPriority.yesterday,
       excludedScopeFilter: actionRequiredExcludedScopes,
     },

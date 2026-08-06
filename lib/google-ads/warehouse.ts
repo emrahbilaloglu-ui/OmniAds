@@ -6592,7 +6592,27 @@ export async function reviveGoogleAdsRestoredScopeBacklog(input: {
               '%does not have permission%',
               '%provider_request_failed:permission%',
               '%permission:status_403%',
-              '%google_ads_scope_action_required%'
+              '%google_ads_scope_action_required%',
+              -- A row THIS function already revived, which then died again
+              -- without recording a new reason, keeps the restored marker as
+              -- its last_error. That pairing — dead_letter status carrying a
+              -- "reads again" message — was invisible to everything: the lease
+              -- skips it because dead_letter is not a leasable status, and this
+              -- CTE skipped it because the message no longer looks like a
+              -- permission failure. Unworkable and unrevivable at once, so the
+              -- park became permanent by construction rather than by evidence.
+              --
+              -- Measured 2026-08-06: 82 partitions sat in exactly that state
+              -- (TheSwaf product_daily in the main, plus ad_daily,
+              -- audience_daily and device_daily, and IwaStore ad_daily and
+              -- asset_group_daily). Running this ARRAY against them matched
+              -- zero rows, which is what made the limbo permanent.
+              --
+              -- Recognising the marker cannot revive a surface that is still
+              -- broken: revival below still demands a succeeded partition for
+              -- the same account and scope that finished AFTER the park. The
+              -- proof requirement is untouched; only the dead end is removed.
+              '%google_ads_scope_restored%'
             ]))
         )
     ),
@@ -6706,7 +6726,14 @@ export async function probeGoogleAdsParkedScopes(input: {
               '%does not have permission%',
               '%provider_request_failed:permission%',
               '%permission:status_403%',
-              '%google_ads_scope_action_required%'
+              '%google_ads_scope_action_required%',
+              -- Same reason as in reviveGoogleAdsRestoredScopeBacklog: a
+              -- dead_letter row still carrying the restored marker is a parked
+              -- surface, and omitting it here hid those surfaces from the very
+              -- mechanism whose job is to re-test a park so it "can never
+              -- become permanent". Revival and probing were blind to the same
+              -- 82 rows, so neither escape hatch could open.
+              '%google_ads_scope_restored%'
             ]))
         )
       GROUP BY partition.provider_account_id, partition.scope

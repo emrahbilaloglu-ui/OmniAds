@@ -6576,8 +6576,30 @@ export async function probeGoogleAdsParkedScopes(input: {
             ]))
         )
       GROUP BY partition.provider_account_id, partition.scope
-      HAVING max(partition.updated_at)
-             <= now() - (${probeIntervalDays} || ' days')::interval
+      -- Interval since the surface was last ACTUALLY TRIED, not since it was
+      -- parked.
+      --
+      -- Parking stamps every row with now(), so keying off the park made a
+      -- freshly parked surface wait a full interval before its first test —
+      -- even though the park itself was decided on inherited evidence rather
+      -- than on a fresh attempt. That was not academic: TheSwaf's device_daily
+      -- was parked on four to seven attempts from 2026-05-20, and the moment
+      -- something finally ran it succeeded and 677 rows came back. Three sibling
+      -- surfaces parked on identical evidence had no queued row left to prove
+      -- the same thing and would have sat for a week.
+      --
+      -- A surface that has just been probed and failed still backs off the full
+      -- interval, because the probe IS an attempt and moves this timestamp.
+      --
+      -- started_at specifically: parking rewrites updated_at on every row it
+      -- touches, including the already-attempted ones, so keying off that made a
+      -- surface look as though it had just been tried at the very moment it was
+      -- shelved. started_at records when a partition was last actually picked
+      -- up, and neither parking nor cancelling moves it.
+      HAVING COALESCE(
+               max(partition.started_at) FILTER (WHERE partition.attempt_count > 0),
+               'epoch'::timestamptz
+             ) <= now() - (${probeIntervalDays} || ' days')::interval
     ),
     eligible AS (
       SELECT parked.provider_account_id, parked.scope

@@ -710,6 +710,19 @@ describe("provider repair engine", () => {
     expect(reason?.repairable).toBe(false);
   });
 
+  it("gives a probe a priority that will actually be served", async () => {
+    // Leasing is ordered by priority DESC. Requeued rows kept the negative
+    // priority they were parked with, so seven probes sat at -5 behind 268 core
+    // rows and 1,117 other -5 rows — the mechanism produced rows and answered
+    // nothing. Pinning the floor here keeps that from silently regressing.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    const probeStart = source.indexOf("export async function probeGoogleAdsParkedScopes");
+    expect(probeStart).toBeGreaterThan(-1);
+    const probeBody = source.slice(probeStart, source.indexOf("\nexport ", probeStart + 10));
+    expect(probeBody).toContain("priority = GREATEST(partition.priority, 100)");
+  });
+
   it("surfaces Meta cleanup summary on successful repair", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

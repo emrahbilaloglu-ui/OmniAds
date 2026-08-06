@@ -6644,6 +6644,17 @@ export async function probeGoogleAdsParkedScopes(input: {
       lease_expires_at = NULL,
       next_retry_at = NULL,
       finished_at = NULL,
+      -- A probe must be served promptly or it is not a probe.
+      --
+      -- Requeued rows kept whatever priority they were parked with, which for
+      -- historical backfill is negative. Leasing is ordered by priority DESC,
+      -- so seven probes sat at -5 behind 268 core rows and 1,117 other -5 rows
+      -- and would effectively never have run: the mechanism existed, produced
+      -- rows, and answered nothing. 100 puts a probe ahead of the backlog it is
+      -- asking about while staying below scheduled core work (200) and the
+      -- maintenance band (120). It cannot flood anything — this is one row per
+      -- surface per interval.
+      priority = GREATEST(partition.priority, 100),
       last_error = concat(
         'google_ads_scope_probe: re-testing whether ',
         probe.scope,

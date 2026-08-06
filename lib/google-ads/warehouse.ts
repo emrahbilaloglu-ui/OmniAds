@@ -1612,7 +1612,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             SELECT 1
             FROM google_ads_sync_partitions action_partition
             LEFT JOIN LATERAL (
-              SELECT run.error_class, run.error_message
+              SELECT run.error_class, run.error_message, run.updated_at
               FROM google_ads_sync_runs run
               WHERE run.partition_id = action_partition.id
               ORDER BY run.updated_at DESC
@@ -1625,7 +1625,27 @@ export async function leaseGoogleAdsSyncPartitions(input: {
               -- every scope on that account instead of letting fresh queued
               -- partitions in other scopes keep hammering the broken account.
               AND action_partition.status = 'dead_letter'
-              AND action_partition.updated_at >= now() - interval '24 hours'
+              -- Recency is judged by when the FAILING EVIDENCE was produced, not
+              -- by when the row was last touched.
+              --
+              -- Keying on the partition's updated_at pairs a fresh timestamp
+              -- with an arbitrarily old verdict: any housekeeping write bumps
+              -- the column while the error_class this block relies on stays put.
+              -- In production a device_daily dead letter whose only run was from
+              -- 2026-05-20 held an account-wide block open in August, because a
+              -- restore pass kept touching the row — and each touch rolled the
+              -- 24-hour window forward, so the account could never unblock. The
+              -- same scope had since succeeded, so the verdict was not merely
+              -- old but disproved.
+              --
+              -- The gate is not loosened: a genuinely recent auth or permission
+              -- failure still blocks every scope on the account, which is the
+              -- point of an account-wide block. It can no longer be re-armed by
+              -- a write that carries no new evidence.
+              AND COALESCE(
+                latest_action_run.updated_at,
+                action_partition.updated_at
+              ) >= now() - interval '24 hours'
               AND (
                 COALESCE(latest_action_run.error_class, '') IN (
                   'account_action_required',

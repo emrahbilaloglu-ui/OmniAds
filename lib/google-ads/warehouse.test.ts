@@ -515,7 +515,19 @@ describe("google ads warehouse ownership safety", () => {
     expect(queries.join("\n")).toContain("action_partition.status = 'dead_letter'");
     // Account-wide gate: 24h window and no per-scope match, so one broken scope
     // blocks leasing across the whole account.
-    expect(queries.join("\n")).toContain("action_partition.updated_at >= now() - interval '24 hours'");
+    //
+    // The window is measured from the failing run, falling back to the row only
+    // when no run exists. Keying it on the partition's own updated_at let any
+    // housekeeping write pair a fresh timestamp with a months-old verdict and
+    // hold the block open forever; production carried exactly that state. Both
+    // halves are pinned here, so dropping the bound or reverting to the bare
+    // row timestamp fails this test.
+    expect(queries.join("\n")).toContain(
+      "COALESCE(\n                latest_action_run.updated_at,\n                action_partition.updated_at\n              ) >= now() - interval '24 hours'",
+    );
+    expect(queries.join("\n")).not.toContain(
+      "AND action_partition.updated_at >= now() - interval '24 hours'",
+    );
     expect(queries.join("\n")).not.toContain(
       "action_partition.scope = google_ads_sync_partitions.scope",
     );

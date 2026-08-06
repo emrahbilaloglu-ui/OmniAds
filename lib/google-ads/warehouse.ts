@@ -6354,6 +6354,118 @@ export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
   };
 }
 
+/**
+ * Bring back work that was parked while a surface was unreadable, once the
+ * account itself proves the surface reads again.
+ *
+ * WHY THIS EXISTS
+ *
+ * `cancelGoogleAdsUnreadableScopeBacklog` stops the waste when an account
+ * cannot read a surface, but stopping is only half a repair. Without this the
+ * loop is one-way: access is restored, new partitions sync fine, and the
+ * thousands of days that were parked stay parked forever — a silent permanent
+ * hole in the history that nobody would notice until they looked for old data
+ * and found none.
+ *
+ * WHAT COUNTS AS PROOF
+ *
+ * Only the account's own success. A partition is revived when a `succeeded`
+ * partition exists for the same business, account and scope, finished AFTER the
+ * row was parked. Restored access is therefore observed, never assumed and
+ * never configured: no flag to flip, no operator step, and no way for this to
+ * fire while the surface is still refused — the proof cannot exist until a real
+ * request has come back with data.
+ *
+ * It covers both shapes the park can take: rows this engine cancelled, and the
+ * terminal dead letters that justified cancelling them. Attempt counts reset,
+ * because the earlier attempts were spent against a permission wall rather than
+ * against anything about the work itself.
+ */
+export async function reviveGoogleAdsRestoredScopeBacklog(input: {
+  businessId: string;
+  limit?: number;
+}): Promise<{
+  scopes: Array<{ providerAccountId: string; scope: string; revived: number }>;
+  revivedTotal: number;
+}> {
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const sql = getDb();
+  const limit = Math.max(1, Math.min(input.limit ?? 2000, 5000));
+  const rows = (await sql`
+    WITH parked AS (
+      SELECT
+        partition.id,
+        partition.provider_account_id,
+        partition.scope,
+        partition.updated_at
+      FROM google_ads_sync_partitions partition
+      WHERE partition.business_id = ${input.businessId}
+        AND (
+          (partition.status = 'cancelled'
+            AND partition.last_error LIKE 'google_ads_scope_unreadable%')
+          OR (partition.status = 'dead_letter'
+            AND partition.last_error ILIKE ANY (ARRAY[
+              '%PERMISSION_DENIED%',
+              '%permission denied%',
+              '%does not have permission%',
+              '%provider_request_failed:permission%',
+              '%permission:status_403%',
+              '%google_ads_scope_action_required%'
+            ]))
+        )
+    ),
+    restored AS (
+      SELECT parked.id, parked.provider_account_id, parked.scope
+      FROM parked
+      WHERE EXISTS (
+        SELECT 1
+        FROM google_ads_sync_partitions ok
+        WHERE ok.business_id = ${input.businessId}
+          AND ok.provider_account_id = parked.provider_account_id
+          AND ok.scope = parked.scope
+          AND ok.status = 'succeeded'
+          -- Strictly after the park, so a success from BEFORE the surface broke
+          -- can never be mistaken for evidence that it works again.
+          AND ok.finished_at > parked.updated_at
+      )
+      LIMIT ${limit}
+    )
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'queued',
+      attempt_count = 0,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = NULL,
+      finished_at = NULL,
+      last_error = concat(
+        'google_ads_scope_restored: ',
+        restored.scope,
+        ' reads again for this account, so work parked while it was unreadable was requeued.'
+      ),
+      updated_at = now()
+    FROM restored
+    WHERE partition.id = restored.id
+    RETURNING partition.provider_account_id, partition.scope
+  `) as Array<{ provider_account_id: string; scope: string }>;
+
+  const tally = new Map<string, { providerAccountId: string; scope: string; revived: number }>();
+  for (const row of rows) {
+    const key = `${row.provider_account_id}::${row.scope}`;
+    const entry = tally.get(key) ?? {
+      providerAccountId: String(row.provider_account_id),
+      scope: String(row.scope),
+      revived: 0,
+    };
+    entry.revived += 1;
+    tally.set(key, entry);
+  }
+  return {
+    scopes: Array.from(tally.values()).sort((a, b) => b.revived - a.revived),
+    revivedTotal: rows.length,
+  };
+}
+
 export async function requeueGoogleAdsRetryableFailedPartitions(input: {
   businessId: string;
   limit?: number;

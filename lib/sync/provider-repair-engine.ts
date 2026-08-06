@@ -511,6 +511,23 @@ export async function runGoogleAdsRepairCycle(
       recoveryKinds: ["replayable_transient"],
     })
     .catch(() => null);
+  // Restoration comes FIRST, so the two passes can never fight.
+  //
+  // Parking work when a surface cannot be read is only half a repair; without
+  // the way back the loop is one-way, and the days parked while access was
+  // missing would stay missing forever even after it returned. Running revival
+  // before cancellation means a surface that reads again is recovered in the
+  // same cycle rather than being re-parked for another minute first.
+  const restoredScopeRevival = await googleAdsWarehouse
+    .reviveGoogleAdsRestoredScopeBacklog({ businessId })
+    .catch(() => null);
+  if ((restoredScopeRevival?.revivedTotal ?? 0) > 0) {
+    logRuntimeInfo("google-ads-repair", "restored_scope_backlog_revived", {
+      businessId,
+      revivedTotal: restoredScopeRevival?.revivedTotal ?? 0,
+      scopes: restoredScopeRevival?.scopes ?? [],
+    });
+  }
   // Work for surfaces this account has provably never been able to read.
   //
   // One connected account held four scopes with 793 partitions each and zero

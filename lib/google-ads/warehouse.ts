@@ -6293,11 +6293,34 @@ export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
         count(*) FILTER (WHERE partition.status = 'succeeded') = 0
         -- (3) and has been scheduled long enough that a warming account is safe
         AND min(partition.created_at) <= now() - (${minimumAgeDays} || ' days')::interval
-        -- (4) and there is something to cancel
-        AND count(*) FILTER (WHERE partition.status = 'queued') > 0
-        -- (2) and the account itself refused this surface terminally
+        -- (4) and there is something to park: queued work that can never
+        -- complete, OR terminal dead letters still misfiled as work awaiting
+        -- recovery. Requiring queued work alone left surfaces whose backlog was
+        -- already cancelled reporting dead letters forever, with nothing able to
+        -- reclassify them.
+        AND (
+          count(*) FILTER (WHERE partition.status = 'queued') > 0
+          OR count(*) FILTER (
+            WHERE partition.status = 'dead_letter'
+              AND partition.last_error ILIKE ANY (ARRAY[
+                '%PERMISSION_DENIED%',
+                '%permission denied%',
+                '%does not have permission%',
+                '%provider_request_failed:permission%',
+                '%permission:status_403%',
+                '%google_ads_scope_action_required%'
+              ])
+          ) > 0
+        )
+        -- (2) and the account itself refused this surface terminally.
+        --
+        -- A PRIOR PARK counts as the same evidence. Without that clause the
+        -- refusal proof would live only in dead-letter rows, so converting them
+        -- to the parked state below would erase the very reason for parking and
+        -- the scope would start accumulating doomed work again on the next tick.
         AND count(*) FILTER (
-          WHERE partition.status = 'dead_letter'
+          WHERE (
+            partition.status = 'dead_letter'
             AND partition.last_error ILIKE ANY (ARRAY[
               '%PERMISSION_DENIED%',
               '%permission denied%',
@@ -6306,6 +6329,11 @@ export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
               '%permission:status_403%',
               '%google_ads_scope_action_required%'
             ])
+          )
+          OR (
+            partition.status = 'cancelled'
+            AND partition.last_error LIKE 'google_ads_scope_unreadable%'
+          )
         ) > 0
     ),
     doomed AS (
@@ -6315,7 +6343,27 @@ export async function cancelGoogleAdsUnreadableScopeBacklog(input: {
         ON unreadable.provider_account_id = partition.provider_account_id
        AND unreadable.scope = partition.scope
       WHERE partition.business_id = ${input.businessId}
-        AND partition.status = 'queued'
+        -- Queued work is parked because it can never complete. The terminal
+        -- dead letters of the SAME surface are parked with it: they are not
+        -- work awaiting recovery, they are the record of a surface waiting on
+        -- access, and leaving them classified as dead letters reports a queue
+        -- that needs repair when what it actually needs is a permission grant.
+        -- The reason travels with the row either way, and the probe re-tests
+        -- them on schedule.
+        AND (
+          partition.status = 'queued'
+          OR (
+            partition.status = 'dead_letter'
+            AND partition.last_error ILIKE ANY (ARRAY[
+              '%PERMISSION_DENIED%',
+              '%permission denied%',
+              '%does not have permission%',
+              '%provider_request_failed:permission%',
+              '%permission:status_403%',
+              '%google_ads_scope_action_required%'
+            ])
+          )
+        )
       ORDER BY partition.partition_date ASC
       LIMIT ${limit}
     )

@@ -684,6 +684,32 @@ describe("provider repair engine", () => {
     expect(order).toEqual(["revive", "probe", "cancel"]);
   });
 
+  it("keeps parking after the dead letters that justified it are resolved", async () => {
+    // The park proof used to live only in dead-letter rows. Resolving them into
+    // the parked state would then erase the reason for parking, and the surface
+    // would start accumulating doomed work again on the very next tick — the
+    // fix undoing itself. A prior park now counts as the same evidence.
+    await setupGoogleIntegrityRepairScenario();
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(googleAdsWarehouse.cancelGoogleAdsUnreadableScopeBacklog).mockResolvedValue({
+      scopes: [{ providerAccountId: "acc-1", scope: "ad_daily", cancelled: 12 }],
+      cancelledTotal: 12,
+    } as never);
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    // Still reported, still naming the surface — parked is not hidden.
+    const reason = (result.repair.blockingReasons ?? []).find(
+      (entry) => entry.code === "scope_unreadable_for_account",
+    );
+    expect(reason?.detail).toContain("ad_daily");
+    expect(reason?.repairable).toBe(false);
+  });
+
   it("surfaces Meta cleanup summary on successful repair", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

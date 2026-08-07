@@ -6765,13 +6765,72 @@ export async function probeGoogleAdsParkedScopes(input: {
     eligible AS (
       SELECT parked.provider_account_id, parked.scope
       FROM parked
-      -- Queued work IS the test. Probing alongside it would only duplicate load.
+      -- Queued work IS the test — but ONLY if that work can actually be leased.
+      --
+      -- A parked surface carries an action-required dead letter, and every
+      -- lease step excludes exactly those scopes. Its queued rows therefore sit
+      -- inert: they are not a test in progress, they are a test that can never
+      -- run. Counting them here suppressed the probe on the very surfaces the
+      -- probe exists for, and the suppression was self-sustaining, because
+      -- reviving the surface creates more queued rows that suppress it again.
+      --
+      -- Measured 2026-08-07 in production, after the revive/probe blindness was
+      -- fixed: all 8 parked surfaces on TheSwaf and IwaStore had the interval
+      -- gate OPEN (no real attempt on record, so the 7-day backoff was not the
+      -- blocker) and every one was held shut by this clause alone. Zero probes
+      -- existed, and none had run in the preceding 48 hours.
+      --
+      -- So inert rows are ignored. The scope's own leasability is the test of
+      -- whether pending work counts, mirroring the lease's 24-hour
+      -- action-required block: if that block is live, the pending rows behind it
+      -- cannot prove anything and the probe must go instead.
       WHERE NOT EXISTS (
         SELECT 1 FROM google_ads_sync_partitions pending
         WHERE pending.business_id = ${input.businessId}
           AND pending.provider_account_id = parked.provider_account_id
           AND pending.scope = parked.scope
           AND pending.status IN ('queued', 'leased', 'running')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM google_ads_sync_partitions blocker
+            LEFT JOIN LATERAL (
+              SELECT run.error_class, run.error_message, run.updated_at
+              FROM google_ads_sync_runs run
+              WHERE run.partition_id = blocker.id
+              ORDER BY run.updated_at DESC
+              LIMIT 1
+            ) latest_blocker_run ON true
+            WHERE blocker.business_id = pending.business_id
+              AND blocker.provider_account_id = pending.provider_account_id
+              AND blocker.scope = pending.scope
+              AND blocker.status = 'dead_letter'
+              AND COALESCE(
+                    latest_blocker_run.updated_at,
+                    blocker.updated_at
+                  ) >= now() - interval '24 hours'
+              AND (
+                COALESCE(latest_blocker_run.error_class, '') IN (
+                  'account_action_required',
+                  'auth_action_required',
+                  'permission_action_required',
+                  'provider_action_required',
+                  'scope_action_required'
+                )
+                OR concat_ws(
+                  ' ',
+                  blocker.last_error,
+                  latest_blocker_run.error_message,
+                  latest_blocker_run.error_class
+                ) ILIKE ANY (ARRAY[
+                  '%PERMISSION_DENIED%',
+                  '%permission denied%',
+                  '%does not have permission%',
+                  '%provider_request_failed:permission%',
+                  '%permission:status_403%',
+                  '%google_ads_scope_action_required%'
+                ])
+              )
+          )
       )
       LIMIT ${limit}
     ),

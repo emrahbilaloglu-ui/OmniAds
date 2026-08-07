@@ -772,6 +772,29 @@ describe("provider repair engine", () => {
     expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
   });
 
+  it("ignores inert queued work when deciding whether a parked scope needs a probe", async () => {
+    // "Queued work IS the test" only holds if the work can be leased. A parked
+    // surface carries an action-required dead letter and every lease step
+    // excludes exactly those scopes, so its queued rows are a test that can
+    // never run - and reviving the surface makes more of them, sustaining the
+    // suppression. Measured 2026-08-07: all 8 parked surfaces on TheSwaf and
+    // IwaStore had the 7-day interval gate OPEN and were held shut by this
+    // clause alone; zero probes existed and none had run in 48 hours.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    const start = source.indexOf("export async function probeGoogleAdsParkedScopes");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\nexport ", start + 10));
+
+    // Pending work is still consulted...
+    expect(body).toContain("pending.status IN ('queued', 'leased', 'running')");
+    // ...but only counts when no live action-required block makes it unleasable,
+    // mirroring the lease's own 24-hour window.
+    expect(body).toContain("blocker.status = 'dead_letter'");
+    expect(body).toContain("now() - interval '24 hours'");
+    expect(body).toContain("'scope_action_required'");
+  });
+
   it("does not clamp the core lease step to the historical replay frontier", async () => {
     // `historicalLeaseStartDate` collapses to recent90Start while recent-90 is
     // incomplete. On the core lane that is a deadlock, not a priority: a core

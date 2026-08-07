@@ -6778,8 +6778,32 @@ export async function probeGoogleAdsParkedScopes(input: {
       -- surface look as though it had just been tried at the very moment it was
       -- shelved. started_at records when a partition was last actually picked
       -- up, and neither parking nor cancelling moves it.
+      -- An attempt only counts if it actually REACHED Google.
+      --
+      -- The backoff exists so a refused surface is not hammered, and that
+      -- reasoning applies to requests the provider saw. A partition rejected by
+      -- our own scope-pause guard never left the process - it fails in about 90
+      -- milliseconds carrying google_ads_scope_action_required, which is our
+      -- message, not Google's - so counting it starts a seven-day silence on
+      -- the strength of a verdict we made up ourselves, about a surface nobody
+      -- asked about.
+      --
+      -- That is self-inflicted and it measurably stalled recovery. On
+      -- 2026-08-07 the five product_daily probes that died on that guard set
+      -- this timestamp to 02:05, closing the gate for a week within minutes of
+      -- being minted; the same happened to ad_daily, asset_group_daily,
+      -- audience_daily and device_daily via revive-then-park bounces. Eight of
+      -- ten parked surfaces on TheSwaf and IwaStore were locked out, every one
+      -- of them by our own refusal rather than by Google's.
+      --
+      -- A genuine provider failure still counts and still backs off the full
+      -- interval. Only refusals that never made a request are ignored.
       HAVING COALESCE(
-               max(partition.started_at) FILTER (WHERE partition.attempt_count > 0),
+               max(partition.started_at) FILTER (
+                 WHERE partition.attempt_count > 0
+                   AND COALESCE(partition.last_error, '') NOT LIKE
+                       'google_ads_scope_action_required%'
+               ),
                'epoch'::timestamptz
              ) <= now() - (${probeIntervalDays} || ' days')::interval
     ),

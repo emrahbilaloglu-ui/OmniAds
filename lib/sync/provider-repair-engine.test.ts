@@ -772,6 +772,28 @@ describe("provider repair engine", () => {
     expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
   });
 
+  it("does not start the probe backoff on a refusal that never reached Google", async () => {
+    // The seven-day backoff protects the PROVIDER from being hammered, so only
+    // requests the provider saw should start it. A partition rejected by our
+    // own scope-pause guard never leaves the process (~90ms, our message, not
+    // Google's), yet it moved started_at and bought a week of silence on a
+    // verdict we invented. Measured 2026-08-07: eight of ten parked surfaces on
+    // TheSwaf and IwaStore were locked out this way - product_daily by the five
+    // probes that died on that guard minutes after being minted.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    const start = source.indexOf("export async function probeGoogleAdsParkedScopes");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\nexport ", start + 10));
+
+    expect(body).toContain("max(partition.started_at) FILTER (");
+    expect(body).toContain("NOT LIKE");
+    expect(body).toContain("'google_ads_scope_action_required%'");
+    // A genuine provider failure must still back off, so the attempt_count
+    // condition stays.
+    expect(body).toContain("partition.attempt_count > 0");
+  });
+
   it("lets a probe reach the provider instead of dying on our own pause guard", async () => {
     // The fourth and last gate on the same path. processGoogleAdsPartition
     // refuses a scope with a recent terminal action-required dead letter

@@ -772,6 +772,31 @@ describe("provider repair engine", () => {
     expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
   });
 
+  it("exempts probe rows from the account-wide dead-letter block too", async () => {
+    // The scope-exclusion clause was already exempted for probes; the
+    // account-wide block was not, and that asymmetry made the probe unaskable:
+    // the verdict the block enforces is the verdict the probe exists to
+    // re-test. Measured 2026-08-07, once probes could finally be created: five
+    // probe rows for TheSwaf product_daily sat at attempt_count=0 over 24
+    // minutes and a direct test of this clause returned blocked for all five,
+    // while each repair cycle minted another one that also could not run.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/google-ads/warehouse.ts", "utf8");
+    const leaseStart = source.indexOf("export async function leaseGoogleAdsSyncPartitions");
+    expect(leaseStart).toBeGreaterThan(-1);
+    const leaseBody = source.slice(leaseStart, source.indexOf("\nexport ", leaseStart + 10));
+
+    // Both gates carry the same exemption.
+    const exemptions = leaseBody.match(/last_error LIKE 'google_ads_scope_probe%'/g) ?? [];
+    expect(exemptions.length).toBeGreaterThanOrEqual(2);
+    // The exemption guards the account-wide block specifically.
+    const blockIndex = leaseBody.indexOf("FROM google_ads_sync_partitions action_partition");
+    expect(blockIndex).toBeGreaterThan(-1);
+    const guard = leaseBody.slice(blockIndex - 400, blockIndex);
+    expect(guard).toContain("last_error LIKE 'google_ads_scope_probe%'");
+    expect(guard).toContain("OR NOT EXISTS");
+  });
+
   it("asks Meta instead of refusing on our own stored expiry stamp", async () => {
     // Nothing can move a Meta token_expires_at except a human redoing OAuth:
     // the callback is its only writer and Meta issues no refresh token, so the

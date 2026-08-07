@@ -1608,7 +1608,27 @@ export async function leaseGoogleAdsSyncPartitions(input: {
             -- ask its own question.
             OR last_error LIKE 'google_ads_scope_probe%'
           )
-          AND NOT EXISTS (
+          -- The probe is exempt from the account-wide block for the same reason
+          -- it is exempt from the scope exclusion twenty lines above: the
+          -- verdict this clause enforces is precisely the verdict the probe
+          -- exists to re-test, so applying it to a probe row makes the question
+          -- unaskable and the park permanent.
+          --
+          -- The exclusion above was already exempted; this one was not, and
+          -- that asymmetry was invisible until probes could finally be created.
+          -- Measured 2026-08-07, after the probe-creation fix shipped: five
+          -- probe rows for TheSwaf product_daily accumulated at attempt_count=0
+          -- over 24 minutes, never leased, and a direct test of this clause
+          -- against those exact rows returned blocked = true for all five.
+          -- Each repair cycle minted another probe that could not run.
+          --
+          -- Exempting probes does not weaken the block. A probe is one row for
+          -- one surface per interval, deliberately sent to discover whether a
+          -- refusal still stands; if the account really is broken it fails and
+          -- the block continues to hold every other row.
+          AND (
+            last_error LIKE 'google_ads_scope_probe%'
+            OR NOT EXISTS (
             SELECT 1
             FROM google_ads_sync_partitions action_partition
             LEFT JOIN LATERAL (
@@ -1713,6 +1733,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
                   '%account canceled%'
                 ])
               )
+            )
           )
           AND (
             $11::boolean IS TRUE

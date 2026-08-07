@@ -5937,6 +5937,9 @@ async function processGoogleAdsPartition(input: {
     attemptCount: number;
     source: string;
     leaseEpoch?: number | null;
+    // Carried so the action-required guard below can recognise a probe row.
+    // The lease already returns last_error; it was simply never forwarded.
+    lastError?: string | null;
   };
   workerId: string;
 }) {
@@ -5989,12 +5992,33 @@ async function processGoogleAdsPartition(input: {
 
   const startedAt = Date.now();
   try {
+    // The probe is exempt here for the same reason it is exempt from both
+    // lease gates: this guard enforces exactly the verdict the probe was sent
+    // to re-test, so applying it to a probe row makes the question unaskable.
+    //
+    // This was the LAST of four stacked gates on the same path, and each one
+    // only became visible once the one above it was opened. Measured
+    // 2026-08-07: after the lease exemption shipped, five probes for TheSwaf
+    // product_daily were finally leased and every one died here in about 90ms
+    // - far too fast to have reached Google - carrying this message, which is
+    // ours and not the provider's. A probe that cannot call the provider
+    // cannot discover that access was restored, so the park stayed permanent
+    // even with all three earlier fixes in place.
+    //
+    // Exempting probes does not weaken the pause: one row, one surface, one
+    // interval. If the surface really is still refused, the probe reaches
+    // Google, fails on the provider's own verdict, and the pause stands with
+    // fresh evidence behind it instead of inherited evidence.
+    const isScopeProbe = (input.partition.lastError ?? "").startsWith(
+      "google_ads_scope_probe",
+    );
     const scopeAlreadyActionRequired =
-      await hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
+      !isScopeProbe &&
+      (await hasRecentGoogleAdsTerminalActionRequiredDeadLetter({
         businessId: input.partition.businessId,
         providerAccountId: input.partition.providerAccountId,
         scope: input.partition.scope,
-      }).catch(() => false);
+      }).catch(() => false));
     if (scopeAlreadyActionRequired) {
       throw new GoogleAdsScopeActionRequiredError({
         scope: input.partition.scope,
@@ -6654,6 +6678,7 @@ export async function processGoogleAdsLifecyclePartition(input: {
     attemptCount: number;
     source: string;
     leaseEpoch?: number | null;
+    lastError?: string | null;
   };
   workerId: string;
 }) {
@@ -7479,6 +7504,7 @@ export async function syncGoogleAdsReports(
           attemptCount: partition.attemptCount,
           leaseEpoch: partition.leaseEpoch,
           source: partition.source,
+          lastError: partition.lastError,
         },
         workerId,
       });
@@ -7576,6 +7602,7 @@ export async function syncGoogleAdsReports(
             attemptCount: partition.attemptCount,
             leaseEpoch: partition.leaseEpoch,
             source: partition.source,
+            lastError: partition.lastError,
           },
           workerId,
         });

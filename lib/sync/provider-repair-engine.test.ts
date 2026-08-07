@@ -772,6 +772,29 @@ describe("provider repair engine", () => {
     expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
   });
 
+  it("lets a probe reach the provider instead of dying on our own pause guard", async () => {
+    // The fourth and last gate on the same path. processGoogleAdsPartition
+    // refuses a scope with a recent terminal action-required dead letter
+    // BEFORE any provider call - the verdict the probe exists to re-test.
+    // Measured 2026-08-07, once the lease exemption let probes through: five
+    // TheSwaf product_daily probes were leased and every one died in ~90ms,
+    // far too fast to have reached Google, carrying our message rather than
+    // the provider's. A probe that cannot call the provider cannot discover
+    // that access came back.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/sync/google-ads-sync.ts", "utf8");
+    const guardIndex = source.indexOf("hasRecentGoogleAdsTerminalActionRequiredDeadLetter({");
+    expect(guardIndex).toBeGreaterThan(-1);
+    const guard = source.slice(guardIndex - 900, guardIndex + 200);
+    expect(guard).toContain('startsWith(');
+    expect(guard).toContain("google_ads_scope_probe");
+    expect(guard).toContain("!isScopeProbe");
+
+    // The marker has to survive the trip, or the guard can never see it.
+    const adapters = readFileSync("lib/sync/provider-worker-adapters.ts", "utf8");
+    expect(adapters).toContain("lastError: partition.lastError ?? null");
+  });
+
   it("exempts probe rows from the account-wide dead-letter block too", async () => {
     // The scope-exclusion clause was already exempted for probes; the
     // account-wide block was not, and that asymmetry made the probe unaskable:

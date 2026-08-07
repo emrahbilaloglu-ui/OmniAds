@@ -1026,6 +1026,10 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
         attemptCount: partition.attemptCount ?? 0,
         leaseEpoch: partition.leaseEpoch ?? 0,
         source: partition.source ?? "selected_range",
+        // The durable worker is the path a probe actually travels; without
+        // this the scope-action-required guard cannot tell it from ordinary
+        // work and refuses it before it can reach Google.
+        lastError: partition.lastError ?? null,
       },
       workerId: partition.leaseOwner ?? "",
     });

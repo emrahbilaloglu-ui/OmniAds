@@ -397,18 +397,32 @@ function isFutureTimestamp(value: string | null | undefined) {
 
 async function loadMetaProviderAccountsForSnapshot(input: {
   accessToken: string | null;
-  tokenExpiresAt: string | null;
 }) {
   if (!input.accessToken) {
     throw new Error("Meta access token is missing for this business integration.");
   }
-  if (
-    input.tokenExpiresAt &&
-    new Date(input.tokenExpiresAt).getTime() <= Date.now()
-  ) {
-    throw new Error("Meta access token has expired. Please reconnect Meta integration.");
-  }
 
+  // Meta decides whether Meta's token still works. We do not decide it here.
+  //
+  // This used to refuse the call outright whenever our stored
+  // `token_expires_at` was in the past. That stamp is a note taken once at
+  // OAuth, from the fb_exchange_token grant, and NOTHING refreshes it: the only
+  // writer of a Meta expiry is the OAuth callback, and Meta issues no refresh
+  // token, so `refreshIntegrationCredentialTokens` is Google-only. Once
+  // wall-clock passed the stamp, discovery threw locally forever and the sole
+  // exit was a human redoing OAuth - while the token itself very often still
+  // worked, because Meta's long-lived tokens routinely outlive that estimate.
+  //
+  // Measured 2026-08-06: all 12 Meta rows in provider_connections were
+  // `connected` with an access token present, none had a refresh token, and 10
+  // carried an expiry stamp already in the past.
+  //
+  // The badge fix in store/integrations-store.ts stopped ANNOUNCING that as a
+  // failure, but this is where the refusal actually blocked work, so freshness
+  // was still being decided by the stamp rather than by the provider. Asking
+  // Meta costs one request and answers the question properly: if the token is
+  // genuinely dead the call below fails and we surface Meta's own error, which
+  // is the only evidence that should ever produce a reconnect prompt.
   const metaResult = await fetchMetaAdAccounts(input.accessToken);
   if (!metaResult.ok || metaResult.body?.error) {
     throw new Error(getMetaApiErrorMessage(metaResult));
@@ -436,7 +450,6 @@ async function refreshMetaProviderAccountSnapshotIfNeeded(businessId: string) {
   const liveLoader = () =>
     loadMetaProviderAccountsForSnapshot({
       accessToken: integration.access_token,
-      tokenExpiresAt: integration.token_expires_at,
     });
   const snapshot = await readProviderAccountSnapshot({
     businessId,

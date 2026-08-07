@@ -772,6 +772,30 @@ describe("provider repair engine", () => {
     expect(reviveBody).toContain("ok.finished_at > parked.updated_at");
   });
 
+  it("asks Meta instead of refusing on our own stored expiry stamp", async () => {
+    // Nothing can move a Meta token_expires_at except a human redoing OAuth:
+    // the callback is its only writer and Meta issues no refresh token, so the
+    // Google-only refreshIntegrationCredentialTokens never touches it. Refusing
+    // the call locally past that stamp was therefore a one-way door, and the
+    // stamp is an estimate Meta's long-lived tokens routinely outlive.
+    // Measured 2026-08-06: 12/12 Meta connections connected with a token, 0
+    // refresh tokens, 10 stamps already in the past.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("lib/sync/provider-worker-adapters.ts", "utf8");
+    const start = source.indexOf("async function loadMetaProviderAccountsForSnapshot");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\nasync function", start + 10));
+
+    // A missing token is still refused locally - there is nothing to ask with.
+    expect(body).toContain("Meta access token is missing");
+    // But an expiry stamp must never short-circuit the provider call.
+    expect(body).not.toContain("tokenExpiresAt");
+    expect(body).not.toContain("Meta access token has expired");
+    // Meta's own refusal is the only thing that raises the error.
+    expect(body).toContain("fetchMetaAdAccounts(input.accessToken)");
+    expect(body).toContain("getMetaApiErrorMessage(metaResult)");
+  });
+
   it("ignores inert queued work when deciding whether a parked scope needs a probe", async () => {
     // "Queued work IS the test" only holds if the work can be leased. A parked
     // surface carries an action-required dead letter and every lease step

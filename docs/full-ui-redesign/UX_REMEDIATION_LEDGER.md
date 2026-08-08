@@ -208,7 +208,8 @@ Consequences, recorded rather than silently resolved:
 | D3b | global search mounted in shell | D3 | `local_pass` (`fccd41899`) | component removable |
 | D070 | as-of scope fix + ADR + golden coverage | C3 | `local_pass` (`19b9ce5b9`) | one-line predicate revert |
 | F2b | external changes projected into History | F2 | `local_pass` (`0a4c6e98e`) | union arm, additive |
-| H1 | Decision capability/preflight UI | C2,F2 | `in_progress` | no provider execute |
+| E1 | Google account scope + mixed-currency guard | A1 | `local_pass` (`af89e988e`) | read-only |
+| H1 | guarded action capability resolver | C2,F2 | `local_pass` (`421ecefef`) | default-denied; no execute path |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 
@@ -315,7 +316,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
 | B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
-| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | — | — | — | owner (pending) | Phase 8; needs D065/D067 in main (G0-F1) |
+| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver proves the gate denies by default (`guarded-action-capability` tests) | `421ecefef` | local | owner (pending) | Execution path itself still needs D065/D067 in main (G0-F1); no provider call exists in this branch |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
 ### Gate C — primary agency OS
@@ -324,7 +325,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | C-1 | Broader guarded execution breadth | `not_started` | — | — | — | owner (pending) | Phase 11; begins only after Gate A production evidence |
 | C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` tests, ledger schema | `8c53ed23e` | local | owner (pending) | Ledger only; wiring a channel is a delivery gate (G2) |
-| C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model` withholding tests | `969d36675` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
+| C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model`, `account-scope`, `account-scope-wiring` tests | `969d36675`, `af89e988e` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
 | C-4 | Mobile Tier-0 | `local_pass` (read only) | `creative-column-priority` tests | `894858aee` | local | owner (pending) | KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
 | C-5 | Sustained production reliability and breaker visibility | `not_started` | — | — | — | owner (pending) | Requires deployment and a soak |
 

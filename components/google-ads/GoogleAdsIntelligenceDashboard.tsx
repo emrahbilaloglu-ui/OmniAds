@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import { MISSING_VALUE } from "@/lib/metric-format";
+import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
 import {
   buildNegativeKeywordList,
   buildSearchTermCsv,
@@ -357,6 +358,7 @@ function downloadSearchTermCsv(csv: string, filename: string) {
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
+  const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
@@ -608,10 +610,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     fullSyncPriorityRequired: syncStatus?.operations?.fullSyncPriorityRequired === true,
     advisorMissingSurfaces: syncStatus?.advisor?.missingSurfaces ?? [],
   });
-  const advisorExecutionAccountId =
-    (syncStatus?.assignedAccountIds?.length ?? 0) === 1
-      ? syncStatus?.assignedAccountIds?.[0] ?? null
-      : null;
+  // Blending several accounts is allowed, but it is now a stated mode with a
+  // chooser, rather than an unlabelled sum that also silently removed deep links.
+  const accountScope = resolveGoogleAccountScope({
+    assignedAccountIds: syncStatus?.assignedAccountIds ?? [],
+    selectedAccountId: selectedGoogleAccountId,
+  });
+  const advisorExecutionAccountId = accountScope.accountId;
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorCtaState = getGoogleAdsAdvisorCtaState({
@@ -1249,6 +1254,41 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           </div>
         </div>
       </div>
+
+      {/* Scope receipt. An operator must be able to see which account these
+          numbers cover, and change it, before trusting any of them. */}
+      {accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
+        <div
+          role="status"
+          className={`flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-[12px] ${
+            accountScope.mixedCurrency
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-border/70 bg-card/70 text-muted-foreground"
+          }`}
+        >
+          <span className="font-medium">
+            {accountScope.mode === "blended" ? "Blended view" : "Scoped to one account"}
+          </span>
+          {accountScope.notice ? <span>{accountScope.notice}</span> : null}
+          <label className="ml-auto flex items-center gap-1.5">
+            <span className="sr-only">Google account</span>
+            <select
+              value={selectedGoogleAccountId ?? ""}
+              onChange={(event) =>
+                setSelectedGoogleAccountId(event.target.value || null)
+              }
+              className="rounded-md border border-border/70 bg-background px-2 py-1 text-[12px]"
+            >
+              <option value="">All assigned accounts (blended)</option>
+              {(syncStatus?.assignedAccountIds ?? []).map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
 
       {shouldShowActionRequiredBanner ? (
         <div

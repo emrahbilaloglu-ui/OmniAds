@@ -213,6 +213,7 @@ Consequences, recorded rather than silently resolved:
 | C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`) | additive chip |
 | D3c | saved views (scoped, persisted) | D3 | `local_pass` | store-scoped |
 | H1b | guarded action preflight + receipt | H1 | `local_pass` (`dd140f7ea`) | read-only route |
+| H1c | capability + preflight rendered in inspector | H1b | `local_pass` | component removable |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 

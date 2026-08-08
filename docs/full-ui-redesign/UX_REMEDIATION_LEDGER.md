@@ -342,7 +342,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
-| X-5 | Full-UI visual gate green | `local_pass` | `npm run test:full-ui:visual` — 2 passed (desktop + mobile), re-run green after the workspace-failure slice | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Root cause was not the fixture: the seeded account was never selected, so every account-scoped route answered 403. See G0-F5 |
+| X-5 | Full-UI visual gate green | `local_pass` | `npm run test:full-ui:visual` — 2 passed (desktop + mobile); screenshots under `playwright-smoke-artifacts/x5-visual-gate-green-2026-08-09/` show 5 campaigns and a populated `Recommendation version` | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Root cause was not the fixture: the seeded account was never selected, so every account-scoped route answered 403. See G0-F5 |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
 
 ### Finding G0-F5 — an unassigned account is indistinguishable from an empty one

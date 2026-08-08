@@ -61,6 +61,49 @@ Consequences:
 Per-slice verification therefore uses focused tests, the full vitest suite, typecheck, and
 lint, with this smoke recorded as a known-failing baseline rather than a silent skip.
 
+### Finding G0-F3 — the Decisions as-of date resolver queries a column that does not exist
+
+Root cause of G0-F2, and a defect in its own right on the production commit.
+
+`resolveDecisionAsOfDate` in `app/api/meta/decisions-workspace/route.ts:251-297` runs two
+queries to find the latest decision snapshot date. Both filter
+`engine_v3_decision_snapshots_daily` on `provider_account_id`:
+
+```sql
+FROM engine_v3_decision_snapshots_daily
+WHERE business_id::text = $1
+  AND provider_account_id = $2
+```
+
+That table has no such column. Its DDL (`lib/migrations.ts:9235`) scopes rows with
+`scope_type` / `scope_id` and identifies them by `creative_id`; the canonical way to reach a
+provider account is the `creative_account_scope` join used in
+`lib/meta/history-read-model.ts:208-215`. Confirmed no `ALTER` adds the column anywhere.
+
+Consequences on the deployed build:
+
+1. Both queries always raise `column "provider_account_id" does not exist`.
+2. Both are swallowed by bare `catch {}` blocks whose comments attribute the failure to a
+   schema/capability gate, so the real cause never surfaces in logs or UI.
+3. Because the first query puts the broken branch in a `UNION ALL` with two branches that
+   would work (`engine_v3_ad_decision_snapshots_daily`, `engine_v3_job_runs`), the error
+   takes those working branches down with it.
+4. The resolver therefore always falls through to `previousUtcDate()`. Whenever the newest
+   snapshot is not exactly yesterday, the workspace requests a date with no rows and the
+   operator sees empty lanes and `0 of 0` — with no error, because it was swallowed. This is
+   precisely the "a failed request never collapses into no data" rule being broken.
+
+**Status: `blocked_external` — needs an owner decision, not a unilateral fix.**
+Correcting the predicate changes which as-of date the Decisions surface resolves, which is a
+semantics change in a decision read path. The plan requires resolver semantics changes to
+carry executable golden/invariant coverage plus a `DECISION_LOG.md` entry, and D13
+(date-range replay leak) governs exactly this area. The fix is also entangled with G0-F1:
+the D061–D069 decisions and the native-ad snapshot tables this query reaches for live on the
+unmerged branch. Recommended resolution order: land the native-authority work on main
+(G0-F1), then fix this predicate under a new ADR with golden coverage.
+
+Until then the smoke cannot pass, and no slice may claim it as a gate.
+
 ### Dirty-tree disposition — PRESERVED, UNTOUCHED
 
 The primary tree `/Users/harmelek/Adsecute` is on `codex/native-ad-bounded-stop-loss-authority`
@@ -135,7 +178,8 @@ Consequences, recorded rather than silently resolved:
 | A1 | shared metric/currency/comparison contracts | G0 | `local_pass` (`590ebd3bb`) | additive adapters |
 | A2 | Overview platform-total attribution | A1 | `local_pass` (`14d771834`) | surface adapters |
 | B1 | report snapshot: currency and period fidelity | A1 | `local_pass` (`4cd8f59cc`) | snapshot version |
-| S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2) | none | `not_started` | test-only |
+| C1 | unified provider health truth | G0 | `local_pass` (`eee0f01f3`) | additive projection |
+| S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
 | C1 | unified provider health | G0 | `not_started` | additive read model |
 | C2 | freshness/revalidation/error states | C1 | `not_started` | runtime policy flag |
@@ -175,6 +219,7 @@ Consequences, recorded rather than silently resolved:
 | A1 | `590ebd3bb` | 33 (`metric-semantics` 17, `metric-format` 9, `MetricCard` 7) | 6028 pass | 0 | 0 |
 | B1 | `4cd8f59cc` | 9 (`renderer.currency` 4, `share-period-fidelity` 5) | 6037 pass | 0 | 0 |
 | A2 | `14d771834` | 6 (`overview-section-labels`) | 6043 pass | 0 | 0 |
+| C1 | `eee0f01f3` | 6 (`provider-health-truth`) | 6049 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

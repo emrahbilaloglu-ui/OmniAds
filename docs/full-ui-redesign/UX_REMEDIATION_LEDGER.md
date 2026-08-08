@@ -343,6 +343,31 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-5 | Full-UI visual gate green | `failed` (pre-existing) | reproduced identically at baseline `0bcf1fbf5` | — | ephemeral Postgres | owner (pending) | Not caused by this program; see G0-F2 / G0-F3 |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
 
+### Finding G0-F4 — section 9 instrumentation has no sink to write to
+
+Section 9 requires product events (Agency Today viewed, search submitted, widget failed,
+Google copy/CSV used, and so on) so the outcome metrics can be measured after release.
+
+The only telemetry facility in the repo is `lib/operator-decision-telemetry.ts`. It is scoped
+to operator decision events rather than product events, writes to stdout only when
+`OPERATOR_DECISION_TELEMETRY_SINK=stdout`, and reports its own posture as:
+
+```
+sink: "stdout_staged", productionReady: false,
+retention: "not_configured", alerts: "not_configured"
+```
+
+with the note "wire a retained metrics/log sink and alerts before live push rollout".
+
+Instrumentation was therefore **not added**. Emitting events into a sink that retains nothing
+would produce calls that look like measurement while measuring nothing — the same
+"presented as functional when it is not" defect this program exists to remove, and it would
+make section 9 appear satisfied while no outcome metric could actually be computed.
+
+Unblocking needs an infrastructure decision first: choose a retained sink, define retention
+and alerting, then instrument. Sending product events to an external analytics service is
+also an outward data flow and needs its own approval.
+
 ### Summary
 
 - `local_pass`: 20 criteria

@@ -5280,6 +5280,53 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
           ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
+        // Operator workflow overlay. This records who owns a decision and what
+        // they did about it. It is deliberately separate from engine truth: no
+        // column here can change a decision's label, authority, or provider
+        // eligibility, and nothing in the engine reads it.
+        sql`CREATE TABLE IF NOT EXISTS decision_workflow_state (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id  TEXT,
+          entity_type          TEXT NOT NULL,
+          entity_id            TEXT NOT NULL,
+          decision_key         TEXT NOT NULL,
+          state                TEXT NOT NULL DEFAULT 'open' CHECK (state IN (
+                                 'open','acknowledged','deferred','snoozed','rejected','resolved'
+                               )),
+          assignee_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+          due_at               TIMESTAMPTZ,
+          snooze_until         TIMESTAMPTZ,
+          reason_code          TEXT,
+          state_version        INTEGER NOT NULL DEFAULT 1,
+          updated_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, decision_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_state_business_state
+          ON decision_workflow_state (business_id, state, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_state_assignee
+          ON decision_workflow_state (assignee_user_id, state)`.catch(() => {}),
+        // Append-only journal. Rolling the overlay back hides the controls but
+        // never destroys the record of what an operator decided.
+        sql`CREATE TABLE IF NOT EXISTS decision_workflow_events (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        TEXT NOT NULL,
+          decision_key       TEXT NOT NULL,
+          event              TEXT NOT NULL,
+          from_state         TEXT,
+          to_state           TEXT,
+          assignee_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          reason_code        TEXT,
+          comment            TEXT,
+          actor_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+          state_version      INTEGER NOT NULL,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_events_decision
+          ON decision_workflow_events (business_id, decision_key, created_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_action_outcome_logs (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,

@@ -214,7 +214,28 @@ Consequences, recorded rather than silently resolved:
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | I1 | auth/query/self-fetch performance | C2 | `not_started` | refactor-only |
 | J1–J2 | tokens/type/contrast, responsive/mobile Tier-0 | A1 / H2,J1 | `not_started` | surface-scoped |
-| L | release soak and final acceptance | all | `not_started` | exact build rollback |
+| L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
+
+---
+
+## Release-candidate readiness (Phase 12, non-deploy portion)
+
+Everything the plan's release-candidate checklist asks for that does **not** require a
+deployment has been run on this branch:
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) |
+| Typecheck | `npx tsc --noEmit` | exit 0 |
+| Lint | `npx eslint .` | exit 0 |
+| Production build | `npm run build` | exit 0 — compiled successfully, 219 static pages, 291 routes, 0 errors |
+| Migrations from zero | `npm run test:migrations-from-zero` | PASS — builds from empty, idempotent on re-run, launch-intent seam clean |
+
+Not run, and not runnable without approval: signed-in production acceptance, the exact
+deployed-build read-back, the sustained production soak, and the full-UI visual gate (red at
+baseline, see G0-F2/G0-F3).
+
+This is the furthest the release candidate can be taken before a deployment decision.
 
 ---
 

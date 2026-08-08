@@ -13,6 +13,7 @@ import {
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
+import { MISSING_VALUE } from "@/lib/metric-format";
 import {
   buildNegativeKeywordList,
   buildSearchTermCsv,
@@ -1934,7 +1935,15 @@ function CampaignCard({
   };
 }) {
   const cfg = ACTION_CONFIG[campaign.actionState];
-  const roasUp = campaign.roas >= accountAvgRoas;
+  // A campaign with no ROAS is not a campaign performing badly. Comparing an
+  // absent value against the account average made it fail the test and render
+  // in the loss colour, so "we have no data" read as "this is losing money".
+  const hasRoas = Number.isFinite(campaign.roas) && campaign.roas > 0;
+  const roasColor = !hasRoas
+    ? undefined
+    : campaign.roas >= accountAvgRoas
+      ? "text-emerald-700"
+      : "text-rose-600";
   return (
     <div className="h-full rounded-xl border bg-card p-3">
       <div className="flex items-center gap-2">
@@ -1959,7 +1968,7 @@ function CampaignCard({
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1 text-right">
         <Metric label="Spend" value={fmtCurrency(campaign.spend)} />
-        <Metric label="ROAS" value={campaign.roas > 0 ? fmtRoas(campaign.roas) : "-"} valueColor={roasUp ? "text-emerald-700" : "text-rose-600"} />
+        <Metric label="ROAS" value={hasRoas ? fmtRoas(campaign.roas) : MISSING_VALUE} valueColor={roasColor} />
         <Metric label="Revenue" value={fmtCurrency(campaign.revenue)} />
         <Metric label="Conv." value={campaign.conversions.toFixed(0)} />
       </div>

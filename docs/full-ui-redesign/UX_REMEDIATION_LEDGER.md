@@ -342,8 +342,40 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
-| X-5 | Full-UI visual gate green | `failed` (pre-existing) | reproduced at baseline and after D070; seed extended but still insufficient | `19b9ce5b9` | ephemeral Postgres | owner (pending) | Root cause is a fixture written for the superseded decision path; completing it needs the engine output contract from G0-F1 |
+| X-5 | Full-UI visual gate green | `local_pass` | `npm run test:full-ui:visual` — 2 passed (desktop + mobile), re-run green after the workspace-failure slice | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Root cause was not the fixture: the seeded account was never selected, so every account-scoped route answered 403. See G0-F5 |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
+
+### Finding G0-F5 — an unassigned account is indistinguishable from an empty one
+
+Discovered while fixing X-5, and the reason that gate looked like a fixture problem for so long.
+
+`business_provider_accounts.is_selected` defaults to `FALSE` deliberately, so that deploying
+code can never silently select an account on a business's behalf. The smoke seed inserted the
+row without it. The account was therefore present but unassigned, and every account-scoped Meta
+route answered:
+
+```
+403 {"error":"provider_account_not_assigned",
+     "message":"The requested Meta account is not assigned to this business."}
+```
+
+On screen this rendered as a fully working Decisions surface with an empty structure list —
+the same thing an account with no decisions looks like. Four rounds of fixture seeding
+(warehouse dailies, authoritative publication pointers) were spent before the response was
+actually read; all of it was reverted after measuring, because this business takes the demo
+data path and never reads those tables.
+
+Two defects, both fixed:
+
+1. The seed now selects the account explicitly (`1e35ad6f5`).
+2. The surface now repeats the server's reason instead of discarding it (`b3f892ad2`).
+   "Decisions withheld - The requested Meta account is not assigned to this business" tells an
+   operator to go and assign it. "Decision workspace unavailable" tells them to wait. A
+   synthesised status line is not a reason and is not promoted into one.
+
+The visual gate also asserted `Raw engine label`, a string that appears nowhere in the product
+and never has, so it could not have passed. It now asserts the disclosure's real content and
+that the version is populated rather than merely present.
 
 ### Finding G0-F4 — section 9 instrumentation has no sink to write to
 
@@ -387,5 +419,5 @@ action-log read was made conditional on a page actually containing an observed c
 - `local_pass`: 20 criteria (B-2, B-4 and A-11 strengthened this round)
 - `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
-- `failed`: 1 criterion (X-5) — pre-existing at the deployed baseline
+- `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`
 - `production_pass`: **0 criteria.** No production acceptance is claimed anywhere in this program.

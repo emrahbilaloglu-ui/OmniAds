@@ -43,6 +43,9 @@ export function GuardedActionPanel({
     viewerCanWrite: true,
     hasPersistedAuthority: Boolean(ad?.decisionId),
     isSynthetic: false,
+    // D065 derives the permitted mutation from the published decision, not from
+    // the action the payload happens to carry.
+    publishedLabel: ad?.publishedLabel ?? null,
   });
 
   const canPreflight =

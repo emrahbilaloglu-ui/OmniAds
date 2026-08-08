@@ -27,7 +27,14 @@ function render(props: Partial<React.ComponentProps<typeof GuardedActionPanel>> 
       businessId="biz-1"
       providerAccountId="act_1"
       action={action()}
-      ad={{ adId: "ad-1", creativeId: "cr-1", decisionId: "dec-1" } as never}
+      ad={
+        {
+          adId: "ad-1",
+          creativeId: "cr-1",
+          decisionId: "dec-1",
+          publishedLabel: "cut",
+        } as never
+      }
       killSwitchEngaged={false}
       {...props}
     />,
@@ -49,6 +56,24 @@ describe("the card renders the capability it was given", () => {
     const html = render({ killSwitchEngaged: true });
     expect(html).toContain('data-guarded-action="blocked"');
     expect(html).not.toContain("Check target");
+  });
+
+  it("stays review-only when the decision authorizes no write (D065)", () => {
+    // A refresh decision carries no provider action, however the payload reads.
+    const html = render({
+      ad: {
+        adId: "ad-1",
+        creativeId: "cr-1",
+        decisionId: "dec-1",
+        publishedLabel: "refresh",
+      } as never,
+    });
+    expect(html).toContain('data-guarded-action="review_only"');
+  });
+
+  it("blocks a decision whose label and action disagree (D065)", () => {
+    const html = render({ action: action({ providerMutation: "resume" }) });
+    expect(html).toContain('data-guarded-action="blocked"');
   });
 
   it("falls back to review-only for a non-execute intent", () => {

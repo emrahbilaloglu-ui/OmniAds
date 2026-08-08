@@ -6,12 +6,41 @@
  * rather than permits — a capability that fails open is not a guard.
  *
  * Execution is additionally held behind a runtime gate that is off unless
- * deliberately enabled, because the canonical execution contracts (D065/D067)
- * are not present in this branch. Until they are, the honest ceiling is a dry
- * run: everything up to the provider boundary, and nothing across it.
+ * deliberately enabled. The honest ceiling until that gate is opened in a
+ * deployed build is a dry run: everything up to the provider boundary, and
+ * nothing across it.
+ *
+ * D065 governs what may be derived here: Cut authorizes only `pause`, Scale
+ * authorizes only `resume`, and a null or disagreeing action fails closed even
+ * when the published label happens to read `cut` or `scale`. The server re-read
+ * is the authority for that derivation; this resolver refuses to *offer* a
+ * command whose label and mutation already contradict each other, so a
+ * contradiction is never presented to an operator as something they may run.
+ *
+ * D064 bars execution without complete exact-Ad lineage: `legacy_review_only`
+ * and `demo_synthetic_review_only` rows are never eligible, so an action with
+ * no published Ad label behind it stays review-only.
  */
 
 import type { MetaOsDecisionAction } from "@/lib/meta/decisions-os-contract";
+
+/**
+ * The only provider action each canonical decision label authorizes (D065).
+ * Absent from this map means the label authorizes no provider write at all.
+ */
+const AUTHORIZED_MUTATION_BY_LABEL: Readonly<
+  Record<string, "pause" | "resume">
+> = {
+  cut: "pause",
+  scale: "resume",
+};
+
+export function deriveAuthorizedMutation(
+  publishedLabel: string | null | undefined,
+): "pause" | "resume" | null {
+  if (!publishedLabel) return null;
+  return AUTHORIZED_MUTATION_BY_LABEL[publishedLabel.trim().toLowerCase()] ?? null;
+}
 
 export type GuardedActionCapability =
   | "hidden"
@@ -56,6 +85,11 @@ export function resolveGuardedActionCapability(input: {
   hasPersistedAuthority: boolean;
   /** Whether the row is demo, legacy-review or otherwise synthetic. */
   isSynthetic?: boolean;
+  /**
+   * The canonical published decision label for the exact Ad behind this action.
+   * Absent means there is no exact-Ad lineage to execute against (D064).
+   */
+  publishedLabel?: string | null;
   env?: Record<string, string | undefined>;
 }): GuardedActionState {
   const { action } = input;
@@ -92,6 +126,27 @@ export function resolveGuardedActionCapability(input: {
     return {
       capability: "review_only",
       reason: "Your access allows reading this decision, not acting on it.",
+      providerCallPermitted: false,
+    };
+  }
+
+  // D065/D064: the label must actually authorize this exact mutation. A missing
+  // label is missing exact-Ad lineage, and a disagreeing one is a contradiction
+  // — neither may be offered as a runnable command, whatever the flags say.
+  const authorizedMutation = deriveAuthorizedMutation(input.publishedLabel);
+  if (authorizedMutation === null) {
+    return {
+      capability: "review_only",
+      reason: input.publishedLabel
+        ? `A ${input.publishedLabel} decision authorizes no provider write.`
+        : "This action has no exact published decision behind it, so it stays review-only.",
+      providerCallPermitted: false,
+    };
+  }
+  if (authorizedMutation !== action.providerMutation) {
+    return {
+      capability: "blocked",
+      reason: `This decision reads ${input.publishedLabel} but carries a ${action.providerMutation} action. Those disagree, so nothing may run.`,
       providerCallPermitted: false,
     };
   }

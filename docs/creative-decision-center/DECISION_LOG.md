@@ -1811,6 +1811,15 @@ write action, and cannot inherit a stale recommendation merely because they are
 visible. Their neutral inventory state is distinct from the advisory inactive
 asset envelope used for explicit reactivation candidates.
 
+Exact current hierarchy is necessary but not sufficient provider-write
+authority. Campaign/ad-set `proposedAction` and historical `execute_*` values
+remain advisory until those entity levels have an immutable canonical
+decision-origin contract. The server emits `review_drill` for them and the
+client independently normalizes stale/injected `execute_pause`,
+`execute_resume`, or `execute_bid` values to review-only. Explicit manual
+campaign/ad-set routes are a separate operator contract and must never be
+presented as execution of the recommendation.
+
 Urgency is a server-owned presentation field derived from the canonical
 recommendation lane and priority. Campaign urgency is the maximum of its own
 active recommendation and active child-ad-set urgencies. It changes ordering
@@ -1826,12 +1835,18 @@ inventory without weakening D051's write boundary.
 ## D053 - Native Ad Context Repair And Soft Relative Ranking
 
 Decision: current native-Ad hydration treats the bound `provider_accounts`
-timezone and currency as canonical physical-account identity. Warehouse daily
-identity remains the historical replay source. For a current run only, missing
-daily campaign/ad-set objective or optimization fields may be filled from the
-latest config-history row whose `captured_at` and `created_at` both precede the
-decision cutoff. Existing non-null daily context is never overwritten, and
-historical hydration never consumes current config or SCD0 dimensions.
+timezone as the current physical-account clock. Currency is instead resolved
+from the latest cutoff-safe finalized/passed daily source identity and may use
+the bound provider account only when that source currency is absent. A mutable
+SCD0 provider currency must never overwrite retained source currency. Historical
+replay resolves both currency and timezone from cutoff-safe daily source
+identity only: currency must be complete and singular across the admitted
+window, while timezone must be complete and singular on the latest admitted
+source date. It never consumes current config or SCD0 dimensions. For a current
+run only, missing daily campaign/ad-set objective or optimization fields may be
+filled from the latest config-history row whose `captured_at` and `created_at`
+both precede the decision cutoff. Existing non-null daily context is never
+overwritten.
 
 An existing `business_target_packs` row with no history is bootstrapped once
 into `business_target_pack_history`. Its original `updated_at` is the effective
@@ -2124,3 +2139,879 @@ Applying the break-even ceiling to the existing uncalibrated fallback excludes
 that counterexample while allowing the canonical stop-loss path. This is a
 contract-conformance and monotonic-safety correction, not a causal lift claim
 or a business-specific exception.
+
+## D061 - Physical-Account AOV May Size Cut Loss Budget Without Owning Peer Authority
+
+Decision: AOV is a physical Meta-account and currency economic scalar, not an
+optimization-context percentile. An exact purchase cell whose own AOV sample is
+thin may therefore use a separate
+`physical_account_purchase_aov_90d` spend-unit proof for Cut only. The proof is
+valid only when all of the following are true:
+
+- the business, provider-account reference, provider account ID, and one
+  canonical account currency match exactly;
+- every candidate fact is inside the 90-day window, `FINALIZED`/`PASSED`, and
+  has `created_at`, `updated_at`, and `finalized_at` at or before the repeatable-
+  read calibration cutoff;
+- only the current canonical metric schema contributes to AOV, conversions are
+  finite non-negative integers, and at least 20 revenue-backed purchases exist;
+- purchase/revenue contradictions, malformed canonical facts, or conflicting
+  duplicate `(ad_id, date)` facts block the complete account-AOV proof; and
+- target ROAS remains cutoff-safe commercial authority. Cut readiness still
+  separately requires cutoff-safe break-even ROAS.
+
+These strict `finalized_at` conditions define only the physical-account AOV,
+currency, and timezone evidence lane. They do not retroactively narrow the
+retained peer-calibration fact contract. Peer percentiles continue to admit an
+Ad only when its Ad, exact same-day campaign, and exact same-day ad-set facts
+are all `FINALIZED`/`PASSED`, hierarchy identity is complete, and every retained
+created/updated timestamp is cutoff-safe. A legacy Ad fact with null
+`finalized_at` remains eligible for that peer lane when those conditions hold,
+is counted explicitly in calibration quality proof, and can never contribute
+to the strict physical-account AOV numerator or its currency/timezone
+authority.
+
+The evidence manifest includes every cutoff-safe finalized candidate, including
+legacy, malformed, and conflicting rows, so an excluded contradiction cannot
+disappear from the hash. The receipt binds the target-authority hash, account
+identity, currency, cutoff, window, purchase and row counts, revenue, mean AOV,
+evidence hash, selected basis, base spend unit, and authority hash. JSON numeric
+proof fields are type-strict. The spend-unit precedence remains
+`target_cpa`, then `operator_aov`, then physical-account AOV.
+
+Currency admission is an account-scoped fail-closed receipt inside the same
+atomic business job. Cross-business or cross-provider source identity remains
+transaction-fatal. Missing source currency, missing resolved currency,
+resolved/source mismatch, or mixed retained currencies instead produce a
+complete zero-cell generation for only that physical account. The anomaly
+rows and counts remain in the source/account-AOV hashes, the spend-unit proof
+is blocked, and no old same-day batch may leak into serving. Other healthy
+account bindings in the same business still complete in the one atomic success
+receipt; this is not a partial commit or a borrowed-currency fallback.
+
+This is not a second decision calculator. The trusted account AOV is passed into
+the retained account-profile resolver, which uses the existing spend-unit
+resolver, preset multipliers, threshold builder, hard-action eligibility, and
+canonical gates. It creates a separate Cut loss-budget threshold view only.
+When this proof repairs a canonically Cut-ineligible cell, that Cut-only view is
+the complete spend-depth authority. The untrusted exact-cell thresholds cannot
+be reintroduced through a minimum, even when they are lower; doing so would
+authorize Cut before the trusted physical-account loss budget is reached.
+Exact-cell AOV, peer P25/P10, winner benchmarks, Scale eligibility, Refresh
+eligibility, fatigue, lifecycle, and campaign-kind authority are not borrowed.
+Kind-aware selection must preserve this account-wide Cut authority without
+changing its kind-specific Scale or Refresh results. Above-break-even rows must
+not receive a new Cut verdict or a new manual-Cut badge from the account-AOV
+threshold.
+
+Target age remains advisory under D058: a valid old target is not blocked or
+replaced. Pooled and non-purchase cells remain soft-only. D049 still governs a
+sample-backed P25, D060 still caps the uncalibrated boundary by break-even, and
+D036 still requires a later-date confirmation; same-day retries cannot confirm
+Cut. Provider execution remains outside this authority change.
+
+D047 is a release gate, not optional analysis. The production functions must
+pass a deterministic frozen exact replay covering thin-cell/account-AOV Cut,
+above-break-even Keep, recovery hold, Scale/Refresh isolation, same-day retry,
+and later-date D036 confirmation. A fixed historical opportunity cohort must
+also run baseline-versus-challenger using separately labeled persisted
+decision-input and cutoff-safe raw-PIT evidence before waiting for a natural
+scheduler wave. The scheduler wave proves production orchestration,
+persistence, and lineage only; it is not the first test of decision behavior.
+
+A fixed-cohort lane that claims current production parity must rebuild the
+challenger ready/soft profile through the scheduled job's production profile
+grouping and native account resolver against the cutoff-bound recomputed
+calibration generation. The rollback epoch's persisted profile remains
+baseline evidence only. Reusing or selectively patching that stale profile can
+preserve an obsolete low-sample veto even when the current exact cell is ready,
+and therefore cannot pass the release gate. Frozen Ad metrics, campaign
+context, data health, identity lineage, and epoch-scoped hysteresis remain the
+paired inputs; current account currency must still match exactly.
+
+When exact historical persisted/PIT inputs were not retained, a separate Lane
+B may restate finalized/passed daily facts for formula-sensitivity review. The
+immutable row timestamps, statuses, exclusions, and hashes remain audit truth;
+only separate calculation copies may be availability-restated to the review
+cutoff. The requested historical optimization cell must still exist exactly.
+An account-wide fallback cell, mutable current SCD0 field, or non-finalized
+hierarchy row cannot be invented to make a named account pass. Such a lane is
+always labeled review-only and cannot open automation or release authority.
+
+D036 replay state must use the exact physical provider-account scope installed
+by the native production resolver. The retained compatibility resolver's
+`account/*` scope is never a native-Ad hysteresis key: both ready and soft-only
+replay days are pinned to `account/<providerAccountId>`, and gap reset, read,
+advance, and confirmation must use that same key. Every reconstructable daily
+decision advances that state in chronological order; the 7-day spacing
+selects outcome-scored rows only and must not skip intermediate soft decisions.
+Reports must separate pre-authority, raw, and published labels and report every
+chronological decision. Only a final published Cut is an emitted hard action.
+Recall opportunities require the fixed production commercial-maturity spend
+before the outcome is observed; immature future losers are not missed-Cut
+opportunities.
+
+The unreleased candidate was versioned
+`v3-2026-07-16-account-aov-authority` /
+`v3-ad-2026-07-16-account-aov-authority-shadow`, with canonical evaluation v5,
+native-Ad evaluation v7, and native calibration v3. It was superseded by
+D063/D064 before deploy and never shipped as an independent production epoch.
+The exact rollback native epoch remains
+`v3-ad-2026-07-15-commercial-stop-loss-shadow`. Older receipts remain readable
+only under their own epochs and are never inferred into v3.
+
+Reason: live D060 evidence showed that exact optimization cells could contain
+too few purchases to trust their AOV even when the same physical account and
+currency had ample cutoff-safe purchase truth. The adapter then intersected a
+correct semantic Cut with an unrelated thin-cell spend-unit veto and published
+no decision. Borrowing peer percentiles would widen authority; bypassing the
+retained Cut gate would create a second engine. Account/currency AOV repairs the
+grain error while preserving the existing engine and fail-closed boundaries.
+
+## D062 - Current-Epoch Native Ad Generations Are The Single Serving Authority
+
+Decision: a complete current-epoch native-Ad generation is the only serving
+authority for an exact-Ad decision or provider action. Server consumers must
+read one shared validated generation bundle before projecting a decision. The
+bundle is available only when the latest effective terminal run is successful
+under the current native engine epoch, its account receipt is authoritative and
+complete, and its immutable snapshot set exactly matches the receipt count and
+identity manifest. Every snapshot must also bind the same business, provider
+account reference, provider account ID, job run, as-of date, account scope,
+engine epoch, exact Ad identity, evaluation/context lineage, input hash, and
+decision hash. Missing, stale, cross-epoch, cross-account, malformed, duplicate,
+or contradictory proof makes the bundle unavailable; consumers must not fill
+the gap by recalculating a decision or borrowing a legacy row.
+
+Canonical inventory is formed before queue ranking, section limits, or Ad
+candidate caps. It contains every exact-Ad decision in the validated manifest,
+including inactive or unknown-delivery Ads as review-only decisions. UI top-N
+and lane caps are presentation concerns and may select from this inventory, but
+they never redefine the authoritative population. Creative ID remains grouping
+metadata only and cannot select a representative Ad or grant action authority.
+
+Legacy creative snapshots remain readable during migration solely for
+compatibility and diagnosis. They retain `legacy_review_only`, null authorized
+action, and no provider-write authority. A missing or invalid native bundle may
+therefore expose an explicitly labeled legacy review surface, but that surface
+is not a serving fallback for action and cannot be converted into a native
+decision by presentation code.
+
+This decision changes read-model and presentation authority only. It does not
+change the retained decision formula, thresholds, canonical evaluation, native
+calibration, or native engine epoch. Existing immutable rows remain valid only
+under their own recorded epochs; no data rewrite or epoch inference is allowed.
+
+Rollout is additive: introduce the shared validated bundle and uncapped
+canonical inventory, migrate server consumers to them, then quarantine legacy
+serving paths. Rollback reverts a consumer to the preceding native Decisions
+presentation while retaining all persisted generations and lineage. It never
+reenables a legacy provider action, changes an engine epoch, writes a provider,
+or mutates historical decision evidence.
+
+Reason: the current Decisions workspace already validates native exact-Ad
+lineage, but generation validation was embedded in its capped presentation
+read. Other server surfaces could therefore recompute decisions, read legacy
+creative snapshots, or mistake a top-N queue for the complete account
+population. A single fail-closed bundle plus a cap-independent canonical
+inventory removes that serving ambiguity without introducing a second engine.
+
+## D063 - Explicit Break-Even Extends Only The Economically Losing Cut Strip
+
+Decision: D049's break-even ceiling remains the safety boundary that prevents
+any Cut at or above explicit break-even, but it no longer makes a lower account
+P25 an absolute veto on an otherwise mature economic loss. The canonical
+resolver owns two disjoint Cut regions. Let `L` be
+`min(account P25 ?? existing uncalibrated 0.70 fallback, 1.0)` and let `B` be
+`min(explicit break-even ROAS / explicit target ROAS, 1.0)`:
+
+- `ratio < min(L, B)` is the legacy safe-loss region. Its D049/D060 recovery,
+  maturity, badge, reason, confidence, Scale, and Refresh behavior is preserved
+  byte-for-byte.
+- only when `B > L`, `L <= ratio < B` is the expanded economic-loss strip. It
+  can enter the existing Cut maturity gate only after the existing Refresh
+  precedence has run.
+- this strip may include ratios at or above the generic `0.85` target-band
+  boundary when explicit break-even is close to target. Target-band Keep is not
+  terminal for those rows; after Refresh precedence they continue into the same
+  D063 Cut/recovery/recent-evidence branch.
+- `ratio >= B` is never Cut-eligible. Equality with break-even is not a loss.
+
+The expanded strip requires explicit recent evidence against break-even rather
+than against target. The canonical recent-spend sample threshold is reused
+without an account-AOV overlay. Sufficient recent spend with recent ROAS below
+break-even confirms the loss and may produce Cut through the existing
+hard/sustained/loss-budget maturity rules. Recent ROAS equal to or above
+break-even is recovery and produces Keep. Missing recent ROAS/spend/threshold,
+or spend below that threshold, preserves the pre-authority Cut but holds it as
+`label: test_more`, `authority_blocker: recent_recovery_unverifiable`,
+`blocked_action_type: cut`, and null `authorized_action`. It creates no
+hysteresis pending transition. Once evidence becomes sufficient, D036 starts
+from the first unblocked Cut and still requires a later-date confirmation.
+
+The blocker is structured authority provenance, not a second verdict. Reusing
+profile or native-metric blockers would falsely claim that a ready profile or
+available metric family is absent; using a pending transition would conflate
+evidence sufficiency with independent-date stability. Serving therefore
+projects an explicit wait/refresh-recent-evidence resolution and never turns
+the compatibility `test_more` label into an operator instruction.
+
+D061 account-AOV authority remains isolated to Cut loss-budget maturity. It
+cannot change `L`, `B`, the recent sample threshold, recovery, Scale, Refresh,
+or confidence. Target age remains advisory under D058 and is not an economic
+veto. Pooled/non-purchase cells, invalid or cutoff-unsafe commercial anchors,
+and all existing source/status/context/profile blockers continue to fail
+closed. For a P25-null repair that clears the trusted account-AOV maturity
+floor, missing or thin recent evidence keeps the repair active only far enough
+to emit D063's held-Cut provenance (`pre_authority_label: cut`,
+`recent_recovery_unverifiable`); confirmed recovery restores the canonical
+profile. This is not executable Cut authority and never creates a D036 pending
+transition.
+
+When the row is geometrically inside the expanded strip but its native
+expanded-zone capability is explicitly unavailable, the resolver remains
+fail-closed at Keep. That presentation must nevertheless state that lifetime
+ROAS is below explicit break-even, attach `below_breakeven` and
+`stop_loss_review`, and expose the missing authority blocker. Authority denial
+must not rewrite an economic loss as "just above breakeven."
+
+The persisted native readiness receipt makes the new authority combination
+explicit. A Cut cell with a retained sample-backed P25 plus valid economic
+loss-budget proof records
+`calibrated_relative_with_economic_stop_loss`; a P25-null exact purchase cell
+records `commercial_stop_loss`; other sample-backed actions remain
+`calibrated_relative`. This is provenance for the single canonical resolver,
+not a second decision path. For a P25-backed Cut, economic loss-budget proof
+may come from the authenticated account/currency spend receipt or the same
+canonical exact cell's CPA P50 at the retained sample floor. An unrelated
+account-level AOV contradiction therefore cannot revoke the legacy P25 Cut.
+If neither economic proof exists, the Cut receipt stays
+`calibrated_relative`: its hash-bound profile capability closes only the D063
+expanded strip while leaving the legacy region available. P25-null cells still
+require the authenticated account/currency proof and fail closed without it.
+
+The profile field is deliberately optional only at the canonical non-native
+boundary. The absent field makes
+`expandedEconomicCutAuthority?.eligible === undefined`, which preserves the
+canonical D063 strip for that non-native profile and is not an explicit
+authority denial. Native profiles always carry the hash-bound field from their
+readiness receipt; `eligible: false` is the explicit native denial and
+`eligible: true` is the explicit native grant. Treating `undefined` as false
+would silently change the canonical non-native decision policy.
+
+D061 and D063 ship as one not-yet-deployed release epoch:
+`v3-2026-07-16-account-aov-economic-stop-loss` and
+`v3-ad-2026-07-16-account-aov-economic-stop-loss-shadow`, with the exact D060
+rollback epoch `v3-ad-2026-07-15-commercial-stop-loss-shadow`. Existing
+immutable epochs remain readable only under their recorded contracts. The
+release gate requires zero legacy-region drift, zero Scale/Refresh drift, zero
+Cut at/above break-even, zero authorized missing/thin-evidence Cut, exact D036
+date behavior, and migration/seam proof for the structured blocker. Historical
+temporal replay may reject promotion or remain observationally inconsistent;
+it is not causal proof. This bounded correction is justified by the economic
+invariant and exact production counterexamples, while the natural scheduler
+wave remains orchestration, persistence, and lineage proof only.
+
+The D061 closed-window v3 report separates three authorities. `integrityGate`
+owns execution errors, duplicate cohorts, source/lane/lookahead violations,
+hierarchy/action-coverage gaps, target-age metamorphic drift, locked-window
+identity, Scale/Refresh or above-break-even safety drift, D061-axis coverage,
+current-day artifact parity, and target corroboration; only this gate controls
+the replay process exit. These row-level checks cover every chronological
+evaluation that can advance D036 state, not only the cooldown-selected scoring
+cohort; that cohort must be an exact subset of the duplicate-free chronological
+manifest. `historicalPromotionQualityGate` owns observational
+sample, precision, recall, Wilson, named-account, noninferiority, and
+consecutive-day limits. It may reject as `review_only_reject_promotion` without
+blocking this bounded policy-contract repair. `automationPromotionGate`
+remains false for Lane B regardless of either result. D036 warm-up rows advance
+or reset state and stay inside integrity/safety checks, but are excluded from
+the locked quality strata.
+
+Reason: the prior `min(P25, break-even / target)` boundary correctly removed
+above-break-even Cuts but also classified every mature loser between a low P25
+and a higher explicit break-even as working-zone Keep. That makes peer rank
+override direct unit economics. Extending only the below-break-even strip,
+with explicit recent confirmation and the retained maturity gate, repairs that
+contradiction without replacing the decision engine or weakening the legacy
+safe-loss path.
+
+## D064 - Decision Presentation Must Preserve Canonical Meaning And Demo Must Be Synthetic Review-Only
+
+Decision: D061 and D063 remain owned by the retained canonical resolver. The
+release may harden how their outputs are served, but no UI, demo adapter, or
+recommendation route may create a second decision calculation or reinterpret a
+blocked hard signal as an affirmative soft action.
+
+A persisted held Scale, Cut, or Refresh has one presentation meaning:
+`decisionState: blocked`, null executable action, the canonical held-action
+buyer label, and an explicit review/resolution path. A compatibility
+`test_more` label underneath a held Cut must never be rendered or forwarded as
+`Fresh Test`. Launchpad mapping returns no runnable mode whenever the canonical
+decision is blocked, held, review-only, or action-ineligible. Provider action
+handlers require `native_exact` authority plus complete exact-Ad lineage;
+`legacy_review_only` and `demo_synthetic_review_only` are never eligible.
+
+All money copy must use the provider account currency carried by the canonical
+input and persisted decision. UI and recommendation adapters may format that
+ISO currency, but they must not invent USD, a dollar sign, or a TRY/EUR-only
+fallback. If currency evidence is absent, copy must say account currency
+without guessing the unit. This changes presentation determinism only; spend,
+threshold, and action math remain unchanged.
+
+The demo business is not allowed to query live native-decision persistence or
+to calculate decisions during a request. It serves one committed fixture
+generated offline by calling the production native-Ad decision job twice on a
+fixed synthetic account: the first pass creates D036 memory and the later-date
+pass produces the stable canonical output. The fixture binds the current
+native engine epoch, demo business, physical provider account, source-row
+manifest, item hashes, count, and generation manifest hash. Runtime validation
+is all-or-nothing: source drift, hash drift, count drift, identity mismatch, or
+epoch drift makes the whole fixture unavailable.
+
+Every demo decision carries `demo_synthetic_review_only`, null
+`authorizedAction`, `actionEligible: false`, and exact identity with
+`adActionEligible: false`. An engine-derived Cut is therefore visible for
+product review but cannot become a bulk Cut, launchpad action, decision-origin
+request, or provider mutation. A central Meta write guard also rejects demo
+businesses independently of presentation state. The committed generator must
+reproduce the fixture byte-for-byte in tests.
+
+Because account-currency evidence now participates in deterministic decision
+copy and the serving contract adds a new explicit authority status, the
+unreleased D061/D063 candidate advances to
+`v3-2026-07-18-decision-presentation-hardening` and
+`v3-ad-2026-07-18-decision-presentation-hardening-shadow`. Native calibration
+v3, canonical evaluation v5, native-Ad evaluation v7, workspace read v4,
+classification overlay v4, and Decisions OS presentation v5 remain unchanged.
+The exact rollback native epoch remains
+`v3-ad-2026-07-15-commercial-stop-loss-shadow`; the 2026-07-16 candidates were
+never deployed as independent production epochs. Immutable older rows retain
+their recorded semantics and are never inferred into D064.
+
+Reason: a correct resolver is insufficient when a held Cut is shown as
+`Fresh Test`, money copy silently changes currency, or the demo page is empty.
+Those defects make a five-second media-buyer review misleading even though the
+underlying decision math is sound. A hash-bound production-engine demo and
+strict presentation authority make the product inspectable without weakening
+live execution safety or introducing business-specific decision rules.
+
+## D065 - Provider Writes Require An Explicit Origin, Exact Live Identity, And Durable Attempt Semantics
+
+Decision: a recommendation, manual operator action, and Launchpad action are
+three distinct execution origins. Every provider-write request must declare
+exactly one of:
+
+- `native_decision_v1`, with the complete immutable native decision-origin
+  tuple, its durable idempotency key, and a server re-read of that exact tuple;
+- `manual_operator_v1`, with explicit operator confirmation and the exact
+  server-presented provider account, entity, and creative identity; or
+- `launchpad_manual_v1`, with explicit operator confirmation bound into the
+  immutable LaunchIntent request fingerprint.
+
+Origin must never be inferred from optional field presence. A manual request
+that contains any native decision-lineage field, including an explicitly
+present null field, fails closed. Legacy campaign/ad-set recommendations and
+historical `execute_*` values remain review-only; they cannot manufacture
+native decision authority. Demo and synthetic discovery identities have zero
+provider-write authority.
+
+For `native_decision_v1`, the server re-read must also derive the exact provider
+action from the persisted `authorized_action`: Cut authorizes only `pause` and
+Scale authorizes only `resume`. A null or different derived action fails closed
+even if the published decision label happens to be `cut` or `scale`.
+The server reconstructs the decision-action idempotency key from business,
+physical account, Ad, snapshot, evaluation, engine epoch, decision hash,
+provider action, and execute/dry-run mode. A caller-selected different key is
+rejected before receipt or live-provider reads, so concurrent requests cannot
+split one immutable tuple across multiple action-log keys. Exact creative ID is
+also mandatory in request, persisted source, and fresh provider state; nullable
+legacy creative grouping remains review-only. A successful idempotent receipt
+must bind and revalidate that same creative ID before it can satisfy a replay;
+an older or contradictory receipt is an idempotency conflict, not authority for
+the current request. When `dryRun` is present it must be a JSON boolean.
+Malformed truthy/string values fail closed before receipt lookup or provider
+work and may never be coerced into execute mode.
+
+Manual-operator and native-decision Ad status claims are serialized together by
+the same exact business, physical account, and Ad advisory key. The lock covers
+one durable all-origin unresolved-status check and claim insert; provider
+network work is never performed while the DB transaction lock is held. Pending
+rows are part of that unresolved set. New manual rows persist the exact
+provider account. A pre-migration manual status row with a null provider
+account still blocks the same business/Ad fail-closed, and no time-to-live
+makes any unresolved pending row disappear from authority.
+
+A live manual terminal `silent_failure/provider_outcome_ambiguous` is also
+classified as unresolved even though its row is no longer pending. Until exact
+reconciliation, a later manual or native claim for the same
+business/physical-account/Ad returns
+`meta_ad_status_reconciliation_required` with
+`reconciliationRequired: true` and `retryAllowed: false`; it performs no
+provider POST. A dry-run silent failure proves non-mutation and does not create
+this live ambiguity hold.
+
+A concurrent native same-key loser returns the existing pending idempotency
+state as typed HTTP 409 `action_in_flight` and performs no provider POST. If
+that state already carries a reconciliation marker, the 409 instead exposes
+the marker's common error code and forbids retry. A concurrent native
+different-key loser returns HTTP 409 with
+`decision_origin_pending_reconciliation_required`. Cross-origin and
+manual/manual losers return typed HTTP 409 `action_in_flight` with the blocking
+action-log ID and origin. Every variant returns before provider mutation and
+grants no new attempt or treatment authority. Direct and bulk status routes
+must not replace the shared classifier with native-only or time-window pending
+shortcuts.
+
+Warehouse and persisted rows are discovery evidence, not final execution
+authority. Immediately before a write, the server must GET the requested Meta
+entity and prove exact returned ID, physical account, creative identity,
+configured/effective status, policy eligibility, and required parent
+campaign/ad-set hierarchy. Duplicate/reuse flows must prove both the exact
+source Ad/creative and the exact ACTIVE target hierarchy. New-campaign flows
+must prove every source creative before the first create and verify exact
+returned entity IDs, account ownership, and parent links after every create.
+Bulk actions must resolve pending guards and all live target preflights as one
+initial set before the first mutation; one initial failure blocks the whole
+batch. Both manual and native Ad status actions then repeat the exact live
+preflight after their durable claim; native ignores only that claim's own
+idempotency receipt. A blocked manual post-claim preflight terminalizes the
+claim as a DB-only failure and performs no provider POST. Bulk status execution
+repeats this post-claim preflight immediately before each provider POST. A
+later claim conflict or just-in-time failure stops that item and every
+remaining item; it does not falsely claim that an already verified earlier
+item was rolled back.
+
+`rebuild_creative` remains review-only because its image, creative, and Ad
+creates do not yet have a durable per-step attempt/receipt and recovery
+contract. `reuse_creative` is the only executable add-to-existing mode. Create
+and duplicate POSTs must not be retried automatically while the LaunchIntent
+contract says retry is unsupported and Meta provider idempotency is not bound
+to a durable attempt receipt. GET-only verification may retain bounded
+rate-limit retry. Server-enforced request cardinality limits must bound the
+total planned creates before intent preparation or provider work. The current
+generic bound is 20 creatives, 10 ad sets or targets, and 20 planned provider
+creates per Launchpad request; manual status batches are capped at 20 exact
+Ads.
+
+A transport exception after a provider POST is an unknown external outcome,
+not an ordinary retryable failure. For `native_decision_v1`, the existing action
+row remains pending with reconciliation outcome `provider_outcome_ambiguous`,
+`retry_allowed: false`, and no immutable operator-action receipt; no mutation
+POST is automatically replayed. Manual status actions retain their terminal
+`silent_failure` action-log behavior, and Launchpad retains its separate
+terminal attempt-receipt contract. A received HTTP rejection remains a definite
+`failure` when terminal persistence succeeds.
+
+Manual status terminal facts are also write-once. Generic manual completion now
+uses a `status = pending` compare-and-set, accepts only an identical
+JSONB-normalized terminal replay, and rejects any attempt to replace an existing
+success, failure, or `silent_failure` with a different outcome. A live raw
+provider adapter exception becomes non-retryable
+`silent_failure/provider_outcome_ambiguous` without an inferred successful
+mutation. A bounded terminal-persistence failure returns a typed `503`; verified
+provider success is never converted into a fallback `failure`, and bulk
+execution stops before the next provider item. The terminal status of a live
+`silent_failure/provider_outcome_ambiguous` does not clear claim authority:
+that exact-Ad row continues to block later manual and native provider claims
+until reconciliation.
+
+Every accepted Launchpad request binds its origin/confirmation into the
+request fingerprint, validation receipt, result/error receipt, and action log.
+The semantic request fingerprint excludes attempt identity such as
+`idempotencyKey` and `launchIntentId`, while retaining the normalized provider
+payload and manual authority. An unresolved `provider_outcome_ambiguous` intent
+therefore blocks a new intent and provider mutation for the same business,
+physical account, operation, and semantic fingerprint even when the caller
+changes the idempotency key. The guard is serialized before intent persistence
+and has no timeout; only an explicit future reconciliation record may clear it.
+Every manual or native status action records its exact source class and
+verify-after-write proof. A newly finalized provider-verified native
+pause/resume receipt additionally persists one hash-bound verification lineage:
+the immutable source creative/campaign/ad-set IDs and the fresh provider
+account/creative/campaign/ad-set IDs observed after the write. Every verified
+identity must equal its source/episode counterpart before the terminal row can
+be successful. Altering any non-null lineage field invalidates the receipt
+hash and fails closed.
+
+Every native pending-reconciliation marker uses the common persisted
+`error_code = provider_verification_persistence_failed`,
+`reconciliation_required: true`, and `retry_allowed: false`; the separate
+`outcome` records what is actually known:
+
+- `provider_outcome_ambiguous`: a provider POST was attempted but its exact
+  external outcome is unknown;
+- `provider_response_succeeded_verification_failed`: the provider response
+  proves mutation success but exact post-write verification failed;
+- `provider_write_verified_receipt_persistence_failed`: mutation and complete
+  post-write verification succeeded but atomic terminal row/receipt persistence
+  failed;
+- `provider_rejection_terminal_persistence_failed`: a definite provider
+  rejection was received but its terminal failure row/receipt could not be
+  persisted;
+- `pre_provider_terminal_persistence_failed`: no provider POST occurred and a
+  post-claim/pre-provider failure could not be terminally persisted; or
+- `dry_run_terminal_persistence_failed`: dry-run performed no provider mutation
+  and its terminal DB-only result could not be persisted.
+
+The marker separately records whether mutation was attempted, succeeded, or
+ambiguous and retains any provider response, mutation-attempt, and verification
+evidence. Readers may claim provider mutation success only when a compatible
+success outcome, attempted true, succeeded true, and ambiguous false are all
+explicitly present; sparse or contradictory marker evidence remains unknown.
+The marker retains this evidence for reconciliation. It does not set success,
+`provider_verified`, `verified_at`, terminal-finalization authority, or create an
+immutable operator-action receipt. Every such pending row is treatment
+ineligible, including the two outcomes that prove provider mutation success.
+Same-key replay returns the non-retryable hold without a provider POST; a new
+key for the same exact Ad is also blocked. Only exact reconciliation may
+terminally finalize the attempt.
+
+The lineage column is nullable only for additive migration compatibility.
+Receipts created before the field existed keep their original hash payload,
+which omitted `verificationLineage`, and remain readable with
+`verification_lineage = NULL`; readers must not synthesize missing parents or
+reinterpret that null as new live proof. New provider-verified status
+finalization writes the complete non-null lineage. These controls harden
+execution only; they do not change D061/D063 resolver math or grant automatic
+execution.
+
+Reason: an exact decision can still mutate the wrong object if current provider
+identity is assumed from a warehouse row, if a bulk loop begins before all
+targets are checked, or if an ambiguous create POST is silently retried without
+provider idempotency. Conversely, hiding all writes behind one generic
+“manual” branch erases the authority boundary needed for future automation.
+Explicit origins plus exact live proof preserve today’s operator safety while
+leaving a verifiable path to later automatic Meta execution.
+
+## D066 - Decision-Fact Ownership And Replay Restatements Must Be Explicit
+
+Decision: presentation enrichment, peer calibration, strict economic evidence,
+and release replay are four distinct authority lanes. Every daily-fact writer,
+including authoritative insights sync, must explicitly declare
+`writeMode: "authoritative_fact"`; omitted or unknown authority fails closed.
+Missing
+provenance may not silently turn presentation enrichment into a fact mutation
+or turn projection drift into a safe-restatement classification.
+
+`meta_ad_daily` remains decision-fact storage owned only by authoritative
+insights sync. Creatives metadata sync writes dedicated creative daily,
+dimension, and media presentation storage and performs zero
+`meta_ad_daily` writes. The former `writeMode: "creative_enrichment"` lane
+fails closed because even a presentation-looking Ad-name change alters the
+canonical input hash while leaving an old row cutoff-visible. Unknown and
+non-authoritative daily-fact write modes fail before mutation. The
+default authoritative mode retains its existing fact, reference, dimension,
+insert, and truth-version semantics, but recursively removes creative-media,
+preview, and media-debug payload keys before persisting `payload_json`;
+economic metrics and other decision evidence remain intact. Creative-media
+retention cleanup is not a second decision-fact owner: its readiness scope
+excludes `meta_ad_daily`, it never updates or deletes an Ad-day or its
+timestamps, and it reports zero Ad-day updates while pruning only dedicated
+media/presentation storage. A real PostgreSQL seam must prove both sides
+byte-for-byte; a mocked SQL-shape test is not sufficient release proof.
+
+Calibration keeps two explicit read lanes. Peer observation eligibility uses
+the retained exact-hierarchy `FINALIZED`/`PASSED` contract plus cutoff-safe
+created/updated timestamps; a null legacy Ad `finalized_at` is measured in
+quality counts but does not censor that otherwise-valid peer Ad. Strict
+physical-account AOV, source currency, and source timezone evidence additionally
+requires a non-null cutoff-safe Ad `finalized_at`. Neither lane may borrow
+authority from the other.
+
+The current-day baseline/challenger replay is a proof tool, not a second
+decision engine. Both ready and soft-only projections must be reproduced by the
+production native resolver, and the projected tuple, resolved decision input,
+and resolved campaign-context provenance must each match their stored proof
+hash exactly. Replay accepts only three explicit safe calibration classes. Two
+are `profile_availability_restatement` forward directions:
+
+- a production-ready profile changes a collecting `Test More` to `Keep` solely
+  because calibration-only profile evidence matured; or
+- the precise native-calibration-missing soft profile becomes an ordinary
+  non-hard Keep/Test More profile with zero hard-action eligibility on both
+  profiles.
+
+Both availability directions require unchanged exact identity/input/data
+health/campaign context, production-reproduced projections, and no hard label,
+`cut_candidate`, or pending-transition artifact.
+
+The third is `calibration_restatement`: both sides remain ordinary non-hard
+Keep/Test More projections with the same complete action-semantic tuple, and
+only calibration-profile evidence changes. It additionally requires null
+authority blocker, blocked action, and authorization, with no hysteresis. Both
+its baseline and challenger projection/input/context envelopes must match their
+hash-bound production reproduction exactly. Any reason or badge difference
+must itself be the production resolver's deterministic output from that
+calibration-only evidence change. Reverse availability loss, hybrid ready/soft
+shape, arbitrary label/reason/context change, identity or data-health drift, or
+any unproven hard-action opening is semantic drift and fails the release gate.
+
+The release gate covers the four requested physical accounts and the complete
+active+enabled Meta-bound scheduler population in one SELECT-only,
+`REPEATABLE READ READ ONLY` snapshot. Compact retained artifacts bind the
+omitted full rows, the exact repository-content manifest, the replay source
+files, and an adjacent SHA-256 checksum. The replay never calls cron, writes the
+database or a provider, grants provider execution, or replaces the required
+post-deploy natural scheduler-wave verification.
+
+Reason: the Creatives metadata path previously looked like a normal daily-fact
+upsert and could create or overwrite rows that calibration interpreted as
+economic truth. Separately, a broad replay label could hide a real projection
+change as harmless availability drift. Explicit ownership plus byte-level
+database and production-envelope proofs remove both ambiguity classes without
+changing D061/D063 resolver math or creating a new decision core.
+
+## D067 - Manual Meta Status Ambiguity Uses An Append-Only Attempt Journal And Exact-State Reconciliation
+
+Decision: direct and bulk execute-mode manual pause/resume routes use one
+provider-generic recovery state machine. Every new manual claim persists its
+exact business, physical account, Ad, creative, campaign, and ad-set target and
+declares `meta-manual-ad-status-mutation-attempt.v1`. Immediately before the
+single provider POST, the write adapter completes its fresh hierarchy, status,
+policy, and write-block checks, then calls the route's pre-mutation hook with
+the exact business/account/Ad/creative/campaign/ad-set baseline. The hook must
+equal that baseline to the durable target before it appends an immutable
+`attempt_started` event under the shared exact-Ad advisory lock. The event
+binds the source action log, target hierarchy, action, slashless Ad path, start
+time, and two-minute lease. Baseline drift, an adapter-side precondition stop,
+or failure to persist that start forbids provider mutation and uses an exact
+DB-only no-attempt terminal proof.
+
+A received provider result appends one immutable `attempt_completed` event
+before the action log may become terminal. Completion binds the exact
+one-attempt/no-automatic-retry receipt and classifies only verified success,
+successful response with failed verification, definite provider failure, or
+ambiguous provider outcome. A raw unexpected throw after start may leave the
+source pending with only that start event. This is deliberate: the system
+records known attempt authority without fabricating a response, completion, or
+second provider call. Attempt events are append-only and evidence-hashed;
+idempotence accepts only the same normalized fact. Store and database trigger
+both require the start target to equal the source claim's durable
+`manual_status_mutation_target`. Once a reconciliation event exists, every late
+start or completion against the historical source is rejected. Event creation
+time is database-canonical and cannot be caller-backdated. Completed-attempt
+reconciliation evidence must be observed at or after the durable completion
+event; an old provider observation cannot be rebased onto newer authority.
+
+Journal-required live status logs also have a database-enforced terminal gate.
+Success requires the exact verified-success completion; `silent_failure`
+requires ambiguous or provider-success/verification-failed completion; definite
+provider rejection requires its exact completion. A pre-provider failure may
+terminalize without an attempt only through the closed post-claim preflight,
+attempt-start persistence, adapter pre-provider abort, or bulk pre-provider
+abort non-mutation proof shapes. Generic action-log completion is not an
+alternate write path. Source identity, journal contract/target, terminal fact,
+and attempt/reconciliation events are immutable after their allowed transition;
+the database trigger protects the envelope on every update, including updates
+to already-terminal rows.
+
+The next direct or bulk live status request runs reconciliation before any new
+claim or provider write. It performs no provider GET until the source-specific
+provider-generic settlement floor has elapsed:
+
+- five minutes after an immutable completion;
+- the two-minute started-at lease plus five minutes for a started-only source;
+- five minutes after claim creation for a new journal-contract row whose start
+  could not be persisted; or
+- seven days after the latest requested, updated, or verified timestamp for a
+  pre-contract `silent_failure` that lacks physical-account identity.
+
+The legacy lane additionally requires one exact database-resolved provider
+account, creative, campaign, and ad-set hierarchy. It is a temporary
+contract-compatibility quarantine, not a firm-specific exception.
+
+After settlement, the route performs one bounded exact-state provider read
+sequence. The observation must match business, physical account, Ad, creative,
+campaign, ad set, configured/effective status, active parent statuses, and
+policy eligibility. The shared advisory key is then reacquired; source
+authority and lineage are revalidated, and one immutable
+`meta-manual-ad-status-reconciliation.v1` event captures the unmodified provider
+GET evidence and evidence hash. Only two resolutions exist:
+`current_state_matches_requested` and
+`current_state_matches_precondition`. Neither resolution rewrites the
+historical source row or claims that the old provider mutation succeeded. A
+post-append reread must prove the blocker is gone. Missing, multiple,
+contradictory, stale, ineligible, or persistence-uncertain evidence fails
+closed and authorizes zero provider POSTs.
+
+If the newly requested desired state equals the reconciled exact
+configured/effective state, the route returns a verified no-op and creates no
+new mutation claim. Otherwise it creates a fresh exact claim and repeats the
+post-claim provider preflight plus journal contract. The same algorithm applies
+to every business. No manual provider mutation, mutable overwrite,
+timeout-only deletion, or business-specific bypass clears ambiguity.
+
+The initial bulk gate still claims and rechecks every target before the first
+provider POST. Because a large batch can outlive the no-attempt settlement
+floor, each manual item additionally performs a fresh exact-state and
+unresolved-owner check immediately before its own POST. A source reconciled or
+replaced while an earlier item was executing cannot append a late start or
+issue another POST. Current and later items stop, while earlier completed items
+retain their truthful terminal results. Once any item halts, every untouched
+later prepared claim is terminalized with an exact DB-only bulk-abort proof;
+failure to persist that cleanup upgrades the response to
+reconciliation-required 503 instead of leaving hidden pending work.
+
+Manual provider success is not inferred from a configured status alone. The
+adapter records a complete execution-state baseline immediately before the sole
+POST and a fresh complete observation afterward. The canonical
+`meta-ad-status-write-verification.v1` proof requires unchanged physical
+account, Ad, creative, campaign, and ad-set identity; requested configured and
+effective Ad status; ACTIVE configured/effective parent statuses; policy
+eligibility; null review blocker; observation time; and raw provider GET
+evidence. Store validation and the database completion trigger bind the proof
+to the immutable attempt target and action. Missing evidence, hierarchy drift,
+effective-status drift, or policy/review state cannot become verified success.
+All reads and the one POST are 30-second bounded; mutation fetches reject HTTP
+redirects so a 307/308 cannot transparently replay the POST. The mutation is
+never retried. Terminal retry attempts reuse one frozen duration and identical
+normalized fact, so a lost commit acknowledgement cannot manufacture a
+different terminal outcome.
+
+Reason: D065 correctly made ambiguous live manual outcomes non-retryable, but an
+indefinite blocker without durable attempt geometry or an executable generic
+reconciliation path could permanently stop both operators and native
+automation. An append-only start/completion journal distinguishes no-attempt,
+started-only, completed, and legacy sources. A delayed exact-state observation
+then clears only what current provider truth proves, while preserving the
+historical failure fact and preventing duplicate writes. This changes provider
+write recovery only; it does not alter D061/D063 decision math or create a new
+decision core.
+
+## D068 - Natural Native-Ad Waves Require A Separate Current-Epoch Operational Proof
+
+Decision: the rollback-anchor AOV replay remains a baseline/challenger formula
+proof and must not be reinterpreted as post-deploy scheduler evidence. An epoch
+cutover can legitimately leave no same-day rollback anchor. The natural-wave
+release gate therefore uses a separate persisted-state verifier after the
+first post-deploy 03:00 UTC wave. It reproduces the scheduler's complete
+active, enabled, Meta-bound population; requires the current native epoch; and
+proves terminal calibration, decisions, and operator jobs, exact chronology,
+dependency, counts, receipts, manifests, authority, and lineage.
+
+Decision job `row_count` equals snapshot and evaluation counts. Evaluation
+contexts remain intentionally shared by exact scope/hash, so context coverage
+is `context_count = distinct referenced context_count` with no orphan rows,
+not `context_count = job.row_count`. Calibration may reuse an exact complete
+same-day/current-epoch batch from an earlier successful run; the selected job
+still binds every batch receipt and expected cell, while `rows_written` counts
+only batches owned by that selected run.
+
+Hydration job metadata retains the full source receipt needed to recompute an
+authoritative zero- or nonzero-Ad manifest: decision cutoff, source
+observation/capture times, source run and payload hashes, source expected and
+persisted counts, and source/hydration completeness. The verifier runs only
+through the existing local tunnel in an explicit repeatable-read, read-only
+transaction with a 30-second statement timeout and rollback. Its JSON and
+checksum stay under `/tmp`; it never triggers cron, writes a provider or
+database, changes resolver math, or advances main after deploy.
+
+Reason: formula parity and actual scheduler execution answer different
+questions. Keeping their anchors and artifacts separate prevents a missing
+rollback epoch, deduplicated context, reused calibration batch, or zero-Ad
+receipt from being misreported as either a release failure or proof that does
+not exist.
+
+## D069 - Unresolved Manual Duplicate Outcomes Remain Retry-Blocking
+
+Decision: a non-dry manual duplicate for the same business, source Ad, and
+physical provider account and target ad set is acquired under an exact
+transaction-scoped advisory lock. The unresolved-row read and pending insert
+are one database transaction; the provider call remains outside it. A live
+`pending` row, a `silent_failure` without a resulting Ad, and a pre-contract
+legacy `failure` that lacks the complete current journal/account authority
+remain blocking without the normal deduplication-window expiry because their
+provider outcome has never been reconciled. This legacy quarantine is required
+because older duplicate handling could classify an ID-less or otherwise
+unproven provider response as `failure`. A known resulting Ad returns the
+existing duplicate conflict. An ambiguous or verification-failed outcome
+without a resulting Ad returns reconciliation-required with
+`retryAllowed=false`. Current-contract journaled definite rejections remain
+retryable. Dry runs are excluded using both the durable flag and legacy nested
+request evidence.
+
+Terminal persistence uses a bounded identical retry. If a live adapter exits
+without exact outcome proof, or a provider result cannot be terminalized, the
+pending claim is preserved and must never be rewritten to a retryable generic
+failure. New duplicate logs persist the exact physical provider account.
+
+Every non-dry duplicate claim also declares
+`meta-manual-ad-duplicate-attempt.v1` and writes an immutable preparation event
+before the provider boundary. Immediately before the one allowed create POST,
+the adapter appends one exact start event. A second start for the same attempt
+is rejected rather than treated as permission to POST again. A received result
+may append one byte-equivalent completion fact; a conflicting replay is
+rejected. Preparation, start, completion, reconciliation, and provider-read
+observation journals are append-only, evidence-hashed, and bound by database
+triggers to the original business, physical account, source Ad and creative,
+target ad set, canonical marker-bearing name, requested PAUSED status, and
+single-POST receipt.
+
+Duplicate-create finality is deliberately narrower than generic status
+mutation handling. A network exception, HTTP 408/425/429, any 5xx, a transient
+or retryable Meta error, and a successful HTTP response without an exact new Ad
+identity are ambiguous external action results because none proves that Meta
+did not create the Ad. They retain a retry-blocking unresolved claim. The
+immutable mutation receipt still records the literal transport/HTTP fact: for
+example, a received successful 2xx is
+`provider_response_received` even when its missing result identity makes the
+action `provider_response_succeeded_verification_failed`. Only an exact
+structured, non-transient and non-retryable 4xx provider rejection may
+terminalize as a definite failure. “Non-transient” means the provider payload
+contains the literal JSON boolean `is_transient: false`; a missing, null, or
+string value is ambiguous. For an unverified successful 2xx, a nonblank
+top-level provider response id must exactly equal the durable resulting Ad id;
+if the response id is absent or blank, the durable resulting id must be null.
+The database enforces the corresponding layered geometry and never accepts a
+429, 5xx, identity-less 2xx, response/result-id contradiction, or transport
+exception as authority to release the claim. Provider payloads, verification
+evidence, transport diagnostics, and reconciliation evidence are recursively
+redacted before persistence. The adapter never follows a create-POST redirect
+and never retries the POST.
+
+The natural scheduler runs a provider-GET-only reconciliation sweep for
+settled unresolved duplicate attempts. A preparation whose lease expires
+without any durable start event has exact no-provider-attempt authority and may
+terminalize as a pre-provider failure. Started-only, ambiguous, and
+success-response/verification-failed attempts remain quarantined until current
+provider evidence proves the exact marker, canonical name, physical account,
+target ad set, source creative, and PAUSED status. A known result id uses an
+exact point GET. If the result id was lost, the sweep traverses the physical
+account Ads edge using a token-free opaque cursor checkpoint. Each segment is
+append-only and chained to the prior durable segment with cycle, ordinal,
+cursor-hash, page-count, observation-count, and cumulative exact-match
+authority. A partial segment can never terminalize success: only a complete
+cycle with exactly one cumulative match followed by an exact point GET can do
+so. Zero matches, multiple matches, malformed/cyclic pagination, identity
+drift, missing credentials, incomplete reads, or persistence uncertainty keep
+the claim unresolved. In particular, even a complete zero-match scan is an
+observation, not negative provider finality.
+
+The sweep is generic across businesses, sequential, backoff-scheduled, and
+fair to previously unobserved and oldest-observed candidates. It has one
+bounded provider-read admission deadline, checks it before every new candidate
+and point/scan GET, and propagates the positive remaining budget through actual
+abort signals. Database and integration work retain their independent runtime
+timeouts; no timer race leaves a provider read running in the background. Sweep
+failure is reported but cannot fail unrelated scheduler work. Rollback is the
+normal exact-SHA application rollback: removing the scheduler invocation stops
+new automatic reads, while the append-only journal and unresolved claims
+remain fail-closed. The migrated database rejects a pre-contract live manual
+duplicate insert before provider work, so rolling back to an older application
+disables that write surface rather than letting old code bypass the journal;
+only the current canonical non-mutating dry-run envelope is exempt, and an
+older pre-contract dry-run may also fail closed. The same schema guard rejects
+an UPDATE that tries to create or reshape a contractless live manual duplicate
+envelope, so changing an ordinary or legacy action row cannot bypass the
+insert-time contract. Rollback must not delete journal rows, clear claims
+manually, disable this compatibility guard, or introduce a business-specific
+bypass.
+
+Reason: an ambiguous transport result can mean Meta created the Ad even though
+the response ID was lost. A client-only `retryAllowed=false` flag does not
+prevent a concurrent or later request from issuing a second POST. The atomic
+durable claim, exact HTTP classification, and bounded GET-only recovery close
+that gap generically without claiming provider success, auto-retrying the
+provider, changing native decision math, or adding a business-specific
+exception.

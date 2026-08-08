@@ -36,6 +36,7 @@ import {
   type InviteRow,
   type MemberRow,
   type WorkspaceRole,
+  projectProviderHealth,
 } from "@/app/(dashboard)/settings/settings-support";
 import { getTranslations } from "@/lib/i18n";
 
@@ -49,6 +50,10 @@ export default function SettingsPage() {
   const selectBusiness = useAppStore((state) => state.selectBusiness);
 
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
+  const integrationDomains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
   const removeBusinessData = useIntegrationsStore((state) => state.removeBusinessData);
   const clearAllState = useIntegrationsStore((state) => state.clearAllState);
   const clearProviderAccountsForBusiness = useIntegrationsStore(
@@ -173,36 +178,29 @@ export default function SettingsPage() {
     }
   }, [selectedBusinessId]);
 
+  // Provider health is projected from the same derivation Integrations renders.
+  // Settings previously judged health from the account-list snapshot alone, so a
+  // revoked token could read "Healthy" here while Integrations said action
+  // required — two answers to one question, from two different sources.
   const loadProviderHealth = useCallback(async () => {
     if (!selectedBusinessId) return;
     if (isDemoBusinessId(selectedBusinessId)) {
       setProviderHealth({
-        meta: { label: "Healthy", value: "Demo data fixture" },
-        google: { label: "Healthy", value: "Demo data fixture" },
+        meta: { label: "Connected", value: "Demo data fixture" },
+        google: { label: "Connected", value: "Demo data fixture" },
       });
       return;
     }
-    const nextHealth: Record<string, { label: string; value: string }> = {};
-    for (const provider of ["meta", "google"] as const) {
-      try {
-        const snapshot = await fetchProviderAccountSnapshot(provider, selectedBusinessId);
-        nextHealth[provider] = {
-          label: snapshot.meta?.refreshFailed
-            ? "Attention needed"
-            : snapshot.meta?.stale
-              ? "Stale snapshot"
-              : "Healthy",
-          value: snapshot.notice ?? snapshot.meta?.fetchedAt ?? "Snapshot available",
-        };
-      } catch {
-        nextHealth[provider] = {
-          label: "Unavailable",
-          value: "Snapshot unavailable",
-        };
-      }
-    }
-    setProviderHealth(nextHealth);
-  }, [selectedBusinessId]);
+    await ensureBusiness(selectedBusinessId);
+  }, [ensureBusiness, selectedBusinessId]);
+
+  const derivedProviderHealth = useMemo(() => {
+    if (!selectedBusinessId || isDemoBusinessId(selectedBusinessId)) return null;
+    return projectProviderHealth(integrationDomains);
+  }, [integrationDomains, selectedBusinessId]);
+
+  /** One health answer: the shared derivation, with the demo fixture as the only override. */
+  const effectiveProviderHealth = derivedProviderHealth ?? providerHealth;
 
   useEffect(() => {
     void loadAccount();
@@ -829,10 +827,10 @@ export default function SettingsPage() {
               <div key={provider} className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
                 <p className="text-sm font-medium capitalize">{provider}</p>
                 <p className="mt-2 text-sm text-[var(--adc-ink3)]">
-                  {providerHealth[provider]?.label ?? "Checking health..."}
+                  {effectiveProviderHealth[provider]?.label ?? "Checking health..."}
                 </p>
                 <p className="mt-1 text-xs text-[var(--adc-ink3)]">
-                  {providerHealth[provider]?.value ?? "Loading snapshot status"}
+                  {effectiveProviderHealth[provider]?.value ?? "Loading provider status"}
                 </p>
               </div>
             ))}
@@ -851,7 +849,7 @@ export default function SettingsPage() {
             <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <p className="text-sm font-medium">Provider snapshot health</p>
               <p className="mt-2 text-sm text-[var(--adc-ink3)]">
-                {Object.keys(providerHealth).length > 0 ? "Observed" : "Not available yet"}
+                {Object.keys(effectiveProviderHealth).length > 0 ? "Observed" : "Not available yet"}
               </p>
               <p className="mt-1 text-xs text-[var(--adc-ink3)]">
                 Snapshot actions refresh account discovery state without changing assignments.

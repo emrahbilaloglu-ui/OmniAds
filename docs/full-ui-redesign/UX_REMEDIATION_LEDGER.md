@@ -343,7 +343,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | C-1 | Broader guarded execution breadth | `not_started` | — | — | — | owner (pending) | Phase 11; begins only after Gate A production evidence |
-| C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` tests, ledger schema | `8c53ed23e` | local | owner (pending) | Ledger only; wiring a channel is a delivery gate (G2) |
+| C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` + `notification-read-model` tests (32), ledger schema | `8c53ed23e`, `7f4a91c02` | local | owner (pending) | 4 of the 5 Phase 7 acceptance items are now locally proven (see below); only "reaches the configured recipient through the enabled channel" needs a channel |
 | C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model`, `account-scope`, `account-scope-wiring` tests | `969d36675`, `af89e988e` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
 | C-4 | Mobile Tier-0 | `local_pass` (read only) | `creative-column-priority` tests | `894858aee` | local | owner (pending) | KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
 | C-5 | Sustained production reliability and breaker visibility | `not_started` | — | — | — | owner (pending) | Requires deployment and a soak |
@@ -358,6 +358,24 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
 | X-5 | Full-UI visual gate green | `local_pass` | `npm run test:full-ui:visual` — 2 passed (desktop + mobile); screenshots under `playwright-smoke-artifacts/x5-visual-gate-green-2026-08-09/` show 5 campaigns and a populated `Recommendation version` | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Root cause was not the fixture: the seeded account was never selected, so every account-scoped route answered 403. See G0-F5 |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
+
+
+#### C-2 broken out by Phase 7 acceptance item
+
+Recorded per item rather than as one blanket block, because most of Phase 7 did not need a channel.
+
+| Phase 7 acceptance item | Status | Evidence |
+| --- | --- | --- |
+| A test critical event reaches the configured recipient through the enabled channel | `blocked_external` | Needs a channel and a producer. Nothing here fakes it |
+| Delivery failure is visible and retry policy is bounded | `local_pass` | `MAX_DELIVERY_ATTEMPTS`, `canRetryDelivery`, `describeDeliveryState`; an undelivered event still counts as unread rather than disappearing |
+| Duplicate source events do not spam recipients | `local_pass` | `buildNotificationDedupeKey` excludes wall-clock time, so a re-run cannot re-alert; `resolveDeliveryDecision` suppresses a seen key |
+| Deep link revalidates current state instead of presenting stale authority | `local_pass` | `resolveDeepLinkFreshness` presents as current only on a provably unchanged source version; unknown comparison and vanished targets both refuse |
+| Daily digest totals reconcile with the server source counts | `local_pass` | `buildDailyDigest` reports `reconciled: false` and the exact discrepancy in both directions |
+
+The bell remains disabled deliberately. No producer writes notification events, so an enabled bell
+would render a confident `0 unread` that means "nothing can generate these" rather than "nothing is
+wrong". The plan gates the bell on state and delivery truth existing; the state contract now exists,
+the producer and channel do not.
 
 ### Finding G0-F5 — an unassigned account is indistinguishable from an empty one
 

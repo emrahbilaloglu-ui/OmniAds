@@ -276,18 +276,24 @@ async function seedMetaDecisionDemoData() {
       [providerAccountId],
     );
     await client.query(
+      // is_selected must be set explicitly. It defaults to FALSE on purpose, so
+      // that deploying code can never silently select an account on a business's
+      // behalf; a row without it is present but unassigned, and every account
+      // -scoped Meta route answers 403 provider_account_not_assigned.
       `INSERT INTO business_provider_accounts (
          business_id,
          provider,
          provider_account_ref_id,
          provider_account_id,
          position,
+         is_selected,
          updated_at
-       ) VALUES ($1, 'meta', $2::uuid, $3, 0, now())
+       ) VALUES ($1, 'meta', $2::uuid, $3, 0, TRUE, now())
        ON CONFLICT (business_id, provider, provider_account_ref_id)
        DO UPDATE SET
          provider_account_id = EXCLUDED.provider_account_id,
          position = 0,
+         is_selected = TRUE,
          updated_at = now()`,
       [DEMO_BUSINESS_ID, providerAccount.rows[0]!.id, providerAccountId],
     );
@@ -359,18 +365,11 @@ async function seedMetaDecisionDemoData() {
       [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId],
     );
 
-    // The mounted Decisions workspace builds its structure from creatives that
-    // carry an engine_v3 snapshot, not from the legacy meta_decision_snapshots_daily
-    // table this seed was originally written against. These rows populate what
-    // readSnapshotRows actually joins — an account-scoped creative, its ad, and a
-    // snapshot row — and are a necessary part of the fixture.
-    //
-    // They are not yet sufficient: the structure list still renders empty, so the
-    // evidence affordance assertion continues to fail. Completing the fixture needs
-    // the engine's real output contract (lane classification and the adset-level
-    // decision source), which lives in the unmerged native-authority work recorded
-    // as G0-F1. Deliberately not guessed at — a fixture tuned until an assertion
-    // passes would prove nothing about the product.
+    // The mounted Decisions workspace builds its evidence from creatives that
+    // carry an engine_v3 snapshot, not from the legacy
+    // meta_decision_snapshots_daily table this seed was originally written
+    // against. These rows populate what readSnapshotRows actually joins: an
+    // account-scoped creative, its ad, and a snapshot row.
     const creativeId = "m-cr-1";
     const adId = "m-ad-1";
 
@@ -1142,10 +1141,21 @@ test.describe("full UI redesign route and visual smoke", () => {
             timeout: 30_000,
           });
           await shotPage.getByRole("button", { name: /How this was decided/i }).click();
+          // The disclosure names the engine record the decision came from. For a
+          // structure node that is the source recommendation and its version; the
+          // ad-level trail shows a post-authority raw label and engine version
+          // instead. Assert the version is actually populated, not merely that a
+          // heading rendered — an empty version is the failure worth catching.
           await expect(
-            shotPage.getByText("Raw engine label"),
+            shotPage.getByText("Source recommendation", { exact: true }),
             "Meta Decisions versioned engine evidence",
           ).toBeVisible();
+          await expect(
+            shotPage
+              .locator("dt", { hasText: /^Recommendation version$/ })
+              .locator("xpath=following-sibling::dd[1]"),
+            "Meta Decisions engine evidence must carry a version",
+          ).not.toBeEmpty();
           await shotPage.screenshot({
             path: testInfo.outputPath(
               `${testInfo.project.name}-${shot.name}-inspector.png`,

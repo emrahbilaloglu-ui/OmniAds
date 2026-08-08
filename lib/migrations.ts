@@ -5327,6 +5327,51 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_events_decision
           ON decision_workflow_events (business_id, decision_key, created_at DESC)`.catch(() => {}),
+        // Notification ledger. Every event that was worth telling someone about
+        // is recorded here whether or not a channel ever carried it, so the
+        // product can never report "notified" without evidence of delivery.
+        sql`CREATE TABLE IF NOT EXISTS notification_events (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id  TEXT,
+          event_type           TEXT NOT NULL,
+          severity             TEXT NOT NULL CHECK (severity IN ('critical','warning','info')),
+          entity_type          TEXT,
+          entity_id            TEXT,
+          source_kind          TEXT NOT NULL,
+          source_id            TEXT NOT NULL,
+          occurred_on          DATE NOT NULL,
+          dedupe_key           TEXT NOT NULL,
+          deep_link            TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (dedupe_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_notification_events_business_created
+          ON notification_events (business_id, created_at DESC)`.catch(() => {}),
+        // Delivery attempts are separate from the event: one event may be
+        // attempted several times across channels, and queued is not delivered.
+        sql`CREATE TABLE IF NOT EXISTS notification_deliveries (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          notification_event_id UUID NOT NULL REFERENCES notification_events(id) ON DELETE CASCADE,
+          recipient_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+          channel               TEXT NOT NULL,
+          state                 TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+                                  'queued','attempted','delivered','failed','suppressed','acknowledged'
+                                )),
+          suppression_reason    TEXT,
+          attempts              INTEGER NOT NULL DEFAULT 0,
+          failure_reason        TEXT,
+          queued_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          attempted_at          TIMESTAMPTZ,
+          delivered_at          TIMESTAMPTZ,
+          failed_at             TIMESTAMPTZ,
+          opened_at             TIMESTAMPTZ,
+          acknowledged_at       TIMESTAMPTZ,
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_state
+          ON notification_deliveries (state, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_action_outcome_logs (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,

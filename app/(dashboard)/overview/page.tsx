@@ -11,6 +11,7 @@ import { SummarySection } from "@/components/overview/SummarySection";
 import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
+import { AgencyToday } from "@/components/overview/AgencyToday";
 import {
   resolvePlatformSectionLabels,
   type ResolvedSectionLabel,
@@ -329,6 +330,12 @@ export default function OverviewPage() {
 
   return (
     <div className="flex flex-col space-y-6 pb-10">
+      {/* Agency Today sits above the selected client rather than replacing it:
+          a buyer with several clients needs to know who to open before they
+          need this client's detail. With one client there is nothing to rank,
+          so the surface stays out of the way. */}
+      {businesses.length > 1 ? <AgencyToday businessCount={businesses.length} /> : null}
+
       <DataStatusRow
         dateRange={dateRange}
         onDateRangeChange={setDateRange}

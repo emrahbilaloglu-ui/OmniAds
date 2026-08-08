@@ -196,6 +196,8 @@ Consequences, recorded rather than silently resolved:
 | F2 | external-change attribution + handoff recovery | F1 | `local_pass` (`3f4fe5066`) | read-only projection |
 | C3 | snapshot-date fallback observability (G0-F3) | C2 | `local_pass` (`4f37ac663`) | logging only |
 | J1 | Decisions typography and contrast floor | A1 | `local_pass` (`46d992883`) | surface-scoped CSS |
+| G1 | notification event/delivery ledger | F1,C1 | `local_pass` (`8c53ed23e`) | additive; no channel wired |
+| G2 | digest/critical channel delivery + bell | G1 | `blocked_external` (delivery gate) | per-channel disable |
 | J2 | language honesty + global contrast floor | J1 | `local_pass` (`66753e017`) | token/contract scoped |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
@@ -250,6 +252,7 @@ Consequences, recorded rather than silently resolved:
 | F2 | `3f4fe5066` | 15 (`external-change-attribution`) | 6177 pass | 0 | 0 |
 | C3 | `4f37ac663` | 10 (`decision-date-fallback`) | 6187 pass | 0 | 0 |
 | J2 | `66753e017` | 12 (`i18n` 9, `globals-contrast-floor` 3) | 6199 pass | 0 | 0 |
+| G1 | `8c53ed23e` | 14 (`notification-contract`) + migrations-from-zero PASS | 6213 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

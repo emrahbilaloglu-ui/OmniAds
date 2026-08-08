@@ -106,6 +106,12 @@ export interface RenderedReportPayload {
   name: string;
   description?: string | null;
   dateRangeLabel: string;
+  /** Exact window this payload was rendered for. */
+  startDate?: string;
+  endDate?: string;
+  /** ISO 4217 code the amounts are denominated in; null when not established. */
+  currency?: string | null;
+  compareMode?: string | null;
   generatedAt: string;
   widgets: RenderedReportWidget[];
 }

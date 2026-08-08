@@ -278,6 +278,30 @@ export async function getBusinessTimezone(businessId: string): Promise<string | 
   return typeof rows[0]?.timezone === "string" ? rows[0].timezone : null;
 }
 
+/**
+ * The currency a business's money is denominated in.
+ *
+ * Returns null when it cannot be established so callers render an unavailable
+ * amount rather than assuming a currency the money is not actually in.
+ */
+export async function getBusinessCurrency(businessId: string): Promise<string | null> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT currency
+    FROM businesses
+    WHERE id = ${businessId}
+    LIMIT 1
+  `) as Array<{ currency: string | null }>;
+  const currency = rows[0]?.currency;
+  return typeof currency === "string" && currency.trim() ? currency.trim().toUpperCase() : null;
+}
+
 export async function updateBusinessSettings(input: {
   businessId: string;
   name: string;

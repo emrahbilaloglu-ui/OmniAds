@@ -10,13 +10,27 @@ import {
 } from "@/lib/custom-reports";
 import { resolveMetaCredentials, getCampaignTimeBreakdown } from "@/lib/api/meta";
 
-function toCurrency(value: number | null | undefined) {
+/**
+ * Format money in the report's own currency.
+ *
+ * There is no fallback currency. A report whose currency we cannot establish
+ * renders amounts as unavailable rather than labelling another account's money
+ * as dollars, which is what a client would otherwise receive (MR-D064-01).
+ */
+function toCurrency(value: number | null | undefined, currency: string | null) {
   if (value == null || !Number.isFinite(value)) return "-";
-  return new Intl.NumberFormat("en-US", {
+  if (!currency) return "-";
+  return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: value >= 100 ? 0 : 2,
   }).format(value);
+}
+
+/** Normalize a stored currency to an ISO 4217 code, or null when unusable. */
+export function normalizeReportCurrency(value: string | null | undefined): string | null {
+  const code = value?.trim().toUpperCase();
+  return code && /^[A-Z]{3}$/.test(code) ? code : null;
 }
 
 function toCompactNumber(value: number | null | undefined) {
@@ -41,7 +55,7 @@ function parseNumber(value: unknown): number | null {
   return null;
 }
 
-function formatMetricValue(metricKey: string, value: number | null) {
+function formatMetricValue(metricKey: string, value: number | null, currency: string | null) {
   if (metricKey.includes("roas")) return toRatio(value);
   if (metricKey.includes("ctr") || metricKey.includes("rate")) {
     return value == null || !Number.isFinite(value) ? "-" : `${value.toFixed(2)}%`;
@@ -53,16 +67,16 @@ function formatMetricValue(metricKey: string, value: number | null) {
     metricKey.includes("cpm") ||
     metricKey.includes("cpc")
   ) {
-    return toCurrency(value);
+    return toCurrency(value, currency);
   }
   return toCompactNumber(value);
 }
 
-function formatCellValue(metricKey: string, value: unknown) {
+function formatCellValue(metricKey: string, value: unknown, currency: string | null) {
   if (metricKey === "name" || metricKey === "status" || metricKey === "channel" || metricKey === "currency") {
     return String(value ?? "-");
   }
-  return formatMetricValue(metricKey, parseNumber(value));
+  return formatMetricValue(metricKey, parseNumber(value), currency);
 }
 
 function getMetricSeriesColor(index: number) {
@@ -186,6 +200,7 @@ function sumMetric(
 function mapDynamicColumnsToRow(
   source: Record<string, unknown>,
   columns: string[],
+  currency: string | null,
   nestedKey?: string
 ) {
   const container =
@@ -193,7 +208,7 @@ function mapDynamicColumnsToRow(
       ? (source[nestedKey] as Record<string, unknown>)
       : source;
   return Object.fromEntries(
-    columns.map((column) => [column, formatCellValue(column, container[column])])
+    columns.map((column) => [column, formatCellValue(column, container[column], currency)])
   );
 }
 
@@ -331,8 +346,11 @@ export async function renderCustomReport(params: {
   definition: CustomReportDocument;
   startDateOverride?: string;
   endDateOverride?: string;
+  /** ISO 4217 code the report's money is denominated in. Never defaulted. */
+  currency?: string | null;
 }): Promise<RenderedReportPayload> {
   const { request, businessId, name, description, reportId, definition, startDateOverride, endDateOverride } = params;
+  const currency = normalizeReportCurrency(params.currency);
   const baseRange = resolveDateRangePreset(definition.dateRangePreset);
   const range = startDateOverride && endDateOverride
     ? { startDate: startDateOverride, endDate: endDateOverride, label: `${startDateOverride} – ${endDateOverride}` }
@@ -426,7 +444,7 @@ export async function renderCustomReport(params: {
     for (const { metricKey, rows } of metricData) {
       for (const row of rows) {
         const existing = merged.get(row.key) ?? { [dimension]: row.label };
-        existing[metricKey] = formatMetricValue(metricKey, row.value);
+        existing[metricKey] = formatMetricValue(metricKey, row.value, currency);
         merged.set(row.key, existing);
       }
     }
@@ -456,7 +474,7 @@ export async function renderCustomReport(params: {
         const label = dimension === "month" ? r.date.slice(0, 7) : r.date.slice(5);
         const row: Record<string, string> = { date: label };
         for (const k of metricKeys) {
-          row[k] = formatMetricValue(k, (r as unknown as Record<string, number>)[k] ?? 0);
+          row[k] = formatMetricValue(k, (r as unknown as Record<string, number>)[k] ?? 0, currency);
         }
         return row;
       });
@@ -514,9 +532,9 @@ export async function renderCustomReport(params: {
         if (ratio) {
           const [num, den, mult] = ratio;
           const val = (sums[den] ?? 0) > 0 ? ((sums[num] ?? 0) / (sums[den] ?? 1)) * mult : (sums[k] ?? 0);
-          row[k] = formatMetricValue(k, val);
+          row[k] = formatMetricValue(k, val, currency);
         } else {
-          row[k] = formatMetricValue(k, sums[k] ?? 0);
+          row[k] = formatMetricValue(k, sums[k] ?? 0, currency);
         }
       }
       rows.push(row);
@@ -598,7 +616,7 @@ export async function renderCustomReport(params: {
               type: widget.type,
               title: widget.title,
               subtitle: widget.subtitle,
-              value: formatMetricValue(widget.metricKey ?? "", value),
+              value: formatMetricValue(widget.metricKey ?? "", value, currency),
               deltaLabel:
                 delta == null ? null : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}% vs previous`,
               emptyMessage: value == null ? "Metric unavailable for this business." : undefined,
@@ -740,13 +758,13 @@ export async function renderCustomReport(params: {
             ]);
             const rows = attribution.map((row) => ({
               channel: String(row.channel ?? "-"),
-              spend: toCurrency(parseNumber(row.spend)),
-              revenue: toCurrency(parseNumber(row.revenue)),
+              spend: toCurrency(parseNumber(row.spend), currency),
+              revenue: toCurrency(parseNumber(row.revenue), currency),
               roas: toRatio(parseNumber(row.roas)),
               conversions: toCompactNumber(parseNumber(row.conversions)),
               clicks: toCompactNumber(parseNumber(row.clicks)),
               ctr: parseNumber(row.ctr) == null ? "-" : `${Number(row.ctr).toFixed(2)}%`,
-              cpa: toCurrency(parseNumber(row.cpa)),
+              cpa: toCurrency(parseNumber(row.cpa), currency),
             }));
             return {
               id: widget.id,
@@ -780,7 +798,7 @@ export async function renderCustomReport(params: {
                 type: widget.type,
                 title: widget.title,
                 subtitle: widget.subtitle,
-                value: formatMetricValue(metricKey, totalValue),
+                value: formatMetricValue(metricKey, totalValue, currency),
                 emptyMessage:
                   scopedRows.length === 0 ? "No Meta campaign metrics for this selection." : undefined,
               };
@@ -822,7 +840,7 @@ export async function renderCustomReport(params: {
               const columns = ["name", ...metricCols];
               const rows = sourceRows.map((row) => ({
                 name: String(row.name ?? "-"),
-                ...Object.fromEntries(metricCols.map((col) => [col, formatCellValue(col, row[col])])),
+                ...Object.fromEntries(metricCols.map((col) => [col, formatCellValue(col, row[col], currency)])),
               }));
               return {
                 id: widget.id, slot: widget.slot, colSpan: widget.colSpan, rowSpan: widget.rowSpan,
@@ -835,7 +853,7 @@ export async function renderCustomReport(params: {
             const columns = getWidgetColumns(widget, [
               "name", "status", "spend", "revenue", "purchases", "roas",
             ]);
-            const rows = sourceRows.map((row) => mapDynamicColumnsToRow(row, columns));
+            const rows = sourceRows.map((row) => mapDynamicColumnsToRow(row, columns, currency));
             return {
               id: widget.id,
               slot: widget.slot,
@@ -868,7 +886,7 @@ export async function renderCustomReport(params: {
                 type: widget.type,
                 title: widget.title,
                 subtitle: widget.subtitle,
-                value: formatMetricValue(metricKey, totalValue),
+                value: formatMetricValue(metricKey, totalValue, currency),
                 warning: hasPermissionWarning(payload?.meta)
                   ? "Google Ads returned a permission warning for this business."
                   : null,
@@ -903,7 +921,7 @@ export async function renderCustomReport(params: {
               const rows = sourceRows.map((row) => ({
                 name: String(row.name ?? "-"),
                 ...Object.fromEntries(
-                  googleMetricCols.map((col) => [col, formatCellValue(col, ((row.metrics as Record<string, unknown>) ?? row)[col])])
+                  googleMetricCols.map((col) => [col, formatCellValue(col, ((row.metrics as Record<string, unknown>) ?? row)[col], currency)])
                 ),
               }));
               return {
@@ -918,10 +936,11 @@ export async function renderCustomReport(params: {
               "name", "status", "spend", "revenue", "conversions", "roas",
             ]);
             const rows = sourceRows.map((row) => ({
-              ...mapDynamicColumnsToRow(row, columns.filter((column) => column === "name" || column === "status")),
+              ...mapDynamicColumnsToRow(row, columns.filter((column) => column === "name" || column === "status"), currency),
               ...mapDynamicColumnsToRow(
                 row,
                 columns.filter((column) => column !== "name" && column !== "status"),
+                currency,
                 "metrics"
               ),
             }));
@@ -974,6 +993,12 @@ export async function renderCustomReport(params: {
     name,
     description,
     dateRangeLabel: `${range.label} (${range.startDate} to ${range.endDate})`,
+    // The window actually rendered, recorded so a share or print of this payload
+    // reproduces this period instead of recomputing a trailing preset later.
+    startDate: range.startDate,
+    endDate: range.endDate,
+    currency,
+    compareMode: definition.compareMode ?? null,
     generatedAt: new Date().toISOString(),
     widgets: renderedWidgets,
   };
@@ -993,7 +1018,12 @@ function hasPermissionWarning(meta: unknown) {
 
 export async function renderCustomReportRecord(
   request: NextRequest,
-  report: CustomReportRecord
+  report: CustomReportRecord,
+  options: {
+    startDateOverride?: string;
+    endDateOverride?: string;
+    currency?: string | null;
+  } = {}
 ) {
   return renderCustomReport({
     request,
@@ -1002,5 +1032,8 @@ export async function renderCustomReportRecord(
     name: report.name,
     description: report.description,
     definition: report.definition,
+    startDateOverride: options.startDateOverride,
+    endDateOverride: options.endDateOverride,
+    currency: options.currency ?? null,
   });
 }

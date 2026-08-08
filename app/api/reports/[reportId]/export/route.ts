@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getBusinessCurrency } from "@/lib/account-store";
 import { renderCustomReport, renderWidgetCsv } from "@/lib/custom-report-renderer";
 import { getCustomReportById } from "@/lib/custom-report-store";
 
@@ -39,6 +40,7 @@ export async function GET(
     definition,
     startDateOverride: startDate ?? undefined,
     endDateOverride: endDate ?? undefined,
+    currency: await getBusinessCurrency(report.businessId),
   });
   const widget =
     rendered.widgets.find((item) => item.id === widgetId) ??

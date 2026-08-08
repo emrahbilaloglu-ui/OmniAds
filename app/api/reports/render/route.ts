@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { ensureReportDefinition } from "@/lib/custom-reports";
+import { getBusinessCurrency } from "@/lib/account-store";
 import { renderCustomReport } from "@/lib/custom-report-renderer";
 
 export async function POST(request: NextRequest) {
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     name: body.name,
     description: body.description ?? null,
     definition: ensureReportDefinition(body.definition as never),
+    currency: await getBusinessCurrency(body.businessId),
   });
   return NextResponse.json({ report });
 }

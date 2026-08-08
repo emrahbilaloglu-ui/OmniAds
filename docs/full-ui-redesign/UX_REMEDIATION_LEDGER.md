@@ -212,6 +212,7 @@ Consequences, recorded rather than silently resolved:
 | H1 | guarded action capability resolver | C2,F2 | `local_pass` (`421ecefef`) | default-denied; no execute path |
 | C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`) | additive chip |
 | D3c | saved views (scoped, persisted) | D3 | `local_pass` | store-scoped |
+| H1b | guarded action preflight + receipt | H1 | `local_pass` (`dd140f7ea`) | read-only route |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 
@@ -318,7 +319,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
 | B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
-| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver proves the gate denies by default (`guarded-action-capability` tests) | `421ecefef` | local | owner (pending) | Execution path itself still needs D065/D067 in main (G0-F1); no provider call exists in this branch |
+| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call (`guarded-action-capability`, `guarded-action-preflight`, `decision-action/preflight` tests) | `421ecefef`, `dd140f7ea` | local | owner (pending) | Everything up to the provider boundary exists and refuses on drift; the execution contract itself needs D065/D067 in main (G0-F1) |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
 ### Gate C — primary agency OS

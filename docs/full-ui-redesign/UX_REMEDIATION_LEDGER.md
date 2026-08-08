@@ -179,6 +179,10 @@ Consequences, recorded rather than silently resolved:
 | A2 | Overview platform-total attribution | A1 | `local_pass` (`14d771834`) | surface adapters |
 | B1 | report snapshot: currency and period fidelity | A1 | `local_pass` (`4cd8f59cc`) | snapshot version |
 | C1 | unified provider health truth | G0 | `local_pass` (`eee0f01f3`) | additive projection |
+| B2 | report widget isolation and in-process sources | B1 | `local_pass` (`90838abb9`) | transport override flag |
+| C2 | revalidation policy and honest unknown counts | C1 | `local_pass` (`ec5b46ddf`) | one runtime flag |
+| I1 | auth bootstrap once per session | C2 | `local_pass` (`099e75d87`) | revert one guard |
+| E2 | Google copy-as-negatives and CSV export | A1 | `local_pass` (`ceb1bd885`) | read-only, independent disable |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
 | C1 | unified provider health | G0 | `not_started` | additive read model |
@@ -220,6 +224,10 @@ Consequences, recorded rather than silently resolved:
 | B1 | `4cd8f59cc` | 9 (`renderer.currency` 4, `share-period-fidelity` 5) | 6037 pass | 0 | 0 |
 | A2 | `14d771834` | 6 (`overview-section-labels`) | 6043 pass | 0 | 0 |
 | C1 | `eee0f01f3` | 6 (`provider-health-truth`) | 6049 pass | 0 | 0 |
+| B2 | `90838abb9` | 8 (`renderer.transport` 4, `report-widget-failure` 4) | 6057 pass | 0 | 0 |
+| C2 | `ec5b46ddf` | 10 (`query-client` 4, `decision-lane-counts` 6) | 6067 pass | 0 | 0 |
+| I1 | `099e75d87` | 3 (`auth-bootstrap`) | 6070 pass | 0 | 0 |
+| E2 | `ceb1bd885` | 13 (`search-term-export`) | 6083 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

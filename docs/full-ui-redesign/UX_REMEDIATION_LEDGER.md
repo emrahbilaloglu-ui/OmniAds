@@ -207,7 +207,7 @@ Consequences, recorded rather than silently resolved:
 | C4 | Decisions failed-read retry | C2 | `local_pass` (`178cf6e89`) | UI-only |
 | D3b | global search mounted in shell | D3 | `local_pass` (`fccd41899`) | component removable |
 | D070 | as-of scope fix + ADR + golden coverage | C3 | `local_pass` (`19b9ce5b9`) | one-line predicate revert |
-| F2b | external changes projected into History | F2 | `not_started` | union arm, additive |
+| F2b | external changes projected into History | F2 | `local_pass` (`0a4c6e98e`) | union arm, additive |
 | H1 | Decision capability/preflight UI | C2,F2 | `in_progress` | no provider execute |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
@@ -314,7 +314,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
-| B-6 | A direct Ads Manager edit appears as an external History row | `in_progress` | `external-change-attribution` tests | `3f4fe5066` | local | owner (pending) | Attribution proven; History union arm (F2b) not yet added — see below |
+| B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
 | B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | — | — | — | owner (pending) | Phase 8; needs D065/D067 in main (G0-F1) |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
@@ -364,25 +364,17 @@ Unblocking needs an infrastructure decision first: choose a retained sink, defin
 and alerting, then instrument. Sending product events to an external analytics service is
 also an outward data flow and needs its own approval.
 
-### F2b — external changes into History: design settled, arm not yet added
+### F2b — external changes in History: delivered
 
-The attribution model (`lib/external-change-attribution.ts`, 15 tests) is proven, but History
-does not yet carry its output, so B-6 is `in_progress` rather than passed.
+Landed in `0a4c6e98e`. Campaign configuration changes project as an `external_changes` kind
+from `meta_campaign_config_history`, carrying the previous value, filtered to rows where
+something actually changed, and attributed in `mapHistoryRow` via the tested correlation
+rather than a second implementation in SQL.
 
-The remaining work is a single additive arm in `buildMetaHistoryReadSql`, which is a ~20-column
-`UNION ALL` behind a cursor contract. The design is settled to avoid duplicating logic in SQL:
-
-1. add `external_changes` to `META_HISTORY_KINDS` and `meta_campaign_config_history` to
-   `META_HISTORY_SOURCES`;
-2. emit config-history rows through a new union arm matching the existing column shape,
-   carrying the prior and next configured values;
-3. attribute each row in `mapHistoryRow` by calling the already-tested
-   `attributeObservedChange` against `meta_ads_action_log`, rather than reimplementing the
-   correlation in SQL;
-4. surface `origin` on the entry so internal, external and unconfirmed read differently.
-
-It was not attempted in this pass because a mis-shaped arm silently breaks pagination on a
-mounted surface, and that is worse than the gap it closes. It is the next slice, not a blocker.
+Two notes for whoever extends it: the arm covers campaign daily budget, so ad-set and
+creative-level configuration changes are still invisible; and adding a union arm to this
+paginated query is genuinely delicate — this one broke three existing journal tests until the
+action-log read was made conditional on a page actually containing an observed change.
 
 ### Summary
 

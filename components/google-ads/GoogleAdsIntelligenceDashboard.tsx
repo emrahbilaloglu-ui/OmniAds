@@ -14,6 +14,10 @@ import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
+  buildNegativeKeywordList,
+  buildSearchTermCsv,
+} from "@/lib/google-ads/search-term-export";
+import {
   DateRangePicker,
   getPresetDatesForReferenceDate,
   getTodayIsoForTimeZone,
@@ -335,6 +339,20 @@ function buildGoogleAdsDataQueryParams(input: {
   });
   if (input.compareMode) params.set("compareMode", input.compareMode);
   return params;
+}
+
+/** Save a CSV the operator can open directly, without a server round trip. */
+function downloadSearchTermCsv(csv: string, filename: string) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
@@ -876,7 +894,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     });
   }, [searchTermsData?.rows, sortedRows]);
 
-  const searchTermNegativeRows = useMemo(
+  // The full candidate set, before the display cap. The panel shows the top
+  // rows, but copy and CSV export the whole list — the long tail is exactly
+  // what a weekly negative-keyword sweep is for.
+  const searchTermNegativeCandidates = useMemo(
     () =>
       scopedSearchTerms
         .filter(
@@ -886,9 +907,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             (row.spend > 20 && row.conversions === 0) ||
             (row.spend > 20 && row.roas < 1.3)
         )
-        .sort((a, b) => b.spend - a.spend)
-        .slice(0, 8),
+        .sort((a, b) => b.spend - a.spend),
     [scopedSearchTerms]
+  );
+
+  const searchTermNegativeRows = useMemo(
+    () => searchTermNegativeCandidates.slice(0, 8),
+    [searchTermNegativeCandidates]
   );
 
   const searchTermPositiveRows = useMemo(
@@ -1403,7 +1428,54 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
               <div className="grid gap-2 xl:grid-cols-2">
                 <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
+                    {searchTermNegativeCandidates.length > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(
+                              buildNegativeKeywordList(searchTermNegativeCandidates, "phrase"),
+                            );
+                          }}
+                          title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
+                        >
+                          Copy negatives
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          onClick={() => {
+                            downloadSearchTermCsv(
+                              buildSearchTermCsv(
+                                searchTermNegativeCandidates,
+                                {
+                                  accountLabel: advisorExecutionAccountId ?? null,
+                                  currency: null,
+                                  windowStart: startDate,
+                                  windowEnd: endDate,
+                                },
+                                "phrase",
+                              ),
+                              "search-terms-negative",
+                            );
+                          }}
+                          title="Download every candidate with raw values, reasons, and window"
+                        >
+                          CSV
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {searchTermNegativeCandidates.length > searchTermNegativeRows.length ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Showing top {searchTermNegativeRows.length} of{" "}
+                      {searchTermNegativeCandidates.length} candidates by spend. Copy and CSV
+                      include all {searchTermNegativeCandidates.length}.
+                    </p>
+                  ) : null}
                   {searchTermNegativeRows.length === 0 ? (
                     <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
                   ) : (

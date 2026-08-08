@@ -359,6 +359,78 @@ async function seedMetaDecisionDemoData() {
       [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId],
     );
 
+    // The mounted Decisions workspace builds its structure from creatives that
+    // carry an engine_v3 snapshot, not from the legacy meta_decision_snapshots_daily
+    // table this seed was originally written against. These rows populate what
+    // readSnapshotRows actually joins — an account-scoped creative, its ad, and a
+    // snapshot row — and are a necessary part of the fixture.
+    //
+    // They are not yet sufficient: the structure list still renders empty, so the
+    // evidence affordance assertion continues to fail. Completing the fixture needs
+    // the engine's real output contract (lane classification and the adset-level
+    // decision source), which lives in the unmerged native-authority work recorded
+    // as G0-F1. Deliberately not guessed at — a fixture tuned until an assertion
+    // passes would prove nothing about the product.
+    const creativeId = "m-cr-1";
+    const adId = "m-ad-1";
+
+    await client.query(
+      `INSERT INTO meta_creative_dimensions (
+         business_id,
+         provider_account_id,
+         creative_id,
+         creative_name,
+         campaign_id,
+         adset_id,
+         updated_at
+       ) VALUES ($1, $2, $3, 'Backpack Hook A', $4, $5, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, providerAccountId, creativeId, campaignId, adsetId],
+    );
+
+    await client.query(
+      `INSERT INTO meta_ad_dimensions (
+         business_id,
+         provider_account_id,
+         campaign_id,
+         adset_id,
+         ad_id,
+         ad_name_current,
+         ad_status,
+         creative_id,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, 'Backpack Hook A - Ad', 'ACTIVE', $6, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId, adId, creativeId],
+    );
+
+    await client.query(
+      `INSERT INTO engine_v3_decision_snapshots_daily (
+         business_ref_id,
+         business_id,
+         creative_id,
+         as_of_date,
+         engine_version,
+         scope_type,
+         scope_id,
+         label,
+         confidence,
+         truth_source,
+         effective_target_roas,
+         ratio_to_target,
+         reason,
+         spend,
+         purchases,
+         roas,
+         computed_at
+       ) VALUES ($1::uuid, $1, $2, $3::date, 'v3-full-ui-smoke', 'account', '*',
+                 'cut', 86, 'commercial_truth', 3.5, 0.67,
+                 'Spend is material while ROAS remains under the account target.',
+                 1180, 28, 2.36, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, creativeId, snapshotDate],
+    );
+
     await client.query(
       `INSERT INTO meta_campaign_labels (
          business_id,

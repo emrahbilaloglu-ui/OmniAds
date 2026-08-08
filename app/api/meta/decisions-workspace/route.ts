@@ -279,17 +279,36 @@ async function resolveWorkspaceEndDate(input: {
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        WITH candidate_dates AS (
+        WITH creative_account_keys AS (
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_dimensions
+          WHERE business_id = $1
+          UNION
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_daily
+          WHERE business_id = $1
+        ),
+        creative_account_scope AS (
+          -- A creative seen under more than one account is excluded rather than
+          -- attributed to one of them (ADR D070, matching history-read-model).
+          SELECT creative_id
+          FROM creative_account_keys
+          GROUP BY creative_id
+          HAVING COUNT(DISTINCT provider_account_id) = 1
+             AND MIN(provider_account_id) = $2
+        ),
+        candidate_dates AS (
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_ad_decision_snapshots_daily
           WHERE business_ref_id = $1::uuid
             AND business_id = $1
             AND provider_account_id = $2
           UNION ALL
-          SELECT MAX(as_of_date) AS as_of_date
-          FROM engine_v3_decision_snapshots_daily
-          WHERE business_id::text = $1
-            AND provider_account_id = $2
+          SELECT MAX(snapshot.as_of_date) AS as_of_date
+          FROM engine_v3_decision_snapshots_daily snapshot
+          INNER JOIN creative_account_scope account_scope
+            ON account_scope.creative_id = snapshot.creative_id
+          WHERE snapshot.business_id::text = $1
           UNION ALL
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_job_runs
@@ -314,10 +333,27 @@ async function resolveWorkspaceEndDate(input: {
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        SELECT MAX(as_of_date)::text AS latest_as_of
-        FROM engine_v3_decision_snapshots_daily
-        WHERE business_id::text = $1
-          AND provider_account_id = $2
+        WITH creative_account_keys AS (
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_dimensions
+          WHERE business_id = $1
+          UNION
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_daily
+          WHERE business_id = $1
+        ),
+        creative_account_scope AS (
+          SELECT creative_id
+          FROM creative_account_keys
+          GROUP BY creative_id
+          HAVING COUNT(DISTINCT provider_account_id) = 1
+             AND MIN(provider_account_id) = $2
+        )
+        SELECT MAX(snapshot.as_of_date)::text AS latest_as_of
+        FROM engine_v3_decision_snapshots_daily snapshot
+        INNER JOIN creative_account_scope account_scope
+          ON account_scope.creative_id = snapshot.creative_id
+        WHERE snapshot.business_id::text = $1
       `,
       [input.businessId, input.providerAccountId],
     );

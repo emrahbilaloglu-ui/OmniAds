@@ -211,7 +211,7 @@ Consequences, recorded rather than silently resolved:
 | E1 | Google account scope + mixed-currency guard | A1 | `local_pass` (`af89e988e`) | read-only |
 | H1 | guarded action capability resolver | C2,F2 | `local_pass` (`421ecefef`) | default-denied; no execute path |
 | C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`) | additive chip |
-| D3c | saved views (scoped, persisted) | D3 | `local_pass` | store-scoped |
+| D3c | saved views (scoped, persisted, mounted on Decisions) | D3 | `local_pass` | store-scoped |
 | H1b | guarded action preflight + receipt | H1 | `local_pass` (`dd140f7ea`) | read-only route |
 | H1c | capability + preflight rendered in inspector | H1b | `local_pass` | component removable |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
@@ -315,7 +315,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Health beyond freshness not yet joined into the row |
-| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search`, `saved-views` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved-view contract and persistence landed; surface pickers not yet rendered |
+| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search`, `saved-views`, `saved-views-menu` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved views mounted on Decisions; other surfaces can adopt the same menu |
 | B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |

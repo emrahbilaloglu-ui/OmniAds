@@ -18,6 +18,7 @@ import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { GuardedActionPanel } from "@/components/meta/os/GuardedActionPanel";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
@@ -2100,7 +2101,17 @@ function DecisionInspector({
           </Link>
         ) : (
           <div className={styles.reviewActions}>
-            <span>No simulated preflight or receipt is shown.</span>
+            {/* The server decides what this action may do; the card renders that
+                answer. Preflight verifies the target without contacting the
+                provider, so an operator can see whether a decision still points
+                at the thing it named before anyone is allowed to act. */}
+            <GuardedActionPanel
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              action={action}
+              ad={ad}
+              killSwitchEngaged={blocked}
+            />
             <a
               href={providerAccountHref(providerAccountId)}
               target="_blank"

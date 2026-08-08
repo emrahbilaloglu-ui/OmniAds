@@ -186,6 +186,7 @@ Consequences, recorded rather than silently resolved:
 | D1 | Agency Today cross-client read model | A1,C1 | `local_pass` (`969d36675`) | additive read model |
 | D2 | Agency Today route and /overview surface | D1 | `local_pass` (`c68fcbf27`) | Client Overview fallback |
 | D3 | global entity search (server-scoped) | D1 | `local_pass` (`4afd73bf1`) | independent route |
+| F1 | workflow overlay (assign/defer/reject) | D1 | `local_pass` (`a1dec7ef5`) | additive, append-only |
 | J1 | Decisions typography and contrast floor | A1 | `local_pass` (`46d992883`) | surface-scoped CSS |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
@@ -236,6 +237,7 @@ Consequences, recorded rather than silently resolved:
 | J1 | `46d992883` | 5 (`decisions-typography-floor`) | 6115 pass | 0 | 0 |
 | D2 | `c68fcbf27` | 9 (`agency-today/route`) | 6125 pass | 0 | 0 |
 | D3 | `4afd73bf1` | 22 (`entity-search` 15, `search/route` 7) | 6148 pass | 0 | 0 |
+| F1 | `a1dec7ef5` | 14 (`decision-workflow`) + migrations-from-zero PASS | 6162 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

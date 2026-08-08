@@ -11,6 +11,10 @@ import { SummarySection } from "@/components/overview/SummarySection";
 import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
+import {
+  resolvePlatformSectionLabels,
+  type ResolvedSectionLabel,
+} from "@/lib/overview-section-labels";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import { SyncStatusPill } from "@/components/sync/sync-status-pill";
 import {
@@ -315,6 +319,14 @@ export default function OverviewPage() {
     [effectiveSummary?.platforms]
   );
 
+  const platformSectionLabels = useMemo(
+    () =>
+      resolvePlatformSectionLabels(platformSections, (provider) =>
+        resolvePlatformLabel(provider, PLATFORM_TITLE_META[provider]?.label ?? provider)
+      ),
+    [platformSections]
+  );
+
   return (
     <div className="flex flex-col space-y-6 pb-10">
       <DataStatusRow
@@ -401,7 +413,8 @@ export default function OverviewPage() {
           title={renderPlatformSectionTitle(
             platform.provider,
             platform.title,
-            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null
+            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null,
+            platformSectionLabels[index]
           )}
           description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
         >
@@ -509,7 +522,8 @@ function resolvePlatformLabel(provider: string, fallbackTitle: string) {
 function renderPlatformSectionTitle(
   provider: string,
   fallbackTitle: string,
-  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null
+  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null,
+  sectionLabel?: ResolvedSectionLabel
 ) {
   const configured = PLATFORM_TITLE_META[provider];
   if (!configured) return fallbackTitle;
@@ -525,6 +539,19 @@ function renderPlatformSectionTitle(
         />
       </span>
       <span>{configured.label}</span>
+      {/* Two sections can resolve to the same provider label. Show what tells
+          them apart so their differing totals are attributable. */}
+      {sectionLabel?.qualifier ? (
+        <span className="text-[13px] font-normal text-neutral-500">· {sectionLabel.qualifier}</span>
+      ) : null}
+      {sectionLabel?.ambiguous ? (
+        <span
+          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800"
+          title="Another section reports the same platform. These totals cover different scopes and are not comparable."
+        >
+          Scope unresolved
+        </span>
+      ) : null}
       <SyncStatusPill pill={syncPill ?? null} />
     </span>
   );

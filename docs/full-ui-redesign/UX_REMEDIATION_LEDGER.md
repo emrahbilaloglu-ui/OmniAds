@@ -345,7 +345,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | C-1 | Broader guarded execution breadth | `not_started` | — | — | — | owner (pending) | Phase 11; begins only after Gate A production evidence |
 | C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` + `notification-read-model` tests (32), ledger schema | `8c53ed23e`, `7f4a91c02` | local | owner (pending) | 4 of the 5 Phase 7 acceptance items are now locally proven (see below); only "reaches the configured recipient through the enabled channel" needs a channel |
 | C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model`, `account-scope`, `account-scope-wiring` tests | `969d36675`, `af89e988e` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
-| C-4 | Mobile Tier-0 | `local_pass` (read only) | `creative-column-priority` tests | `894858aee` | local | owner (pending) | KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
+| C-4 | Mobile Tier-0 | `local_pass` (read model only) | `creative-column-priority` tests; emulated mobile viewport green in the full-UI visual gate | `894858aee`, `1e35ad6f5` | local | owner (pending) | **Partial by the plan's own terms.** Section 10 lists a *physical* mobile Tier-0 pass among the gates local or staging results cannot satisfy, and an emulated 390px viewport is not a device. KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
 | C-5 | Sustained production reliability and breaker visibility | `not_started` | — | — | — | owner (pending) | Requires deployment and a soak |
 
 ### Cross-cutting
@@ -448,7 +448,8 @@ action-log read was made conditional on a page actually containing an observed c
 
 ### Summary
 
-- `local_pass`: 23 criteria of 30 (X-5 closed this round; counts verified against the table above)
+- `local_pass`: 23 criteria of 30 (X-5 closed this round; counts verified against the table above).
+  C-4 is `local_pass` for its read model only — the plan requires a physical-device pass it cannot claim.
 - `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`

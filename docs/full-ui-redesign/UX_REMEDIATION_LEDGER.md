@@ -29,8 +29,37 @@ Status values: `not_started` · `in_progress` · `local_pass` · `staging_pass` 
 | Typecheck | `npx tsc --noEmit` | exit 0 |
 | Lint | `npx eslint .` | exit 0 |
 | Tests | `npx vitest run` | exit 0 — 644 files passed / 4 skipped; 5995 tests passed / 61 skipped / 61 todo |
+| Full-UI visual smoke | `full-ui-redesign-playwright-smoke.ts` (ephemeral Postgres) | **exit 1 — 2 failed (PRE-EXISTING)** |
 
 Any later regression is measured against exactly these numbers.
+
+### Finding G0-F2 — the full-UI visual smoke already fails at the deployed build
+
+Run against the untouched baseline `0bcf1fbf5` on an isolated ephemeral Postgres
+(no production contact), the smoke fails two tests identically on desktop and mobile:
+
+```
+✘ [full-ui-desktop] covers every in-scope route and captures representative visuals
+✘ [full-ui-mobile]  covers every in-scope route and captures representative visuals
+  Error: Meta Decisions evidence affordance
+  expect(locator).toBeVisible() failed — element(s) not found
+```
+
+The run also logs `column "provider_account_id" does not exist` against
+`engine_v3_decision_snapshots_daily`; that column is absent from the table's DDL in
+`lib/migrations.ts`, so the query is broken independently of any UI change.
+
+Consequences:
+
+1. This smoke **cannot serve as a green release gate** in its current state, and a
+   passing run must not be claimed for any slice until the pre-existing failure is fixed.
+2. The failure is **not attributable to this program's slices** — it was reproduced on the
+   baseline commit before and after the slices landed.
+3. Fixing it is its own slice (it is a Meta Decisions evidence-affordance/selector issue,
+   Phase 3/8 territory), tracked below as `S-SMOKE`.
+
+Per-slice verification therefore uses focused tests, the full vitest suite, typecheck, and
+lint, with this smoke recorded as a known-failing baseline rather than a silent skip.
 
 ### Dirty-tree disposition — PRESERVED, UNTOUCHED
 
@@ -103,9 +132,10 @@ Consequences, recorded rather than silently resolved:
 | Slice | Content | Depends on | Status | Rollback boundary |
 | --- | --- | --- | --- | --- |
 | G0 | branch/worktree authority and baseline | none | `local_pass` | no product behavior |
-| A1 | shared metric/currency/comparison contracts | G0 | `in_progress` | additive adapters |
-| A2 | Overview/Commercial Truth trust semantics | A1 | `not_started` | surface adapters |
-| B1 | report snapshot: currency and period fidelity | A1 | `not_started` | snapshot version |
+| A1 | shared metric/currency/comparison contracts | G0 | `local_pass` (`590ebd3bb`) | additive adapters |
+| A2 | Overview platform-total attribution | A1 | `local_pass` (`14d771834`) | surface adapters |
+| B1 | report snapshot: currency and period fidelity | A1 | `local_pass` (`4cd8f59cc`) | snapshot version |
+| S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2) | none | `not_started` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
 | C1 | unified provider health | G0 | `not_started` | additive read model |
 | C2 | freshness/revalidation/error states | C1 | `not_started` | runtime policy flag |
@@ -131,3 +161,21 @@ Consequences, recorded rather than silently resolved:
 | A1-D4 | Formatter accepts a currency **symbol**, not ISO currency; no scope/source/as-of carried | `lib/metric-format.ts:9-32` | ScopedMetric envelope |
 | B1-D1 | Report money hard-coded to `en-US`/`USD` | `lib/custom-report-renderer.ts:13-21` | MR-D064-01 (no USD fallback) |
 | B1-D2 | Report renders via internal HTTP self-fetch fan-out (12 call sites) | `lib/custom-report-renderer.ts` | Live 7/7 widget failure |
+| B1-D3 | Share re-rendered the stored trailing preset, not the on-screen window | `app/api/reports/[reportId]/share/route.ts` called `renderCustomReportRecord` with no overrides while the view page held `viewStart`/`viewEnd` | Claude P0-5 |
+| A2-D1 | Two sections can share a provider label; the title renderer discarded the section's own identity | `app/(dashboard)/overview/page.tsx` `renderPlatformSectionTitle` returned `configured.label` and dropped `fallbackTitle` | Codex live P0 (two Meta totals, no account names) |
+| C1-D1 | Settings and Integrations answer provider health from different sources | Settings reads `fetchProviderAccountSnapshot` and inspects only `meta.refreshFailed`/`meta.stale` (account-list discovery freshness) at `app/(dashboard)/settings/page.tsx:186-198`; Integrations uses `deriveProviderViewState` (token expiry, scope blocks, assignment) at `store/integrations-support.ts:345-404` | Codex live P0 (Settings healthy vs Integrations action-required) |
+
+---
+
+## Slice evidence
+
+| Slice | Commit | Tests added | Suite after | Typecheck | Lint |
+| --- | --- | --- | --- | --- | --- |
+| G0 | `931cfa567` | — | 5995 pass (baseline) | 0 | 0 |
+| A1 | `590ebd3bb` | 33 (`metric-semantics` 17, `metric-format` 9, `MetricCard` 7) | 6028 pass | 0 | 0 |
+| B1 | `4cd8f59cc` | 9 (`renderer.currency` 4, `share-period-fidelity` 5) | 6037 pass | 0 | 0 |
+| A2 | `14d771834` | 6 (`overview-section-labels`) | 6043 pass | 0 | 0 |
+
+Suite growth is exactly the tests added at each step; no baseline test changed behavior.
+All four rows are `local_pass` only. **No production acceptance is claimed** — that
+requires deployment, which is an explicit approval gate this program has not reached.

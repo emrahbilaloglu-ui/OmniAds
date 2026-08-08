@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { savedViewScopeKey, type SavedView } from "@/lib/saved-views";
 import type { DateRangeValue } from "@/components/date-range/DateRangePicker";
 import type { CreativeDateRangeValue } from "@/components/creatives/CreativesTopSection";
 import { syncLanguageCookie, type AppLanguage } from "@/lib/i18n";
@@ -25,6 +26,8 @@ interface PreferencesState {
   heatmapEnabled: boolean;
   metaOperatorPreset: OperatorSurfacePreset;
   overviewPinsByContext: Record<string, string[]>;
+  /** Saved views, keyed by surface::businessId so scopes cannot bleed. */
+  savedViewsByScope: Record<string, SavedView[]>;
   // Persistent date range selections per surface
   dashboardDateRange: DateRangeValue | null;
   metaDateRange: DateRangeValue | null;
@@ -45,6 +48,8 @@ interface PreferencesState {
   unpinOverviewMetric: (contextKey: string, metricKey: string) => void;
   replaceOverviewMetric: (contextKey: string, currentMetricKey: string, nextMetricKey: string) => void;
   moveOverviewMetric: (contextKey: string, metricKey: string, direction: "left" | "right") => void;
+  saveView: (view: SavedView) => void;
+  deleteSavedView: (surface: string, businessId: string, viewId: string) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -57,6 +62,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       heatmapEnabled: true,
       metaOperatorPreset: "action_first",
       overviewPinsByContext: {},
+      savedViewsByScope: {},
       dashboardDateRange: null,
       metaDateRange: null,
       commandCenterDateRange: null,
@@ -121,6 +127,28 @@ export const usePreferencesStore = create<PreferencesState>()(
             overviewPinsByContext: {
               ...state.overviewPinsByContext,
               [contextKey]: next,
+            },
+          };
+        }),
+      saveView: (view) =>
+        set((state) => {
+          const key = savedViewScopeKey(view.surface, view.businessId);
+          const current = state.savedViewsByScope[key] ?? [];
+          return {
+            savedViewsByScope: {
+              ...state.savedViewsByScope,
+              [key]: [...current.filter((item) => item.id !== view.id), view],
+            },
+          };
+        }),
+      deleteSavedView: (surface, businessId, viewId) =>
+        set((state) => {
+          const key = savedViewScopeKey(surface, businessId);
+          const current = state.savedViewsByScope[key] ?? [];
+          return {
+            savedViewsByScope: {
+              ...state.savedViewsByScope,
+              [key]: current.filter((item) => item.id !== viewId),
             },
           };
         }),

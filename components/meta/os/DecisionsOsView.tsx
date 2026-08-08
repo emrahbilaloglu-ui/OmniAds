@@ -248,12 +248,19 @@ function laneLabel(lane: MetaOsDecisionLane) {
   return "Monitoring";
 }
 
-function presentationLaneCount(
+/**
+ * Lane counts, or null when there is no server presentation yet.
+ *
+ * Returning 0 while the workspace is still loading — or after it failed — put a
+ * literal "Act Now 0" on screen, which a buyer scanning the tabs reads as
+ * "nothing to act on today". An unknown count renders as a dash instead.
+ */
+export function presentationLaneCount(
   presentation: MetaDecisionsOsWorkspacePayload["os"] | null | undefined,
   layer: DecisionLayer,
   lane: MetaOsDecisionLane,
-) {
-  if (!presentation) return 0;
+): number | null {
+  if (!presentation) return null;
   const group =
     layer === "structure" ? presentation.structure : presentation.ads;
   if (lane === "act") return group.actCount;
@@ -289,10 +296,10 @@ export function resolveAvailableDecisionLane(
   layer: DecisionLayer,
   current: MetaOsDecisionLane,
 ) {
-  if (presentationLaneCount(presentation, layer, current) > 0) return current;
+  if ((presentationLaneCount(presentation, layer, current) ?? 0) > 0) return current;
   return (
     DECISION_LANES.find(
-      (candidate) => presentationLaneCount(presentation, layer, candidate) > 0,
+      (candidate) => (presentationLaneCount(presentation, layer, candidate) ?? 0) > 0,
     ) ?? current
   );
 }
@@ -877,7 +884,7 @@ export function DecisionsOsView({
                   : DECISION_LANES.reduce(
                       (sum, candidate) =>
                         sum +
-                        presentationLaneCount(presentation, value, candidate),
+                        (presentationLaneCount(presentation, value, candidate) ?? 0),
                       0,
                     );
             return (
@@ -997,7 +1004,7 @@ export function DecisionsOsView({
                 }}
               >
                 {laneLabel(value)}
-                <span>{presentationLaneCount(presentation, "ads", value)}</span>
+                <span>{presentationLaneCount(presentation, "ads", value) ?? "—"}</span>
               </button>
             ))}
           </div>

@@ -203,17 +203,8 @@ Consequences, recorded rather than silently resolved:
 | J4 | Google ROAS colour semantics | A1 | `local_pass` | surface-scoped |
 | I2 | admin/share route error boundaries | C2 | `local_pass` | additive files |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
-| B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
-| C1 | unified provider health | G0 | `not_started` | additive read model |
-| C2 | freshness/revalidation/error states | C1 | `not_started` | runtime policy flag |
-| D1–D3 | Agency Today, search, saved views | A1,C1 | `not_started` | Client Overview fallback |
-| E1–E2 | Google scope guards, copy/CSV/deep links | A1 | `not_started` | read-only, independent disable |
-| F1–F2 | workflow overlay, external changes, History | D1 | `not_started` | additive/append-only |
-| G1–G2 | notification ledger and delivery | F1,C1 | `not_started` | per-channel disable |
-| H1 | Decision capability/preflight UI | C2,F2 | `not_started` | no provider execute |
+| H1 | Decision capability/preflight UI | C2,F2 | `in_progress` | no provider execute |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
-| I1 | auth/query/self-fetch performance | C2 | `not_started` | refactor-only |
-| J1–J2 | tokens/type/contrast, responsive/mobile Tier-0 | A1 / H2,J1 | `not_started` | surface-scoped |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 
 ---

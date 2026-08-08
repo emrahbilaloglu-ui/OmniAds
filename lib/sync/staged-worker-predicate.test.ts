@@ -377,3 +377,74 @@ describe("the outgoing worker's lane rows are what fail the gate", () => {
     expect(result.reason).toBe("unexpected_online_workers");
   });
 });
+
+describe("heartbeat liveness is not sync capability", () => {
+  // Measured 2026-08-08: the worker reported healthy for 26 hours while every
+  // business cycle was refused for capacity (meta_entity_state_history 208 KB
+  // over its 4 GiB budget) and zero google or meta runs were recorded. The gate
+  // saw a fresh heartbeat and called that healthy.
+  const refusedWorker = {
+    workerId: "sync-worker:18:abc:meta",
+    providerScope: "meta",
+    status: "idle",
+    workerFreshnessState: "online" as const,
+    lastHeartbeatAt: new Date(NOW - 5_000).toISOString(),
+    metaJson: {
+      consumeOutcome: "admission_refused",
+      consumeReason: "capacity_refused",
+    },
+  } as unknown as WorkerHealthRow;
+
+  function evaluateLive(requireSyncCapable: boolean) {
+    return evaluateWorkerHealth({
+      summary: {
+        onlineWorkers: 1,
+        lastHeartbeatAt: refusedWorker.lastHeartbeatAt ?? null,
+        workers: [refusedWorker],
+      },
+      stagedWorkers: [],
+      ownedWorkUnits: null,
+      expectStagedIdle: false,
+      expectBuildId: null,
+      minHeartbeatAfter: null,
+      minOnlineWorkers: 1,
+      requireSyncCapable,
+    });
+  }
+
+  it("reports the capacity refusal even when it does not assert it", () => {
+    const result = evaluateLive(false);
+    expect(result.capacityRefused).toBe(true);
+    expect(result.reason).toBe("sync_capacity_refused");
+    // The container probe stays green on purpose: restarting a container frees
+    // no disk, so failing here would hand autoheal an unfixable condition.
+    expect(result.pass).toBe(true);
+  });
+
+  it("fails hard for a caller that asserts sync capability", () => {
+    const result = evaluateLive(true);
+    expect(result.capacityRefused).toBe(true);
+    expect(result.reason).toBe("sync_capacity_refused");
+    expect(result.pass).toBe(false);
+  });
+
+  it("stays healthy when the refusal is ordinary rather than capacity", () => {
+    const ordinary = {
+      ...refusedWorker,
+      metaJson: { consumeOutcome: "admission_refused", consumeReason: "not_due" },
+    } as unknown as WorkerHealthRow;
+    const result = evaluateWorkerHealth({
+      summary: { onlineWorkers: 1, lastHeartbeatAt: ordinary.lastHeartbeatAt ?? null, workers: [ordinary] },
+      stagedWorkers: [],
+      ownedWorkUnits: null,
+      expectStagedIdle: false,
+      expectBuildId: null,
+      minHeartbeatAfter: null,
+      minOnlineWorkers: 1,
+      requireSyncCapable: true,
+    });
+    expect(result.capacityRefused).toBe(false);
+    expect(result.reason).toBe("healthy");
+    expect(result.pass).toBe(true);
+  });
+});

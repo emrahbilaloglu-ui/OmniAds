@@ -1110,8 +1110,71 @@ export async function assertSyncGrowthBoundary(
   } else {
     // Never cache a refusal.
     store.__omniadsGrowthFence = undefined;
+
+    // A SINGLE relation over budget refuses that relation's provider, not every
+    // provider.
+    //
+    // The per-table ceilings exist, in this file's own words, "to catch a single
+    // relation running away inside" the aggregate. Refusing all sync for one of
+    // them is wider than that purpose and it cost a full outage: measured
+    // 2026-08-08, meta_entity_state_history sat 208 KB (0.005%) over its 4 GiB
+    // ceiling and Google Ads and Shopify sync - which cannot write a byte of
+    // that table - were stopped alongside Meta for 26 hours.
+    //
+    // The aggregate database budget is untouched by this and still refuses
+    // everything, because there the whole database is the thing at risk.
+    //
+    // Fail-closed is preserved by requiring positive proof of non-involvement:
+    // the offender's family AND the operation's family must both be known AND
+    // differ. An unrecognised operation label, an unrecognised table, or the
+    // aggregate breach all fall through to the refusal exactly as before.
+    const offenderTable = decision.offender?.table;
+    const offenderFamily =
+      decision.reason === "table_budget_exceeded" && offenderTable && offenderTable !== "database"
+        ? fencedTableProviderFamily(offenderTable as FencedTable)
+        : null;
+    const operationFamily = operationProviderFamily(operation);
+    const collateralOnly =
+      offenderFamily != null && operationFamily != null && operationFamily !== offenderFamily;
+
+    if (collateralOnly) {
+      console.warn("[db-growth-fence] admitted outside the offending provider", {
+        operation,
+        operationFamily,
+        offender: decision.offender,
+        reason: decision.reason,
+      });
+      return { ...decision, allowed: true, warning: true };
+    }
+
     console.error("[db-growth-fence] boundary blocked", { operation, decision });
     throw new DbGrowthFenceRefusal(decision, operation);
   }
   return decision;
+}
+
+/** The provider whose sync writes a fenced relation, or null if unrecognised. */
+export function fencedTableProviderFamily(
+  table: FencedTable,
+): "meta" | "google_ads" | "shopify" | null {
+  if (table.startsWith("meta_")) return "meta";
+  if (table.startsWith("shopify_")) return "shopify";
+  if (table.startsWith("google_ads_")) return "google_ads";
+  return null;
+}
+
+/**
+ * The provider a boundary label belongs to, or null when it cannot be proven.
+ *
+ * Null is the safe answer and the caller treats it as "may touch anything", so
+ * a new label added without thought refuses rather than slips through.
+ */
+export function operationProviderFamily(
+  operation: string,
+): "meta" | "google_ads" | "shopify" | null {
+  if (operation.startsWith("meta")) return "meta";
+  if (operation.startsWith("shopify")) return "shopify";
+  // Both `google_ads_*` and the older `google_*` labels are Google Ads sync.
+  if (operation.startsWith("google")) return "google_ads";
+  return null;
 }

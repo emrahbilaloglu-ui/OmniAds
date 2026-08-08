@@ -42,7 +42,10 @@ export type WorkerHealthReason =
   | "staged_worker_is_not_this_run"
   | "staged_worker_build_identity_mismatch"
   | "fresh_heartbeat_not_observed"
-  | "insufficient_online_workers";
+  | "insufficient_online_workers"
+  // Heartbeating but not sync-capable: every online worker's last business
+  // cycle was refused for capacity, so the fleet is running and doing nothing.
+  | "sync_capacity_refused";
 
 function parseMs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -110,6 +113,9 @@ export type WorkerHealthEvaluation = {
   stagedBuildIdMatches: boolean;
   heartbeatSatisfied: boolean;
   holdsNothing: boolean;
+  // True when every online worker's last cycle was refused for capacity. Always
+  // reported, so the condition is visible even where it is not asserted.
+  capacityRefused: boolean;
 };
 
 export function evaluateWorkerHealth(input: {
@@ -120,6 +126,9 @@ export function evaluateWorkerHealth(input: {
   expectBuildId: string | null;
   minHeartbeatAfter: string | null;
   minOnlineWorkers: number;
+  // Opt-in: treat "heartbeating but capacity-refused" as a hard failure.
+  // Off for the container probe, on for callers that can actually act.
+  requireSyncCapable?: boolean;
 }): WorkerHealthEvaluation {
   const minHeartbeatAfterMs =
     input.minHeartbeatAfter != null ? parseMs(input.minHeartbeatAfter) : null;
@@ -161,6 +170,34 @@ export function evaluateWorkerHealth(input: {
     (stagedBuildId === input.expectBuildId &&
       stagedContractBuildId === input.expectBuildId);
 
+  // Heartbeat liveness is not sync capability.
+  //
+  // Measured 2026-08-08: the worker reported healthy for 26 hours while every
+  // business cycle was refused - meta_entity_state_history sat 208 KB over its
+  // 4 GiB budget, the growth fence correctly fail-closed, and zero google or
+  // meta runs were recorded the entire time. The gate saw a fresh heartbeat and
+  // called that healthy, so a total sync stop was invisible to the one signal
+  // whose job is to notice it.
+  //
+  // Capacity refusal specifically, NOT generic admission refusal: a not-due or
+  // lease-contended tick is ordinary and transient, whereas a capacity refusal
+  // persists until an operator or a retention policy acts. The worker preserves
+  // the original refusal identity in consumeReason, so the distinction is
+  // already durable in the heartbeat.
+  //
+  // This never fails the CONTAINER probe on its own - see requireSyncCapable
+  // below. Restarting a container cannot free a byte of disk, so failing the
+  // probe here would hand autoheal an unfixable condition and produce exactly
+  // the restart loop this codebase forbids.
+  const onlineWorkers = (input.summary.workers ?? []).filter(
+    (worker) => worker.workerFreshnessState === "online",
+  );
+  const capacityRefused =
+    onlineWorkers.length > 0 &&
+    onlineWorkers.every(
+      (worker) => readMetaString(worker.metaJson, "consumeReason") === "capacity_refused",
+    );
+
   let reason: WorkerHealthReason;
   if (input.expectStagedIdle) {
     if (input.stagedWorkers.length !== 1) reason = "staged_idle_not_observed";
@@ -174,12 +211,23 @@ export function evaluateWorkerHealth(input: {
     reason = "insufficient_online_workers";
   } else if (!heartbeatSatisfied) {
     reason = "fresh_heartbeat_not_observed";
+  } else if (capacityRefused) {
+    reason = "sync_capacity_refused";
   } else {
     reason = "healthy";
   }
 
+  // A capacity refusal is reported always and asserted only on request. The
+  // container probe stays green so autoheal does not thrash against a
+  // condition no restart can clear; the operational callers that CAN act on it
+  // - post-deploy verification and monitoring - pass requireSyncCapable and get
+  // a hard failure. Silent it is not: the reason travels in every payload.
+  const pass =
+    reason === "healthy" ||
+    (reason === "sync_capacity_refused" && !input.requireSyncCapable);
+
   return {
-    pass: reason === "healthy",
+    pass,
     reason,
     stagedWorkerId: stagedWorker?.workerId ?? null,
     stagedWorkerStartedAt: stagedStartedAt,
@@ -189,6 +237,7 @@ export function evaluateWorkerHealth(input: {
     stagedBuildIdMatches,
     heartbeatSatisfied,
     holdsNothing,
+    capacityRefused,
   };
 }
 

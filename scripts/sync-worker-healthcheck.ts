@@ -16,6 +16,7 @@ type ParsedArgs = {
   minOnlineWorkers: number;
   minHeartbeatAfter: string | null;
   expectStagedIdle: boolean;
+  requireSyncCapable: boolean;
   expectBuildId: string | null;
   summaryOut: string | null;
 };
@@ -28,6 +29,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     minOnlineWorkers: 1,
     minHeartbeatAfter: null,
     expectStagedIdle: false,
+    requireSyncCapable: false,
     expectBuildId: null,
     summaryOut: null,
   };
@@ -38,6 +40,13 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     const arg = argv[index];
+    if (arg === "--require-sync-capable") {
+      // Assert real sync CAPABILITY, not just liveness. Off by default so the
+      // container probe cannot hand autoheal a restart loop against a capacity
+      // refusal no restart can clear.
+      parsed.requireSyncCapable = true;
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       parsed.help = true;
       continue;
@@ -105,7 +114,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 function printUsage() {
   console.log(
-    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--expect-build-id <sha>] [--summary-out <file>]",
+    "usage: node --import tsx scripts/sync-worker-healthcheck.ts [--provider-scope <scope>] [--online-window-minutes <minutes>] [--min-online-workers <count>] [--min-heartbeat-after <iso>] [--expect-staged-idle] [--require-sync-capable] [--expect-build-id <sha>] [--summary-out <file>]",
   );
 }
 
@@ -139,6 +148,7 @@ async function main() {
     stagedWorkers,
     ownedWorkUnits: owned,
     expectStagedIdle: args.expectStagedIdle,
+    requireSyncCapable: args.requireSyncCapable,
     expectBuildId: args.expectBuildId,
     minHeartbeatAfter: args.minHeartbeatAfter,
     minOnlineWorkers: args.minOnlineWorkers,
@@ -184,6 +194,8 @@ async function main() {
         minOnlineWorkers: args.minOnlineWorkers,
         minHeartbeatAfter: args.minHeartbeatAfter,
         expectStagedIdle: args.expectStagedIdle,
+        requireSyncCapable: args.requireSyncCapable,
+        capacityRefused: evaluation.capacityRefused,
         expectBuildId: args.expectBuildId,
         stagedWorkers: stagedWorkers.length,
         stagedWorkerId: evaluation.stagedWorkerId,

@@ -5,6 +5,8 @@ vi.mock("@/lib/db", () => ({ getDbWithTimeout: vi.fn() }));
 const db = await import("@/lib/db");
 const {
   evaluateDbGrowthFence,
+  fencedTableProviderFamily,
+  operationProviderFamily,
   assertDbGrowthFenceAdmits,
   evaluateGrowthFenceOverride,
   DbGrowthFenceRefusal,
@@ -671,5 +673,30 @@ describe("production volume calibration", () => {
     await expect(
       evaluateDbGrowthFence({ env: {} }),
     ).resolves.toMatchObject({ allowed: true, reason: "ready" });
+  });
+});
+
+describe("a single relation over budget refuses its own provider, not all of them", () => {
+  // Measured 2026-08-08: meta_entity_state_history sat 208 KB (0.005%) over its
+  // 4 GiB ceiling and Google Ads and Shopify sync were stopped alongside Meta
+  // for 26 hours, though neither can write a byte of that table.
+  it("maps fenced relations to the provider that writes them", () => {
+    expect(fencedTableProviderFamily("meta_entity_state_history")).toBe("meta");
+    expect(fencedTableProviderFamily("shopify_raw_snapshots")).toBe("shopify");
+    expect(fencedTableProviderFamily("google_ads_product_daily")).toBe("google_ads");
+  });
+
+  it("maps boundary labels to their provider, including the older google_ prefix", () => {
+    expect(operationProviderFamily("meta_business_cycle")).toBe("meta");
+    expect(operationProviderFamily("shopify_business_cycle")).toBe("shopify");
+    expect(operationProviderFamily("google_ads_business_cycle")).toBe("google_ads");
+    expect(operationProviderFamily("google_sync_recent")).toBe("google_ads");
+    expect(operationProviderFamily("google_lifecycle_partition")).toBe("google_ads");
+  });
+
+  it("refuses an unrecognised label rather than guessing it is unrelated", () => {
+    // Null is the fail-closed answer: a label added without thought must refuse.
+    expect(operationProviderFamily("retention_compaction")).toBeNull();
+    expect(operationProviderFamily("")).toBeNull();
   });
 });

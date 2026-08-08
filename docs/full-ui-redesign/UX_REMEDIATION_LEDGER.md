@@ -416,7 +416,7 @@ action-log read was made conditional on a page actually containing an observed c
 
 ### Summary
 
-- `local_pass`: 20 criteria (B-2, B-4 and A-11 strengthened this round)
+- `local_pass`: 23 criteria of 30 (X-5 closed this round; counts verified against the table above)
 - `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`

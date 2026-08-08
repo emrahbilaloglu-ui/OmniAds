@@ -43,6 +43,10 @@ import {
   toHeatCellStyle,
 } from "@/components/creatives/creatives-table-support";
 import { cn } from "@/lib/utils";
+import {
+  isNarrowViewport,
+  resolveCreativeColumnPriority,
+} from "@/lib/creative-column-priority";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
 import { createPortal } from "react-dom";
@@ -290,6 +294,22 @@ const STATIC_COLUMN_SPECS = {
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
 } as const;
+
+
+/** Current viewport width, or null until the browser reports one. */
+function useViewportWidth(): number | null {
+  const [width, setWidth] = useState<number | null>(
+    typeof window === "undefined" ? null : window.innerWidth,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setWidth(window.innerWidth);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return width;
+}
 
 function getDefaultColumnWidths(): Record<string, number> {
   const metricWidths = TABLE_COLUMNS.reduce<Record<string, number>>((acc, column) => {
@@ -925,10 +945,36 @@ export function CreativesTableSection({
     [rows]
   );
 
-  const selectedColumns = useMemo(
+  const viewportWidth = useViewportWidth();
+
+  const presetColumns = useMemo(
     () => tablePreset.selectedColumns.map((key) => TABLE_COLUMN_MAP[key]).filter(Boolean),
     [tablePreset.selectedColumns]
   );
+
+  // On a phone the preset's full width becomes a horizontal scroller that hides
+  // spend and ROAS behind an affordance most people never find. Narrow screens
+  // get the columns that fit, economics first, rather than a shrunken desktop
+  // table.
+  const columnPriority = useMemo(() => {
+    if (!viewportWidth || !isNarrowViewport(viewportWidth)) return null;
+    return resolveCreativeColumnPriority({
+      viewportWidth,
+      identityWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
+      chromeWidth: 32,
+      columns: presetColumns.map((column) => ({
+        key: column.key,
+        preferredWidth: column.preferredWidth,
+        minWidth: column.minWidth,
+      })),
+    });
+  }, [presetColumns, viewportWidth]);
+
+  const selectedColumns = useMemo(() => {
+    if (!columnPriority) return presetColumns;
+    const visible = new Set(columnPriority.visibleKeys);
+    return presetColumns.filter((column) => visible.has(column.key));
+  }, [columnPriority, presetColumns]);
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
   const presetTagSummary = useMemo(
     () => selectedAiTagColumns.map((tagKey) => prettyTagLabel(tagKey)).join(", "),

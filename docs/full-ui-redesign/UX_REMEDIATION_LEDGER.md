@@ -284,3 +284,69 @@ This is the furthest the release candidate can be taken before a deployment deci
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that
 requires deployment, which is an explicit approval gate this program has not reached.
+
+---
+
+## Completion ledger (master plan section 14)
+
+One row per acceptance criterion, in the format the plan mandates.
+`local_pass` and `staging_pass` are never equivalent to `production_pass`.
+Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a second person.
+
+### Gate A — trust restoration
+
+| ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A-1 | Non-USD account shows one ISO currency across surfaces and report screen/share/print/CSV | `local_pass` | `metric-format`, `custom-report-renderer.currency` tests | `590ebd3bb`, `4cd8f59cc` | local | owner (pending) | Not observed on a signed-in non-USD production account |
+| A-2 | Compare=None renders no delta and no directional colour | `local_pass` | `metric-semantics`, `MetricCard` tests | `590ebd3bb` | local | owner (pending) | Picker still collapses 8 presets to previous_period server-side |
+| A-3 | A cost increase never receives positive treatment | `local_pass` | `metric-semantics`, `MetricCard`, `roas-color-semantics` tests | `590ebd3bb`, J4 | local | owner (pending) | Applied to Overview + Google card; other surfaces unaudited |
+| A-4 | Duplicate Meta totals match or visibly explain the difference | `local_pass` | `overview-section-labels` tests | `14d771834` | local | owner (pending) | Mechanism behind Codex's live observation still unproven |
+| A-5 | Mixed-currency fixtures never produce an unlabelled sum | `local_pass` | `agency-today-read-model` tests | `969d36675` | local | owner (pending) | No FX contract exists; totals withheld rather than converted |
+| A-6 | Settings and Integrations show the same health at the same moment | `local_pass` | `provider-health-truth` tests | `eee0f01f3` | local | owner (pending) | Not observed live with a forced token failure |
+| A-7 | Flagship report renders 7/7 widgets | `blocked_external` | in-process transport + widget failure isolation | `90838abb9` | — | owner (pending) | Root cause addressed; only a signed-in production render can confirm |
+| A-8 | Share and print reproduce the on-screen window | `local_pass` | `share-period-fidelity` tests | `4cd8f59cc` | local | owner (pending) | Not confirmed against a live share link |
+| A-9 | A failed widget is visible, scoped and never becomes empty data | `local_pass` | `report-widget-failure` tests | `90838abb9` | local | owner (pending) | — |
+| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client` tests | `ec5b46ddf` | local | owner (pending) | Per-surface "as of" disclosure not yet universal |
+| A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts` tests | `ec5b46ddf` | local | owner (pending) | Retry affordance on Decisions itself still outstanding |
+
+### Gate B — credible co-pilot
+
+| ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Health beyond freshness not yet joined into the row |
+| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route` tests | `4afd73bf1` | local | owner (pending) | No UI surface yet; route only |
+| B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
+| B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow` tests | `a1dec7ef5` | local | owner (pending) | No API routes or UI controls yet |
+| B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
+| B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution` tests | `3f4fe5066` | local | owner (pending) | Correlation model only; not wired to a History projection |
+| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | — | — | — | owner (pending) | Phase 8; needs D065/D067 in main (G0-F1) |
+| B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
+
+### Gate C — primary agency OS
+
+| ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| C-1 | Broader guarded execution breadth | `not_started` | — | — | — | owner (pending) | Phase 11; begins only after Gate A production evidence |
+| C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` tests, ledger schema | `8c53ed23e` | local | owner (pending) | Ledger only; wiring a channel is a delivery gate (G2) |
+| C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model` withholding tests | `969d36675` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
+| C-4 | Mobile Tier-0 | `local_pass` (read only) | `creative-column-priority` tests | `894858aee` | local | owner (pending) | KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
+| C-5 | Sustained production reliability and breaker visibility | `not_started` | — | — | — | owner (pending) | Requires deployment and a soak |
+
+### Cross-cutting
+
+| ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| X-1 | No regression in existing tests | `local_pass` | 6,236 pass vs 5,995 baseline; +241 all new | branch tip | local | owner (pending) | — |
+| X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
+| X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
+| X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
+| X-5 | Full-UI visual gate green | `failed` (pre-existing) | reproduced identically at baseline `0bcf1fbf5` | — | ephemeral Postgres | owner (pending) | Not caused by this program; see G0-F2 / G0-F3 |
+| X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
+
+### Summary
+
+- `local_pass`: 20 criteria
+- `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
+- `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
+- `failed`: 1 criterion (X-5) — pre-existing at the deployed baseline
+- `production_pass`: **0 criteria.** No production acceptance is claimed anywhere in this program.

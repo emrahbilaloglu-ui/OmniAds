@@ -13,6 +13,12 @@ import {
 } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import {
+  classifyDecisionDateFallback,
+  describeDecisionDateFallback,
+  isExpectedCapabilityGate,
+} from "@/lib/meta/decision-date-fallback";
+import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
+import {
   META_DECISIONS_AD_CANDIDATE_LIMIT,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   type MetaDecisionsWorkspaceReadModel,
@@ -241,6 +247,28 @@ function previousUtcDate() {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Report why a snapshot-date lookup failed.
+ *
+ * An expected capability gate stays at info; anything else is a warning,
+ * because the resolver has quietly fallen back to yesterday and every decision
+ * surface downstream then answers for the wrong day without saying so. No raw
+ * identifiers are logged.
+ */
+function reportDecisionDateFallback(source: string, error: unknown) {
+  const cause = classifyDecisionDateFallback(error);
+  const details = {
+    source,
+    cause,
+    detail: describeDecisionDateFallback(cause),
+  };
+  if (isExpectedCapabilityGate(cause)) {
+    logRuntimeInfo("meta_decisions", "as_of_date_capability_gate", details);
+    return;
+  }
+  logRuntimeWarn("meta_decisions", "as_of_date_lookup_failed", details);
+}
+
 async function resolveWorkspaceEndDate(input: {
   businessId: string;
   providerAccountId: string | null;
@@ -276,8 +304,12 @@ async function resolveWorkspaceEndDate(input: {
     );
     const latest = rows[0]?.latest_as_of?.trim() ?? "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
-  } catch {
-    // Native tables are introduced behind a schema/capability gate.
+  } catch (error: unknown) {
+    // Native tables are introduced behind a schema/capability gate, so a
+    // missing relation is expected here. Anything else means this lookup is
+    // failing for a reason nobody has seen, and the resolver silently falls
+    // back to yesterday — so it is reported rather than swallowed.
+    reportDecisionDateFallback("native_ad_snapshot_union", error);
   }
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
@@ -291,9 +323,10 @@ async function resolveWorkspaceEndDate(input: {
     );
     const latest = rows[0]?.latest_as_of?.trim() ?? "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
-  } catch {
+  } catch (error: unknown) {
     // Older schemas still get the previous completed UTC day. Decisions never
     // need seven parallel current-day provider reads to serve a daily snapshot.
+    reportDecisionDateFallback("legacy_decision_snapshot", error);
   }
   return previousUtcDate();
 }

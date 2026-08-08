@@ -1074,6 +1074,13 @@ export function DecisionsOsView({
                 "The server presentation could not be loaded."
               }
               danger
+              retrying={
+                providerAccountsQuery.isFetching || workspaceQuery.isFetching
+              }
+              onRetry={() => {
+                if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
+                if (workspaceQuery.isError) void workspaceQuery.refetch();
+              }}
             />
           ) : !providerAccountId ? (
             <DecisionState
@@ -1227,15 +1234,27 @@ function DecisionState({
   title,
   detail,
   danger = false,
+  onRetry,
+  retrying = false,
 }: {
   title: string;
   detail: string;
   danger?: boolean;
+  /** Present only when the caller can actually re-run the read. */
+  onRetry?: () => void;
+  retrying?: boolean;
 }) {
   return (
     <div className={styles.emptyState} data-danger={danger}>
       <strong>{title}</strong>
       <span>{detail}</span>
+      {onRetry ? (
+        // A failed read used to leave a full browser reload as the only way
+        // forward, mid-triage.
+        <button type="button" onClick={onRetry} disabled={retrying}>
+          {retrying ? "Retrying" : "Try again"}
+        </button>
+      ) : null}
     </div>
   );
 }

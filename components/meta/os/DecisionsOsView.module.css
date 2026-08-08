@@ -188,6 +188,9 @@
 .assessmentBlock > span:last-child { overflow: hidden; max-width: 158px; color: var(--ink3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 .emptyState { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 30px; border: 1px dashed var(--b2); border-radius: 11px; background: var(--s2); color: var(--ink3); text-align: center; }
+.emptyState button { margin-top: 10px; padding: 5px 11px; border: 1px solid var(--b2); border-radius: 7px; background: var(--s2); color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+.emptyState button:hover:not(:disabled) { background: var(--s3); }
+.emptyState button:disabled { cursor: default; color: var(--ink3); }
 .emptyState strong { color: var(--ink2); font-size: 13px; }
 .emptyState[data-danger="true"] { border-color: var(--danger-bd); background: var(--danger-bg); color: var(--danger-fg); }
 

@@ -19,6 +19,7 @@ import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { GuardedActionPanel } from "@/components/meta/os/GuardedActionPanel";
+import { SavedViewsMenu } from "@/components/views/SavedViewsMenu";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
@@ -1050,6 +1051,29 @@ export function DecisionsOsView({
             ))}
           </div>
         )}
+        {/* The arrangement an operator narrowed to is worth keeping; rebuilding
+            it on every visit is most of what "using the tool" used to mean. */}
+        <SavedViewsMenu
+          surface="meta-decisions"
+          businessId={businessId}
+          availableAccountIds={providerAccounts.map((account) => account.id)}
+          currentConfig={{
+            providerAccountId,
+            lane: adsLane,
+            layer,
+          }}
+          onApply={(config) => {
+            if (config.layer === "structure" || config.layer === "ads" || config.layer === "inactive") {
+              setLayer(config.layer);
+            }
+            if (config.lane === "act" || config.lane === "blocked" || config.lane === "monitor") {
+              setAdsLane(config.lane);
+            }
+            if (config.providerAccountId && config.providerAccountId !== providerAccountId) {
+              chooseAccount(config.providerAccountId);
+            }
+          }}
+        />
         <span className={styles.listCaption}>
           {layer === "structure"
             ? `${visibleStructureGroups.length} of ${filteredStructureGroups.length} campaigns · urgency first`

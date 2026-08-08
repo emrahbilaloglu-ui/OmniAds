@@ -184,6 +184,7 @@ Consequences, recorded rather than silently resolved:
 | I1 | auth bootstrap once per session | C2 | `local_pass` (`099e75d87`) | revert one guard |
 | E2 | Google copy-as-negatives and CSV export | A1 | `local_pass` (`ceb1bd885`) | read-only, independent disable |
 | D1 | Agency Today cross-client read model | A1,C1 | `local_pass` (`969d36675`) | additive read model |
+| D2 | Agency Today route and /overview surface | D1 | `local_pass` (`c68fcbf27`) | Client Overview fallback |
 | J1 | Decisions typography and contrast floor | A1 | `local_pass` (`46d992883`) | surface-scoped CSS |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
@@ -232,6 +233,7 @@ Consequences, recorded rather than silently resolved:
 | E2 | `ceb1bd885` | 13 (`search-term-export`) | 6083 pass | 0 | 0 |
 | D1 | `969d36675` | 27 (`agency-today-read-model` 18, `agency-today-store` 9) | 6110 pass | 0 | 0 |
 | J1 | `46d992883` | 5 (`decisions-typography-floor`) | 6115 pass | 0 | 0 |
+| D2 | `c68fcbf27` | 9 (`agency-today/route`) | 6125 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

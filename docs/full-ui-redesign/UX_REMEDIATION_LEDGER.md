@@ -162,6 +162,20 @@ Consequences, recorded rather than silently resolved:
 2. **Phase 8 (first narrow guarded write) is `blocked_external`** until the native-authority work
    reaches main. It may not be satisfied by re-implementing a lighter UI-only write path — the plan
    forbids exactly that. Unblocking requires an owner decision to merge/rebase that feature.
+
+**Update (2026-08-09).** Under the owner's authorization to integrate D061–D069 inside the isolated
+worktree, `DECISION_LOG.md` was adopted wholesale from `codex/native-ad-bounded-stop-loss-authority`.
+This branch had never modified that file, so the adoption is lossless: it carries `origin/main`'s
+content plus the nine new decisions plus an amendment tightening currency/timezone resolution (which
+reinforces MR-D064-01 rather than conflicting with it). The decisions are therefore no longer absent
+*here*, though they remain absent from `origin/main` and from production.
+
+Auditing the guarded-write resolver against them found one real conformance gap, now fixed: D065
+requires that Cut authorize only `pause` and Scale only `resume`, failing closed on a null or
+disagreeing derived action. The resolver had taken `providerMutation` at face value, so a decision
+reading `cut` while carrying a `resume` action would have been offered as runnable. B-7 is still
+`blocked_external`, but for the honest reason — the provider write needs a deployed build and an
+approved call — not because the contract is missing.
 3. MR-D064-01 is honored as the binding money rule for Phase 1: provider currencies must round-trip
    "without a USD or dollar fallback".
 
@@ -321,7 +335,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route`, `decision-workflow-controls` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Two-operator conflict proven by contract and route; not yet observed with two live sessions |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
 | B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
-| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call (`guarded-action-capability`, `guarded-action-preflight`, `decision-action/preflight` tests) | `421ecefef`, `dd140f7ea` | local | owner (pending) | Everything up to the provider boundary exists and refuses on drift; the execution contract itself needs D065/D067 in main (G0-F1) |
+| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call; resolver now conforms to D065 label/action derivation and D064 exact-Ad lineage (`guarded-action-capability` 17 tests, `guarded-action-panel`, `guarded-action-preflight`, `decision-action/preflight`) | `421ecefef`, `dd140f7ea`, `4a2c1b7e8` | local | owner (pending) | D061-D069 are now integrated locally, so the contract is no longer the blocker. What remains is the write itself: a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved provider call |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
 ### Gate C — primary agency OS

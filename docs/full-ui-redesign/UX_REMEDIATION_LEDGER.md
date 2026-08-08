@@ -104,6 +104,12 @@ unmerged branch. Recommended resolution order: land the native-authority work on
 
 Until then the smoke cannot pass, and no slice may claim it as a gate.
 
+**Partially addressed by slice C3 (`4f37ac663`).** The behaviour is unchanged and still
+ADR-gated, but the failure is no longer silent: the cause is classified from the SQLSTATE and
+a missing column is logged as a warning rather than being excused as a capability gate. This
+converts the plan's open question on cascade prevalence (section 13) from inference into
+something production telemetry can answer before the ADR is written.
+
 ### Dirty-tree disposition — PRESERVED, UNTOUCHED
 
 The primary tree `/Users/harmelek/Adsecute` is on `codex/native-ad-bounded-stop-loss-authority`
@@ -188,6 +194,7 @@ Consequences, recorded rather than silently resolved:
 | D3 | global entity search (server-scoped) | D1 | `local_pass` (`4afd73bf1`) | independent route |
 | F1 | workflow overlay (assign/defer/reject) | D1 | `local_pass` (`a1dec7ef5`) | additive, append-only |
 | F2 | external-change attribution + handoff recovery | F1 | `local_pass` (`3f4fe5066`) | read-only projection |
+| C3 | snapshot-date fallback observability (G0-F3) | C2 | `local_pass` (`4f37ac663`) | logging only |
 | J1 | Decisions typography and contrast floor | A1 | `local_pass` (`46d992883`) | surface-scoped CSS |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
 | B2 | report in-process builders and widget recovery | B1 | `not_started` | builder-by-builder |
@@ -240,6 +247,7 @@ Consequences, recorded rather than silently resolved:
 | D3 | `4afd73bf1` | 22 (`entity-search` 15, `search/route` 7) | 6148 pass | 0 | 0 |
 | F1 | `a1dec7ef5` | 14 (`decision-workflow`) + migrations-from-zero PASS | 6162 pass | 0 | 0 |
 | F2 | `3f4fe5066` | 15 (`external-change-attribution`) | 6177 pass | 0 | 0 |
+| C3 | `4f37ac663` | 10 (`decision-date-fallback`) | 6187 pass | 0 | 0 |
 
 Suite growth is exactly the tests added at each step; no baseline test changed behavior.
 All four rows are `local_pass` only. **No production acceptance is claimed** — that

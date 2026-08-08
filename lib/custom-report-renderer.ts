@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { getMetricLabelForKey } from "@/lib/report-metric-catalog";
 import {
   type CustomReportDocument,
@@ -148,15 +148,56 @@ function resolveDateRangePreset(preset: CustomReportDocument["dateRangePreset"])
   };
 }
 
+/**
+ * Report data sources, resolved in-process rather than over HTTP.
+ *
+ * Every widget in a report used to reach its own API route by fetching this
+ * service's public origin. In a container that self-call can fail outright —
+ * one unreachable origin fails every widget at once, which is how a whole
+ * report renders as "Widget failed to load". Calling the route handler
+ * directly removes the hop, the extra auth round-trip, and the fan-out.
+ */
+const IN_PROCESS_REPORT_SOURCES: Record<
+  string,
+  () => Promise<{ GET: (request: NextRequest) => Promise<Response> }>
+> = {
+  "/api/overview-summary": () => import("@/app/api/overview-summary/route"),
+  "/api/overview-sparklines": () => import("@/app/api/overview-sparklines/route"),
+  "/api/reports/breakdown": () => import("@/app/api/reports/breakdown/route"),
+  "/api/reports/time-breakdown": () => import("@/app/api/reports/time-breakdown/route"),
+  "/api/meta/campaigns": () => import("@/app/api/meta/campaigns/route"),
+  "/api/google-ads/campaigns": () => import("@/app/api/google-ads/campaigns/route"),
+};
+
+/** Tests drive the HTTP path so route mocks stay meaningful. */
+function useInProcessReportSources() {
+  const override = process.env.REPORT_RENDER_TRANSPORT?.trim().toLowerCase();
+  if (override === "http") return false;
+  if (override === "in_process") return true;
+  return process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
+}
+
+export function resolveReportSourceTransport(pathname: string): "in_process" | "http" {
+  return useInProcessReportSources() && IN_PROCESS_REPORT_SOURCES[pathname]
+    ? "in_process"
+    : "http";
+}
+
+async function requestInternal(request: NextRequest, url: URL): Promise<Response> {
+  const headers = {
+    Accept: "application/json",
+    cookie: request.headers.get("cookie") ?? "",
+  };
+  if (resolveReportSourceTransport(url.pathname) === "in_process") {
+    const { GET } = await IN_PROCESS_REPORT_SOURCES[url.pathname]!();
+    return GET(new NextRequest(url, { headers }));
+  }
+  return fetch(url.toString(), { headers, cache: "no-store" });
+}
+
 async function fetchInternalJson<T>(request: NextRequest, path: string) {
   const url = new URL(path, request.nextUrl.origin);
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
+  const response = await requestInternal(request, url);
   const payload = (await response.json().catch(() => null)) as T | null;
   if (!response.ok) {
     throw new Error(
@@ -980,8 +1021,13 @@ export async function renderCustomReport(params: {
             type: widget.type,
             title: widget.title,
             subtitle: widget.subtitle,
-            warning: error instanceof Error ? error.message : "Widget failed to load.",
-            emptyMessage: "Widget failed to load.",
+            // A build failure is reported as a failure. It must not travel
+            // through emptyMessage, where the reader would take it for a period
+            // that genuinely had no data.
+            errorMessage:
+              error instanceof Error ? error.message : "This widget could not be loaded.",
+            retryable: true,
+            warning: error instanceof Error ? error.message : "This widget could not be loaded.",
           };
         }
       })

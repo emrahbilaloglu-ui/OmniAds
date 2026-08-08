@@ -58,6 +58,7 @@ const KIND_LABELS = {
   briefs: "Briefs",
   launches: "Launches",
   structures: "Structure inventory",
+  external_changes: "External changes",
 } as const;
 
 const ENTITY_LABELS = {

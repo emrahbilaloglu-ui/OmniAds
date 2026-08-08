@@ -7,6 +7,9 @@ export const META_HISTORY_KINDS = [
   "briefs",
   "launches",
   "structures",
+  // Changes observed on the provider that this product did not make, plus the
+  // ones it cannot prove it made. Attribution happens in mapHistoryRow.
+  "external_changes",
 ] as const;
 
 export type MetaHistoryKind = (typeof META_HISTORY_KINDS)[number];
@@ -36,6 +39,7 @@ export const META_HISTORY_SOURCES = [
   "meta_launch_intents",
   "meta_campaign_dimensions",
   "meta_adset_dimensions",
+  "meta_campaign_config_history",
 ] as const;
 
 export type MetaHistorySource = (typeof META_HISTORY_SOURCES)[number];

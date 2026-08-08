@@ -1,4 +1,9 @@
 import { getDb } from "@/lib/db";
+import {
+  attributeObservedChange,
+  describeChangeOrigin,
+  type RecordedAction,
+} from "@/lib/external-change-attribution";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
   encodeMetaHistoryCursor,
@@ -768,6 +773,75 @@ history_entries AS (
   WHERE adset.business_id = $1
     AND adset.provider_account_id = $2
     AND UPPER(COALESCE(adset.adset_status, '')) IN ('PAUSED', 'ARCHIVED', 'DELETED')
+
+  UNION ALL
+
+  -- Campaign configuration observed to change. Whether it was this product or
+  -- somebody in Ads Manager is decided in mapHistoryRow by correlating against
+  -- the action log, not guessed at here: the SQL only reports what changed and
+  -- when, and carries the previous value so the reader can see the movement.
+  SELECT
+    'meta_campaign_config_history',
+    config.id::text,
+    'persisted_uuid',
+    'external_changes',
+    config.captured_at,
+    config.captured_at::date,
+    'Campaign configuration changed | '
+      || COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical, config.campaign_id),
+    NULL,
+    'campaign',
+    config.campaign_id,
+    COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical),
+    NULL,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_config_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'configFingerprint', config.config_fingerprint,
+      'dailyBudget', config.daily_budget,
+      'lifetimeBudget', config.lifetime_budget,
+      'bidStrategyType', config.bid_strategy_type,
+      'bidValue', config.bid_value,
+      'optimizationGoal', config.optimization_goal,
+      'previousDailyBudget', previous.daily_budget,
+      'previousBidValue', previous.bid_value,
+      'previousBidStrategyType', previous.bid_strategy_type,
+      'observedAt', config.captured_at
+    )
+  FROM meta_campaign_config_history config
+  LEFT JOIN LATERAL (
+    SELECT prior.daily_budget, prior.bid_value, prior.bid_strategy_type
+    FROM meta_campaign_config_history prior
+    WHERE prior.business_id = config.business_id
+      AND prior.provider_account_id = config.provider_account_id
+      AND prior.campaign_id = config.campaign_id
+      AND prior.captured_at < config.captured_at
+    ORDER BY prior.captured_at DESC
+    LIMIT 1
+  ) previous ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT dimension.campaign_name_current, dimension.campaign_name_historical
+    FROM meta_campaign_dimensions dimension
+    WHERE dimension.business_id = config.business_id
+      AND dimension.provider_account_id = config.provider_account_id
+      AND dimension.campaign_id = config.campaign_id
+    ORDER BY dimension.updated_at DESC
+    LIMIT 1
+  ) campaign ON TRUE
+  WHERE config.business_id = $1
+    AND config.provider_account_id = $2
+    -- Only rows that represent a change; the first snapshot of a campaign is
+    -- not something anyone did.
+    AND previous.daily_budget IS DISTINCT FROM config.daily_budget
 ),
 filtered_entries AS (
   SELECT *
@@ -1014,6 +1088,7 @@ function normalizeStatus(value: string | null): MetaHistoryEntryStatus {
 function mapHistoryRow(
   row: MetaHistoryDbRow,
   currency: string | null,
+  recordedActions: RecordedAction[] = [],
 ): MetaHistoryEntry | null {
   if (
     !META_HISTORY_SOURCES.includes(row.source_key as MetaHistorySource) ||
@@ -1027,6 +1102,27 @@ function mapHistoryRow(
 
   const source = row.source_key as MetaHistorySource;
   const detail = asRecord(row.detail_json);
+
+  // Origin for an observed configuration change is decided here rather than in
+  // SQL, so the single tested correlation is the only implementation.
+  if (source === "meta_campaign_config_history" && detail) {
+    const attributed = attributeObservedChange(
+      {
+        entityType: "campaign",
+        entityId: row.entity_id,
+        businessId: "",
+        field: "daily_budget",
+        previousValue:
+          detail.previousDailyBudget == null ? null : String(detail.previousDailyBudget),
+        nextValue: detail.dailyBudget == null ? null : String(detail.dailyBudget),
+        observedAt: occurredAt,
+      },
+      recordedActions,
+    );
+    detail.origin = attributed.origin;
+    detail.originLabel = describeChangeOrigin(attributed.origin);
+    detail.originReason = attributed.reason;
+  }
   const sourceIdKind: MetaHistorySourceIdKind =
     row.source_id_kind === "persisted_composite_key"
       ? "persisted_composite_key"
@@ -1102,6 +1198,64 @@ export async function readMetaHistoryAccounts(
   }));
 }
 
+/**
+ * Recent provider actions this product recorded, shaped for attribution.
+ *
+ * Verification status matters more than success here: an action we never
+ * verified cannot be claimed as the cause of an observed change.
+ */
+async function readRecordedActionsForAttribution(input: {
+  businessId: string;
+}): Promise<RecordedAction[]> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["meta_ads_action_log"],
+  }).catch(() => null);
+  if (!readiness?.ready) return [];
+  const rows = (await getDb().query<{
+    entity_id: string;
+    requested_at: string;
+    status: string;
+    verified_at: string | null;
+    requested_by: string | null;
+  }>(
+    `
+      SELECT ad_id AS entity_id,
+             requested_at::text,
+             status,
+             verified_at::text,
+             requested_by::text
+      FROM meta_ads_action_log
+      WHERE business_id::text = $1
+      ORDER BY requested_at DESC
+      LIMIT 500
+    `,
+    [input.businessId],
+  )) as
+    | Array<{
+        entity_id: string;
+        requested_at: string;
+        status: string;
+        verified_at: string | null;
+        requested_by: string | null;
+      }>
+    | undefined;
+
+  return (rows ?? []).map((row) => ({
+    entityId: row.entity_id,
+    field: "daily_budget",
+    requestedAt: row.requested_at,
+    status:
+      row.status === "success" && row.verified_at
+        ? "verified"
+        : row.status === "failed"
+          ? "failed"
+          : row.status === "ambiguous"
+            ? "ambiguous"
+            : "pending",
+    actorUserId: row.requested_by,
+  }));
+}
+
 export async function readMetaHistoryJournal(input: {
   query: MetaHistoryQuery;
   account: MetaHistoryAccount;
@@ -1140,8 +1294,17 @@ export async function readMetaHistoryJournal(input: {
 
   const hasMore = sqlRows.length > input.query.limit;
   const visibleRows = sqlRows.slice(0, input.query.limit);
+  // Actions this product recorded, so an observed change can be attributed to
+  // us, to somebody else, or to neither with honesty about which. Only read
+  // when the page actually contains an observed change to attribute.
+  const needsAttribution = visibleRows.some(
+    (row) => row.source_key === "meta_campaign_config_history",
+  );
+  const recordedActions = needsAttribution
+    ? await readRecordedActionsForAttribution({ businessId: input.query.businessId })
+    : [];
   const entries = visibleRows
-    .map((row) => mapHistoryRow(row, input.account.currency))
+    .map((row) => mapHistoryRow(row, input.account.currency, recordedActions))
     .filter((entry): entry is MetaHistoryEntry => entry !== null);
   const lastRow = hasMore ? visibleRows.at(-1) : null;
   const lastOccurredAt = lastRow ? normalizedDateTime(lastRow.occurred_at) : null;

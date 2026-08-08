@@ -436,6 +436,8 @@ export function DecisionsOsView({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
+  const [requestedCreativeUnresolved, setRequestedCreativeUnresolved] =
+    useState(false);
   const [adCandidateLimit, setAdCandidateLimit] = useState(
     META_DECISIONS_AD_CANDIDATE_LIMIT,
   );
@@ -634,17 +636,27 @@ export function DecisionsOsView({
   }, [presentation]);
 
   useEffect(() => {
-    if (!requestedCreativeId) return;
+    if (!requestedCreativeId) {
+      setRequestedCreativeUnresolved(false);
+      return;
+    }
     const item = adItems.find(
       (candidate) =>
         candidate.creativeId === requestedCreativeId ||
         candidate.adId === requestedCreativeId,
     );
-    if (!item) return;
+    if (!item) {
+      // The creative exists, but its decision is outside the loaded page. This
+      // used to return silently, so arriving from "Open Decisions" looked as if
+      // the app had lost the creative. Say so, and offer the way to reach it.
+      if (presentation) setRequestedCreativeUnresolved(true);
+      return;
+    }
+    setRequestedCreativeUnresolved(false);
     setLayer("ads");
     setAdsLane(item.lane);
     setSelected({ kind: "ad", value: item });
-  }, [adItems, requestedCreativeId]);
+  }, [adItems, presentation, requestedCreativeId]);
 
   const chooseAccount = (accountId: string) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -864,6 +876,34 @@ export function DecisionsOsView({
           <button type="button" onClick={() => setStatusOpen(true)}>
             View evidence
           </button>
+        </div>
+      ) : null}
+
+      {/* Arriving from another surface for a specific creative whose decision is
+          outside the loaded page. Saying nothing here reads as "the app lost my
+          creative", so the cap is stated and the way past it is offered. */}
+      {requestedCreativeUnresolved ? (
+        <div className={styles.integrityBand} role="status">
+          <Info size={13} aria-hidden="true" />
+          <span>
+            This creative&rsquo;s decision is outside the {adItems.length} loaded
+            {adItems.length === 1 ? " row" : " rows"}.
+          </span>
+          {canLoadMoreAds ? (
+            <button
+              type="button"
+              disabled={workspaceQuery.isFetching}
+              onClick={() =>
+                setAdCandidateLimit((current) => nextAdCandidateLimit(current))
+              }
+            >
+              {workspaceQuery.isFetching ? "Loading" : "Load more decisions"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setStatusOpen(true)}>
+              View evidence
+            </button>
+          )}
         </div>
       ) : null}
 

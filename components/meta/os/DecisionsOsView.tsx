@@ -20,6 +20,7 @@ import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
 import { GuardedActionPanel } from "@/components/meta/os/GuardedActionPanel";
 import { SavedViewsMenu } from "@/components/views/SavedViewsMenu";
+import { DecisionWorkflowControls } from "@/components/meta/os/DecisionWorkflowControls";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
@@ -2129,6 +2130,17 @@ function DecisionInspector({
                 answer. Preflight verifies the target without contacting the
                 provider, so an operator can see whether a decision still points
                 at the thing it named before anyone is allowed to act. */}
+            {/* Ownership sits beside the command: a decision someone has already
+                taken is not one you should act on twice. */}
+            {ad ? (
+              <DecisionWorkflowControls
+                businessId={businessId}
+                decisionKey={ad.decisionId}
+                entityType="ad"
+                entityId={ad.adId}
+                providerAccountId={providerAccountId}
+              />
+            ) : null}
             <GuardedActionPanel
               businessId={businessId}
               providerAccountId={providerAccountId}

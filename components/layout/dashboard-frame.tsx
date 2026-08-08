@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { BusinessGuard } from "@/components/layout/business-guard";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -105,9 +106,10 @@ function ConsoleTopbar({ userName }: { userName: string }) {
         <PlatformSwitcher />
       </div>
       <div className="min-w-0 flex-1" />
-      {/* The "Jump or act… ⌘K" control was removed rather than restyled: it had
-          no onClick, and no command palette or ⌘K key handler exists anywhere in
-          the repo. It advertised a way to navigate that was never there. */}
+      {/* Replaces the removed "Jump or act… ⌘K" control. That one advertised a
+          way to navigate that did not exist; this one queries a real server
+          search and goes where it says it will. */}
+      <GlobalSearch />
       <button
         type="button"
         disabled

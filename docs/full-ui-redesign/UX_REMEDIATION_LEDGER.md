@@ -210,6 +210,8 @@ Consequences, recorded rather than silently resolved:
 | F2b | external changes projected into History | F2 | `local_pass` (`0a4c6e98e`) | union arm, additive |
 | E1 | Google account scope + mixed-currency guard | A1 | `local_pass` (`af89e988e`) | read-only |
 | H1 | guarded action capability resolver | C2,F2 | `local_pass` (`421ecefef`) | default-denied; no execute path |
+| C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`) | additive chip |
+| D3c | saved views (scoped, persisted) | D3 | `local_pass` | store-scoped |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 
@@ -303,7 +305,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | A-7 | Flagship report renders 7/7 widgets | `blocked_external` | in-process transport + widget failure isolation | `90838abb9` | — | owner (pending) | Root cause addressed; only a signed-in production render can confirm |
 | A-8 | Share and print reproduce the on-screen window | `local_pass` | `share-period-fidelity` tests | `4cd8f59cc` | local | owner (pending) | Not confirmed against a live share link |
 | A-9 | A failed widget is visible, scoped and never becomes empty data | `local_pass` | `report-widget-failure` tests | `90838abb9` | local | owner (pending) | — |
-| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client` tests | `ec5b46ddf` | local | owner (pending) | Per-surface "as of" disclosure not yet universal |
+| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client`, `data-freshness` tests | `ec5b46ddf`, `eb94e0551` | local | owner (pending) | Chip mounted on Overview; Decisions had its own; other surfaces still to adopt it |
 | A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts`, `decisions-error-recovery` tests | `ec5b46ddf`, `178cf6e89` | local | owner (pending) | — |
 
 ### Gate B — credible co-pilot
@@ -311,7 +313,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Health beyond freshness not yet joined into the row |
-| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved views not implemented |
+| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search`, `saved-views` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved-view contract and persistence landed; surface pickers not yet rendered |
 | B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |

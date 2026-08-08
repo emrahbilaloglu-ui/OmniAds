@@ -12,6 +12,7 @@ import { SummaryAttributionTable } from "@/components/overview/SummaryAttributio
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
 import { AgencyToday } from "@/components/overview/AgencyToday";
+import { FreshnessChip } from "@/components/states/FreshnessChip";
 import {
   resolvePlatformSectionLabels,
   type ResolvedSectionLabel,
@@ -337,6 +338,9 @@ export default function OverviewPage() {
       {businesses.length > 1 ? <AgencyToday businessCount={businesses.length} /> : null}
 
       <DataStatusRow
+        dataAsOf={query.dataUpdatedAt ? new Date(query.dataUpdatedAt).toISOString() : null}
+        onRefresh={() => void query.refetch()}
+        refreshing={query.isFetching}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
@@ -627,12 +631,18 @@ function DataStatusRow({
   referenceDate,
   timeZoneLabel,
   platformProviders = [],
+  dataAsOf,
+  onRefresh,
+  refreshing = false,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
   shopifyServing?: OverviewSummaryData["shopifyServing"];
   referenceDate: string;
   timeZoneLabel: string;
+  dataAsOf?: string | null;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   platformProviders?: string[];
 }) {
   const shopifyBadge = shopifyServing
@@ -658,6 +668,9 @@ function DataStatusRow({
           <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
             Live Status
           </p>
+          {/* Overview previously gave no cue at all about how old these numbers
+              were, so a tab open since morning looked identical to a fresh load. */}
+          <FreshnessChip asOf={dataAsOf} onRefresh={onRefresh} refreshing={refreshing} />
           {providerChips.map((provider) => (
             <div
               key={provider.label}

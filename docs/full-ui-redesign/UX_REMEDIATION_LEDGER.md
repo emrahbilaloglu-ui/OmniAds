@@ -203,6 +203,11 @@ Consequences, recorded rather than silently resolved:
 | J4 | Google ROAS colour semantics | A1 | `local_pass` | surface-scoped |
 | I2 | admin/share route error boundaries | C2 | `local_pass` | additive files |
 | S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
+| F1b | workflow store + API routes | F1 | `local_pass` (`178cf6e89`) | additive routes |
+| C4 | Decisions failed-read retry | C2 | `local_pass` (`178cf6e89`) | UI-only |
+| D3b | global search mounted in shell | D3 | `local_pass` (`fccd41899`) | component removable |
+| D070 | as-of scope fix + ADR + golden coverage | C3 | `local_pass` (`19b9ce5b9`) | one-line predicate revert |
+| F2b | external changes projected into History | F2 | `not_started` | union arm, additive |
 | H1 | Decision capability/preflight UI | C2,F2 | `in_progress` | no provider execute |
 | H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
@@ -298,18 +303,18 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | A-8 | Share and print reproduce the on-screen window | `local_pass` | `share-period-fidelity` tests | `4cd8f59cc` | local | owner (pending) | Not confirmed against a live share link |
 | A-9 | A failed widget is visible, scoped and never becomes empty data | `local_pass` | `report-widget-failure` tests | `90838abb9` | local | owner (pending) | — |
 | A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client` tests | `ec5b46ddf` | local | owner (pending) | Per-surface "as of" disclosure not yet universal |
-| A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts` tests | `ec5b46ddf` | local | owner (pending) | Retry affordance on Decisions itself still outstanding |
+| A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts`, `decisions-error-recovery` tests | `ec5b46ddf`, `178cf6e89` | local | owner (pending) | — |
 
 ### Gate B — credible co-pilot
 
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Health beyond freshness not yet joined into the row |
-| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route` tests | `4afd73bf1` | local | owner (pending) | No UI surface yet; route only |
+| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved views not implemented |
 | B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
-| B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow` tests | `a1dec7ef5` | local | owner (pending) | No API routes or UI controls yet |
+| B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Routes mounted; inspector controls not yet rendered |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
-| B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution` tests | `3f4fe5066` | local | owner (pending) | Correlation model only; not wired to a History projection |
+| B-6 | A direct Ads Manager edit appears as an external History row | `in_progress` | `external-change-attribution` tests | `3f4fe5066` | local | owner (pending) | Attribution proven; History union arm (F2b) not yet added — see below |
 | B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | — | — | — | owner (pending) | Phase 8; needs D065/D067 in main (G0-F1) |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
@@ -331,7 +336,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
-| X-5 | Full-UI visual gate green | `failed` (pre-existing) | reproduced identically at baseline `0bcf1fbf5` | — | ephemeral Postgres | owner (pending) | Not caused by this program; see G0-F2 / G0-F3 |
+| X-5 | Full-UI visual gate green | `failed` (pre-existing) | reproduced at baseline and after D070; seed extended but still insufficient | `19b9ce5b9` | ephemeral Postgres | owner (pending) | Root cause is a fixture written for the superseded decision path; completing it needs the engine output contract from G0-F1 |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
 
 ### Finding G0-F4 — section 9 instrumentation has no sink to write to
@@ -359,9 +364,29 @@ Unblocking needs an infrastructure decision first: choose a retained sink, defin
 and alerting, then instrument. Sending product events to an external analytics service is
 also an outward data flow and needs its own approval.
 
+### F2b — external changes into History: design settled, arm not yet added
+
+The attribution model (`lib/external-change-attribution.ts`, 15 tests) is proven, but History
+does not yet carry its output, so B-6 is `in_progress` rather than passed.
+
+The remaining work is a single additive arm in `buildMetaHistoryReadSql`, which is a ~20-column
+`UNION ALL` behind a cursor contract. The design is settled to avoid duplicating logic in SQL:
+
+1. add `external_changes` to `META_HISTORY_KINDS` and `meta_campaign_config_history` to
+   `META_HISTORY_SOURCES`;
+2. emit config-history rows through a new union arm matching the existing column shape,
+   carrying the prior and next configured values;
+3. attribute each row in `mapHistoryRow` by calling the already-tested
+   `attributeObservedChange` against `meta_ads_action_log`, rather than reimplementing the
+   correlation in SQL;
+4. surface `origin` on the entry so internal, external and unconfirmed read differently.
+
+It was not attempted in this pass because a mis-shaped arm silently breaks pagination on a
+mounted surface, and that is worse than the gap it closes. It is the next slice, not a blocker.
+
 ### Summary
 
-- `local_pass`: 20 criteria
+- `local_pass`: 20 criteria (B-2, B-4 and A-11 strengthened this round)
 - `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: 1 criterion (X-5) — pre-existing at the deployed baseline

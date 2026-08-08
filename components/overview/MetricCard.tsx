@@ -14,13 +14,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
 import { MetricSourceLogos } from "@/components/overview/MetricSourceLogos";
-import { formatMetricValue as formatMetricByUnit } from "@/lib/metric-format";
+import { MISSING_VALUE, formatMetricValue as formatMetricByUnit } from "@/lib/metric-format";
+import { type ComparisonMode, resolveComparison } from "@/lib/metric-semantics";
 import { ArrowDownRight, ArrowUpRight, Minus, MoreHorizontal } from "lucide-react";
 
 export function MetricCard({
   title,
   value,
   changePercent,
+  comparisonMode,
   trendData,
   comparisonTrendData,
   trendLoading = false,
@@ -41,6 +43,11 @@ export function MetricCard({
   title: string;
   value: number | null;
   changePercent: number | null;
+  /**
+   * Comparison the delta is measured against. When omitted, a null changePercent
+   * is still treated as "no comparison" rather than a zero change.
+   */
+  comparisonMode?: ComparisonMode;
   trendData: Array<{ date: string; value: number }>;
   comparisonTrendData?: Array<{ date: string; value: number }>;
   trendLoading?: boolean;
@@ -58,7 +65,7 @@ export function MetricCard({
   onMoveLeft?: (metricKey: string) => void;
   onMoveRight?: (metricKey: string) => void;
 }) {
-  const delta = resolveDelta(changePercent);
+  const delta = resolveDelta(changePercent, metricKey, comparisonMode);
   const DeltaIcon = delta.direction === "up" ? ArrowUpRight : delta.direction === "down" ? ArrowDownRight : Minus;
 
   return (
@@ -74,10 +81,15 @@ export function MetricCard({
           <div className="mt-2.5">
             <span
               className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${delta.className}`}
+              title={delta.title}
+              aria-label={delta.srLabel}
             >
-              <DeltaIcon className="h-3.5 w-3.5" />
+              <DeltaIcon className="h-3.5 w-3.5" aria-hidden="true" />
               {delta.label}
             </span>
+            {delta.title ? (
+              <span className="ml-1.5 text-[11px] text-neutral-500">{delta.title}</span>
+            ) : null}
           </div>
         </div>
 
@@ -160,25 +172,52 @@ function formatValue(
   return formatMetricByUnit(value, unit, currencySymbol);
 }
 
-function resolveDelta(changePercent: number | null) {
-  const value = changePercent ?? 0;
-  if (value > 0) {
+const NEUTRAL_DELTA_CLASS = "bg-neutral-200/70 text-neutral-600";
+
+/**
+ * Turn a change into something renderable.
+ *
+ * A comparison that does not exist renders as a missing value with no colour,
+ * because a fabricated `+0.0%` is indistinguishable from a measured flat period.
+ * Colour comes from the metric's business direction, so a cost metric that rose
+ * is not painted as a win.
+ */
+function resolveDelta(
+  changePercent: number | null,
+  metricKey: string,
+  comparisonMode: ComparisonMode | undefined,
+) {
+  const comparison = resolveComparison({
+    metricKey,
+    mode: comparisonMode ?? (changePercent == null ? "none" : "previous_period"),
+    currentValue: null,
+    changePercent,
+  });
+
+  if (!comparison.available) {
     return {
-      direction: "up" as const,
-      label: `+${value.toFixed(1)}%`,
-      className: "bg-emerald-500/10 text-emerald-600",
+      direction: "neutral" as const,
+      label: MISSING_VALUE,
+      srLabel: "No comparison for the selected period",
+      title: "No comparison selected for this period",
+      className: NEUTRAL_DELTA_CLASS,
     };
   }
-  if (value < 0) {
-    return {
-      direction: "down" as const,
-      label: `${value.toFixed(1)}%`,
-      className: "bg-rose-500/10 text-rose-600",
-    };
-  }
+
+  const percent = comparison.changePercent ?? 0;
+  const label = `${percent > 0 ? "+" : ""}${percent.toFixed(1)}%`;
+  const className =
+    comparison.sentiment === "positive"
+      ? "bg-emerald-500/10 text-emerald-600"
+      : comparison.sentiment === "negative"
+        ? "bg-rose-500/10 text-rose-600"
+        : NEUTRAL_DELTA_CLASS;
+
   return {
-    direction: "neutral" as const,
-    label: "+0.0%",
-    className: "bg-neutral-200/70 text-neutral-600",
+    direction: comparison.arrow === "flat" ? ("neutral" as const) : comparison.arrow,
+    label,
+    srLabel: `${label} ${comparison.basisLabel}`,
+    title: comparison.basisLabel,
+    className,
   };
 }

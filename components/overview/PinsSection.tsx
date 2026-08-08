@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MetricCard } from "@/components/overview/MetricCard";
+import type { ComparisonMode } from "@/lib/metric-semantics";
 import type { OverviewMetricCatalogEntry } from "@/src/types/models";
 import { getMetricTrend } from "@/src/services";
 import { usePreferencesStore } from "@/store/preferences-store";
@@ -23,6 +24,7 @@ export function PinsSection({
   endDate,
   currencySymbol,
   catalog,
+  comparisonMode,
   onViewBreakdown,
 }: {
   businessId: string;
@@ -31,6 +33,7 @@ export function PinsSection({
   endDate: string;
   currencySymbol: string;
   catalog: OverviewMetricCatalogEntry[];
+  comparisonMode?: ComparisonMode;
   onViewBreakdown?: (metricKey: string) => void;
 }) {
   const pinnedByContext = usePreferencesStore((state) => state.overviewPinsByContext);
@@ -114,6 +117,7 @@ export function PinsSection({
               title={entry.metric.title}
               value={entry.metric.value}
               changePercent={entry.metric.changePct}
+              comparisonMode={comparisonMode}
               trendData={trendData}
               comparisonTrendData={entry.metric.previousSparklineData}
               trendLoading={trendLoading}

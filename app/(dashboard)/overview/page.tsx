@@ -345,6 +345,7 @@ export default function OverviewPage() {
             endDate={endDate}
             currencySymbol={symbol}
             catalog={metricCatalog}
+            comparisonMode={compareMode}
             onViewBreakdown={() => {
               window.location.hash = "#attribution";
             }}

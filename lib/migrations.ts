@@ -13746,6 +13746,51 @@ export async function runMigrations(options?: {
         options?.verifyNativeSchemaCapabilities ?? true,
       );
       await sql.query(META_AD_STATUS_RECONCILIATION_SCHEMA_SQL);
+      // Product instrumentation: first-party, tenant-scoped, retained.
+      // The vocabulary lives in the CHECK constraints so an unknown event name
+      // or failure code is refused by the database, and there is deliberately
+      // no free-text column for personal data or ad copy to leak into.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS product_instrumentation_events (
+          id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_version  TEXT NOT NULL
+                              DEFAULT 'product-instrumentation-event.v1'
+                              CHECK (contract_version = 'product-instrumentation-event.v1'),
+          business_id       TEXT NOT NULL,
+          event_name        TEXT NOT NULL CHECK (event_name IN (
+                              'agency_today_viewed',
+                              'entity_search_submitted',
+                              'saved_view_applied',
+                              'report_widget_failed',
+                              'google_export_used',
+                              'decision_workflow_action',
+                              'freshness_stale_disclosed'
+                            )),
+          surface           TEXT NOT NULL CHECK (length(surface) BETWEEN 1 AND 64),
+          outcome           TEXT NOT NULL CHECK (outcome IN ('ok', 'failed', 'withheld')),
+          provider          TEXT CHECK (provider IS NULL OR provider IN ('meta', 'google')),
+          item_count        INTEGER CHECK (item_count IS NULL OR item_count >= 0),
+          duration_ms       INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+          failure_code      TEXT CHECK (failure_code IS NULL OR failure_code IN (
+                              'upstream_unavailable', 'upstream_timeout',
+                              'not_authorized', 'not_assigned',
+                              'contract_violation', 'unknown'
+                            )),
+          occurred_at       TIMESTAMPTZ NOT NULL,
+          retain_until      DATE NOT NULL,
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT product_instrumentation_failure_needs_code
+            CHECK (outcome <> 'failed' OR failure_code IS NOT NULL)
+        )
+      `);
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_business_event
+         ON product_instrumentation_events (business_id, event_name, occurred_at DESC)`,
+      );
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_retention
+         ON product_instrumentation_events (retain_until)`,
+      );
       await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
       if (legacyCoreDropEnabled) {

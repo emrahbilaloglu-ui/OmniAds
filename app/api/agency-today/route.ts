@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth";
 import { listUserBusinesses } from "@/lib/access";
@@ -98,9 +99,19 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  return NextResponse.json({
-    startDate,
-    endDate,
-    model: buildAgencyTodayReadModel(clients),
+  const model = buildAgencyTodayReadModel(clients);
+
+  // Section 9 outcome metric: was the cross-client morning view actually
+  // opened, and did it have anything to show. Tenant-scoped, fire-and-forget,
+  // and never allowed to fail the response.
+  void recordProductInstrumentationEvent({
+    businessId: businesses[0]?.id ?? "unknown",
+    eventName: "agency_today_viewed",
+    surface: "overview",
+    outcome: "ok",
+    itemCount: clients.length,
+    occurredAt: new Date().toISOString(),
   });
+
+  return NextResponse.json({ startDate, endDate, model });
 }

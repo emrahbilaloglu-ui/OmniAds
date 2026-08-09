@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
@@ -139,6 +140,21 @@ export default function LandingPagesPage() {
         );
       }
     },
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // GA4 landing-page performance is reported for a date range; the payload
+    // carries no observation time, so the age is unknown rather than guessed.
+    asOf: null,
+    businessId,
+    onRetry: () => void query.refetch(),
   });
 
   const visibleRows = useMemo(() => {

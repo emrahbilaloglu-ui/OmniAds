@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   useEffect,
   useMemo,
@@ -264,6 +265,21 @@ export default function CopiesPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: copiesQuery.isLoading,
+    isFetching: copiesQuery.isFetching,
+    error: copiesQuery.error ?? providerAccountsQuery.error,
+    // This payload carries a date range, not an observation time, and a date is
+    // not an instant. Until the route publishes one, the age is unknown.
+    asOf: null,
+    businessId,
+    onRetry: () => void copiesQuery.refetch(),
   });
 
   const allRows = useMemo(() => {

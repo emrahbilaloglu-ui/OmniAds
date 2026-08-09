@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Inbox } from "lucide-react";
@@ -112,6 +113,23 @@ export default function MetaCreativeInboxPage() {
     staleTime: 30 * 1000,
     queryFn: () =>
       fetchCreativeInbox(selectedBusinessId ?? "", providerAccountId),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: inboxQuery.isLoading,
+    isFetching: inboxQuery.isFetching,
+    error: inboxQuery.error ?? providerAccountsQuery.error,
+    // Per-account errors leave an inbox that looks complete and is not.
+    partialReason: (inboxQuery.data?.errors ?? []).length
+      ? "Some accounts could not be read; this inbox is incomplete"
+      : null,
+    asOf: null,
+    businessId: selectedBusinessId ?? null,
+    onRetry: () => void inboxQuery.refetch(),
   });
   const cards = inboxQuery.data?.inbox ?? [];
   const errors = (inboxQuery.data?.errors ?? []).filter(

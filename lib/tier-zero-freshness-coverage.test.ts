@@ -47,6 +47,28 @@ const TIER_ZERO_SURFACES: Array<{
     file: "app/(dashboard)/reports/page.tsx",
   },
   {
+    // The list reported its age while the page that renders the figures an
+    // agency sends to a client said nothing. Nobody acts on the list.
+    label: "Rendered report",
+    route: "app/(dashboard)/reports/[reportId]/page.tsx",
+    file: "components/reports/report-builder-page.tsx",
+  },
+  {
+    label: "Studio — Copies",
+    route: "app/(dashboard)/platforms/meta/copies/page.tsx",
+    file: "app/(dashboard)/platforms/meta/copies/page.tsx",
+  },
+  {
+    label: "Studio — Creative inbox",
+    route: "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
+    file: "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
+  },
+  {
+    label: "Studio — Landing pages",
+    route: "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+    file: "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+  },
+  {
     label: "Launchpad",
     route: "app/(dashboard)/platforms/meta/launchpad/page.tsx",
     file: "app/(dashboard)/platforms/meta/launchpad/page.tsx",

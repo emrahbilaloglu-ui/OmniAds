@@ -2624,15 +2624,19 @@ async function main() {
       ),
       "decision-fact ownership DB seam check",
     );
-    // The D069 duplicate-ad reconciliation seam is not run here. Its child
-    // script drives a fake provider through the real write path, and current
-    // main's pre-POST guards (resolveMetaAccountAuthority and
-    // assertProviderWriteAuthorityUnchanged) correctly refuse it because the
-    // ephemeral database has no connected integration or selected account to
-    // authorise against. Seeding that provider connection state is real work,
-    // not a mock, and is left for the owner. The D069 store and schema are
-    // integrated and covered by unit tests; only this end-to-end seam is
-    // deferred. Recorded in UX_REMEDIATION_LEDGER.md.
+    // D065/D067/D069: drive the real manual Ad status write path against a
+    // controlled fake provider, with the authority guards live rather than
+    // stubbed. The fixture supplies a genuinely connected, genuinely selected
+    // integration; no guard is weakened and no live provider is contacted.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-manual-ad-status-seam-child.ts",
+      ),
+      "manual Ad status write-path DB seam check",
+    );
 
     // Production-seam checks against the freshly migrated schema: real
     // write query -> real reader, the class of defect in-memory tests miss.

@@ -599,9 +599,14 @@ async function postLoginWithBackoff(
   wait: (ms: number) => Promise<void>,
 ): Promise<APIResponse> {
   let lastTransportError: unknown = null;
+  let resets = 0;
 
-  for (let attempt = 0; attempt <= 6; attempt += 1) {
-    if (attempt > 0) await wait(attempt * 1_500);
+  // Twelve attempts with the delay capped at 5s is about 50s of patience. The
+  // previous budget was ~31s and a stall outlasted it once in six projects.
+  const ATTEMPTS = 12;
+
+  for (let attempt = 0; attempt <= ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await wait(Math.min(attempt * 1_500, 5_000));
     try {
       const response = await post("/api/auth/login", { data: actor });
       if (response.status() !== 429) return response;
@@ -609,17 +614,27 @@ async function postLoginWithBackoff(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const isTransportReset =
-        /ECONNRESET|ECONNREFUSED|socket hang up|EPIPE|Connection closed/i.test(
+        /ECONNRESET|ECONNREFUSED|socket hang up|EPIPE|Connection closed|fetch failed/i.test(
           message,
         );
       // Anything that is not a reset is a real failure and must not be retried
       // into silence.
       if (!isTransportReset) throw error;
+      resets += 1;
       lastTransportError = error;
     }
   }
 
-  if (lastTransportError) throw lastTransportError;
+  if (lastTransportError) {
+    // Say which failure this was. A gate that reports "login broken" for a
+    // stalled dev server teaches people to ignore it; one that reports
+    // "unreachable for 50s across 13 attempts" is actionable either way.
+    throw new Error(
+      `Login endpoint never became reachable: ${resets} connection reset(s) across ${ATTEMPTS + 1} attempts over ~50s. ` +
+        `Last error: ${lastTransportError instanceof Error ? lastTransportError.message : String(lastTransportError)}`,
+    );
+  }
+  // Rate limited for the whole budget. Surface the 429 rather than a reset.
   return post("/api/auth/login", { data: actor });
 }
 

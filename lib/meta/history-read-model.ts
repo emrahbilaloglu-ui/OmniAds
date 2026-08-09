@@ -842,6 +842,97 @@ history_entries AS (
     -- Only rows that represent a change; the first snapshot of a campaign is
     -- not something anyone did.
     AND previous.daily_budget IS DISTINCT FROM config.daily_budget
+
+  UNION ALL
+
+  -- Workflow ownership. Who claimed, deferred or disagreed with a decision is
+  -- part of what happened to it; without this History showed the engine's
+  -- verdict and nothing about the people acting on it.
+  SELECT
+    'decision_workflow_events',
+    workflow.id::text,
+    'persisted_uuid',
+    'decisions',
+    workflow.created_at,
+    workflow.created_at::date,
+    'Workflow ' || REPLACE(workflow.event, '_', ' '),
+    NULLIF(workflow.reason_code, ''),
+    'decision',
+    workflow.decision_key,
+    NULL,
+    workflow.to_state,
+    'recorded',
+    NULL,
+    NULL,
+    'not_applicable',
+    'decision_key',
+    'operator_workflow',
+    'unavailable',
+    NULL,
+    'Workflow state is owned by the operator, not by the engine.',
+    workflow.created_at::date::text,
+    NULL,
+    jsonb_build_object(
+      'event', workflow.event,
+      'fromState', workflow.from_state,
+      'toState', workflow.to_state,
+      'stateVersion', workflow.state_version
+    )
+  FROM decision_workflow_events workflow
+  WHERE workflow.business_id = $1
+
+  UNION ALL
+
+  -- The provider attempt journal. An operator reviewing an incident needs to
+  -- see that a write was attempted, what the provider said, and whether the
+  -- outcome was ambiguous -- not just that a decision existed.
+  SELECT
+    'meta_ads_action_mutation_attempt_events',
+    attempt.id::text,
+    'persisted_uuid',
+    'actions',
+    attempt.created_at,
+    attempt.created_at::date,
+    CASE attempt.event_kind
+      WHEN 'attempt_started' THEN 'Provider write attempted'
+      ELSE 'Provider write ' || COALESCE(
+        REPLACE(attempt.completion_outcome, '_', ' '),
+        'completed'
+      )
+    END,
+    NULL,
+    'ad',
+    attempt.ad_id,
+    NULL,
+    attempt.action,
+    CASE
+      WHEN attempt.event_kind = 'attempt_started' THEN 'pending'
+      WHEN attempt.completion_outcome = 'provider_response_verified_success'
+        THEN 'recorded'
+      ELSE 'failed'
+    END,
+    NULL,
+    NULL,
+    'not_applicable',
+    'exact_ad_key',
+    'provider_attempt',
+    'unavailable',
+    NULL,
+    'Attempt lineage is append-only and never rewritten.',
+    attempt.created_at::date::text,
+    NULL,
+    jsonb_build_object(
+      'eventKind', attempt.event_kind,
+      'completionOutcome', attempt.completion_outcome,
+      'providerOutcome', attempt.provider_outcome,
+      'httpStatus', attempt.http_status,
+      'creativeId', attempt.creative_id,
+      'campaignId', attempt.campaign_id,
+      'adsetId', attempt.adset_id
+    )
+  FROM meta_ads_action_mutation_attempt_events attempt
+  WHERE attempt.business_id = $1
+    AND attempt.provider_account_id = $2
 ),
 filtered_entries AS (
   SELECT *

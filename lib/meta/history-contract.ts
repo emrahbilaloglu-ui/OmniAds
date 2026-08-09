@@ -40,6 +40,12 @@ export const META_HISTORY_SOURCES = [
   "meta_campaign_dimensions",
   "meta_adset_dimensions",
   "meta_campaign_config_history",
+  // Workflow ownership and the provider attempt journal. Without these, History
+  // showed what the engine decided and what changed outside the product, but not
+  // who took responsibility for a decision or what actually happened when one
+  // was acted on -- which is most of what an incident review needs.
+  "decision_workflow_events",
+  "meta_ads_action_mutation_attempt_events",
 ] as const;
 
 export type MetaHistorySource = (typeof META_HISTORY_SOURCES)[number];

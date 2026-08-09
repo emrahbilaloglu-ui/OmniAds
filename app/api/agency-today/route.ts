@@ -101,11 +101,13 @@ export async function GET(request: NextRequest) {
 
   const model = buildAgencyTodayReadModel(clients);
 
-  // Section 9 outcome metric: was the cross-client morning view actually
-  // opened, and did it have anything to show. Tenant-scoped, fire-and-forget,
-  // and never allowed to fail the response.
-  void recordProductInstrumentationEvent({
-    businessId: businesses[0]?.id ?? "unknown",
+  // Section 9: Agency Today spans every assigned client, so it is a portfolio
+  // event. Attributing it to one business would make per-client metrics wrong
+  // in a way nobody would notice. Awaited, because a detached write can be
+  // terminated with the request.
+  await recordProductInstrumentationEvent({
+    businessId: null,
+    scope: "portfolio",
     eventName: "agency_today_viewed",
     surface: "overview",
     outcome: "ok",

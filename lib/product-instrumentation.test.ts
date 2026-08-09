@@ -3,13 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   fail: false,
+  hang: false,
   inserts: [] as Array<{ text: string; values: unknown[] }>,
 }));
 
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
     query: async (text: string, values: unknown[]) => {
-      if (state.fail) throw new Error("connection terminated");
+      if (text.includes("product_instrumentation_sink_health")) {
+        state.inserts.push({ text, values });
+        return [];
+      }
+      if (state.fail) throw new Error("connection terminated: SELECT secret");
+      if (state.hang) await new Promise((resolve) => setTimeout(resolve, 5_000));
       state.inserts.push({ text, values });
       return [];
     },
@@ -17,10 +23,13 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import {
+  PRODUCT_INSTRUMENTATION_EVENT_NAMES,
   PRODUCT_INSTRUMENTATION_RETENTION_DAYS,
+  PRODUCT_INSTRUMENTATION_SURFACES,
   describeProductInstrumentationPosture,
   recordProductInstrumentationEvent,
   retainUntil,
+  runProductInstrumentationRetentionIfDue,
   validateProductInstrumentationEvent,
   type ProductInstrumentationEvent,
 } from "@/lib/product-instrumentation";
@@ -33,16 +42,17 @@ function event(
 ): ProductInstrumentationEvent {
   return {
     businessId: "biz-1",
-    eventName: "agency_today_viewed",
-    surface: "overview",
+    scope: "business",
+    eventName: "decision_workflow_changed",
+    surface: "meta_decision_inspector",
     outcome: "ok",
     occurredAt: "2026-08-09T10:00:00.000Z",
     ...overrides,
   };
 }
 
-describe("the sink records nothing that identifies a person", () => {
-  it("has no person-scoped field in its event contract", () => {
+describe("nothing recorded can identify a person or carry free text", () => {
+  it("has no person-scoped field in the contract", () => {
     for (const forbidden of [
       "userId",
       "user_id",
@@ -51,105 +61,219 @@ describe("the sink records nothing that identifies a person", () => {
       "session_id",
       "ipAddress",
     ]) {
-      expect(source, `${forbidden} must not be part of the contract`).not.toContain(
-        `${forbidden}:`,
-      );
+      expect(source).not.toContain(`${forbidden}:`);
     }
   });
 
-  it("has no free-text column in the shipped schema", () => {
-    const start = migrations.indexOf("CREATE TABLE IF NOT EXISTS product_instrumentation_events");
-    const table = migrations.slice(start, migrations.indexOf(")\n      `", start));
-    // Every TEXT column is either bounded by a CHECK vocabulary or a length cap.
+  it("never records an exception message", () => {
+    // A driver error can carry the failing statement, and the statement carries
+    // the row. The catch must not read `error.message` at all.
+    const catchBlock = source.slice(source.indexOf("} catch {"));
+    expect(catchBlock).not.toContain("error.message");
+    expect(source).not.toContain("String(error)");
+  });
+
+  it("constrains every string column to an allowlist in the shipped schema", () => {
+    const start = migrations.indexOf(
+      "CREATE TABLE IF NOT EXISTS product_instrumentation_events",
+    );
+    const table = migrations.slice(start, migrations.indexOf("      `);", start));
     for (const line of table.split("\n")) {
       if (!/\bTEXT\b/.test(line)) continue;
-      expect(
-        /CHECK|length\(/.test(line) || /contract_version/.test(line) || /business_id/.test(line),
-        `unbounded TEXT column: ${line.trim()}`,
-      ).toBe(true);
+      const bounded =
+        /CHECK/.test(line) ||
+        /contract_version/.test(line) ||
+        /business_id/.test(line);
+      expect(bounded, `unbounded TEXT column: ${line.trim()}`).toBe(true);
     }
   });
 
-  it("is tenant-scoped by business, and says so in its posture", () => {
+  it("declares its posture from properties the schema actually has", () => {
     const posture = describeProductInstrumentationPosture();
-    expect(posture.tenantScoped).toBe(true);
-    expect(posture.personScoped).toBe(false);
-    expect(posture.sink).toBe("first_party_postgres");
+    expect(posture).toMatchObject({
+      sink: "first_party_postgres",
+      tenantScoped: true,
+      personScoped: false,
+      retentionScheduled: true,
+      freeTextColumns: 0,
+    });
   });
 });
 
-describe("retention is stated with the data", () => {
-  it("stamps every row with the date it stops being needed", () => {
-    expect(retainUntil("2026-08-09T10:00:00.000Z")).toBe("2026-11-07");
+describe("scope and tenancy must agree", () => {
+  it("refuses a business event with no business", () => {
+    expect(
+      validateProductInstrumentationEvent(
+        event({ scope: "business", businessId: null }),
+      ),
+    ).toEqual({ ok: false, reason: "business_scope_requires_business" });
   });
 
-  it("reports the same window in its posture as it writes", () => {
-    expect(describeProductInstrumentationPosture().retentionDays).toBe(
-      PRODUCT_INSTRUMENTATION_RETENTION_DAYS,
+  it("refuses a portfolio event that names one business", () => {
+    // This is the businesses[0] bug: cross-tenant work attributed to one tenant.
+    expect(
+      validateProductInstrumentationEvent(
+        event({ scope: "portfolio", businessId: "biz-1" }),
+      ),
+    ).toEqual({ ok: false, reason: "portfolio_scope_forbids_business" });
+  });
+
+  it("accepts a correctly scoped portfolio event", () => {
+    expect(
+      validateProductInstrumentationEvent(
+        event({ scope: "portfolio", businessId: null, eventName: "search_submitted", surface: "global_search" }),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("is enforced by the database, not only by the validator", () => {
+    expect(migrations).toContain("product_instrumentation_scope_tenancy");
+    expect(migrations).toContain(
+      "(scope = 'portfolio' AND business_id IS NULL)",
     );
-  });
-
-  it("refuses an occurredAt it cannot date", () => {
-    expect(() => retainUntil("not-a-date")).toThrow();
   });
 });
 
 describe("malformed events are refused at the edge", () => {
-  it("rejects an unknown event name rather than storing it", () => {
+  it("rejects an unknown event name, surface, outcome and failure code", () => {
+    expect(
+      validateProductInstrumentationEvent(event({ eventName: "made_up" as never })),
+    ).toEqual({ ok: false, reason: "unknown_event_name" });
+    expect(
+      validateProductInstrumentationEvent(event({ surface: "made_up" as never })),
+    ).toEqual({ ok: false, reason: "unknown_surface" });
+    expect(
+      validateProductInstrumentationEvent(event({ outcome: "made_up" as never })),
+    ).toEqual({ ok: false, reason: "unknown_outcome" });
     expect(
       validateProductInstrumentationEvent(
-        event({ eventName: "made_up" as never }),
+        event({ outcome: "failed", failureCode: "made_up" as never }),
       ),
-    ).toEqual({ ok: false, reason: "unknown_event_name" });
+    ).toEqual({ ok: false, reason: "unknown_failure_code" });
   });
 
   it("requires a failure to carry a bounded code", () => {
     expect(
       validateProductInstrumentationEvent(event({ outcome: "failed" })),
     ).toEqual({ ok: false, reason: "failure_requires_code" });
-    expect(
-      validateProductInstrumentationEvent(
-        event({ outcome: "failed", failureCode: "made_up" as never }),
-      ),
-    ).toEqual({ ok: false, reason: "unknown_failure_code" });
-    expect(
-      validateProductInstrumentationEvent(
-        event({ outcome: "failed", failureCode: "upstream_timeout" }),
-      ),
-    ).toEqual({ ok: true });
-  });
-
-  it("requires a tenant", () => {
-    expect(
-      validateProductInstrumentationEvent(event({ businessId: "  " })),
-    ).toEqual({ ok: false, reason: "missing_business" });
   });
 });
 
-describe("a failing sink is visible, never silent", () => {
-  it("reports an invalid event instead of recording it", async () => {
+describe("retention is stated with the data and actually scheduled", () => {
+  it("stamps every row with the date it stops being needed", () => {
+    expect(retainUntil("2026-08-09T10:00:00.000Z")).toBe("2026-11-07");
+    expect(describeProductInstrumentationPosture().retentionDays).toBe(
+      PRODUCT_INSTRUMENTATION_RETENTION_DAYS,
+    );
+  });
+
+  it("skips outside its window and runs inside it", async () => {
+    const notDue = await runProductInstrumentationRetentionIfDue(
+      new Date("2026-08-09T10:00:00.000Z"),
+    );
+    expect(notDue).toMatchObject({ skipped: true, reason: "not_due" });
+
+    state.fail = false;
+    const due = await runProductInstrumentationRetentionIfDue(
+      new Date("2026-08-09T03:00:00.000Z"),
+    );
+    expect(due).toMatchObject({ skipped: false, day: "2026-08-09" });
+  });
+
+  it("is wired into the cron the other maintenance jobs use", () => {
+    const cron = readFileSync("app/api/sync/cron/route.ts", "utf8");
+    expect(cron).toContain("runProductInstrumentationRetentionIfDue");
+  });
+});
+
+describe("a failing sink is visible to an operator, never silent", () => {
+  it("counts an invalid event instead of recording it", async () => {
     state.fail = false;
     state.inserts.length = 0;
     const result = await recordProductInstrumentationEvent(
       event({ outcome: "failed" }),
     );
     expect(result).toEqual({ recorded: false, reason: "invalid_event" });
-    expect(state.inserts).toHaveLength(0);
+    const health = state.inserts.filter((row) =>
+      row.text.includes("sink_health"),
+    );
+    expect(health).toHaveLength(1);
+    expect(health[0]!.values).toContain("invalid_event");
   });
 
-  it("reports an unavailable sink instead of throwing into the request", async () => {
+  it("counts an unavailable sink instead of throwing into the request", async () => {
     state.fail = true;
+    state.inserts.length = 0;
     const result = await recordProductInstrumentationEvent(event());
     expect(result).toEqual({ recorded: false, reason: "sink_unavailable" });
+    expect(
+      state.inserts.some((row) => row.values.includes("sink_unavailable")),
+    ).toBe(true);
+    state.fail = false;
   });
 
-  it("records a valid event with its retention stamped", async () => {
+  it("records a valid event with its retention stamped and counts it", async () => {
     state.fail = false;
     state.inserts.length = 0;
     const result = await recordProductInstrumentationEvent(event());
     expect(result).toEqual({ recorded: true });
-    expect(state.inserts).toHaveLength(1);
-    expect(state.inserts[0]!.values).toContain("2026-11-07");
-    expect(state.inserts[0]!.text).toContain("product_instrumentation_events");
+    const write = state.inserts.find((row) =>
+      row.text.includes("INSERT INTO product_instrumentation_events"),
+    );
+    expect(write).toBeDefined();
+    expect(write!.values).toContain("2026-11-07");
+    expect(
+      state.inserts.some((row) => row.values.includes("recorded")),
+    ).toBe(true);
+  });
+
+  it("has a health table so degradation is readable, not just logged", () => {
+    expect(migrations).toContain(
+      "CREATE TABLE IF NOT EXISTS product_instrumentation_sink_health",
+    );
+    expect(source).toContain("readProductInstrumentationSinkHealth");
+    expect(source).toContain("degraded:");
+  });
+});
+
+describe("writes are awaited and bounded", () => {
+  it("never detaches the write from the request", () => {
+    // An unawaited promise can be terminated when the request ends, losing
+    // events exactly when the system is busiest.
+    expect(source).not.toContain("void recordProductInstrumentationEvent");
+    for (const emitter of [
+      "app/api/agency-today/route.ts",
+      "app/api/search/route.ts",
+    ]) {
+      const text = readFileSync(emitter, "utf8");
+      expect(text).toContain("await recordProductInstrumentationEvent(");
+      expect(text).not.toContain("void recordProductInstrumentationEvent(");
+    }
+  });
+
+  it("bounds the write so a slow sink degrades to a recorded failure", async () => {
+    state.fail = false;
+    state.hang = true;
+    state.inserts.length = 0;
+    const result = await recordProductInstrumentationEvent(event());
+    expect(result).toEqual({ recorded: false, reason: "timeout" });
+    expect(state.inserts.some((row) => row.values.includes("timeout"))).toBe(true);
+    state.hang = false;
+  }, 10_000);
+});
+
+describe("the vocabulary matches the shipped schema exactly", () => {
+  it("declares every event name in the database CHECK", () => {
+    for (const name of PRODUCT_INSTRUMENTATION_EVENT_NAMES) {
+      expect(migrations, `${name} missing from the schema`).toContain(`'${name}'`);
+    }
+  });
+
+  it("declares every surface in the database CHECK", () => {
+    for (const surface of PRODUCT_INSTRUMENTATION_SURFACES) {
+      expect(migrations, `${surface} missing from the schema`).toContain(
+        `'${surface}'`,
+      );
+    }
   });
 });

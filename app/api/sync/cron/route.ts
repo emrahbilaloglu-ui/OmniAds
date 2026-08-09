@@ -1,3 +1,4 @@
+import { runProductInstrumentationRetentionIfDue } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
@@ -536,6 +537,16 @@ export async function POST(request: NextRequest) {
       return Array.isArray(entry?.safetyRefusals) ? entry.safetyRefusals : [];
     }),
   ] as Array<Record<string, unknown>>;
+  // Product instrumentation retention: idempotent, and scheduled here with the
+  // other maintenance jobs so a retention column is backed by an actual purge.
+  const instrumentationRetentionJob =
+    await runProductInstrumentationRetentionIfDue().catch(() => ({
+      skipped: false as const,
+      day: new Date().toISOString().slice(0, 10),
+      purged: 0,
+      failed: true as const,
+    }));
+
   const metaSnapshotJob = await runMetaSnapshotJobIfDue().catch((error) => {
     console.error("[sync-cron] meta_snapshot_job_failed", error);
     return {
@@ -821,6 +832,7 @@ export async function POST(request: NextRequest) {
       ...(googleRepairPlan ? { googleRepairPlan } : {}),
       ...(metaAutoRepair ? { metaAutoRepairResults: metaAutoRepair.results } : {}),
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
+      instrumentationRetentionJob,
       metaSnapshotJob,
       metaIgnoredMarkerJob,
       metaOutcomeAccrualJob,

@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
   const entityType = body?.entityType;
 
   if (!businessId || !providerAccountId || !entityId || entityType !== "ad") {
+
     return NextResponse.json(
       {
         error: "invalid_request",
@@ -113,6 +115,18 @@ export async function POST(request: NextRequest) {
     observed,
     killSwitchEngaged: body?.killSwitchEngaged === true,
     checkedAt: new Date().toISOString(),
+  });
+
+  // Section 9: a guarded-action preflight ran. Recorded on the success path
+  // only, so a rejected request is not counted as an operator check.
+  await recordProductInstrumentationEvent({
+    businessId,
+    scope: "business",
+    eventName: "guarded_action_preflight",
+    surface: "meta_decision_inspector",
+    outcome: "ok",
+    provider: "meta",
+    occurredAt: new Date().toISOString(),
   });
 
   return NextResponse.json({

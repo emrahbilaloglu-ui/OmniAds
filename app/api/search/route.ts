@@ -80,13 +80,14 @@ export async function GET(request: NextRequest) {
     businessName: businessNames.get(result.businessId) ?? null,
   }));
 
-  // Section 9 outcome metric: is search being used, and does it find anything.
-  // The query text itself is never recorded -- only that a search happened and
-  // how many results came back.
-  void recordProductInstrumentationEvent({
-    businessId: businesses[0]?.id ?? "unknown",
-    eventName: "entity_search_submitted",
-    surface: "global-search",
+  // Section 9: search spans the workspace, so it is portfolio-scoped. The query
+  // text is never recorded -- only that a search happened, and whether it found
+  // anything, which is what the zero-result rate actually needs.
+  await recordProductInstrumentationEvent({
+    businessId: null,
+    scope: "portfolio",
+    eventName: results.length > 0 ? "search_submitted" : "search_zero_result",
+    surface: "global_search",
     outcome: results.length > 0 ? "ok" : "withheld",
     itemCount: results.length,
     occurredAt: new Date().toISOString(),

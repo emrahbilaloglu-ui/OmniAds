@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
@@ -141,6 +142,23 @@ export async function POST(request: NextRequest) {
       { status },
     );
   }
+
+  await recordProductInstrumentationEvent({
+
+    businessId,
+
+    scope: "business",
+
+    eventName: "decision_workflow_changed",
+
+    surface: "meta_decision_inspector",
+
+    outcome: "ok",
+
+    occurredAt: new Date().toISOString(),
+
+  });
+
 
   return NextResponse.json({ workflow: outcome.next, event: outcome.event });
 }

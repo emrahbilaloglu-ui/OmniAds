@@ -13747,26 +13747,32 @@ export async function runMigrations(options?: {
       );
       await sql.query(META_AD_STATUS_RECONCILIATION_SCHEMA_SQL);
       // Product instrumentation: first-party, tenant-scoped, retained.
-      // The vocabulary lives in the CHECK constraints so an unknown event name
-      // or failure code is refused by the database, and there is deliberately
-      // no free-text column for personal data or ad copy to leak into.
+      //
+      // Every string column is an allowlist enforced here, so there is nowhere
+      // for a query, an exception message, a token, ad copy or PII to land.
+      // Scope and tenancy are constrained together: a business event must name
+      // a business, and a portfolio event must not, so cross-tenant work can
+      // never be attributed to one tenant.
       await sql.query(`
         CREATE TABLE IF NOT EXISTS product_instrumentation_events (
           id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           contract_version  TEXT NOT NULL
                               DEFAULT 'product-instrumentation-event.v1'
                               CHECK (contract_version = 'product-instrumentation-event.v1'),
-          business_id       TEXT NOT NULL,
+          business_id       TEXT,
+          scope             TEXT NOT NULL CHECK (scope IN ('business', 'portfolio')),
           event_name        TEXT NOT NULL CHECK (event_name IN (
                               'agency_today_viewed',
-                              'entity_search_submitted',
-                              'saved_view_applied',
-                              'report_widget_failed',
-                              'google_export_used',
-                              'decision_workflow_action',
-                              'freshness_stale_disclosed'
+                              'search_submitted', 'search_zero_result',
+                              'decision_workflow_changed',
+                              'guarded_action_preflight'
                             )),
-          surface           TEXT NOT NULL CHECK (length(surface) BETWEEN 1 AND 64),
+          surface           TEXT NOT NULL CHECK (surface IN (
+                              'overview', 'global_search', 'meta_decisions',
+                              'meta_decision_inspector', 'creative_studio', 'reports',
+                              'google_ads', 'integrations', 'settings', 'launchpad',
+                              'automation', 'mobile', 'system'
+                            )),
           outcome           TEXT NOT NULL CHECK (outcome IN ('ok', 'failed', 'withheld')),
           provider          TEXT CHECK (provider IS NULL OR provider IN ('meta', 'google')),
           item_count        INTEGER CHECK (item_count IS NULL OR item_count >= 0),
@@ -13780,7 +13786,12 @@ export async function runMigrations(options?: {
           retain_until      DATE NOT NULL,
           created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
           CONSTRAINT product_instrumentation_failure_needs_code
-            CHECK (outcome <> 'failed' OR failure_code IS NOT NULL)
+            CHECK (outcome <> 'failed' OR failure_code IS NOT NULL),
+          CONSTRAINT product_instrumentation_scope_tenancy
+            CHECK (
+              (scope = 'business' AND business_id IS NOT NULL) OR
+              (scope = 'portfolio' AND business_id IS NULL)
+            )
         )
       `);
       await sql.query(
@@ -13791,6 +13802,19 @@ export async function runMigrations(options?: {
         `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_retention
          ON product_instrumentation_events (retain_until)`,
       );
+      // Operator-visible sink health: a failing sink must be a fact someone can
+      // read, not a console line.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS product_instrumentation_sink_health (
+          day          DATE NOT NULL,
+          status       TEXT NOT NULL CHECK (status IN (
+                         'recorded', 'invalid_event', 'sink_unavailable', 'timeout'
+                       )),
+          event_count  BIGINT NOT NULL DEFAULT 0 CHECK (event_count >= 0),
+          updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (day, status)
+        )
+      `);
       await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
       if (legacyCoreDropEnabled) {

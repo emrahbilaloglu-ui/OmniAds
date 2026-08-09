@@ -2638,6 +2638,15 @@ async function main() {
       "manual Ad status ROUTE-level DB seam check",
     );
 
+    // Instrumentation storage behaviour: constraints, scope/tenancy, retention
+    // and sink health can only be proven against real PostgreSQL.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-instrumentation-seam-child.ts"),
+      "product instrumentation DB seam check",
+    );
+
     // Production-seam checks against the freshly migrated schema: real
     // write query -> real reader, the class of defect in-memory tests miss.
     await runChildScript(

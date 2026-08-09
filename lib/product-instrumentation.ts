@@ -3,34 +3,34 @@
  *
  * Section 9 of the master plan needs outcome metrics after release — was Agency
  * Today opened, did search get used, did a widget fail, did anyone take the
- * Google escape hatch. Until now the only telemetry facility in the repo wrote
- * to stdout and reported its own posture as `productionReady: false`, which
- * means none of those questions could be answered from production.
- *
- * Three properties make this safe to turn on rather than something that has to
- * wait for an owner decision about a third party:
+ * Google escape hatch. The only prior telemetry facility wrote to stdout and
+ * reported its own posture as `productionReady: false`, so none of those
+ * questions could be answered from production.
  *
  * **First-party.** Events go to our own PostgreSQL, in the same database as the
- * data they describe. No vendor, no egress, no second processor to contract
- * with.
+ * data they describe. No vendor, no egress, no second processor.
  *
- * **Tenant-scoped, and deliberately not person-scoped.** Every row carries a
- * business id and nothing that identifies a human. There is no user id, no
- * email, no session id, and no free-text column anywhere in the schema — a
- * failure is a bounded code, never a message, because messages are where
- * personal data and ad copy leak in. That is enforced by a CHECK constraint on
- * the code vocabulary, not by reviewer discipline.
+ * **Honestly scoped.** An event is either scoped to one business, or it is a
+ * portfolio event that spans the viewer's whole workspace. A portfolio event
+ * carries `businessId: null` and a count — never the first business in an
+ * array, which would silently attribute cross-tenant work to one tenant and
+ * make per-client metrics wrong in a way nobody would notice.
  *
- * **Retained on purpose, and expiring on purpose.** Every row states the date
- * it stops being needed. Retention is a column, so a purge is a delete on an
- * index rather than an archaeology project, and "how long do we keep this"
- * has an answer that lives with the data.
+ * **Not person-scoped.** No user id, email, session id, or IP. Every string
+ * field is drawn from a closed allowlist enforced by a database CHECK, so there
+ * is nowhere for a query, an exception message, a token, an ad headline or a
+ * customer detail to land. Free text is impossible by construction, not by
+ * reviewer vigilance.
  *
- * Failures are visible. Recording never throws into a request path — an
- * analytics write must not break a page — but it never silently swallows
- * either: it returns an explicit outcome and warns, so a sink that has stopped
- * accepting events shows up as a sink that has stopped accepting events rather
- * than as an absence of user activity.
+ * **Retained on purpose, expiring on purpose.** Every row states the date it
+ * stops being needed, and `runProductInstrumentationRetentionIfDue` runs from
+ * the same cron the other maintenance jobs use. Retention that is only a column
+ * is not retention.
+ *
+ * **Failures are visible to an operator, not just to a log.** Every write
+ * outcome is counted in `product_instrumentation_sink_health`, which the sink's
+ * own health read exposes. A sink that has stopped accepting events reads as a
+ * broken sink rather than as an absence of user activity.
  */
 
 import { getDb } from "@/lib/db";
@@ -39,22 +39,49 @@ export const PRODUCT_INSTRUMENTATION_CONTRACT_VERSION =
   "product-instrumentation-event.v1" as const;
 
 /**
- * The complete event vocabulary. Adding a name here is a deliberate act: the
- * database CHECK constraint carries the same list, so an unknown name is
- * refused rather than quietly stored and never queried.
+ * The event vocabulary.
+ *
+ * Every name here has a real emission point in shipped production code, and
+ * `product-instrumentation-emitters.test.ts` fails if one does not. That rule
+ * is why this list is shorter than master-plan section 9's full minimum: the
+ * remaining section-9 events (client row opened, search result opened, saved
+ * view create/apply, evidence viewed, the report generate/fail/retry/share/
+ * print/CSV family, Google copy/CSV/deep link, health recovery, notification
+ * delivery lifecycle, guarded dry-run, mobile Tier-0) have no server emission
+ * point on this candidate. Declaring them here with nothing emitting would be a
+ * dead vocabulary that reads like coverage. They are recorded as an open local
+ * gap in UX_REMEDIATION_LEDGER.md instead.
  */
 export const PRODUCT_INSTRUMENTATION_EVENT_NAMES = [
   "agency_today_viewed",
-  "entity_search_submitted",
-  "saved_view_applied",
-  "report_widget_failed",
-  "google_export_used",
-  "decision_workflow_action",
-  "freshness_stale_disclosed",
+  "search_submitted",
+  "search_zero_result",
+  "decision_workflow_changed",
+  "guarded_action_preflight",
 ] as const;
 
 export type ProductInstrumentationEventName =
   (typeof PRODUCT_INSTRUMENTATION_EVENT_NAMES)[number];
+
+/** Closed allowlist. `surface` may never be free text. */
+export const PRODUCT_INSTRUMENTATION_SURFACES = [
+  "overview",
+  "global_search",
+  "meta_decisions",
+  "meta_decision_inspector",
+  "creative_studio",
+  "reports",
+  "google_ads",
+  "integrations",
+  "settings",
+  "launchpad",
+  "automation",
+  "mobile",
+  "system",
+] as const;
+
+export type ProductInstrumentationSurface =
+  (typeof PRODUCT_INSTRUMENTATION_SURFACES)[number];
 
 export const PRODUCT_INSTRUMENTATION_OUTCOMES = [
   "ok",
@@ -66,10 +93,8 @@ export type ProductInstrumentationOutcome =
   (typeof PRODUCT_INSTRUMENTATION_OUTCOMES)[number];
 
 /**
- * Bounded failure vocabulary.
- *
- * A code, never a message. An exception message can contain an account name, an
- * ad headline, a customer email or a token; a fixed code cannot.
+ * Bounded failure vocabulary: a code, never a message. An exception message can
+ * contain an account name, an ad headline, a customer email or a token.
  */
 export const PRODUCT_INSTRUMENTATION_FAILURE_CODES = [
   "upstream_unavailable",
@@ -83,15 +108,27 @@ export const PRODUCT_INSTRUMENTATION_FAILURE_CODES = [
 export type ProductInstrumentationFailureCode =
   (typeof PRODUCT_INSTRUMENTATION_FAILURE_CODES)[number];
 
-/** How long product instrumentation is kept before it is purged. */
+/** How long product instrumentation is kept before the retention job deletes it. */
 export const PRODUCT_INSTRUMENTATION_RETENTION_DAYS = 90;
 
+/**
+ * A write is bounded so instrumentation can never hold a request open. The
+ * budget is deliberately small: this is analytics, and a slow sink must degrade
+ * to a recorded failure rather than to a slow page.
+ */
+export const PRODUCT_INSTRUMENTATION_WRITE_TIMEOUT_MS = 750;
+
+export type ProductInstrumentationScope = "business" | "portfolio";
+
 export interface ProductInstrumentationEvent {
-  /** Tenant scope. There is deliberately no person scope. */
-  businessId: string;
+  /**
+   * Tenant scope. `null` is only legal for a portfolio-scoped event, which
+   * spans the viewer's whole workspace and belongs to no single business.
+   */
+  businessId: string | null;
+  scope: ProductInstrumentationScope;
   eventName: ProductInstrumentationEventName;
-  /** Which surface emitted it, e.g. "overview" or "meta-decisions". */
-  surface: string;
+  surface: ProductInstrumentationSurface;
   outcome: ProductInstrumentationOutcome;
   provider?: "meta" | "google" | null;
   /** Bounded counters only; never a payload. */
@@ -103,40 +140,46 @@ export interface ProductInstrumentationEvent {
 
 export type ProductInstrumentationResult =
   | { recorded: true }
-  | { recorded: false; reason: "invalid_event" | "sink_unavailable" };
+  | { recorded: false; reason: "invalid_event" | "sink_unavailable" | "timeout" };
 
 export function retainUntil(
   occurredAt: string,
   days = PRODUCT_INSTRUMENTATION_RETENTION_DAYS,
 ): string {
   const at = Date.parse(occurredAt);
-  if (!Number.isFinite(at)) throw new TypeError("occurredAt must be an ISO timestamp");
+  if (!Number.isFinite(at)) {
+    throw new TypeError("occurredAt must be an ISO timestamp");
+  }
   return new Date(at + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-/**
- * Validate before writing, so a malformed event is refused at the edge rather
- * than becoming a row nobody can interpret later.
- */
 export function validateProductInstrumentationEvent(
   event: ProductInstrumentationEvent,
 ): { ok: true } | { ok: false; reason: string } {
-  if (!event.businessId?.trim()) return { ok: false, reason: "missing_business" };
   if (!PRODUCT_INSTRUMENTATION_EVENT_NAMES.includes(event.eventName)) {
     return { ok: false, reason: "unknown_event_name" };
+  }
+  if (!PRODUCT_INSTRUMENTATION_SURFACES.includes(event.surface)) {
+    return { ok: false, reason: "unknown_surface" };
   }
   if (!PRODUCT_INSTRUMENTATION_OUTCOMES.includes(event.outcome)) {
     return { ok: false, reason: "unknown_outcome" };
   }
-  if (!event.surface?.trim()) return { ok: false, reason: "missing_surface" };
+  // Scope and tenancy must agree. A business event without a business would be
+  // unattributable; a portfolio event with one would attribute cross-tenant
+  // work to a single tenant, which is the failure this contract exists to stop.
+  if (event.scope === "business" && !event.businessId?.trim()) {
+    return { ok: false, reason: "business_scope_requires_business" };
+  }
+  if (event.scope === "portfolio" && event.businessId != null) {
+    return { ok: false, reason: "portfolio_scope_forbids_business" };
+  }
   if (
     event.failureCode != null &&
     !PRODUCT_INSTRUMENTATION_FAILURE_CODES.includes(event.failureCode)
   ) {
     return { ok: false, reason: "unknown_failure_code" };
   }
-  // A failure that carries no code is how "something went wrong" becomes
-  // unactionable six weeks later.
   if (event.outcome === "failed" && !event.failureCode) {
     return { ok: false, reason: "failure_requires_code" };
   }
@@ -146,34 +189,55 @@ export function validateProductInstrumentationEvent(
   return { ok: true };
 }
 
+async function countSinkHealth(
+  status: "recorded" | "invalid_event" | "sink_unavailable" | "timeout",
+) {
+  try {
+    const sql = getDb();
+    await sql.query(
+      `INSERT INTO product_instrumentation_sink_health (day, status, event_count)
+       VALUES (CURRENT_DATE, $1, 1)
+       ON CONFLICT (day, status)
+       DO UPDATE SET event_count = product_instrumentation_sink_health.event_count + 1,
+                     updated_at = now()`,
+      [status],
+    );
+  } catch {
+    // The health counter is the last line; if the database is entirely gone
+    // there is nothing further to record, and throwing here would turn an
+    // analytics outage into a request failure.
+  }
+}
+
 /**
  * Record one event.
  *
+ * Awaited and bounded — never a detached promise. An unawaited write can be
+ * terminated when the request ends, which loses events silently and exactly
+ * when the system is busiest. The timeout keeps that await cheap.
+ *
  * Never throws into a caller's request path, and never pretends to have
- * succeeded: an unavailable sink returns `sink_unavailable` and warns, so the
- * gap is visible as a sink failure rather than as quiet user inactivity.
+ * succeeded.
  */
 export async function recordProductInstrumentationEvent(
   event: ProductInstrumentationEvent,
 ): Promise<ProductInstrumentationResult> {
   const validation = validateProductInstrumentationEvent(event);
   if (!validation.ok) {
-    console.warn("[product-instrumentation] rejected", {
-      eventName: event.eventName,
-      reason: validation.reason,
-    });
+    await countSinkHealth("invalid_event");
     return { recorded: false, reason: "invalid_event" };
   }
   try {
     const sql = getDb();
-    await sql.query(
+    const write = sql.query(
       `INSERT INTO product_instrumentation_events (
-         contract_version, business_id, event_name, surface, outcome,
+         contract_version, business_id, scope, event_name, surface, outcome,
          provider, item_count, duration_ms, failure_code, occurred_at, retain_until
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::date)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::date)`,
       [
         PRODUCT_INSTRUMENTATION_CONTRACT_VERSION,
         event.businessId,
+        event.scope,
         event.eventName,
         event.surface,
         event.outcome,
@@ -185,14 +249,28 @@ export async function recordProductInstrumentationEvent(
         retainUntil(event.occurredAt),
       ],
     );
-    return { recorded: true };
-  } catch (error) {
-    // Visible, and bounded: the sink's own failure is logged with a code, not
-    // with the provider's message.
-    console.warn("[product-instrumentation] sink_unavailable", {
-      eventName: event.eventName,
-      message: error instanceof Error ? error.message : String(error),
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(
+        () => resolve("timeout"),
+        PRODUCT_INSTRUMENTATION_WRITE_TIMEOUT_MS,
+      );
     });
+    try {
+      const outcome = await Promise.race([write.then(() => "ok" as const), timeout]);
+      if (outcome === "timeout") {
+        await countSinkHealth("timeout");
+        return { recorded: false, reason: "timeout" };
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    await countSinkHealth("recorded");
+    return { recorded: true };
+  } catch {
+    // Deliberately no error message anywhere: a driver error can carry the
+    // failing statement, and the statement carries the row.
+    await countSinkHealth("sink_unavailable");
     return { recorded: false, reason: "sink_unavailable" };
   }
 }
@@ -203,13 +281,10 @@ export interface ProductInstrumentationPosture {
   tenantScoped: true;
   personScoped: false;
   retentionDays: number;
+  retentionScheduled: true;
   freeTextColumns: 0;
 }
 
-/**
- * What this facility can honestly claim about itself. Unlike the stdout-staged
- * operator telemetry, every field here is a property of the shipped schema.
- */
 export function describeProductInstrumentationPosture(): ProductInstrumentationPosture {
   return {
     sink: "first_party_postgres",
@@ -217,20 +292,80 @@ export function describeProductInstrumentationPosture(): ProductInstrumentationP
     tenantScoped: true,
     personScoped: false,
     retentionDays: PRODUCT_INSTRUMENTATION_RETENTION_DAYS,
+    retentionScheduled: true,
     freeTextColumns: 0,
   };
 }
 
-/** Delete events past their stated retention. Returns the number removed. */
+export interface ProductInstrumentationSinkHealth {
+  day: string;
+  recorded: number;
+  invalidEvent: number;
+  sinkUnavailable: number;
+  timeout: number;
+  /** True when any write failed today: the operator-visible alert condition. */
+  degraded: boolean;
+}
+
+/**
+ * Operator-visible sink health. This is what makes a failing sink a fact
+ * someone can see rather than a line in a log nobody reads.
+ */
+export async function readProductInstrumentationSinkHealth(
+  day?: string,
+): Promise<ProductInstrumentationSinkHealth> {
+  const sql = getDb();
+  const rows = (await sql.query(
+    `SELECT status, event_count
+     FROM product_instrumentation_sink_health
+     WHERE day = COALESCE($1::date, CURRENT_DATE)`,
+    [day ?? null],
+  )) as unknown as Array<{ status: string; event_count: number | string }>;
+  const byStatus = new Map(
+    rows.map((row) => [row.status, Number(row.event_count)]),
+  );
+  const invalidEvent = byStatus.get("invalid_event") ?? 0;
+  const sinkUnavailable = byStatus.get("sink_unavailable") ?? 0;
+  const timeout = byStatus.get("timeout") ?? 0;
+  return {
+    day: day ?? new Date().toISOString().slice(0, 10),
+    recorded: byStatus.get("recorded") ?? 0,
+    invalidEvent,
+    sinkUnavailable,
+    timeout,
+    degraded: invalidEvent + sinkUnavailable + timeout > 0,
+  };
+}
+
+/** Delete events past their stated retention. Idempotent; returns rows removed. */
 export async function purgeExpiredProductInstrumentation(
-  today: string,
+  today?: string,
 ): Promise<number> {
   const sql = getDb();
   const rows = (await sql.query(
     `DELETE FROM product_instrumentation_events
-     WHERE retain_until < $1::date
+     WHERE retain_until < COALESCE($1::date, CURRENT_DATE)
      RETURNING 1`,
-    [today],
+    [today ?? null],
   )) as unknown as unknown[];
   return rows.length;
+}
+
+/**
+ * Scheduled retention, run from the same cron as the other maintenance jobs.
+ *
+ * Idempotent by construction: it deletes rows already past their stated
+ * retention, so a second run in the same hour removes nothing and is harmless.
+ */
+export async function runProductInstrumentationRetentionIfDue(now = new Date()) {
+  const day = now.toISOString().slice(0, 10);
+  if (now.getUTCHours() !== 3) {
+    return { skipped: true as const, reason: "not_due" as const, day };
+  }
+  try {
+    const purged = await purgeExpiredProductInstrumentation(day);
+    return { skipped: false as const, day, purged };
+  } catch {
+    return { skipped: false as const, day, purged: 0, failed: true as const };
+  }
 }

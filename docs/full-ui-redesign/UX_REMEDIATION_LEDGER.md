@@ -453,13 +453,14 @@ per D5.
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | **6,862 pass**, 0 fail, 61 skipped, 63 todo (697 files) |
+| Full suite | `LC_ALL=C npx vitest run` | **6,865 pass**, 0 fail, 61 skipped, 63 todo (698 files) |
 | Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
 | Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 28 pass |
+| Typography floor | `npx vitest run lib/typography-floor.test.ts` | 3 pass |
 | Typecheck / lint | `npx tsc --noEmit` / `npx eslint .` | 0 / 0 |
 | Production build | `npm run build` | clean |
 | Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, including all three seams |
-| Desktop + mobile smoke | `FULL_UI_SMOKE_ARTIFACT_SET=… npm run test:full-ui:visual` | 2/2 |
+| Desktop + mobile smoke | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | 2/2 across 9 surfaces, with no-clipping and computed-typography assertions |
 
 An earlier revision of this section reported "160" and "247" for the focused suite in different
 places. Both are withdrawn; the single command above and its count of **235** are the record.
@@ -479,15 +480,25 @@ not one.
 
 Two categories. Conflating them was a real defect in earlier revisions of this ledger.
 
+**Closed 2026-08-09 (was listed here as open):**
+
+- **Mobile composition.** The creative table stacks into task-priority cards below 767px; the
+  committed 390px artifact now shows identity, spend, purchases, revenue, CPA, ROAS and the full
+  "Assessment unavailable" chip with no clipping and no horizontal scroll.
+- **Typography floor.** 105 CSS rules, 530 Tailwind arbitrary sizes and 112 inline `fontSize`
+  values below 11px raised to 12px; `small` floored. Enforced by `lib/typography-floor.test.ts` and
+  by a computed-size assertion in the smoke, which caught 9–10px text the stylesheet scan missed.
+- **Clipping is now a gate.** The smoke asserts no page-level horizontal scroll *and* that no
+  scroller containing tabular content hides any of it. The second check is the one that matters: the
+  page-level check passed while the row still clipped, because the frame scrolled internally.
+
 **Locally reachable and NOT yet done** — these are open local gaps, not production gates:
 
 | Gap | What remains |
 | --- | --- |
 | Section-9 instrumentation coverage | 5 of section 9's minimum events have emitters. Client-row open, search-result open, saved-view create/apply, evidence viewed, the report generate/fail/retry/share/print/CSV family, Google copy/CSV/deep-link, health recovery, notification delivery lifecycle, guarded dry-run and mobile Tier-0 have no server emission point on this candidate. The vocabulary deliberately excludes them rather than declaring dead names |
-| Mobile composition (Studio at 320/390) | The committed 390px Creative Studio artifact clips the assessment column and withholds primary economic KPIs. A task-priority mobile composition with progressive disclosure is not built |
-| Typography floor | Verified 7.5–10px text remains in Studio/Decisions table headers, attribution labels, assessment text and reasons, below the plan's 12px essential floor |
 | Accessibility verification | Keyboard/focus/accessible-name/status, 200% zoom, reduced motion and long-text/localisation are not systematically verified on the changed surfaces |
-| Visual evidence breadth | Committed artifacts cover the original narrow smoke set. Overview/Agency Today, global search, Decisions inspector, Reports failure state, Settings/Integrations health, Launchpad and Automation are not captured at 390/768/1280/1440/1728 |
+| Visual evidence breadth | Smoke now captures 9 surfaces (login, Decisions, Studio, Copies, Inbox, Launchpad, Automation, Reports, Settings) at the configured 390/768/1280/1440/1728 projects. Overview/Agency Today, the Decisions inspector and Integrations health are still not captured |
 | Freshness adoption, Agency Today health join, History projection completeness | Previously noted in this ledger and still open locally |
 
 **Production-only or physical-device** — no local component exists:

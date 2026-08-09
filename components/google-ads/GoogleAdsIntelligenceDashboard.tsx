@@ -1,5 +1,6 @@
 "use client";
 
+import { newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
@@ -360,6 +361,46 @@ function downloadSearchTermCsv(csv: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Run a zero-risk escape hatch and report what actually happened.
+ *
+ * These events answer "does the escape hatch work" -- the whole point of a
+ * copy or CSV button is that an operator can take the work out of the product
+ * when the product cannot help. Hardcoding `outcome: "ok"` made the metric
+ * answer "was the button clicked" instead, so the hatch would have looked
+ * healthiest in exactly the browsers where it silently does nothing.
+ */
+async function reportGoogleEscapeHatch(input: {
+  eventName: "google_copy_used" | "google_csv_used";
+  businessId: string;
+  itemCount: number;
+  run: () => Promise<unknown>;
+}) {
+  try {
+    await input.run();
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "ok",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  } catch {
+    // Failed, not withheld: withheld means we chose not to, and we tried.
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "failed",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  }
+}
+
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
 
   const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
@@ -612,7 +653,20 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   useTierZeroFreshness({
     surface: "google_ads",
     isLoading,
-    asOf: resolvedGoogleReferenceDate,
+    // The newest real observation across scopes. The reference date is what
+    // day it is in the account's timezone -- a range label, not a read time --
+    // and using it made the reading drift with the hour and never say "stale".
+    asOf: newestObservation(
+      (syncStatus?.freshness?.scopes ?? []).map(
+        (scope) => scope.latestObservationAt,
+      ),
+    ),
+    // Evidence we could not read is not evidence of freshness.
+    partialReason:
+      syncStatus?.freshness && syncStatus.freshness.evidenceAvailable === false
+        ? (syncStatus.freshness.unavailableReason ??
+          "Google freshness evidence could not be read; the age shown is unknown")
+        : null,
     error: isError ? "google_ads_unreadable" : null,
     businessId,
   });
@@ -1492,20 +1546,35 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           type="button"
                           className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
                           onClick={() => {
-                            void navigator.clipboard?.writeText(
-                              buildNegativeKeywordList(searchTermNegativeCandidates, "phrase"),
-                            );
                             // Section 9: the zero-risk escape hatch was used.
                             // Only that it happened and how many rows -- never
                             // the keywords themselves.
-                            emitProductInstrumentation({
+                            //
+                            // Reported from the clipboard's own result. The
+                            // write was fire-and-forget behind an optional
+                            // chain and the event hardcoded "ok", so a browser
+                            // with no Clipboard API (any non-secure context) or
+                            // a denied permission produced a clean success for
+                            // a copy that never happened -- the escape hatch
+                            // would have looked healthiest exactly where it was
+                            // broken.
+                            void reportGoogleEscapeHatch({
                               eventName: "google_copy_used",
-                              surface: "google_ads",
-                              outcome: "ok",
-                              scope: "business",
                               businessId,
-                              provider: "google",
                               itemCount: searchTermNegativeCandidates.length,
+                              run: () => {
+                                if (!navigator.clipboard?.writeText) {
+                                  return Promise.reject(
+                                    new Error("clipboard_unavailable"),
+                                  );
+                                }
+                                return navigator.clipboard.writeText(
+                                  buildNegativeKeywordList(
+                                    searchTermNegativeCandidates,
+                                    "phrase",
+                                  ),
+                                );
+                              },
                             });
                           }}
                           title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
@@ -1550,28 +1619,30 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           type="button"
                           className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
                           onClick={() => {
-                            emitProductInstrumentation({
+                            // Emitted after the download is handed off, not
+                            // before it: an event fired ahead of the action it
+                            // names counts intentions rather than downloads.
+                            void reportGoogleEscapeHatch({
                               eventName: "google_csv_used",
-                              surface: "google_ads",
-                              outcome: "ok",
-                              scope: "business",
                               businessId,
-                              provider: "google",
                               itemCount: searchTermNegativeCandidates.length,
+                              run: async () => {
+                                downloadSearchTermCsv(
+                                  buildSearchTermCsv(
+                                    searchTermNegativeCandidates,
+                                    {
+                                      accountLabel:
+                                        advisorExecutionAccountId ?? null,
+                                      currency: null,
+                                      windowStart: startDate,
+                                      windowEnd: endDate,
+                                    },
+                                    "phrase",
+                                  ),
+                                  "search-terms-negative",
+                                );
+                              },
                             });
-                            downloadSearchTermCsv(
-                              buildSearchTermCsv(
-                                searchTermNegativeCandidates,
-                                {
-                                  accountLabel: advisorExecutionAccountId ?? null,
-                                  currency: null,
-                                  windowStart: startDate,
-                                  windowEnd: endDate,
-                                },
-                                "phrase",
-                              ),
-                              "search-terms-negative",
-                            );
                           }}
                           title="Download every candidate with raw values, reasons, and window"
                         >

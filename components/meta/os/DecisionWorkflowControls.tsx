@@ -22,12 +22,21 @@ export function DecisionWorkflowControls({
   entityType,
   entityId,
   providerAccountId,
+  onOwnershipRecorded,
 }: {
   businessId: string;
   decisionKey: string;
   entityType: string;
   entityId: string;
   providerAccountId: string | null;
+  /**
+   * Called with whether ownership was actually recorded.
+   *
+   * The mobile Tier-0 completion hangs off this rather than off a click,
+   * because a click is not a finished task: a mis-tap on the container, or a
+   * write that came back a conflict, both used to count as completions.
+   */
+  onOwnershipRecorded?: (recorded: boolean) => void;
 }) {
   const [record, setRecord] = useState<WorkflowRecord | null>(null);
   const [available, setAvailable] = useState(true);
@@ -88,12 +97,15 @@ export function DecisionWorkflowControls({
         if ((payload as { current?: WorkflowRecord } | null)?.current) {
           setRecord((payload as { current: WorkflowRecord }).current);
         }
+        onOwnershipRecorded?.(false);
         return;
       }
       setRecord((payload as { workflow: WorkflowRecord }).workflow);
       setReason("");
+      onOwnershipRecorded?.(true);
     } catch {
       setError("That change was not recorded.");
+      onOwnershipRecorded?.(false);
     } finally {
       setBusy(false);
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
-import { useEffect } from "react";
+import { useEffect, useRef} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ReportCanvas } from "@/components/reports/report-canvas";
 import type { RenderedReportPayload } from "@/lib/custom-reports";
@@ -22,17 +22,30 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
     enabled: Boolean(reportId),
   });
 
+  const printReported = useRef(false);
+
   useEffect(() => {
     if (!reportQuery.data) return;
-    // Section 9: the print path was taken. Period fidelity is measured
-    // elsewhere; this only records that printing happened.
-    emitProductInstrumentation({
-      eventName: "report_print_opened",
-      surface: "reports",
-      outcome: "ok",
-      scope: "portfolio",
-    });
-    const timeoutId = window.setTimeout(() => window.print(), 250);
+    const timeoutId = window.setTimeout(() => {
+      // Section 9: the print path was taken.
+      //
+      // Emitted at the print call, not on data arrival, and guarded so it fires
+      // once per mount. It used to sit at the top of an effect keyed on the
+      // query payload, so it counted the report *loading* rather than anyone
+      // printing -- and re-counted on every refocus refetch, which on a page
+      // people leave open while a print dialog is up is not a rare event.
+      if (!printReported.current) {
+        printReported.current = true;
+        emitProductInstrumentation({
+          eventName: "report_print_opened",
+          surface: "reports",
+          outcome: "ok",
+          scope: "business",
+          businessId: reportQuery.data?.businessId ?? null,
+        });
+      }
+      window.print();
+    }, 250);
     return () => window.clearTimeout(timeoutId);
   }, [reportQuery.data]);
 

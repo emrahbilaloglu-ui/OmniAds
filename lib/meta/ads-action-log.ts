@@ -4157,7 +4157,7 @@ export async function createMetaAdStatusActionClaim(
       "Meta Ad status claims require exact business, provider-account, and Ad identity.",
     );
   }
-  return runDbTransaction(async () => {
+  const claim = await runDbTransaction(async () => {
     const sql = getDb();
     await sql.query(LOCK_META_AD_STATUS_ACTION_CLAIM_QUERY, [
       metaAdStatusActionClaimKey(identity),
@@ -4203,6 +4203,32 @@ export async function createMetaAdStatusActionClaim(
       recIdOrigin: input.recIdOrigin ?? null,
     });
   });
+
+  // Section 9, server-owned: an operator confirmed an action and a claim now
+  // exists.
+  //
+  // This is where the ad-level guarded action actually lands. The emit used to
+  // live only in createMetaAdsActionLog, below the early return that sends
+  // manual pause/resume here -- so the one action the metric is named after
+  // never counted, while Launchpad launches did. A confirmation rate measured
+  // over the wrong population is worse than no rate.
+  //
+  // An idempotent replay is not a new confirmation: the operator confirmed
+  // once, and counting the retry would inflate the numerator with our own
+  // retries.
+  if (!("idempotentReplay" in claim && claim.idempotentReplay)) {
+    await recordProductInstrumentationEvent({
+      businessId: identity.businessId,
+      scope: "business",
+      eventName: "guarded_action_confirmed",
+      surface: "meta_decision_inspector",
+      outcome: "ok",
+      provider: "meta",
+      occurredAt: new Date().toISOString(),
+    });
+  }
+
+  return claim;
 }
 
 export async function reconcileManualMetaAdStatusAndCreateClaim(input: {

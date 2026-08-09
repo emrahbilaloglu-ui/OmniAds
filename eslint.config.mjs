@@ -47,7 +47,23 @@ export default [
     },
   },
   {
-    files: ["components/creatives/**/*.{js,jsx,ts,tsx}"],
+    // Hook ordering is a correctness rule, not a style one, and it was scoped
+    // to one directory. A hook below an early return means the render that
+    // takes the early path uses a different hook count, and React throws
+    // "Rendered fewer hooks than expected" -- so a *failed refetch* crashes the
+    // page instead of showing the error state. Two surfaces were doing exactly
+    // that: Overview below its error return, and the report chart below its
+    // empty-data guard.
+    //
+    // app/api is excluded because it holds no React: the rule there only fires
+    // on server helpers whose names happen to begin with "use".
+    files: [
+      "app/**/*.{js,jsx,ts,tsx}",
+      "components/**/*.{js,jsx,ts,tsx}",
+      "hooks/**/*.{js,jsx,ts,tsx}",
+      "store/**/*.{js,jsx,ts,tsx}",
+    ],
+    ignores: ["app/api/**"],
     rules: {
       "react-hooks/rules-of-hooks": "error",
     },

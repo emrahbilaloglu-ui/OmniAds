@@ -31,6 +31,14 @@ export type TierZeroFreshnessState =
   | "partial"
   | "error";
 
+/** A short, absolute label for a last-good reading. Never "just now". */
+function formatAsOfLabel(asOf: string | Date | null | undefined): string {
+  if (!asOf) return "an earlier reading";
+  const parsed = asOf instanceof Date ? asOf : new Date(asOf);
+  if (Number.isNaN(parsed.getTime())) return "an earlier reading";
+  return `data from ${parsed.toLocaleString()}`;
+}
+
 export function TierZeroFreshness({
   state,
   asOf,
@@ -64,14 +72,30 @@ export function TierZeroFreshness({
   }
 
   if (state === "error") {
+    // The wording distinguishes the two error cases, because they are not the
+    // same to the reader.
+    //
+    // This component reports; it cannot withhold anything. React Query keeps
+    // the last good payload through a failed revalidation, so on a surface
+    // that still renders those numbers, "figures withheld" was simply false --
+    // and worse, it told the operator not to trust figures that were fine,
+    // while saying nothing about how old they were. When there is a last-good
+    // as-of, the reading names it. Only when there is nothing on screen does it
+    // say the figures are withheld.
+    const hasLastGood = Boolean(asOf);
     return (
       <span
         data-freshness-state="error"
         data-freshness-error={errorCode ?? "unknown"}
+        data-freshness-last-good={hasLastGood ? "shown" : "none"}
         role="status"
         className={`inline-flex items-center gap-2 text-[12px] text-rose-700 ${className}`}
       >
-        <span>Could not load — figures withheld</span>
+        <span>
+          {hasLastGood
+            ? `Could not refresh — showing ${formatAsOfLabel(asOf)}`
+            : "Could not load — figures withheld"}
+        </span>
         {onRetry ? (
           <button
             type="button"

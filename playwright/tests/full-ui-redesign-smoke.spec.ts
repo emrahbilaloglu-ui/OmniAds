@@ -1287,18 +1287,46 @@ test.describe("full UI redesign route and visual smoke", () => {
             ).toMatch(/^(loading|refreshing|ready|partial|error)$/);
 
             if (reading.state === "loading") {
-              // A figure next to "we do not know yet" is the whole bug.
+              // Assert against the PAGE, not the bar.
+              //
+              // Checking `reading.text` was a tautology: that string is the
+              // bar's own label, "Loading — no figures yet", which contains no
+              // digit by construction. It would have passed while the page
+              // behind it rendered a full grid of zeros -- the exact failure
+              // the loading state exists to prevent.
+              const figures = await shotPage.evaluate(() => {
+                const main =
+                  document.querySelector("#main-content") ?? document.body;
+                const text = (main.textContent ?? "").replace(
+                  /Loading[^]*?no figures yet/g,
+                  "",
+                );
+                // A currency amount or a large formatted number is a figure.
+                // Dates, counts in labels and pagination are not what this is
+                // about, so the match is deliberately narrow.
+                return (
+                  text.match(/[$€£₺]\s?\d[\d.,]*|\b\d{1,3}(?:[.,]\d{3})+\b/g) ??
+                  []
+                ).slice(0, 5);
+              });
               expect(
-                reading.text,
-                `${shot.path} shows figures while reporting loading`,
-              ).not.toMatch(/\d/);
+                figures,
+                `${shot.path} renders figures while reporting loading`,
+              ).toEqual([]);
             }
 
             if (reading.state === "error") {
+              // A bounded code from the shared vocabulary, not any truthy
+              // string: "unknown" is what the component falls back to when the
+              // surface named nothing, and it must not satisfy this.
               expect(
                 reading.errorCode,
                 `${shot.path} reports an error with no named code`,
-              ).toBeTruthy();
+              ).toMatch(/^[a-z][a-z0-9_]+$/);
+              expect(
+                reading.errorCode,
+                `${shot.path} reports an error whose code is the fallback`,
+              ).not.toBe("unknown");
               expect(
                 reading.hasRetry,
                 `${shot.path} reports a terminal error with no way to retry`,

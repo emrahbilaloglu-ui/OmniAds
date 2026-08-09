@@ -17,7 +17,7 @@ import {
   Info,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback} from "react";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
@@ -545,6 +545,28 @@ export function DecisionsOsView({
     refetchOnWindowFocus: false,
   });
 
+  /**
+   * Every path that opens a decision goes through here.
+   *
+   * The emit used to live inline in the structure list's onSelect, so opening
+   * an *ad* decision -- the list an operator spends most of their time in, and
+   * the one a deep link lands on -- counted as nothing. A per-entry-point emit
+   * is a metric that silently narrows every time someone adds a way in.
+   */
+  const openDecision = useCallback(
+    (next: SelectedDecision) => {
+      emitProductInstrumentation({
+        eventName: "decision_opened",
+        surface: "meta_decisions",
+        outcome: "ok",
+        scope: "business",
+        businessId,
+      });
+      setSelected(next);
+    },
+    [businessId],
+  );
+
   const workspace = workspaceQuery.data ?? null;
   const presentation = workspace?.os ?? null;
   const lane = layer === "ads" ? adsLane : "monitor";
@@ -636,6 +658,9 @@ export function DecisionsOsView({
     onRetry: () => {
       if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
       void workspaceQuery.refetch();
+      // The anomalies read is what raises the partial state; leaving it out
+      // meant the retry could never clear the hole it reported.
+      if (anomaliesQuery.isError) void anomaliesQuery.refetch();
     },
   });
 
@@ -684,7 +709,7 @@ export function DecisionsOsView({
     setRequestedCreativeUnresolved(false);
     setLayer("ads");
     setAdsLane(item.lane);
-    setSelected({ kind: "ad", value: item });
+    openDecision({ kind: "ad", value: item });
   }, [adItems, presentation, requestedCreativeId]);
 
   const chooseAccount = (accountId: string) => {
@@ -1199,17 +1224,9 @@ export function DecisionsOsView({
                 currency={currency}
                 expandedGroups={expandedGroups}
                 onToggle={toggleGroup}
-                onSelect={(value) => {
-                  // Section 9: a decision was opened for reading.
-                  emitProductInstrumentation({
-                    eventName: "decision_opened",
-                    surface: "meta_decisions",
-                    outcome: "ok",
-                    scope: "business",
-                    businessId,
-                  });
-                  setSelected({ kind: "structure", value });
-                }}
+                onSelect={(value) =>
+                  openDecision({ kind: "structure", value })
+                }
                 selected={selected}
               />
               {remainingStructureGroups > 0 ? (
@@ -1229,7 +1246,7 @@ export function DecisionsOsView({
               <AdsList
                 items={visibleAds}
                 currency={currency}
-                onSelect={(value) => setSelected({ kind: "ad", value })}
+                onSelect={(value) => openDecision({ kind: "ad", value })}
                 selected={selected}
               />
               {canLoadMoreAds ? (
@@ -2202,13 +2219,16 @@ function DecisionInspector({
                   decisionKey={ad.decisionId}
                   ownershipAvailable
                 >
-                  <DecisionWorkflowControls
-                    businessId={businessId}
-                    decisionKey={ad.decisionId}
-                    entityType="ad"
-                    entityId={ad.adId}
-                    providerAccountId={providerAccountId}
-                  />
+                  {(report) => (
+                    <DecisionWorkflowControls
+                      businessId={businessId}
+                      decisionKey={ad.decisionId}
+                      entityType="ad"
+                      entityId={ad.adId}
+                      providerAccountId={providerAccountId}
+                      onOwnershipRecorded={report}
+                    />
+                  )}
                 </MobileTier0Triage>
               </>
             ) : null}

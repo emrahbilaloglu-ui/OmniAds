@@ -499,10 +499,25 @@ export function ReportBuilder({
     name: deferredName,
     description: deferredDescription,
   });
+  /**
+   * Whether the last render of this same preview left widgets failed.
+   *
+   * The server counts a retry only when told one is happening, and no caller
+   * was ever telling it -- so `report_widget_retried` could not fire at all and
+   * the recovery rate read as a permanent zero, which is indistinguishable from
+   * "nobody ever retries" and from "retries always fail".
+   *
+   * A ref rather than state: this must not itself trigger a re-render, and it
+   * is keyed to the preview so editing the report starts a fresh attempt rather
+   * than inheriting the previous one's failure.
+   */
+  const lastFailedPreviewKey = useRef<string | null>(null);
+
   const previewQuery = useQuery({
     queryKey: ["custom-report-preview", businessId, previewKey],
     enabled: shouldRenderPreview,
     queryFn: async () => {
+      const retryOfFailedRender = lastFailedPreviewKey.current === previewKey;
       const response = await fetch("/api/reports/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -511,13 +526,22 @@ export function ReportBuilder({
           name: deferredName,
           description: deferredDescription,
           definition: deferredDefinition,
+          retryOfFailedRender,
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme başarısız oldu."));
       }
-      return (payload as { report: RenderedReportPayload }).report;
+      const report = (payload as { report: RenderedReportPayload }).report;
+      // Remember whether this render left anything failed, so the next attempt
+      // at the same preview is reported as the retry it is.
+      const failed = (report.widgets ?? []).some(
+        (widget: { errorMessage?: string | null }) =>
+          Boolean(widget.errorMessage),
+      );
+      lastFailedPreviewKey.current = failed ? previewKey : null;
+      return report;
     },
   });
 

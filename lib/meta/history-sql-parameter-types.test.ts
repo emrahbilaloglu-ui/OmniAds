@@ -26,26 +26,83 @@ function declaredColumnType(table: string, column: string): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
+/**
+ * Resolve every `<alias>.business_id = $1` predicate to the table it filters.
+ *
+ * Two earlier shapes of this scan were wrong in the same way -- they checked a
+ * subset they never named. The first matched `FROM <table> <alias>` followed
+ * within 600 characters by the predicate, and found ten of eighteen. The second
+ * split the SQL on `UNION ALL`, which breaks on the branches that contain a
+ * LATERAL subquery with its own UNION ALL, separating a FROM from its WHERE.
+ *
+ * So no splitting: each predicate's alias is resolved against the aliases
+ * declared anywhere in the file, and the count is asserted against the raw
+ * number of predicates. A scan that silently checks fewer things than exist is
+ * not a regression test.
+ */
+function aliasTables(sql: string): Map<string, string> {
+  const byAlias = new Map<string, string>();
+  for (const [, table, alias] of sql.matchAll(
+    /\bFROM\s+([a-z0-9_]+)\s+([a-z0-9_]+)\b/gi,
+  )) {
+    if (!/^(as|on|where|inner|left|join|union|order|group|limit)$/i.test(alias)) {
+      byAlias.set(alias, table);
+    }
+  }
+  return byAlias;
+}
+
+interface JournalPredicate {
+  alias: string;
+  table: string | null;
+  cast: boolean;
+}
+
+function journalPredicates(sql: string): JournalPredicate[] {
+  const byAlias = aliasTables(sql);
+  return [
+    ...sql.matchAll(/\b([a-z0-9_]+)\.business_id(::text)?\s*=\s*\$1/g),
+  ].map(([, alias, cast]) => ({
+    alias,
+    table: byAlias.get(alias) ?? null,
+    cast: Boolean(cast),
+  }));
+}
+
 describe("the History journal binds business_id consistently", () => {
   it("casts every UUID business_id compared against the text parameter", () => {
-    // `FROM <table> <alias>` … `WHERE <alias>.business_id = $1`
-    const branches = [
-      ...readModel.matchAll(
-        /FROM\s+([a-z0-9_]+)\s+([a-z0-9_]+)\b[\s\S]{0,600}?WHERE\s+\2\.business_id(::text)?\s*=\s*\$1/g,
-      ),
-    ];
+    const predicates = journalPredicates(readModel);
+    const rawCount = (
+      readModel.match(/\b[a-z0-9_]+\.business_id(::text)?\s*=\s*\$1/g) ?? []
+    ).length;
 
+    expect(predicates.length).toBe(rawCount);
+    expect(rawCount, "the scan matched nothing").toBeGreaterThan(5);
+
+    const unresolved = predicates
+      .filter((predicate) => predicate.table === null)
+      .map((predicate) => predicate.alias);
     expect(
-      branches.length,
-      "no business_id branches found; the scan pattern has drifted from the SQL",
-    ).toBeGreaterThan(2);
+      unresolved,
+      `could not resolve the table behind: ${unresolved.join(", ")} — those predicates went unchecked`,
+    ).toEqual([]);
 
+    const unknownDdl: string[] = [];
     const uncast: string[] = [];
-    for (const [, table, , cast] of branches) {
-      const type = declaredColumnType(table, "business_id");
-      if (type === "UUID" && !cast) uncast.push(table);
+    for (const predicate of predicates) {
+      const type = declaredColumnType(predicate.table as string, "business_id");
+      // No DDL found is not a pass. Unchecked is how the original defect lived.
+      if (type === null) {
+        unknownDdl.push(predicate.table as string);
+        continue;
+      }
+      if (type === "UUID" && !predicate.cast) uncast.push(predicate.table as string);
     }
 
+    expect(
+      unknownDdl,
+      `no CREATE TABLE found for: ${unknownDdl.join(", ")}`,
+    ).toEqual([]);
     expect(
       uncast,
       `these tables compare a UUID business_id to the text $1 with no cast, which fails the whole journal query: ${uncast.join(", ")}`,

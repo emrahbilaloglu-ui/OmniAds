@@ -48,11 +48,9 @@ export function mobileTier0CompletionOutcome(
  */
 export function MobileTier0TriagePanel({
   ownershipAvailable,
-  onComplete,
   children,
 }: {
   ownershipAvailable: boolean;
-  onComplete?: () => void;
   children?: React.ReactNode;
 }) {
   return (
@@ -72,9 +70,7 @@ export function MobileTier0TriagePanel({
       </p>
 
       {ownershipAvailable ? (
-        <div onClickCapture={onComplete} data-testid="mobile-tier0-controls">
-          {children}
-        </div>
+        <div data-testid="mobile-tier0-controls">{children}</div>
       ) : null}
     </section>
   );
@@ -91,7 +87,14 @@ export function MobileTier0Triage({
   decisionKey: string;
   /** False when workflow state cannot be read; the task cannot be finished. */
   ownershipAvailable: boolean;
-  children?: React.ReactNode;
+  /**
+   * Either plain children, or a function given a `report` callback to call when
+   * ownership is (or is not) recorded. The task finishes when the write lands,
+   * not when a finger touches the panel.
+   */
+  children?:
+    | React.ReactNode
+    | ((report: (recorded: boolean) => void) => React.ReactNode);
   maxWidth?: number;
 }) {
   const [isPhone, setIsPhone] = useState(false);
@@ -137,11 +140,12 @@ export function MobileTier0Triage({
   if (!isPhone) return null;
 
   return (
-    <MobileTier0TriagePanel
-      ownershipAvailable={ownershipAvailable}
-      onComplete={() => complete("completed")}
-    >
-      {children}
+    <MobileTier0TriagePanel ownershipAvailable={ownershipAvailable}>
+      {typeof children === "function"
+        ? (children as (report: (recorded: boolean) => void) => React.ReactNode)(
+            (recorded) => complete(recorded ? "completed" : "abandoned"),
+          )
+        : children}
     </MobileTier0TriagePanel>
   );
 }

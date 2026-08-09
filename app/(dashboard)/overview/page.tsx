@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -283,26 +284,34 @@ export default function OverviewPage() {
     isFetching: query.isFetching,
     error: query.error,
     // A provider we could not read is a hole in the totals, not a zero.
+    // Every read this surface reports on. A failing sparkline used to leave
+    // the state at "ready" while the trend charts rendered empty -- an absent
+    // series is indistinguishable from a flat one, so a chart with no data
+    // read as a real chart showing nothing happening.
     partialReason:
       metaStatusQuery.error || googleAdsStatusQuery.error
         ? "Some provider health could not be read; this view is incomplete"
-        : null,
-    asOf: query.dataUpdatedAt
-      ? new Date(query.dataUpdatedAt).toISOString()
-      : null,
+        : sparklineQuery.error || comparisonSparklineQuery.error
+          ? "Trend data could not be read; the charts are incomplete"
+          : null,
+    // The data's own timestamp. `dataUpdatedAt` is when the *response landed*,
+    // which is fresh by construction: it resets on every refetch no matter how
+    // far behind the sync is.
+    asOf: measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null),
     businessId: businessId || null,
-    onRetry: () => void query.refetch(),
+    // Re-runs every read the reading covers. A retry that refetches only the
+    // primary query leaves the reported hole exactly where it was, so the
+    // button appears to do nothing and the partial state never clears.
+    onRetry: () => {
+      void query.refetch();
+      if (metaStatusQuery.isError) void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (sparklineQuery.isError) void sparklineQuery.refetch();
+      if (comparisonSparklineQuery.isError) void comparisonSparklineQuery.refetch();
+    },
   });
 
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
-
-  if (query.isError) {
-    const errorMessage =
-      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
-    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
-  }
 
   const symbol = currencySymbol(currency);
   // All render data reads from effectiveSummary so sparklines are reflected
@@ -351,6 +360,23 @@ export default function OverviewPage() {
     [platformSections]
   );
 
+  // The early exits sit below every hook deliberately.
+  //
+  // They used to run above seven useMemo calls, so the first render took a
+  // different number of hooks than the next one. That is not a style point:
+  // when a refetch fails after a successful render, React sees fewer hooks and
+  // throws "Rendered fewer hooks than expected", crashing the page instead of
+  // showing the error state this very branch is supposed to guarantee. The
+  // memos all tolerate an undefined summary, so running them first costs
+  // nothing and keeps the hook count invariant.
+  if (!selectedBusinessId) return <BusinessEmptyState />;
+
+  if (query.isError) {
+    const errorMessage =
+      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
+    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
+  }
+
   return (
     <div className="flex flex-col space-y-6 pb-10">
       {/* Agency Today sits above the selected client rather than replacing it:
@@ -360,7 +386,8 @@ export default function OverviewPage() {
       {businesses.length > 1 ? <AgencyToday businessCount={businesses.length} /> : null}
 
       <DataStatusRow
-        dataAsOf={query.dataUpdatedAt ? new Date(query.dataUpdatedAt).toISOString() : null}
+        dataAsOf={measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null)}
+        freshnessBusinessId={businessId || null}
         onRefresh={() => void query.refetch()}
         refreshing={query.isFetching}
         dateRange={dateRange}
@@ -656,6 +683,7 @@ function DataStatusRow({
   dataAsOf,
   onRefresh,
   refreshing = false,
+  freshnessBusinessId = null,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
@@ -666,6 +694,7 @@ function DataStatusRow({
   onRefresh?: () => void;
   refreshing?: boolean;
   platformProviders?: string[];
+  freshnessBusinessId?: string | null;
 }) {
   const shopifyBadge = shopifyServing
     ? shopifyServing.source === "ledger"
@@ -692,7 +721,19 @@ function DataStatusRow({
           </p>
           {/* Overview previously gave no cue at all about how old these numbers
               were, so a tab open since morning looked identical to a fresh load. */}
-          <FreshnessChip asOf={dataAsOf} onRefresh={onRefresh} refreshing={refreshing} />
+          {/*
+            surface and businessId are passed explicitly. Without them the chip
+            falls back to its defaults and files Overview's stale disclosures
+            against meta_decisions with no business, so the surface that
+            actually disclosed cannot be told apart from the one that did not.
+          */}
+          <FreshnessChip
+            asOf={dataAsOf}
+            onRefresh={onRefresh}
+            refreshing={refreshing}
+            surface="overview"
+            businessId={freshnessBusinessId}
+          />
           {providerChips.map((provider) => (
             <div
               key={provider.label}

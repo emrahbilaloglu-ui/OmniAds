@@ -27,7 +27,11 @@ describe("TierZeroFreshness rendered states", () => {
     expect(html).not.toMatch(/>0</);
   });
 
-  it("names a terminal failure instead of leaving old numbers looking current", () => {
+  it("names a failed refresh without calling the visible figures withheld", () => {
+    // React Query keeps the last good payload through a failed revalidation,
+    // so on a surface still rendering those numbers "figures withheld" was
+    // false -- and it told the operator to distrust figures that were fine
+    // while saying nothing about their age.
     const html = renderToStaticMarkup(
       <TierZeroFreshness
         state="error"
@@ -37,9 +41,25 @@ describe("TierZeroFreshness rendered states", () => {
       />,
     );
     expect(html).toContain('data-freshness-error="upstream_unavailable"');
+    expect(html).toContain('data-freshness-last-good="shown"');
+    expect(html).toContain("Could not refresh");
+    // It names when the visible figures are from rather than claiming they are
+    // gone, and never says "just now" about a failed read.
+    expect(html).toContain("data from");
+    expect(html).not.toContain("figures withheld");
+  });
+
+  it("says the figures are withheld only when there are none to show", () => {
+    const html = renderToStaticMarkup(
+      <TierZeroFreshness
+        state="error"
+        asOf={null}
+        errorCode="upstream_unavailable"
+        surface="google_ads"
+      />,
+    );
+    expect(html).toContain('data-freshness-last-good="none"');
     expect(html).toContain("Could not load — figures withheld");
-    // The as-of is not rendered as if the figures were fine.
-    expect(html).not.toContain("2026");
   });
 
   it("offers a retry only when there is something to retry", () => {

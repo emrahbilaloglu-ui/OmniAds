@@ -510,9 +510,13 @@ export default function MetaHistoryView() {
     surface: "meta_decisions",
     // A first read with nothing on screen is "we do not know yet"; a reload
     // with entries already shown is "checking for newer".
-    isLoading: loading && !payload,
-    isFetching: loading,
-    error,
+    // The assigned-accounts read decides whether the journal can be read at
+    // all. Excluding it meant that when it failed the page showed "No accounts
+    // assigned" while the bar said "ready" -- a configuration problem
+    // presented as a settled fact.
+    isLoading: (loading || accountsLoading) && !payload,
+    isFetching: loading || accountsLoading,
+    error: error ?? accountsError,
     // The journal is a cursor read, so the newest entry it returned is the
     // honest as-of. Claiming "now" would overstate what we fetched.
     asOf: entries[0]?.occurredAt ?? null,
@@ -566,7 +570,11 @@ export default function MetaHistoryView() {
         if (!controller.signal.aborted) setAccountsLoading(false);
       });
     return () => controller.abort();
-  }, [business?.timezone, selectedBusinessId]);
+    // reloadToken is a dependency so the freshness retry re-runs this read too.
+    // Without it, a failed accounts fetch was reported as an error with a
+    // retry button that could only ever re-run the entries fetch -- a control
+    // that says the system is trying when it is not.
+  }, [business?.timezone, selectedBusinessId, reloadToken]);
 
   const requestFilters = useMemo<MetaHistoryClientFilters>(
     () =>

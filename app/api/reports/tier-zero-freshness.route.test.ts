@@ -61,22 +61,30 @@ describe("the reports read route and the freshness contract", () => {
     vi.mocked(listCustomReportsByBusiness).mockResolvedValue([]);
     const response = await GET(reportsRequest("?businessId=biz-1"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ reports: [] });
+    const body = await response.json();
+    expect(body.reports).toEqual([]);
+    // An empty list still carries when it was read, so an empty Reports page
+    // can say how old its emptiness is rather than looking timeless.
+    expect(Date.parse(body.generatedAt)).not.toBeNaN();
   });
 
-  it("carries the per-report timestamp the surface dates itself from", async () => {
-    // The Reports surface reports its as-of from the newest row it received.
-    // If the route stopped sending updatedAt, the surface would silently fall
-    // back to "date unknown" rather than showing a wrong date -- but the chip
-    // would stop being useful, so the field is part of the contract.
+  it("publishes when the list was read, not when a report was last edited", () => {
+    // The surface used to date itself from the newest row's `updatedAt`, which
+    // is when a human last saved a report definition. A list nobody has touched
+    // in a month is not a month old, and a report edited a second ago does not
+    // make the read fresh. The route now states the read's own time.
     vi.mocked(listCustomReportsByBusiness).mockResolvedValue([
-      { id: "r-1", name: "Weekly", updatedAt: "2026-08-09T04:00:00.000Z" },
-      { id: "r-2", name: "Monthly", updatedAt: "2026-08-01T04:00:00.000Z" },
+      { id: "r-1", name: "Weekly", updatedAt: "2026-01-01T04:00:00.000Z" },
     ] as never);
 
-    const response = await GET(reportsRequest("?businessId=biz-1"));
-    const body = await response.json();
-    expect(body.reports[0].updatedAt).toBe("2026-08-09T04:00:00.000Z");
+    return GET(reportsRequest("?businessId=biz-1")).then(async (response) => {
+      const body = await response.json();
+      expect(Date.parse(body.generatedAt)).toBeGreaterThan(
+        Date.parse("2026-01-01T04:00:00.000Z"),
+      );
+      // The row keeps its own edit time as content.
+      expect(body.reports[0].updatedAt).toBe("2026-01-01T04:00:00.000Z");
+    });
   });
 
   it("refuses before reading when access is denied", async () => {

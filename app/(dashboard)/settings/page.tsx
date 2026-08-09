@@ -121,6 +121,14 @@ export default function SettingsPage() {
   const [nextPassword, setNextPassword] = useState("");
   const [confirmModal, setConfirmModal] = useState<null | "disconnectAll" | "deleteWorkspace" | "revokeSessions">(null);
   const [providerHealth, setProviderHealth] = useState<Record<string, { label: string; value: string }>>({});
+  /**
+   * When this page's reads last resolved.
+   *
+   * Settings has no single upstream timestamp, so the honest as-of is the age
+   * of the read itself. It is stamped only on success: a failed reload must not
+   * refresh the age of data it did not replace.
+   */
+  const [settingsReadAt, setSettingsReadAt] = useState<string | null>(null);
 
   // One freshness contract across every Tier-0 surface. Derived from the
   // state this surface already has, so it cannot drift from what is on screen.
@@ -128,7 +136,11 @@ export default function SettingsPage() {
     surface: "settings",
     isLoading: loadingTeam,
     error: workspaceError ?? accountError ?? teamError,
-    asOf: accountCreatedAt,
+    // Not `accountCreatedAt`: that is the "Member since" date, a property of
+    // the account that never moves. Feeding it here made the chip report a
+    // steadily growing age for data fetched seconds ago, and fire a stale
+    // disclosure on every single mount.
+    asOf: settingsReadAt,
     businessId: null,
   });
 
@@ -150,6 +162,9 @@ export default function SettingsPage() {
       setAccountName(user.name ?? "");
       setAccountEmail(user.email ?? "");
       setAccountCreatedAt(user.createdAt ?? null);
+      // Stamped on success only: a failed reload must not refresh the age of
+      // data it did not actually replace.
+      setSettingsReadAt(new Date().toISOString());
     } catch (error: unknown) {
       setAccountError(error instanceof Error ? error.message : "Could not load account settings.");
     }

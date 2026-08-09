@@ -297,6 +297,7 @@ function buildGoogleFreshness(
 function renderGoogleCard(status: GoogleAdsStatusResponse) {
   return renderToStaticMarkup(
     <IntegrationsCard
+      businessId="biz-1"
       provider="google"
       language="en"
       description="Link Google Ads to track performance and sync account data."
@@ -377,6 +378,7 @@ describe("IntegrationsCard", () => {
   it("renders the compact Meta progress block in English without removing the existing pill and notice", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -406,6 +408,7 @@ describe("IntegrationsCard", () => {
   it("renders the compact Meta progress block in Turkish", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="meta"
         language="tr"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -458,6 +461,7 @@ describe("IntegrationsCard", () => {
 
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -503,6 +507,7 @@ describe("IntegrationsCard", () => {
 
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="meta"
         language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
@@ -526,6 +531,7 @@ describe("IntegrationsCard", () => {
   it("renders the compact Google progress block without surfacing stale sync attention when the control plane is closed", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="google"
         language="en"
         description="Link Google Ads to track performance and sync account data."
@@ -683,6 +689,7 @@ describe("IntegrationsCard", () => {
     });
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="google"
         language="en"
         description="Link Google Ads to track performance and sync account data."
@@ -711,6 +718,7 @@ describe("IntegrationsCard", () => {
   it("renders a compact Shopify status block without the Meta/Google staged breakdown", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
+      businessId="biz-1"
         provider="shopify"
         language="en"
         description="Sync storefront events and conversion data for attribution."

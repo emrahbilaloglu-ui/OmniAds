@@ -59,8 +59,19 @@ describe("the Overview surface discloses its own age", () => {
     expect(page).toContain("<FreshnessChip");
   });
 
-  it("feeds it the time the data actually arrived, not the render time", () => {
-    expect(page).toContain("query.dataUpdatedAt");
+  it("dates itself from the data, not from when the request came back", () => {
+    // This assertion used to require `query.dataUpdatedAt`, which is React
+    // Query's record of when the *response landed*. That is fresh by
+    // construction -- it resets on every refetch no matter how far behind the
+    // sync is -- so the surface could report "as of just now" over a warehouse
+    // that stopped updating a week ago. The payload's own sync timestamp is the
+    // only thing that answers how old the figures are.
+    expect(page).toContain("shopifyServing?.lastSyncedAt");
+    expect(page).toContain("measuredAsOf(");
+    expect(
+      page.includes("dataAsOf={query.dataUpdatedAt"),
+      "the fetch time is being presented as the data's age",
+    ).toBe(false);
   });
 
   it("offers a refresh that refetches rather than reloading the page", () => {

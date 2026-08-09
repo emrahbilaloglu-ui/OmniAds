@@ -1,5 +1,6 @@
 "use client";
 
+import { newestObservation } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -351,11 +352,18 @@ export default function IntegrationsPage() {
       googleAdsStatusQuery.error || shopifyStatusQuery.error
         ? "Some providers could not be read; connection status is incomplete"
         : null,
-    asOf: metaStatusQuery.dataUpdatedAt
-      ? new Date(metaStatusQuery.dataUpdatedAt).toISOString()
-      : null,
+    // Each provider's own last sync. `dataUpdatedAt` would report when the
+    // status request returned, which says nothing about the provider data.
+    asOf: newestObservation([
+      metaStatusQuery.data?.latestSync?.finishedAt ?? null,
+      googleAdsStatusQuery.data?.latestSync?.finishedAt ?? null,
+    ]),
     businessId,
-    onRetry: () => void metaStatusQuery.refetch(),
+    onRetry: () => {
+      void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (shopifyStatusQuery.isError) void shopifyStatusQuery.refetch();
+    },
   });
 
   const closeSearchConsoleSelector = useCallback(() => {
@@ -753,6 +761,7 @@ export default function IntegrationsPage() {
                   <IntegrationsCard
                     key={item.provider}
                     provider={item.provider}
+                    businessId={businessId ?? null}
                     language={language}
                     description={DESCRIPTIONS[item.provider]}
                     view={item.view}

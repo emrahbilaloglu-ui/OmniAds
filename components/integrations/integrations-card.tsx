@@ -30,6 +30,15 @@ import Image from "next/image";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
+  /**
+   * The business this connection belongs to.
+   *
+   * Required for the recovery-started event. It used to be emitted with
+   * portfolio scope while its completed half is business-scoped, so the two
+   * ends of the pair could never be joined and the recovery rate was
+   * unmeasurable -- the exact thing the pair exists to measure.
+   */
+  businessId: string | null;
   language?: MetaUiLanguage;
   description: string;
   view: ProviderViewState;
@@ -54,6 +63,7 @@ interface IntegrationsCardProps {
 
 export function IntegrationsCard({
   provider,
+  businessId,
   language = "en",
   description,
   view,
@@ -249,7 +259,8 @@ export function IntegrationsCard({
                     eventName: "provider_health_recovery_started",
                     surface: "integrations",
                     outcome: "ok",
-                    scope: "portfolio",
+                    scope: "business",
+                    businessId,
                     provider: provider === "google" ? "google" : "meta",
                   });
                   onReconnect(provider);
@@ -279,7 +290,8 @@ export function IntegrationsCard({
                     eventName: "provider_health_recovery_started",
                     surface: "integrations",
                     outcome: "ok",
-                    scope: "portfolio",
+                    scope: "business",
+                    businessId,
                     provider: provider === "google" ? "google" : "meta",
                   });
                   onReconnect(provider);

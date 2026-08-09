@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useState } from "react";
 import Link from "next/link";
@@ -25,7 +26,13 @@ async function fetchReports(businessId: string) {
   if (!response.ok) {
     throw new Error((payload as { message?: string } | null)?.message ?? "Failed to load reports.");
   }
-  return (payload as { reports: CustomReportRecord[] }).reports;
+  const body = payload as {
+    reports: CustomReportRecord[];
+    generatedAt?: string | null;
+  };
+  // The read's own time travels with the rows so the surface can date itself
+  // from when it read, not from when someone last edited a report.
+  return { reports: body.reports, generatedAt: body.generatedAt ?? null };
 }
 
 export default function ReportsPage() {
@@ -55,11 +62,13 @@ export default function ReportsPage() {
     isLoading: reportsQuery.isLoading,
     isFetching: reportsQuery.isFetching,
     error: reportsQuery.error,
-    asOf: reportsQuery.data?.[0]?.updatedAt ?? null,
+    // The newest row's `updatedAt` is when a human last saved a report
+    // definition, not when this list was read. Keep it as row content.
+    asOf: measuredAsOf(reportsQuery.data?.generatedAt ?? null),
     businessId: selectedBusinessId,
     onRetry: () => void reportsQuery.refetch(),
   });
-  const reports = reportsQuery.data ?? [];
+  const reports = reportsQuery.data?.reports ?? [];
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredReports = (normalizedQuery
     ? reports.filter((report) => {

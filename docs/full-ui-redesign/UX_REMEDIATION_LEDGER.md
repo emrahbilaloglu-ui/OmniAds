@@ -387,8 +387,8 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** recomputed after the final commit; see the figures at the end of
-this section.
+**Scope vs `origin/main`:** 447 files changed, +56,138 / −4,254, across 97 commits
+(`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
 
 ### D066 — decision-fact ownership (complete)
 
@@ -459,17 +459,17 @@ per D5.
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | see the recomputed counts below |
-| Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | see below |
-| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | see below |
-| Accessibility | `npx vitest run lib/accessibility-contract.test.ts` | see below |
-| Typography floor | `npx vitest run lib/typography-floor.test.ts` | see below |
-| Dark-mode absence | `npx vitest run lib/visual-dark-mode.test.ts` | see below |
-| History completeness | `npx vitest run lib/meta/history-projection-completeness.test.ts` | see below |
+| Full suite | `LC_ALL=C npx vitest run` | **6,892 pass**, 0 fail, 61 skipped, 63 todo (701 files) |
+| Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
+| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 28 pass |
+| Accessibility | `npx vitest run lib/accessibility-contract.test.ts` | 15 pass, plus live browser checks in the smoke |
+| Typography floor | `npx vitest run lib/typography-floor.test.ts` | 3 pass |
+| Dark-mode absence | `npx vitest run lib/visual-dark-mode.test.ts` | 6 pass |
+| History completeness | `npx vitest run lib/meta/history-projection-completeness.test.ts` | 4 pass |
 | Typecheck / lint | `npx tsc --noEmit` / `npx eslint .` | 0 / 0 |
 | Production build | `npm run build` | clean |
 | Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, all three DB seams |
-| Visual matrix | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | 6 projects: 320, 390, 768, 1280, 1440, 1728 — all light |
+| Visual matrix | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | **6 passed**: 320, 390, 768, 1280, 1440, 1728 — all light |
 
 The `test:full-ui:visual` script sets `FULL_UI_SMOKE_EXTENDED=1`, so the six-width matrix above is
 what actually runs. It captures 11 surfaces: login, overview, meta-decisions, creative-studio,
@@ -484,7 +484,7 @@ An earlier revision reported "160" and "247" for the focused suite in different 
 withdrawn; the single command above and its recomputed count are the record.
 
 **Test-file impact, measured.** `git diff --name-status origin/main HEAD -- '*.test.ts' '*.test.tsx'`
-reports the added and modified counts recomputed below. The earlier claim that *no pre-existing test
+reports **53 added** and **35 modified**. The earlier claim that *no pre-existing test
 was changed* is **false and withdrawn**: pre-existing test files were modified, because the
 contracts they encoded changed — D065's guards, D066's single-owner rule, the D063 constraint
 vocabulary, and the health join. That is a legitimate reason to edit a test, but it is not "no

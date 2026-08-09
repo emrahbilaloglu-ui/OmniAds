@@ -44,10 +44,10 @@
     "project": "full-ui-mobile",
     "surface": "automation",
     "path": "/platforms/meta/automation",
-    "state": "ready",
+    "state": "loading",
     "errorCode": null,
-    "text": "age unknownRefresh",
-    "hasRetry": true
+    "text": "Loading — no figures yet",
+    "hasRetry": false
   },
   {
     "width": 390,
@@ -64,9 +64,9 @@
     "project": "full-ui-mobile",
     "surface": "google-ads",
     "path": "/platforms/google",
-    "state": "ready",
+    "state": "partial",
     "errorCode": null,
-    "text": "age unknown",
+    "text": "age unknownNo Google Ads accounts are assigned to this business.",
     "hasRetry": false
   },
   {

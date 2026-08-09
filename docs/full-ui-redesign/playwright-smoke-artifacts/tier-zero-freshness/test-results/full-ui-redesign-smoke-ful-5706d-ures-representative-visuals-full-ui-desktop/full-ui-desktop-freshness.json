@@ -64,9 +64,9 @@
     "project": "full-ui-desktop",
     "surface": "google-ads",
     "path": "/platforms/google",
-    "state": "ready",
+    "state": "partial",
     "errorCode": null,
-    "text": "age unknown",
+    "text": "age unknownNo Google Ads accounts are assigned to this business.",
     "hasRetry": false
   },
   {

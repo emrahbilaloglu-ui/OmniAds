@@ -599,6 +599,12 @@ export async function runDurableWorkerRuntime(
   const maxBusinessesPerTick = envNumber("WORKER_MAX_BUSINESSES_PER_TICK", 50);
   const leaseMinutes = envNumber("WORKER_RUNNER_LEASE_MINUTES", 2);
   const heartbeatIntervalMs = envNumber("WORKER_HEARTBEAT_INTERVAL_MS", 15_000);
+  // Half the five-minute health window, so a scope stays fresh through a long
+  // cycle even if a single keepalive write is lost.
+  const WORKER_CYCLE_KEEPALIVE_INTERVAL_MS = envNumber(
+    "WORKER_CYCLE_KEEPALIVE_INTERVAL_MS",
+    150_000,
+  );
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
   const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber(
@@ -702,6 +708,56 @@ export async function runDurableWorkerRuntime(
         dbRuntime: getDbRuntimeDiagnostics(),
       },
     });
+  }
+
+  /**
+   * Keeps a scope's heartbeat fresh WHILE one business cycle is running.
+   *
+   * The health gate asks whether each provider scope has heartbeat inside a
+   * five-minute window, and the cycle only heartbeats at its boundaries. A cycle
+   * that legitimately runs longer than the window therefore looks dead while it
+   * is working, and autoheal restarts a worker that was never unwell - killing
+   * the in-flight work and starting the same cycle again.
+   *
+   * Measured across 2026-08-08T11:01Z..2026-08-09T20:08Z: 50 autoheal restarts,
+   * roughly one every 40 minutes, with no crash and no error in the worker log -
+   * fence admissions ran normally right up to each one. The probe itself was not
+   * the problem either: it completes in 0.5s against a 10s timeout at host load
+   * 0.83. The scope ages told the real story - meta 49s and shopify 54s, but
+   * google_ads 207s and `all` 250s against a 300s limit, so any longer Google
+   * cycle crossed it.
+   *
+   * Meta already solved this INSIDE its fetch loop (startMetaFetchHeartbeat).
+   * This is the same idea one level up, so it covers every provider scope rather
+   * than only the one that happened to be measured.
+   *
+   * `force` is required: the ordinary throttle would suppress exactly the ticks
+   * that matter here. The interval is half the online window, so a scope stays
+   * fresh even if one write is lost, and the timer is unref'd and always cleared
+   * in a finally so it can neither hold the process open nor outlive its cycle.
+   */
+  function withCycleKeepalive<T>(
+    providerScope: string,
+    businessId: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const timer = setInterval(() => {
+      void heartbeat({
+        providerScope,
+        status: "running",
+        lastBusinessId: businessId,
+        metaJson: {
+          workerBuildId,
+          workerStartedAt,
+          providerScope,
+          currentBusinessId: businessId,
+          cycleKeepalive: true,
+        },
+        force: true,
+      }).catch(() => null);
+    }, WORKER_CYCLE_KEEPALIVE_INTERVAL_MS);
+    timer.unref?.();
+    return run().finally(() => clearInterval(timer));
   }
 
   // ONE shutdown, and it runs at most once.
@@ -1337,14 +1393,19 @@ export async function runDurableWorkerRuntime(
               },
               force: true,
             }).catch(() => null);
-            const lifecycleResult = await runAdapterLifecycleTick({
-              adapter,
-              businessId: business.id,
-              workerId,
-              leaseLimit: partitionTickLimit,
-              leasePlan,
-              leaseGuard,
-            });
+            const lifecycleResult = await withCycleKeepalive(
+              adapter.providerScope,
+              business.id,
+              () =>
+                runAdapterLifecycleTick({
+                  adapter,
+                  businessId: business.id,
+                  workerId,
+                  leaseLimit: partitionTickLimit,
+                  leasePlan,
+                  leaseGuard,
+                }),
+            );
             let result: unknown = null;
             let executionMode: "lifecycle_tick" | "consume_business_fallback" =
               "lifecycle_tick";
@@ -1422,10 +1483,14 @@ export async function runDurableWorkerRuntime(
                 };
               } else {
                 lastConsumeBusinessFallbackAtByKey.set(fallbackKey, Date.now());
-                result = await adapter.consumeBusiness(business.id, {
-                  runtimeLeaseGuard: leaseGuard,
-                  runtimeWorkerId: workerId,
-                });
+                result = await withCycleKeepalive(
+                  adapter.providerScope,
+                  business.id,
+                  () => adapter.consumeBusiness(business.id, {
+                    runtimeLeaseGuard: leaseGuard,
+                    runtimeWorkerId: workerId,
+                  }),
+                );
               }
             } else {
               result = {

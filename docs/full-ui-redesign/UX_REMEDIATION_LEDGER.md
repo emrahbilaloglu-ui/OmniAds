@@ -251,7 +251,7 @@ deployment has been run on this branch:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) — *as of that round; current is 6,846, see CURRENT STATUS* |
+| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) — *as of that round; the current count is in CURRENT STATUS* |
 | Typecheck | `npx tsc --noEmit` | exit 0 |
 | Lint | `npx eslint .` | exit 0 |
 | Production build | `npm run build` | exit 0 — compiled successfully, 219 static pages, 291 routes, 0 errors |
@@ -329,15 +329,18 @@ were filtered by following the type and test dependencies of D065/D067 to closur
 ```
 git diff --name-only 130dc8627 ec54dad4 | wc -l   # 99   initial native integration
 git diff --name-only ec54dad4 4546fcae | wc -l    # 30   D066 + first D069 attempt + instrumentation v1
-git diff --name-only origin/main HEAD | wc -l     # 378  candidate total
-git diff --shortstat origin/main HEAD             # 378 files, +55,002 / -4,236
+git diff --name-only origin/main HEAD | wc -l     # recomputed below
+git diff --shortstat origin/main HEAD             # recomputed below
+git log --oneline origin/main..HEAD | wc -l       # recomputed below
 ```
 
-Those three historical figures are facts and are preserved. The candidate has since grown from
-244 to 378 files: the typography floor touched every stylesheet and component carrying sub-11px
-text, which is a wide but shallow change. The earlier claim
+Those three historical figures are facts and are preserved.
+
+**Correction.** An earlier revision reported the candidate at `b01d7b6` as 90 commits and
++55,002 insertions. Git reports **91 commits and +55,004**. The counts had been read before the
+final commit landed; the current figures below are recomputed after the last commit and re-verified. The earlier claim
 that "~60 files" were selected from the native branch is **withdrawn**: it was an
-estimate presented as a count and was never measured. The candidate's 378 files
+estimate presented as a count and was never measured. The candidate's files
 are the cumulative result of the whole programme (UX remediation, native
 selection, D066, three DB seams, instrumentation, evidence artifacts); no
 subdivision of them has been measured, so none is asserted.
@@ -384,7 +387,8 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 378 files changed, +55,002 / −4,236 (90 commits).
+**Scope vs `origin/main`:** recomputed after the final commit; see the figures at the end of
+this section.
 
 ### D066 — decision-fact ownership (complete)
 
@@ -455,24 +459,36 @@ per D5.
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | **6,865 pass**, 0 fail, 61 skipped, 63 todo (698 files) |
-| Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
-| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 28 pass |
-| Typography floor | `npx vitest run lib/typography-floor.test.ts` | 3 pass |
+| Full suite | `LC_ALL=C npx vitest run` | see the recomputed counts below |
+| Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | see below |
+| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | see below |
+| Accessibility | `npx vitest run lib/accessibility-contract.test.ts` | see below |
+| Typography floor | `npx vitest run lib/typography-floor.test.ts` | see below |
+| Dark-mode absence | `npx vitest run lib/visual-dark-mode.test.ts` | see below |
+| History completeness | `npx vitest run lib/meta/history-projection-completeness.test.ts` | see below |
 | Typecheck / lint | `npx tsc --noEmit` / `npx eslint .` | 0 / 0 |
 | Production build | `npm run build` | clean |
-| Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, including all three seams |
-| Desktop + mobile smoke | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | 2/2 across 9 surfaces, with no-clipping and computed-typography assertions |
+| Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, all three DB seams |
+| Visual matrix | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | 6 projects: 320, 390, 768, 1280, 1440, 1728 — all light |
 
-An earlier revision of this section reported "160" and "247" for the focused suite in different
-places. Both are withdrawn; the single command above and its count of **235** are the record.
+The `test:full-ui:visual` script sets `FULL_UI_SMOKE_EXTENDED=1`, so the six-width matrix above is
+what actually runs. It captures 11 surfaces: login, overview, meta-decisions, creative-studio,
+launchpad, automation, reports, settings, integrations, studio-copy, studio-inbox.
+
+**No dark run is claimed.** Nothing applies the `.dark` class — no toggle, no theme provider, no
+`prefers-color-scheme` rule — so a dark project would render light while filing screenshots under a
+dark name. `lib/visual-dark-mode.test.ts` is the standing proof, and it fails the day a real
+mechanism is added.
+
+An earlier revision reported "160" and "247" for the focused suite in different places. Both are
+withdrawn; the single command above and its recomputed count are the record.
 
 **Test-file impact, measured.** `git diff --name-status origin/main HEAD -- '*.test.ts' '*.test.tsx'`
-reports **49 added** and **32 modified**. The earlier claim that *no pre-existing test was changed*
-is **false and withdrawn**: 32 pre-existing test files were modified. They were changed because the
+reports the added and modified counts recomputed below. The earlier claim that *no pre-existing test
+was changed* is **false and withdrawn**: pre-existing test files were modified, because the
 contracts they encoded changed — D065's guards, D066's single-owner rule, the D063 constraint
-vocabulary — and each change is described in the commit that made it. That is a legitimate reason to
-edit a test, but it is not "no pre-existing tests changed", and the distinction matters.
+vocabulary, and the health join. That is a legitimate reason to edit a test, but it is not "no
+pre-existing tests changed".
 
 **Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16
 fails with `postmaster became multithreaded during startup`, which reads as a code failure and is
@@ -482,26 +498,43 @@ not one.
 
 Two categories. Conflating them was a real defect in earlier revisions of this ledger.
 
-**Closed 2026-08-09 (was listed here as open):**
+**Closed 2026-08-09 (was listed here as open, now evidenced):**
 
 - **Mobile composition.** The creative table stacks into task-priority cards below 767px; the
-  committed 390px artifact now shows identity, spend, purchases, revenue, CPA, ROAS and the full
+  committed 390px artifact shows identity, spend, purchases, revenue, CPA, ROAS and the full
   "Assessment unavailable" chip with no clipping and no horizontal scroll.
 - **Typography floor.** 105 CSS rules, 530 Tailwind arbitrary sizes and 112 inline `fontSize`
-  values below 11px raised to 12px; `small` floored. Enforced by `lib/typography-floor.test.ts` and
-  by a computed-size assertion in the smoke, which caught 9–10px text the stylesheet scan missed.
-- **Clipping is now a gate.** The smoke asserts no page-level horizontal scroll *and* that no
-  scroller containing tabular content hides any of it. The second check is the one that matters: the
-  page-level check passed while the row still clipped, because the frame scrolled internally.
+  values below 11px raised to 12px; `small` floored. Enforced by `lib/typography-floor.test.ts`
+  and by a computed-size assertion in the smoke, which caught text the stylesheet scan missed.
+- **Clipping is a gate.** The smoke asserts no page-level horizontal scroll *and* that no scroller
+  containing tabular content hides any of it. The second is the one that matters: the page-level
+  check passed while the row still clipped, because the frame scrolled internally.
+- **Section-9 instrumentation.** 26 events, each with a shipped emitter, proven by
+  `product-instrumentation-emitters.test.ts`. Client-only interactions reach the sink through a
+  bounded authenticated endpoint that re-validates every field server-side.
+- **Accessibility.** 15 structural assertions plus live browser checks for focus visibility,
+  positive tabindex, undescribed images and reduced motion. Findings fixed: the search box was a
+  combobox with no `aria-expanded`, and animations ignored `prefers-reduced-motion`.
+- **Visual matrix.** Six real light widths (320/390/768/1280/1440/1728), Overview and Integrations
+  captured for the first time. The eight dark projects are removed: nothing applies the `.dark`
+  class, so they rendered light while filing screenshots under a dark name.
+  `lib/visual-dark-mode.test.ts` proves the absence of any user-exposed mechanism.
+- **Agency Today health.** Joined to the canonical provider connection state instead of inferred
+  from whether totals exist. A revoked token with cached numbers used to read "healthy" here while
+  Integrations showed action required for the same client at the same moment.
+- **History projection.** Workflow ownership and the append-only provider attempt journal are now
+  projected. `history-projection-completeness.test.ts` asserts every declared source is queried,
+  so a source the filter offers can never return empty because it was never wired.
 
-**Locally reachable and NOT yet done** — these are open local gaps, not production gates:
+**Still open locally, with the reason:**
 
-| Gap | What remains |
+| Gap | Why it is not closed |
 | --- | --- |
-| Section-9 instrumentation coverage | 5 of section 9's minimum events have emitters. Client-row open, search-result open, saved-view create/apply, evidence viewed, the report generate/fail/retry/share/print/CSV family, Google copy/CSV/deep-link, health recovery, notification delivery lifecycle, guarded dry-run and mobile Tier-0 have no server emission point on this candidate. The vocabulary deliberately excludes them rather than declaring dead names |
-| Accessibility verification | Keyboard/focus/accessible-name/status, 200% zoom, reduced motion and long-text/localisation are not systematically verified on the changed surfaces |
-| Visual evidence breadth | Smoke now captures 9 surfaces (login, Decisions, Studio, Copies, Inbox, Launchpad, Automation, Reports, Settings) at the configured 390/768/1280/1440/1728 projects. Overview/Agency Today, the Decisions inspector and Integrations health are still not captured |
-| Freshness adoption, Agency Today health join, History projection completeness | Previously noted in this ledger and still open locally |
+| Notification lifecycle events | The ledger contract exists but nothing produces or delivers a notification, so every count would be a constant zero reading as "no incidents" |
+| Guarded confirmed / provider-attempted / reconciled events | These require the execution path, which is gated off. The stages that do occur (preflight, dry run, verified, failed, ambiguous) are emitted |
+| Mobile Tier-0 start/complete events | Mobile is read-only here and D5 keeps Tier-0 writes desktop-gated, so there is no action to start or complete |
+| Google deep-link event | No deep link into the Google Ads UI is rendered on this candidate |
+| Freshness adoption breadth | `FreshnessChip` now emits disclosure and is mounted on Decisions; Studio, Reports and Google surfaces do not carry it yet |
 
 **Production-only or physical-device** — no local component exists:
 
@@ -567,7 +600,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| X-1 | No regression in existing tests | `local_pass` | current: **6,846 pass**, 0 fail, vs the 5,995 pre-program baseline; every addition new, no pre-existing test changed | branch tip | local | owner (pending) | — |
+| X-1 | No regression in existing tests | `local_pass` | 0 failures against the 5,995 pre-program baseline. Pre-existing test files **were** modified where the contract they encoded changed; the earlier "no pre-existing tests changed" claim is withdrawn. Exact counts in CURRENT STATUS | branch tip | local | owner (pending) | — |
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |

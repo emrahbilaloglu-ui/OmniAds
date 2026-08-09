@@ -92,12 +92,12 @@ export function OverviewTab({ kpis, insights, topCampaigns, isLoading }: Overvie
                     <p className="font-medium truncate max-w-[200px]" title={c.name}>
                       {c.name}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">{c.channel}</p>
+                    <p className="text-[12px] text-muted-foreground">{c.channel}</p>
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
                     <div className="text-right">
                       <p className="text-xs font-semibold">{fmtCurrency(c.spend)}</p>
-                      <p className="text-[10px] text-muted-foreground">spend</p>
+                      <p className="text-[12px] text-muted-foreground">spend</p>
                     </div>
                     <div className="text-right">
                       <p className={cn(
@@ -108,11 +108,11 @@ export function OverviewTab({ kpis, insights, topCampaigns, isLoading }: Overvie
                       )}>
                         {fmtRoas(c.roas)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">ROAS</p>
+                      <p className="text-[12px] text-muted-foreground">ROAS</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs font-semibold">{fmtNumber(c.conversions)}</p>
-                      <p className="text-[10px] text-muted-foreground">conv.</p>
+                      <p className="text-[12px] text-muted-foreground">conv.</p>
                     </div>
                   </div>
                 </div>

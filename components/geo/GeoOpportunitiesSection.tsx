@@ -150,7 +150,7 @@ export function GeoOpportunitiesSection({
                 )}
               >
                 {f.label}
-                <span className="ml-1.5 text-[10px] opacity-60">{count}</span>
+                <span className="ml-1.5 text-[12px] opacity-60">{count}</span>
               </button>
             );
           })}
@@ -189,11 +189,11 @@ export function GeoOpportunitiesSection({
                 <div className="flex flex-wrap items-center gap-2 mb-1.5">
                   <span className="font-semibold text-sm">{op.title}</span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${PRIORITY_BADGE[op.priority]}`}
+                    className={`rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase ${PRIORITY_BADGE[op.priority]}`}
                   >
                     {op.priority}
                   </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[12px] text-muted-foreground">
                     {cfg.label}
                   </span>
                 </div>
@@ -205,11 +205,11 @@ export function GeoOpportunitiesSection({
                       Impact: <span className="text-emerald-600 dark:text-emerald-400">{op.impact}</span>
                     </span>
                   )}
-                  <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", EFFORT_BADGE[op.effort])}>
+                  <span className={cn("rounded px-1.5 py-0.5 text-[12px] font-medium", EFFORT_BADGE[op.effort])}>
                     {op.effort.charAt(0).toUpperCase() + op.effort.slice(1)} effort
                   </span>
                   {op.confidence && (
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1 text-[12px] text-muted-foreground">
                       <span className={cn("h-1.5 w-1.5 rounded-full", CONFIDENCE_DOT[op.confidence])} />
                       {op.confidence.charAt(0).toUpperCase() + op.confidence.slice(1)} confidence
                     </span>

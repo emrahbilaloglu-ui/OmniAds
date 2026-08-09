@@ -125,7 +125,7 @@ export function BulkToolbar({
                 </span>
               ) : null}
               {trackingBlocked ? (
-                <span className="basis-full text-[10.5px] text-rose-700 flex items-center gap-1 mt-0.5">
+                <span className="basis-full text-[12px] text-rose-700 flex items-center gap-1 mt-0.5">
                   Tracking degraded — Cut requires confirmation.
                 </span>
               ) : null}

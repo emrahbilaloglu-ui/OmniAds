@@ -85,7 +85,7 @@ function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
     low: "bg-muted text-muted-foreground",
   }[priority];
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cls)}>
+    <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase", cls)}>
       {priority}
     </span>
   );
@@ -170,7 +170,7 @@ const columns: ColumnDef<GeoPage>[] = [
     render: (r) =>
       r.recommendation ? (
         <span
-          className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate max-w-[150px]"
+          className="rounded bg-muted px-1.5 py-0.5 text-[12px] block truncate max-w-[150px]"
           title={r.recommendation}
         >
           {r.recommendation}

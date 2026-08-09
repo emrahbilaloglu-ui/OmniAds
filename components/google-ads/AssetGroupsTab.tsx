@@ -51,7 +51,7 @@ function CoverageIndicators({ assetMix }: { assetMix?: Record<string, number> })
             key={t}
             title={`${t}: ${count}`}
             className={cn(
-              "rounded px-1 py-0.5 text-[8px] font-semibold uppercase",
+              "rounded px-1 py-0.5 text-[12px] font-semibold uppercase",
               count > 0
                 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
                 : "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 opacity-60"
@@ -73,12 +73,12 @@ const cols: ColDef<Creative>[] = [
       return (
         <div className="max-w-[200px]">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", cfg.cls)}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", cfg.cls)}>
               {cfg.icon} {r.adStrength ?? "Unknown"}
             </span>
           </div>
           <p className="text-xs font-medium truncate" title={r.name}>{r.name}</p>
-          <p className="text-[10px] text-muted-foreground">{r.type}</p>
+          <p className="text-[12px] text-muted-foreground">{r.type}</p>
           {r.assetMix && (
             <div className="mt-1">
               <CoverageIndicators assetMix={r.assetMix} />

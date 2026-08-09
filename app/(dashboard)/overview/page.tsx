@@ -557,7 +557,7 @@ function renderPlatformSectionTitle(
       ) : null}
       {sectionLabel?.ambiguous ? (
         <span
-          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800"
+          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-800"
           title="Another section reports the same platform. These totals cover different scopes and are not comparable."
         >
           Scope unresolved

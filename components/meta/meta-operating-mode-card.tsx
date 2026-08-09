@@ -16,7 +16,7 @@ function SectionList({
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-500">
         {title}
       </p>
       <ul className="mt-1 space-y-1 text-sm text-slate-700">
@@ -38,7 +38,7 @@ function InputList({
   if (rows.length === 0) return null;
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-500">
         {title}
       </p>
       <div className="mt-2 grid gap-2 md:grid-cols-2">
@@ -47,7 +47,7 @@ function InputList({
             key={`${title}-${row.label}-${row.detail}`}
             className="rounded-xl border border-slate-200 bg-white px-3 py-2"
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               {row.label}
             </p>
             <p className="mt-1 text-sm text-slate-800">{row.detail}</p>
@@ -109,7 +109,7 @@ export function MetaOperatingModeCard({
     >
       <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-slate-500">
             Operating Mode
           </p>
           <h3 className="mt-1 text-lg font-semibold text-slate-950">
@@ -145,7 +145,7 @@ export function MetaOperatingModeCard({
             title="Operating Authority"
           />
           <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Confidence
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-900">

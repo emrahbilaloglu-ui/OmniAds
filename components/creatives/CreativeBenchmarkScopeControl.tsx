@@ -31,7 +31,7 @@ export function CreativeBenchmarkScopeControl({
       )}
       data-testid="creative-benchmark-scope-control"
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+      <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
         Benchmark
       </span>
       <button

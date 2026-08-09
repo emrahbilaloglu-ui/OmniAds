@@ -132,7 +132,7 @@ export function LaunchpadProgress({
             </p>
             {result.launchIntentId ? (
               <div
-                className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-[var(--muted)]"
+                className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-[var(--muted)]"
                 data-testid="launchpad-intent-receipt"
               >
                 <span>Launch record</span>
@@ -142,7 +142,7 @@ export function LaunchpadProgress({
                 <span>status {result.launchIntentStatus ?? "unavailable"}</span>
               </div>
             ) : (
-              <p className="mt-2 text-[10.5px] text-[var(--warn)]">
+              <p className="mt-2 text-[12px] text-[var(--warn)]">
                 Launch record unavailable for this response.
               </p>
             )}

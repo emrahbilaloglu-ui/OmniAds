@@ -1425,7 +1425,7 @@ export function CreativesTableSection({
               </div>
 
               <div className="mt-3">
-                <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   Selected metrics
                 </p>
                 <div className="max-h-44 space-y-1 overflow-auto">
@@ -1436,14 +1436,14 @@ export function CreativesTableSection({
                       <button
                         type="button"
                         onClick={() => moveColumn(index, -1)}
-                        className="rounded border px-1 text-[10px]"
+                        className="rounded border px-1 text-[12px]"
                       >
                         ↑
                       </button>
                       <button
                         type="button"
                         onClick={() => moveColumn(index, 1)}
-                        className="rounded border px-1 text-[10px]"
+                        className="rounded border px-1 text-[12px]"
                       >
                         ↓
                       </button>
@@ -1494,7 +1494,7 @@ export function CreativesTableSection({
               <div className="max-h-56 space-y-2 overflow-auto">
                 {filteredAiTagGroups.map((group) => (
                   <div key={group.label} className="space-y-1">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {group.label}
                     </p>
                     {group.items.map((item) => (
@@ -1562,7 +1562,7 @@ export function CreativesTableSection({
       </div>
 
       {/* B) selection info */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-muted-foreground">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium text-foreground/85">{tablePreset.summary}</span>
           {presetTagSummary ? <span>Focus tags: {presetTagSummary}</span> : null}
@@ -1580,11 +1580,11 @@ export function CreativesTableSection({
           setScrollTop(event.currentTarget.scrollTop);
         }}
       >
-        <table className="table-fixed text-[10px]" style={{ width: totalTableWidth }}>
+        <table className="table-fixed text-[12px]" style={{ width: totalTableWidth }}>
           <thead className="sticky top-0 z-20 bg-[var(--adc-s1,#f5f5f3)]">
             <tr className="border-b border-[var(--adc-b1,#e4e4e0)]">
               <th
-                className="sticky left-0 z-30 border-r border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                className="sticky left-0 z-30 border-r border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1603,7 +1603,7 @@ export function CreativesTableSection({
                       className="inline-flex items-center gap-1 text-left"
                     >
                       <span>Creative / Ad Name</span>
-                      <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("name")}</span>
+                      <span className="text-[12px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("name")}</span>
                     </button>
                   </label>
                   <button
@@ -1626,7 +1626,7 @@ export function CreativesTableSection({
 
               {tablePreset.showLaunchDate && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.launchDate.minWidth,
                     width: getColumnWidth(
@@ -1638,7 +1638,7 @@ export function CreativesTableSection({
                 >
                   <button type="button" className="inline-flex items-center gap-1" onClick={() => cycleSort("launchDate")}>
                     <span>Launch date</span>
-                    <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("launchDate")}</span>
+                    <span className="text-[12px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator("launchDate")}</span>
                   </button>
                   <button
                     type="button"
@@ -1660,7 +1660,7 @@ export function CreativesTableSection({
 
               {tablePreset.showActiveStatus && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.activeStatus.minWidth,
                     width: getColumnWidth(
@@ -1691,7 +1691,7 @@ export function CreativesTableSection({
 
               {tablePreset.showAdLength && (
                 <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                  className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: STATIC_COLUMN_SPECS.adLength.minWidth,
                     width: getColumnWidth(
@@ -1728,7 +1728,7 @@ export function CreativesTableSection({
                 return (
                   <th
                     key={`ai_tag_header_${tagKey}`}
-                    className="group relative px-2.5 py-1.5 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                    className="group relative px-2.5 py-1.5 text-left text-[12px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                     style={{
                       minWidth: widthSpec.minWidth,
                       width: getColumnWidth(
@@ -1745,7 +1745,7 @@ export function CreativesTableSection({
                     >
                       <Icon className="h-3.5 w-3.5 text-[var(--adc-ink3,#7d838c)]" />
                       <span className="truncate">{label}</span>
-                      <span className="text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(sortKey)}</span>
+                      <span className="text-[12px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(sortKey)}</span>
                     </button>
                     <button
                       type="button"
@@ -1769,7 +1769,7 @@ export function CreativesTableSection({
               {selectedColumns.map((column) => (
                 <th
                   key={column.key}
-                  className="group relative px-2.5 py-1 text-left text-[9px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                  className="group relative px-2.5 py-1 text-left text-[12px] font-medium leading-tight tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{
                     minWidth: column.minWidth,
                     width: getColumnWidth(column.key, column.minWidth, column.preferredWidth),
@@ -1813,7 +1813,7 @@ export function CreativesTableSection({
                           className="inline-flex min-w-0 items-start gap-1 text-left"
                         >
                           <span className="line-clamp-2">{column.label}</span>
-                          <span className="mt-px text-[10px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(column.key)}</span>
+                          <span className="mt-px text-[12px] text-[var(--adc-ink3,#7d838c)]">{sortIndicator(column.key)}</span>
                         </button>
                       </div>
                     );
@@ -1831,7 +1831,7 @@ export function CreativesTableSection({
 
               {showDecisionColumn ? (
                 <th
-                  className="px-2.5 py-1.5 text-right text-[9px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
+                  className="px-2.5 py-1.5 text-right text-[12px] font-medium tracking-[0.01em] text-[var(--adc-ink3,#7d838c)]"
                   style={{ minWidth: DECISION_COLUMN_WIDTH, width: DECISION_COLUMN_WIDTH }}
                 >
                   DECISION
@@ -1882,7 +1882,7 @@ export function CreativesTableSection({
           <tfoot className="sticky bottom-0 z-10 bg-[var(--adc-s1,#f5f5f3)]/95 backdrop-blur">
             <tr className="border-t border-[var(--adc-b1,#e4e4e0)]">
               <td
-                className="sticky left-0 z-20 border-r bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-[9px] font-semibold text-[var(--adc-ink3,#7d838c)]"
+                className="sticky left-0 z-20 border-r bg-[var(--adc-s1,#f5f5f3)] px-2.5 py-1.5 text-[12px] font-semibold text-[var(--adc-ink3,#7d838c)]"
                 style={{
                   minWidth: STATIC_COLUMN_SPECS.creativeName.minWidth,
                   width: getColumnWidth(
@@ -1895,11 +1895,11 @@ export function CreativesTableSection({
                 Net Results
               </td>
 
-	              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
-              {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
-              {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
+	              {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[12px] text-muted-foreground">-</td>}
+              {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[12px] text-muted-foreground">-</td>}
+              {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[12px] text-muted-foreground">-</td>}
               {selectedAiTagColumns.map((tagKey) => (
-                <td key={`summary_ai_tag_${tagKey}`} className="px-2.5 py-1.5 text-[9px] text-muted-foreground">
+                <td key={`summary_ai_tag_${tagKey}`} className="px-2.5 py-1.5 text-[12px] text-muted-foreground">
                   -
                 </td>
               ))}
@@ -1914,7 +1914,7 @@ export function CreativesTableSection({
                   <td
                     key={`summary_${column.key}`}
                     className={cn(
-                      "px-2.5 py-1.5 text-[9px]",
+                      "px-2.5 py-1.5 text-[12px]",
                       column.align === "right"
                         ? "text-right"
                         : column.align === "center"
@@ -1934,7 +1934,7 @@ export function CreativesTableSection({
                 );
               })}
               {showDecisionColumn ? (
-                <td className="px-2.5 py-1.5 text-right text-[9px] text-muted-foreground">—</td>
+                <td className="px-2.5 py-1.5 text-right text-[12px] text-muted-foreground">—</td>
               ) : null}
             </tr>
           </tfoot>
@@ -1942,7 +1942,7 @@ export function CreativesTableSection({
       </div>
 
       {/* D/E) pagination row */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
         <div className="flex items-center gap-2">
           <label className="inline-flex items-center gap-1">
             <span className="text-muted-foreground">Results per page</span>
@@ -1954,7 +1954,7 @@ export function CreativesTableSection({
                   resultsPerPage: Number(event.target.value) as 20 | 50 | 100,
                 })
               }
-              className="h-7 rounded border bg-background px-2 text-[10px]"
+              className="h-7 rounded border bg-background px-2 text-[12px]"
             >
               <option value={20}>20</option>
               <option value={50}>50</option>
@@ -2065,13 +2065,13 @@ const CreativeTableRow = memo(function CreativeTableRow({
           />
 
           <div className="min-w-0 flex-1" title={buildPlacementTooltip(row)}>
-            <p className="truncate text-[10px] font-medium leading-tight">{rowName}</p>
+            <p className="truncate text-[12px] font-medium leading-tight">{rowName}</p>
             {row.campaignName ? (
-              <p className="mt-0.5 truncate text-[9px] text-muted-foreground/80">
+              <p className="mt-0.5 truncate text-[12px] text-muted-foreground/80">
                 {row.campaignName}
               </p>
             ) : null}
-            <p className="mt-1 truncate text-[9px] text-muted-foreground">
+            <p className="mt-1 truncate text-[12px] text-muted-foreground">
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button
                 type="button"
@@ -2093,15 +2093,15 @@ const CreativeTableRow = memo(function CreativeTableRow({
       </td>
 
       {tablePreset.showLaunchDate && (
-        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.launchDate}</td>
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">{row.launchDate}</td>
       )}
 
       {tablePreset.showActiveStatus && (
-        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">Active</td>
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">Active</td>
       )}
 
       {tablePreset.showAdLength && (
-        <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">
+        <td className="border-b px-2.5 py-1.5 text-[12px] font-medium">
           {row.creativeVisualFormat === "video" ? "15s" : getCreativeVisualFormatLabel(row.creativeVisualFormat)}
         </td>
       )}
@@ -2133,7 +2133,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
           <td
             key={`${rowId}_${column.key}`}
             className={cn(
-              "border-b px-2.5 py-1.5 text-[10px] font-medium",
+              "border-b px-2.5 py-1.5 text-[12px] font-medium",
               evaluation.applicable === false && "text-muted-foreground",
               column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
             )}
@@ -2145,7 +2145,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
               : "—"}
             {column.key === "hookScore" && evaluation.applicable !== false ? (
               <span
-                className="ml-1 inline-block rounded-[3px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-1 align-middle text-[8px] font-medium text-[var(--adc-auto-fg,#6c41be)]"
+                className="ml-1 inline-block rounded-[3px] border border-[var(--adc-auto-bd,#d9ccf1)] bg-[var(--adc-auto-bg,#f2edfb)] px-1 align-middle text-[12px] font-medium text-[var(--adc-auto-fg,#6c41be)]"
                 title="Client-computed proxy from early-attention and thumbstop signals — not a provider-reported metric."
               >
                 proxy
@@ -2162,7 +2162,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
           {decisionLabel ? (
             <span
               className={cn(
-                "inline-flex rounded-full border px-2 py-0.5 text-[9px] font-semibold leading-none",
+                "inline-flex rounded-full border px-2 py-0.5 text-[12px] font-semibold leading-none",
                 DECISION_LABEL_PALETTE[decisionLabel].legacyClassName,
               )}
             >
@@ -2294,8 +2294,8 @@ function MetricModal({
                 <div key={metric} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
                   <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate">{resolveMetricLabel(metric)}</span>
-                  <button type="button" onClick={() => moveMetric(index, -1)} className="rounded border px-1 text-[10px]">↑</button>
-                  <button type="button" onClick={() => moveMetric(index, 1)} className="rounded border px-1 text-[10px]">↓</button>
+                  <button type="button" onClick={() => moveMetric(index, -1)} className="rounded border px-1 text-[12px]">↑</button>
+                  <button type="button" onClick={() => moveMetric(index, 1)} className="rounded border px-1 text-[12px]">↓</button>
                   <button type="button" onClick={() => removeMetric(metric)}>
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -2400,7 +2400,7 @@ function MetricGroup({
 
   return (
     <div className="mb-4">
-      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="space-y-1">
         {items.map((key) => {
           const added = isAdded(key);

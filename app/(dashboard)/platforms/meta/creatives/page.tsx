@@ -912,7 +912,7 @@ function ReadOnlyCreativeDrawer({
             <div className="grid grid-cols-2 gap-2">
               {metrics.map(([label, value]) => (
                 <div key={label} className="rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
                   <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--ink)]">{value}</p>
                 </div>
               ))}

@@ -29,7 +29,7 @@ function FloorGroup({
   if (items.length === 0) return null;
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
         {title}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -40,7 +40,7 @@ function FloorGroup({
           >
             <p className="font-semibold">{item.label}</p>
             <p className="mt-1">{item.current}</p>
-            {item.reason ? <p className="mt-1 text-[10px] opacity-80">{item.reason}</p> : null}
+            {item.reason ? <p className="mt-1 text-[12px] opacity-80">{item.reason}</p> : null}
           </div>
         ))}
       </div>
@@ -70,7 +70,7 @@ export function DecisionPolicyExplanationPanel({
         </div>
         <div
           className={cn(
-            "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+            "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
             compareTone(explanation.compare.cutoverState),
           )}
         >

@@ -41,7 +41,7 @@ const cols: ColDef<Campaign>[] = [
       <div className="max-w-[180px]">
         <p className="font-medium truncate text-xs" title={r.name}>{r.name}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", CHANNEL_COLORS[r.channel] ?? "bg-muted text-muted-foreground")}>
+          <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", CHANNEL_COLORS[r.channel] ?? "bg-muted text-muted-foreground")}>
             {r.channel}
           </span>
           <StatusBadge status={r.status} />

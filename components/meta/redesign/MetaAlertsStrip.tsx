@@ -62,7 +62,7 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
             className="grid gap-2 rounded-lg border border-rose-100 bg-white px-3 py-2 text-left hover:bg-rose-50/60 md:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
             onClick={() => onOpenDiagnostic?.(anomaly)}
           >
-            <span className={`w-fit rounded border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
+            <span className={`w-fit rounded border px-1.5 py-0.5 text-[12px] font-semibold uppercase ${SEVERITY_CLASS[anomaly.severity]}`}>
               {anomaly.severity}
             </span>
             <span className="min-w-0">

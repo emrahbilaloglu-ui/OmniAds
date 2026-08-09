@@ -105,11 +105,11 @@ function SearchTermsSection({ terms, summary, isLoading }: { terms?: SearchTerm[
         <div className="max-w-[200px]">
           <p className="text-xs font-medium truncate" title={r.searchTerm}>{r.searchTerm}</p>
           <div className="flex items-center gap-1 mt-0.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
               {r.intent}
             </span>
             {!r.isKeyword && r.conversions >= 2 && (
-              <span className="rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[9px] font-semibold">
+              <span className="rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[12px] font-semibold">
                 + KW opp
               </span>
             )}
@@ -221,11 +221,11 @@ function KeywordsSection({ keywords, insights, isLoading }: { keywords?: Keyword
       render: (r) => (
         <div className="max-w-[180px]">
           <p className="text-xs font-medium truncate" title={r.keyword}>{r.keyword}</p>
-          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", MATCH_TYPE_CONFIG[r.matchType] ?? "bg-muted text-muted-foreground")}>
+          <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", MATCH_TYPE_CONFIG[r.matchType] ?? "bg-muted text-muted-foreground")}>
             {r.matchType}
           </span>
           {(r.expectedCtr || r.adRelevance || r.landingPageExperience) && (
-            <p className="mt-1 text-[9px] text-muted-foreground truncate">
+            <p className="mt-1 text-[12px] text-muted-foreground truncate">
               {r.expectedCtr ?? "n/a"} CTR · {r.adRelevance ?? "n/a"} rel · {r.landingPageExperience ?? "n/a"} LP
             </p>
           )}

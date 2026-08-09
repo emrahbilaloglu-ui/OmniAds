@@ -20,7 +20,7 @@ describe("ConfidencePill", () => {
 
     expect(html).toContain("88%");
     expect(html).toContain("42%");
-    expect(html).toContain("text-[10.5px]");
-    expect(html).toContain("text-[10px]");
+    expect(html).toContain("text-[12px]");
+    expect(html).toContain("text-[12px]");
   });
 });

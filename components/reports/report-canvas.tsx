@@ -255,7 +255,7 @@ function MiniChart({
             pixelY={tooltipPixel.y}
           />
         ) : null}
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground">
           {activeSeries.map((item) => (
             <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
@@ -453,13 +453,13 @@ function MiniChart({
       ) : null}
 
       {activeSeries.length > 1 && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground shrink-0">
+        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground shrink-0">
           {activeSeries.map((item) => (
             <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
               {dualAxis && rightSeries.includes(item) && (
-                <span className="text-[9px] opacity-50" title="Shared right-axis scale">~</span>
+                <span className="text-[12px] opacity-50" title="Shared right-axis scale">~</span>
               )}
             </span>
           ))}
@@ -500,11 +500,11 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
           ) : null}
         </div>
         {widget.errorMessage ? (
-          <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-medium text-rose-700">
+          <span className="rounded-full bg-rose-50 px-2 py-1 text-[12px] font-medium text-rose-700">
             Failed to load
           </span>
         ) : widget.warning ? (
-          <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">
+          <span className="rounded-full bg-amber-50 px-2 py-1 text-[12px] font-medium text-amber-700">
             Warning
           </span>
         ) : null}

@@ -36,7 +36,7 @@ export function GoogleIntegrationProgress({
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   {stage.title}
                 </p>
                 <p className="mt-1 text-[11px] font-medium leading-4 text-foreground">
@@ -45,13 +45,13 @@ export function GoogleIntegrationProgress({
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {typeof stage.percent === "number" ? (
-                  <span className="text-[10px] font-semibold tabular-nums text-muted-foreground">
+                  <span className="text-[12px] font-semibold tabular-nums text-muted-foreground">
                     {stage.percent}%
                   </span>
                 ) : null}
                 <span
                   className={cn(
-                    "rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+                    "rounded-full border px-2 py-0.5 text-[12px] font-semibold capitalize",
                     stage.state === "ready" &&
                       "border-emerald-200 bg-emerald-50 text-emerald-700",
                     stage.state === "working" &&
@@ -67,7 +67,7 @@ export function GoogleIntegrationProgress({
               </div>
             </div>
             {stage.evidence ? (
-              <p className="text-[10px] leading-4 text-muted-foreground">
+              <p className="text-[12px] leading-4 text-muted-foreground">
                 {stage.evidence}
               </p>
             ) : null}

@@ -99,11 +99,11 @@ export function CreativeDrawerHeader({
             {creative?.name ?? "Creative"}
           </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+            <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
               Meta
             </span>
             {formatLabel ? (
-              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
                 {formatLabel}
               </span>
             ) : null}
@@ -194,7 +194,7 @@ function SummaryCard({ label, value, icon }: { label: string; value: string; ico
     <div className="rounded-xl border border-neutral-200 bg-white p-3">
       <div className="flex items-center gap-1.5">
         <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted/60">{icon}</div>
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
       </div>
       <p className="mt-1.5 font-mono text-lg font-bold tabular-nums tracking-tight">{value}</p>
     </div>
@@ -288,7 +288,7 @@ export function CreativePerformanceChart({
                         {label}
                       </p>
                       {sublabel ? (
-                        <p className="max-w-[18rem] truncate text-[10px] text-muted-foreground">
+                        <p className="max-w-[18rem] truncate text-[12px] text-muted-foreground">
                           {sublabel}
                         </p>
                       ) : null}
@@ -305,7 +305,7 @@ export function CreativePerformanceChart({
               );
             })}
             {rows.length > 8 && (
-              <p className="pt-1 text-center text-[10px] text-muted-foreground">+{rows.length - 8} more ads</p>
+              <p className="pt-1 text-center text-[12px] text-muted-foreground">+{rows.length - 8} more ads</p>
             )}
           </div>
         )}

@@ -109,16 +109,16 @@ export function CreativeInsightsDrawer({
           <div className="mt-4 space-y-1.5">
             <p className="text-sm font-semibold leading-tight">{safeRow.name}</p>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="secondary" className="text-[10px]">
+              <Badge variant="secondary" className="text-[12px]">
                 Meta
               </Badge>
               {taxonomyPills.primaryLabel ? (
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="text-[12px]">
                   {taxonomyPills.primaryLabel}
                 </Badge>
               ) : null}
               {taxonomyPills.secondaryLabel ? (
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="text-[12px]">
                   {taxonomyPills.secondaryLabel}
                 </Badge>
               ) : null}

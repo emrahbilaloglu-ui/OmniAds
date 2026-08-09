@@ -681,7 +681,7 @@ export default function IntegrationsPage() {
               Active business
               <span className="text-[var(--adc-ink)]">{activeBusiness?.name ?? "Unknown"}</span>
               {isDemoWorkspace ? (
-                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]">
+                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[12px] font-semibold text-[var(--adc-caution-fg)]">
                   Demo fixtures active
                 </span>
               ) : null}
@@ -992,7 +992,7 @@ function SummaryTile({
         tone === "accent" && "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
       )}
     >
-      <p className="font-mono text-[10.5px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+      <p className="font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
         {label}
       </p>
       <div className="mt-1 flex items-end gap-2">

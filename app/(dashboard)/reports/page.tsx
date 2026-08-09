@@ -183,7 +183,7 @@ export default function ReportsPage() {
                       <p className="mt-1 text-[12px] text-[var(--adc-ink3)]">
                         {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
-                      <p className="mt-2 font-mono text-[10.5px] text-[var(--adc-ink3)]">
+                      <p className="mt-2 font-mono text-[12px] text-[var(--adc-ink3)]">
                         {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
@@ -192,7 +192,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[10.5px] font-medium text-[var(--adc-ink3)]">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[12px] font-medium text-[var(--adc-ink3)]">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -235,7 +235,7 @@ export default function ReportsPage() {
                 className="rounded-[10px] border border-dashed border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />

@@ -516,7 +516,7 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Angles
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
@@ -525,7 +525,7 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Usage Map
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
@@ -1041,7 +1041,7 @@ function CopyCompareOverlay({
               >
                 {row.copyText}
               </div>
-              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
                 {row.campaignName ?? "—"}
               </div>
             </div>
@@ -1073,7 +1073,7 @@ function CopyCompareOverlay({
                   >
                     <b style={{ fontWeight: 600 }}>{metric.value(row)}</b>{" "}
                     {delta.text ? (
-                      <span style={{ fontSize: 10.5, color: toneColor(delta.tone) }}>{delta.text}</span>
+                      <span style={{ fontSize: 12, color: toneColor(delta.tone) }}>{delta.text}</span>
                     ) : null}
                   </div>
                 );

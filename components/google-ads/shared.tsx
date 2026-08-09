@@ -89,7 +89,7 @@ export function GadsInsightCard({ severity, title, description, evidence, recomm
       </div>
       <p className="text-xs text-muted-foreground pl-6">{description}</p>
       {evidence && (
-        <p className="text-[10px] text-muted-foreground pl-6 italic">{evidence}</p>
+        <p className="text-[12px] text-muted-foreground pl-6 italic">{evidence}</p>
       )}
       {recommendation && (
         <p className="text-xs text-foreground/80 pl-6">→ {recommendation}</p>
@@ -143,18 +143,18 @@ export function GadsOpportunityCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={cn("h-2 w-2 rounded-full shrink-0", PRIORITY_DOT[priority])} />
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
             {TYPE_LABELS[type] ?? type}
           </span>
         </div>
-        <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0", EFFORT_CONFIG[effort])}>
+        <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold shrink-0", EFFORT_CONFIG[effort])}>
           {effort} effort
         </span>
       </div>
       <p className="text-sm font-semibold leading-snug">{title}</p>
       <p className="text-xs text-muted-foreground">{whyItMatters}</p>
       {evidence && (
-        <p className="text-[10px] text-muted-foreground italic rounded bg-muted px-2 py-1">
+        <p className="text-[12px] text-muted-foreground italic rounded bg-muted px-2 py-1">
           {evidence}
         </p>
       )}
@@ -176,7 +176,7 @@ export function StatusBadge({ status }: { status: string }) {
       ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
       : "bg-muted text-muted-foreground";
   return (
-    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", cls)}>
+    <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold uppercase", cls)}>
       {status}
     </span>
   );
@@ -199,7 +199,7 @@ export function CampaignBadges({ badges }: { badges: string[] }) {
         const cfg = BADGE_CONFIG[b];
         if (!cfg) return null;
         return (
-          <span key={b} className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap", cfg.cls)}>
+          <span key={b} className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold whitespace-nowrap", cfg.cls)}>
             {cfg.label}
           </span>
         );
@@ -373,7 +373,7 @@ const HEALTH_CFG: Record<HealthState, string> = {
 export function HealthBadge({ state, label }: { state: HealthState; label?: string }) {
   const defaultLabel = state === "healthy" ? "Healthy" : state === "warning" ? "Warning" : state === "critical" ? "Critical" : "Neutral";
   return (
-    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase", HEALTH_CFG[state])}>
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold uppercase", HEALTH_CFG[state])}>
       {label ?? defaultLabel}
     </span>
   );
@@ -391,7 +391,7 @@ export function PerfBadge({ label }: { label: PerfLabel }) {
   };
   const c = cfg[label];
   return (
-    <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", c.cls)}>{c.text}</span>
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", c.cls)}>{c.text}</span>
   );
 }
 

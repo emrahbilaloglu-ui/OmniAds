@@ -19,7 +19,7 @@ export function MetaScopeChip({ level, label }: MetaScopeChipProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${config.className} text-[10.5px] font-medium`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border ${config.className} text-[12px] font-medium`}
       data-scope-chip={level}
     >
       <Icon className="inline-block shrink-0" size={11} aria-hidden="true" />

@@ -176,7 +176,7 @@ function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
         fontSize: 12,
       }}
     >
-      <span className="mono" style={{ color: "var(--muted)", fontSize: 10.5, textTransform: "uppercase" }}>
+      <span className="mono" style={{ color: "var(--muted)", fontSize: 12, textTransform: "uppercase" }}>
         {label}
       </span>
       <span style={{ minWidth: 0, color: "var(--ink-2)", overflowWrap: "anywhere" }}>{value}</span>
@@ -201,7 +201,7 @@ function EvidenceCitationChips({ rec }: { rec: MetaRecommendation }) {
             background: "var(--info-bg)",
             padding: "2px 6px",
             color: "var(--info-fg)",
-            fontSize: 10.5,
+            fontSize: 12,
           }}
           title={`${evidence.label}: ${evidence.value}`}
         >
@@ -432,7 +432,7 @@ function DecisionKpis({
       {series.length >= 2 ? (
         <div style={{ marginTop: 10 }}>
           <GradientSpark values={series} target={targetRoas} gradientId={gradientId} />
-          <div className="mono" style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+          <div className="mono" style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
             ROAS trend{targetRoas != null && Number.isFinite(targetRoas) ? ` · dashed = ${targetRoas.toFixed(2)}× target` : ""}
           </div>
         </div>
@@ -455,7 +455,7 @@ function Kpi({
   const toneColor = tone === "ok" ? "var(--ok)" : tone === "danger" ? "var(--danger)" : "var(--ink)";
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: "var(--r)", background: "var(--surface)", padding: 10 }}>
-      <div className="mono" style={{ fontSize: 10, letterSpacing: "0.04em", color: "var(--muted)", textTransform: "uppercase" }}>
+      <div className="mono" style={{ fontSize: 12, letterSpacing: "0.04em", color: "var(--muted)", textTransform: "uppercase" }}>
         {label}
       </div>
       <div
@@ -484,7 +484,7 @@ function AdsetDepthTable({ recs, moneyCurrency }: { recs: MetaRecommendation[]; 
         <SectionLabel number="9">Ad set depth</SectionLabel>
         <span
           className="mono"
-          style={{ border: "1px solid var(--border-2)", borderRadius: 5, padding: "1px 6px", fontSize: 10.5, color: "var(--muted)" }}
+          style={{ border: "1px solid var(--border-2)", borderRadius: 5, padding: "1px 6px", fontSize: 12, color: "var(--muted)" }}
         >
           {rows.length} rows
         </span>
@@ -493,7 +493,7 @@ function AdsetDepthTable({ recs, moneyCurrency }: { recs: MetaRecommendation[]; 
         <div style={{ overflowX: "auto", borderRadius: "var(--r)", border: "1px solid var(--border)", marginTop: 4 }}>
           <table style={{ minWidth: "100%", textAlign: "left", fontSize: 12, borderCollapse: "collapse" }}>
             <thead>
-              <tr className="mono" style={{ background: "var(--surface-2)", color: "var(--muted)", fontSize: 10 }}>
+              <tr className="mono" style={{ background: "var(--surface-2)", color: "var(--muted)", fontSize: 12 }}>
                 <th style={{ padding: "6px 10px", fontWeight: 600 }}>Ad set</th>
                 <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>Spend</th>
                 <th style={{ padding: "6px 10px", fontWeight: 600, textAlign: "right" }}>ROAS</th>
@@ -719,11 +719,11 @@ export function MetaDrillDrawer({
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <span style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)" }}>{decisionLabelForRec(item.rec)}</span>
                 {item.rec.actionKind ? (
-                  <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 4, padding: "1px 6px" }}>
                     {item.rec.actionKind}
                   </span>
                 ) : null}
-                <span className="mono" style={{ fontSize: 10.5, color: "var(--muted)" }}>{item.rec.engineVersion ?? "meta engine"}</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>{item.rec.engineVersion ?? "meta engine"}</span>
               </div>
               <div style={{ marginTop: 8 }}>
                 <FieldRow label="published" value={decisionLabelForRec(item.rec)} />

@@ -782,7 +782,7 @@ function AddFilterDropdown({
 
             {filteredSuggestions.length > 0 ? (
               <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2">
-                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <p className="px-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Suggestions
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -1313,7 +1313,7 @@ function PreviewStrip({
                     }
                   />
                   {creativeTypeLabel ? (
-                    <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                    <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[12px] font-medium text-white backdrop-blur-sm">
                       {creativeTypeLabel}
                     </span>
                   ) : null}
@@ -1415,7 +1415,7 @@ function MonthCalendar({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 text-center text-[10px] text-muted-foreground">
+      <div className="grid grid-cols-7 text-center text-[12px] text-muted-foreground">
         {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
           <div key={day} className="py-1">{day}</div>
         ))}

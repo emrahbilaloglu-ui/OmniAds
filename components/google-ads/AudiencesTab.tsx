@@ -93,7 +93,7 @@ export function AudiencesTab({ audiences, insights, summary, isLoading }: Audien
                 {s.type}
               </span>
               <p className="text-sm font-bold mt-2">{fmtRoas(s.roas)}</p>
-              <p className="text-[10px] text-muted-foreground">ROAS · {fmtNumber(s.conversions)} conv</p>
+              <p className="text-[12px] text-muted-foreground">ROAS · {fmtNumber(s.conversions)} conv</p>
             </div>
           ))}
         </div>

@@ -56,7 +56,7 @@ export function DiagnosticsTab({ tabMetas }: DiagnosticsTabProps) {
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-3">
           <p className="text-xs text-muted-foreground">Clean</p>
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{healthyTabs}</p>
-          <p className="text-[10px] text-muted-foreground">of {tabMetas.length} loaded</p>
+          <p className="text-[12px] text-muted-foreground">of {tabMetas.length} loaded</p>
         </div>
         <div className={cn("rounded-xl border p-3", totalWarnings > 0 ? "border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30" : "bg-card")}>
           <p className="text-xs text-muted-foreground">Warnings</p>
@@ -78,7 +78,7 @@ export function DiagnosticsTab({ tabMetas }: DiagnosticsTabProps) {
                 <StatusDot ok={!hasIssues} />
                 <p className="text-sm font-medium">{tab.label}</p>
                 {tab.meta.partial && (
-                  <span className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 text-[9px] font-semibold">
+                  <span className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-1.5 py-0.5 text-[12px] font-semibold">
                     PARTIAL
                   </span>
                 )}
@@ -86,9 +86,9 @@ export function DiagnosticsTab({ tabMetas }: DiagnosticsTabProps) {
 
               {tab.meta.failed_queries && tab.meta.failed_queries.length > 0 && (
                 <div className="mb-2">
-                  <p className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wide mb-1">Failed Queries</p>
+                  <p className="text-[12px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wide mb-1">Failed Queries</p>
                   {tab.meta.failed_queries.map((fq, i) => (
-                    <div key={i} className="text-[10px] text-muted-foreground">
+                    <div key={i} className="text-[12px] text-muted-foreground">
                       <span className="font-medium text-foreground">{fq.query}</span>
                       {fq.customerId && <span className="ml-1">({fq.customerId})</span>}
                       {fq.message && <span className="ml-1">— {fq.message}</span>}
@@ -99,24 +99,24 @@ export function DiagnosticsTab({ tabMetas }: DiagnosticsTabProps) {
 
               {tab.meta.warnings && tab.meta.warnings.length > 0 && (
                 <div className="mb-2">
-                  <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide mb-1">Warnings</p>
+                  <p className="text-[12px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide mb-1">Warnings</p>
                   {tab.meta.warnings.map((w, i) => (
-                    <p key={i} className="text-[10px] text-muted-foreground">{w}</p>
+                    <p key={i} className="text-[12px] text-muted-foreground">{w}</p>
                   ))}
                 </div>
               )}
 
               {tab.meta.unavailable_metrics && tab.meta.unavailable_metrics.length > 0 && (
                 <div>
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Unavailable Metrics</p>
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Unavailable Metrics</p>
+                  <p className="text-[12px] text-muted-foreground">
                     {tab.meta.unavailable_metrics.map((m) => m.replaceAll("_", " ")).join(", ")}
                   </p>
                 </div>
               )}
 
               {!hasIssues && (
-                <p className="text-[10px] text-emerald-600 dark:text-emerald-400">✓ All queries completed successfully</p>
+                <p className="text-[12px] text-emerald-600 dark:text-emerald-400">✓ All queries completed successfully</p>
               )}
             </div>
           );
@@ -134,7 +134,7 @@ export function DiagnosticsTab({ tabMetas }: DiagnosticsTabProps) {
             "Historical quality score changes are not available via API.",
             "Smart Bidding target data requires separate account access.",
           ].map((item, i) => (
-            <li key={i} className="text-[10px] text-muted-foreground flex items-start gap-1.5">
+            <li key={i} className="text-[12px] text-muted-foreground flex items-start gap-1.5">
               <span className="shrink-0 mt-0.5">·</span>
               {item}
             </li>

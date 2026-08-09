@@ -87,7 +87,7 @@ function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium",
+        "inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] font-medium",
         labelTone(label?.kind ?? null),
       )}
       data-campaign-kind={label?.kind ?? "automatic"}
@@ -95,7 +95,7 @@ function CampaignLabelBadge({ label }: { label: MetaCampaignLabel | null }) {
       <Tags className="inline-block shrink-0" size={10} aria-hidden="true" />
       <span>{text}</span>
       {suffix ? (
-        <span className="truncate text-[10px] opacity-75">· {suffix}</span>
+        <span className="truncate text-[12px] opacity-75">· {suffix}</span>
       ) : null}
     </span>
   );
@@ -284,11 +284,11 @@ export function MetaCampaignLabelsSection({
             </h2>
             {!loading && !error ? (
               campaignsWithoutOverride.length > 0 ? (
-                <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">
                   {campaignsWithoutOverride.length} automatic
                 </span>
               ) : (
-                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700">
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[12px] font-medium text-emerald-700">
                   All shown campaigns use overrides
                 </span>
               )
@@ -297,7 +297,7 @@ export function MetaCampaignLabelsSection({
               <span className="text-[11.5px] text-emerald-700">{notice}</span>
             ) : null}
             {!loading && !error ? (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">
                 {labelableCampaigns.length} {campaignScopeLabel}
               </span>
             ) : null}
@@ -330,7 +330,7 @@ export function MetaCampaignLabelsSection({
           className="mt-3 overflow-x-auto rounded-xl border border-slate-200"
           data-campaign-labels-list
         >
-          <div className="grid min-w-[710px] grid-cols-[minmax(240px,1fr)_110px_120px_130px_110px] items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className="grid min-w-[710px] grid-cols-[minmax(240px,1fr)_110px_120px_130px_110px] items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[12px] font-semibold uppercase tracking-wider text-slate-400">
             <div>Campaign</div>
             <div>Current</div>
             <div>Kind</div>
@@ -408,7 +408,7 @@ export function MetaCampaignLabelsSection({
                   </select>
                   <div className="text-right font-mono tabular-nums text-slate-700">
                     {formatCurrency(campaign.spend)}
-                    <div className="text-[10.5px] text-slate-400">
+                    <div className="text-[12px] text-slate-400">
                       {formatRoas(campaign.roas)}
                     </div>
                   </div>

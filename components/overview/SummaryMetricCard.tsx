@@ -73,7 +73,7 @@ export function SummaryMetricCard({
         </div>
         <span
           className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+            "rounded-full px-2 py-0.5 text-[12px] font-medium capitalize",
             metric.status === "available"
               ? "bg-neutral-100 text-neutral-500"
               : metric.status === "partial"

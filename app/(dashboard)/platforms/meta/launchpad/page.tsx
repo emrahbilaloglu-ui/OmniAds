@@ -2623,10 +2623,10 @@ function LaunchpadSourceStep({
                     </span>
                     {template.source === "auto_recent" ? (
                       <span className="mt-1 flex flex-wrap gap-1.5">
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[12px] text-[var(--muted)]">
                           budget: placeholder — set at use
                         </span>
-                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[10.5px] text-[var(--muted)]">
+                        <span className="mono rounded-[4px] border border-dashed border-[var(--border-3)] px-1.5 py-0.5 text-[12px] text-[var(--muted)]">
                           countries: placeholder
                         </span>
                       </span>

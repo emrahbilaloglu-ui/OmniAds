@@ -158,7 +158,7 @@ export function CreativesTableLegacy({
                   <td className="px-4">
                     <div className="flex flex-wrap gap-1">
                       {(row.tags || []).slice(0, 2).map((tag: string) => (
-                        <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
+                        <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-[12px] font-normal">
                           {tag}
                         </Badge>
                       ))}

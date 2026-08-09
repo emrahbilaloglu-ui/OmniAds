@@ -112,7 +112,7 @@ function CtSection({
       <div className="flex items-start justify-between gap-4 border-b border-[var(--adc-b1)] px-6 py-5">
         <div className="flex min-w-0 flex-col gap-1">
           {eyebrow && (
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]">
               {eyebrow}
             </p>
           )}
@@ -335,7 +335,7 @@ function CtStatCard({
       }`}
     >
       <p
-        className={`text-[10.5px] font-semibold uppercase tracking-[0.14em] ${
+        className={`text-[12px] font-semibold uppercase tracking-[0.14em] ${
           dominant ? "text-[var(--adc-s2)]/70" : "text-[var(--adc-ink3)]"
         }`}
       >
@@ -640,7 +640,7 @@ export function DecisionCoverageSection({
                 </p>
               </div>
               <span
-                className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[10.5px] font-semibold ${tone.badge}`}
+                className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[12px] font-semibold ${tone.badge}`}
               >
                 {tone.label}
               </span>
@@ -964,7 +964,7 @@ function RoasScenarioSection({
               <p className="text-[12px] font-bold text-[var(--adc-caution-fg)]">
                 Target ROAS
               </p>
-              <p className="text-[10.5px] text-[var(--adc-caution-fg)]">
+              <p className="text-[12px] text-[var(--adc-caution-fg)]">
                 edit per column
               </p>
             </div>
@@ -1280,7 +1280,7 @@ export function TargetRoasSection({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Break-even ROAS
             </p>
             <p className="text-[22px] font-bold tabular-nums tracking-[-0.02em] text-[var(--adc-ink)]">
@@ -1294,7 +1294,7 @@ export function TargetRoasSection({
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
             <div className="flex items-center gap-2">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
                 Break-even ROAS (manual)
               </p>
               <CtTooltip content="Use this only when cost structure is unavailable. Once cost structure is filled, derived break-even ROAS becomes the source of truth." />
@@ -1315,7 +1315,7 @@ export function TargetRoasSection({
             </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Target CPA
             </p>
             <CtNumberInput
@@ -1332,7 +1332,7 @@ export function TargetRoasSection({
             </p>
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-[var(--adc-b1)] bg-[var(--adc-s1)] p-4">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--adc-ink3)]">
               Break-even CPA
             </p>
             <CtNumberInput
@@ -1457,7 +1457,7 @@ function CountryEconomicsSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
+            className="grid px-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1.6fr 36px" }}
           >
             <span>Country</span>
@@ -1559,7 +1559,7 @@ function PromoCalendarSection({
       ) : (
         <div className="flex flex-col gap-2">
           <div
-            className="grid px-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
+            className="grid px-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--adc-ink3)]"
             style={{ gridTemplateColumns: "1.6fr 1fr 1fr 1fr 36px" }}
           >
             <span>Name</span>

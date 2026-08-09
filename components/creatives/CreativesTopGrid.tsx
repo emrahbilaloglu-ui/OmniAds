@@ -172,7 +172,7 @@ function CreativeCard({
         <div className="px-3 pb-3 pt-2" title={placementTooltip}>
           <p className="line-clamp-2 text-[12px] font-semibold leading-tight">{row.name}</p>
           {row.campaignName ? (
-            <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
+            <p className="mt-0.5 line-clamp-1 text-[12px] text-muted-foreground">
               {row.campaignName}
             </p>
           ) : null}

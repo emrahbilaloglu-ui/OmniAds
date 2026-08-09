@@ -372,7 +372,7 @@ function PlacementCard({
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-neutral-100 bg-neutral-50 px-2 py-1.5">
-      <p className="text-[10px] font-semibold uppercase text-neutral-500">{label}</p>
+      <p className="text-[12px] font-semibold uppercase text-neutral-500">{label}</p>
       <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-950">{value}</p>
     </div>
   );
@@ -384,7 +384,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+        "inline-flex rounded-full border px-1.5 py-0.5 font-mono text-[12px] font-semibold",
         active
           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
           : "border-neutral-200 bg-neutral-100 text-neutral-600",
@@ -397,7 +397,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function BelowBreakevenBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+    <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
       {label || "Below breakeven"}
     </span>
   );

@@ -171,7 +171,7 @@ export function CrossPlacementCard({
                     {name}
                   </button>
                 </h3>
-                <span className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-medium">
+                <span className="text-[12px] uppercase tracking-wider text-neutral-400 font-medium">
                   {card.brand || "Brand"}
                 </span>
               </div>
@@ -181,12 +181,12 @@ export function CrossPlacementCard({
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 text-[10.5px] font-medium">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 text-[12px] font-medium">
                 <Layers className="inline-block shrink-0" size={11} aria-hidden="true" />
                 {placementList.length} placements
               </span>
               {mixed ? (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-300 bg-neutral-100 text-neutral-700 text-[10.5px] font-medium">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-neutral-300 bg-neutral-100 text-neutral-700 text-[12px] font-medium">
                   <AlertTriangle className="inline-block shrink-0" size={11} aria-hidden="true" />
                   mixed
                 </span>
@@ -220,7 +220,7 @@ export function CrossPlacementCard({
             <CtrBar value={card.ctrFunnel?.value ?? card.ctr} p50={card.ctrFunnel?.p50} />
             <MetricDivider />
             <div className="flex items-center gap-1.5">
-              <span className="text-[10.5px] text-neutral-500">28d ROAS</span>
+              <span className="text-[12px] text-neutral-500">28d ROAS</span>
               <Sparkline
                 values={card.sparkline}
                 tone={label === "scale" ? "text-emerald-500" : "text-rose-500"}
@@ -301,7 +301,7 @@ export function CrossPlacementCard({
 function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
   return (
     <div className="mt-3 pl-[44px]">
-      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
+      <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
         <Layers className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
         Placements ({placements.length})
       </div>

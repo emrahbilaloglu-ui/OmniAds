@@ -26,7 +26,7 @@ export function MetaCohortChip({ cohort }: MetaCohortChipProps) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10.5px] font-medium ${config.className}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[12px] font-medium ${config.className}`}
       data-cohort-chip={cohort}
     >
       <Icon className="inline-block shrink-0" size={11} aria-hidden="true" />

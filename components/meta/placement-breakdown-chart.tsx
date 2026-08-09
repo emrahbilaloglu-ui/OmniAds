@@ -80,7 +80,7 @@ export function PlacementBreakdownChart({
                   {row.label}
                 </span>
                 <span
-                  className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold leading-none ${roasCls}`}
+                  className={`shrink-0 rounded-full px-1.5 py-px text-[12px] font-semibold leading-none ${roasCls}`}
                 >
                   {row.roas.toFixed(2)}×
                 </span>
@@ -94,10 +94,10 @@ export function PlacementBreakdownChart({
                     style={{ width: `${sharePct.toFixed(2)}%` }}
                   />
                 </div>
-                <span className="w-8 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
+                <span className="w-8 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
                   {sharePct.toFixed(0)}%
                 </span>
-                <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
+                <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">
                   {fmtSpend(row.spend)}
                 </span>
               </div>
@@ -108,7 +108,7 @@ export function PlacementBreakdownChart({
 
       {/* Overflow hint — only shown when rows were truncated */}
       {hiddenCount > 0 && (
-        <p className="mt-2 text-[10px] text-muted-foreground/60">
+        <p className="mt-2 text-[12px] text-muted-foreground/60">
           +{hiddenCount} more placement{hiddenCount !== 1 ? "s" : ""} not shown
         </p>
       )}

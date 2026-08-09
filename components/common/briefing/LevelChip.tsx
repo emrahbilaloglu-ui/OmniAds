@@ -35,7 +35,7 @@ export function LevelChip({ level, className }: LevelChipProps) {
       className={[
         "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border",
         TONES[level],
-        "text-[10.5px] font-medium",
+        "text-[12px] font-medium",
         className,
       ]
         .filter(Boolean)

@@ -165,7 +165,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                     {topic.coverageGap && topic.coverageGap !== "low" && (
                       <span
                         className={cn(
-                          "text-[10px] font-medium uppercase tracking-wide",
+                          "text-[12px] font-medium uppercase tracking-wide",
                           COVERAGE_GAP_CONFIG[topic.coverageGap]
                         )}
                       >
@@ -191,7 +191,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                       {topic.queries.slice(0, 3).map((q, i) => (
                         <span
                           key={i}
-                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground"
                         >
                           {q}
                         </span>
@@ -202,10 +202,10 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                   {/* Recommendation */}
                   {topic.recommendation && (
                     <div className="mt-2 rounded-lg border border-border/50 bg-background/60 px-2.5 py-1.5">
-                      <p className="text-[10px] font-medium text-foreground">
+                      <p className="text-[12px] font-medium text-foreground">
                         {topic.recommendation.title}
                       </p>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      <p className="mt-0.5 text-[12px] text-muted-foreground">
                         <span className="text-emerald-600 dark:text-emerald-400">
                           {topic.recommendation.impact}
                         </span>
@@ -231,7 +231,7 @@ export function GeoTopicsSection({ topics, isLoading }: GeoTopicsSectionProps) {
                     avg pos {topic.avgPosition.toFixed(1)}
                   </p>
                   {topic.authorityStrength && (
-                    <p className="text-[10px] text-muted-foreground capitalize">
+                    <p className="text-[12px] text-muted-foreground capitalize">
                       {topic.authorityStrength} authority
                     </p>
                   )}

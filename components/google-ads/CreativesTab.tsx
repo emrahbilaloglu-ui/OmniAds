@@ -37,12 +37,12 @@ const cols: ColDef<Creative>[] = [
       <div className="max-w-[180px]">
         <p className="text-xs font-medium truncate" title={r.name}>{r.name}</p>
         <div className="flex items-center gap-1 mt-0.5">
-          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", STRENGTH_CONFIG[r.adStrength ?? "Unknown"])}>
+          <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", STRENGTH_CONFIG[r.adStrength ?? "Unknown"])}>
             {r.adStrength ?? "Unknown"}
           </span>
-          <span className="text-[9px] text-muted-foreground">{r.type}</span>
+          <span className="text-[12px] text-muted-foreground">{r.type}</span>
           {typeof r.assetCount === "number" ? (
-            <span className="text-[9px] text-muted-foreground">· {r.assetCount} assets</span>
+            <span className="text-[12px] text-muted-foreground">· {r.assetCount} assets</span>
           ) : null}
         </div>
       </div>

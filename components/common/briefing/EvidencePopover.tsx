@@ -98,7 +98,7 @@ export function EvidencePopover({
                   {section.icon ? <span className="text-neutral-400">{section.icon}</span> : null}
                   <h3 className="text-[12px] font-semibold text-neutral-800">{section.title}</h3>
                   {section.count != null ? (
-                    <span className="ml-auto font-mono text-[10.5px] text-neutral-500">{section.count}</span>
+                    <span className="ml-auto font-mono text-[12px] text-neutral-500">{section.count}</span>
                   ) : null}
                 </div>
                 <div className="px-3 py-3 text-[12px] leading-snug text-neutral-600">

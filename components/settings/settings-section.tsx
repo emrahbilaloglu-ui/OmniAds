@@ -117,7 +117,7 @@ export function SettingsStat({
         tone === "default" && "border-[var(--adc-b1)] bg-[var(--adc-s2)] text-[var(--adc-ink2)]"
       )}
     >
-      <p className="font-mono text-[10.5px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+      <p className="font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
         {label}
       </p>
       <p className="mt-1 font-mono text-[17px] font-semibold tracking-normal tabular-nums text-[var(--adc-ink)]">{value}</p>

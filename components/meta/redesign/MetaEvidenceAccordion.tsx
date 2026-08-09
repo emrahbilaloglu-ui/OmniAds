@@ -45,7 +45,7 @@ function TrendBlock({ rec }: { rec: MetaRecommendation }) {
       {history.slice(-14).map((value, index) => (
         <span
           key={`${index}-${String(value)}`}
-          className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10.5px] text-slate-700"
+          className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[12px] text-slate-700"
         >
           {formatRoas(Number(value))}
         </span>

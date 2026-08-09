@@ -994,6 +994,82 @@ test.describe("full UI redesign route and visual smoke", () => {
         await assertRouteHealthy(shotPage, shot.path);
         await waitForDashboardWorkspaceReady(shotPage, shot.path);
         await assertRepresentativeVisualSettled(shotPage, shot.path);
+
+        // No surface may scroll the page sideways on a phone. A single
+        // overflowing child does it, and it is exactly how the assessment
+        // column ended up off-screen in the 390px Studio artifact. A passing
+        // screenshot is not acceptance if content is pushed out of frame, so
+        // this is asserted rather than eyeballed.
+        if (testInfo.project.name.includes("mobile")) {
+          const overflow = await shotPage.evaluate(() => ({
+            scrollWidth: document.documentElement.scrollWidth,
+            innerWidth: window.innerWidth,
+          }));
+          expect(
+            overflow.scrollWidth,
+            `${shot.path} scrolls horizontally at ${overflow.innerWidth}px (scrollWidth ${overflow.scrollWidth})`,
+          ).toBeLessThanOrEqual(overflow.innerWidth);
+        }
+
+        // Page-level overflow is not enough: a frame with overflow:auto keeps
+        // the page from scrolling while its own content is still cut off, which
+        // is exactly how the assessment column stayed off-screen at 390px while
+        // every page-level check passed. Assert no scroller hides content.
+        if (testInfo.project.name.includes("mobile")) {
+          const clipped = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            for (const element of Array.from(
+              document.body.querySelectorAll<HTMLElement>("*"),
+            )) {
+              const style = window.getComputedStyle(element);
+              const scrolls =
+                style.overflowX === "auto" || style.overflowX === "scroll";
+              if (!scrolls) continue;
+              const hidden = element.scrollWidth - element.clientWidth;
+              // Tab strips and toolbars are deliberately swipeable; a data
+              // frame hiding a column is not the same thing, so only flag
+              // scrollers that actually contain tabular content.
+              if (hidden > 4 && element.querySelector("table")) {
+                offenders.push(
+                  `${element.className || element.tagName} hides ${hidden}px`,
+                );
+              }
+            }
+            return offenders.slice(0, 5);
+          });
+          expect(
+            clipped,
+            `${shot.path} clips tabular content inside a scroller`,
+          ).toEqual([]);
+        }
+
+        // The typography floor, checked on what the browser actually computed
+        // rather than on the stylesheet: a cascade or an inline style can
+        // still land under it.
+        const tinyText = await shotPage.evaluate(() => {
+          const offenders: string[] = [];
+          for (const element of Array.from(document.body.querySelectorAll("*"))) {
+            const text = (element.textContent ?? "").trim();
+            if (!text || element.children.length > 0) continue;
+            const size = Number.parseFloat(
+              window.getComputedStyle(element).fontSize,
+            );
+            if (Number.isFinite(size) && size < 11) {
+              const cls =
+                typeof element.className === "string"
+                  ? element.className.slice(0, 60)
+                  : "";
+              offenders.push(
+                `${element.tagName.toLowerCase()}.${cls} @ ${size}px :: ${text.slice(0, 24)}`,
+              );
+            }
+          }
+          return offenders.slice(0, 10);
+        });
+        expect(
+          tinyText,
+          `${shot.path} renders text below the 11px floor`,
+        ).toEqual([]);
         if (darkProject && shot.actor !== "public") {
           await expect
             .poll(

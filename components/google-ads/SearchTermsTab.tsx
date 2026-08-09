@@ -74,11 +74,11 @@ export function SearchTermsTab({ terms, summary, isLoading }: SearchTermsTabProp
         <div className="max-w-[200px]">
           <p className="text-xs font-medium truncate" title={r.searchTerm}>{r.searchTerm}</p>
           <div className="flex items-center gap-1 mt-0.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
+            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold capitalize", INTENT_CONFIG[r.intent])}>
               {r.intent}
             </span>
             {!r.isKeyword && r.conversions >= 2 && (
-              <span className="rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[9px] font-semibold">
+              <span className="rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 text-[12px] font-semibold">
                 + KW opp
               </span>
             )}

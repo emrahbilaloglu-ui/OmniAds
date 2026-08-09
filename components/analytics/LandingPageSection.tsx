@@ -30,13 +30,13 @@ function fmt(n: number, type: "number" | "percent" | "duration" = "number"): str
 function QualityBadge({ rate, threshold }: { rate: number; threshold: number }) {
   if (rate >= threshold * 1.5)
     return (
-      <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+      <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[12px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
         strong
       </span>
     );
   if (rate < threshold * 0.5)
     return (
-      <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+      <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[12px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
         weak
       </span>
     );

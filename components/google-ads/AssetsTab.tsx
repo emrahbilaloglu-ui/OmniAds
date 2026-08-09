@@ -90,11 +90,11 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
             <PerfBadge label={r.perf} />
           </div>
           <p className="text-xs font-medium truncate" title={r.headline || r.id}>{r.headline || r.id || "—"}</p>
-          {r.description && <p className="text-[10px] text-muted-foreground truncate">{r.description}</p>}
+          {r.description && <p className="text-[12px] text-muted-foreground truncate">{r.description}</p>}
           <div className="flex items-center gap-1 mt-0.5">
             <StatusBadge status={r.status} />
-            <span className="text-[9px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
-            {r.adStrength && <span className="text-[9px] text-muted-foreground">· {r.adStrength}</span>}
+            <span className="text-[12px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
+            {r.adStrength && <span className="text-[12px] text-muted-foreground">· {r.adStrength}</span>}
           </div>
         </div>
       ),
@@ -138,17 +138,17 @@ export function AssetsTab({ ads, insights, isLoading }: AssetsTabProps) {
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 p-3">
           <p className="text-xs text-muted-foreground">Top Performing</p>
           <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{topCount}</p>
-          <p className="text-[10px] text-muted-foreground">CTR ≥ {(avgCtr * 1.5).toFixed(1)}%</p>
+          <p className="text-[12px] text-muted-foreground">CTR ≥ {(avgCtr * 1.5).toFixed(1)}%</p>
         </div>
         <div className="rounded-xl border bg-card p-3">
           <p className="text-xs text-muted-foreground">Average</p>
           <p className="text-2xl font-bold">{labeled.filter((a) => a.perf === "average").length}</p>
-          <p className="text-[10px] text-muted-foreground">Avg CTR {avgCtr.toFixed(1)}%</p>
+          <p className="text-[12px] text-muted-foreground">Avg CTR {avgCtr.toFixed(1)}%</p>
         </div>
         <div className={cn("rounded-xl border p-3", underCount > 0 ? "border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30" : "bg-card")}>
           <p className="text-xs text-muted-foreground">Underperforming</p>
           <p className={cn("text-2xl font-bold", underCount > 0 ? "text-rose-600 dark:text-rose-400" : "")}>{underCount}</p>
-          <p className="text-[10px] text-muted-foreground">CTR &lt; {(avgCtr * 0.5).toFixed(1)}%</p>
+          <p className="text-[12px] text-muted-foreground">CTR &lt; {(avgCtr * 0.5).toFixed(1)}%</p>
         </div>
       </div>
 

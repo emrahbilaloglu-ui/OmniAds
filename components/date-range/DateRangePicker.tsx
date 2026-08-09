@@ -647,7 +647,7 @@ function CalendarMonth({
           <div
             key={label}
             className={cn(
-              "flex h-7 items-center justify-center text-[10px] font-semibold uppercase tracking-[0.16em]",
+              "flex h-7 items-center justify-center text-[12px] font-semibold uppercase tracking-[0.16em]",
               label === "Sa" ? "text-slate-900" : "text-slate-400"
             )}
           >
@@ -751,7 +751,7 @@ function CompactPanelHeader({
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-600"
             >
               {chip}
             </span>
@@ -871,13 +871,13 @@ function RangePanel({
       <div className="grid grid-cols-1 md:grid-cols-[196px_minmax(0,1fr)]">
         <aside className="border-b border-slate-200/80 bg-white/92 p-3 md:border-b-0 md:border-r">
           <div className="mb-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date Range</div>
+            <div className="text-[12px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date Range</div>
           </div>
 
           <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1 md:max-h-[420px]">
             {presetSections.map((section) => (
               <div key={section.label} className="space-y-1">
-                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="px-1 text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   {section.label}
                 </div>
                 {section.items.map((preset) => {
@@ -918,7 +918,7 @@ function RangePanel({
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold">{preset.label}</span>
-                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                        <span className={cn("mt-0.5 block text-[12px]", selected ? "text-white/75" : "text-slate-500")}>
                           {preset.hint}
                         </span>
                       </span>
@@ -1076,12 +1076,12 @@ function ComparisonPanel({
     >
       <div className="grid grid-cols-1 md:grid-cols-[196px_minmax(0,1fr)]">
         <aside className="border-b border-slate-200/80 bg-white/92 p-3 md:border-b-0 md:border-r">
-          <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Compare To</div>
+          <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-slate-400">Compare To</div>
 
           <div className="max-h-[320px] overflow-y-auto pr-1 md:max-h-[380px]">
             {presetSections.map((section) => (
               <div key={section.label} className="mb-3 space-y-1">
-                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="px-1 text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   {section.label}
                 </div>
                 {section.items.map((preset) => {
@@ -1130,7 +1130,7 @@ function ComparisonPanel({
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold">{preset.label}</span>
-                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                        <span className={cn("mt-0.5 block text-[12px]", selected ? "text-white/75" : "text-slate-500")}>
                           {preset.hint}
                         </span>
                       </span>
@@ -1389,10 +1389,10 @@ export function DateRangePicker({
               <CalendarIcon className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0">
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+              <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
               <span className="block truncate text-xs font-semibold text-slate-900">{rangeLabel}</span>
             </span>
-            <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 sm:inline-flex">
+            <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-600 sm:inline-flex">
               {rangeMetaLabel}
             </span>
             <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
@@ -1449,7 +1449,7 @@ export function DateRangePicker({
               )}
             >
               <span className="block">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compare</span>
+                <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compare</span>
                 <span className="block text-xs font-semibold">{comparisonLabel}</span>
               </span>
               <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
@@ -1558,7 +1558,7 @@ export function DatePicker({
           >
             <CalendarIcon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              <span className="block truncate text-[12px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                 {label}
               </span>
               <span className={cn("block truncate text-xs font-semibold", value ? "text-slate-900" : "text-slate-500")}>

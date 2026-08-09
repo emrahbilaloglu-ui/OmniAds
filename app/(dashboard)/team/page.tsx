@@ -314,7 +314,7 @@ export default function TeamPage() {
         <ProductSection title="Members" description="People with access to the selected workspace.">
         <div className="overflow-x-auto rounded-[10px] border border-[var(--adc-b1)]">
           <table className="min-w-full text-[12.5px]">
-            <thead className="bg-[var(--adc-s1)] font-mono text-[10.5px] uppercase tracking-normal text-[var(--adc-ink3)]">
+            <thead className="bg-[var(--adc-s1)] font-mono text-[12px] uppercase tracking-normal text-[var(--adc-ink3)]">
               <tr>
                 <th className="px-4 py-3 text-left">User</th>
                 <th className="px-4 py-3 text-left">Role</th>
@@ -390,7 +390,7 @@ export default function TeamPage() {
         <ProductSection title="Pending invites" description="Generated invitations and their current delivery status.">
         <div className="overflow-x-auto rounded-[10px] border border-[var(--adc-b1)]">
           <table className="min-w-full text-[12.5px]">
-            <thead className="bg-[var(--adc-s1)] font-mono text-[10.5px] uppercase tracking-normal text-[var(--adc-ink3)]">
+            <thead className="bg-[var(--adc-s1)] font-mono text-[12px] uppercase tracking-normal text-[var(--adc-ink3)]">
               <tr>
                 <th className="px-4 py-3 text-left">Email</th>
                 <th className="px-4 py-3 text-left">Role</th>

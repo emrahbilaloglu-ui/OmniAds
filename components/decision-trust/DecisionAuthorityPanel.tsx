@@ -113,7 +113,7 @@ export function DecisionAuthorityPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] opacity-80">
             {title}
           </p>
           <p className="mt-1 text-sm leading-relaxed">
@@ -126,7 +126,7 @@ export function DecisionAuthorityPanel({
           {authority?.truthState ? (
             <span
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
                 resolveStatusTone("truth", authority.truthState),
               )}
             >
@@ -136,7 +136,7 @@ export function DecisionAuthorityPanel({
           {commercialSummary?.completeness ? (
             <span
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
                 resolveStatusTone("completeness", commercialSummary.completeness),
               )}
             >
@@ -146,7 +146,7 @@ export function DecisionAuthorityPanel({
           {commercialSummary?.freshness.status ? (
             <span
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
                 resolveStatusTone("freshness", commercialSummary.freshness.status),
               )}
             >
@@ -158,7 +158,7 @@ export function DecisionAuthorityPanel({
 
       {blockingInputs.length > 0 ? (
         <div className="mt-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
             Blocking Truth Gaps
           </p>
           <p className="mt-1 text-xs leading-relaxed">
@@ -189,7 +189,7 @@ export function DecisionAuthorityPanel({
       {(authority || commercialSummary) ? (
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Surface Counts
             </p>
             <p className="mt-1 text-xs">
@@ -198,7 +198,7 @@ export function DecisionAuthorityPanel({
             <p className="mt-1 text-xs">Suppressed {authority?.suppressedCount ?? 0}</p>
           </div>
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Action Ceilings
             </p>
             <p className="mt-1 text-xs">
@@ -208,7 +208,7 @@ export function DecisionAuthorityPanel({
             </p>
           </div>
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Calibration
             </p>
             <p className="mt-1 text-xs">
@@ -227,7 +227,7 @@ export function DecisionAuthorityPanel({
       {authority?.readiness ? (
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Readiness Window
             </p>
             <p className="mt-1 text-xs">
@@ -240,7 +240,7 @@ export function DecisionAuthorityPanel({
             </p>
           </div>
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Suppressed Actions
             </p>
             <p className="mt-1 text-xs">
@@ -252,7 +252,7 @@ export function DecisionAuthorityPanel({
             </p>
           </div>
           <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Preview Coverage
             </p>
             <p className="mt-1 text-xs">
@@ -269,7 +269,7 @@ export function DecisionAuthorityPanel({
               key={`${entry.source}-${entry.status}`}
               className="rounded-xl border border-current/10 bg-white/70 px-3 py-2"
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
                 {entry.source}
               </p>
               <p className="mt-1 text-xs">
@@ -281,7 +281,7 @@ export function DecisionAuthorityPanel({
           ))}
           {authority?.readReliability ? (
             <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
                 Read Reliability
               </p>
               <p className="mt-1 text-xs">
@@ -298,7 +298,7 @@ export function DecisionAuthorityPanel({
 
       {blockingReasons.length > 0 ? (
         <div className="mt-3 rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
             Blocking Reasons
           </p>
           <p className="mt-1 text-xs leading-relaxed">
@@ -309,7 +309,7 @@ export function DecisionAuthorityPanel({
 
       {(commercialSummary?.requiredInputs.length ?? 0) > 0 ? (
         <div className="mt-3 rounded-xl border border-current/10 bg-white/70 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] opacity-70">
             Required Inputs
           </p>
           <div className="mt-2 space-y-1 text-xs leading-relaxed">

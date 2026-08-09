@@ -213,34 +213,34 @@ function SurfaceRecoveryNotice({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+            "rounded-full border px-2 py-0.5 text-[12px] font-medium",
             getSurfaceBadgeClass(surface)
           )}
         >
           {getSurfaceBadgeLabel(surface)}
         </span>
-        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
           Coverage {surface.completedDays}/{surface.totalDays} days
         </span>
         {surface.readyThroughDate ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Ready through {surface.readyThroughDate}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Visible coverage {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Historical {rangeCompletion.historical.completedDays}/{rangeCompletion.historical.totalDays} {rangeCompletion.historical.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">{surface.message}</p>
       {surface.latestBackgroundActivityAt ? (
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-[12px] text-muted-foreground">
           Latest background activity {surface.latestBackgroundActivityAt}
         </p>
       ) : null}
@@ -1535,22 +1535,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
                             </div>
                           </div>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">Add negative</span>
+                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">Add negative</span>
                             {focusedSearchTerms.some(
                               (term) =>
                                 term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
                                 Advisor focus
                               </span>
                             ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">{row.recommendation}</span> : null}
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
                       ))}
@@ -1578,22 +1578,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
                             </div>
                           </div>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
+                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
                             {focusedSearchTerms.some(
                               (term) =>
                                 term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                                 Advisor focus
                               </span>
                             ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">{row.recommendation}</span> : null}
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
                       ))}
@@ -1703,12 +1703,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             {focusedAssetGroups.some(
                               (name) => name.toLowerCase().trim() === group.name.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                                 Advisor focus
                               </span>
                             ) : null}
                             {(group.coverageScore ?? 0) < 50 || group.messagingMismatchCount ? (
-                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
                                 Weak structure
                               </span>
                             ) : null}
@@ -1716,15 +1716,15 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-semibold">{group.name}</p>
-                              <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
+                              <p className="text-[12px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
                             </div>
-                            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
+                            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
                           </div>
 
                           <div className="mt-2 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
-                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
+                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
                           </div>
                         </div>
                       );
@@ -1759,7 +1759,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         >
                           <div className="min-w-0">
                             <p className="truncate font-medium">{row.type}</p>
-                            <p className="truncate text-[10px] text-muted-foreground">
+                            <p className="truncate text-[12px] text-muted-foreground">
                               {row.campaign ?? "Campaign signal"}
                             </p>
                           </div>
@@ -1815,17 +1815,17 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         {focusedProducts.some(
                           (name) => name.toLowerCase().trim() === (product.title ?? "").toLowerCase().trim()
                         ) ? (
-                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                             Advisor focus
                           </span>
                         ) : null}
                         {product.title && productRows.some((row) => row.title === product.title && row.roas >= Math.max(avgProductRoas, 2.5)) ? (
-                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">
+                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">
                             Scale candidate
                           </span>
                         ) : null}
                         {isWeak ? (
-                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
                             Reduce
                           </span>
                         ) : null}
@@ -1833,9 +1833,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
-                          <p className="truncate text-[10px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
+                          <p className="truncate text-[12px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-1 text-[10px]">
+                        <div className="flex flex-wrap items-center justify-end gap-1 text-[12px]">
                           <span className="rounded-full border border-border/70 px-1.5 py-0.5">S {fmtCurrency(product.spend)}</span>
                           <span className="rounded-full border border-border/70 px-1.5 py-0.5">R {fmtCurrency(product.revenue)}</span>
                           <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5">ROAS {fmtRoas(product.roas)}</span>
@@ -1886,7 +1886,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     <div key={type} className="rounded-lg border border-border/70 bg-card p-3">
                       <div className="mb-2 flex items-center justify-between">
                         <p className="text-xs font-semibold">{type}</p>
-                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
                       </div>
                       {list.length === 0 ? (
                         <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
@@ -1907,7 +1907,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                               )}
                             >
                               <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
+                              <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
                               {focusedAssets.some(
                                 (name) =>
                                   name.toLowerCase().trim() ===
@@ -1916,7 +1916,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                     .trim()
                               ) ? (
                                 <div className="mt-1">
-                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
                                     Advisor replace focus
                                   </span>
                                 </div>
@@ -1951,7 +1951,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { label: string; value: string; series: Array<{ date: string; value: number }>; formatter: (value: number) => string; dateLabelMode: TrendLabelMode; highlight?: boolean; }) {
   return (
     <div className={cn("rounded-xl border bg-card p-3", highlight && "border-emerald-200 bg-emerald-50/50")}>
-      <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
+      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
       <p className={cn("mt-1.5 text-[22px] font-semibold tracking-tight", highlight && "text-emerald-700")}>{value}</p>
       <div className="mt-1">
         <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
@@ -1991,16 +1991,16 @@ function CampaignCard({
         <p className="truncate text-[13px] font-medium">{campaign.name}</p>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">{campaign.channel}</span>
-        <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px] font-semibold", cfg.border, cfg.chip)}>
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">{campaign.channel}</span>
+        <span className={cn("rounded-full border px-1.5 py-0.5 text-[12px] font-semibold", cfg.border, cfg.chip)}>
           <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle", cfg.dot)} />{cfg.label}
         </span>
         {advisorRow ? (
           <>
-            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">
+            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">
               {advisorRow.familyLabel}
             </span>
-            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">
               {advisorRow.roleLabel}
             </span>
           </>
@@ -2016,15 +2016,15 @@ function CampaignCard({
         <div className="mt-3 border-t border-border/70 pt-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                 Advisor
               </p>
-              <p className="mt-1 line-clamp-2 text-[10px] text-foreground/80">
+              <p className="mt-1 line-clamp-2 text-[12px] text-foreground/80">
                 {advisorRow.topActionHint}
               </p>
             </div>
             {advisorRow.recommendationCount > 0 ? (
-              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground">
                 {advisorRow.recommendationCount}
               </span>
             ) : null}
@@ -2038,7 +2038,7 @@ function CampaignCard({
 function Metric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div>
-      <p className="text-[9px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
       <p className={cn("text-[13px] font-semibold", valueColor)}>{value}</p>
     </div>
   );
@@ -2072,7 +2072,7 @@ function OverviewMetric({
   return (
     <div className="rounded-xl border border-border/70 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-card">
       <div className={cn("h-1 w-10 rounded-full bg-gradient-to-r", accentClasses[accent])} />
-      <p className="mt-2 text-[10px] font-medium tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-2 text-[12px] font-medium tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
       <div className="mt-1.5">
         <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />

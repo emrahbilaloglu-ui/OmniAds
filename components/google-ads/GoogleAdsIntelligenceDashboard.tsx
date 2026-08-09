@@ -652,7 +652,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   // actually on screen.
   useTierZeroFreshness({
     surface: "google_ads",
-    isLoading,
+    // The status read is included because it is what supplies both the as-of
+    // and the partial reason. Leaving it out let the surface settle on "ready,
+    // age unknown" while that read was still in flight, and then flip to
+    // "partial" a moment later -- the same reading meaning two different
+    // things depending on when you looked. The six-width evidence caught it:
+    // four widths reported partial and two reported ready, in one run, over
+    // identical data.
+    isLoading: isLoading || isSyncStatusLoading,
     // The newest real observation across scopes. The reference date is what
     // day it is in the account's timezone -- a range label, not a read time --
     // and using it made the reading drift with the hour and never say "stale".
@@ -667,7 +674,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         ? (syncStatus.freshness.unavailableReason ??
           "Google freshness evidence could not be read; the age shown is unknown")
         : null,
-    error: isError ? "google_ads_unreadable" : null,
+    error:
+      isError || isSyncStatusError ? "google_ads_unreadable" : null,
     businessId,
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);

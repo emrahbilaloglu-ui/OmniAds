@@ -26,7 +26,7 @@
     "path": "/platforms/meta/creatives",
     "state": "ready",
     "errorCode": null,
-    "text": "as of 1d agoRefresh",
+    "text": "age unknownRefresh",
     "hasRetry": true
   },
   {
@@ -56,7 +56,7 @@
     "path": "/reports",
     "state": "ready",
     "errorCode": null,
-    "text": "age unknownRefresh",
+    "text": "as of just nowRefresh",
     "hasRetry": true
   },
   {
@@ -64,9 +64,9 @@
     "project": "full-ui-narrow",
     "surface": "google-ads",
     "path": "/platforms/google",
-    "state": "ready",
+    "state": "partial",
     "errorCode": null,
-    "text": "as of 18h ago",
+    "text": "age unknownNo Google Ads accounts are assigned to this business.",
     "hasRetry": false
   },
   {
@@ -76,7 +76,7 @@
     "path": "/overview",
     "state": "ready",
     "errorCode": null,
-    "text": "as of just nowRefresh",
+    "text": "age unknownRefresh",
     "hasRetry": true
   },
   {
@@ -86,7 +86,7 @@
     "path": "/integrations",
     "state": "ready",
     "errorCode": null,
-    "text": "as of just nowRefresh",
+    "text": "age unknownRefresh",
     "hasRetry": true
   },
   {
@@ -96,7 +96,7 @@
     "path": "/settings",
     "state": "ready",
     "errorCode": null,
-    "text": "as of 2m ago",
+    "text": "as of just now",
     "hasRetry": false
   }
 ]

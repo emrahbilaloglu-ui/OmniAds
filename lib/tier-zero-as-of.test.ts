@@ -143,3 +143,36 @@ describe("the newest observation across scopes", () => {
     expect(newestObservation(["nonsense"])).toBeNull();
   });
 });
+
+describe("a reading never settles before the read that determines it", () => {
+  /**
+   * The reading has to cover the query that supplies its own as-of.
+   *
+   * Google's as-of and partial reason both come from the status query, but only
+   * the campaigns query fed `isLoading`. So while the status read was in
+   * flight the surface reported "ready, age unknown", then flipped to "partial"
+   * when it landed. The six-width evidence made it obvious: four widths
+   * reported partial and two reported ready in a single run over identical
+   * data, purely by when the DOM was sampled.
+   *
+   * A reading that means different things depending on when you look is not a
+   * reading. If a query provides the as-of, its load state has to be part of
+   * the state.
+   */
+  const dashboard = readFileSync(
+    "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
+    "utf8",
+  );
+
+  it("Google waits for the status read that carries its as-of", () => {
+    const call = dashboard.slice(
+      dashboard.indexOf("useTierZeroFreshness({"),
+      dashboard.indexOf("useTierZeroFreshness({") + 1400,
+    );
+    // The as-of and the partial reason both come from syncStatus.freshness.
+    expect(call).toContain("syncStatus?.freshness");
+    // So the status read's own load and error state must be part of the state.
+    expect(call).toContain("isSyncStatusLoading");
+    expect(call).toContain("isSyncStatusError");
+  });
+});

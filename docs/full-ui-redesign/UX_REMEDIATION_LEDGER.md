@@ -580,16 +580,38 @@ there is a real timestamp to show.
 
 **Six-width freshness evidence, all green.** `FULL_UI_SMOKE_ARTIFACT_SET=tier-zero-freshness
 npm run test:full-ui:visual` — 6 passed, exit 0, at 320 / 390 / 768 / 1280 / 1440 / 1728. Sixty
-readings (ten Tier-0 surfaces x six widths) captured to
-`docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/`: 59 `ready`, and Automation
-at 390px caught mid-read as `loading` — which the assertion confirmed rendered no figure at all.
-That single reading is the contract working, not a hole in it.
+readings (ten Tier-0 surfaces x six widths) under
+`docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/`, and **zero silent
+surfaces**: the smoke now fails outright when a Tier-0 surface renders no reading.
+
+The evidence is worth reading against the run before the audit fixes. Google used to report
+"as of 18h ago" at four widths and "age unknown" at two, in one run, over unchanged data — the
+signature of a wall-clock date standing in for an observation time. It now reports the honest
+`partial`: "No Google Ads accounts are assigned to this business." Overview used to say "as of just
+now" on every load because it was reading the fetch time; it now says "age unknown" when the
+fixture has no sync, which is the truth. Readings moved from confidently wrong to honestly unknown,
+which is the whole point.
+
+The last variance the evidence exposed: Google settled on "ready, age unknown" at two widths and
+"partial" at four, because the status query that supplies both its as-of and its partial reason was
+not part of its own loading state. A reading that means different things depending on when you look
+is not a reading, so that query's load and error state are now included and
+`lib/tier-zero-as-of.test.ts` holds the rule.
 
 The smoke also gained a transport-reset backoff on the login POST. The existing loop retried only
 on 429; a connection reset throws before any status exists, so one reset failed the whole matrix
 for a reason unrelated to the product. Only resets are retried, and only a bounded number of
 times — a genuinely broken login still fails the run. A gate that fails for unrelated reasons is a
 gate people learn to ignore.
+
+**An adversarial audit over this branch confirmed 24 further defects (19 candidates refuted).**
+They are recorded in the commit history; the class is always the same and is the reason this ledger
+exists: six surfaces dated themselves from a fetch time, a wall-clock date, an echoed request
+parameter, a content edit time or an account signup date; four retries re-ran a different query
+than the one that failed; "figures withheld" was rendered over figures still on screen; hooks below
+early returns meant a *failed refetch* crashed the page instead of showing the error state that
+branch guarantees; eight section-9 events counted the wrong population, fired on render, or could
+not fire at all; and two of this branch's own tests asserted things that were true by construction.
 
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.

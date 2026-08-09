@@ -61,7 +61,14 @@ Consequences:
 Per-slice verification therefore uses focused tests, the full vitest suite, typecheck, and
 lint, with this smoke recorded as a known-failing baseline rather than a silent skip.
 
+> **Superseded 2026-08-09.** The smoke is green. Historical baseline only.
+
+
 ### Finding G0-F3 — the Decisions as-of date resolver queries a column that does not exist
+
+> **Resolved 2026-08-08** by slice D070 (`19b9ce5b9`) with ADR-D070 and golden coverage, and by
+> slice C3 (`4f37ac663`) which surfaced the swallowed failure. Retained as the historical
+> root-cause record; it is not a current blocker.
 
 Root cause of G0-F2, and a defect in its own right on the production commit.
 
@@ -216,7 +223,7 @@ approved call — not because the contract is missing.
 | J3 | creative column priority at narrow viewports | J1 | `local_pass` (`894858aee`) | wide viewports unchanged |
 | J4 | Google ROAS colour semantics | A1 | `local_pass` | surface-scoped |
 | I2 | admin/share route error boundaries | C2 | `local_pass` | additive files |
-| S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | G0-F1 + ADR | `blocked_external` | test-only |
+| S-SMOKE | fix pre-existing full-UI smoke failure (G0-F2/G0-F3) | — | **superseded** — closed as X-5 on 2026-08-09 (`1e35ad6f5`, `b3f892ad2`); the gate is green desktop + mobile | test-only |
 | F1b | workflow store + API routes | F1 | `local_pass` (`178cf6e89`) | additive routes |
 | C4 | Decisions failed-read retry | C2 | `local_pass` (`178cf6e89`) | UI-only |
 | D3b | global search mounted in shell | D3 | `local_pass` (`fccd41899`) | component removable |
@@ -229,7 +236,7 @@ approved call — not because the contract is missing.
 | H1b | guarded action preflight + receipt | H1 | `local_pass` (`dd140f7ea`) | read-only route |
 | H1c | capability + preflight rendered in inspector | H1b | `local_pass` | component removable |
 | F1c | workflow controls rendered in inspector | F1b | `local_pass` | component removable |
-| H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` (G0-F1) | action-class disable |
+| H2 | exact single-Ad pause execution | H1 + D065/D067 | `blocked_external` — **reason updated**: D065/D067 are implemented and seam-proven here, so the contract is no longer the blocker; the remaining gate is a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved provider call | action-class disable |
 | L | release soak and final acceptance | all | `blocked_external` (deploy gate) | exact build rollback |
 
 ---
@@ -248,8 +255,11 @@ deployment has been run on this branch:
 | Migrations from zero | `npm run test:migrations-from-zero` | PASS — builds from empty, idempotent on re-run, launch-intent seam clean |
 
 Not run, and not runnable without approval: signed-in production acceptance, the exact
-deployed-build read-back, the sustained production soak, and the full-UI visual gate (red at
-baseline, see G0-F2/G0-F3).
+deployed-build read-back, and the sustained production soak.
+
+**Superseded (2026-08-09).** The full-UI visual gate was listed here as red at baseline. It is
+green — desktop and mobile — since X-5 was root-caused and fixed; see the current-status section
+below. This paragraph is retained as the historical Phase-12 baseline, not as current status.
 
 This is the furthest the release candidate can be taken before a deployment decision.
 
@@ -306,10 +316,16 @@ requires deployment, which is an explicit approval gate this program has not rea
 
 ## Native-authority selective integration (2026-08-09)
 
-Branch `ux/native-authority-integration`, cut from the UX candidate `130dc8627`. Five rollbackable
-slices. The stale branch `codex/native-ad-bounded-stop-loss-authority` was **not** merged or rebased;
-its 608 changed files were filtered to the ~60 that make D061-D069 and the D065/D067 execution
-contracts true in code.
+Branch `ux/native-authority-integration`, cut from the UX candidate `130dc8627`. Nine rollbackable
+slices (five porting, then D066, the D069 seam, instrumentation, and the ledger). The stale branch
+`codex/native-ad-bounded-stop-loss-authority` was **not** merged or rebased; its 608 changed files
+were filtered by following the type and test dependencies of D065/D067 to closure.
+
+**Scope reconciliation.** The candidate is **241 files** changed against `origin/main`, not the ~60
+selected from the native branch. The difference is not unexplained: ~105 files are the earlier UX
+remediation work this branch was cut from, ~60 are the native-authority selection, and the rest are
+D066, the two new seams, instrumentation, and evidence artifacts. The per-slice table below and the
+CURRENT STATUS section account for all of them.
 
 | Slice | Content | Rollback |
 | --- | --- | --- |
@@ -336,33 +352,107 @@ the reconnect/selection guards together.
 
 ### Deliberately not integrated
 
-- **D066 (decision-fact ownership).** Requires `upsertMetaAdDailyRows` to demand an explicit
-  `authoritative_fact` write mode. Current main's creative-enrichment path
-  (`lib/meta/creatives-warehouse.ts`) writes Ad daily rows without one, so adding the gate would
-  silently stop those writes and change production sync behaviour. Owner decision, not an
-  integration detail.
-- **The D069 end-to-end seam.** Its child script drives a fake provider through the real write path;
-  main's restored pre-POST guards correctly refuse it because the ephemeral database has no connected
-  integration to authorise against. Seeding real provider connection state is work, not a mock. The
-  D069 store and schema are integrated and unit-covered.
-- **`app/api/launchpad/meta/launch/route.ts`**, which pulled in an unrelated Launchpad chain. Its one
-  incompatibility (`MetaAdsActionStatus` gaining `pending`) was fixed by narrowing a return
+- **`app/api/launchpad/meta/launch/route.ts`**, which pulled in an unrelated Launchpad chain. Its
+  one incompatibility (`MetaAdsActionStatus` gaining `pending`) was fixed by narrowing a return
   annotation to what the function actually returns.
 
-### Evidence
+Nothing else from the native branch is skipped. D066 and the D069 real-path seam were completed on
+2026-08-09 (see below); the earlier note deferring them is superseded.
+
+---
+
+## CURRENT STATUS (authoritative, 2026-08-09)
+
+Everything above this line is historical record. This section is the current truth; where the two
+disagree, this section wins.
+
+**Candidate:** `ux/native-authority-integration` — see the final SHA in the approval request at the
+end of this document.
+**Scope vs `origin/main`:** 241 files changed, +52,985 / −3,431.
+
+### D066 — decision-fact ownership (complete)
+
+`meta_ad_daily` now has exactly one owner. `upsertMetaAdDailyRows` requires
+`writeMode: "authoritative_fact"`; omitted, null, unknown and the retired `creative_enrichment`
+lane all fail closed *before* the empty-rows shortcut, so a refusal is never a partial mutation.
+Creative enrichment no longer writes decision facts — it was writing full economic evidence from
+the creatives endpoint — and keeps its three dedicated writers (creative daily, creative
+dimensions, media presentation). The authoritative payload is sanitized: creative-media, preview
+and media-debug keys are removed recursively from `payload_json` while economic evidence is
+retained.
+
+| Evidence | Result |
+| --- | --- |
+| `lib/meta/ad-daily-write-ownership.test.ts` | 10 invariants |
+| `scripts/ephemeral-postgres-ad-daily-ownership-seam-child.ts` | real-Postgres seam PASS (D066 requires a seam, not a mocked SQL-shape test) |
+| `lib/meta/creatives-warehouse.test.ts` | now asserts `not.toHaveBeenCalled()` on the retired writer |
+
+No ADR was needed: D066 prescribes this resolution verbatim ("owned only by authoritative insights
+sync", "performs zero `meta_ad_daily` writes"). The decision was implemented, not amended.
+
+### D069 / D065 / D067 — real-path write seam (complete)
+
+`scripts/ephemeral-postgres-manual-ad-status-seam-child.ts` builds a deterministic connected
+-integration fixture (provider connection, credential, selected binding, connection generation) and
+drives the **real** writer against a controlled fake provider. No guard is stubbed or weakened;
+only `globalThis.fetch` is replaced, and the fake refuses any non-provider host.
+
+| Proven | How |
+| --- | --- |
+| One POST maximum | exactly one POST for one authorized pause, naming the exact Ad and carrying the authorized credential |
+| Exact target / account authority | pre-read requires exact live account identity and full hierarchy status |
+| No automatic retry on ambiguity | transport ambiguity still yields exactly one POST |
+| Fail-closed | zero POSTs when the connection generation moves, and zero when the account is deselected |
+| Durable lineage | `attempt_started` + `attempt_completed` bound to the source claim; the journal refuses UPDATE and DELETE at the database |
+
+### Instrumentation posture (G0-F4 resolved)
+
+First-party retained sink: `product_instrumentation_events`, tenant-scoped by business and
+deliberately **not** person-scoped — no user id, email, session id, or free-text column anywhere.
+Event names and failure codes are bounded by CHECK constraints; retention is a 90-day column;
+failures return an explicit outcome and warn rather than being swallowed. Agency Today and entity
+search emit to it. 12 contract tests.
+
+### Mobile truth (partial, unchanged)
+
+C-4 remains `local_pass` **for its read model only**. Section 10 of the plan requires a *physical*
+mobile Tier-0 pass; an emulated 390px viewport is not a device. Tier-0 writes stay desktop-gated
+per D5.
+
+### Local gates — all green
 
 | Gate | Result |
 | --- | --- |
-| Focused D061-D069 invariants | 160 pass (`meta-manual-authority` 67, `decision-origin-action-preflight`, `ads-action-log`, `execution-safety`) |
-| Golden cases | 92 canonical cases in lockstep with `GOLDEN_CASES.md` |
-| Full suite | **6,824 pass**, 0 fail (baseline before integration: 6,414) |
+| Full suite | **6,846 pass**, 0 fail, 61 skipped, 63 todo (696 files) |
+| Focused D061–D069 invariants | 160 pass; 92 golden cases in lockstep with `GOLDEN_CASES.md` |
 | Typecheck / lint | 0 / 0 |
 | Production build | clean |
-| Migrations from zero | PASS, idempotent on re-run, including the D063 constraint upgrade |
-| Desktop + mobile smoke | 2/2, artifacts under `playwright-smoke-artifacts/native-integration-2026-08-09/` |
+| Migrations from zero | PASS, idempotent, including the D063 constraint upgrade and both new seams |
+| Desktop + mobile full-UI smoke | 2/2, `FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09` |
 
-**Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16 fails
-with `postmaster became multithreaded during startup`, which reads as a code failure and is not one.
+**Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16
+fails with `postmaster became multithreaded during startup`, which reads as a code failure and is
+not one.
+
+### Remaining gates — production-only, every one
+
+None of these has a local component; Section 10 of the plan states outright that local or staging
+results cannot satisfy them.
+
+| Gate | Needs |
+| --- | --- |
+| A-7 non-USD end-to-end | the deploy, signed in |
+| A-6 provider-health consistency | the deploy, signed in |
+| B-1 Agency Today across all clients | the deploy, signed in |
+| X-6 exact deployed-build read-back | the deploy (`scripts/verify-release-authority.ts --mode=post_deploy` already automates it) |
+| B-7 / H2 guarded exact-Ad pause | deployed build + `META_GUARDED_EXECUTION_ENABLED=1` + an approved provider call |
+| B-8 live policy/disapproval incident | a real disapproval from provider truth |
+| C-1 broader execution breadth | Phase 11; begins after Gate A production evidence |
+| C-2 delivered notifications | an enabled channel (4 of 5 Phase 7 items are `local_pass`) |
+| C-5 sustained reliability + breaker | a production soak with live action classes |
+| C-4 physical mobile Tier-0 | a real device |
+
+---
 
 ## Completion ledger (master plan section 14)
 
@@ -472,6 +562,12 @@ that the version is populated rather than merely present.
 
 ### Finding G0-F4 — section 9 instrumentation has no sink to write to
 
+> **Resolved 2026-08-09.** `lib/product-instrumentation.ts` and the
+> `product_instrumentation_events` table are a first-party, tenant-scoped, retained sink with a
+> bounded vocabulary enforced in CHECK constraints, an explicit 90-day retention column, no
+> free-text or person-scoped field, and visible failure reporting. Agency Today and entity search
+> emit to it. Retained below as the historical finding.
+
 Section 9 requires product events (Agency Today viewed, search submitted, widget failed,
 Google copy/CSV used, and so on) so the outcome metrics can be measured after release.
 
@@ -509,7 +605,8 @@ action-log read was made conditional on a page actually containing an observed c
 
 ### Summary
 
-- `local_pass`: 23 criteria of 30 (X-5 closed this round; counts verified against the table above).
+- `local_pass`: 23 criteria of 30 as of the X-5 round. **Superseded by CURRENT STATUS above**, which
+  supersedes this count: the ten remaining gates are all production-only and enumerated there.
   C-4 is `local_pass` for its read model only — the plan requires a physical-device pass it cannot claim.
 - `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment

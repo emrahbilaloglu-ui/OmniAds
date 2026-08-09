@@ -324,11 +324,21 @@ slices (five porting, then D066, the D069 seam, instrumentation, and the ledger)
 `codex/native-ad-bounded-stop-loss-authority` was **not** merged or rebased; its 608 changed files
 were filtered by following the type and test dependencies of D065/D067 to closure.
 
-**Scope reconciliation.** The candidate is **241 files** changed against `origin/main`, not the ~60
-selected from the native branch. The difference is not unexplained: ~105 files are the earlier UX
-remediation work this branch was cut from, ~60 are the native-authority selection, and the rest are
-D066, the two new seams, instrumentation, and evidence artifacts. The per-slice table below and the
-CURRENT STATUS section account for all of them.
+**Scope reconciliation (recomputed 2026-08-09, commands shown).**
+
+```
+git diff --name-only 130dc8627 ec54dad4 | wc -l   # 99   initial native integration
+git diff --name-only ec54dad4 4546fcae | wc -l    # 30   D066 + first D069 attempt + instrumentation v1
+git diff --name-only origin/main HEAD | wc -l     # 244  candidate total
+git diff --shortstat origin/main HEAD             # 244 files, +53,846 / -3,431
+```
+
+Those three historical figures are facts and are preserved. The earlier claim
+that "~60 files" were selected from the native branch is **withdrawn**: it was an
+estimate presented as a count and was never measured. The candidate's 244 files
+are the cumulative result of the whole programme (UX remediation, native
+selection, D066, three DB seams, instrumentation, evidence artifacts); no
+subdivision of them has been measured, so none is asserted.
 
 | Slice | Content | Rollback |
 | --- | --- | --- |
@@ -370,9 +380,9 @@ Everything above this line is historical record. This section is the current tru
 disagree, this section wins.
 
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
-The last content commit is `f161d6106` ("Refresh the committed full-UI smoke evidence"); the exact
-tip SHA is stated in the deploy approval request, since a commit cannot record its own hash.
-**Scope vs `origin/main`:** 241 files changed, +53,086 / −3,431.
+The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
+hash.
+**Scope vs `origin/main`:** 244 files changed, +53,846 / −3,431 (86 commits).
 
 ### D066 — decision-fact ownership (complete)
 
@@ -394,28 +404,44 @@ retained.
 No ADR was needed: D066 prescribes this resolution verbatim ("owned only by authoritative insights
 sync", "performs zero `meta_ad_daily` writes"). The decision was implemented, not amended.
 
-### D069 / D065 / D067 — real-path write seam (complete)
+### D069 / D065 / D067 — route-level write seam (complete)
 
-`scripts/ephemeral-postgres-manual-ad-status-seam-child.ts` builds a deterministic connected
--integration fixture (provider connection, credential, selected binding, connection generation) and
-drives the **real** writer against a controlled fake provider. No guard is stubbed or weakened;
-only `globalThis.fetch` is replaced, and the fake refuses any non-provider host.
+`scripts/ephemeral-postgres-manual-ad-status-route-seam-child.ts` builds a real authenticated
+session (a `sessions` row and its cookie) plus a genuinely connected, selected integration, then
+calls the **shipped route handler** `app/api/meta/ads/[adId]/pause/route.ts`.
+
+The previous seam called `pauseAd()` and then appended journal events itself. That proved the
+provider client behaves and that the append functions accept input — it proved nothing about
+whether the shipped route produces durable lineage, which is the actual D069 claim. It was
+**deleted**, not adapted.
+
+Everything asserted below is written by production code; the seam only seeds fixtures, replaces
+`globalThis.fetch`, and reads the database back.
 
 | Proven | How |
 | --- | --- |
-| One POST maximum | exactly one POST for one authorized pause, naming the exact Ad and carrying the authorized credential |
-| Exact target / account authority | pre-read requires exact live account identity and full hierarchy status |
-| No automatic retry on ambiguity | transport ambiguity still yields exactly one POST |
-| Fail-closed | zero POSTs when the connection generation moves, and zero when the account is deselected |
-| Durable lineage | `attempt_started` + `attempt_completed` bound to the source claim; the journal refuses UPDATE and DELETE at the database |
+| Claim + lineage created by production | exactly one action claim carrying the exact account, Ad and creative; `attempt_started` and a terminal completion present, with exact ad/creative/campaign/adset/account |
+| One POST maximum | one POST for one authorized pause, naming the exact Ad and carrying the authorized credential |
+| No automatic retry on ambiguity | transport ambiguity yields exactly one POST; the persisted receipt records `attemptCount: 1`, `automaticRetryAttempted: false`; never reported as success |
+| Zero POST, fail-closed | deselection, revoked connection generation, identity/permission mismatch (a real session for a user with no membership), and kill switch |
+| Append-only lineage | the journal refuses `UPDATE` and `DELETE` at the database |
 
-### Instrumentation posture (G0-F4 resolved)
+Reaching this meant satisfying the real contract rather than routing around it: explicit
+`actionOrigin` (D065 forbids inferring it), explicit operator confirmation, and the server-presented
+`adId` echoed in the body because the path parameter alone is not authority.
 
-First-party retained sink: `product_instrumentation_events`, tenant-scoped by business and
-deliberately **not** person-scoped — no user id, email, session id, or free-text column anywhere.
-Event names and failure codes are bounded by CHECK constraints; retention is a 90-day column;
-failures return an explicit outcome and warn rather than being swallowed. Agency Today and entity
-search emit to it. 12 contract tests.
+### Instrumentation posture (G0-F4 partially resolved)
+
+First-party retained sink: `product_instrumentation_events`, scoped either to one business or to
+the portfolio, and **never** to `businesses[0]` — the scope/tenancy pairing is enforced by a
+database CHECK, so attributing cross-tenant work to one tenant is impossible at the storage layer.
+No user id, email, session id, or free-text column. `surface` is a closed allowlist; the catch never
+reads `error.message`. Writes are awaited and bounded (750ms) rather than detached. Retention runs
+from the same cron as the other maintenance jobs and is proven idempotent.
+`product_instrumentation_sink_health` makes a failing sink operator-visible rather than a console
+line.
+
+**Partially** resolved: five events have real emitters. See the open local gaps below for the rest.
 
 ### Mobile truth (partial, unchanged)
 
@@ -423,36 +449,57 @@ C-4 remains `local_pass` **for its read model only**. Section 10 of the plan req
 mobile Tier-0 pass; an emulated 390px viewport is not a device. Tier-0 writes stay desktop-gated
 per D5.
 
-### Local gates — all green
+### Local gates (recomputed on the final SHA)
 
-| Gate | Result |
-| --- | --- |
-| Full suite | **6,846 pass**, 0 fail, 61 skipped, 63 todo (696 files) |
-| Focused D061–D069 invariants | 160 pass; 92 golden cases in lockstep with `GOLDEN_CASES.md` |
-| Typecheck / lint | 0 / 0 |
-| Production build | clean |
-| Migrations from zero | PASS, idempotent, including the D063 constraint upgrade and both new seams |
-| Desktop + mobile full-UI smoke | 2/2, `FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09` |
+| Gate | Exact command | Result |
+| --- | --- | --- |
+| Full suite | `LC_ALL=C npx vitest run` | **6,862 pass**, 0 fail, 61 skipped, 63 todo (697 files) |
+| Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
+| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 28 pass |
+| Typecheck / lint | `npx tsc --noEmit` / `npx eslint .` | 0 / 0 |
+| Production build | `npm run build` | clean |
+| Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, including all three seams |
+| Desktop + mobile smoke | `FULL_UI_SMOKE_ARTIFACT_SET=… npm run test:full-ui:visual` | 2/2 |
+
+An earlier revision of this section reported "160" and "247" for the focused suite in different
+places. Both are withdrawn; the single command above and its count of **235** are the record.
+
+**Test-file impact, measured.** `git diff --name-status origin/main HEAD -- '*.test.ts' '*.test.tsx'`
+reports **49 added** and **32 modified**. The earlier claim that *no pre-existing test was changed*
+is **false and withdrawn**: 32 pre-existing test files were modified. They were changed because the
+contracts they encoded changed — D065's guards, D066's single-owner rule, the D063 constraint
+vocabulary — and each change is described in the commit that made it. That is a legitimate reason to
+edit a test, but it is not "no pre-existing tests changed", and the distinction matters.
 
 **Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16
 fails with `postmaster became multithreaded during startup`, which reads as a code failure and is
 not one.
 
-### Remaining gates — production-only, every one
+### Remaining work, classified honestly
 
-None of these has a local component; Section 10 of the plan states outright that local or staging
-results cannot satisfy them.
+Two categories. Conflating them was a real defect in earlier revisions of this ledger.
+
+**Locally reachable and NOT yet done** — these are open local gaps, not production gates:
+
+| Gap | What remains |
+| --- | --- |
+| Section-9 instrumentation coverage | 5 of section 9's minimum events have emitters. Client-row open, search-result open, saved-view create/apply, evidence viewed, the report generate/fail/retry/share/print/CSV family, Google copy/CSV/deep-link, health recovery, notification delivery lifecycle, guarded dry-run and mobile Tier-0 have no server emission point on this candidate. The vocabulary deliberately excludes them rather than declaring dead names |
+| Mobile composition (Studio at 320/390) | The committed 390px Creative Studio artifact clips the assessment column and withholds primary economic KPIs. A task-priority mobile composition with progressive disclosure is not built |
+| Typography floor | Verified 7.5–10px text remains in Studio/Decisions table headers, attribution labels, assessment text and reasons, below the plan's 12px essential floor |
+| Accessibility verification | Keyboard/focus/accessible-name/status, 200% zoom, reduced motion and long-text/localisation are not systematically verified on the changed surfaces |
+| Visual evidence breadth | Committed artifacts cover the original narrow smoke set. Overview/Agency Today, global search, Decisions inspector, Reports failure state, Settings/Integrations health, Launchpad and Automation are not captured at 390/768/1280/1440/1728 |
+| Freshness adoption, Agency Today health join, History projection completeness | Previously noted in this ledger and still open locally |
+
+**Production-only or physical-device** — no local component exists:
 
 | Gate | Needs |
 | --- | --- |
-| A-7 non-USD end-to-end | the deploy, signed in |
-| A-6 provider-health consistency | the deploy, signed in |
-| B-1 Agency Today across all clients | the deploy, signed in |
-| X-6 exact deployed-build read-back | the deploy (`scripts/verify-release-authority.ts --mode=post_deploy` already automates it) |
+| A-7 non-USD end-to-end, A-6 provider-health consistency, B-1 Agency Today across all clients | the deploy, signed in |
+| X-6 exact deployed-build read-back | the deploy |
 | B-7 / H2 guarded exact-Ad pause | deployed build + `META_GUARDED_EXECUTION_ENABLED=1` + an approved provider call |
 | B-8 live policy/disapproval incident | a real disapproval from provider truth |
-| C-1 broader execution breadth | Phase 11; begins after Gate A production evidence |
-| C-2 delivered notifications | an enabled channel (4 of 5 Phase 7 items are `local_pass`) |
+| C-1 broader execution breadth | Phase 11, after Gate A production evidence |
+| C-2 delivered notifications | an enabled channel |
 | C-5 sustained reliability + breaker | a production soak with live action classes |
 | C-4 physical mobile Tier-0 | a real device |
 

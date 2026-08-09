@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type APIResponse,
   type BrowserContext,
   type Page,
 } from "@playwright/test";
@@ -574,6 +575,54 @@ async function seedMetaDecisionDemoData() {
   }
 }
 
+/**
+ * POST the login endpoint, tolerating the two things that are not failures.
+ *
+ * A 429 is the rate limiter doing its job: the extended matrix authenticates
+ * the same reviewer from six projects in quick succession, which is exactly the
+ * pattern the limiter exists to stop. Backing off keeps a real protection
+ * intact rather than weakening it to make a test convenient.
+ *
+ * A connection reset is the dev server closing a socket while it is still
+ * settling. It throws rather than returning a status, so the 429 loop never
+ * saw it and one reset failed the whole width matrix. A gate that fails for
+ * reasons unrelated to the product is a gate people learn to ignore, which is
+ * worse than not having it.
+ *
+ * Everything else is surfaced unchanged. Only transport-level resets are
+ * retried, and only a bounded number of times, so a genuinely broken login
+ * still fails the run.
+ */
+async function postLoginWithBackoff(
+  post: (path: string, options: { data: SmokeActor }) => Promise<APIResponse>,
+  actor: SmokeActor,
+  wait: (ms: number) => Promise<void>,
+): Promise<APIResponse> {
+  let lastTransportError: unknown = null;
+
+  for (let attempt = 0; attempt <= 6; attempt += 1) {
+    if (attempt > 0) await wait(attempt * 1_500);
+    try {
+      const response = await post("/api/auth/login", { data: actor });
+      if (response.status() !== 429) return response;
+      lastTransportError = null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isTransportReset =
+        /ECONNRESET|ECONNREFUSED|socket hang up|EPIPE|Connection closed/i.test(
+          message,
+        );
+      // Anything that is not a reset is a real failure and must not be retried
+      // into silence.
+      if (!isTransportReset) throw error;
+      lastTransportError = error;
+    }
+  }
+
+  if (lastTransportError) throw lastTransportError;
+  return post("/api/auth/login", { data: actor });
+}
+
 async function signIn(page: Page, actor: SmokeActor) {
   // BrowserContext.request shares its cookie jar with every page in the
   // context. Authenticating here avoids a pending /login UI redirect racing
@@ -584,11 +633,11 @@ async function signIn(page: Page, actor: SmokeActor) {
   // quick succession, which is exactly the pattern the limiter exists to stop.
   // Backing off and retrying keeps the limiter intact rather than weakening a
   // real protection to make a test convenient.
-  let loginResponse = await page.request.post("/api/auth/login", { data: actor });
-  for (let attempt = 1; attempt <= 6 && loginResponse.status() === 429; attempt += 1) {
-    await page.waitForTimeout(attempt * 1_500);
-    loginResponse = await page.request.post("/api/auth/login", { data: actor });
-  }
+  const loginResponse = await postLoginWithBackoff(
+    (path, options) => page.request.post(path, options),
+    actor,
+    (ms) => page.waitForTimeout(ms),
+  );
   expect(
     loginResponse.ok(),
     `login failed for ${actor.email}: ${loginResponse.status()} ${await loginResponse.text()}`,
@@ -599,13 +648,11 @@ async function signIn(page: Page, actor: SmokeActor) {
 }
 
 async function signInRequest(context: APIRequestContext, actor: SmokeActor) {
-  let response = await context.post("/api/auth/login", {
-    data: actor,
-  });
-    for (let attempt = 1; attempt <= 6 && response.status() === 429; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
-    response = await context.post("/api/auth/login", { data: actor });
-  }
+  const response = await postLoginWithBackoff(
+    (path, options) => context.post(path, options),
+    actor,
+    (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  );
   expect(
     response.ok(),
     `request login failed for ${actor.email}: ${response.status()}`,

@@ -578,6 +578,19 @@ recent, which is not the same as the data being recent, and that is exactly the 
 as known" substitution this whole contract exists to remove. They say the age is unknown until
 there is a real timestamp to show.
 
+**Six-width freshness evidence, all green.** `FULL_UI_SMOKE_ARTIFACT_SET=tier-zero-freshness
+npm run test:full-ui:visual` — 6 passed, exit 0, at 320 / 390 / 768 / 1280 / 1440 / 1728. Sixty
+readings (ten Tier-0 surfaces x six widths) captured to
+`docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/`: 59 `ready`, and Automation
+at 390px caught mid-read as `loading` — which the assertion confirmed rendered no figure at all.
+That single reading is the contract working, not a hole in it.
+
+The smoke also gained a transport-reset backoff on the login POST. The existing loop retried only
+on 429; a connection reset throws before any status exists, so one reset failed the whole matrix
+for a reason unrelated to the product. Only resets are retried, and only a bounded number of
+times — a genuinely broken login still fails the run. A gate that fails for unrelated reasons is a
+gate people learn to ignore.
+
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.
 

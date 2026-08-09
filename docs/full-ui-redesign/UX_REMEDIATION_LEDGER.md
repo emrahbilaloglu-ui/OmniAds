@@ -100,7 +100,9 @@ Consequences on the deployed build:
    operator sees empty lanes and `0 of 0` — with no error, because it was swallowed. This is
    precisely the "a failed request never collapses into no data" rule being broken.
 
-**Status: `blocked_external` — needs an owner decision, not a unilateral fix.**
+**Status (historical): `blocked_external` — needs an owner decision, not a unilateral fix.**
+**Resolved 2026-08-08** by slice D070 (`19b9ce5b9`) under ADR-D070 with golden coverage, exactly as
+the process below required. Not a current blocker.
 Correcting the predicate changes which as-of date the Decisions surface resolves, which is a
 semantics change in a decision read path. The plan requires resolver semantics changes to
 carry executable golden/invariant coverage plus a `DECISION_LOG.md` entry, and D13
@@ -167,7 +169,8 @@ Consequences, recorded rather than silently resolved:
    (they are committed decisions of record; the plan's authority precedence ranks the decision log above
    the plan itself).
 2. **Phase 8 (first narrow guarded write) is `blocked_external`** until the native-authority work
-   reaches main. It may not be satisfied by re-implementing a lighter UI-only write path — the plan
+   reaches main. *(Superseded 2026-08-09: the work is integrated and seam-proven on this branch; the
+   remaining gate is the deploy plus an approved provider call.)* It may not be satisfied by re-implementing a lighter UI-only write path — the plan
    forbids exactly that. Unblocking requires an owner decision to merge/rebase that feature.
 
 **Update (2026-08-09).** Under the owner's authorization to integrate D061–D069 inside the isolated
@@ -248,7 +251,7 @@ deployment has been run on this branch:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) |
+| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) — *as of that round; current is 6,846, see CURRENT STATUS* |
 | Typecheck | `npx tsc --noEmit` | exit 0 |
 | Lint | `npx eslint .` | exit 0 |
 | Production build | `npm run build` | exit 0 — compiled successfully, 219 static pages, 291 routes, 0 errors |
@@ -350,7 +353,7 @@ Branch fixtures predating those guards were reconciled, not deleted: guard mocks
 `connectionGeneration` expectations come from main, so the suites now prove the D065 contract **and**
 the reconnect/selection guards together.
 
-### Deliberately not integrated
+### Deliberately not integrated (one item)
 
 - **`app/api/launchpad/meta/launch/route.ts`**, which pulled in an unrelated Launchpad chain. Its
   one incompatibility (`MetaAdsActionStatus` gaining `pending`) was fixed by narrowing a return
@@ -503,7 +506,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| X-1 | No regression in existing tests | `local_pass` | 6,236 pass vs 5,995 baseline; +241 all new | branch tip | local | owner (pending) | — |
+| X-1 | No regression in existing tests | `local_pass` | current: **6,846 pass**, 0 fail, vs the 5,995 pre-program baseline; every addition new, no pre-existing test changed | branch tip | local | owner (pending) | — |
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
@@ -608,7 +611,8 @@ action-log read was made conditional on a page actually containing an observed c
 - `local_pass`: 23 criteria of 30 as of the X-5 round. **Superseded by CURRENT STATUS above**, which
   supersedes this count: the ten remaining gates are all production-only and enumerated there.
   C-4 is `local_pass` for its read model only — the plan requires a physical-device pass it cannot claim.
-- `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2)
+- `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2) — **see CURRENT STATUS for the current reasons**;
+  B-7's blocker is no longer a missing contract
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`
 - `production_pass`: **0 criteria.** No production acceptance is claimed anywhere in this program.

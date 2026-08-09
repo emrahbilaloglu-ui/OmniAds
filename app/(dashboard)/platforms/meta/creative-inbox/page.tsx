@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -33,6 +34,16 @@ type InboxCard = BriefingCreativeCard & {
 interface CreativeInboxResponse {
   inbox?: InboxCard[];
   errors?: Array<{ businessId: string; status: number; error: string }>;
+  /**
+   * The briefing route's provenance block. Only the measured observation time
+   * is read here: the surface needs to say how old its cards are, and the
+   * route's `asOf` is a request parameter rather than a measurement.
+   */
+  source?: {
+    measurementReconciliation?: {
+      snapshotLatest?: { observedAt?: string | null } | null;
+    } | null;
+  } | null;
 }
 
 async function fetchCreativeInbox(
@@ -127,7 +138,10 @@ export default function MetaCreativeInboxPage() {
     partialReason: (inboxQuery.data?.errors ?? []).length
       ? "Some accounts could not be read; this inbox is incomplete"
       : null,
-    asOf: null,
+    asOf: measuredAsOf(
+      inboxQuery.data?.source?.measurementReconciliation?.snapshotLatest
+        ?.observedAt ?? null,
+    ),
     businessId: selectedBusinessId ?? null,
     onRetry: () => void inboxQuery.refetch(),
   });

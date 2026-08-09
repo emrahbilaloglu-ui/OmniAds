@@ -53,6 +53,15 @@ export interface LandingPagePerformanceSummary {
 }
 
 export interface LandingPagePerformanceMeta {
+  /**
+   * When this payload was actually retrieved from GA4.
+   *
+   * Stamped once at the live fetch and carried by the cache, so a response
+   * served from cache reports when the data was retrieved rather than when it
+   * was handed over. Re-stamping on a cache hit would make every response look
+   * seconds old however long it had been sitting there.
+   */
+  retrievedAt?: string | null;
   empty: boolean;
   hasEcommerceData: boolean;
   unavailableMetrics: Array<{

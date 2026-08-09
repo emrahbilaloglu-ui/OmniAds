@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -368,14 +369,14 @@ export default function MetaCreativeStudioPage() {
     // `source.asOf` is the client's own request parameter echoed back by the
     // route, so it measures nothing. Use a timestamp the server actually
     // observed, and say "age unknown" when there is none.
-    // The briefing payload carries only date-range labels -- `source.asOf` is
-    // the client's own request parameter echoed back, and `snapshotLatest`
-    // carries an `asOfDate`, a calendar day rather than an observation time. A
-    // date is not an instant: 2026-08-09 parses as UTC midnight, so the same
-    // data reads as a different age depending on the hour and the account's
-    // offset. Until this route publishes a measured timestamp, the honest
-    // answer is that the age is unknown.
-    asOf: null,
+    // When the snapshot rows were computed. Not `source.asOf` (the client's
+    // own request parameter echoed back) and not `asOfDate` (the calendar day
+    // the rows describe) -- a date is not an instant, and using one made the
+    // same data read as a different age depending on the hour.
+    asOf: measuredAsOf(
+      briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest
+        ?.observedAt ?? null,
+    ),
     businessId,
     onRetry: () => {
       void creativesQuery.refetch();

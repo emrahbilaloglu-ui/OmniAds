@@ -62,7 +62,13 @@ export async function GET(request: NextRequest) {
           endDate,
         }),
     );
-    return NextResponse.json(payload);
+    // Stamped here, on the live retrieval, and not on the cache-hit path
+    // above: the cached payload carries this value forward, so a response
+    // served an hour later still reports when GA4 was actually read.
+    return NextResponse.json({
+      ...payload,
+      meta: { ...payload.meta, retrievedAt: new Date().toISOString() },
+    });
   } catch (error) {
     if (error instanceof ProviderRequestCooldownError) {
       return NextResponse.json(

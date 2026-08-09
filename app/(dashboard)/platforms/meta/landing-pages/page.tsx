@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -150,9 +151,10 @@ export default function LandingPagesPage() {
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error,
-    // GA4 landing-page performance is reported for a date range; the payload
-    // carries no observation time, so the age is unknown rather than guessed.
-    asOf: null,
+    // When GA4 was actually read. This route caches, so the stamp is taken at
+    // the live retrieval and carried by the cache -- a response served an hour
+    // later reports the retrieval, not the hand-over.
+    asOf: measuredAsOf(query.data?.meta?.retrievedAt ?? null),
     businessId,
     onRetry: () => void query.refetch(),
   });

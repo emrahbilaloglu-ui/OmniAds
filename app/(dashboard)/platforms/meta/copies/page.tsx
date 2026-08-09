@@ -1,5 +1,6 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   useEffect,
@@ -45,7 +46,10 @@ interface MetaCopiesResponse {
   rows: MetaCopyApiRow[];
   meta?: {
     unresolved_filtered_count?: number;
+    /** When the route ran. Not the data's age. */
     generatedAt?: string;
+    /** When the warehouse rows behind this response were last written. */
+    warehouseObservedAt?: string | null;
     provider_account_id?: string;
   };
 }
@@ -275,9 +279,10 @@ export default function CopiesPage() {
     isLoading: copiesQuery.isLoading,
     isFetching: copiesQuery.isFetching,
     error: copiesQuery.error ?? providerAccountsQuery.error,
-    // This payload carries a date range, not an observation time, and a date is
-    // not an instant. Until the route publishes one, the age is unknown.
-    asOf: null,
+    // When the warehouse rows behind this view were last written by a sync.
+    // Not the route's `generatedAt`, which records when the request ran and
+    // would restate the age of the request as the age of the data.
+    asOf: measuredAsOf(copiesQuery.data?.meta?.warehouseObservedAt ?? null),
     businessId,
     onRetry: () => void copiesQuery.refetch(),
   });

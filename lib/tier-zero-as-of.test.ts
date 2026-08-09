@@ -176,3 +176,74 @@ describe("a reading never settles before the read that determines it", () => {
     expect(call).toContain("isSyncStatusError");
   });
 });
+
+describe("no Tier-0 surface settles for \"age unknown\" by default", () => {
+  /**
+   * "Age unknown" is an honest answer to an unanswerable question, not a
+   * resting place. Four surfaces were reporting it because their routes
+   * published only date-range labels — which was true, and was also a reason to
+   * change the routes rather than to leave the operator without an age. Each
+   * now publishes a measured instant:
+   *
+   * - the briefing route: MAX(computed_at) over the snapshot rows
+   * - the copies route: MAX(updated_at) over the warehouse rows in the window
+   * - the GA4 route: the retrieval time, stamped at the live fetch and carried
+   *   by the cache so a cache hit does not restamp itself as fresh
+   *
+   * A surface hardcoding `asOf: null` now fails here, so the next one has to
+   * either find a real timestamp or argue the case in this list.
+   */
+  const HARDCODED_NULL_ALLOWED = new Set<string>([
+    // Launchpad composes from live reads that publish no observation time. It
+    // is a wizard, not a data view, and shows no historical figures.
+    "app/(dashboard)/platforms/meta/launchpad/page.tsx",
+  ]);
+
+  const DATA_SURFACES = [
+    "app/(dashboard)/platforms/meta/creatives/page.tsx",
+    "app/(dashboard)/platforms/meta/copies/page.tsx",
+    "app/(dashboard)/platforms/meta/creative-inbox/page.tsx",
+    "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+  ];
+
+  for (const file of DATA_SURFACES) {
+    it(`${file.split("/").slice(-2)[0]} reports a measured instant`, () => {
+      const asOf = asOfExpression(readFileSync(file, "utf8"));
+      expect(asOf, `${file} has no asOf`).not.toBeNull();
+      expect(
+        /^\s*null\s*,?\s*$/.test(asOf!),
+        `${file} hardcodes asOf: null; publish a measured timestamp instead`,
+      ).toBe(HARDCODED_NULL_ALLOWED.has(file));
+      expect(asOf).toContain("measuredAsOf(");
+    });
+  }
+
+  it("the routes publish the timestamps those surfaces read", () => {
+    // The surface and the route have to agree, or the surface silently falls
+    // back to "age unknown" and looks like a deliberate choice again.
+    expect(
+      readFileSync("app/api/creatives/briefing/route.ts", "utf8"),
+    ).toContain("MAX(latest_snapshots.computed_at) AS observed_at");
+    expect(readFileSync("app/api/meta/copies/route.ts", "utf8")).toContain(
+      "MAX(updated_at) AS observed_at",
+    );
+    expect(
+      readFileSync(
+        "app/api/analytics/landing-page-performance/route.ts",
+        "utf8",
+      ),
+    ).toContain("retrievedAt: new Date().toISOString()");
+  });
+
+  it("does not restamp a cached GA4 response as freshly retrieved", () => {
+    const route = readFileSync(
+      "app/api/analytics/landing-page-performance/route.ts",
+      "utf8",
+    );
+    const cacheHit = route.slice(
+      route.indexOf("if (cached)"),
+      route.indexOf("if (cached)") + 120,
+    );
+    expect(cacheHit).not.toContain("retrievedAt");
+  });
+});

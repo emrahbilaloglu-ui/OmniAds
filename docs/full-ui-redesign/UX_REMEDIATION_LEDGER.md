@@ -540,6 +540,29 @@ Two categories. Conflating them was a real defect in earlier revisions of this l
   projected. `history-projection-completeness.test.ts` asserts every declared source is queried,
   so a source the filter offers can never return empty because it was never wired.
 
+### Section 9 — the four excluded families, verifiable in one pass
+
+Each row is a command anyone can run. "Shipped emitter" means an emit site outside a test file.
+
+| Family | Events | Shipped emitter | Tests | Real-Postgres seam |
+| --- | --- | --- | --- | --- |
+| Notification | attempted / delivered / opened / acknowledged | `lib/notification-store.ts:131,179,210,240` | `lib/notification-contract.test.ts`, `lib/notification-lifecycle.test.ts`, `lib/notification-read-model.test.ts`, `app/api/notifications/route.test.ts` | `scripts/ephemeral-postgres-notification-seam-child.ts` |
+| Guarded | confirmed / provider-attempted / verified / failed / ambiguous / reconciled | `lib/meta/ads-action-log.ts:1668,2570,2590-2599,4223`; `lib/meta/manual-ad-status-reconciliation.ts:266`; `app/api/meta/decision-action/preflight/route.ts:130-134` | `lib/meta/ads-action-log.test.ts`, `lib/meta/manual-ad-status-reconciliation.test.ts` | `scripts/ephemeral-postgres-manual-ad-status-route-seam-child.ts` |
+| Mobile Tier-0 | started / completed | `components/meta/os/MobileTier0Triage.tsx:117,130`, mounted at `components/meta/os/DecisionsOsView.tsx` | `components/meta/os/mobile-tier0-triage.test.tsx` | — (client task; the workflow write it hangs off is covered by the workflow route tests) |
+| Google deep link | used | `components/google-ads/GoogleAdsIntelligenceDashboard.tsx:1614`, URL built by `lib/google-ads/deep-link.ts` and rendered at three sites | `lib/google-ads/deep-link.test.ts`, `lib/google-ads/deep-link-wiring.test.ts` | — (no write; the builder refuses rather than guesses) |
+
+Whole-vocabulary check, run against the tree rather than asserted: all 36 names in
+`PRODUCT_INSTRUMENTATION_EVENT_NAMES` have an emit site outside `lib/product-instrumentation.ts`,
+`lib/migrations.ts` and test files. `lib/product-instrumentation-emitters.test.ts` holds the map and
+also asserts that `lib/meta/ads-action-log.ts`,
+`lib/meta/manual-ad-status-reconciliation.ts` and `lib/notification-store.ts` never reach for the
+client telemetry endpoint — a browser can report intent, but only the server knows whether a claim
+was created, whether a POST went out, or whether a delivery was attempted.
+
+`META_GUARDED_EXECUTION_ENABLED` is unset throughout. The guarded transitions are exercised against
+real Postgres and a fake provider by the seam above, which is what makes them testable without any
+provider write.
+
 **Closed 2026-08-09, previously listed here as open.** Each of the five had a stated reason, and
 in every case the reason described a missing implementation rather than a genuine impossibility.
 Calling that "not contractable" was the error; the work is what closes it.
@@ -576,48 +599,28 @@ surfaces whose freshness wiring looked correct and reported nothing:
   reading at all — silence is the failure the contract exists to prevent, and it is how a surface
   goes quiet without anyone noticing.
 
-**Three surfaces read "age unknown", and that is the intended answer.** Launchpad, Automation and
-Reports have no timestamp on the data they read — Automation's business control may never have been
-configured, Reports has no rows until one is created, and Launchpad composes from live reads.
-Stamping the fetch time would claim a freshness we do not know: it would say the *request* was
-recent, which is not the same as the data being recent, and that is exactly the "unknown presented
-as known" substitution this whole contract exists to remove. They say the age is unknown until
-there is a real timestamp to show.
+**The four "age unknown" surfaces now report a measured instant.** Reading `null` because a route
+published only date-range labels was true, and it was a reason to change the route rather than to
+leave the operator without an age. Each route now publishes a real observation time:
 
-**Six-width freshness evidence, all green.** `FULL_UI_SMOKE_ARTIFACT_SET=tier-zero-freshness
-npm run test:full-ui:visual` — 6 passed, exit 0, at 320 / 390 / 768 / 1280 / 1440 / 1728. Sixty
-readings (ten Tier-0 surfaces x six widths) under
-`docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/`, and **zero silent
-surfaces**: the smoke now fails outright when a Tier-0 surface renders no reading.
+| Surface | Published timestamp | Where |
+| --- | --- | --- |
+| Creative Studio, Creative inbox | `MAX(computed_at)` over the snapshot rows, as `snapshotLatest.observedAt` | `app/api/creatives/briefing/route.ts` |
+| Studio — Copies | `MAX(updated_at)` over the `meta_ad_daily` rows in the window, as `meta.warehouseObservedAt` | `app/api/meta/copies/route.ts` |
+| Studio — Landing pages | the GA4 retrieval time, stamped at the live fetch and carried by the cache | `app/api/analytics/landing-page-performance/route.ts` |
 
-The evidence is worth reading against the run before the audit fixes. Google used to report
-"as of 18h ago" at four widths and "age unknown" at two, in one run, over unchanged data — the
-signature of a wall-clock date standing in for an observation time. It now reports the honest
-`partial`: "No Google Ads accounts are assigned to this business." Overview used to say "as of just
-now" on every load because it was reading the fetch time; it now says "age unknown" when the
-fixture has no sync, which is the truth. Readings moved from confidently wrong to honestly unknown,
-which is the whole point.
+None of these is the route's own run time. `generatedAt` is kept on the copies response for
+debugging and is explicitly not the as-of: it records when the request ran, which is fresh by
+construction and would restate the age of the request as the age of the data. The GA4 stamp is
+taken on the live retrieval and *not* on the cache-hit path, so a response served an hour later
+reports when GA4 was read rather than when it was handed over; `lib/tier-zero-as-of.test.ts`
+asserts that specifically.
 
-The last variance the evidence exposed: Google settled on "ready, age unknown" at two widths and
-"partial" at four, because the status query that supplies both its as-of and its partial reason was
-not part of its own loading state. A reading that means different things depending on when you look
-is not a reading, so that query's load and error state are now included and
-`lib/tier-zero-as-of.test.ts` holds the rule.
-
-The smoke also gained a transport-reset backoff on the login POST. The existing loop retried only
-on 429; a connection reset throws before any status exists, so one reset failed the whole matrix
-for a reason unrelated to the product. Only resets are retried, and only a bounded number of
-times — a genuinely broken login still fails the run. A gate that fails for unrelated reasons is a
-gate people learn to ignore.
-
-**An adversarial audit over this branch confirmed 24 further defects (19 candidates refuted).**
-They are recorded in the commit history; the class is always the same and is the reason this ledger
-exists: six surfaces dated themselves from a fetch time, a wall-clock date, an echoed request
-parameter, a content edit time or an account signup date; four retries re-ran a different query
-than the one that failed; "figures withheld" was rendered over figures still on screen; hooks below
-early returns meant a *failed refetch* crashed the page instead of showing the error state that
-branch guarantees; eight section-9 events counted the wrong population, fired on render, or could
-not fire at all; and two of this branch's own tests asserted things that were true by construction.
+Launchpad remains `null` by argument rather than by default: it is a wizard that composes from live
+reads and shows no historical figures, and the test lists it explicitly so the exemption has to be
+defended rather than assumed. Audiences reports nothing because it is a declared planned surface
+that renders no data. Any other surface hardcoding `asOf: null` now fails
+`lib/tier-zero-as-of.test.ts`.
 
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.

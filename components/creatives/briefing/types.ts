@@ -356,7 +356,16 @@ export interface CreativesBriefingMeasurementReconciliation {
   };
   decisionCenterRowCount: number | null;
   snapshotLatest: {
+    /** The calendar day these rows describe. A label, never an age. */
     asOfDate: string | null;
+    /**
+     * When the rows were actually computed.
+     *
+     * The surface's as-of comes from here. `asOfDate` cannot serve: a bare date
+     * parses as UTC midnight, so the same snapshot reads as a different age
+     * depending on the hour and the account's offset.
+     */
+    observedAt: string | null;
     engineVersion: string | null;
     rowCount: number;
     conflictingGroups: number;

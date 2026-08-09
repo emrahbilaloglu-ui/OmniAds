@@ -845,6 +845,165 @@ history_entries AS (
 
   UNION ALL
 
+  -- Ad-set configuration. The same shape as the campaign branch above, and it
+  -- was missing for the same reason it exists: an operator who changes an
+  -- ad-set budget or bid in Ads Manager has changed what the engine is
+  -- reasoning about, and History showed nothing. Budget lives at the campaign
+  -- level for some accounts and the ad-set level for others, so projecting only
+  -- campaigns made half the accounts look like nobody ever touched them.
+  SELECT
+    'meta_adset_config_history',
+    adset_config.id::text,
+    'persisted_uuid',
+    'external_changes',
+    adset_config.captured_at,
+    adset_config.captured_at::date,
+    'Ad set configuration changed | '
+      || COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical, adset_config.adset_id),
+    NULL,
+    'adset',
+    adset_config.adset_id,
+    COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical),
+    NULL,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_config_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'configFingerprint', adset_config.config_fingerprint,
+      'campaignId', adset_config.campaign_id,
+      'dailyBudget', adset_config.daily_budget,
+      'lifetimeBudget', adset_config.lifetime_budget,
+      'bidStrategyType', adset_config.bid_strategy_type,
+      'bidValue', adset_config.bid_value,
+      'optimizationGoal', adset_config.optimization_goal,
+      'previousDailyBudget', adset_previous.daily_budget,
+      'previousBidValue', adset_previous.bid_value,
+      'previousBidStrategyType', adset_previous.bid_strategy_type,
+      'previousOptimizationGoal', adset_previous.optimization_goal,
+      'observedAt', adset_config.captured_at
+    )
+  FROM meta_adset_config_history adset_config
+  LEFT JOIN LATERAL (
+    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
+           prior.bid_strategy_type, prior.optimization_goal
+    FROM meta_adset_config_history prior
+    WHERE prior.business_id = adset_config.business_id
+      AND prior.provider_account_id = adset_config.provider_account_id
+      AND prior.adset_id = adset_config.adset_id
+      AND prior.captured_at < adset_config.captured_at
+    ORDER BY prior.captured_at DESC
+    LIMIT 1
+  ) adset_previous ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT dimension.adset_name_current, dimension.adset_name_historical
+    FROM meta_adset_dimensions dimension
+    WHERE dimension.business_id = adset_config.business_id
+      AND dimension.provider_account_id = adset_config.provider_account_id
+      AND dimension.adset_id = adset_config.adset_id
+    ORDER BY dimension.updated_at DESC
+    LIMIT 1
+  ) adset_dim ON TRUE
+  WHERE adset_config.business_id = $1
+    AND adset_config.provider_account_id = $2
+    -- Only rows representing a change. The first snapshot of an ad set is not
+    -- something anyone did. Budget, bid and optimization goal are each a
+    -- separate way to change what the engine reasons about, so any of them
+    -- moving qualifies.
+    AND (
+      adset_previous.daily_budget IS DISTINCT FROM adset_config.daily_budget
+      OR adset_previous.lifetime_budget IS DISTINCT FROM adset_config.lifetime_budget
+      OR adset_previous.bid_value IS DISTINCT FROM adset_config.bid_value
+      OR adset_previous.bid_strategy_type IS DISTINCT FROM adset_config.bid_strategy_type
+      OR adset_previous.optimization_goal IS DISTINCT FROM adset_config.optimization_goal
+    )
+
+  UNION ALL
+
+  -- Status transitions at every level: campaign, ad set, ad and creative.
+  --
+  -- This is the source that made "ad and creative changes are not projected"
+  -- true. Someone pausing an ad in Ads Manager is the single most common
+  -- external change there is, and it was invisible here while a campaign
+  -- budget edit was not.
+  --
+  -- Only a genuine transition is reported: meta_entity_state_history records
+  -- an observation per run, so without the previous-state join this would
+  -- report an unchanged ad every time the syncer looked at it.
+  SELECT
+    'meta_entity_state_history',
+    entity_state.id::text,
+    'persisted_uuid',
+    'external_changes',
+    entity_state.observed_at,
+    entity_state.observed_at::date,
+    CASE entity_state.entity_type
+      WHEN 'campaign' THEN 'Campaign status changed | '
+      WHEN 'adset' THEN 'Ad set status changed | '
+      WHEN 'ad' THEN 'Ad status changed | '
+      WHEN 'creative' THEN 'Creative status changed | '
+      -- The column is CHECK-constrained to those four, so there is no fifth
+      -- case; naming them all keeps the label honest if one is ever added.
+      ELSE 'Entity status changed | '
+    END || COALESCE(entity_state.entity_name, entity_state.entity_id),
+    NULL,
+    entity_state.entity_type,
+    entity_state.entity_id,
+    entity_state.entity_name,
+    entity_state.configured_status,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_state_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'campaignId', entity_state.campaign_id,
+      'adsetId', entity_state.adset_id,
+      'adId', entity_state.ad_id,
+      'creativeId', entity_state.creative_id,
+      'configuredStatus', entity_state.configured_status,
+      'effectiveStatus', entity_state.effective_status,
+      'previousConfiguredStatus', entity_previous.configured_status,
+      'previousEffectiveStatus', entity_previous.effective_status,
+      'reviewStatus', entity_state.review_status,
+      'policyStatus', entity_state.policy_status,
+      'presence', entity_state.presence,
+      'observedAt', entity_state.observed_at
+    )
+  FROM meta_entity_state_history entity_state
+  LEFT JOIN LATERAL (
+    SELECT prior.configured_status, prior.effective_status
+    FROM meta_entity_state_history prior
+    WHERE prior.business_id = entity_state.business_id
+      AND prior.provider_account_id = entity_state.provider_account_id
+      AND prior.entity_type = entity_state.entity_type
+      AND prior.entity_id = entity_state.entity_id
+      AND prior.observed_at < entity_state.observed_at
+    ORDER BY prior.observed_at DESC
+    LIMIT 1
+  ) entity_previous ON TRUE
+  WHERE entity_state.business_id = $1
+    AND entity_state.provider_account_id = $2
+    -- A first observation is not a change, and an unchanged re-observation is
+    -- not either. Both would turn the syncer's own cadence into activity.
+    AND entity_previous.configured_status IS NOT NULL
+    AND entity_previous.configured_status IS DISTINCT FROM entity_state.configured_status
+
+  UNION ALL
+
   -- Workflow ownership. Who claimed, deferred or disagreed with a decision is
   -- part of what happened to it; without this History showed the engine's
   -- verdict and nothing about the people acting on it.

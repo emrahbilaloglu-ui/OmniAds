@@ -46,6 +46,13 @@ export const META_HISTORY_SOURCES = [
   // was acted on -- which is most of what an incident review needs.
   "decision_workflow_events",
   "meta_ads_action_mutation_attempt_events",
+  // Ad-set configuration and status transitions at every level. Projecting
+  // only campaign budget changes meant the accounts that budget at the ad-set
+  // level looked untouched, and an ad paused in Ads Manager -- the commonest
+  // external change there is -- was invisible while a campaign budget edit was
+  // not.
+  "meta_adset_config_history",
+  "meta_entity_state_history",
 ] as const;
 
 export type MetaHistorySource = (typeof META_HISTORY_SOURCES)[number];

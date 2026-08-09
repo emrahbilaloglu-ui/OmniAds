@@ -303,6 +303,67 @@ requires deployment, which is an explicit approval gate this program has not rea
 
 ---
 
+
+## Native-authority selective integration (2026-08-09)
+
+Branch `ux/native-authority-integration`, cut from the UX candidate `130dc8627`. Five rollbackable
+slices. The stale branch `codex/native-ad-bounded-stop-loss-authority` was **not** merged or rebased;
+its 608 changed files were filtered to the ~60 that make D061-D069 and the D065/D067 execution
+contracts true in code.
+
+| Slice | Content | Rollback |
+| --- | --- | --- |
+| N-1 | D067 attempt-journal schema (append-only; UPDATE/DELETE refused by trigger) | revert; tables additive, unreferenced |
+| N-2 | D069 duplicate-ad reconciliation store + schema | revert; unreferenced |
+| N-3 | D065 manual-origin authority + 67 invariant tests | revert; unimported |
+| N-4 | Decision-origin execution path, guards reconciled against main | revert; N-1..N-3 stand |
+| N-5 | D061 stop-loss gates, D063 constraint upgrade, contract bumps, 92 golden cases | revert; N-1..N-4 stand |
+
+### Three regressions refused
+
+The native branch predates work main has since landed. Taking it wholesale would have removed:
+
+1. `assertProviderWriteAuthorityUnchanged` - absent from that branch's `ads-write.ts` entirely, along
+   with `connectionGeneration`. Main made that field **required** precisely because optionality let
+   Launchpad skip the reconnect guard on every campaign, ad-set, ad, pause and resume.
+2. The tri-state selection check in both `resolveWriteContext` implementations. Without it a
+   deselected account resolves cleanly and writes to a live ad account the user removed.
+3. `lib/meta/entity-action-selection.test.ts`, which the branch deleted. Kept.
+
+Branch fixtures predating those guards were reconciled, not deleted: guard mocks and
+`connectionGeneration` expectations come from main, so the suites now prove the D065 contract **and**
+the reconnect/selection guards together.
+
+### Deliberately not integrated
+
+- **D066 (decision-fact ownership).** Requires `upsertMetaAdDailyRows` to demand an explicit
+  `authoritative_fact` write mode. Current main's creative-enrichment path
+  (`lib/meta/creatives-warehouse.ts`) writes Ad daily rows without one, so adding the gate would
+  silently stop those writes and change production sync behaviour. Owner decision, not an
+  integration detail.
+- **The D069 end-to-end seam.** Its child script drives a fake provider through the real write path;
+  main's restored pre-POST guards correctly refuse it because the ephemeral database has no connected
+  integration to authorise against. Seeding real provider connection state is work, not a mock. The
+  D069 store and schema are integrated and unit-covered.
+- **`app/api/launchpad/meta/launch/route.ts`**, which pulled in an unrelated Launchpad chain. Its one
+  incompatibility (`MetaAdsActionStatus` gaining `pending`) was fixed by narrowing a return
+  annotation to what the function actually returns.
+
+### Evidence
+
+| Gate | Result |
+| --- | --- |
+| Focused D061-D069 invariants | 160 pass (`meta-manual-authority` 67, `decision-origin-action-preflight`, `ads-action-log`, `execution-safety`) |
+| Golden cases | 92 canonical cases in lockstep with `GOLDEN_CASES.md` |
+| Full suite | **6,824 pass**, 0 fail (baseline before integration: 6,414) |
+| Typecheck / lint | 0 / 0 |
+| Production build | clean |
+| Migrations from zero | PASS, idempotent on re-run, including the D063 constraint upgrade |
+| Desktop + mobile smoke | 2/2, artifacts under `playwright-smoke-artifacts/native-integration-2026-08-09/` |
+
+**Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16 fails
+with `postmaster became multithreaded during startup`, which reads as a code failure and is not one.
+
 ## Completion ledger (master plan section 14)
 
 One row per acceptance criterion, in the format the plan mandates.
@@ -335,7 +396,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route`, `decision-workflow-controls` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Two-operator conflict proven by contract and route; not yet observed with two live sessions |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
 | B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
-| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call; resolver now conforms to D065 label/action derivation and D064 exact-Ad lineage (`guarded-action-capability` 17 tests, `guarded-action-panel`, `guarded-action-preflight`, `decision-action/preflight`) | `421ecefef`, `dd140f7ea`, `4a2c1b7e8` | local | owner (pending) | D061-D069 are now integrated locally, so the contract is no longer the blocker. What remains is the write itself: a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved provider call |
+| B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call; resolver now conforms to D065 label/action derivation and D064 exact-Ad lineage (`guarded-action-capability` 17 tests, `guarded-action-panel`, `guarded-action-preflight`, `decision-action/preflight`) | `421ecefef`, `dd140f7ea`, `4a2c1b7e8` | local | owner (pending) | D065/D067 are now **implemented in code** on `ux/native-authority-integration`, not merely documented: origin declaration, exact-Ad lineage, the append-only attempt journal, one-POST semantics. What remains is the write itself: a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved provider call |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
 ### Gate C — primary agency OS

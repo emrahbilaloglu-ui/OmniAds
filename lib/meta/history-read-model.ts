@@ -931,7 +931,11 @@ history_entries AS (
       'adsetId', attempt.adset_id
     )
   FROM meta_ads_action_mutation_attempt_events attempt
-  WHERE attempt.business_id = $1
+  -- business_id is UUID on this table, and $1 is already pinned to text by the
+  -- earlier branches of this UNION. Without the cast Postgres refuses the whole
+  -- query with "operator does not exist: uuid = text", which took the entire
+  -- History surface down -- every source, not just this one.
+  WHERE attempt.business_id::text = $1
     AND attempt.provider_account_id = $2
 ),
 filtered_entries AS (

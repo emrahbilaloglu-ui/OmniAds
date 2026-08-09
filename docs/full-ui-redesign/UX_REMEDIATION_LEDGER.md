@@ -390,8 +390,9 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 447 files changed, +56,138 / −4,254, across 97 commits
+**Scope vs `origin/main`:** 493 files changed, +76,054 / −4,253, across 100 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
+Recomputed after the final commit, not carried forward from an earlier revision.
 
 ### D066 — decision-fact ownership (complete)
 
@@ -544,6 +545,16 @@ Calling that "not contractable" was the error; the work is what closes it.
 | Mobile Tier-0 start/complete | `components/meta/os/MobileTier0Triage.tsx`, capability-gated on phone width and on whether ownership can be read, mounted in `components/meta/os/DecisionsOsView.tsx`. D5 still keeps provider mutation off mobile — it suppresses unsafe writes, it does not excuse missing telemetry for the triage task mobile *is* permitted to do. A task opened and abandoned records a start with no completion, which is the honest signal | `components/meta/os/mobile-tier0-triage.test.tsx` |
 | Google deep-link used | `lib/google-ads/deep-link.ts` builds permission/account/entity-scoped links and refuses rather than guesses: no link without a numeric customer id, and a campaign link without a campaign id is refused rather than silently downgraded to an account link. Rendered in `components/google-ads/GoogleAdsIntelligenceDashboard.tsx`, and the anchor renders only when the builder returned a destination | `lib/google-ads/deep-link.test.ts`, `lib/google-ads/deep-link-wiring.test.ts` |
 | Freshness adoption breadth | One contract across all ten Tier-0 surfaces via `components/states/TierZeroFreshness.tsx`, `components/states/useTierZeroFreshness.ts` and `store/tier-zero-freshness-store.ts`, mounted once in `components/layout/dashboard-frame.tsx`. The Decisions inspector, which had no date on its evidence at all, now carries the lane snapshot date | `lib/tier-zero-freshness-coverage.test.ts`, `components/states/tier-zero-freshness.test.tsx`, `lib/tier-zero-idle-tab-revalidation.test.ts`, `app/api/reports/tier-zero-freshness.route.test.ts`, and the six-width freshness evidence under `docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/` |
+
+**Found while capturing the freshness evidence, and fixed.** The History journal compared a UUID
+`business_id` against the text `$1` on `meta_ads_action_mutation_attempt_events`. Because the
+journal is one query with many UNION branches sharing one parameter type, Postgres refused the
+*entire* query with `operator does not exist: uuid = text` — so History failed completely, every
+source with it, for every user. It only shows up against a real database, which is why the
+six-width run caught it and the unit suite did not.
+`lib/meta/history-sql-parameter-types.test.ts` now reads each branch's table out of the migrations
+and fails on any uncast UUID comparison; it was confirmed to fail on the pre-fix SQL rather than
+pass vacuously.
 
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.

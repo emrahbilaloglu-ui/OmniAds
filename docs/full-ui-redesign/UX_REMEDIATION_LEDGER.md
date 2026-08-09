@@ -329,13 +329,15 @@ were filtered by following the type and test dependencies of D065/D067 to closur
 ```
 git diff --name-only 130dc8627 ec54dad4 | wc -l   # 99   initial native integration
 git diff --name-only ec54dad4 4546fcae | wc -l    # 30   D066 + first D069 attempt + instrumentation v1
-git diff --name-only origin/main HEAD | wc -l     # 244  candidate total
-git diff --shortstat origin/main HEAD             # 244 files, +53,846 / -3,431
+git diff --name-only origin/main HEAD | wc -l     # 378  candidate total
+git diff --shortstat origin/main HEAD             # 378 files, +55,002 / -4,236
 ```
 
-Those three historical figures are facts and are preserved. The earlier claim
+Those three historical figures are facts and are preserved. The candidate has since grown from
+244 to 378 files: the typography floor touched every stylesheet and component carrying sub-11px
+text, which is a wide but shallow change. The earlier claim
 that "~60 files" were selected from the native branch is **withdrawn**: it was an
-estimate presented as a count and was never measured. The candidate's 244 files
+estimate presented as a count and was never measured. The candidate's 378 files
 are the cumulative result of the whole programme (UX remediation, native
 selection, D066, three DB seams, instrumentation, evidence artifacts); no
 subdivision of them has been measured, so none is asserted.
@@ -382,7 +384,7 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 244 files changed, +53,846 / −3,431 (86 commits).
+**Scope vs `origin/main`:** 378 files changed, +55,002 / −4,236 (90 commits).
 
 ### D066 — decision-fact ownership (complete)
 

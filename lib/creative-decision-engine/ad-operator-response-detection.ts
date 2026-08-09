@@ -100,6 +100,15 @@ export interface ExactMetaAdsActionLineage {
   capturedAt: string;
   verificationEntityId: string | null;
   verificationStatus: string | null;
+  verificationLineage: {
+    sourceCreativeId: string | null;
+    sourceCampaignId: string | null;
+    sourceAdsetId: string | null;
+    verifiedProviderAccountId: string | null;
+    verifiedCreativeId: string | null;
+    verifiedCampaignId: string | null;
+    verifiedAdsetId: string | null;
+  } | null;
 }
 
 export interface AdDeliveryObservation {
@@ -295,6 +304,13 @@ function requiredHash(value: string, field: string): string {
 function optional(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized || null;
+}
+
+function normalizedProviderAccountId(value: string | null | undefined) {
+  const normalized = optional(value);
+  return normalized
+    ? `act_${normalized.replace(/^act[_-]/, "")}`
+    : null;
 }
 
 function timestamp(value: string, field: string): number {
@@ -550,6 +566,33 @@ export function buildExactMetaAdsActionReceiptHash(
     ).toISOString(),
     verificationEntityId: optional(action.verificationEntityId),
     verificationStatus: optional(action.verificationStatus),
+    ...(action.verificationLineage
+      ? {
+          verificationLineage: {
+            sourceCreativeId: optional(
+              action.verificationLineage.sourceCreativeId,
+            ),
+            sourceCampaignId: optional(
+              action.verificationLineage.sourceCampaignId,
+            ),
+            sourceAdsetId: optional(
+              action.verificationLineage.sourceAdsetId,
+            ),
+            verifiedProviderAccountId: optional(
+              action.verificationLineage.verifiedProviderAccountId,
+            ),
+            verifiedCreativeId: optional(
+              action.verificationLineage.verifiedCreativeId,
+            ),
+            verifiedCampaignId: optional(
+              action.verificationLineage.verifiedCampaignId,
+            ),
+            verifiedAdsetId: optional(
+              action.verificationLineage.verifiedAdsetId,
+            ),
+          },
+        }
+      : {}),
   });
 }
 
@@ -558,10 +601,33 @@ function receiptIntegrityValid(action: ExactMetaAdsActionLineage): boolean {
     const { receiptHash, ...withoutHash } = action;
     const finalized = timestamp(action.finalizedAt, "finalizedAt");
     const captured = timestamp(action.capturedAt, "capturedAt");
+    const lineage = action.verificationLineage;
+    const exactStatusLineageRequired =
+      action.providerVerified &&
+      action.contractVersion ===
+        DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION &&
+      (action.action === "pause" || action.action === "resume") &&
+      lineage !== null;
+    const providerLineageValid =
+      !exactStatusLineageRequired ||
+      (lineage !== null &&
+        optional(lineage.sourceCreativeId) !== null &&
+        optional(lineage.sourceCampaignId) !== null &&
+        optional(lineage.sourceAdsetId) !== null &&
+        normalizedProviderAccountId(lineage.verifiedProviderAccountId) ===
+          normalizedProviderAccountId(action.providerAccountId) &&
+        optional(lineage.verifiedCreativeId) ===
+          optional(lineage.sourceCreativeId) &&
+        optional(lineage.verifiedCampaignId) ===
+          optional(lineage.sourceCampaignId) &&
+        optional(lineage.verifiedAdsetId) ===
+          optional(lineage.sourceAdsetId) &&
+        optional(action.verificationEntityId) === action.sourceAdId);
     return (
       requiredHash(receiptHash, "receiptHash") ===
         buildExactMetaAdsActionReceiptHash(withoutHash) &&
-      captured >= finalized
+      captured >= finalized &&
+      providerLineageValid
     );
   } catch {
     return false;
@@ -587,7 +653,12 @@ function actionMatchesEpisode(
     action.sourceEvaluationId === episode.evaluationId &&
     action.sourceEngineVersion === NATIVE_AD_ENGINE_VERSION &&
     action.sourceEngineVersion === episode.engineVersion &&
-    action.sourceDecisionHash === episode.decisionHash
+    action.sourceDecisionHash === episode.decisionHash &&
+    (action.verificationLineage === null ||
+      (action.verificationLineage.sourceCreativeId === episode.creativeId &&
+        action.verificationLineage.sourceCampaignId ===
+          episode.sourceCampaignId &&
+        action.verificationLineage.sourceAdsetId === episode.sourceAdsetId))
   );
 }
 

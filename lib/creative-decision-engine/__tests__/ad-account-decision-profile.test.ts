@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { decideCreative } from "../engine";
 import {
   NATIVE_AD_ACCOUNT_FALLBACK_CELL,
   NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
   READ_NATIVE_AD_ACCOUNT_CALIBRATION_CELL_SQL,
+  commercialStopLossAovRepairAuthorityFromExactCell,
+  reconcilePersistedNativeCutEligibilityWithAccountAov,
   resolveNativeAdAccountDecisionProfile,
   type NativeAdAccountProfileDataSource,
   type NativeAdCalibrationCellQuery,
@@ -12,10 +15,12 @@ import {
   computeNativeAdCalibrationBatch,
   NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
   NATIVE_AD_CALIBRATION_TABLE,
+  recomputeNativeAdSpendUnitAuthorityHash,
   type NativeAdCalibrationCell,
   type NativeAdCalibrationSourceRow,
   type NativeAdTargetAuthorityInput,
 } from "../jobs/ad-calibration-job";
+import { makeCreativeInput } from "./helpers";
 
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000711";
 const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000710";
@@ -37,6 +42,11 @@ const STALE_TARGET: NativeAdTargetAuthorityInput = {
   ...FRESH_TARGET,
   effectiveAt: "2026-05-01T00:00:00.000Z",
   recordedAt: "2026-05-01T00:00:01.000Z",
+};
+const AOV_ONLY_TARGET: NativeAdTargetAuthorityInput = {
+  ...FRESH_TARGET,
+  targetCpa: null,
+  operatorAovAssumption: null,
 };
 
 function makeFlags(): EngineV3Flags {
@@ -76,6 +86,8 @@ function makeSourceRow(
     adId,
     accountTimezone: "Europe/Istanbul",
     accountCurrency: "USD",
+    sourceAccountCurrency: "USD",
+    metricSchemaVersion: 2,
     objective: "OUTCOME_SALES",
     optimizationGoal: "PURCHASE",
     customEventType: "PURCHASE",
@@ -105,6 +117,10 @@ function makeSourceRow(
     adsetCreatedAt: "2026-07-12T01:00:00.000Z",
     adsetUpdatedAt: "2026-07-12T02:00:00.000Z",
     ...overrides,
+    sourceAccountTimezone:
+      overrides.sourceAccountTimezone === undefined
+        ? "Europe/Istanbul"
+        : overrides.sourceAccountTimezone,
   };
 }
 
@@ -144,6 +160,88 @@ function buildMixedOptimizationCells() {
       }),
     ),
     targetAuthority: FRESH_TARGET,
+  }).cells.map((cell) => ({
+    ...cell,
+    batchId: BATCH_ID,
+    batchCompleteness: "complete" as const,
+  }));
+}
+
+function buildP25ReadyCellsWithUnrelatedAovContradiction() {
+  const purchaseRows = Array.from({ length: 30 }, (_, index) =>
+    makeSourceRow(index + 1, {
+      sourceRowId: `purchase-ready-${index}`,
+      adId: `purchase-ready-${index}`,
+      optimizationGoal: "PURCHASE",
+      customEventType: "PURCHASE",
+      revenue: 60 + index,
+    }),
+  );
+  const contradictoryValueContext = makeSourceRow(31, {
+    sourceRowId: "value-context-contradiction",
+    adId: "value-context-contradiction",
+    optimizationGoal: "VALUE",
+    customEventType: "VALUE",
+    conversions: 0,
+    revenue: 100,
+  });
+  return computeNativeAdCalibrationBatch({
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-native",
+    asOf: AS_OF,
+    computationCutoff: "2026-07-12T03:05:00.000Z",
+    sourceRows: [...purchaseRows, contradictoryValueContext],
+    targetAuthority: AOV_ONLY_TARGET,
+  }).cells.map((cell) => ({
+    ...cell,
+    batchId: BATCH_ID,
+    batchCompleteness: "complete" as const,
+  }));
+}
+
+function buildAccountAovAuthorityCells(input: {
+  exactCount: number;
+  accountOnlyCount: number;
+}) {
+  const exact = Array.from({ length: input.exactCount }, (_, index) =>
+    makeSourceRow(index + 1, {
+      sourceRowId: `aov-exact-${index}`,
+      adId: `aov-exact-${index}`,
+      conversions: 1,
+      revenue: 80,
+    }),
+  );
+  const accountOnly = Array.from(
+    { length: input.accountOnlyCount },
+    (_, index) =>
+      makeSourceRow(index + 1, {
+        sourceRowId: `aov-account-${index}`,
+        adId: `aov-account-${index}`,
+        campaignId: null,
+        adsetId: null,
+        campaignSourceRowId: null,
+        campaignTruthState: null,
+        campaignValidationStatus: null,
+        campaignCreatedAt: null,
+        campaignUpdatedAt: null,
+        adsetSourceRowId: null,
+        adsetTruthState: null,
+        adsetValidationStatus: null,
+        adsetCreatedAt: null,
+        adsetUpdatedAt: null,
+        conversions: 1,
+        revenue: 100,
+      }),
+  );
+  return computeNativeAdCalibrationBatch({
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-native",
+    asOf: AS_OF,
+    computationCutoff: "2026-07-12T03:05:00.000Z",
+    sourceRows: [...exact, ...accountOnly],
+    targetAuthority: AOV_ONLY_TARGET,
   }).cells.map((cell) => ({
     ...cell,
     batchId: BATCH_ID,
@@ -223,6 +321,70 @@ function resolveWith(
 }
 
 describe("resolveNativeAdAccountDecisionProfile", () => {
+  it("repairs only the legacy account-AOV Cut veto and preserves Scale/Refresh", () => {
+    const accountAovOverlay = {
+      scale: true,
+      cut: true,
+      refresh: true,
+      reason: null,
+      reasons: { scale: null, cut: null, refresh: null },
+    };
+
+    expect(
+      reconcilePersistedNativeCutEligibilityWithAccountAov({
+        persisted: {
+          scale: false,
+          cut: false,
+          refresh: false,
+          reason: "persisted_scale_blocker",
+          reasons: {
+            scale: "persisted_scale_blocker",
+            cut: "native_ad_calibration:commercial_spend_unit_authority_missing",
+            refresh: "persisted_refresh_blocker",
+          },
+        },
+        accountAovOverlay,
+      }),
+    ).toEqual({
+      scale: false,
+      cut: true,
+      refresh: false,
+      reason: "persisted_scale_blocker",
+      reasons: {
+        scale: "persisted_scale_blocker",
+        cut: null,
+        refresh: "persisted_refresh_blocker",
+      },
+    });
+
+    expect(
+      reconcilePersistedNativeCutEligibilityWithAccountAov({
+        persisted: {
+          scale: true,
+          cut: false,
+          refresh: true,
+          reason: "native_ad_calibration:break_even_roas_authority_missing",
+          reasons: {
+            scale: null,
+            cut: "native_ad_calibration:break_even_roas_authority_missing",
+            refresh: null,
+          },
+        },
+        accountAovOverlay,
+      }),
+    ).toEqual({
+      scale: true,
+      cut: false,
+      refresh: true,
+      reason: "native_ad_calibration:break_even_roas_authority_missing",
+      reasons: {
+        scale: null,
+        cut: "native_ad_calibration:break_even_roas_authority_missing",
+        refresh: null,
+      },
+    });
+  });
+
   it("reuses retained profile math with a ready exact native cell", async () => {
     const cells = buildCells(30);
     const exact = cells.find(
@@ -260,6 +422,77 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
         asOfCutoff: "2026-07-12T03:05:00.000Z",
       },
     ]);
+  });
+
+  it("preserves production P25-backed Cut readiness when another optimization context blocks account AOV", async () => {
+    const cells = buildP25ReadyCellsWithUnrelatedAovContradiction();
+    const exact = cells.find(
+      (cell) =>
+        cell.key.cellScope === "objective_cohort_context" &&
+        cell.key.optimizationContext ===
+          "goal=PURCHASE|event=PURCHASE",
+    );
+    expect(exact?.actionReadiness.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      accountAovEvidence: {
+        status: "contradictory_purchase_truth",
+      },
+    });
+    expect(exact?.actionReadiness.cut).toMatchObject({
+      ready: true,
+      reason: null,
+      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      observedSampleCount: 30,
+      requiredSampleCount: 20,
+    });
+
+    const result = await resolveWith(
+      new NativeOnlyProfileDataSource(cells, AOV_ONLY_TARGET),
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      calibrationSource: "objective_cohort_context",
+      hardActionEligibility: {
+        cut: true,
+      },
+    });
+    expect(result.selectedCell?.key.optimizationContext).toBe(
+      "goal=PURCHASE|event=PURCHASE",
+    );
+    expect(result.profile?.commercialStopLossSpendUnit).toBeNull();
+    expect(result.profile?.commercialStopLossThresholds).toBeNull();
+    expect(
+      result.profile?.commercialStopLossCanonicalHardActionEligibility,
+    ).toBeNull();
+    expect(result.profile?.expandedEconomicCutAuthority).toEqual({
+      eligible: true,
+      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      reason: null,
+    });
+    if (!result.profile) throw new Error("Expected a ready native profile.");
+    expect(result.profile.thresholds.bottomQuartileRatio).toBeLessThan(0.5);
+    const expandedDecision = decideCreative(
+      makeCreativeInput({
+        effectiveCohort: "purchase",
+        targetRoas: 2,
+        breakevenRoas: 1.5,
+        spend: 500,
+        purchases: 5,
+        purchaseValue: 500,
+        roas: 1,
+        recent7dSpend: 100,
+        recent7dPurchases: 1,
+        recent7dRoas: 1,
+        linkClicks: 100,
+        landingPageViews: 80,
+        addToCart: 20,
+        initiateCheckout: 10,
+      }),
+      result.profile,
+    );
+    expect(expandedDecision.label).toBe("cut");
+    expect(expandedDecision.reason).toContain("[economic stop-loss]");
   });
 
   it("fails closed on a missing native row without consulting any legacy calibration surface", async () => {
@@ -377,6 +610,154 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     expect(dataSource.calibrationCalls).toHaveLength(1);
   });
 
+  it("repairs the thin exact Cut veto with account/currency AOV without opening Scale or Refresh", async () => {
+    const cells = buildAccountAovAuthorityCells({
+      exactCount: 5,
+      accountOnlyCount: 15,
+    });
+    const dataSource = new NativeOnlyProfileDataSource(
+      cells,
+      AOV_ONLY_TARGET,
+    );
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      calibrationSource: "objective_cohort_context",
+      hardActionEligibility: {
+        scale: false,
+        cut: true,
+        refresh: false,
+      },
+    });
+    expect(result.profile?.spendUnitConfidence).toBe("low");
+    expect(result.profile?.commercialStopLossSpendUnit).toMatchObject({
+      spendUnitSource: "meta_derived_aov",
+      spendUnitConfidence: "medium",
+      hardEligibleByDefault: true,
+    });
+    expect(result.profile?.commercialStopLossThresholds).not.toEqual(
+      result.profile?.thresholds,
+    );
+    expect(result.hardActionEligibility.reasons).toMatchObject({
+      cut: null,
+      scale: "native_ad_calibration:scale_calibration_sample_low",
+      refresh: "native_ad_calibration:refresh_calibration_sample_low",
+    });
+  });
+
+  it("keeps the thin exact profile fail-closed when account/currency AOV has only 19 purchases", async () => {
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildAccountAovAuthorityCells({ exactCount: 5, accountOnlyCount: 14 }),
+      AOV_ONLY_TARGET,
+    );
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      hardActionEligibility: {
+        scale: false,
+        cut: false,
+        refresh: false,
+      },
+    });
+    expect(result.profile?.commercialStopLossSpendUnit).toBeNull();
+    expect(result.hardActionEligibility.reasons?.cut).toBe(
+      "native_ad_calibration:commercial_spend_unit_authority_missing",
+    );
+    expect(result.profile?.expandedEconomicCutAuthority).toEqual({
+      eligible: false,
+      authorityBasis: null,
+      reason:
+        "native_ad_calibration:commercial_spend_unit_authority_missing",
+    });
+  });
+
+  it("uses ready exact-context AOV without borrowing the account-wide repair overlay", async () => {
+    const cells = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-native",
+      asOf: AS_OF,
+      computationCutoff: "2026-07-12T03:05:00.000Z",
+      sourceRows: Array.from({ length: 12 }, (_, index) =>
+        makeSourceRow(index + 1, {
+          sourceRowId: `ready-aov-p25-null-${index}`,
+          adId: `ready-aov-p25-null-${index}`,
+          conversions: 2,
+          revenue: 160,
+        }),
+      ),
+      targetAuthority: AOV_ONLY_TARGET,
+    }).cells.map((cell) => ({
+      ...cell,
+      batchId: BATCH_ID,
+      batchCompleteness: "complete" as const,
+    }));
+    const exact = cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+    if (!exact) throw new Error("Expected an exact purchase cell.");
+    expect(exact.accountCalibration).toMatchObject({
+      metaAttributedAovPurchaseCount90d: 24,
+      metaAovQuality: "ready",
+      roasRatioP25: null,
+    });
+    expect(exact.actionReadiness.cut).toMatchObject({
+      ready: true,
+      authorityBasis: "commercial_stop_loss",
+      requiredSampleCount: 0,
+    });
+    expect(
+      commercialStopLossAovRepairAuthorityFromExactCell(exact),
+    ).toBeNull();
+
+    const result = await resolveWith(
+      new NativeOnlyProfileDataSource(cells, AOV_ONLY_TARGET),
+      { fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL },
+    );
+
+    expect(result).toMatchObject({
+      status: "ready",
+      hardActionEligibility: {
+        scale: false,
+        cut: true,
+        refresh: false,
+      },
+    });
+    expect(result.profile?.commercialStopLossSpendUnit).toBeNull();
+    expect(result.profile?.commercialStopLossThresholds).toBeNull();
+  });
+
+  it("keeps a mature D049 exact cell entirely canonical even with physical account-AOV proof", async () => {
+    const dataSource = new NativeOnlyProfileDataSource(
+      buildCells(30, {}, AOV_ONLY_TARGET),
+      AOV_ONLY_TARGET,
+    );
+
+    const result = await resolveWith(dataSource);
+
+    expect(result.hardActionEligibility).toMatchObject({
+      scale: true,
+      cut: true,
+      refresh: true,
+    });
+    expect(result.selectedCell?.actionReadiness.cut.authorityBasis).toBe(
+      "calibrated_relative_with_economic_stop_loss",
+    );
+    expect(result.profile?.commercialStopLossThresholds).toBeNull();
+    expect(result.profile?.commercialStopLossSpendUnit).toBeNull();
+    expect(
+      result.profile?.commercialStopLossCanonicalHardActionEligibility,
+    ).toBeNull();
+  });
+
   it("does not let target age select a pooled account cell", async () => {
     const cells = computeNativeAdCalibrationBatch({
       businessId: BUSINESS_ID,
@@ -489,6 +870,66 @@ describe("resolveNativeAdAccountDecisionProfile", () => {
     const dataSource = new NativeOnlyProfileDataSource(cells);
 
     const result = await resolveWith(dataSource);
+
+    expect(result).toMatchObject({
+      status: "fail_closed",
+      reason: "native_calibration_contract_invalid",
+    });
+    expect(dataSource.targetCalls).toBe(0);
+  });
+
+  it("rejects a self-consistent rehashed account-AOV proof that breaks the persisted cell manifest", async () => {
+    const cells = buildAccountAovAuthorityCells({
+      exactCount: 5,
+      accountOnlyCount: 14,
+    }).map((cell) => {
+      const original = cell.actionReadiness.spendUnitAuthority;
+      const forgedWithoutHash = {
+        ...original,
+        status: "ready" as const,
+        basis: "physical_account_purchase_aov_90d" as const,
+        baseSpendUnit: 50,
+        accountAovEvidence: {
+          ...original.accountAovEvidence,
+          status: "ready" as const,
+          observedPurchaseCount: 20,
+          revenueBackedRowCount: 20,
+          canonicalRowCount: 20,
+          totalRevenue: 2_000,
+          meanAov: 100,
+          evidenceHash: "f".repeat(64),
+        },
+        authorityHash: "0".repeat(64),
+      };
+      const forged = {
+        ...forgedWithoutHash,
+        authorityHash:
+          recomputeNativeAdSpendUnitAuthorityHash(forgedWithoutHash),
+      };
+      return {
+        ...cell,
+        actionReadiness: {
+          ...cell.actionReadiness,
+          spendUnitAuthority: forged,
+          cut: {
+            ready: true,
+            reason: null,
+            authorityBasis: "commercial_stop_loss" as const,
+            observedSampleCount:
+              cell.actionReadiness.cut.observedSampleCount,
+            requiredSampleCount: 0,
+          },
+        },
+      };
+    });
+    const dataSource = new NativeOnlyProfileDataSource(
+      cells,
+      AOV_ONLY_TARGET,
+    );
+
+    const result = await resolveWith(dataSource, {
+      fallbackPolicy: NATIVE_AD_THIN_EXACT_FALLBACK_CELL,
+    });
 
     expect(result).toMatchObject({
       status: "fail_closed",

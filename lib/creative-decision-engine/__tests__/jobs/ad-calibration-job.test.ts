@@ -34,7 +34,9 @@ import {
   computeNativeAdCalibrationBatch,
   inspectNativeAdCalibrationSchemaCapability,
   isNativeAdTargetAuthorityCutoffSafe,
+  mapNativeAdCalibrationSourceRow,
   replaceNativeAdCalibrationBatch,
+  resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationDate,
   resolveNativeAdTargetAuthority,
@@ -49,8 +51,12 @@ import { NATIVE_AD_ENGINE_VERSION } from "../../types";
 const BUSINESS_ID = "00000000-0000-4000-8000-000000000701";
 const PROVIDER_ACCOUNT_REF_ID = "00000000-0000-4000-8000-000000000702";
 const PROVIDER_ACCOUNT_ID = "act-native-1";
+const SECOND_PROVIDER_ACCOUNT_REF_ID =
+  "00000000-0000-4000-8000-000000000712";
+const SECOND_PROVIDER_ACCOUNT_ID = "act-native-2";
 const JOB_RUN_ID = "00000000-0000-4000-8000-000000000703";
 const BATCH_ID = "00000000-0000-4000-8000-000000000704";
+const SECOND_BATCH_ID = "00000000-0000-4000-8000-000000000714";
 const AS_OF = "2026-07-12";
 const CUTOFF = "2026-07-12T03:05:00.000Z";
 const LATER_CUTOFF = "2026-07-12T03:15:00.000Z";
@@ -72,6 +78,11 @@ const OLD_TARGET: NativeAdTargetAuthorityInput = {
   effectiveAt: "2026-03-01T00:00:00.000Z",
   recordedAt: "2026-03-01T00:00:01.000Z",
 };
+const AOV_ONLY_TARGET: NativeAdTargetAuthorityInput = {
+  ...FRESH_TARGET,
+  targetCpa: null,
+  operatorAovAssumption: null,
+};
 
 function makeRow(
   overrides: Partial<NativeAdCalibrationSourceRow> = {},
@@ -89,6 +100,9 @@ function makeRow(
     adId,
     accountTimezone: "Europe/Istanbul",
     accountCurrency: "USD",
+    sourceAccountTimezone: "Europe/Istanbul",
+    sourceAccountCurrency: "USD",
+    metricSchemaVersion: 2,
     objective: "OUTCOME_SALES",
     optimizationGoal: "PURCHASE",
     customEventType: "PURCHASE",
@@ -118,6 +132,52 @@ function makeRow(
     adsetCreatedAt: "2026-07-12T01:00:00.000Z",
     adsetUpdatedAt: "2026-07-12T02:00:00.000Z",
     ...overrides,
+  };
+}
+
+function toDbSourceRow(row: NativeAdCalibrationSourceRow) {
+  return {
+    source_row_id: row.sourceRowId,
+    business_id: row.businessId,
+    provider_account_ref_id: row.providerAccountRefId,
+    provider_account_id: row.providerAccountId,
+    date: row.date,
+    campaign_id: row.campaignId,
+    adset_id: row.adsetId,
+    ad_id: row.adId,
+    account_timezone: row.accountTimezone,
+    account_currency: row.accountCurrency,
+    source_account_timezone: row.sourceAccountTimezone,
+    source_account_currency: row.sourceAccountCurrency,
+    metric_schema_version: row.metricSchemaVersion,
+    objective: row.objective,
+    optimization_goal: row.optimizationGoal,
+    custom_event_type: row.customEventType,
+    spend: row.spend,
+    impressions: row.impressions,
+    clicks: row.clicks,
+    link_clicks: row.linkClicks,
+    conversions: row.conversions,
+    revenue: row.revenue,
+    landing_page_views: row.landingPageViews,
+    add_to_cart: row.addToCart,
+    initiate_checkout: row.initiateCheckout,
+    thumbstop: row.thumbstop,
+    truth_state: row.truthState,
+    validation_status: row.validationStatus,
+    finalized_at: row.finalizedAt,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+    campaign_source_row_id: row.campaignSourceRowId,
+    campaign_truth_state: row.campaignTruthState,
+    campaign_validation_status: row.campaignValidationStatus,
+    campaign_created_at: row.campaignCreatedAt,
+    campaign_updated_at: row.campaignUpdatedAt,
+    adset_source_row_id: row.adsetSourceRowId,
+    adset_truth_state: row.adsetTruthState,
+    adset_validation_status: row.adsetValidationStatus,
+    adset_created_at: row.adsetCreatedAt,
+    adset_updated_at: row.adsetUpdatedAt,
   };
 }
 
@@ -255,6 +315,239 @@ describe("native ad calibration computation", () => {
     expect(payload[0]).not.toHaveProperty("ad_id");
   });
 
+  it("keeps legacy finalized peer facts without finalized_at while excluding them from strict account-AOV authority", () => {
+    const rows = Array.from({ length: 20 }, (_, index) =>
+      makeRow({
+        sourceRowId: `legacy-finalized-${index}`,
+        adId: `legacy-finalized-${index}`,
+        conversions: 1,
+        revenue: 100,
+        finalizedAt: index === 0 ? null : "2026-07-12T01:00:00.000Z",
+      }),
+    );
+    const batch = compute(rows, { target: AOV_ONLY_TARGET });
+    const exact = batch.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+
+    expect(batch.observations).toHaveLength(20);
+    expect(batch.qualityCounts).toMatchObject({
+      cutoffSafeSourceRowCount: 20,
+      eligibleAdObservationCount: 20,
+      peerTruthFinalizedAtMissingSourceRowCount: 1,
+      peerTruthFinalizedAtMissingAdCount: 1,
+      censoredSourceRowExclusionCount: 0,
+      censoredAdExclusionCount: 0,
+    });
+    expect(exact?.accountCalibration).toMatchObject({
+      metaAttributedAovPurchaseCount90d: 20,
+    });
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      basis: null,
+      accountAovEvidence: {
+        status: "insufficient_sample",
+        observedPurchaseCount: 19,
+        requiredPurchaseCount: 20,
+      },
+    });
+  });
+
+  it("keeps an all-legacy null-finalized peer cohort without borrowing strict account authority", () => {
+    const rows = Array.from({ length: 20 }, (_, index) =>
+      makeRow({
+        sourceRowId: `legacy-only-${index}`,
+        adId: `legacy-only-${index}`,
+        conversions: 1,
+        revenue: 100,
+        finalizedAt: null,
+      }),
+    );
+
+    const batch = compute(rows, { target: AOV_ONLY_TARGET });
+
+    expect(batch.observations).toHaveLength(20);
+    expect(batch.cells.length).toBeGreaterThan(0);
+    expect(batch.qualityCounts).toMatchObject({
+      cutoffSafeSourceRowCount: 20,
+      eligibleAdObservationCount: 20,
+      peerTruthFinalizedAtMissingSourceRowCount: 20,
+      peerTruthFinalizedAtMissingAdCount: 20,
+      censoredSourceRowExclusionCount: 0,
+      censoredAdExclusionCount: 0,
+    });
+    expect(batch.sourceProvenance).toMatchObject({
+      currencyAdmission: {
+        status: "unavailable",
+        admittedRowCount: 0,
+      },
+      timezoneAdmission: {
+        status: "unavailable",
+        admittedRowCount: 0,
+      },
+    });
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      basis: null,
+      accountAovEvidence: {
+        status: "unavailable",
+        observedPurchaseCount: 0,
+        canonicalRowCount: 0,
+      },
+    });
+  });
+
+  it("still censors cutoff-unsafe all-legacy peer facts", () => {
+    const batch = compute([
+      makeRow({
+        sourceRowId: "legacy-future-update",
+        adId: "legacy-future-update",
+        finalizedAt: null,
+        updatedAt: "2026-07-12T04:00:00.000Z",
+      }),
+    ]);
+
+    expect(batch.observations).toHaveLength(0);
+    expect(batch.cells).toHaveLength(0);
+    expect(batch.qualityCounts).toMatchObject({
+      freshnessSourceRowExclusionCount: 1,
+      freshnessAdExclusionCount: 1,
+      eligibleAdObservationCount: 0,
+    });
+  });
+
+  it("fails an all-legacy peer Ad closed when its immutable dimensions are mixed", () => {
+    const batch = compute([
+      makeRow({
+        sourceRowId: "legacy-mixed-usd",
+        adId: "legacy-mixed",
+        date: "2026-07-10",
+        finalizedAt: null,
+      }),
+      makeRow({
+        sourceRowId: "legacy-mixed-eur",
+        adId: "legacy-mixed",
+        date: "2026-07-11",
+        accountCurrency: "EUR",
+        sourceAccountCurrency: "EUR",
+        finalizedAt: null,
+      }),
+    ]);
+
+    expect(batch.observations).toHaveLength(0);
+    expect(batch.cells).toHaveLength(0);
+    expect(batch.qualityCounts).toMatchObject({
+      mixedContextAdExclusionCount: 1,
+      mixedCurrencyAdExclusionCount: 1,
+      eligibleAdObservationCount: 0,
+    });
+    expect(batch.spendUnitAuthority.status).toBe("blocked");
+  });
+
+  it("retains every metric day for a legacy finalized peer fact instead of undercounting the ad", () => {
+    const batch = compute([
+      makeRow({
+        sourceRowId: "legacy-day-1",
+        adId: "legacy-ad",
+        date: "2026-07-10",
+        spend: 125,
+        conversions: 1,
+        revenue: 175,
+      }),
+      makeRow({
+        sourceRowId: "legacy-day-2",
+        adId: "legacy-ad",
+        date: "2026-07-11",
+        spend: 275,
+        conversions: 2,
+        revenue: 425,
+        finalizedAt: null,
+      }),
+    ]);
+
+    expect(batch.observations).toHaveLength(1);
+    expect(batch.observations[0]).toMatchObject({
+      adId: "legacy-ad",
+      sourceDayCount: 2,
+      totalSpend: 400,
+      totalConversions: 3,
+      totalRevenue: 600,
+    });
+    expect(batch.observations[0]?.sourceRowIds).toEqual([
+      "legacy-day-1",
+      "legacy-day-2",
+    ]);
+    expect(batch.qualityCounts).toMatchObject({
+      cutoffSafeSourceRowCount: 2,
+      eligibleAdObservationCount: 1,
+      peerTruthFinalizedAtMissingSourceRowCount: 1,
+      peerTruthFinalizedAtMissingAdCount: 1,
+      censoredSourceRowExclusionCount: 0,
+      censoredAdExclusionCount: 0,
+    });
+  });
+
+  it("still censors the whole ad when a legacy finalized metric day lacks exact same-day hierarchy truth", () => {
+    const batch = compute([
+      makeRow({
+        sourceRowId: "complete-day",
+        adId: "hierarchy-gap-ad",
+        date: "2026-07-10",
+      }),
+      makeRow({
+        sourceRowId: "hierarchy-gap-day",
+        adId: "hierarchy-gap-ad",
+        date: "2026-07-11",
+        finalizedAt: null,
+        campaignSourceRowId: null,
+        campaignTruthState: null,
+        campaignValidationStatus: null,
+        campaignCreatedAt: null,
+        campaignUpdatedAt: null,
+        adsetSourceRowId: null,
+        adsetTruthState: null,
+        adsetValidationStatus: null,
+        adsetCreatedAt: null,
+        adsetUpdatedAt: null,
+      }),
+    ]);
+
+    expect(batch.observations).toHaveLength(0);
+    expect(batch.cells).toHaveLength(0);
+    expect(batch.qualityCounts).toMatchObject({
+      cutoffSafeSourceRowCount: 0,
+      eligibleAdObservationCount: 0,
+      peerTruthFinalizedAtMissingSourceRowCount: 0,
+      peerTruthFinalizedAtMissingAdCount: 0,
+      censoredSourceRowExclusionCount: 1,
+      censoredAdExclusionCount: 1,
+    });
+  });
+
+  it("keeps a non-null finalized_at after the cutoff out of peer calibration", () => {
+    const batch = compute([
+      makeRow({
+        sourceRowId: "cutoff-safe-anchor",
+        adId: "cutoff-safe-anchor",
+      }),
+      makeRow({
+        sourceRowId: "future-finalization",
+        adId: "future-finalization",
+        finalizedAt: "2026-07-12T04:00:00.000Z",
+      }),
+    ]);
+
+    expect(batch.observations.map((row) => row.adId)).toEqual([
+      "cutoff-safe-anchor",
+    ]);
+    expect(batch.cells.length).toBeGreaterThan(0);
+    expect(batch.qualityCounts).toMatchObject({
+      cutoffSafeSourceRowCount: 1,
+      freshnessSourceRowExclusionCount: 1,
+      freshnessAdExclusionCount: 1,
+    });
+  });
+
   it("keeps absent optional events unknown and outside every event floor", () => {
     const batch = compute(
       Array.from({ length: 30 }, (_, index) =>
@@ -328,7 +621,7 @@ describe("native ad calibration computation", () => {
     });
     expect(exact?.actionReadiness.cut).toMatchObject({
       ready: true,
-      authorityBasis: "calibrated_relative",
+      authorityBasis: "calibrated_relative_with_economic_stop_loss",
       requiredSampleCount: 20,
     });
     expect(pooled?.actionReadiness).toMatchObject({
@@ -338,6 +631,150 @@ describe("native ad calibration computation", () => {
         ready: false,
         reason: "pooled_optimization_context_soft_only",
       },
+    });
+  });
+
+  it("keeps a P25-ready PURCHASE cell Cut-ready when an unrelated VALUE context blocks account AOV", () => {
+    const purchaseRows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({
+        sourceRowId: `purchase-ready-${index}`,
+        adId: `purchase-ready-${index}`,
+        optimizationGoal: "PURCHASE",
+        customEventType: "PURCHASE",
+      }),
+    );
+    const contradictoryValueContext = makeRow({
+      sourceRowId: "value-context-contradiction",
+      adId: "value-context-contradiction",
+      optimizationGoal: "VALUE",
+      customEventType: "VALUE",
+      conversions: 0,
+      revenue: 100,
+    });
+    const batch = compute(
+      [...purchaseRows, contradictoryValueContext],
+      { target: AOV_ONLY_TARGET },
+    );
+    const purchaseExact = batch.cells.find(
+      (cell) =>
+        cell.key.cellScope === "objective_cohort_context" &&
+        cell.key.optimizationContext ===
+          "goal=PURCHASE|event=PURCHASE",
+    );
+
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      basis: null,
+      accountAovEvidence: {
+        status: "contradictory_purchase_truth",
+      },
+    });
+    expect(batch.qualityCounts.censoredAdExclusionCount).toBe(1);
+    expect(
+      batch.cells.some(
+        (cell) =>
+          cell.key.optimizationContext === "goal=VALUE|event=VALUE",
+      ),
+    ).toBe(false);
+    expect(purchaseExact?.accountCalibration.roasRatioP25).toBeGreaterThan(0);
+    expect(purchaseExact?.actionReadiness.cut).toEqual({
+      ready: true,
+      reason: null,
+      authorityBasis: "calibrated_relative_with_economic_stop_loss",
+      observedSampleCount: 30,
+      requiredSampleCount: 20,
+    });
+  });
+
+  it("keeps a synthetic P25-backed cell legacy-only when no economic spend authority exists", () => {
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      makeRow({
+        sourceRowId: `relative-only-${index}`,
+        adId: `relative-only-${index}`,
+      }),
+    );
+    const batch = compute(rows, { target: AOV_ONLY_TARGET });
+    const exact = batch.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+    if (!exact) throw new Error("Expected exact calibration cell.");
+
+    const readiness = resolveNativeAdCalibrationActionReadiness({
+      key: exact.key,
+      matureAdCount: exact.matureAdCount,
+      metricSampleCounts: exact.metricSampleCounts,
+      targetAuthority: exact.targetAuthority,
+      accountCalibration: {
+        ...exact.accountCalibration,
+        accountCpaP50: null,
+        accountCpaSampleCount: 0,
+      },
+      spendUnitAuthority: {
+        ...exact.actionReadiness.spendUnitAuthority,
+        status: "blocked",
+        basis: null,
+        baseSpendUnit: null,
+      },
+    });
+
+    expect(readiness.cut).toEqual({
+      ready: true,
+      reason: null,
+      authorityBasis: "calibrated_relative",
+      observedSampleCount: 30,
+      requiredSampleCount: 20,
+    });
+  });
+
+  it("keeps a P25-null PURCHASE cell blocked when an account-wide contradiction invalidates the only spend proof", () => {
+    const thinPurchaseRows = Array.from({ length: 5 }, (_, index) =>
+      makeRow({
+        sourceRowId: `thin-purchase-${index}`,
+        adId: `thin-purchase-${index}`,
+        optimizationGoal: "PURCHASE",
+        customEventType: "PURCHASE",
+      }),
+    );
+    const valueRows = Array.from({ length: 20 }, (_, index) =>
+      makeRow({
+        sourceRowId: `value-proof-${index}`,
+        adId: `value-proof-${index}`,
+        optimizationGoal: "VALUE",
+        customEventType: "VALUE",
+      }),
+    );
+    const contradiction = makeRow({
+      sourceRowId: "value-proof-contradiction",
+      adId: "value-proof-contradiction",
+      optimizationGoal: "VALUE",
+      customEventType: "VALUE",
+      conversions: 2,
+      revenue: 0,
+    });
+    const batch = compute(
+      [...thinPurchaseRows, ...valueRows, contradiction],
+      { target: AOV_ONLY_TARGET },
+    );
+    const purchaseExact = batch.cells.find(
+      (cell) =>
+        cell.key.cellScope === "objective_cohort_context" &&
+        cell.key.optimizationContext ===
+          "goal=PURCHASE|event=PURCHASE",
+    );
+
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      accountAovEvidence: {
+        status: "contradictory_purchase_truth",
+      },
+    });
+    expect(purchaseExact?.accountCalibration.roasRatioP25).toBeNull();
+    expect(purchaseExact?.actionReadiness.cut).toEqual({
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+      authorityBasis: null,
+      observedSampleCount: 5,
+      requiredSampleCount: 0,
     });
   });
 
@@ -371,6 +808,587 @@ describe("native ad calibration computation", () => {
         reason: "refresh_calibration_sample_low",
       },
     });
+  });
+
+  it("uses finalized canonical physical-account AOV for Cut while keeping exact peer calibration thin", () => {
+    const exactRows = Array.from({ length: 5 }, (_, index) =>
+      makeRow({
+        sourceRowId: `exact-aov-${index}`,
+        adId: `exact-aov-${index}`,
+        conversions: 1,
+        revenue: 80,
+      }),
+    );
+    const contextIndependentRows = Array.from({ length: 15 }, (_, index) =>
+      makeRow({
+        sourceRowId: `account-aov-${index}`,
+        adId: `account-aov-${index}`,
+        campaignId: null,
+        adsetId: null,
+        campaignSourceRowId: null,
+        campaignTruthState: null,
+        campaignValidationStatus: null,
+        campaignCreatedAt: null,
+        campaignUpdatedAt: null,
+        adsetSourceRowId: null,
+        adsetTruthState: null,
+        adsetValidationStatus: null,
+        adsetCreatedAt: null,
+        adsetUpdatedAt: null,
+        conversions: 1,
+        revenue: 100,
+      }),
+    );
+    const batch = compute([...exactRows, ...contextIndependentRows], {
+      target: AOV_ONLY_TARGET,
+    });
+    const exact = batch.cells.find(
+      (cell) => cell.key.cellScope === "objective_cohort_context",
+    );
+
+    expect(exact?.accountCalibration).toMatchObject({
+      metaAttributedAovPurchaseCount90d: 5,
+      metaAovQuality: "low_sample",
+    });
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "ready",
+      basis: "physical_account_purchase_aov_90d",
+      accountAovEvidence: {
+        status: "ready",
+        observedPurchaseCount: 20,
+        requiredPurchaseCount: 20,
+        totalRevenue: 1900,
+        meanAov: 95,
+      },
+    });
+    expect(exact?.actionReadiness.cut).toMatchObject({
+      ready: true,
+      authorityBasis: "commercial_stop_loss",
+      requiredSampleCount: 0,
+    });
+    expect(exact?.actionReadiness.scale.ready).toBe(false);
+    expect(exact?.actionReadiness.refresh.ready).toBe(false);
+    expect(batch.qualityCounts.censoredAdExclusionCount).toBe(15);
+  });
+
+  it("keeps physical-account AOV fail-closed at 19 purchases and on contradictory or legacy evidence", () => {
+    const build = (
+      accountOverrides: Partial<NativeAdCalibrationSourceRow> = {},
+      accountCount = 14,
+    ) =>
+      compute(
+        [
+          ...Array.from({ length: 5 }, (_, index) =>
+            makeRow({
+              sourceRowId: `floor-exact-${index}`,
+              adId: `floor-exact-${index}`,
+              conversions: 1,
+              revenue: 80,
+            }),
+          ),
+          ...Array.from({ length: accountCount }, (_, index) =>
+            makeRow({
+              sourceRowId: `floor-account-${index}`,
+              adId: `floor-account-${index}`,
+              campaignId: null,
+              adsetId: null,
+              conversions: 1,
+              revenue: 100,
+              ...accountOverrides,
+            }),
+          ),
+        ],
+        { target: AOV_ONLY_TARGET },
+      );
+
+    const nineteen = build();
+    expect(nineteen.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      basis: null,
+      accountAovEvidence: {
+        status: "insufficient_sample",
+        observedPurchaseCount: 19,
+      },
+    });
+    expect(
+      nineteen.cells.find(
+        (cell) => cell.key.cellScope === "objective_cohort_context",
+      )?.actionReadiness.cut,
+    ).toMatchObject({
+      ready: false,
+      reason: "commercial_spend_unit_authority_missing",
+    });
+
+    const contradictory = build({ revenue: 0 }, 15);
+    expect(contradictory.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      contradictoryRowCount: 15,
+    });
+    expect(contradictory.spendUnitAuthority.status).toBe("blocked");
+
+    const legacy = build({ metricSchemaVersion: 1 }, 15);
+    expect(legacy.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "insufficient_sample",
+      observedPurchaseCount: 5,
+      legacySchemaRowCount: 15,
+    });
+    expect(legacy.spendUnitAuthority.status).toBe("blocked");
+
+    const unsupported = build({ metricSchemaVersion: 3 }, 15);
+    expect(unsupported.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      observedPurchaseCount: 5,
+      unsupportedSchemaRowCount: 15,
+    });
+    expect(unsupported.spendUnitAuthority.status).toBe("blocked");
+
+    const malformed = build({ spend: -1 }, 15);
+    expect(malformed.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      observedPurchaseCount: 5,
+      contradictoryRowCount: 15,
+    });
+    expect(malformed.spendUnitAuthority.status).toBe("blocked");
+  });
+
+  it("keeps conflicting account-AOV duplicate evidence permutation-invariant", () => {
+    const exact = makeRow({
+      sourceRowId: "duplicate-exact",
+      adId: "duplicate-exact",
+      conversions: 5,
+      revenue: 400,
+    });
+    const duplicateA = makeRow({
+      sourceRowId: "duplicate-a",
+      adId: "duplicate-account",
+      campaignId: null,
+      adsetId: null,
+      conversions: 20,
+      revenue: 2_000,
+    });
+    const duplicateB = {
+      ...duplicateA,
+      sourceRowId: "duplicate-b",
+      conversions: 21,
+      revenue: 2_100,
+    };
+    const duplicateBReplay = {
+      ...duplicateB,
+      sourceRowId: "duplicate-c",
+    };
+    const first = compute([exact, duplicateA, duplicateB, duplicateBReplay], {
+      target: AOV_ONLY_TARGET,
+    });
+    const permuted = compute(
+      [duplicateBReplay, duplicateB, exact, duplicateA],
+      { target: AOV_ONLY_TARGET },
+    );
+
+    expect(first.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      contradictoryRowCount: 3,
+      observedPurchaseCount: 5,
+      totalRevenue: 400,
+    });
+    expect(permuted.spendUnitAuthority).toEqual(first.spendUnitAuthority);
+    expect(permuted.sourceManifestHash).toBe(first.sourceManifestHash);
+    expect(permuted.generationContentHash).toBe(first.generationContentHash);
+
+    const metricConflict = compute(
+      [
+        exact,
+        duplicateA,
+        {
+          ...duplicateA,
+          sourceRowId: "duplicate-spend-conflict",
+          spend: duplicateA.spend + 1,
+        },
+      ],
+      { target: AOV_ONLY_TARGET },
+    );
+    expect(metricConflict.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      contradictoryRowCount: 2,
+      observedPurchaseCount: 5,
+    });
+    expect(metricConflict.spendUnitAuthority.status).toBe("blocked");
+  });
+
+  it("binds account-AOV evidence into manifests and isolates mixed currency or fractional purchase truth", () => {
+    const exact = makeRow({
+      sourceRowId: "manifest-exact",
+      adId: "manifest-exact",
+      conversions: 5,
+      revenue: 400,
+    });
+    const accountOnly = makeRow({
+      sourceRowId: "manifest-account",
+      adId: "manifest-account",
+      campaignId: null,
+      adsetId: null,
+      conversions: 15,
+      revenue: 1500,
+    });
+    const first = compute([exact, accountOnly], { target: AOV_ONLY_TARGET });
+    const changed = compute([exact, { ...accountOnly, revenue: 1800 }], {
+      target: AOV_ONLY_TARGET,
+    });
+    expect(first.sourceManifestHash).not.toBe(changed.sourceManifestHash);
+    expect(first.generationContentHash).not.toBe(changed.generationContentHash);
+
+    const mixedCurrency = compute([
+      exact,
+      {
+        ...accountOnly,
+        sourceRowId: "mixed-currency",
+        adId: "mixed-currency",
+        accountCurrency: "EUR",
+        sourceAccountCurrency: "EUR",
+      },
+    ]);
+    expect(mixedCurrency).toMatchObject({
+      expectedCellCount: 0,
+      cells: [],
+      observations: [],
+      sourceProvenance: {
+        currencyAdmission: {
+          status: "blocked",
+          reason: "mixed_source_currency",
+          candidateRowCount: 2,
+          admittedRowCount: 0,
+          anomalyRowCount: 2,
+          distinctSourceCurrencyCount: 2,
+          distinctResolvedCurrencyCount: 2,
+        },
+      },
+      spendUnitAuthority: {
+        status: "blocked",
+        basis: null,
+        accountAovEvidence: {
+          status: "contradictory_purchase_truth",
+          contradictoryRowCount: 2,
+        },
+      },
+    });
+    expect(
+      mixedCurrency.sourceProvenance.currencyAdmission.manifestHash,
+    ).toMatch(/^[0-9a-f]{64}$/);
+
+    const fractional = compute(
+      [
+        exact,
+        {
+          ...accountOnly,
+          sourceRowId: "fractional",
+          adId: "fractional",
+          conversions: 15.5,
+        },
+      ],
+      { target: AOV_ONLY_TARGET },
+    );
+    expect(fractional.spendUnitAuthority.accountAovEvidence).toMatchObject({
+      status: "contradictory_purchase_truth",
+      contradictoryRowCount: 1,
+      observedPurchaseCount: 5,
+    });
+    expect(fractional.observations.map((row) => row.adId)).not.toContain(
+      "fractional",
+    );
+
+    for (const [label, metrics] of [
+      ["negative", { conversions: -1, revenue: 100 }],
+      ["non-finite", { conversions: 1, revenue: Number.NaN }],
+    ] as const) {
+      const malformed = compute(
+        [
+          exact,
+          accountOnly,
+          {
+            ...accountOnly,
+            sourceRowId: `${label}-canonical`,
+            adId: `${label}-canonical`,
+            ...metrics,
+          },
+        ],
+        { target: AOV_ONLY_TARGET },
+      );
+      expect(
+        malformed.spendUnitAuthority.accountAovEvidence,
+        label,
+      ).toMatchObject({
+        status: "contradictory_purchase_truth",
+        contradictoryRowCount: 1,
+        observedPurchaseCount: 20,
+      });
+      expect(malformed.spendUnitAuthority.status, label).toBe("blocked");
+      expect(malformed.sourceManifestHash, label).not.toBe(
+        first.sourceManifestHash,
+      );
+    }
+  });
+
+  it("hashes missing or mismatched source currency into a complete blocked account generation", () => {
+    const missingImmutableSource = compute([
+      makeRow({
+        sourceRowId: "missing-source-currency",
+        sourceAccountCurrency: null,
+        accountCurrency: "USD",
+      }),
+    ]);
+    expect(missingImmutableSource).toMatchObject({
+      expectedCellCount: 0,
+      cells: [],
+      observations: [],
+      sourceProvenance: {
+        currencyAdmission: {
+          status: "blocked",
+          keyBasis: "bound_provider_fallback",
+          accountCurrency: "USD",
+          reason: "source_currency_missing",
+          candidateRowCount: 1,
+          admittedRowCount: 0,
+          anomalyRowCount: 1,
+          sourceCurrencyMissingRowCount: 1,
+        },
+      },
+      spendUnitAuthority: {
+        status: "blocked",
+        basis: null,
+        baseSpendUnit: null,
+        accountAovEvidence: {
+          status: "contradictory_purchase_truth",
+          accountCurrency: "USD",
+          contradictoryRowCount: 1,
+        },
+      },
+    });
+
+    const resolvedSourceMismatch = compute([
+      makeRow({
+        sourceRowId: "resolved-source-mismatch",
+        sourceAccountCurrency: "USD",
+        accountCurrency: "EUR",
+      }),
+    ]);
+    expect(resolvedSourceMismatch).toMatchObject({
+      expectedCellCount: 0,
+      cells: [],
+      observations: [],
+      sourceProvenance: {
+        currencyAdmission: {
+          status: "blocked",
+          keyBasis: "immutable_source",
+          accountCurrency: "USD",
+          reason: "resolved_source_currency_mismatch",
+          candidateRowCount: 1,
+          admittedRowCount: 0,
+          anomalyRowCount: 1,
+          resolvedSourceMismatchRowCount: 1,
+        },
+      },
+      spendUnitAuthority: {
+        status: "blocked",
+        basis: null,
+        accountAovEvidence: {
+          status: "contradictory_purchase_truth",
+          accountCurrency: "USD",
+          contradictoryRowCount: 1,
+        },
+      },
+    });
+    expect(missingImmutableSource.sourceManifestHash).not.toBe(
+      resolvedSourceMismatch.sourceManifestHash,
+    );
+    expect(
+      missingImmutableSource.sourceProvenance.currencyAdmission.manifestHash,
+    ).not.toBe(
+      resolvedSourceMismatch.sourceProvenance.currencyAdmission.manifestHash,
+    );
+  });
+
+  it("binds the account timezone to the complete singular latest immutable source date", () => {
+    const older = makeRow({
+      sourceRowId: "timezone-older",
+      date: "2026-07-10",
+      accountTimezone: "America/Los_Angeles",
+      sourceAccountTimezone: "America/Los_Angeles",
+    });
+    const latest = makeRow({
+      sourceRowId: "timezone-latest",
+      date: "2026-07-11",
+      accountTimezone: "Europe/Istanbul",
+      sourceAccountTimezone: "Europe/Istanbul",
+    });
+    const batch = compute([older, latest]);
+
+    expect(batch.sourceProvenance.timezoneAdmission).toMatchObject({
+      contractVersion: "engine-v3-native-ad-timezone-admission.v1",
+      status: "ready",
+      keyBasis: "immutable_latest_source_date",
+      accountTimezone: "Europe/Istanbul",
+      reason: null,
+      candidateRowCount: 2,
+      latestSourceDate: "2026-07-11",
+      latestSourceRowCount: 1,
+      admittedRowCount: 2,
+      anomalyRowCount: 0,
+      sourceTimezoneMissingRowCount: 0,
+      distinctSourceTimezoneCount: 1,
+    });
+    expect(batch.sourceProvenance.timezoneAdmission.manifestHash).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(
+      new Set(batch.observations.map((row) => row.accountTimezone)),
+    ).toEqual(new Set(["Europe/Istanbul"]));
+    expect(new Set(batch.cells.map((cell) => cell.key.accountTimezone))).toEqual(
+      new Set(["Europe/Istanbul"]),
+    );
+
+    const olderSourceRestated = compute([
+      {
+        ...older,
+        accountTimezone: "UTC",
+        sourceAccountTimezone: "UTC",
+      },
+      latest,
+    ]);
+    expect(
+      olderSourceRestated.sourceProvenance.timezoneAdmission.accountTimezone,
+    ).toBe("Europe/Istanbul");
+    expect(
+      olderSourceRestated.sourceProvenance.timezoneAdmission.manifestHash,
+    ).not.toBe(batch.sourceProvenance.timezoneAdmission.manifestHash);
+    expect(olderSourceRestated.inputManifestHash).not.toBe(
+      batch.inputManifestHash,
+    );
+  });
+
+  it("hashes missing or mixed latest-date source timezone into a complete blocked account generation", () => {
+    const older = makeRow({
+      sourceRowId: "timezone-older-valid",
+      date: "2026-07-10",
+      accountTimezone: "Europe/Istanbul",
+      sourceAccountTimezone: "Europe/Istanbul",
+    });
+    const missing = compute([
+      older,
+      makeRow({
+        sourceRowId: "timezone-latest-missing",
+        date: "2026-07-11",
+        accountTimezone: "America/Chicago",
+        sourceAccountTimezone: null,
+      }),
+    ]);
+    expect(missing).toMatchObject({
+      expectedCellCount: 0,
+      cells: [],
+      observations: [],
+      sourceProvenance: {
+        timezoneAdmission: {
+          status: "blocked",
+          keyBasis: null,
+          accountTimezone: null,
+          reason: "latest_source_timezone_missing",
+          candidateRowCount: 2,
+          latestSourceDate: "2026-07-11",
+          latestSourceRowCount: 1,
+          admittedRowCount: 0,
+          anomalyRowCount: 1,
+          sourceTimezoneMissingRowCount: 1,
+          distinctSourceTimezoneCount: 0,
+        },
+      },
+      spendUnitAuthority: {
+        status: "blocked",
+        basis: null,
+        baseSpendUnit: null,
+      },
+    });
+
+    const mixed = compute([
+      older,
+      makeRow({
+        sourceRowId: "timezone-latest-a",
+        adId: "timezone-latest-a",
+        date: "2026-07-11",
+        accountTimezone: "Europe/Istanbul",
+        sourceAccountTimezone: "Europe/Istanbul",
+      }),
+      makeRow({
+        sourceRowId: "timezone-latest-b",
+        adId: "timezone-latest-b",
+        date: "2026-07-11",
+        accountTimezone: "America/Chicago",
+        sourceAccountTimezone: "America/Chicago",
+      }),
+    ]);
+    expect(mixed).toMatchObject({
+      expectedCellCount: 0,
+      cells: [],
+      observations: [],
+      sourceProvenance: {
+        timezoneAdmission: {
+          status: "blocked",
+          reason: "mixed_latest_source_timezone",
+          candidateRowCount: 3,
+          latestSourceDate: "2026-07-11",
+          latestSourceRowCount: 2,
+          admittedRowCount: 0,
+          anomalyRowCount: 2,
+          sourceTimezoneMissingRowCount: 0,
+          distinctSourceTimezoneCount: 2,
+        },
+      },
+      spendUnitAuthority: {
+        status: "blocked",
+        basis: null,
+        baseSpendUnit: null,
+      },
+    });
+    expect(missing.sourceProvenance.timezoneAdmission.manifestHash).not.toBe(
+      mixed.sourceProvenance.timezoneAdmission.manifestHash,
+    );
+    expect(missing.inputManifestHash).not.toBe(mixed.inputManifestHash);
+  });
+
+  it("keeps non-finite database purchase truth in the contradiction receipt", () => {
+    const exact = makeRow({
+      sourceRowId: "mapper-exact",
+      adId: "mapper-exact",
+      conversions: 5,
+      revenue: 400,
+    });
+    const accountOnly = makeRow({
+      sourceRowId: "mapper-account",
+      adId: "mapper-account",
+      campaignId: null,
+      adsetId: null,
+      conversions: 15,
+      revenue: 1_500,
+    });
+    const malformed = mapNativeAdCalibrationSourceRow({
+      ...toDbSourceRow(accountOnly),
+      source_row_id: "mapper-non-finite",
+      ad_id: "mapper-non-finite",
+      conversions: "1",
+      revenue: "NaN",
+    });
+
+    expect(Number.isNaN(malformed.revenue)).toBe(true);
+    const batch = compute([exact, accountOnly, malformed], {
+      target: AOV_ONLY_TARGET,
+    });
+    expect(batch.spendUnitAuthority).toMatchObject({
+      status: "blocked",
+      basis: null,
+      accountAovEvidence: {
+        status: "contradictory_purchase_truth",
+        contradictoryRowCount: 1,
+        observedPurchaseCount: 20,
+      },
+    });
+    expect(batch.sourceManifestHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("keeps thin-cell commercial stop-loss authority closed when either commercial anchor is missing", () => {
@@ -432,7 +1450,20 @@ describe("native ad calibration computation", () => {
     });
     expect(old.qualityCounts.commercialAuthorityAdExclusionCount).toBe(0);
     expect(oldExact?.qualityStatus).toBe(recentExact?.qualityStatus);
-    expect(oldExact?.actionReadiness).toEqual(recentExact?.actionReadiness);
+    expect(oldExact?.actionReadiness.scale).toEqual(
+      recentExact?.actionReadiness.scale,
+    );
+    expect(oldExact?.actionReadiness.cut).toEqual(
+      recentExact?.actionReadiness.cut,
+    );
+    expect(oldExact?.actionReadiness.refresh).toEqual(
+      recentExact?.actionReadiness.refresh,
+    );
+    expect(oldExact?.actionReadiness.spendUnitAuthority).toMatchObject({
+      status: "ready",
+      basis: "target_cpa",
+      baseSpendUnit: 50,
+    });
   });
 
   it("fails target authority closed for missing, deleted, cutoff-unsafe, and invalid anchors", () => {
@@ -712,6 +1743,50 @@ describe("native ad calibration append-only persistence", () => {
         { db: forgedDb, transaction: async (operation) => operation() },
       ),
     ).rejects.toThrow(/transaction receipt does not match/i);
+
+    const tamperedCurrencyReceipt: NativeAdCalibrationBatch = {
+      ...batch,
+      sourceProvenance: {
+        ...batch.sourceProvenance,
+        currencyAdmission: {
+          ...batch.sourceProvenance.currencyAdmission,
+          manifestHash: "not-a-hash",
+        },
+      },
+    };
+    await expect(
+      replaceNativeAdCalibrationBatch(
+        { batch: tamperedCurrencyReceipt, jobRunId: JOB_RUN_ID },
+        {
+          db: fakeDb(() => {
+            throw new Error("Persistence must not run for a forged receipt.");
+          }),
+          transaction: async (operation) => operation(),
+        },
+      ),
+    ).rejects.toThrow(/currency admission receipt is malformed/i);
+
+    const tamperedTimezoneReceipt: NativeAdCalibrationBatch = {
+      ...batch,
+      sourceProvenance: {
+        ...batch.sourceProvenance,
+        timezoneAdmission: {
+          ...batch.sourceProvenance.timezoneAdmission,
+          manifestHash: "not-a-hash",
+        },
+      },
+    };
+    await expect(
+      replaceNativeAdCalibrationBatch(
+        { batch: tamperedTimezoneReceipt, jobRunId: JOB_RUN_ID },
+        {
+          db: fakeDb(() => {
+            throw new Error("Persistence must not run for a forged receipt.");
+          }),
+          transaction: async (operation) => operation(),
+        },
+      ),
+    ).rejects.toThrow(/timezone admission receipt is malformed/i);
   });
 });
 
@@ -722,11 +1797,21 @@ describe("native ad calibration producer and SQL contract", () => {
       "d.provider_account_id = $4",
       "d.updated_at <= $5::timestamptz",
       "binding.provider_account_ref_id = d.provider_account_ref_id",
-      "NULLIF(BTRIM(account.timezone), '')",
       "NULLIF(BTRIM(account.currency), '')",
+      "NULLIF(BTRIM(d.account_timezone), '') AS source_account_timezone",
+      "NULLIF(BTRIM(d.account_currency), '') AS source_account_currency",
     ]) {
       expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toContain(fragment);
     }
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toContain(
+      "NULLIF(BTRIM(d.account_timezone), '') AS account_timezone",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).not.toContain(
+      "NULLIF(BTRIM(account.timezone), '')",
+    );
+    expect(READ_NATIVE_AD_CALIBRATION_SOURCE_SQL).toMatch(
+      /COALESCE\(\s*NULLIF\(BTRIM\(d\.account_currency\), ''\),\s*NULLIF\(BTRIM\(account\.currency\), ''\)\s*\) AS account_currency/,
+    );
     expect(READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL).toContain(
       "binding.provider_account_ref_id = $2::uuid",
     );
@@ -881,6 +1966,286 @@ describe("native ad calibration producer and SQL contract", () => {
       PROVIDER_ACCOUNT_ID,
       CUTOFF,
     ]);
+  });
+
+  it("keeps a healthy account and a dimension-blocked account in one atomic successful business receipt", async () => {
+    const healthySource = makeRow({
+      sourceRowId: "healthy-account-source",
+      adId: "healthy-account-ad",
+    });
+    const blockedSource = makeRow({
+      sourceRowId: "blocked-account-source",
+      providerAccountRefId: SECOND_PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: SECOND_PROVIDER_ACCOUNT_ID,
+      adId: "blocked-account-ad",
+      sourceAccountCurrency: null,
+      accountCurrency: "USD",
+      sourceAccountTimezone: null,
+      accountTimezone: "America/Chicago",
+    });
+    const healthyBatch = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+      asOf: AS_OF,
+      computationCutoff: CUTOFF,
+      sourceRows: [healthySource],
+      targetAuthority: null,
+    });
+    const blockedBatch = computeNativeAdCalibrationBatch({
+      businessId: BUSINESS_ID,
+      providerAccountRefId: SECOND_PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: SECOND_PROVIDER_ACCOUNT_ID,
+      asOf: AS_OF,
+      computationCutoff: CUTOFF,
+      sourceRows: [blockedSource],
+      targetAuthority: null,
+    });
+    expect(healthyBatch.expectedCellCount).toBeGreaterThan(0);
+    expect(blockedBatch).toMatchObject({
+      expectedCellCount: 0,
+      sourceProvenance: {
+        currencyAdmission: {
+          status: "blocked",
+          reason: "source_currency_missing",
+        },
+        timezoneAdmission: {
+          status: "blocked",
+          reason: "latest_source_timezone_missing",
+        },
+      },
+    });
+
+    let successReceipt: Record<string, unknown> | null = null;
+    let rolledBack = false;
+    const db = fakeDb((query, params) => {
+      if (query === "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        return [];
+      if (query.includes("pg_try_advisory_xact_lock")) {
+        return [{ acquired: true }];
+      }
+      if (query.includes("INSERT INTO engine_v3_job_runs")) {
+        return [{ id: JOB_RUN_ID }];
+      }
+      if (query.startsWith("ROLLBACK TO SAVEPOINT")) {
+        rolledBack = true;
+        return [];
+      }
+      if (query.startsWith("SAVEPOINT")) return [];
+      const schema = exactSchemaRows(query);
+      if (schema.length > 0 || query.includes("FROM pg_trigger")) return schema;
+      if (query === READ_NATIVE_AD_CALIBRATION_TRANSACTION_RECEIPT_SQL) {
+        return [
+          {
+            computation_cutoff: CUTOFF,
+            transaction_isolation: "repeatable read",
+          },
+        ];
+      }
+      if (query === LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL) {
+        return [
+          {
+            provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+            provider_account_id: PROVIDER_ACCOUNT_ID,
+          },
+          {
+            provider_account_ref_id: SECOND_PROVIDER_ACCOUNT_REF_ID,
+            provider_account_id: SECOND_PROVIDER_ACCOUNT_ID,
+          },
+        ];
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_SOURCE_SQL) {
+        return params?.[3] === SECOND_PROVIDER_ACCOUNT_ID
+          ? [toDbSourceRow(blockedSource)]
+          : [toDbSourceRow(healthySource)];
+      }
+      if (query === READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL) return [];
+      if (query === ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL) {
+        return [
+          {
+            provider_account_ref_id: params?.[1],
+            provider_account_id: params?.[2],
+          },
+        ];
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_BATCH_AT_CUTOFF_SQL) return [];
+      if (query === READ_EXISTING_NATIVE_AD_CALIBRATION_BATCH_BY_CONTENT_SQL) {
+        return [];
+      }
+      if (query === INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL) {
+        return [
+          {
+            id:
+              params?.[3] === SECOND_PROVIDER_ACCOUNT_ID
+                ? SECOND_BATCH_ID
+                : BATCH_ID,
+          },
+        ];
+      }
+      if (query === INSERT_NATIVE_AD_CALIBRATION_SQL) return [];
+      if (query === READ_NATIVE_AD_CALIBRATION_CELL_SET_PROOF_SQL) {
+        return params?.[0] === SECOND_BATCH_ID
+          ? []
+          : proofRows(healthyBatch);
+      }
+      if (query === COMPLETE_NATIVE_AD_CALIBRATION_BATCH_SQL) {
+        return [{ id: params?.[0] }];
+      }
+      if (query.includes("SET status = 'success'")) {
+        successReceipt = JSON.parse(String(params?.[5] ?? "{}")) as Record<
+          string,
+          unknown
+        >;
+        return [{ id: JOB_RUN_ID }];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+
+    const result = await runAdCalibrationJob(
+      { businessId: BUSINESS_ID, asOf: AS_OF },
+      {
+        db,
+        transaction: async (operation) => operation(),
+        businessGuard: async () => null,
+        resolveFlags: async () => enabledFlags(),
+      },
+    );
+    expect(result.status).toBe("success");
+    expect(result.batches).toHaveLength(2);
+    expect(result.batches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerAccountId: PROVIDER_ACCOUNT_ID,
+          expectedCellCount: healthyBatch.expectedCellCount,
+          currencyAdmission: expect.objectContaining({ status: "ready" }),
+          timezoneAdmission: expect.objectContaining({ status: "ready" }),
+        }),
+        expect.objectContaining({
+          providerAccountId: SECOND_PROVIDER_ACCOUNT_ID,
+          expectedCellCount: 0,
+          currencyAdmission: expect.objectContaining({
+            status: "blocked",
+            reason: "source_currency_missing",
+          }),
+          timezoneAdmission: expect.objectContaining({
+            status: "blocked",
+            reason: "latest_source_timezone_missing",
+          }),
+        }),
+      ]),
+    );
+    expect(rolledBack).toBe(false);
+    expect(successReceipt).toMatchObject({
+      metadata: {
+        provider_account_count: 2,
+        batches: expect.arrayContaining([
+          expect.objectContaining({
+            provider_account_id: SECOND_PROVIDER_ACCOUNT_ID,
+            currency_admission: expect.objectContaining({
+              status: "blocked",
+              reason: "source_currency_missing",
+            }),
+            timezone_admission: expect.objectContaining({
+              status: "blocked",
+              reason: "latest_source_timezone_missing",
+            }),
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("keeps a cross-provider source identity mismatch transaction-fatal for the whole business", async () => {
+    const forgedSecondAccountSource = makeRow({
+      sourceRowId: "forged-second-account-source",
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: PROVIDER_ACCOUNT_ID,
+    });
+    let rolledBack = false;
+    let completedFirstBatch = false;
+    const db = fakeDb((query, params) => {
+      if (query === "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        return [];
+      if (query.includes("pg_try_advisory_xact_lock")) {
+        return [{ acquired: true }];
+      }
+      if (query.includes("INSERT INTO engine_v3_job_runs")) {
+        return [{ id: JOB_RUN_ID }];
+      }
+      if (query.startsWith("ROLLBACK TO SAVEPOINT")) {
+        rolledBack = true;
+        return [];
+      }
+      if (query.startsWith("SAVEPOINT")) return [];
+      const schema = exactSchemaRows(query);
+      if (schema.length > 0 || query.includes("FROM pg_trigger")) return schema;
+      if (query === READ_NATIVE_AD_CALIBRATION_TRANSACTION_RECEIPT_SQL) {
+        return [
+          {
+            computation_cutoff: CUTOFF,
+            transaction_isolation: "repeatable read",
+          },
+        ];
+      }
+      if (query === LIST_NATIVE_AD_PROVIDER_BINDINGS_SQL) {
+        return [
+          {
+            provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+            provider_account_id: PROVIDER_ACCOUNT_ID,
+          },
+          {
+            provider_account_ref_id: SECOND_PROVIDER_ACCOUNT_REF_ID,
+            provider_account_id: SECOND_PROVIDER_ACCOUNT_ID,
+          },
+        ];
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_SOURCE_SQL) {
+        return params?.[3] === SECOND_PROVIDER_ACCOUNT_ID
+          ? [toDbSourceRow(forgedSecondAccountSource)]
+          : [];
+      }
+      if (query === READ_NATIVE_AD_TARGET_AUTHORITY_FOR_ACCOUNT_SQL) return [];
+      if (query === ASSERT_NATIVE_AD_PROVIDER_BINDINGS_SQL) {
+        return [
+          {
+            provider_account_ref_id: params?.[1],
+            provider_account_id: params?.[2],
+          },
+        ];
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_BATCH_AT_CUTOFF_SQL) return [];
+      if (query === READ_EXISTING_NATIVE_AD_CALIBRATION_BATCH_BY_CONTENT_SQL) {
+        return [];
+      }
+      if (query === INSERT_NATIVE_AD_CALIBRATION_BATCH_SQL) {
+        return [{ id: BATCH_ID }];
+      }
+      if (query === READ_NATIVE_AD_CALIBRATION_CELL_SET_PROOF_SQL) return [];
+      if (query === COMPLETE_NATIVE_AD_CALIBRATION_BATCH_SQL) {
+        completedFirstBatch = true;
+        return [{ id: BATCH_ID }];
+      }
+      if (query.includes("SET status = 'failed'")) return [{ id: JOB_RUN_ID }];
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+
+    const result = await runAdCalibrationJob(
+      { businessId: BUSINESS_ID, asOf: AS_OF },
+      {
+        db,
+        transaction: async (operation) => operation(),
+        businessGuard: async () => null,
+        resolveFlags: async () => enabledFlags(),
+      },
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      rowsWritten: 0,
+      batches: [],
+      errorMessage: expect.stringMatching(/provider binding mismatch/i),
+    });
+    expect(completedFirstBatch).toBe(true);
+    expect(rolledBack).toBe(true);
   });
 
   it("asserts terminal job UPDATE RETURNING exactly one running row", async () => {
@@ -1382,6 +2747,10 @@ async function proveLateSourceRowIsolation(pool: Pool) {
     expect(during.rowCount).toBe(0);
     await reader.query("COMMIT");
 
+    await pool.query(
+      "UPDATE provider_accounts SET timezone = 'Pacific/Honolulu' WHERE id = $1::uuid",
+      [PROVIDER_ACCOUNT_REF_ID],
+    );
     await inRepeatableRead(pool, async (client, nextReceipt) => {
       const visible = await client.query(
         READ_NATIVE_AD_CALIBRATION_SOURCE_SQL,
@@ -1394,6 +2763,32 @@ async function proveLateSourceRowIsolation(pool: Pool) {
         ],
       );
       expect(visible.rowCount).toBe(1);
+      expect(visible.rows[0]).toMatchObject({
+        account_timezone: "UTC",
+        source_account_timezone: "UTC",
+        account_currency: "USD",
+        source_account_currency: "USD",
+      });
+      const currentProvider = await client.query(
+        "SELECT timezone FROM provider_accounts WHERE id = $1::uuid",
+        [PROVIDER_ACCOUNT_REF_ID],
+      );
+      expect(currentProvider.rows[0]?.timezone).toBe("Pacific/Honolulu");
+
+      const batch = computeForReceipt(
+        visible.rows.map(mapNativeAdCalibrationSourceRow),
+        nextReceipt,
+        null,
+      );
+      expect(batch.sourceProvenance.timezoneAdmission).toMatchObject({
+        status: "ready",
+        keyBasis: "immutable_latest_source_date",
+        accountTimezone: "UTC",
+        latestSourceDate: nextReceipt.slice(0, 10),
+      });
+      expect(
+        new Set(batch.cells.map((cell) => cell.key.accountTimezone)),
+      ).toEqual(new Set(["UTC"]));
     });
   } catch (error) {
     await reader.query("ROLLBACK").catch(() => undefined);
@@ -1418,12 +2813,7 @@ async function createEphemeralSchema(pool: Pool) {
       business_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       provider_account_ref_id UUID NOT NULL,
-      provider_account_id TEXT NOT NULL,
-      -- The production column, with the production post-cutover default. The
-      -- calibration listings filter on it, so a fixture without it would either
-      -- fail to run or silently exercise a query the production schema does not
-      -- have.
-      is_selected BOOLEAN NOT NULL DEFAULT FALSE
+      provider_account_id TEXT NOT NULL
     );
     CREATE TABLE engine_v3_job_runs (
       id UUID PRIMARY KEY,
@@ -1496,6 +2886,7 @@ async function createEphemeralSchema(pool: Pool) {
       ad_id TEXT NOT NULL,
       account_timezone TEXT,
       account_currency TEXT,
+      metric_schema_version INTEGER NOT NULL DEFAULT 2,
       spend DOUBLE PRECISION NOT NULL,
       impressions DOUBLE PRECISION NOT NULL,
       clicks DOUBLE PRECISION NOT NULL,
@@ -1517,9 +2908,9 @@ async function createEphemeralSchema(pool: Pool) {
       'Europe/Istanbul', 'USD'
     );
     INSERT INTO business_provider_accounts (
-      business_id, provider, provider_account_ref_id, provider_account_id, is_selected
+      business_id, provider, provider_account_ref_id, provider_account_id
     ) VALUES (
-      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}', '${PROVIDER_ACCOUNT_ID}', TRUE
+      '${BUSINESS_ID}', 'meta', '${PROVIDER_ACCOUNT_REF_ID}', '${PROVIDER_ACCOUNT_ID}'
     );
     INSERT INTO engine_v3_job_runs (
       id, job_name, business_ref_id, business_id, as_of_date,
@@ -1615,15 +3006,8 @@ async function freePort() {
   });
 }
 
-// PostgreSQL refuses to start with "postmaster became multithreaded during
-// startup" unless LC_ALL is set to a valid locale. Inheriting the ambient
-// environment is enough to fail on macOS, which is why this seam looked like a
-// stable baseline failure when it is actually a harness bug.
 function run(command: string, args: string[]) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    env: { ...process.env, LC_ALL: "C" },
-  });
+  const result = spawnSync(command, args, { encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(
       `${command} ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`,

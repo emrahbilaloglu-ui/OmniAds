@@ -9,6 +9,7 @@ import {
   evaluateCreativeExecutionReadiness,
   evaluateCreativeMutationPreflight,
   runDecisionOriginAdExecutionPreflight,
+  validateDecisionOriginAdExecutionRequest,
   validateDecisionOriginProviderVerification,
 } from "../execution-safety";
 import type {
@@ -388,16 +389,21 @@ function nativeRequest(
     contractVersion: "meta-decision-origin-ad-execution.v1" as const,
     businessId: "biz-1",
     providerAccountId: "act-1",
-    adId: "ad-1",
+    adId: "123456789012345",
     snapshotId: "snapshot-1",
     evaluationId: "evaluation-1",
     engineVersion: NATIVE_AD_ENGINE_VERSION,
     decisionHash: NATIVE_DECISION_HASH,
     action: "pause",
-    idempotencyKey: "decision-action-1",
+    idempotencyKey: "",
     creativeId: "shared-creative",
   };
-  return { ...base, ...overrides };
+  const request = { ...base, ...overrides };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "idempotencyKey")) {
+    request.idempotencyKey =
+      createDecisionOriginAdActionIdempotencyKey(request);
+  }
+  return request;
 }
 
 function nativeEvidence(
@@ -426,7 +432,14 @@ function nativeEvidence(
       found: true,
       businessId: "biz-1",
       providerAccountId: "act-1",
-      adId: "ad-1",
+      adId: "123456789012345",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset-1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
       policyEligible: true,
@@ -439,8 +452,10 @@ function nativeEvidence(
       businessId: "biz-1",
       providerAccountId: "act-1",
       decisionEntityType: "ad",
-      decisionEntityId: "ad-1",
-      adId: "ad-1",
+      decisionEntityId: "123456789012345",
+      adId: "123456789012345",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
       creativeId: "shared-creative",
       snapshotId: "snapshot-1",
       evaluationId: "evaluation-1",
@@ -460,15 +475,77 @@ describe("exact native-ad decision execution", () => {
   it("builds idempotency from exact account, ad, source, epoch, hash, and action", () => {
     const first = createDecisionOriginAdActionIdempotencyKey(nativeRequest());
     const sameCreativeOtherAd = createDecisionOriginAdActionIdempotencyKey(
-      nativeRequest({ adId: "ad-2" }),
+      nativeRequest({ adId: "123456789012346" }),
     );
     const changedHash = createDecisionOriginAdActionIdempotencyKey(
       nativeRequest({ decisionHash: "c".repeat(64) }),
     );
 
-    expect(first).toContain("decision-ad-action:biz-1:act-1:ad-1:pause");
+    expect(first).toContain(
+      "decision-ad-action:biz-1:act-1:123456789012345:pause",
+    );
     expect(first).not.toBe(sameCreativeOtherAd);
     expect(first).not.toBe(changedHash);
+  });
+
+  it("rejects a non-canonical key and keeps dry-run identity separate", () => {
+    const execute = nativeRequest();
+    const dryRun = nativeRequest({ dryRun: true });
+    const arbitrary = nativeRequest({ idempotencyKey: "attacker-key" });
+
+    expect(dryRun.idempotencyKey).not.toBe(execute.idempotencyKey);
+    expect(validateDecisionOriginAdExecutionRequest(execute)).toEqual([]);
+    expect(validateDecisionOriginAdExecutionRequest(dryRun)).toEqual([]);
+    expect(validateDecisionOriginAdExecutionRequest(arbitrary)).toContain(
+      "idempotency_key_mismatch",
+    );
+  });
+
+  it("rejects a non-boolean dry-run mode instead of treating it as execute", () => {
+    const malformed = {
+      ...nativeRequest(),
+      dryRun: "true",
+    } as unknown as DecisionOriginAdExecutionRequest;
+
+    expect(validateDecisionOriginAdExecutionRequest(malformed)).toContain(
+      "invalid_dry_run",
+    );
+  });
+
+  it("rejects synthetic or malformed Meta Ad identities before live reads", () => {
+    const malformed = nativeRequest({ adId: "ad_123" });
+
+    expect(validateDecisionOriginAdExecutionRequest(malformed)).toContain(
+      "invalid_ad_id",
+    );
+  });
+
+  it("requires exact creative identity in request, source, and live state", () => {
+    const missingRequest = nativeRequest({ creativeId: "" });
+    const missingSource = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        sourceDecision: { creativeId: null },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+    const missingLive = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        currentAd: { creativeId: null },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(validateDecisionOriginAdExecutionRequest(missingRequest)).toContain(
+      "missing_creative_id",
+    );
+    expect(missingSource.blockers).toContain(
+      "source_decision_lineage_mismatch",
+    );
+    expect(missingLive.blockers).toContain("ad_identity_mismatch");
+    expect(missingSource.shouldMutate).toBe(false);
+    expect(missingLive.shouldMutate).toBe(false);
   });
 
   it("passes only with exact current state and source lineage", () => {
@@ -488,14 +565,66 @@ describe("exact native-ad decision execution", () => {
     });
   });
 
+  it("requires exact current campaign and ad-set identity plus ACTIVE state", () => {
+    const identityDrift = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        currentAd: { campaignId: "campaign-other" },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+    const parentPaused = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        currentAd: {
+          adsetConfiguredStatus: "PAUSED",
+          adsetEffectiveStatus: "PAUSED",
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+    const parentMissing = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest(),
+      evidence: nativeEvidence({
+        currentAd: {
+          campaignId: null,
+          campaignConfiguredStatus: null,
+          campaignEffectiveStatus: null,
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(identityDrift.blockers).toContain(
+      "current_hierarchy_identity_mismatch",
+    );
+    expect(parentPaused.blockers).toContain(
+      "current_hierarchy_state_incompatible",
+    );
+    expect(parentMissing.blockers).toContain(
+      "current_hierarchy_state_unverified",
+    );
+    expect(parentMissing.blockers).not.toContain(
+      "current_hierarchy_state_incompatible",
+    );
+    expect(
+      [identityDrift, parentPaused, parentMissing].every(
+        (result) => result.shouldMutate === false,
+      ),
+    ).toBe(true);
+  });
+
   it("same creative on two ads cannot authorize the other ad", () => {
     const result = evaluateDecisionOriginAdExecutionPreflight({
-      request: nativeRequest({ adId: "ad-1", creativeId: "shared-creative" }),
+      request: nativeRequest({
+        adId: "123456789012345",
+        creativeId: "shared-creative",
+      }),
       evidence: nativeEvidence({
-        currentAd: { adId: "ad-2" },
+        currentAd: { adId: "123456789012346" },
         sourceDecision: {
-          decisionEntityId: "ad-2",
-          adId: "ad-2",
+          decisionEntityId: "123456789012346",
+          adId: "123456789012346",
           creativeId: "shared-creative",
         },
       }),
@@ -600,6 +729,65 @@ describe("exact native-ad decision execution", () => {
     expect(result.blockers).toContain("action_not_authorized");
   });
 
+  it("rejects a resume authorization when the canonical decision is not Scale", () => {
+    const request = nativeRequest({ action: "resume" });
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        currentAd: {
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+        },
+        sourceDecision: {
+          decisionLabel: "keep",
+          explicitAuthorizedAction: "resume",
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toContain("action_not_authorized");
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("accepts resume only for an exact Scale-to-resume authorization", () => {
+    const request = nativeRequest({ action: "resume" });
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        currentAd: {
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+        },
+        sourceDecision: {
+          decisionLabel: "scale",
+          explicitAuthorizedAction: "resume",
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toEqual([]);
+    expect(result.shouldMutate).toBe(true);
+  });
+
+  it("requires an explicit source authorization for pause", () => {
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request: nativeRequest({ action: "pause" }),
+      evidence: nativeEvidence({
+        sourceDecision: {
+          decisionLabel: "cut",
+          blockedActionType: null,
+          explicitAuthorizedAction: null,
+        },
+      }),
+      now: new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    expect(result.blockers).toContain("action_not_authorized");
+    expect(result.shouldMutate).toBe(false);
+  });
+
   it("fails closed on kill-switch, policy, and status evidence", () => {
     const result = evaluateDecisionOriginAdExecutionPreflight({
       request: nativeRequest(),
@@ -633,6 +821,7 @@ describe("exact native-ad decision execution", () => {
           businessId: request.businessId,
           providerAccountId: request.providerAccountId,
           adId: request.adId,
+          creativeId: request.creativeId,
           snapshotId: request.snapshotId,
           evaluationId: request.evaluationId,
           engineVersion: request.engineVersion,
@@ -666,6 +855,36 @@ describe("exact native-ad decision execution", () => {
           businessId: request.businessId,
           providerAccountId: request.providerAccountId,
           adId: "ad-2",
+          creativeId: request.creativeId,
+          snapshotId: request.snapshotId,
+          evaluationId: request.evaluationId,
+          engineVersion: request.engineVersion,
+          decisionHash: request.decisionHash,
+          action: request.action,
+          idempotencyKey: request.idempotencyKey,
+          status: "success",
+          dryRun: false,
+          providerVerified: true,
+          treatmentEligible: true,
+        },
+      }),
+    });
+
+    expect(result.blockers).toEqual(["idempotency_conflict"]);
+    expect(result.shouldMutate).toBe(false);
+  });
+
+  it("rejects an idempotent receipt bound to another creative", () => {
+    const request = nativeRequest();
+    const result = evaluateDecisionOriginAdExecutionPreflight({
+      request,
+      evidence: nativeEvidence({
+        receipt: {
+          actionLogId: "log-1",
+          businessId: request.businessId,
+          providerAccountId: request.providerAccountId,
+          adId: request.adId,
+          creativeId: "creative-other",
           snapshotId: request.snapshotId,
           evaluationId: request.evaluationId,
           engineVersion: request.engineVersion,
@@ -685,24 +904,38 @@ describe("exact native-ad decision execution", () => {
   });
 
   it("counts provider verification only for the exact ad/action and never for dry-run", () => {
+    const expectedLineage = {
+      providerAccountId: "act-1",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
+    };
+    const exactPayload = {
+      id: "123456789012345",
+      account_id: "1",
+      status: "PAUSED",
+      effective_status: "PAUSED",
+      creative: { id: "shared-creative" },
+      campaign: { id: "campaign-1" },
+      adset: { id: "adset-1" },
+    };
     const exact = validateDecisionOriginProviderVerification({
       request: nativeRequest(),
+      expectedLineage,
       verifiedAt: "2026-07-12T10:00:01.000Z",
-      verificationPayload: {
-        id: "ad-1",
-        status: "PAUSED",
-        effective_status: "PAUSED",
-      },
+      verificationPayload: exactPayload,
     });
     const wrongAd = validateDecisionOriginProviderVerification({
       request: nativeRequest(),
+      expectedLineage,
       verifiedAt: "2026-07-12T10:00:01.000Z",
-      verificationPayload: { id: "ad-2", status: "PAUSED" },
+      verificationPayload: { ...exactPayload, id: "123456789012346" },
     });
     const dryRun = validateDecisionOriginProviderVerification({
       request: nativeRequest({ dryRun: true }),
+      expectedLineage,
       verifiedAt: "2026-07-12T10:00:01.000Z",
-      verificationPayload: { id: "ad-1", status: "PAUSED" },
+      verificationPayload: exactPayload,
     });
 
     expect(exact).toMatchObject({
@@ -716,5 +949,204 @@ describe("exact native-ad decision execution", () => {
       providerVerified: false,
       treatmentEligible: false,
     });
+  });
+
+  it("accepts the exact versioned Ad-status verification envelope and fails closed on hierarchy drift", () => {
+    const expectedLineage = {
+      providerAccountId: "act-1",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
+    };
+    const envelope = {
+      contractVersion: "meta-ad-status-write-verification.v1",
+      adId: "123456789012345",
+      providerAccountId: "act-1",
+      creativeId: "shared-creative",
+      campaignId: "campaign-1",
+      adsetId: "adset-1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: "2026-07-12T10:00:00.500Z",
+      providerGetEvidence: {
+        id: "123456789012345",
+        account_id: "1",
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        creative: { id: "shared-creative" },
+        campaign: {
+          id: "campaign-1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset-1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+      },
+    };
+
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: envelope,
+      }),
+    ).toMatchObject({
+      providerVerified: true,
+      treatmentEligible: true,
+      blockers: [],
+    });
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          ...envelope,
+          adsetEffectiveStatus: "PAUSED",
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          contractVersion: "meta-ad-status-write-verification.v2",
+          id: "123456789012345",
+          account_id: "1",
+          status: "PAUSED",
+          creative: { id: "shared-creative" },
+          campaign: { id: "campaign-1" },
+          adset: { id: "adset-1" },
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    const {
+      configuredStatus: _configuredStatus,
+      ...missingConfiguredStatus
+    } = envelope;
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.000Z",
+        verificationPayload: {
+          ...missingConfiguredStatus,
+          effective_status: "PAUSED",
+        },
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+    for (const verificationPayload of [
+      { ...envelope, reviewStatus: "IN_PROCESS" },
+      { ...envelope, observedAt: "not-a-date" },
+      {
+        ...envelope,
+        providerGetEvidence: {
+          ...envelope.providerGetEvidence,
+          id: "wrong-ad",
+        },
+      },
+    ]) {
+      expect(
+        validateDecisionOriginProviderVerification({
+          request: nativeRequest(),
+          expectedLineage,
+          verifiedAt: "2026-07-12T10:00:01.000Z",
+          providerCompletedAt: "2026-07-12T10:00:00.000Z",
+          verificationPayload,
+        }),
+      ).toMatchObject({
+        providerVerified: false,
+        treatmentEligible: false,
+        blockers: expect.arrayContaining([
+          "verification_action_mismatch",
+        ]),
+      });
+    }
+    expect(
+      validateDecisionOriginProviderVerification({
+        request: nativeRequest(),
+        expectedLineage,
+        verifiedAt: "2026-07-12T10:00:01.000Z",
+        providerCompletedAt: "2026-07-12T10:00:00.750Z",
+        verificationPayload: envelope,
+      }),
+    ).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+      blockers: expect.arrayContaining(["verification_action_mismatch"]),
+    });
+  });
+
+  it.each([
+    ["provider account", { account_id: "2" }, "verification_provider_account_mismatch"],
+    [
+      "creative",
+      { creative: { id: "other-creative" } },
+      "verification_creative_mismatch",
+    ],
+    [
+      "campaign",
+      { campaign: { id: "other-campaign" } },
+      "verification_campaign_mismatch",
+    ],
+    [
+      "ad set",
+      { adset: { id: "other-adset" } },
+      "verification_adset_mismatch",
+    ],
+  ])("fails provider verification closed on %s lineage drift", (_label, drift, blocker) => {
+    const result = validateDecisionOriginProviderVerification({
+      request: nativeRequest(),
+      expectedLineage: {
+        providerAccountId: "act-1",
+        creativeId: "shared-creative",
+        campaignId: "campaign-1",
+        adsetId: "adset-1",
+      },
+      verifiedAt: "2026-07-12T10:00:01.000Z",
+      verificationPayload: {
+        id: "ad-1",
+        account_id: "1",
+        status: "PAUSED",
+        creative: { id: "shared-creative" },
+        campaign: { id: "campaign-1" },
+        adset: { id: "adset-1" },
+        ...drift,
+      },
+    });
+
+    expect(result).toMatchObject({
+      providerVerified: false,
+      treatmentEligible: false,
+    });
+    expect(result.blockers).toContain(blocker);
   });
 });

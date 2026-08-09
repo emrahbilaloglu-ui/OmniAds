@@ -34,7 +34,7 @@ export const AD_DECISION_OUTCOME_RUNS_TABLE =
 export const AD_DECISION_OUTCOME_PUBLICATIONS_TABLE =
   "engine_v3_ad_decision_outcome_publications";
 export const AD_DECISION_OUTCOME_CONTRACT_VERSION =
-  "engine-v3-ad-decision-outcome.v2";
+  "engine-v3-ad-decision-outcome.v3";
 export const AD_DECISION_OUTCOME_CLASSIFIER_VERSION =
   "engine-v3-ad-outcome-classifier.v1";
 export const AD_DECISION_CONTROLLED_LINEAGE_VERSION =
@@ -397,6 +397,7 @@ export const AD_DECISION_OUTCOME_SOURCE_SCHEMA_REQUIREMENTS = {
     "captured_at",
     "verification_entity_id",
     "verification_status",
+    "verification_lineage",
     "created_at",
   ],
   meta_entity_state_history: [
@@ -471,7 +472,8 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
       SELECT relation.relname AS table_name,
         constraint_row.conname AS constraint_name,
         constraint_row.contype AS constraint_type,
-        pg_get_constraintdef(constraint_row.oid, true) AS constraint_definition
+        pg_get_constraintdef(constraint_row.oid, true) AS constraint_definition,
+        constraint_row.convalidated AS constraint_validated
       FROM pg_constraint constraint_row
       INNER JOIN pg_class relation ON relation.oid = constraint_row.conrelid
       INNER JOIN pg_namespace namespace_row
@@ -601,6 +603,12 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
       "character",
       64,
     ],
+    [
+      "engine_v3_ad_operator_action_receipts",
+      "verification_lineage",
+      "jsonb",
+      null,
+    ],
   ] as const) {
     const row = columnMap.get(`${table}.${column}`);
     if (
@@ -623,6 +631,7 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
       {
         type: String(row.constraint_type),
         definition: normalizedDefinition(row.constraint_definition),
+        validated: row.constraint_validated === true,
       },
     ]),
   );
@@ -688,6 +697,7 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
     name: string;
     type: "c" | "f" | "u";
     fragments: string[];
+    validated?: boolean;
   }> = [
     {
       table: AD_DECISION_OUTCOME_RUNS_TABLE,
@@ -726,6 +736,13 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
       name: "engine_v3_ad_outcomes_account_scope_check",
       type: "c",
       fragments: ["scope_type = 'account'", "scope_id = provider_account_id"],
+    },
+    {
+      table: AD_DECISION_OUTCOMES_TABLE,
+      name: "engine_v3_ad_outcomes_authority_blocker_check",
+      type: "c",
+      fragments: ["authority_blocker is null", ...DECISION_AUTHORITY_BLOCKERS],
+      validated: true,
     },
     {
       table: AD_DECISION_OUTCOMES_TABLE,
@@ -840,6 +857,7 @@ export async function inspectAdDecisionOutcomeSchemaCapability(
     if (
       actual &&
       (actual.type !== requirement.type ||
+        (requirement.validated === true && !actual.validated) ||
         requirement.fragments.some(
           (fragment) => !actual.definition.includes(fragment),
         ))
@@ -1190,7 +1208,7 @@ CREATE TABLE IF NOT EXISTS engine_v3_ad_decision_outcomes_daily (
     authority_blocker IS NULL OR authority_blocker IN (
       'profile_hard_action_ineligible', 'source_freshness',
       'campaign_context', 'native_metrics_unavailable',
-      'native_profile_unavailable'
+      'native_profile_unavailable', 'recent_recovery_unverifiable'
     )
   ),
   CONSTRAINT engine_v3_ad_outcomes_account_binding_fk FOREIGN KEY (
@@ -1615,6 +1633,7 @@ CROSS JOIN LATERAL (
         'capturedAt', receipt.captured_at,
         'verificationEntityId', receipt.verification_entity_id,
         'verificationStatus', receipt.verification_status,
+        'verificationLineage', receipt.verification_lineage,
         'episode', jsonb_build_object(
           'episodeKey', episode.episode_key::text,
           'businessId', episode.business_ref_id::text,
@@ -3242,6 +3261,10 @@ export function parseExactNativeAdActionReceipts(input: {
         ) {
           return [];
         }
+        const verificationLineage =
+          row.verificationLineage == null
+            ? null
+            : record(row.verificationLineage);
         exactAction = {
           receiptId: requiredText(row.receiptId, "actionReceipt.receiptId"),
           receiptHash: requiredHash(
@@ -3306,6 +3329,31 @@ export function parseExactNativeAdActionReceipts(input: {
           capturedAt,
           verificationEntityId: textOrNull(row.verificationEntityId),
           verificationStatus: textOrNull(row.verificationStatus),
+          verificationLineage: verificationLineage
+            ? {
+                sourceCreativeId: textOrNull(
+                  verificationLineage.sourceCreativeId,
+                ),
+                sourceCampaignId: textOrNull(
+                  verificationLineage.sourceCampaignId,
+                ),
+                sourceAdsetId: textOrNull(
+                  verificationLineage.sourceAdsetId,
+                ),
+                verifiedProviderAccountId: textOrNull(
+                  verificationLineage.verifiedProviderAccountId,
+                ),
+                verifiedCreativeId: textOrNull(
+                  verificationLineage.verifiedCreativeId,
+                ),
+                verifiedCampaignId: textOrNull(
+                  verificationLineage.verifiedCampaignId,
+                ),
+                verifiedAdsetId: textOrNull(
+                  verificationLineage.verifiedAdsetId,
+                ),
+              }
+            : null,
         };
         assertExactMetaAdsActionReceiptForEpisode({
           action: exactAction,

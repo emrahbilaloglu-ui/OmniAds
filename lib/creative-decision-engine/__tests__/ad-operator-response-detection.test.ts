@@ -106,6 +106,19 @@ function action(
           ? "ACTIVE"
           : "PAUSED"
         : input.verificationStatus,
+    verificationLineage:
+      input.verificationLineage === undefined
+        ? {
+            sourceCreativeId: target.creativeId,
+            sourceCampaignId: target.sourceCampaignId,
+            sourceAdsetId: target.sourceAdsetId,
+            verifiedProviderAccountId:
+              overrides.providerAccountId ?? target.providerAccountId,
+            verifiedCreativeId: target.creativeId,
+            verifiedCampaignId: target.sourceCampaignId,
+            verifiedAdsetId: target.sourceAdsetId,
+          }
+        : input.verificationLineage,
   };
   return {
     ...receipt,
@@ -942,6 +955,81 @@ describe("native ad operator-response detection", () => {
           configuredStatus: "PAUSED",
           effectiveStatus: "PAUSED",
           observedAt: "2026-07-12T04:02:00.000Z",
+        }),
+      ],
+    });
+
+    expect(result.responseType).toBe("ambiguous_conflicting");
+    expect(result.adTreatmentDetected).toBe(false);
+    expect(result.diagnostics.map((entry) => entry.code)).toContain(
+      "receipt_integrity_mismatch",
+    );
+  });
+
+  it("keeps legacy null verification lineage on its original immutable hash contract", () => {
+    const target = episode();
+    const legacy = action(target, {
+      receiptId: "receipt-legacy-null-lineage",
+      actionLogId: "log-legacy-null-lineage",
+      idempotencyKey: "idem-legacy-null-lineage",
+      verificationLineage: null,
+    });
+
+    expect(legacy.receiptHash).toBe(
+      "636cd618145fd9812d10f860063950fa8fafdee8e1c96947a8e08c56bb3040bb",
+    );
+
+    const result = detectAdOperatorResponse({
+      episode: target,
+      cutoff: CUTOFF,
+      actions: [legacy],
+      states: [
+        activeBaseline(),
+        state({
+          id: "state-legacy-null-lineage-paused",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+          observedAt: "2026-07-12T04:02:00.000Z",
+          capturedAt: "2026-07-12T04:03:00.000Z",
+        }),
+      ],
+    });
+
+    expect(result).toMatchObject({
+      responseType: "verified_pause",
+      adTreatmentDetected: true,
+      actionLogId: "log-legacy-null-lineage",
+    });
+    expect(result.diagnostics.map((entry) => entry.code)).not.toContain(
+      "receipt_integrity_mismatch",
+    );
+  });
+
+  it("fails a hash-bound verification-lineage identity tamper closed", () => {
+    const target = episode();
+    const original = action(target, {
+      actionLogId: "log-lineage-tamper",
+    });
+    const tampered = {
+      ...original,
+      verificationLineage: {
+        ...original.verificationLineage!,
+        verifiedCampaignId: "campaign-tampered",
+      },
+    };
+
+    const result = detectAdOperatorResponse({
+      episode: target,
+      cutoff: CUTOFF,
+      actions: [tampered],
+      states: [
+        activeBaseline(),
+        state({
+          id: "state-lineage-tamper-paused",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+          observedAt: "2026-07-12T04:02:00.000Z",
+          capturedAt: "2026-07-12T04:03:00.000Z",
         }),
       ],
     });

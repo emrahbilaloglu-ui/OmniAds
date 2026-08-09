@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   duplicateAd,
+  META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
   pauseAd,
+  readMetaAdDuplicateProviderObservation,
   readMetaAdExecutionState,
+  readMetaEntityExecutionState,
+  resumeAd,
   resumeAdset,
   resumeCampaign,
+  scanMetaAdDuplicatesByMarker,
   updateAdsetBidAmount,
   type MetaAdsWriteContext,
 } from "@/lib/meta/ads-write";
@@ -13,11 +18,8 @@ vi.mock("@/lib/meta/automation-control-plane", () => ({
   getMetaWriteBlockState: vi.fn(),
 }));
 
-// Current-selection authority is re-read immediately before every provider
-// POST, so these write-client tests must state which authority they run under.
-// Default-admit here; the deselection and unknown-authority paths are proven in
-// lib/meta/ads-action-selection.test.ts and
-// lib/meta/write-authority-toctou.test.ts.
+const controlPlane = await import("@/lib/meta/automation-control-plane");
+
 vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -29,11 +31,11 @@ vi.mock("@/lib/meta/account-context", async (importOriginal) => {
   };
 });
 
-// The generation compare-and-set is now UNCONDITIONAL. It used to be skipped
-// whenever a context omitted connectionGeneration, which is why these tests
-// passed for so long without ever stating an authority: they were exercising
-// the write path with the reconnect guard switched off. Default-admit here, as
-// above; the refusal paths are proven in lib/meta/write-authority-toctou.test.ts.
+// The generation compare-and-set is UNCONDITIONAL on current main. The native
+// branch predates it, so its fixtures exercised the write path with the
+// reconnect guard switched off. Default-admit here; the refusal paths are
+// proven in lib/meta/write-authority-toctou.test.ts and
+// lib/meta/ads-action-selection.test.ts.
 vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -41,8 +43,6 @@ vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
     assertProviderWriteAuthorityUnchanged: vi.fn(async () => ({ ok: true })),
   };
 });
-
-const controlPlane = await import("@/lib/meta/automation-control-plane");
 
 const ctx: MetaAdsWriteContext = {
   businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
@@ -52,9 +52,56 @@ const ctx: MetaAdsWriteContext = {
 };
 
 function jsonResponse(payload: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(payload), {
+  const body =
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    typeof (payload as { id?: unknown }).id === "string"
+      ? {
+          account_id: "123",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          ...payload,
+        }
+      : payload;
+  return new Response(JSON.stringify(body), {
     status: init?.status ?? 200,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function exactAdExecutionResponse(
+  overrides: {
+    adId?: string;
+    accountId?: string;
+    creativeId?: string;
+    campaignId?: string;
+    adsetId?: string;
+    status?: string;
+    effectiveStatus?: string;
+    campaignStatus?: string;
+    campaignEffectiveStatus?: string;
+    adsetStatus?: string;
+    adsetEffectiveStatus?: string;
+  } = {},
+) {
+  const status = overrides.status ?? "ACTIVE";
+  return jsonResponse({
+    id: overrides.adId ?? "ad_1",
+    account_id: overrides.accountId ?? "123",
+    creative: { id: overrides.creativeId ?? "creative_1" },
+    status,
+    effective_status: overrides.effectiveStatus ?? status,
+    campaign: {
+      id: overrides.campaignId ?? "campaign_1",
+      status: overrides.campaignStatus ?? "ACTIVE",
+      effective_status: overrides.campaignEffectiveStatus ?? "ACTIVE",
+    },
+    adset: {
+      id: overrides.adsetId ?? "adset_1",
+      status: overrides.adsetStatus ?? "ACTIVE",
+      effective_status: overrides.adsetEffectiveStatus ?? "ACTIVE",
+    },
   });
 }
 
@@ -70,30 +117,199 @@ describe("Meta ads write client", () => {
     });
   });
 
-  it("pauseAd writes status and verifies the ad status", async () => {
+  it("pauseAd returns verified live success with its exact POST attempt receipt", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
+      .mockResolvedValueOnce(exactAdExecutionResponse())
       .mockResolvedValueOnce(jsonResponse({ success: true }))
       .mockResolvedValueOnce(
-        jsonResponse({ id: "ad_1", status: "PAUSED", effective_status: "PAUSED" }),
+        exactAdExecutionResponse({ status: "PAUSED" }),
       );
 
     const result = await pauseAd(ctx, "ad_1");
 
-    expect(result).toMatchObject({ ok: true, verifiedStatus: "PAUSED" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v22.0/ad_1?");
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("access_token=secret-token");
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(result).toMatchObject({
+      ok: true,
+      verifiedStatus: "PAUSED",
+      providerHttpStatus: 200,
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "ad_1",
+        providerResponseReceived: true,
+        providerResponseSuccessful: true,
+        httpStatus: 200,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
+      },
+    });
+    if (!result.ok) throw new Error("Expected exact verified status success.");
+    expect(result.verificationPayload).toEqual({
+      contractVersion: "meta-ad-status-write-verification.v1",
+      adId: "ad_1",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
+      policyEligible: true,
+      reviewStatus: null,
+      observedAt: expect.any(String),
+      providerGetEvidence: {
+        id: "ad_1",
+        account_id: "123",
+        creative: { id: "creative_1" },
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        campaign: {
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v22.0/ad_1?");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("access_token=secret-token");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      redirect: "error",
+    });
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: "GET" });
   });
 
-  it("reads current ad execution state without issuing a provider write", async () => {
+  it("runs the durable-attempt hook with the exact frozen hierarchy immediately before the POST", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        exactAdExecutionResponse({ status: "PAUSED" }),
+      );
+    const beforeMutationAttempt = vi.fn(async () => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    });
+
+    const result = await pauseAd(ctx, "ad_1", {
+      beforeMutationAttempt,
+    });
+
+    expect(result).toMatchObject({ ok: true, verifiedStatus: "PAUSED" });
+    expect(beforeMutationAttempt).toHaveBeenCalledTimes(1);
+    expect(beforeMutationAttempt).toHaveBeenCalledWith({
+      businessId: ctx.businessId,
+      providerAccountId: ctx.providerAccountId,
+      adId: "ad_1",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      adsetId: "adset_1",
+    });
+    expect(beforeMutationAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[1]!,
+    );
+  });
+
+  it("does not run the durable-attempt hook when the immediate status precondition blocks the POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      exactAdExecutionResponse({ status: "PAUSED" }),
+    );
+    const beforeMutationAttempt = vi.fn(async () => undefined);
+
+    const result = await pauseAd(ctx, "ad_1", {
+      beforeMutationAttempt,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      providerMutationAttempted: false,
+      error: { code: "ad_status_already_requested" },
+    });
+    expect(beforeMutationAttempt).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("does not run the durable-attempt hook when the final control-plane check blocks the POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(exactAdExecutionResponse());
+    vi.mocked(controlPlane.getMetaWriteBlockState).mockResolvedValue({
+      blocked: true,
+      reason: "business_kill_switch",
+      message: "Writes are blocked.",
+    });
+    const beforeMutationAttempt = vi.fn(async () => undefined);
+
+    const result = await pauseAd(ctx, "ad_1", {
+      beforeMutationAttempt,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      providerMutationAttempted: false,
+      error: { code: "kill_switch_engaged" },
+    });
+    expect(beforeMutationAttempt).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("fails before the provider POST when durable-attempt persistence rejects", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(exactAdExecutionResponse());
+    const beforeMutationAttempt = vi
+      .fn()
+      .mockRejectedValue(new Error("attempt journal unavailable"));
+
+    const result = await pauseAd(ctx, "ad_1", {
+      beforeMutationAttempt,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      providerMutationAttempted: false,
+      error: {
+        code: "before_mutation_attempt_failed",
+        message: "attempt journal unavailable",
+      },
+    });
+    expect(result).not.toHaveProperty("mutationAttempt");
+    expect(beforeMutationAttempt).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("reads current ad execution state with its exact parsed provider evidence", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         id: "ad_1",
+        creative: { id: "creative_1" },
         status: "ACTIVE",
         effective_status: "ACTIVE",
+        campaign: {
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
       }),
     );
 
@@ -102,11 +318,59 @@ describe("Meta ads write client", () => {
     expect(result).toMatchObject({
       ok: true,
       adId: "ad_1",
+      providerAccountId: "act_123",
+      creativeId: "creative_1",
+      campaignId: "campaign_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      adsetId: "adset_1",
+      adsetConfiguredStatus: "ACTIVE",
+      adsetEffectiveStatus: "ACTIVE",
       configuredStatus: "ACTIVE",
       effectiveStatus: "ACTIVE",
       policyEligible: true,
       reviewStatus: null,
+      providerGetEvidence: {
+        id: "ad_1",
+        account_id: "123",
+        creative: { id: "creative_1" },
+        status: "ACTIVE",
+        effective_status: "ACTIVE",
+        campaign: {
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+      },
     });
+    if (!result.ok) throw new Error("Expected exact provider state evidence.");
+    const providerGet = result.providerGetEvidence as {
+      id: string;
+      account_id: string;
+      status: string;
+      effective_status: string;
+      creative: { id: string };
+      campaign: { id: string };
+      adset: { id: string };
+    };
+    expect(result.adId).toBe(providerGet.id);
+    expect(result.providerAccountId).toBe(`act_${providerGet.account_id}`);
+    expect(result.configuredStatus).toBe(providerGet.status);
+    expect(result.effectiveStatus).toBe(providerGet.effective_status);
+    expect(result.creativeId).toBe(providerGet.creative.id);
+    expect(result.campaignId).toBe(providerGet.campaign.id);
+    expect(result.adsetId).toBe(providerGet.adset.id);
+    expect(JSON.stringify(result.providerGetEvidence)).not.toContain(
+      "secret-token",
+    );
+    expect(JSON.stringify(result.providerGetEvidence)).not.toContain(
+      "graph.facebook.com",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
   });
@@ -117,6 +381,16 @@ describe("Meta ads write client", () => {
         id: "ad_1",
         status: "ACTIVE",
         effective_status: "DISAPPROVED",
+        campaign: {
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
+        adset: {
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        },
       }),
     );
 
@@ -128,15 +402,70 @@ describe("Meta ads write client", () => {
   });
 
   it("classifies transient provider reads as retryable preflight evidence", async () => {
-    vi.mocked(fetch).mockRejectedValueOnce(new Error("connection reset"));
+    vi.mocked(fetch).mockRejectedValueOnce(
+      new Error(
+        "connection reset access_token=secret-token Bearer provider-secret",
+      ),
+    );
 
-    await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+    const result = await readMetaAdExecutionState(ctx, "ad_1");
+
+    expect(result).toMatchObject({
       ok: false,
       adId: "ad_1",
       httpStatus: null,
       preflightBlocker: "current_ad_state_unverified",
-      error: { code: "network_error" },
+      error: {
+        code: "network_error",
+        message:
+          "connection reset access_token=[redacted] Bearer [redacted]",
+      },
     });
+    expect(JSON.stringify(result)).not.toContain("secret-token");
+    expect(JSON.stringify(result)).not.toContain("provider-secret");
+  });
+
+  it("bounds current-state GETs and fails closed when the provider times out", async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(controller.signal);
+    vi.mocked(fetch).mockImplementationOnce(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            reject(new Error("missing abort signal"));
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    );
+
+    const resultPromise = readMetaAdExecutionState(ctx, "ad_1");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    controller.abort(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      adId: "ad_1",
+      httpStatus: null,
+      preflightBlocker: "current_ad_state_unverified",
+      error: {
+        code: "network_error",
+        message: `Meta provider GET timed out after ${META_ADS_PROVIDER_FETCH_TIMEOUT_MS}ms.`,
+      },
+    });
+    expect(timeoutSpy).toHaveBeenCalledExactlyOnceWith(
+      META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
+    );
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal).toBe(
+      controller.signal,
+    );
   });
 
   it.each([
@@ -187,12 +516,493 @@ describe("Meta ads write client", () => {
     });
   });
 
-  it("pauseAd returns silent_failure when verification shows unchanged status", async () => {
+  it.each([
+    {
+      accountId: "",
+      blocker: "meta_account_unresolved",
+      code: "meta_account_unresolved",
+    },
+    {
+      accountId: "999",
+      blocker: "provider_account_mismatch",
+      code: "provider_account_mismatch",
+    },
+  ])(
+    "fails closed when the live ad account identity is '$accountId'",
+    async ({ accountId, blocker, code }) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          account_id: accountId,
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          creative: { id: "creative_1" },
+        }),
+      );
+
+      await expect(readMetaAdExecutionState(ctx, "ad_1")).resolves.toMatchObject({
+        ok: false,
+        preflightBlocker: blocker,
+        error: { code },
+      });
+    },
+  );
+
+  it("reads an ad set with exact provider and active campaign hierarchy", async () => {
     vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "adset_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+          campaign: { id: "campaign_1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "campaign_1",
+          status: "ACTIVE",
+          effective_status: "ACTIVE",
+        }),
+      );
+
+    await expect(
+      readMetaEntityExecutionState(ctx, "adset", "adset_1"),
+    ).resolves.toMatchObject({
+      ok: true,
+      entityId: "adset_1",
+      providerAccountId: "act_123",
+      campaignId: "campaign_1",
+      campaignProviderAccountId: "act_123",
+    });
+  });
+
+  it("resumeAd returns success only with exact ACTIVE ad and hierarchy proof", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        exactAdExecutionResponse({ status: "PAUSED" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(exactAdExecutionResponse());
+
+    await expect(resumeAd(ctx, "ad_1")).resolves.toMatchObject({
+      ok: true,
+      verifiedStatus: "ACTIVE",
+      verificationPayload: {
+        contractVersion: "meta-ad-status-write-verification.v1",
+        adId: "ad_1",
+        providerAccountId: "act_123",
+        creativeId: "creative_1",
+        campaignId: "campaign_1",
+        adsetId: "adset_1",
+        configuredStatus: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        campaignConfiguredStatus: "ACTIVE",
+        campaignEffectiveStatus: "ACTIVE",
+        adsetConfiguredStatus: "ACTIVE",
+        adsetEffectiveStatus: "ACTIVE",
+        policyEligible: true,
+        reviewStatus: null,
+        observedAt: expect.any(String),
+        providerGetEvidence: expect.any(Object),
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      name: "pause",
+      currentStatus: "PAUSED",
+      run: () => pauseAd(ctx, "ad_1"),
+    },
+    {
+      name: "resume",
+      currentStatus: "ACTIVE",
+      run: () => resumeAd(ctx, "ad_1"),
+    },
+  ])(
+    "blocks an already-requested $name state before any provider POST",
+    async ({ currentStatus, run }) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        exactAdExecutionResponse({ status: currentStatus }),
+      );
+
+      const result = await run();
+
+      expect(result).toMatchObject({
+        ok: false,
+        httpStatus: 409,
+        error: { code: "ad_status_already_requested" },
+        responsePayload: null,
+        verificationPayload: {
+          verificationFailureReason: "already_requested_state",
+          observedExecutionState: {
+            configuredStatus: currentStatus,
+            effectiveStatus: currentStatus,
+            providerGetEvidence: expect.any(Object),
+          },
+        },
+      });
+      expect(result).not.toHaveProperty("mutationAttempt");
+      expect(result).not.toHaveProperty("providerHttpStatus");
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    {
+      name: "configured",
+      before: { status: "PAUSED", effectiveStatus: "ACTIVE" },
+      reason: "configured_status_precondition_failed",
+    },
+    {
+      name: "effective",
+      before: { status: "ACTIVE", effectiveStatus: "PAUSED" },
+      reason: "effective_status_precondition_failed",
+    },
+  ])(
+    "blocks a $name/effective transition mismatch before any provider POST",
+    async ({ before, reason }) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        exactAdExecutionResponse(before),
+      );
+
+      const result = await pauseAd(ctx, "ad_1");
+
+      expect(result).toMatchObject({
+        ok: false,
+        httpStatus: 409,
+        error: { code: "ad_status_precondition_failed" },
+        verificationPayload: {
+          verificationFailureReason: reason,
+        },
+      });
+      expect(result).not.toHaveProperty("mutationAttempt");
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    {
+      name: "campaign configured",
+      before: { campaignStatus: "PAUSED" },
+      code: "campaign_status_precondition_failed",
+      reason: "campaign_configured_status_not_active",
+    },
+    {
+      name: "campaign effective",
+      before: { campaignEffectiveStatus: "PAUSED" },
+      code: "campaign_status_precondition_failed",
+      reason: "campaign_effective_status_not_active",
+    },
+    {
+      name: "ad set configured",
+      before: { adsetStatus: "PAUSED" },
+      code: "adset_status_precondition_failed",
+      reason: "adset_configured_status_not_active",
+    },
+    {
+      name: "ad set effective",
+      before: { adsetEffectiveStatus: "PAUSED" },
+      code: "adset_status_precondition_failed",
+      reason: "adset_effective_status_not_active",
+    },
+  ])(
+    "blocks a paused $name before any provider POST",
+    async ({ before, code, reason }) => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        exactAdExecutionResponse(before),
+      );
+
+      const result = await pauseAd(ctx, "ad_1");
+
+      expect(result).toMatchObject({
+        ok: false,
+        httpStatus: 409,
+        error: { code },
+        verificationPayload: {
+          verificationFailureReason: reason,
+        },
+      });
+      expect(result).not.toHaveProperty("mutationAttempt");
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("blocks policy and review ineligibility before any provider POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      exactAdExecutionResponse({
+        status: "ACTIVE",
+        effectiveStatus: "DISAPPROVED",
+      }),
+    );
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 409,
+      error: { code: "ad_policy_precondition_failed" },
+      verificationPayload: {
+        verificationFailureReason: "policy_not_eligible",
+        observedExecutionState: {
+          policyEligible: false,
+          reviewStatus: "DISAPPROVED",
+        },
+      },
+    });
+    expect(result).not.toHaveProperty("mutationAttempt");
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      name: "campaign effective status",
+      after: { status: "PAUSED", campaignEffectiveStatus: "PAUSED" },
+      reason: "campaign_effective_status_not_active",
+    },
+    {
+      name: "ad set effective status",
+      after: { status: "PAUSED", adsetEffectiveStatus: "PAUSED" },
+      reason: "adset_effective_status_not_active",
+    },
+  ])(
+    "rejects provider success when $name drifts",
+    async ({ after, reason }) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(exactAdExecutionResponse())
+        .mockResolvedValueOnce(jsonResponse({ success: true }))
+        .mockResolvedValueOnce(exactAdExecutionResponse(after));
+
+      const result = await pauseAd(ctx, "ad_1");
+
+      expect(result).toMatchObject({
+        ok: false,
+        providerOutcome: "definite_failure",
+        error: { code: "silent_failure" },
+        mutationAttempt: { providerResponseSuccessful: true },
+        verificationPayload: {
+          verificationFailureReason: reason,
+          observedExecutionState: {
+            configuredStatus: "PAUSED",
+            policyEligible: true,
+            reviewStatus: null,
+            providerGetEvidence: expect.any(Object),
+          },
+        },
+      });
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    {
+      name: "creative",
+      after: { status: "PAUSED", creativeId: "creative_drifted" },
+      reason: "creativeId_drift",
+    },
+    {
+      name: "campaign",
+      after: { status: "PAUSED", campaignId: "campaign_drifted" },
+      reason: "campaignId_drift",
+    },
+    {
+      name: "ad set",
+      after: { status: "PAUSED", adsetId: "adset_drifted" },
+      reason: "adsetId_drift",
+    },
+  ])(
+    "rejects provider success when the $name identity changes across the POST",
+    async ({ after, reason }) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(exactAdExecutionResponse())
+        .mockResolvedValueOnce(jsonResponse({ success: true }))
+        .mockResolvedValueOnce(exactAdExecutionResponse(after));
+
+      await expect(pauseAd(ctx, "ad_1")).resolves.toMatchObject({
+        ok: false,
+        providerOutcome: "definite_failure",
+        error: { code: "silent_failure" },
+        mutationAttempt: { providerResponseSuccessful: true },
+        verificationPayload: {
+          verificationFailureReason: reason,
+          observedExecutionState: {
+            providerGetEvidence: expect.any(Object),
+          },
+        },
+      });
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("rejects provider success when configured and effective ad status diverge", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
       .mockResolvedValueOnce(jsonResponse({ success: true }))
       .mockResolvedValueOnce(
-        jsonResponse({ id: "ad_1", status: "ACTIVE", effective_status: "ACTIVE" }),
+        exactAdExecutionResponse({
+          status: "PAUSED",
+          effectiveStatus: "ACTIVE",
+        }),
       );
+
+    await expect(pauseAd(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      providerOutcome: "definite_failure",
+      error: { code: "silent_failure" },
+      verificationPayload: {
+        verificationFailureReason: "effective_status_mismatch",
+      },
+    });
+  });
+
+  it("rejects provider success when policy or review state is not eligible", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        exactAdExecutionResponse({
+          status: "PAUSED",
+          effectiveStatus: "DISAPPROVED",
+        }),
+      );
+
+    await expect(pauseAd(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      providerOutcome: "definite_failure",
+      error: { code: "silent_failure" },
+      verificationPayload: {
+        observedExecutionState: {
+          policyEligible: false,
+          reviewStatus: "DISAPPROVED",
+        },
+      },
+    });
+  });
+
+  it("rejects provider success when a required post-write GET field is missing", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          creative: { id: "creative_1" },
+          status: "PAUSED",
+          effective_status: "PAUSED",
+          campaign: {
+            id: "campaign_1",
+            status: "ACTIVE",
+          },
+          adset: {
+            id: "adset_1",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+          },
+        }),
+      );
+
+    await expect(pauseAd(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      providerOutcome: "definite_failure",
+      error: { code: "verification_failed" },
+      verificationPayload: {
+        verificationFailureReason: "missing_campaignEffectiveStatus",
+        observedExecutionState: {
+          providerGetEvidence: {
+            campaign: {
+              id: "campaign_1",
+              status: "ACTIVE",
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("bounds the post-write verification GET and never retries the POST", async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(controller.signal);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockImplementationOnce(
+        (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      );
+
+    const resultPromise = pauseAd(ctx, "ad_1");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    controller.abort(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      providerOutcome: "definite_failure",
+      error: {
+        code: "network_error",
+        message: `Meta provider GET timed out after ${META_ADS_PROVIDER_FETCH_TIMEOUT_MS}ms.`,
+      },
+      mutationAttempt: {
+        providerResponseSuccessful: true,
+        automaticRetryAttempted: false,
+      },
+      verificationPayload: {
+        verificationFailureReason: "current_ad_state_unverified",
+      },
+    });
+    expect(timeoutSpy).toHaveBeenCalledTimes(3);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+  });
+
+  it("pauseAd returns silent_failure when verification shows unchanged status", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(exactAdExecutionResponse());
 
     const result = await pauseAd(ctx, "ad_1");
 
@@ -200,16 +1010,180 @@ describe("Meta ads write client", () => {
       ok: false,
       httpStatus: 502,
       error: { code: "silent_failure" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        providerResponseReceived: true,
+        providerResponseSuccessful: true,
+        httpStatus: 200,
+      },
     });
   });
 
-  it("pauseAd returns Meta HTTP errors without verification", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(
-        { error: { code: 190, message: "Invalid OAuth access token." } },
-        { status: 400 },
-      ),
+  it("retains the successful status POST receipt when verification GET fails", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockRejectedValueOnce(new Error("verification connection reset"));
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "definite_failure",
+      error: {
+        code: "network_error",
+        message: "verification connection reset",
+      },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "ad_1",
+        providerResponseReceived: true,
+        providerResponseSuccessful: true,
+        httpStatus: 200,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
+      },
+      responsePayload: { success: true },
+      verificationPayload: {
+        verificationFailureReason: "current_ad_state_unverified",
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("treats a status POST timeout as one ambiguous mutation attempt without retry", async () => {
+    const controller = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(controller.signal);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockImplementationOnce(
+        (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      );
+
+    const resultPromise = pauseAd(ctx, "ad_1");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    controller.abort(
+      new DOMException("The operation timed out.", "TimeoutError"),
     );
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "outcome_ambiguous",
+      error: {
+        code: "provider_outcome_ambiguous",
+      },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "ad_1",
+        providerResponseReceived: false,
+        httpStatus: null,
+        outcome: "outcome_ambiguous",
+        automaticRetryAttempted: false,
+        transportError: {
+          code: "network_error",
+          message: `Meta provider POST timed out after ${META_ADS_PROVIDER_FETCH_TIMEOUT_MS}ms.`,
+        },
+      },
+      responsePayload: {
+        provider_outcome: "outcome_ambiguous",
+        reconciliation_required: true,
+        retry_disposition:
+          "do_not_retry_before_exact_provider_reconciliation",
+      },
+    });
+    expect(timeoutSpy).toHaveBeenCalledTimes(2);
+    expect(timeoutSpy).toHaveBeenNthCalledWith(
+      1,
+      META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
+    );
+    expect(timeoutSpy).toHaveBeenNthCalledWith(
+      2,
+      META_ADS_PROVIDER_FETCH_TIMEOUT_MS,
+    );
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses provider redirects so one logical mutation cannot become two POSTs", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockRejectedValueOnce(
+        new TypeError("fetch failed because redirect mode is set to error"),
+      );
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      providerOutcome: "outcome_ambiguous",
+      error: { code: "provider_outcome_ambiguous" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        outcome: "outcome_ambiguous",
+        automaticRetryAttempted: false,
+      },
+    });
+    const postCalls = vi
+      .mocked(fetch)
+      .mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.[1]).toMatchObject({ redirect: "error" });
+  });
+
+  it("rejects a successful status response verified in another account", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(
+        exactAdExecutionResponse({
+          accountId: "999",
+          status: "PAUSED",
+        }),
+      );
+
+    await expect(pauseAd(ctx, "ad_1")).resolves.toMatchObject({
+      ok: false,
+      error: { code: "provider_account_mismatch" },
+      mutationAttempt: {
+        providerResponseSuccessful: true,
+      },
+    });
+  });
+
+  it("pauseAd returns Meta HTTP errors without post-write verification", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: { code: 190, message: "Invalid OAuth access token." } },
+          { status: 400 },
+        ),
+      );
 
     const result = await pauseAd(ctx, "ad_1");
 
@@ -218,7 +1192,10 @@ describe("Meta ads write client", () => {
       httpStatus: 400,
       error: { code: "190", message: "Invalid OAuth access token." },
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+    });
   });
 
   it("pauseAd dry-run verifies current state without issuing a POST", async () => {
@@ -259,51 +1236,53 @@ describe("Meta ads write client", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("pauseAd retries once after Meta user request limit and then verifies", async () => {
+  it("does not retry a status POST after Meta reports a request limit", async () => {
     vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
       .mockResolvedValueOnce(
         jsonResponse(
           { error: { code: 17, message: "(#17) User request limit reached" } },
           { status: 429 },
         ),
       )
-      .mockResolvedValueOnce(jsonResponse({ success: true }))
-      .mockResolvedValueOnce(
-        jsonResponse({ id: "ad_1", status: "PAUSED", effective_status: "PAUSED" }),
-      );
-
-    const result = await pauseAd(ctx, "ad_1");
-
-    expect(result).toMatchObject({ ok: true, verifiedStatus: "PAUSED" });
-    expect(fetch).toHaveBeenCalledTimes(3);
-  });
-
-  it("halts a rate-limit retry when the business kill switch engages", async () => {
-    vi.mocked(controlPlane.getMetaWriteBlockState)
-      .mockResolvedValueOnce({ blocked: false, reason: null, message: null })
-      .mockResolvedValueOnce({
-        blocked: true,
-        reason: "business_kill_switch",
-        message: "Owner stopped Meta writes.",
-      });
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse(
-        { error: { code: 17, message: "(#17) User request limit reached" } },
-        { status: 429 },
-      ),
-    );
+      .mockResolvedValueOnce(jsonResponse({ success: true }));
 
     const result = await pauseAd(ctx, "ad_1");
 
     expect(result).toMatchObject({
       ok: false,
-      httpStatus: 503,
+      httpStatus: 429,
+      error: { code: "rate_limited" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+    });
+  });
+
+  it("does not start a second POST attempt after a rate limit", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(exactAdExecutionResponse())
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: { code: 17, message: "(#17) User request limit reached" } },
+          { status: 429 },
+        ),
+      );
+
+    const result = await pauseAd(ctx, "ad_1");
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 429,
       error: {
-        code: "kill_switch_engaged",
-        message: "Owner stopped Meta writes.",
+        code: "rate_limited",
       },
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
   });
 
   it("resumeCampaign writes ACTIVE and verifies the campaign status", async () => {
@@ -497,6 +1476,49 @@ describe("Meta ads write client", () => {
     expect(body.get("conversion_specs")).toBeNull();
   });
 
+  it("retains the duplicate-ad POST receipt when Meta omits the new ad id", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ success: true }));
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      providerOutcome: "outcome_ambiguous",
+      error: { code: "silent_failure" },
+      sourceIdentity: {
+        adId: "ad_1",
+        providerAccountId: "act_123",
+        creativeId: "creative_1",
+      },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "act_123/ads",
+        providerResponseReceived: true,
+        providerResponseSuccessful: true,
+        httpStatus: 200,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+  });
+
   it("duplicateAd can recreate the creative in the target account before creating the ad", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
@@ -582,6 +1604,46 @@ describe("Meta ads write client", () => {
     expect(adBody.get("creative")).toBe(JSON.stringify({ creative_id: "creative_copy_1" }));
   });
 
+  it("retains the creative POST receipt when Meta omits the recreated creative id", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: {
+            id: "creative_1",
+            object_story_id: "page_1_post_1",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ success: true }));
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      copyMode: "rebuild_creative",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "silent_failure" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "act_123/adcreatives",
+        providerResponseSuccessful: true,
+        httpStatus: 200,
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toContain(
+      "/v22.0/act_123/adcreatives?",
+    );
+  });
+
   it("duplicateAd reports source_ad_fetch_failed when the source ad read fails", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(
@@ -634,6 +1696,9 @@ describe("Meta ads write client", () => {
       httpStatus: 502,
       error: { code: "silent_failure" },
       resultingAdId: "ad_copy_1",
+      mutationAttempt: {
+        providerResponseSuccessful: true,
+      },
     });
   });
 
@@ -677,7 +1742,147 @@ describe("Meta ads write client", () => {
     });
   });
 
-  it("duplicateAd retries once after Meta rate limiting and succeeds on the second create", async () => {
+  it.each([
+    {
+      label: "HTTP 408",
+      status: 408,
+      payload: {
+        error: {
+          code: 2,
+          message: "Request timeout after provider admission.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 425",
+      status: 425,
+      payload: {
+        error: {
+          code: 2,
+          message: "Provider is not ready to confirm finality.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 429",
+      status: 429,
+      payload: {
+        error: {
+          code: 17,
+          error_subcode: 2446079,
+          message: "(#17) User request limit reached",
+        },
+      },
+    },
+    {
+      label: "HTTP 500",
+      status: 500,
+      payload: {
+        error: {
+          code: 1,
+          message: "Unknown provider failure after request receipt.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "transient HTTP 400",
+      status: 400,
+      payload: {
+        error: {
+          code: 2,
+          message: "Temporary provider processing failure.",
+          is_transient: true,
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with missing is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with null is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+          is_transient: null,
+        },
+      },
+    },
+    {
+      label: "HTTP 400 with string is_transient proof",
+      status: 400,
+      payload: {
+        error: {
+          code: 190,
+          message: "Invalid OAuth access token.",
+          is_transient: "false",
+        },
+      },
+    },
+  ])(
+    "duplicateAd issues exactly one create POST after $label",
+    async ({ status, payload }) => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          jsonResponse({
+            id: "ad_1",
+            name: "Source Ad",
+            adset_id: "adset_1",
+            creative: { id: "creative_1" },
+          }),
+        )
+        .mockResolvedValueOnce(jsonResponse(payload, { status }))
+        .mockResolvedValueOnce(jsonResponse({ id: "must_not_be_created" }));
+
+      const result = await duplicateAd(ctx, {
+        adId: "ad_1",
+        targetAdsetId: "adset_2",
+        expectedSourceCreativeId: "creative_1",
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        httpStatus: status,
+        providerOutcome: "outcome_ambiguous",
+        error: { code: "provider_outcome_ambiguous" },
+        sourceIdentity: {
+          adId: "ad_1",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+        },
+        mutationAttempt: {
+          attemptCount: 1,
+          method: "POST",
+          path: "act_123/ads",
+          providerResponseReceived: true,
+          providerResponseSuccessful: false,
+          httpStatus: status,
+          outcome: "outcome_ambiguous",
+          automaticRetryAttempted: false,
+          transportError: null,
+        },
+      });
+      expect(
+        vi.mocked(fetch).mock.calls.filter(
+          ([, init]) => init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("duplicateAd treats one exact structured non-transient HTTP 400 as definite rejection", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse({
@@ -691,32 +1896,121 @@ describe("Meta ads write client", () => {
         jsonResponse(
           {
             error: {
-              code: 17,
-              error_subcode: 2446079,
-              message: "(#17) User request limit reached",
+              code: 190,
+              message: "Invalid OAuth access token.",
+              is_transient: false,
             },
           },
-          { status: 429 },
+          { status: 400 },
         ),
-      )
-      .mockResolvedValueOnce(jsonResponse({ id: "ad_copy_1" }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          id: "ad_copy_1",
-          status: "PAUSED",
-          effective_status: "PAUSED",
-          adset_id: "adset_2",
-          creative: { id: "creative_1" },
-        }),
       );
 
     const result = await duplicateAd(ctx, {
       adId: "ad_1",
       targetAdsetId: "adset_2",
+      expectedSourceCreativeId: "creative_1",
     });
 
-    expect(result).toMatchObject({ ok: true, newAdId: "ad_copy_1" });
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 400,
+      providerOutcome: "definite_failure",
+      error: { code: "190" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: "act_123/ads",
+        providerResponseReceived: true,
+        providerResponseSuccessful: false,
+        httpStatus: 400,
+        outcome: "provider_response_received",
+        automaticRetryAttempted: false,
+        transportError: null,
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("duplicateAd issues exactly one create POST after an ambiguous network failure", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "ad_1",
+          name: "Source Ad",
+          adset_id: "adset_1",
+          creative: { id: "creative_1" },
+        }),
+      )
+      .mockRejectedValueOnce(new Error("connection closed after request upload"))
+      .mockResolvedValueOnce(jsonResponse({ id: "must_not_be_created" }));
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      expectedSourceCreativeId: "creative_1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "outcome_ambiguous",
+      error: { code: "provider_outcome_ambiguous" },
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        providerResponseReceived: false,
+        outcome: "outcome_ambiguous",
+        automaticRetryAttempted: false,
+        transportError: {
+          code: "network_error",
+          message: "connection closed after request upload",
+        },
+      },
+      responsePayload: {
+        provider_outcome: "outcome_ambiguous",
+        reconciliation_required: true,
+        retry_disposition:
+          "do_not_retry_before_exact_provider_reconciliation",
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("duplicateAd binds observed source drift and blocks before the create POST", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_1",
+        name: "Source Ad",
+        adset_id: "adset_1",
+        creative: { id: "creative_drifted" },
+      }),
+    );
+
+    const result = await duplicateAd(ctx, {
+      adId: "ad_1",
+      targetAdsetId: "adset_2",
+      expectedSourceCreativeId: "creative_1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      httpStatus: 409,
+      error: { code: "creative_identity_mismatch" },
+      sourceIdentity: {
+        adId: "ad_1",
+        providerAccountId: "act_123",
+        creativeId: "creative_drifted",
+      },
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
   });
 
   it("duplicateAd hardcodes PAUSED for custom-name creates", async () => {
@@ -754,5 +2048,170 @@ describe("Meta ads write client", () => {
     const body = vi.mocked(fetch).mock.calls[1]?.[1]?.body as URLSearchParams;
     expect(body.get("name")).toBe("Custom copy");
     expect(body.get("status")).toBe("PAUSED");
+  });
+
+  it("fully paginates the account Ads edge and returns one exact marker match", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "other_ad",
+              name: "Other ad",
+              account_id: "123",
+              status: "PAUSED",
+              effective_status: "PAUSED",
+              adset_id: "adset_2",
+              creative: { id: "creative_1" },
+            },
+          ],
+          paging: {
+            next:
+              "https://graph.facebook.com/v22.0/act_123/ads?access_token=secret-token&fields=id%2Cname%2Caccount_id%2Cstatus%2Ceffective_status%2Cadset_id%2Ccreative%7Bid%7D&limit=100&after=cursor_1",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "ad_copy_1",
+              name: canonicalAdName,
+              account_id: "123",
+              status: "PAUSED",
+              effective_status: "PAUSED",
+              adset_id: "adset_2",
+              creative: { id: "creative_1" },
+            },
+          ],
+        }),
+      );
+
+    const result = await scanMetaAdDuplicatesByMarker({
+      ctx,
+      target: {
+        marker,
+        canonicalAdName,
+        targetAdsetId: "adset_2",
+        creativeId: "creative_1",
+        requestedStatus: "PAUSED",
+      },
+    });
+
+    expect(result).toMatchObject({
+      complete: true,
+      blocker: null,
+      pageCount: 2,
+      observationCount: 2,
+      exactMatches: [{ id: "ad_copy_1", name: canonicalAdName }],
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(fetch).mock.calls.every(([, init]) => init?.method === "GET"),
+    ).toBe(true);
+  });
+
+  it("keeps incomplete and marker-drift scans non-authoritative", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: "drifted_ad",
+            name: canonicalAdName,
+            account_id: "123",
+            status: "ACTIVE",
+            effective_status: "ACTIVE",
+            adset_id: "wrong_adset",
+            creative: { id: "wrong_creative" },
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      scanMetaAdDuplicatesByMarker({
+        ctx,
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      blocker: "provider_identity_drift",
+      exactMatches: [],
+    });
+  });
+
+  it("treats malformed pagination as incomplete drift instead of throwing or authorizing absence", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [],
+        paging: { next: "not a provider URL" },
+      }),
+    );
+
+    await expect(
+      scanMetaAdDuplicatesByMarker({
+        ctx,
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      complete: false,
+      blocker: "provider_identity_drift",
+      exactMatches: [],
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("point-GET verifies exact marker, account, ad set, creative, name, and status", async () => {
+    const marker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const canonicalAdName = `Copy [ADSECUTE_DUP:${marker}]`;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        id: "ad_copy_1",
+        name: canonicalAdName,
+        status: "PAUSED",
+        effective_status: "PAUSED",
+        adset_id: "adset_2",
+        creative: { id: "creative_1" },
+      }),
+    );
+
+    await expect(
+      readMetaAdDuplicateProviderObservation({
+        ctx,
+        adId: "ad_copy_1",
+        target: {
+          marker,
+          canonicalAdName,
+          targetAdsetId: "adset_2",
+          creativeId: "creative_1",
+          requestedStatus: "PAUSED",
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      observation: {
+        id: "ad_copy_1",
+        name: canonicalAdName,
+        status: "PAUSED",
+      },
+    });
   });
 });

@@ -39,7 +39,7 @@ export const AD_OPERATOR_RESPONSE_JOB_NAME =
  * database migrated by this image remains readable by that rollback image.
  */
 export const NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION =
-  "v3-ad-2026-07-15-target-age-advisory-shadow";
+  "v3-ad-2026-07-15-commercial-stop-loss-shadow";
 
 export const AD_RECOMMENDATION_EPISODES_TABLE =
   "engine_v3_ad_recommendation_episodes";
@@ -214,6 +214,53 @@ BEGIN
         length(btrim(engine_version)) > 0 AND (
           engine_version = '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}' OR
           engine_version <> '${NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION}'
+        )
+      );
+  END IF;
+
+  IF to_regclass('engine_v3_ad_operator_action_receipts') IS NOT NULL
+  THEN
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      ADD COLUMN IF NOT EXISTS verification_lineage jsonb NULL
+      CHECK (
+        verification_lineage IS NULL OR
+        jsonb_typeof(verification_lineage) = 'object'
+      );
+  END IF;
+
+  IF to_regclass('engine_v3_ad_operator_action_receipts') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('engine_v3_ad_operator_action_receipts')
+        AND conname = 'engine_v3_ad_action_receipt_verification_check'
+        AND position(
+          'verification_lineage'
+          IN lower(pg_get_constraintdef(oid, true))
+        ) > 0
+    )
+  THEN
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      DROP CONSTRAINT IF EXISTS engine_v3_ad_action_receipt_verification_check;
+    ALTER TABLE engine_v3_ad_operator_action_receipts
+      ADD CONSTRAINT engine_v3_ad_action_receipt_verification_check CHECK (
+        NOT provider_verified OR (
+          action_status = 'success' AND NOT dry_run AND
+          verified_at IS NOT NULL AND verification_entity_id = source_ad_id AND
+          (
+            verification_lineage IS NULL OR (
+              NULLIF(verification_lineage->>'sourceCreativeId', '') IS NOT NULL AND
+              NULLIF(verification_lineage->>'sourceCampaignId', '') IS NOT NULL AND
+              NULLIF(verification_lineage->>'sourceAdsetId', '') IS NOT NULL AND
+              verification_lineage->>'verifiedProviderAccountId' =
+                provider_account_id AND
+              verification_lineage->>'verifiedCreativeId' =
+                verification_lineage->>'sourceCreativeId' AND
+              verification_lineage->>'verifiedCampaignId' =
+                verification_lineage->>'sourceCampaignId' AND
+              verification_lineage->>'verifiedAdsetId' =
+                verification_lineage->>'sourceAdsetId'
+            )
+          )
         )
       );
   END IF;
@@ -408,6 +455,11 @@ CREATE TABLE engine_v3_ad_operator_action_receipts (
   captured_at timestamptz NOT NULL,
   verification_entity_id text NULL,
   verification_status text NULL,
+  verification_lineage jsonb NULL
+    CHECK (
+      verification_lineage IS NULL OR
+      jsonb_typeof(verification_lineage) = 'object'
+    ),
   verification_entity_id_key text GENERATED ALWAYS AS (
     COALESCE(verification_entity_id, '')
   ) STORED NOT NULL,
@@ -475,7 +527,22 @@ CREATE TABLE engine_v3_ad_operator_action_receipts (
   CONSTRAINT engine_v3_ad_action_receipt_verification_check CHECK (
     NOT provider_verified OR (
       action_status = 'success' AND NOT dry_run AND verified_at IS NOT NULL AND
-      verification_entity_id IS NOT NULL
+      verification_entity_id = source_ad_id AND
+      (
+        verification_lineage IS NULL OR (
+          NULLIF(verification_lineage->>'sourceCreativeId', '') IS NOT NULL AND
+          NULLIF(verification_lineage->>'sourceCampaignId', '') IS NOT NULL AND
+          NULLIF(verification_lineage->>'sourceAdsetId', '') IS NOT NULL AND
+          verification_lineage->>'verifiedProviderAccountId' =
+            provider_account_id AND
+          verification_lineage->>'verifiedCreativeId' =
+            verification_lineage->>'sourceCreativeId' AND
+          verification_lineage->>'verifiedCampaignId' =
+            verification_lineage->>'sourceCampaignId' AND
+          verification_lineage->>'verifiedAdsetId' =
+            verification_lineage->>'sourceAdsetId'
+        )
+      )
     )
   ),
   CONSTRAINT engine_v3_ad_action_receipt_successor_check CHECK (
@@ -1181,6 +1248,7 @@ const AD_OPERATOR_RESPONSE_SCHEMA_REQUIRED_UDT: Readonly<
     source_decision_hash: "bpchar",
     dry_run: "bool",
     provider_verified: "bool",
+    verification_lineage: "jsonb",
     requested_at: "timestamptz",
     verified_at: "timestamptz",
     finalized_at: "timestamptz",
@@ -2288,11 +2356,6 @@ WITH payload AS (
     business_id text,
     provider_account_ref_id uuid,
     provider_account_id text,
-    job_run_id uuid,
-	    business_ref_id uuid,
-	    business_id text,
-	    provider_account_ref_id uuid,
-	    provider_account_id text,
     decision_entity_type text,
     decision_entity_id text,
     ad_id text,
@@ -2396,7 +2459,8 @@ SELECT
   receipt.finalized_at::text AS finalized_at,
   receipt.captured_at::text AS captured_at,
   receipt.verification_entity_id,
-  receipt.verification_status
+  receipt.verification_status,
+  receipt.verification_lineage
 FROM episodes episode
 INNER JOIN engine_v3_ad_operator_action_receipts receipt
 	  ON receipt.episode_key = episode.episode_key
@@ -2908,6 +2972,7 @@ type ActionLineageRow = Record<string, unknown> & {
   status: unknown;
   dry_run: unknown;
   provider_verified: unknown;
+  verification_lineage: unknown;
   requested_at: unknown;
   verified_at: unknown;
   finalized_at: unknown;
@@ -3247,6 +3312,10 @@ function mapActionLineage(row: ActionLineageRow): {
   }
   const verifiedAt = nullableString(row.verified_at);
   const verificationEntityId = nullableString(row.verification_entity_id);
+  const verificationLineage =
+    row.verification_lineage == null
+      ? null
+      : recordValue(row.verification_lineage);
   return {
     episodeKey: stringValue(row.episode_key, "episode_key"),
     action: {
@@ -3298,6 +3367,31 @@ function mapActionLineage(row: ActionLineageRow): {
       capturedAt: stringValue(row.captured_at, "captured_at"),
       verificationEntityId,
       verificationStatus: nullableString(row.verification_status),
+      verificationLineage: verificationLineage
+        ? {
+            sourceCreativeId: nullableString(
+              verificationLineage.sourceCreativeId,
+            ),
+            sourceCampaignId: nullableString(
+              verificationLineage.sourceCampaignId,
+            ),
+            sourceAdsetId: nullableString(
+              verificationLineage.sourceAdsetId,
+            ),
+            verifiedProviderAccountId: nullableString(
+              verificationLineage.verifiedProviderAccountId,
+            ),
+            verifiedCreativeId: nullableString(
+              verificationLineage.verifiedCreativeId,
+            ),
+            verifiedCampaignId: nullableString(
+              verificationLineage.verifiedCampaignId,
+            ),
+            verifiedAdsetId: nullableString(
+              verificationLineage.verifiedAdsetId,
+            ),
+          }
+        : null,
     },
   };
 }

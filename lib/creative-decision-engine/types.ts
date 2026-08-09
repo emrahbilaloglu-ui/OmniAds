@@ -13,10 +13,11 @@ import type {
 import type { EngineV3Flags } from "./feature-flags";
 import type { OperatorResponseResult } from "./operator-response-detection";
 
-export const ENGINE_VERSION = "v3-2026-07-15-commercial-stop-loss";
+export const ENGINE_VERSION =
+  "v3-2026-07-18-decision-presentation-hardening";
 /** Parallel shadow epoch. It never keys legacy creative snapshot authority. */
 export const NATIVE_AD_ENGINE_VERSION =
-  "v3-ad-2026-07-15-commercial-stop-loss-shadow";
+  "v3-ad-2026-07-18-decision-presentation-hardening-shadow";
 
 /** Final decision label. */
 export type DecisionLabel =
@@ -244,6 +245,9 @@ export interface CreativeInput {
   decisionEntityId?: string;
   adId?: string;
   providerAccountId?: string;
+  /** Provider account currency for deterministic decision copy. Decision
+   * math never infers a currency when this evidence is unavailable. */
+  accountCurrency?: string | null;
   adsetId?: string | null;
   optimizationGoal?: string | null;
   customEventType?: string | null;
@@ -498,6 +502,34 @@ export interface AccountDecisionProfile {
 
   multipliers: EngineMultiplierSet;
   thresholds: EngineThresholdSet;
+  /**
+   * Cut-only commercial stop-loss thresholds derived by the canonical profile
+   * resolver from a separately authenticated account/currency AOV proof.
+   * Scale, Refresh, fatigue, and lifecycle consumers must keep using
+   * `thresholds`.
+   */
+  commercialStopLossSpendUnit?: SpendUnitProfile | null;
+  commercialStopLossThresholds?: EngineThresholdSet | null;
+  /**
+   * Immutable pre-overlay authority used to keep the account-AOV repair
+   * Cut-only. The engine restores this view for every row that would not end
+   * in a Cut under the repaired, monotonic stop-loss policy.
+   */
+  commercialStopLossCanonicalHardActionEligibility?: HardActionEligibility | null;
+  /**
+   * Native readiness provenance for D063's expanded P25-to-break-even strip.
+   * Undefined preserves the canonical non-native policy. Native profiles set
+   * this explicitly so a legacy-only `calibrated_relative` receipt cannot
+   * silently authorize the expanded economic region.
+   */
+  expandedEconomicCutAuthority?: {
+    eligible: boolean;
+    authorityBasis:
+      | "calibrated_relative_with_economic_stop_loss"
+      | "commercial_stop_loss"
+      | null;
+    reason: string | null;
+  };
   accountBaselines: AccountCalibration;
   funnelCalibration: AccountFunnelCalibration;
   /**
@@ -767,6 +799,7 @@ export const DECISION_AUTHORITY_BLOCKERS = [
   "campaign_context",
   "native_metrics_unavailable",
   "native_profile_unavailable",
+  "recent_recovery_unverifiable",
 ] as const;
 
 export type DecisionAuthorityBlocker =

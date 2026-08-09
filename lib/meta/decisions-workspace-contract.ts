@@ -1,8 +1,8 @@
 export const META_DECISIONS_WORKSPACE_CONTRACT_VERSION =
-  "meta-decisions-workspace.read.v3" as const;
+  "meta-decisions-workspace.read.v4" as const;
 
 export const META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION =
-  "meta-decisions-classification-overlay.v3" as const;
+  "meta-decisions-classification-overlay.v4" as const;
 
 export const META_DECISIONS_SECTION_SELECTION_VERSION =
   "meta-decisions-section-selection.v1" as const;
@@ -48,7 +48,8 @@ export type MetaDecisionAuthorityBlocker =
   | "source_freshness"
   | "campaign_context"
   | "native_metrics_unavailable"
-  | "native_profile_unavailable";
+  | "native_profile_unavailable"
+  | "recent_recovery_unverifiable";
 
 export type MetaDecisionState =
   "act" | "monitor" | "blocked" | "not_applicable";
@@ -160,6 +161,24 @@ export interface MetaDecisionDeliveryScope {
   provenance: MetaDecisionProvenance;
 }
 
+/**
+ * Provider-write authority requires explicit current delivery truth at every
+ * native hierarchy level. Effective states such as WITH_ISSUES are visible
+ * context, but they are not equivalent to ACTIVE.
+ */
+export function isExactActiveMetaDecisionDeliveryScope(
+  scope: MetaDecisionDeliveryScope | null | undefined,
+): boolean {
+  const isActive = (status: string | null | undefined) =>
+    status?.trim().toUpperCase() === "ACTIVE";
+  return Boolean(
+    scope?.state === "active" &&
+      isActive(scope.campaignStatus) &&
+      isActive(scope.adsetStatus) &&
+      isActive(scope.adStatus),
+  );
+}
+
 export interface MetaDecisionExposure {
   kind: "exposure_proxy";
   amount: number;
@@ -225,7 +244,10 @@ export interface MetaDecisionHistoryEnvelope {
 }
 
 export interface MetaDecisionSourceAuthority {
-  status: "native_exact" | "legacy_review_only";
+  status:
+    | "native_exact"
+    | "legacy_review_only"
+    | "demo_synthetic_review_only";
   actionEligible: boolean;
   reviewOnlyReason: string | null;
   snapshotId: string;
@@ -278,9 +300,9 @@ export interface MetaCanonicalDecision {
     adActionEligible: boolean;
   };
   media: MetaDecisionMediaEnvelope;
-  /** Current provider delivery truth. Main decision queues require every
-   * available hierarchy level to be ACTIVE or WITH_ISSUES. Closed/unknown
-   * assets are served separately and can never authorize a provider write. */
+  /** Current provider delivery truth. Provider-write authority requires the
+   * campaign, ad set, and ad to each be exactly ACTIVE. WITH_ISSUES,
+   * closed, or unknown assets remain visible as advisory-only context. */
   deliveryScope?: MetaDecisionDeliveryScope;
   classification: {
     overlayVersion: typeof META_DECISIONS_CLASSIFICATION_OVERLAY_VERSION;

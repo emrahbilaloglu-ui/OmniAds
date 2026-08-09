@@ -369,9 +369,10 @@ Nothing else from the native branch is skipped. D066 and the D069 real-path seam
 Everything above this line is historical record. This section is the current truth; where the two
 disagree, this section wins.
 
-**Candidate:** `ux/native-authority-integration` — see the final SHA in the approval request at the
-end of this document.
-**Scope vs `origin/main`:** 241 files changed, +52,985 / −3,431.
+**Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
+The last content commit is `f161d6106` ("Refresh the committed full-UI smoke evidence"); the exact
+tip SHA is stated in the deploy approval request, since a commit cannot record its own hash.
+**Scope vs `origin/main`:** 241 files changed, +53,086 / −3,431.
 
 ### D066 — decision-fact ownership (complete)
 

@@ -25,15 +25,22 @@ export type RangePreset =
   | "lastMonth"
   | "custom";
 
+/**
+ * The comparisons this product can actually compute.
+ *
+ * Four more were offered here — previous week, month, quarter, and a
+ * weekday-matched previous year — and none had a server implementation. Every
+ * one of them resolved to a previous-*period* delta, so an operator picking
+ * "Previous year" saw a number measured against something else entirely and
+ * had no way to tell. `lib/comparison-preset-contract.ts` is the single place
+ * these map to compare modes, and its test fails if this list grows past what
+ * `getComparisonWindow` implements.
+ */
 export type ComparisonPreset =
   | "none"
   | "custom"
   | "previousPeriod"
-  | "previousWeek"
-  | "previousMonth"
-  | "previousQuarter"
-  | "previousYear"
-  | "previousYearMatch";
+  | "previousYear";
 
 export interface DateRangeValue {
   rangePreset: RangePreset;
@@ -149,15 +156,19 @@ const RANGE_PRESETS: ReadonlyArray<PresetOption<RangePreset>> = [
   { value: "custom", label: "Custom range", hint: "Pick exact dates", group: "Custom" },
 ];
 
+/** The exact list the picker offers, exported so a test can hold it to it. */
+export const COMPARISON_PRESET_VALUES = [
+  "none",
+  "custom",
+  "previousPeriod",
+  "previousYear",
+] as const satisfies ReadonlyArray<ComparisonPreset>;
+
 const COMPARISON_PRESETS: ReadonlyArray<PresetOption<ComparisonPreset>> = [
   { value: "none", label: "None", hint: "Keep the view focused on one period", group: "Compare" },
   { value: "custom", label: "Custom range", hint: "Pick exact comparison dates", group: "Compare" },
   { value: "previousPeriod", label: "Previous period", hint: "Same length immediately before", group: "Compare" },
-  { value: "previousWeek", label: "Previous week", hint: "Useful for weekly pacing", group: "Compare" },
-  { value: "previousMonth", label: "Previous month", hint: "Month-over-month check", group: "Compare" },
-  { value: "previousQuarter", label: "Previous quarter", hint: "Quarter-level benchmark", group: "Compare" },
   { value: "previousYear", label: "Previous year", hint: "Year-over-year comparison", group: "Compare" },
-  { value: "previousYearMatch", label: "Previous year (weekday match)", hint: "52-week weekday-aligned comparison", group: "Compare" },
 ];
 
 function toISO(date: Date): string {
@@ -497,16 +508,8 @@ function getComparisonDescription(preset: ComparisonPreset): string {
       return "Use an exact comparison range that you choose manually.";
     case "previousPeriod":
       return "Matches the selected range length and compares it against the immediately preceding window.";
-    case "previousWeek":
-      return "Useful for weekly pacing, traffic quality shifts, and recent operational checks.";
-    case "previousMonth":
-      return "Helps you benchmark the current period against the prior calendar month.";
-    case "previousQuarter":
-      return "Best when you want a broader benchmark for seasonal or strategic movement.";
     case "previousYear":
       return "A direct year-over-year lens for growth, efficiency, and seasonality.";
-    case "previousYearMatch":
-      return "Shifts by exactly 52 weeks so weekdays stay aligned for retail and paid-media pacing.";
   }
 }
 
@@ -570,39 +573,14 @@ export function getDerivedComparisonRange(
     return { start, end };
   }
 
-  if (preset === "previousWeek") {
-    return {
-      start: toISO(addDays(parseISODate(primaryStart), -7)),
-      end: toISO(addDays(parseISODate(primaryEnd), -7)),
-    };
-  }
-
-  if (preset === "previousMonth") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -1),
-      end: shiftIsoDateByMonths(primaryEnd, -1),
-    };
-  }
-
-  if (preset === "previousQuarter") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -3),
-      end: shiftIsoDateByMonths(primaryEnd, -3),
-    };
-  }
-
-  if (preset === "previousYear") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -12),
-      end: shiftIsoDateByMonths(primaryEnd, -12),
-    };
-  }
-
-  // A 52-week shift preserves weekday alignment for retail and paid-media
-  // comparisons where a Monday should be compared with a Monday.
+  // Only the comparisons the server can actually compute are offered, so this
+  // resolver has nothing left to guess. The week/month/quarter and
+  // weekday-matched windows it used to build were never requested from the
+  // server: every one of them was collapsed to previous-period on the way out,
+  // so the preview here disagreed with the numbers that came back.
   return {
-    start: toISO(addDays(parseISODate(primaryStart), -364)),
-    end: toISO(addDays(parseISODate(primaryEnd), -364)),
+    start: shiftIsoDateByMonths(primaryStart, -12),
+    end: shiftIsoDateByMonths(primaryEnd, -12),
   };
 }
 

@@ -1,4 +1,5 @@
 import { runProductInstrumentationRetentionIfDue } from "@/lib/product-instrumentation";
+import { runNotificationProducerIfDue } from "@/lib/notification-producer";
 import { NextRequest, NextResponse } from "next/server";
 import { assertSyncLaneEnabled } from "@/lib/sync/global-kill-switch";
 import { assertSyncGrowthBoundary } from "@/lib/sync/db-growth-fence";
@@ -537,6 +538,22 @@ export async function POST(request: NextRequest) {
       return Array.isArray(entry?.safetyRefusals) ? entry.safetyRefusals : [];
     }),
   ] as Array<Record<string, unknown>>;
+  // Notification production, scheduled with the other maintenance jobs.
+  //
+  // The producer and the whole delivery lifecycle existed but nothing invoked
+  // them, which made the ledger's two statements about notifications both
+  // half-true: the transitions shipped, and no notification was ever produced.
+  // A bell backed by a producer that never runs is the reassuring-zero problem
+  // in a different costume -- it would read "0 unread" and mean "nothing can
+  // generate these", not "nothing is wrong".
+  //
+  // Hourly, gated inside the producer by a per-day dedupe key, so a re-run
+  // cannot re-alert. Failures are caught and reported in the receipt rather
+  // than taking the sync cycle down with them.
+  const notificationProducerJob = await runNotificationProducerIfDue(
+    businesses.map((business) => business.id),
+  ).catch(() => ({ skipped: false as const, businesses: 0, created: 0, failed: true as const }));
+
   // Product instrumentation retention: idempotent, and scheduled here with the
   // other maintenance jobs so a retention column is backed by an actual purge.
   const instrumentationRetentionJob =
@@ -833,6 +850,7 @@ export async function POST(request: NextRequest) {
       ...(metaAutoRepair ? { metaAutoRepairResults: metaAutoRepair.results } : {}),
       ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
       instrumentationRetentionJob,
+      notificationProducerJob,
       metaSnapshotJob,
       metaIgnoredMarkerJob,
       metaOutcomeAccrualJob,

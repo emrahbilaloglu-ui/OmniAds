@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -24,15 +24,7 @@ export function Topbar({ userName }: TopbarProps) {
       <PlatformSwitcher />
 
       <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          disabled
-          title="Notifications are not available yet"
-          className="w-8 h-8 rounded-md grid place-items-center text-neutral-400 opacity-60 relative"
-          aria-label={`${t.notifications} (not available yet)`}
-        >
-          <Bell className="h-[15px] w-[15px]" aria-hidden="true" />
-        </button>
+        <NotificationBell />
         <PersonalAccountMenu userName={userName} />
       </div>
     </header>

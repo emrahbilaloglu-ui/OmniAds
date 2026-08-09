@@ -1,6 +1,10 @@
 "use client";
 
 import { newestObservation } from "@/lib/tier-zero-as-of";
+import {
+  compareModeForPreset,
+  customComparisonIsComplete,
+} from "@/lib/comparison-preset-contract";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
@@ -464,7 +468,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           dateRange.customStart,
           dateRange.customEnd
         );
-  const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+  // The comparison the operator actually picked. This used to turn every
+  // non-"none" choice into `previous_period`, so "Previous year" produced a
+  // previous-period delta wearing a year-over-year label.
+  const compareMode = compareModeForPreset(dateRange.comparisonPreset);
+  // A custom comparison without both ends has no baseline; showing a delta
+  // against a guessed window would be the same substitution in a new place.
+  const comparisonWindowReady =
+    compareMode !== "custom" ||
+    customComparisonIsComplete({
+      comparisonStart: dateRange.comparisonStart,
+      comparisonEnd: dateRange.comparisonEnd,
+    });
+  const effectiveCompareMode = comparisonWindowReady ? compareMode : "none";
   const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
@@ -483,9 +499,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const currentAdvisorKey = businessId;
 
   const { data, isLoading, isError } = useQuery<CampaignsResponse>({
-    queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
+    queryKey: ["gads-campaigns", businessId, startDate, endDate, effectiveCompareMode],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode });
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode: effectiveCompareMode });
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
       return res.json();

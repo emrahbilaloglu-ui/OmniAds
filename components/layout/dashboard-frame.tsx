@@ -1,5 +1,6 @@
 "use client";
 
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { Bell, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -126,15 +127,7 @@ function ConsoleTopbar({ userName }: { userName: string }) {
           way to navigate that did not exist; this one queries a real server
           search and goes where it says it will. */}
       <GlobalSearch />
-      <button
-        type="button"
-        disabled
-        title="Notifications are not available yet"
-        className="grid h-7 w-7 place-items-center rounded-[6px] border border-[var(--adc-b1)] text-[var(--adc-ink3)] opacity-60"
-        aria-label="Notifications (not available yet)"
-      >
-        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      <NotificationBell />
       <PersonalAccountMenu userName={userName} />
     </header>
   );

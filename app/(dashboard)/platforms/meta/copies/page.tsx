@@ -1,6 +1,10 @@
 "use client";
 
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  deltaSentiment,
+  getMetricDirection,
+} from "@/lib/metric-semantics";
 import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   useEffect,
@@ -172,6 +176,26 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
+}
+
+
+/**
+ * Colour a delta by what it means, not by its arithmetic sign.
+ *
+ * Each of these deltas used to carry its own inline rule -- ROAS up is good,
+ * CPA up is bad, CTR up is good -- correct today and three separate places for
+ * it to drift tomorrow. `getMetricDirection` already owns that knowledge for
+ * the whole product, so the surfaces defer to it and a metric added to the
+ * wrong set is wrong in exactly one place.
+ */
+function toneForDelta(
+  metricKey: string,
+  changeValue: number,
+): "pos" | "neg" | "muted" {
+  const sentiment = deltaSentiment(getMetricDirection(metricKey), changeValue);
+  if (sentiment === "positive") return "pos";
+  if (sentiment === "negative") return "neg";
+  return "muted";
 }
 
 export default function CopiesPage() {
@@ -910,7 +934,7 @@ function CopyCompareOverlay({
     const diff = row.roas - baseline.roas;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}x`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta("roas", diff),
     };
   };
 
@@ -920,10 +944,9 @@ function CopyCompareOverlay({
       return { text: "", tone: "muted" as const };
     }
     const diff = row.cpa - baseline.cpa;
-    // Higher CPA is worse.
     return {
       text: `${diff >= 0 ? "+" : "−"}${money(row, Math.abs(diff))}`,
-      tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const) : ("muted" as const),
+      tone: toneForDelta("cpa", diff),
     };
   };
 
@@ -946,7 +969,7 @@ function CopyCompareOverlay({
     const diff = value - base;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}pt`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta(key === "linkCtr" ? "ctr" : "cvr", diff),
     };
   };
 

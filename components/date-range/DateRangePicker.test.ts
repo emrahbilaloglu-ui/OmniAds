@@ -11,6 +11,7 @@ import {
   rangeValueToDateWindow,
   resolveRangeCalendarDateClick,
   resolveRangePresetSelection,
+  COMPARISON_PRESET_VALUES,
 } from "@/components/date-range/DateRangePicker";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -188,19 +189,8 @@ describe("DateRangePicker quick-apply behavior", () => {
 });
 
 describe("DateRangePicker calendar comparison math", () => {
-  it("shifts calendar months with end-of-month clamping instead of subtracting 30 days", () => {
-    expect(
-      getDerivedComparisonRange(
-        "2026-03-01",
-        "2026-03-31",
-        "previousMonth",
-        "",
-        ""
-      )
-    ).toEqual({ start: "2026-02-01", end: "2026-02-28" });
-  });
-
-  it("handles leap-day year comparisons and weekday-matched year comparisons separately", () => {
+  it("shifts a year with end-of-month clamping instead of subtracting 365 days", () => {
+    // A leap-day range must not resolve to an invalid 29 February.
     expect(
       getDerivedComparisonRange(
         "2024-02-01",
@@ -210,15 +200,32 @@ describe("DateRangePicker calendar comparison math", () => {
         ""
       )
     ).toEqual({ start: "2023-02-01", end: "2023-02-28" });
+  });
+
+  it("puts the previous period immediately before the range, same length", () => {
     expect(
       getDerivedComparisonRange(
         "2026-07-06",
         "2026-07-12",
-        "previousYearMatch",
+        "previousPeriod",
         "",
         ""
       )
-    ).toEqual({ start: "2025-07-07", end: "2025-07-13" });
+    ).toEqual({ start: "2026-06-29", end: "2026-07-05" });
+  });
+
+  it("no longer derives windows for comparisons the server cannot compute", () => {
+    // previousWeek / previousMonth / previousQuarter / previousYearMatch were
+    // derived here and then discarded: every one was collapsed to
+    // previous-period before the request went out, so this preview disagreed
+    // with the numbers that came back. They are gone from the type, so this is
+    // asserted at the picker's own list rather than by calling them.
+    expect(COMPARISON_PRESET_VALUES).toEqual([
+      "none",
+      "custom",
+      "previousPeriod",
+      "previousYear",
+    ]);
   });
 });
 

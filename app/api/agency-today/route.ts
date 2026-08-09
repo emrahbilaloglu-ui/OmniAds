@@ -1,3 +1,4 @@
+import { getDb } from "@/lib/db";
 import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/lib/auth";
@@ -78,13 +79,39 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // One read for every client's canonical connection state. Absent means no
+  // provider was ever connected, which is disconnected rather than unknown.
+  const connectionRows = (await getDb().query(
+    `SELECT business_id::text AS business_id, status
+     FROM provider_connections
+     WHERE business_id = ANY($1::text[]) AND provider = 'meta'`,
+    [businesses.map((business) => business.id)],
+  ).catch(() => [])) as unknown as Array<{
+    business_id: string;
+    status: string;
+  }>;
+  const connectionByBusiness = new Map(
+    connectionRows.map((row) => [row.business_id, row]),
+  );
+
   const now = new Date();
   const clients: AgencyTodayClientInput[] = businesses.map((business) => {
     const clientTotals = totals.get(business.id) ?? null;
     const freshness = resolveClientFreshness(clientTotals?.lastSourceUpdatedAt, now);
-    // Health beyond freshness needs the provider health read model per client;
-    // until Agency Today carries it, this states what it knows and no more.
-    const dataHealth: ClientDataHealth = clientTotals ? "healthy" : "unknown";
+    // Health joined to the canonical provider connection state, not inferred
+    // from whether totals happen to exist. A client with a revoked token but
+    // yesterday's cached numbers used to read "healthy" here while Integrations
+    // showed action required for the same client at the same moment.
+    const connection = connectionByBusiness.get(business.id);
+    const dataHealth: ClientDataHealth = !connection
+      ? "disconnected"
+      : connection.status === "connected"
+        ? clientTotals
+          ? "healthy"
+          : "degraded"
+        : connection.status === "revoked" || connection.status === "expired"
+          ? "action_required"
+          : "unknown";
 
     return {
       businessId: business.id,

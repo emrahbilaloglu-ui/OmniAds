@@ -7671,3 +7671,23 @@
     white-space: normal !important;
   }
 }
+
+/*
+ * Reduced motion is a request, not a preference to weigh against aesthetics.
+ *
+ * Skeleton shimmers and spinners kept animating for viewers who had asked the
+ * operating system for stillness -- for some people that is a trigger for
+ * nausea or migraine, not an annoyance. Animation is reduced to a single frame
+ * rather than removed, so a loading state still reads as "loading" without
+ * moving.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

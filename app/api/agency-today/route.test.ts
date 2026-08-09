@@ -5,6 +5,15 @@ const listUserBusinesses = vi.hoisted(() => vi.fn());
 const readAgencyTodayTotals = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({ getSessionFromRequest }));
+// The route joins client health to the canonical provider connection state, so
+// its test has to supply one. Default: connected, which is the case the health
+// assertions below vary against.
+const connectionRows = vi.hoisted(() => ({
+  value: [] as Array<{ business_id: string; status: string }>,
+}));
+vi.mock("@/lib/db", () => ({
+  getDb: () => ({ query: async () => connectionRows.value }),
+}));
 vi.mock("@/lib/access", () => ({ listUserBusinesses }));
 vi.mock("@/lib/agency-today-store", async () => {
   const actual = await vi.importActual<typeof import("@/lib/agency-today-store")>(
@@ -97,9 +106,13 @@ describe("GET /api/agency-today", () => {
   });
 
   it("marks a client with no totals as unrankable rather than zero-spend", async () => {
+    connectionRows.value = [{ business_id: "biz-1", status: "connected" }];
     readAgencyTodayTotals.mockResolvedValue(new Map());
     const body = await (await GET(request())).json();
-    expect(body.model.rows[0].severity).toBe("unknown");
+    // A connected client with no totals is degraded, not unknown: we know the
+    // connection works, so the absence of numbers is a real gap rather than an
+    // unreadable state. Spend stays null -- it is missing, not zero.
+    expect(body.model.rows[0].severity).toBe("attention");
     expect(body.model.rows[0].spend).toBeNull();
   });
 
@@ -138,5 +151,32 @@ describe("GET /api/agency-today", () => {
     expect(body.model.rows).toEqual([]);
     expect(body.model.portfolio.withheldReason).toBe("no_clients");
     expect(readAgencyTodayTotals).not.toHaveBeenCalled();
+  });
+
+  it("joins client health to the canonical connection state, not to whether totals exist", async () => {
+    // The bug this closes: a client with a revoked token but yesterday's cached
+    // numbers read "healthy" here while Integrations showed action required for
+    // the same client at the same moment.
+    for (const [status, expected] of [
+      ["connected", "healthy"],
+      ["revoked", "action_required"],
+      ["expired", "action_required"],
+    ] as const) {
+      connectionRows.value = [{ business_id: "biz-1", status }];
+      const response = await GET(request());
+      const body = (await response.json()) as {
+        model: { rows: Array<{ dataHealth: string }> };
+      };
+      expect(body.model.rows[0]?.dataHealth, `status ${status}`).toBe(expected);
+    }
+
+    // No connection row at all is disconnected -- never "unknown", which would
+    // read as "we could not tell" when in fact we know there is nothing.
+    connectionRows.value = [];
+    const disconnected = await GET(request());
+    const body = (await disconnected.json()) as {
+      model: { rows: Array<{ dataHealth: string }> };
+    };
+    expect(body.model.rows[0]?.dataHealth).toBe("disconnected");
   });
 });

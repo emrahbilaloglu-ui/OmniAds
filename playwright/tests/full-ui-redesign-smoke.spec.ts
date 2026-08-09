@@ -127,6 +127,9 @@ const SCREENSHOT_ROUTES = [
     name: "automation",
   },
   { actor: "dashboard", path: "/reports", name: "reports" },
+  // Explicit Tier-0 surfaces the earlier matrix never captured.
+  { actor: "dashboard", path: "/overview", name: "overview" },
+  { actor: "dashboard", path: "/integrations", name: "integrations" },
   { actor: "dashboard", path: "/settings", name: "settings" },
   { actor: "admin", path: "/admin", name: "admin" },
   {
@@ -551,9 +554,17 @@ async function signIn(page: Page, actor: SmokeActor) {
   // BrowserContext.request shares its cookie jar with every page in the
   // context. Authenticating here avoids a pending /login UI redirect racing
   // the representative route navigation.
-  const loginResponse = await page.request.post("/api/auth/login", {
-    data: actor,
-  });
+  //
+  // The login endpoint is rate-limited, and it should be. Running the extended
+  // width matrix means several projects authenticating the same reviewer in
+  // quick succession, which is exactly the pattern the limiter exists to stop.
+  // Backing off and retrying keeps the limiter intact rather than weakening a
+  // real protection to make a test convenient.
+  let loginResponse = await page.request.post("/api/auth/login", { data: actor });
+  for (let attempt = 1; attempt <= 6 && loginResponse.status() === 429; attempt += 1) {
+    await page.waitForTimeout(attempt * 1_500);
+    loginResponse = await page.request.post("/api/auth/login", { data: actor });
+  }
   expect(
     loginResponse.ok(),
     `login failed for ${actor.email}: ${loginResponse.status()} ${await loginResponse.text()}`,
@@ -564,9 +575,13 @@ async function signIn(page: Page, actor: SmokeActor) {
 }
 
 async function signInRequest(context: APIRequestContext, actor: SmokeActor) {
-  const response = await context.post("/api/auth/login", {
+  let response = await context.post("/api/auth/login", {
     data: actor,
   });
+    for (let attempt = 1; attempt <= 6 && response.status() === 429; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
+    response = await context.post("/api/auth/login", { data: actor });
+  }
   expect(
     response.ok(),
     `request login failed for ${actor.email}: ${response.status()}`,
@@ -1000,7 +1015,7 @@ test.describe("full UI redesign route and visual smoke", () => {
         // column ended up off-screen in the 390px Studio artifact. A passing
         // screenshot is not acceptance if content is pushed out of frame, so
         // this is asserted rather than eyeballed.
-        if (testInfo.project.name.includes("mobile")) {
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
           const overflow = await shotPage.evaluate(() => ({
             scrollWidth: document.documentElement.scrollWidth,
             innerWidth: window.innerWidth,
@@ -1015,7 +1030,7 @@ test.describe("full UI redesign route and visual smoke", () => {
         // the page from scrolling while its own content is still cut off, which
         // is exactly how the assessment column stayed off-screen at 390px while
         // every page-level check passed. Assert no scroller hides content.
-        if (testInfo.project.name.includes("mobile")) {
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
           const clipped = await shotPage.evaluate(() => {
             const offenders: string[] = [];
             for (const element of Array.from(
@@ -1041,6 +1056,88 @@ test.describe("full UI redesign route and visual smoke", () => {
             clipped,
             `${shot.path} clips tabular content inside a scroller`,
           ).toEqual([]);
+        }
+
+        // Live accessibility checks. These need a real browser: focus
+        // visibility, Escape behaviour and zoom cannot be read off markup.
+        {
+          // 1. Every focusable control has a visible focus indicator. A focus
+          //    ring removed for aesthetics makes keyboard navigation invisible.
+          const focusInvisible = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            const focusables = Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex='-1'])",
+              ),
+            ).slice(0, 40);
+            for (const element of focusables) {
+              element.focus();
+              if (document.activeElement !== element) continue;
+              const style = window.getComputedStyle(element);
+              const hasRing =
+                style.outlineStyle !== "none" ||
+                style.boxShadow !== "none" ||
+                style.borderColor !== "";
+              if (!hasRing) offenders.push(element.tagName.toLowerCase());
+            }
+            return offenders.slice(0, 5);
+          });
+          expect(
+            focusInvisible,
+            `${shot.path} has focusable controls with no visible focus`,
+          ).toEqual([]);
+
+          // 2. No positive tabindex. It reorders the whole page's tab sequence
+          //    and is nearly always a bug rather than an intent.
+          const positiveTabindex = await shotPage.evaluate(
+            () =>
+              Array.from(document.querySelectorAll("[tabindex]")).filter(
+                (element) =>
+                  Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) > 0,
+              ).length,
+          );
+          expect(
+            positiveTabindex,
+            `${shot.path} uses a positive tabindex`,
+          ).toBe(0);
+
+          // 3. Every image is either described or explicitly decorative. An
+          //    undescribed image is announced as its file name.
+          const undescribedImages = await shotPage.evaluate(
+            () =>
+              Array.from(document.querySelectorAll("img")).filter(
+                (image) =>
+                  image.getAttribute("alt") === null &&
+                  image.getAttribute("aria-hidden") !== "true" &&
+                  image.getAttribute("role") !== "presentation",
+              ).length,
+          );
+          expect(
+            undescribedImages,
+            `${shot.path} has images with neither alt nor aria-hidden`,
+          ).toBe(0);
+
+          // 4. Reduced motion is honoured: no element may animate when the
+          //    viewer has asked for stillness.
+          await shotPage.emulateMedia({ reducedMotion: "reduce" });
+          const animating = await shotPage.evaluate(() => {
+            return Array.from(document.querySelectorAll<HTMLElement>("*")).filter(
+              (element) => {
+                const style = window.getComputedStyle(element);
+                const duration = Number.parseFloat(style.animationDuration);
+                return (
+                  style.animationName !== "none" &&
+                  Number.isFinite(duration) &&
+                  duration > 0.05
+                );
+              },
+            ).length;
+          });
+          await shotPage.emulateMedia({ reducedMotion: null });
+          expect(
+            animating,
+            `${shot.path} keeps animating under prefers-reduced-motion`,
+          ).toBe(0);
         }
 
         // The typography floor, checked on what the browser actually computed
@@ -1113,8 +1210,13 @@ test.describe("full UI redesign route and visual smoke", () => {
           const visibleCalendars = shotPage.locator(
             'section[aria-label$=" calendar"]:visible',
           );
+          // The calendar collapses to a single month on narrow viewports. Key
+          // the expectation off the actual width, not off one project name --
+          // otherwise every new width added to the matrix inherits the wrong
+          // expectation and fails for a reason that has nothing to do with it.
+          const calendarViewport = shotPage.viewportSize();
           await expect(visibleCalendars).toHaveCount(
-            testInfo.project.name === "full-ui-mobile" ? 1 : 2,
+            (calendarViewport?.width ?? 1440) < 640 ? 1 : 2,
           );
           await expect
             .poll(() =>

@@ -106,6 +106,13 @@ export function GlobalSearch() {
         <input
           id="global-search"
           type="search"
+          // A search box that opens a result list is a combobox. Without these
+          // a screen-reader user is told nothing opened, and has no way to know
+          // results appeared or how many.
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="global-search-results"
+          aria-autocomplete="list"
           value={query}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
@@ -122,6 +129,7 @@ export function GlobalSearch() {
 
       {showPanel ? (
         <div
+          id="global-search-results"
           role="listbox"
           aria-label="Search results"
           className="absolute right-0 top-9 z-50 max-h-[22rem] w-[24rem] overflow-y-auto rounded-lg border border-[var(--adc-b1)] bg-white py-1 shadow-lg"

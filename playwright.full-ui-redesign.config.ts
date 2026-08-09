@@ -26,21 +26,26 @@ const baselineProjects = [
 ] as const;
 
 const extendedProjects = [
-  { name: "full-ui-mobile-dark", width: 390, height: 844, mobile: true, dark: true },
-  { name: "full-ui-tablet", width: 768, height: 1024, mobile: false, dark: false },
-  { name: "full-ui-tablet-dark", width: 768, height: 1024, mobile: false, dark: true },
-  { name: "full-ui-compact", width: 1280, height: 900, mobile: false, dark: false },
-  { name: "full-ui-compact-dark", width: 1280, height: 900, mobile: false, dark: true },
-  { name: "full-ui-desktop-dark", width: 1440, height: 1000, mobile: false, dark: true },
-  { name: "full-ui-wide", width: 1728, height: 1000, mobile: false, dark: false },
-  { name: "full-ui-wide-dark", width: 1728, height: 1000, mobile: false, dark: true },
+  // The truthful light matrix. 320 is the narrowest width the product claims to
+  // support; the rest are the breakpoints the layout actually changes at.
+  //
+  // There are deliberately no dark projects. The stylesheet carries a `.dark`
+  // variant, but nothing applies it: there is no theme toggle, no theme
+  // provider, and no `prefers-color-scheme` rule, so Playwright's colorScheme
+  // preference changes nothing and a "dark" run would render light while
+  // claiming to prove dark. `visual-dark-mode.test.ts` asserts that absence, so
+  // the day a real mechanism is added this matrix has to be revisited.
+  { name: "full-ui-narrow", width: 320, height: 844, mobile: true },
+  { name: "full-ui-tablet", width: 768, height: 1024, mobile: false },
+  { name: "full-ui-compact", width: 1280, height: 900, mobile: false },
+  { name: "full-ui-wide", width: 1728, height: 1000, mobile: false },
 ].map((project) => ({
   name: project.name,
   testMatch: /full-ui-redesign-smoke\.spec\.ts/,
   use: {
     ...(project.mobile ? devices["Pixel 5"] : devices["Desktop Chrome"]),
     viewport: { width: project.width, height: project.height },
-    colorScheme: project.dark ? ("dark" as const) : ("light" as const),
+    colorScheme: "light" as const,
   },
 }));
 

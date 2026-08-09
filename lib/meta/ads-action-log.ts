@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { getDb, runDbTransaction, type DbClient } from "@/lib/db";
@@ -1657,7 +1658,20 @@ export async function createMetaAdsActionLog(
       recIdOrigin: input.recIdOrigin ?? null,
     });
   }
-  return insertMetaAdsActionLog(input);
+  const claim = await insertMetaAdsActionLog(input);
+  // Section 9, server-owned: an operator confirmed an action and a claim now
+  // exists. Emitted here rather than from the client, because the claim is the
+  // authoritative record of confirmation -- a client could only report intent.
+  await recordProductInstrumentationEvent({
+    businessId: input.businessId,
+    scope: "business",
+    eventName: "guarded_action_confirmed",
+    surface: "meta_decision_inspector",
+    outcome: "ok",
+    provider: "meta",
+    occurredAt: new Date().toISOString(),
+  });
+  return claim;
 }
 
 export const CREATE_DECISION_ORIGIN_META_ADS_ACTION_LOG_QUERY = `
@@ -2544,8 +2558,45 @@ export async function appendManualMetaAdStatusMutationAttemptStarted(
         "Manual Meta mutation attempt start lost its unique source claim.",
       );
     }
-    return mapManualMetaAdStatusMutationAttemptEvent(insertedRows[0]);
+    const startedEvent = mapManualMetaAdStatusMutationAttemptEvent(
+      insertedRows[0],
+    );
+    // Section 9, server-owned: the attempt is genuinely open now -- the source
+    // lineage validated and the journal accepted it. Emitting earlier would
+    // have counted attempts that were about to be refused.
+    await recordProductInstrumentationEvent({
+      businessId: startedEvent.businessId,
+      scope: "business",
+      eventName: "guarded_action_provider_attempted",
+      surface: "meta_decision_inspector",
+      outcome: "ok",
+      provider: "meta",
+      occurredAt: new Date().toISOString(),
+    });
+    return startedEvent;
   });
+}
+
+/**
+ * Section 9, server-owned: map a terminal completion to its lifecycle event.
+ *
+ * The outcome is reported as what it was, never smoothed into success. An
+ * ambiguous provider outcome is the case where a retry would double-write, so
+ * it is counted separately from a definite failure.
+ */
+function guardedLifecycleEventFor(
+  outcome: ManualMetaAdStatusMutationCompletionOutcome,
+): {
+  eventName: "guarded_action_verified" | "guarded_action_failed" | "guarded_action_ambiguous";
+  outcome: "ok" | "failed";
+} {
+  if (outcome === "provider_response_verified_success") {
+    return { eventName: "guarded_action_verified", outcome: "ok" };
+  }
+  if (outcome === "provider_outcome_ambiguous") {
+    return { eventName: "guarded_action_ambiguous", outcome: "failed" };
+  }
+  return { eventName: "guarded_action_failed", outcome: "failed" };
 }
 
 export async function appendManualMetaAdStatusMutationAttemptCompleted(
@@ -2833,7 +2884,20 @@ export async function appendManualMetaAdStatusMutationAttemptCompleted(
         "Manual Meta mutation attempt completion lost its unique source claim.",
       );
     }
-    return mapManualMetaAdStatusMutationAttemptEvent(insertedRows[0]);
+    const completed = mapManualMetaAdStatusMutationAttemptEvent(insertedRows[0]);
+    const lifecycle = guardedLifecycleEventFor(input.completionOutcome);
+    await recordProductInstrumentationEvent({
+      businessId: completed.businessId,
+      scope: "business",
+      eventName: lifecycle.eventName,
+      surface: "meta_decision_inspector",
+      outcome: lifecycle.outcome,
+      provider: "meta",
+      failureCode:
+        lifecycle.outcome === "failed" ? "upstream_unavailable" : null,
+      occurredAt: new Date().toISOString(),
+    });
+    return completed;
   });
 }
 

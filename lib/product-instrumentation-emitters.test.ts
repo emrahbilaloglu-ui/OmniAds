@@ -47,9 +47,23 @@ const EMITTERS: Record<ProductInstrumentationEventName, string> = {
   // Guarded action lifecycle (the stages this build can reach)
   guarded_action_preflight: "app/api/meta/decision-action/preflight/route.ts",
   guarded_action_dry_run: "app/api/meta/decision-action/preflight/route.ts",
-  guarded_action_verified: "app/api/meta/decision-action/preflight/route.ts",
-  guarded_action_failed: "app/api/meta/decision-action/preflight/route.ts",
-  guarded_action_ambiguous: "app/api/meta/decision-action/preflight/route.ts",
+  guarded_action_verified: "lib/meta/ads-action-log.ts",
+  guarded_action_failed: "lib/meta/ads-action-log.ts",
+  guarded_action_ambiguous: "lib/meta/ads-action-log.ts",
+  google_deep_link_used:
+    "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
+  // Notification lifecycle -- server-owned, never from the client endpoint.
+  notification_attempted: "lib/notification-store.ts",
+  notification_delivered: "lib/notification-store.ts",
+  notification_opened: "lib/notification-store.ts",
+  notification_acknowledged: "lib/notification-store.ts",
+  // Guarded lifecycle -- emitted at the authoritative server transitions.
+  guarded_action_confirmed: "lib/meta/ads-action-log.ts",
+  guarded_action_provider_attempted: "lib/meta/ads-action-log.ts",
+  guarded_action_reconciled: "lib/meta/manual-ad-status-reconciliation.ts",
+  // Mobile Tier-0
+  mobile_tier0_started: "components/meta/os/MobileTier0Triage.tsx",
+  mobile_tier0_completed: "components/meta/os/MobileTier0Triage.tsx",
   // Freshness
   freshness_stale_disclosed: "components/states/FreshnessChip.tsx",
 };
@@ -97,6 +111,34 @@ describe("every declared event has a real emitter", () => {
       if (!(name in EMITTERS)) continue;
       expect(PRODUCT_INSTRUMENTATION_EVENT_NAMES).toContain(name);
     }
+  });
+});
+
+describe("server-owned truth never comes from the client endpoint", () => {
+  it("emits the provider and notification lifecycles server-side", () => {
+    // A browser can report intent. Only the server knows whether a claim was
+    // created, whether a POST went out, or whether a delivery was attempted.
+    for (const file of [
+      "lib/meta/ads-action-log.ts",
+      "lib/meta/manual-ad-status-reconciliation.ts",
+      "lib/notification-store.ts",
+    ]) {
+      const source = readFileSync(file, "utf8");
+      expect(source).toContain("await recordProductInstrumentationEvent(");
+      expect(
+        source,
+        `${file} must not route server truth through the client endpoint`,
+      ).not.toContain("emitProductInstrumentation(");
+    }
+  });
+
+  it("keeps enqueue separate from delivery", () => {
+    const store = readFileSync("lib/notification-store.ts", "utf8");
+    // Marking our own queue as delivered would make the delivery rate a
+    // measure of the queue rather than of anyone receiving anything.
+    expect(store).toContain('eventName: "notification_attempted"');
+    expect(store).toContain("markNotificationsDelivered");
+    expect(store).toContain("delivery.state = 'attempted'");
   });
 });
 

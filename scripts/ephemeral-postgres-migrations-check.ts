@@ -2647,6 +2647,15 @@ async function main() {
       "product instrumentation DB seam check",
     );
 
+    // The notification lifecycle, driven through its real production
+    // transitions rather than asserted from shape.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-notification-seam-child.ts"),
+      "notification lifecycle DB seam check",
+    );
+
     // Production-seam checks against the freshly migrated schema: real
     // write query -> real reader, the class of defect in-memory tests miss.
     await runChildScript(

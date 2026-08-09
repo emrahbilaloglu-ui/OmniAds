@@ -1,5 +1,6 @@
 "use client";
 
+import { MobileTier0Triage } from "@/components/meta/os/MobileTier0Triage";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2159,13 +2160,33 @@ function DecisionInspector({
             {/* Ownership sits beside the command: a decision someone has already
                 taken is not one you should act on twice. */}
             {ad ? (
-              <DecisionWorkflowControls
-                businessId={businessId}
-                decisionKey={ad.decisionId}
-                entityType="ad"
-                entityId={ad.adId}
-                providerAccountId={providerAccountId}
-              />
+              <>
+                <DecisionWorkflowControls
+                  businessId={businessId}
+                  decisionKey={ad.decisionId}
+                  entityType="ad"
+                  entityId={ad.adId}
+                  providerAccountId={providerAccountId}
+                />
+                {/*
+                  The phone task: read the evidence and take the decision on.
+                  Provider mutation stays on desktop per D5; ownership does not,
+                  and it is the part of triage a phone can finish.
+                */}
+                <MobileTier0Triage
+                  businessId={businessId}
+                  decisionKey={ad.decisionId}
+                  ownershipAvailable
+                >
+                  <DecisionWorkflowControls
+                    businessId={businessId}
+                    decisionKey={ad.decisionId}
+                    entityType="ad"
+                    entityId={ad.adId}
+                    providerAccountId={providerAccountId}
+                  />
+                </MobileTier0Triage>
+              </>
             ) : null}
             <GuardedActionPanel
               businessId={businessId}

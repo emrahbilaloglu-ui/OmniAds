@@ -1,5 +1,6 @@
 "use client";
 
+import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -1498,6 +1499,40 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         >
                           Copy negatives
                         </button>
+                        {/*
+                          Scoped deep link into Google Ads. Refused rather than
+                          guessed when the account cannot be named -- landing on
+                          the wrong account is worse than no link, because the
+                          operator then acts on someone else's data.
+                        */}
+                        {buildGoogleAdsDeepLink({
+                          accountId: advisorExecutionAccountId,
+                          target: { kind: "search_terms" },
+                        }) ? (
+                          <a
+                            href={
+                              buildGoogleAdsDeepLink({
+                                accountId: advisorExecutionAccountId,
+                                target: { kind: "search_terms" },
+                              }) ?? undefined
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
+                            onClick={() =>
+                              emitProductInstrumentation({
+                                eventName: "google_deep_link_used",
+                                surface: "google_ads",
+                                outcome: "ok",
+                                scope: "business",
+                                businessId,
+                                provider: "google",
+                              })
+                            }
+                          >
+                            {describeGoogleAdsDeepLink({ kind: "search_terms" })}
+                          </a>
+                        ) : null}
                         <button
                           type="button"
                           className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"

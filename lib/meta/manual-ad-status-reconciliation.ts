@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import {
   appendManualMetaAdStatusReconciliationEvent,
   readManualMetaAdStatusReconciliationCandidate,
@@ -255,6 +256,19 @@ export async function reconcileManualMetaAdStatusBlocker(input: {
       blocker: "reconciliation_race_unresolved",
     };
   }
+
+  // Section 9, server-owned: an ambiguous outcome has been resolved against a
+  // fresh exact read. Only the reconciliation path knows this happened, and it
+  // is the event that closes the ambiguity the operator was left holding.
+  await recordProductInstrumentationEvent({
+    businessId: input.businessId,
+    scope: "business",
+    eventName: "guarded_action_reconciled",
+    surface: "meta_decision_inspector",
+    outcome: "ok",
+    provider: "meta",
+    occurredAt: new Date().toISOString(),
+  });
 
   return {
     disposition: "reconciled",

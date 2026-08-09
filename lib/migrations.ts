@@ -13768,9 +13768,12 @@ export async function runMigrations(options?: {
                               'decision_workflow_changed', 'report_generated', 'report_widget_failed',
                               'report_widget_retried', 'report_share_created', 'report_print_opened',
                               'report_csv_created', 'google_copy_used', 'google_csv_used',
-                              'provider_health_recovery_started', 'provider_health_recovery_completed', 'guarded_action_preflight',
-                              'guarded_action_dry_run', 'guarded_action_verified', 'guarded_action_failed',
-                              'guarded_action_ambiguous', 'freshness_stale_disclosed'
+                              'google_deep_link_used', 'provider_health_recovery_started', 'provider_health_recovery_completed',
+                              'notification_attempted', 'notification_delivered', 'notification_opened',
+                              'notification_acknowledged', 'guarded_action_preflight', 'guarded_action_dry_run',
+                              'guarded_action_confirmed', 'guarded_action_provider_attempted', 'guarded_action_verified',
+                              'guarded_action_failed', 'guarded_action_ambiguous', 'guarded_action_reconciled',
+                              'mobile_tier0_started', 'mobile_tier0_completed', 'freshness_stale_disclosed'
                             )),
           surface           TEXT NOT NULL CHECK (surface IN (
                               'overview', 'global_search', 'meta_decisions',

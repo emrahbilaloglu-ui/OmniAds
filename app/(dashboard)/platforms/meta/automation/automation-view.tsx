@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import Link from "next/link";
 import {
   Activity,
@@ -486,6 +487,20 @@ export function MetaAutomationView({
   };
   const authority = deriveEffectiveAuthority(payload, error);
   const readState = controlReadState(payload, loading, error);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "automation",
+    isLoading: loading && !payload,
+    isFetching: loading,
+    // Automation fails closed on an unreadable control, so the freshness
+    // reading must say "unreadable" rather than leave the last state showing.
+    error,
+    asOf: payload?.businessControl.updatedAt ?? null,
+    businessId: scopedBusinessId ?? null,
+    onRetry,
+  });
   const globalStop = payload?.globalKillSwitch.engaged === true;
   const businessStop = payload?.businessControl.killSwitchEngaged === true;
   const stopEngaged = globalStop || businessStop;
@@ -1352,6 +1367,7 @@ export function MetaAutomationView({
 }
 
 export default function MetaAutomationPage() {
+
   const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);

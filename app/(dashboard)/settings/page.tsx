@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import {
 import { getTranslations } from "@/lib/i18n";
 
 export default function SettingsPage() {
+
   const router = useRouter();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -108,6 +110,7 @@ export default function SettingsPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingTeam, setLoadingTeam] = useState(false);
+
   const [sendingInvite, setSendingInvite] = useState(false);
   const [runningDangerAction, setRunningDangerAction] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -118,6 +121,16 @@ export default function SettingsPage() {
   const [nextPassword, setNextPassword] = useState("");
   const [confirmModal, setConfirmModal] = useState<null | "disconnectAll" | "deleteWorkspace" | "revokeSessions">(null);
   const [providerHealth, setProviderHealth] = useState<Record<string, { label: string; value: string }>>({});
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "settings",
+    isLoading: loadingTeam,
+    error: workspaceError ?? accountError ?? teamError,
+    asOf: accountCreatedAt,
+    businessId: null,
+  });
 
   useEffect(() => {
     setWorkspaceName(activeBusiness?.name ?? "");

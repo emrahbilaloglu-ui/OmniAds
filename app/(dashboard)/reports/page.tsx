@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ async function fetchReports(businessId: string) {
 }
 
 export default function ReportsPage() {
+
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -43,6 +45,19 @@ export default function ReportsPage() {
     queryKey: ["custom-reports", businessId],
     enabled: Boolean(selectedBusinessId),
     queryFn: () => fetchReports(businessId),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "reports",
+    isLoading: reportsQuery.isLoading,
+    isFetching: reportsQuery.isFetching,
+    error: reportsQuery.error,
+    asOf: reportsQuery.data?.[0]?.updatedAt ?? null,
+    businessId: selectedBusinessId,
+    onRetry: () => void reportsQuery.refetch(),
   });
   const reports = reportsQuery.data ?? [];
   const normalizedQuery = searchQuery.trim().toLowerCase();

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -242,6 +243,7 @@ function hasRenderableProviderViews(
 }
 
 export default function IntegrationsPage() {
+
   const router = useRouter();
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
@@ -333,6 +335,27 @@ export default function IntegrationsPage() {
         query.state.data as ShopifyStatusResponse | undefined
       ),
     queryFn: () => fetchShopifyStatus(businessId!),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "integrations",
+    isLoading: metaStatusQuery.isLoading,
+    isFetching: metaStatusQuery.isFetching,
+    error: metaStatusQuery.error,
+    // A provider we could not read is a hole in the picture, not a healthy
+    // provider: say which one rather than showing a confident row.
+    partialReason:
+      googleAdsStatusQuery.error || shopifyStatusQuery.error
+        ? "Some providers could not be read; connection status is incomplete"
+        : null,
+    asOf: metaStatusQuery.dataUpdatedAt
+      ? new Date(metaStatusQuery.dataUpdatedAt).toISOString()
+      : null,
+    businessId,
+    onRetry: () => void metaStatusQuery.refetch(),
   });
 
   const closeSearchConsoleSelector = useCallback(() => {

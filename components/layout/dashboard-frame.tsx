@@ -1,5 +1,6 @@
 "use client";
 
+import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { Bell, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -90,6 +91,12 @@ function ConsoleTopbar({ userName }: { userName: string }) {
   return (
     <header className="ad-console-topbar">
       <MobileNav variant="console" />
+      {/*
+        The active surface's data age, in one place with one wording. A surface
+        that has reported nothing renders as unknown rather than silently, since
+        silence reads as "current".
+      */}
+      <TierZeroFreshnessBar />
       <div className="ad-console-brand flex min-w-0 items-center gap-2">
         <BrandLogo
           className="gap-2"

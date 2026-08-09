@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -512,6 +513,7 @@ function makePlaceholderAdset(
 }
 
 export default function MetaLaunchpadPage() {
+
   const searchParams = useSearchParams();
   const launchpadQuery = searchParams?.toString() ?? "";
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -554,6 +556,18 @@ export default function MetaLaunchpadPage() {
   const [creatives, setCreatives] = useState<MetaCreativeRow[]>([]);
   const [creativeLoading, setCreativeLoading] = useState(false);
   const [creativeError, setCreativeError] = useState<string | null>(null);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "launchpad",
+    isLoading: providerAccountsLoading,
+    error: providerAccountsError ?? creativeError,
+    // Launchpad composes what it is about to publish from live reads; the
+    // accounts read is the one that gates the wizard.
+    asOf: null,
+    businessId: selectedBusinessId,
+  });
   const [decisions, setDecisions] = useState<DecisionOutput[]>([]);
   const [recentAdActions, setRecentAdActions] = useState<
     LaunchpadRecentAdAction[]

@@ -29,6 +29,14 @@ interface MetaDrillDrawerProps {
   variant?: "push" | "overlay";
   onClose: () => void;
   onLaunch?: () => void;
+  /**
+   * When the evidence in this panel was computed.
+   *
+   * The inspector is where someone decides whether to act, and it used to show
+   * numbers with no date on them at all. Undated evidence reads as current, so
+   * the same snapshot date the lanes are labelled with is carried in here.
+   */
+  asOf?: string | Date | null;
   /** Accepted for call-site compatibility; the inspector no longer carries a
    * window switcher (it is a page-level control and must not mutate URL here). */
   window?: MetaWindowKey;
@@ -581,6 +589,7 @@ export function MetaDrillDrawer({
   targetRoas,
   item,
   variant = "overlay",
+  asOf = null,
   onClose,
   onLaunch,
 }: MetaDrillDrawerProps) {
@@ -657,6 +666,14 @@ export function MetaDrillDrawer({
           {isAnomaly ? <MetaScopeChip level="anomaly" label={item.anomaly.scopeType} /> : <MetaScopeChip level={item.rec.level} />}
           {isInformational ? <MetaCohortChip cohort={item.rec.cohort} /> : null}
         </div>
+        <span
+          data-inspector-asof={asOf ? "known" : "unknown"}
+          className="text-[12px] text-[var(--adc-ink3,#7d838c)]"
+        >
+          {asOf
+            ? `Evidence as of ${new Date(asOf).toLocaleDateString()}`
+            : "Evidence date unknown"}
+        </span>
         <div style={{ flex: 1, minWidth: 0, marginLeft: 2 }}>
           <div style={{ fontSize: 15, fontWeight: 650, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}

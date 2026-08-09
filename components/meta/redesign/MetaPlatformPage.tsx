@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2759,6 +2760,19 @@ export function MetaPlatformPage({
   }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
+
+  // One freshness contract, reported from the query state this surface already
+  // has. Deriving it from a second read would create exactly the disagreement
+  // this replaces.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    isLoading: briefingLoading,
+    isFetching: workspaceQuery.isFetching,
+    error: briefingError,
+    asOf: laneSnapshotDate,
+    businessId,
+    onRetry: () => void workspaceQuery.refetch(),
+  });
   const deferredCount =
     localDeferredIds.size +
     campaignDefer.deferredCount +
@@ -4293,6 +4307,7 @@ export function MetaPlatformPage({
                   moneyCurrency={moneyCurrency}
                   targetRoas={targetRoas}
                   item={drillItem}
+                  asOf={laneSnapshotDate}
                   variant="push"
                   onClose={closeDrill}
                   onLaunch={
@@ -4653,6 +4668,7 @@ export function MetaPlatformPage({
           moneyCurrency={moneyCurrency}
           targetRoas={targetRoas}
           item={drillItem}
+          asOf={laneSnapshotDate}
           variant="overlay"
           onClose={closeDrill}
           onLaunch={

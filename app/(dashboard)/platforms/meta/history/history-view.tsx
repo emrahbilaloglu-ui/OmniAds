@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   AlertTriangle,
   Archive,
@@ -480,6 +481,7 @@ function HistoryFilters({
 }
 
 export default function MetaHistoryView() {
+
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const business = businesses.find((item) => item.id === selectedBusinessId) ?? null;
@@ -497,9 +499,25 @@ export default function MetaHistoryView() {
   const [newerPageCursors, setNewerPageCursors] = useState<Array<string | null>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    // A first read with nothing on screen is "we do not know yet"; a reload
+    // with entries already shown is "checking for newer".
+    isLoading: loading && !payload,
+    isFetching: loading,
+    error,
+    // The journal is a cursor read, so the newest entry it returned is the
+    // honest as-of. Claiming "now" would overstate what we fetched.
+    asOf: entries[0]?.occurredAt ?? null,
+    businessId: payload?.scope.businessId ?? selectedBusinessId ?? null,
+  });
 
   useEffect(() => {
     if (!selectedBusinessId) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
 import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useMemo, useState } from "react";
@@ -360,6 +361,7 @@ function downloadSearchTermCsv(csv: string, filename: string) {
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
+
   const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
@@ -602,6 +604,17 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     staleTime: 30 * 1000,
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(query.state.data),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "google_ads",
+    isLoading,
+    asOf: resolvedGoogleReferenceDate,
+    error: isError ? "google_ads_unreadable" : null,
+    businessId,
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({

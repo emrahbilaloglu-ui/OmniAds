@@ -110,7 +110,17 @@ export function SummaryAttributionTable({
         </DropdownMenu>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
+      {/*
+        Below 768px this table stacks into one card per channel.
+
+        A horizontal scroller looks like it works and is not: at 390px it hid
+        135px of this table, so a channel's ROAS and conversions sat off-screen
+        with nothing indicating there was more. Someone comparing channels on a
+        phone would compare the two columns that happened to fit. Cards show
+        every visible metric for a channel at once, which is what the
+        comparison actually needs.
+      */}
+      <div className="hidden overflow-x-auto rounded-xl border border-neutral-200 bg-white md:block">
         <table className="min-w-full divide-y divide-neutral-200 text-sm tabular-nums">
           <thead className="bg-neutral-50">
             <tr>
@@ -216,8 +226,87 @@ export function SummaryAttributionTable({
           </tbody>
         </table>
       </div>
+
+      <ul className="flex flex-col gap-2 md:hidden" data-testid="attribution-cards">
+        {filteredRows.map((row) => (
+          <li
+            key={row.channel}
+            className="rounded-xl border border-neutral-200 bg-white p-3"
+          >
+            <div className="flex items-center gap-2">
+              <ChannelBadge channel={row.channel} />
+              <span className="text-sm font-medium text-neutral-900">
+                {row.channel}
+              </span>
+            </div>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+              {[...DEFAULT_COLUMNS, ...OPTIONAL_COLUMNS]
+                .filter(
+                  (column) =>
+                    column.key !== "channel" &&
+                    visibleColumns.includes(column.key),
+                )
+                .map((column) => (
+                  <div key={column.key} className="flex flex-col">
+                    <dt className="text-[12px] text-neutral-500">
+                      {columnHeading(column)}
+                    </dt>
+                    <dd className="text-sm font-medium tabular-nums text-neutral-900">
+                      {cellValue(row, column.key)}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
     </div>
   );
+
+  /** The heading a column shows, in the reader's language. */
+  function columnHeading(column: { key: SortKey; label: string }) {
+    switch (column.key) {
+      case "channel":
+        return tr(language, "Channel", "Kanal");
+      case "revenue":
+        return tr(language, "Revenue", "Gelir");
+      case "conversions":
+        return tr(language, "Conversions", "Donusumler");
+      case "clicks":
+        return tr(language, "Clicks", "Tiklamalar");
+      default:
+        return column.label;
+    }
+  }
+
+  /**
+   * One formatter for both layouts.
+   *
+   * The card stack must show the same number the table would; formatting a
+   * value twice is how a phone and a desktop end up disagreeing about spend.
+   */
+  function cellValue(row: OverviewAttributionRow, key: SortKey) {
+    switch (key) {
+      case "spend":
+        return formatCurrency(row.spend, currencySymbol);
+      case "revenue":
+        return formatCurrency(row.revenue, currencySymbol);
+      case "roas":
+        return formatRatio(row.roas);
+      case "conversions":
+        return formatCount(row.conversions);
+      case "clicks":
+        return formatCount(row.clicks);
+      case "ctr":
+        return formatPercent(row.ctr);
+      case "cpa":
+        return formatCurrency(row.cpa, currencySymbol);
+      case "aov":
+        return formatCurrency(row.aov, currencySymbol);
+      case "channel":
+        return row.channel;
+    }
+  }
 
   function toggleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {

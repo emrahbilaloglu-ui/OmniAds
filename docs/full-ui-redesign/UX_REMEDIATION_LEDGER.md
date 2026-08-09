@@ -544,7 +544,7 @@ Calling that "not contractable" was the error; the work is what closes it.
 | Guarded confirmed / provider-attempted / verified / failed / ambiguous / reconciled | Emitted at the actual transitions in `lib/meta/ads-action-log.ts` — confirmed when the claim row is inserted, provider-attempted inside the transaction *after* lineage validation so a refused attempt is never counted, and the completion event mapped from the recorded outcome. `lib/meta/manual-ad-status-reconciliation.ts` emits `guarded_action_reconciled` only when an ambiguity is actually closed, never on a blocked, still-settling or unnecessary run. `META_GUARDED_EXECUTION_ENABLED` stays unset; the fake-provider and Postgres seams exercise the production transitions | `lib/meta/ads-action-log.test.ts`, `lib/meta/manual-ad-status-reconciliation.test.ts`, `scripts/ephemeral-postgres-manual-ad-status-route-seam-child.ts` (real Postgres) |
 | Mobile Tier-0 start/complete | `components/meta/os/MobileTier0Triage.tsx`, capability-gated on phone width and on whether ownership can be read, mounted in `components/meta/os/DecisionsOsView.tsx`. D5 still keeps provider mutation off mobile — it suppresses unsafe writes, it does not excuse missing telemetry for the triage task mobile *is* permitted to do. A task opened and abandoned records a start with no completion, which is the honest signal | `components/meta/os/mobile-tier0-triage.test.tsx` |
 | Google deep-link used | `lib/google-ads/deep-link.ts` builds permission/account/entity-scoped links and refuses rather than guesses: no link without a numeric customer id, and a campaign link without a campaign id is refused rather than silently downgraded to an account link. Rendered in `components/google-ads/GoogleAdsIntelligenceDashboard.tsx`, and the anchor renders only when the builder returned a destination | `lib/google-ads/deep-link.test.ts`, `lib/google-ads/deep-link-wiring.test.ts` |
-| Freshness adoption breadth | One contract across all ten Tier-0 surfaces via `components/states/TierZeroFreshness.tsx`, `components/states/useTierZeroFreshness.ts` and `store/tier-zero-freshness-store.ts`, mounted once in `components/layout/dashboard-frame.tsx`. The Decisions inspector, which had no date on its evidence at all, now carries the lane snapshot date | `lib/tier-zero-freshness-coverage.test.ts`, `components/states/tier-zero-freshness.test.tsx`, `lib/tier-zero-idle-tab-revalidation.test.ts`, `app/api/reports/tier-zero-freshness.route.test.ts`, and the six-width freshness evidence under `docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/` |
+| Freshness adoption breadth | One contract across all ten Tier-0 surfaces via `components/states/TierZeroFreshness.tsx`, `components/states/useTierZeroFreshness.ts` and `store/tier-zero-freshness-store.ts`, mounted in both frames in `components/layout/dashboard-frame.tsx` (the console one and the legacy one Overview renders through). The Decisions inspector, which had no date on its evidence at all, now carries the lane snapshot date | `lib/tier-zero-freshness-coverage.test.ts`, `components/states/tier-zero-freshness.test.tsx`, `lib/tier-zero-idle-tab-revalidation.test.ts`, `app/api/reports/tier-zero-freshness.route.test.ts`, and the six-width freshness evidence under `docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/` |
 
 **Found while capturing the freshness evidence, and fixed.** The History journal compared a UUID
 `business_id` against the text `$1` on `meta_ads_action_mutation_attempt_events`. Because the
@@ -555,6 +555,28 @@ six-width run caught it and the unit suite did not.
 `lib/meta/history-sql-parameter-types.test.ts` now reads each branch's table out of the migrations
 and fails on any uncast UUID comparison; it was confirmed to fail on the pre-fix SQL rather than
 pass vacuously.
+
+**Two silent-surface defects, found by the evidence rather than by reading the code.** Both were
+surfaces whose freshness wiring looked correct and reported nothing:
+
+- `/platforms/meta` renders `DecisionsOsView`, not `MetaPlatformPage`, and `/platforms/meta/creatives`
+  renders its own page, not `CreativeStudioWorkspace`. The wiring had been added to components those
+  routes had stopped rendering. Each file passed its own coverage check while the surface stayed
+  quiet. The coverage test now follows the route: the route must reference the component it is
+  credited with rendering.
+- Overview renders through `LegacyDashboardFrame`, and the bar was mounted only in `ConsoleTopbar`.
+  Overview was reporting its data age to a bar that was never on screen. The coverage test now
+  counts frames against bar mounts, and the smoke fails outright when a Tier-0 surface renders no
+  reading at all — silence is the failure the contract exists to prevent, and it is how a surface
+  goes quiet without anyone noticing.
+
+**Three surfaces read "age unknown", and that is the intended answer.** Launchpad, Automation and
+Reports have no timestamp on the data they read — Automation's business control may never have been
+configured, Reports has no rows until one is created, and Launchpad composes from live reads.
+Stamping the fetch time would claim a freshness we do not know: it would say the *request* was
+recent, which is not the same as the data being recent, and that is exactly the "unknown presented
+as known" substitution this whole contract exists to remove. They say the age is unknown until
+there is a real timestamp to show.
 
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.
@@ -593,7 +615,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | A-7 | Flagship report renders 7/7 widgets | `blocked_external` | in-process transport + widget failure isolation | `90838abb9` | — | owner (pending) | Root cause addressed; only a signed-in production render can confirm |
 | A-8 | Share and print reproduce the on-screen window | `local_pass` | `share-period-fidelity` tests | `4cd8f59cc` | local | owner (pending) | Not confirmed against a live share link |
 | A-9 | A failed widget is visible, scoped and never becomes empty data | `local_pass` | `report-widget-failure` tests | `90838abb9` | local | owner (pending) | — |
-| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client`, `data-freshness`, `tier-zero-freshness-coverage`, `tier-zero-idle-tab-revalidation`, `tier-zero-freshness` component and route tests, plus six-width rendered freshness evidence | `ec5b46ddf`, `eb94e0551`, `b153e585b` | local | owner (pending) | All ten Tier-0 surfaces report through one contract; revalidation proven through a real `QueryObserver` rather than by reading the config flag |
+| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client`, `data-freshness`, `tier-zero-freshness-coverage`, `tier-zero-idle-tab-revalidation`, `tier-zero-freshness` component and route tests, plus six-width rendered freshness evidence | `ec5b46ddf`, `eb94e0551`, `b153e585b`, `16fbfcbb2`, `7423f6644` | local | owner (pending) | All ten Tier-0 surfaces report through one contract, verified in a browser at six widths rather than by file inspection; revalidation proven through a real `QueryObserver` rather than by reading the config flag |
 | A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts`, `decisions-error-recovery` tests | `ec5b46ddf`, `178cf6e89` | local | owner (pending) | — |
 
 ### Gate B — credible co-pilot

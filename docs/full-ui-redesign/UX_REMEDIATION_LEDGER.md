@@ -390,7 +390,7 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 591 files changed, +61247 / −4283, across 109 commits
+**Scope vs `origin/main`:** 596 files changed, +61470 / −4362, across 112 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
 
 These are recomputed against the commit that contains this line, which is why they are stated here
@@ -621,6 +621,18 @@ reads and shows no historical figures, and the test lists it explicitly so the e
 defended rather than assumed. Audiences reports nothing because it is a declared planned surface
 that renders no data. Any other surface hardcoding `asOf: null` now fails
 `lib/tier-zero-as-of.test.ts`.
+
+**Reading the artifacts correctly.** Several surfaces render "age unknown" in the committed
+evidence. That is the *fixture* speaking, not a missing contract: the smoke seeds a Meta decision
+account and little else, so there are no Shopify sync rows for Overview, no completed provider syncs
+for Integrations, no configured business control for Automation, no snapshot rows for Creative
+Studio, and no Google accounts assigned at all — which Google reports as `partial` with the reason
+named rather than as a bare unknown. Each of those surfaces asks its route for a real timestamp and
+is told there is none, which is exactly what it should then say.
+
+The wiring is proven by `lib/tier-zero-as-of.test.ts` — which asserts the routes publish the
+timestamps and the surfaces read them — not by whether a fixture happens to carry data. A surface
+that rendered a confident date over an empty warehouse would be the defect.
 
 **Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
 physical device — none has a local component that was skipped.

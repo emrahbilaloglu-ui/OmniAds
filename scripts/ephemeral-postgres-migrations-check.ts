@@ -2613,15 +2613,17 @@ async function main() {
       ),
       "entity state history DB seam check",
     );
-    // D066 (decision-fact ownership) is deliberately NOT integrated in this
-    // candidate, so its seam is not run. Making it true in code requires
-    // upsertMetaAdDailyRows to demand an explicit "authoritative_fact" write
-    // mode, and current main's creative-enrichment path in
-    // lib/meta/creatives-warehouse.ts writes Ad daily rows without one. Adding
-    // the gate would silently stop those writes and change production sync
-    // behaviour, which is an owner decision rather than an integration detail.
-    // Recorded in UX_REMEDIATION_LEDGER.md; every other D06x decision is
-    // integrated and evidenced.
+    // D066 requires a real PostgreSQL seam: a mocked SQL-shape test cannot show
+    // what actually landed in meta_ad_daily.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-ad-daily-ownership-seam-child.ts",
+      ),
+      "decision-fact ownership DB seam check",
+    );
     // The D069 duplicate-ad reconciliation seam is not run here. Its child
     // script drives a fake provider through the real write path, and current
     // main's pre-POST guards (resolveMetaAccountAuthority and

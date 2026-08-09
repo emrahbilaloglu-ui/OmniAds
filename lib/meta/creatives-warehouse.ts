@@ -1025,8 +1025,18 @@ async function syncMetaCreativesAccountDay(input: {
         )
       : [];
 
+  // D066: creatives metadata sync performs ZERO meta_ad_daily writes.
+  //
+  // meta_ad_daily is decision-fact storage owned only by authoritative insights
+  // sync. This path used to write it too, which made creative enrichment a
+  // second decision-fact writer: even a presentation-looking Ad-name change
+  // alters the canonical input hash while leaving an old row cutoff-visible.
+  //
+  // Nothing is lost. The economic metrics here are the same day's figures the
+  // authoritative sync writes from the insights endpoint, and every field this
+  // path uniquely owns is persisted by the three dedicated writers below:
+  // creative daily facts, creative dimensions, and media presentation storage.
   await Promise.all([
-    upsertMetaAdDailyRows(adDailyRows),
     upsertMetaCreativeDailyRows(creativeDailyRows),
     upsertMetaCreativeMediaRows(creativeMediaRows),
   ]);

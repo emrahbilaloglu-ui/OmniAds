@@ -9049,7 +9049,9 @@ export async function replaceMetaAdDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
-    await upsertMetaAdDailyRows(input.rows);
+    await upsertMetaAdDailyRows(input.rows, {
+      writeMode: "authoritative_fact",
+    });
     const adIds = input.rows.map((row) => row.adId);
     await sql`
       DELETE FROM meta_ad_daily
@@ -9805,7 +9807,37 @@ async function upsertMetaCreativeDimensionRows(
   }
 }
 
-export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
+/**
+ * Who may write a decision fact (D066).
+ *
+ * `meta_ad_daily` is decision-fact storage owned only by authoritative insights
+ * sync. The mode is required and has exactly one legal value, so authority is
+ * always declared and never inferred from a caller's context.
+ *
+ * The former `creative_enrichment` lane is gone on purpose: even a
+ * presentation-looking Ad-name change alters the canonical input hash while
+ * leaving an old row cutoff-visible, so a second writer cannot be "harmless".
+ */
+export interface MetaAdDailyWriteOptions {
+  writeMode: "authoritative_fact";
+}
+
+export const META_AD_DAILY_UNAUTHORIZED_WRITE_CODE =
+  "meta_ad_daily_write_mode_unauthorized";
+
+export async function upsertMetaAdDailyRows(
+  rows: MetaAdDailyRow[],
+  options: MetaAdDailyWriteOptions,
+) {
+  // Fails closed before any mutation, and before the empty-rows shortcut: an
+  // unauthorized caller must be refused whether or not it happens to have rows.
+  if (options?.writeMode !== "authoritative_fact") {
+    throw new Error(
+      `${META_AD_DAILY_UNAUTHORIZED_WRITE_CODE}: meta_ad_daily is owned by authoritative insights sync; received ${JSON.stringify(
+        options?.writeMode ?? null,
+      )}`,
+    );
+  }
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -9862,7 +9894,9 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.validationStatus ?? "passed",
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
-          JSON.stringify(row.payloadJson ?? null)
+          JSON.stringify(
+            stripMetaCreativeMediaPayload(row.payloadJson ?? null),
+          )
         );
         return buildSqlValueTuple(offset, 40, { 40: "::jsonb" });
       })

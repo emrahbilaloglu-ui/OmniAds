@@ -1276,6 +1276,16 @@ test.describe("full UI redesign route and visual smoke", () => {
               text: "",
               hasRetry: false,
             });
+            // Silence is the failure this whole contract exists to prevent: a
+            // surface that says nothing about the age of its data reads as
+            // current. It is also how a surface goes quiet without anyone
+            // noticing -- wiring added to a component the route stopped
+            // rendering, or a route on a frame with no bar mounted. Both
+            // happened; neither showed up anywhere else.
+            expect(
+              reading,
+              `${shot.path} rendered no freshness reading at ${shotPage.viewportSize()?.width}px; silence reads as "current"`,
+            ).not.toBeNull();
           }
         }
 

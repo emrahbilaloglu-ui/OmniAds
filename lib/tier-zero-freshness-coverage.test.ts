@@ -106,9 +106,19 @@ describe("every Tier-0 surface reports its data age", () => {
     });
   }
 
-  it("renders through one shared contract, mounted once", () => {
+  it("mounts the shared bar in every frame a Tier-0 route can render through", () => {
+    // There are two frames. Overview goes through the legacy one, and the bar
+    // was mounted only in the console one -- so Overview reported its data age
+    // to a bar that was not on screen. Counting the mounts is what catches a
+    // frame being added or a route being moved between them.
     const frame = readFileSync("components/layout/dashboard-frame.tsx", "utf8");
-    expect(frame).toContain("TierZeroFreshnessBar");
+    const frames = frame.match(/^function \w*(?:Dashboard)?Frame\(/gm) ?? [];
+    const mounts = frame.match(/<TierZeroFreshnessBar \/>/g) ?? [];
+    expect(frames.length).toBeGreaterThan(0);
+    expect(
+      mounts.length,
+      `${frames.length} frame(s) but ${mounts.length} freshness bar mount(s); a route on an unmounted frame reports its age to nothing`,
+    ).toBeGreaterThanOrEqual(2);
   });
 });
 

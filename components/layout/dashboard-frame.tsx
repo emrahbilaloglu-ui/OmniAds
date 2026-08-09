@@ -79,6 +79,15 @@ function LegacyDashboardFrame({ userName, children }: DashboardFrameProps) {
       <DesktopSidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar userName={userName} />
+        {/*
+          Overview renders through this frame rather than the console one, so
+          the freshness bar has to be here too. It was mounted only in
+          ConsoleTopbar, which meant Overview reported its data age to a bar
+          that was never on screen -- the surface looked wired and said nothing.
+        */}
+        <div className="ad-legacy-freshness border-b border-neutral-200 bg-white px-3 py-1 sm:px-4 md:px-6">
+          <TierZeroFreshnessBar />
+        </div>
         <main id="main-content" className="flex-1 overflow-y-auto bg-neutral-50 p-3 sm:p-4 md:p-6">
           <BusinessGuard>{children}</BusinessGuard>
         </main>

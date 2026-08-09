@@ -390,9 +390,15 @@ disagree, this section wins.
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 493 files changed, +76,054 / −4,253, across 100 commits
+**Scope vs `origin/main`:** 591 files changed, +61247 / −4283, across 109 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
-Recomputed after the final commit, not carried forward from an earlier revision.
+
+These are recomputed against the commit that contains this line, which is why they are stated here
+rather than carried forward: every earlier revision of this ledger quoted numbers that were true
+when they were written and false by the time anyone read them. The commit holding this paragraph
+changes the counts it reports, so the figures were re-read and the commit amended until the
+commands and the text agree. The final SHA is reported outside the commit, since a commit cannot
+contain its own hash.
 
 ### D066 — decision-fact ownership (complete)
 

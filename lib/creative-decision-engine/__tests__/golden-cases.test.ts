@@ -70,9 +70,10 @@ const BUYER_ACTIONS = [
   "promote_to_main",
   "scale_budget",
   "controlled_scale",
+  "null",
 ] as const;
 
-const ACTIONABILITIES = ["diagnose", "review_only"] as const;
+const ACTIONABILITIES = ["diagnose", "review_only", "blocked"] as const;
 const PROBLEM_CLASSES = [
   "delivery",
   "campaign_context",
@@ -141,6 +142,16 @@ const EXECUTABLE_PRIMARY_CASE_IDS = new Set([
   "GC-082",
   "GC-083",
   "GC-084",
+  "GC-091",
+  "GC-092",
+  "GC-093",
+  "GC-094",
+  "GC-095",
+  "GC-096",
+  "GC-097",
+  "GC-098",
+  "GC-099",
+  "GC-100",
 ]);
 
 function parseCanonicalGoldenCases(): GoldenCase[] {
@@ -503,20 +514,29 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         }),
         baseProfile,
       );
-    case "GC-049":
+    case "GC-049": {
+      const profile = makeAccountDecisionProfile();
       return decideCreative(
         makeCreativeInput({
           spend: 300,
           purchases: 4,
           roas: 1.65,
           recent7dRoas: 1.6,
+          breakevenRoas: 1.5,
           linkClicks: 400,
           landingPageViews: 300,
           addToCart: 40,
           initiateCheckout: 20,
         }),
-        baseProfile,
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            breakEvenRoas: 1.5,
+          },
+        },
       );
+    }
     case "GC-050":
       return decideCreative(
         makeCreativeInput({
@@ -890,6 +910,131 @@ function decideGoldenPrimary(caseId: string): DecisionOutput {
         },
       );
     }
+    case "GC-091":
+    case "GC-092":
+    case "GC-093":
+    case "GC-094":
+    case "GC-095":
+    case "GC-096":
+    case "GC-097": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: { bottomQuartileRatio: 0.52 },
+      });
+      const common = {
+        spend: 1500,
+        purchases: 12,
+        targetRoas: 2,
+        breakevenRoas: 1.56,
+      };
+      const byCase = {
+        "GC-091": {
+          roas: 1.2,
+          recent7dRoas: 1.56,
+          recent7dSpend: 80,
+        },
+        "GC-092": {
+          roas: 1.2,
+          recent7dRoas: 1.7,
+          recent7dSpend: 80,
+        },
+        "GC-093": {
+          roas: 1.2,
+          recent7dRoas: null,
+          recent7dSpend: null,
+        },
+        "GC-094": {
+          roas: 1.2,
+          recent7dRoas: 1.2,
+          recent7dSpend: 49,
+        },
+        "GC-095": {
+          roas: 0.8,
+          recent7dRoas: 0.8,
+          recent7dSpend: 49,
+        },
+        "GC-096": {
+          roas: 1.2,
+          recent7dRoas: 0.7,
+          recent7dSpend: 80,
+          fatigueStatus: "fatigued" as const,
+        },
+        "GC-097": {
+          roas: 1.56,
+          recent7dRoas: 1.2,
+          recent7dSpend: 80,
+        },
+      } as const;
+      return decideCreative(
+        makeCreativeInput({ ...common, ...byCase[caseId] }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 2,
+            breakEvenRoas: 1.56,
+          },
+        },
+      );
+    }
+    case "GC-098": {
+      const profile = makeAccountDecisionProfile({
+        thresholds: {
+          bottomQuartileRatio: 0.2,
+          severeLoserRatio: 0.4,
+          hardCutSpend: 250,
+          commercialMaturitySpend: 500,
+        },
+      });
+      return decideCreative(
+        makeCreativeInput({
+          spend: 323,
+          purchases: 10,
+          roas: 1.05,
+          recent7dRoas: 0.9,
+          recent7dSpend: 80,
+          targetRoas: 3.5,
+          breakevenRoas: 1,
+        }),
+        {
+          ...profile,
+          spendUnitEvidence: {
+            ...profile.spendUnitEvidence,
+            targetRoas: 3.5,
+            breakEvenRoas: 1,
+          },
+        },
+      );
+    }
+    case "GC-099": {
+      return decideCreative(
+        makeCreativeInput({
+          effectiveCohort: "purchase",
+          spend: 500,
+          purchases: 0,
+          purchaseValue: 600,
+          roas: 1.2,
+          recent7dSpend: 100,
+          recent7dPurchases: 0,
+          recent7dRoas: 0,
+        }),
+        makeAccountDecisionProfile(),
+      );
+    }
+    case "GC-100": {
+      return decideCreative(
+        makeCreativeInput({
+          effectiveCohort: "purchase",
+          spend: 500,
+          purchases: 8,
+          purchaseValue: 500,
+          roas: 1,
+          recent7dSpend: 100,
+          recent7dPurchases: 2,
+          recent7dRoas: 0,
+        }),
+        makeAccountDecisionProfile(),
+      );
+    }
     default:
       throw new Error(`Golden case ${caseId} is not executable in active V3.`);
   }
@@ -947,7 +1092,7 @@ const pendingCases = fixtureCases.filter(
 describe("Creative Decision Center golden cases", () => {
   it("keeps the executable fixture in lockstep with GOLDEN_CASES.md", () => {
     expect(fixtureCases).toEqual(parseCanonicalGoldenCases());
-    expect(fixtureCases).toHaveLength(80);
+    expect(fixtureCases).toHaveLength(92);
   });
 
   it("asserts the full contract surface for every canonical case", () => {
@@ -1019,9 +1164,19 @@ describe("Creative Decision Center golden cases", () => {
       "GC-082",
       "GC-083",
       "GC-084",
+      "GC-091",
+      "GC-092",
+      "GC-093",
+      "GC-094",
+      "GC-095",
+      "GC-096",
+      "GC-097",
+      "GC-098",
+      "GC-099",
+      "GC-100",
     ]);
 
-    expect(pendingCases).toHaveLength(37);
+    expect(pendingCases).toHaveLength(39);
     for (const item of pendingCases) {
       expect(pendingReason(item), item.caseId).not.toMatch(
         /undefined|unknown/i,
@@ -1043,6 +1198,21 @@ describe("Creative Decision Center golden cases", () => {
       expectPrimaryLabel(output, expectedLabel as DecisionLabel);
     },
   );
+
+  it("fails both cumulative and recent purchase-truth goldens closed before hard actions", () => {
+    for (const caseId of ["GC-099", "GC-100"]) {
+      const output = decideGoldenPrimary(caseId);
+      expect(output).toMatchObject({
+        label: "diagnose",
+        preAuthorityLabel: "diagnose",
+        authorityBlocker: null,
+        blockedActionType: null,
+      });
+      expect(output.badges.map((badge) => badge.type)).toContain(
+        "tracking_anomaly",
+      );
+    }
+  });
 
   it("locks phase-end guardrail semantics for recovery and freshness golden cases", () => {
     const recovery = decideGoldenPrimary("GC-059");

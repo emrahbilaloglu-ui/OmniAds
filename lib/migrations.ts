@@ -1,3 +1,4 @@
+import { DECISION_AUTHORITY_BLOCKERS } from "@/lib/creative-decision-engine/types";
 import {
   getDb,
   getDbWithTimeout,
@@ -61,6 +62,9 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+const AUTHORITY_BLOCKER_CHECK_VALUES_SQL = DECISION_AUTHORITY_BLOCKERS.map(
+  (value) => `'${value.replaceAll("'", "''")}'`,
+).join(", ");
 
 function authorityProvenanceSchemaSql(
   table: string,
@@ -1641,6 +1645,83 @@ async function hasPartialNonIdempotentNativeSchema(
   );
 }
 
+export const D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL = `
+DO $d063_authority_blocker$
+DECLARE
+  target RECORD;
+  canonical_ready BOOLEAN;
+  temporary_constraint_name TEXT;
+BEGIN
+  PERFORM pg_advisory_xact_lock(
+    hashtext('engine-v3-d063-authority-blocker-constraints')
+  );
+
+  FOR target IN
+    SELECT *
+    FROM (VALUES
+      ('engine_v3_decision_snapshots_daily',
+       'engine_v3_decision_snapshots_authority_blocker_check'),
+      ('engine_v3_decision_outcomes_daily',
+       'engine_v3_decision_outcomes_authority_blocker_check'),
+      ('engine_v3_ad_decision_snapshots_daily',
+       'engine_v3_ad_snapshots_authority_blocker_check'),
+      ('engine_v3_ad_decision_outcomes_daily',
+       'engine_v3_ad_outcomes_authority_blocker_check')
+    ) AS constraints(table_name, constraint_name)
+  LOOP
+    CONTINUE WHEN to_regclass(target.table_name) IS NULL;
+
+    canonical_ready := FALSE;
+    SELECT constraint_row.convalidated
+      AND POSITION(
+        'recent_recovery_unverifiable' IN
+        LOWER(pg_get_constraintdef(constraint_row.oid, TRUE))
+      ) > 0
+    INTO canonical_ready
+    FROM pg_constraint constraint_row
+    WHERE constraint_row.conrelid = to_regclass(target.table_name)
+      AND constraint_row.conname = target.constraint_name
+      AND constraint_row.contype = 'c';
+
+    CONTINUE WHEN COALESCE(canonical_ready, FALSE);
+
+    temporary_constraint_name := target.constraint_name || '_d063';
+    EXECUTE format(
+      'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      $d063_check$
+      ALTER TABLE %I ADD CONSTRAINT %I
+      CHECK (authority_blocker IS NULL OR authority_blocker IN (
+        ${AUTHORITY_BLOCKER_CHECK_VALUES_SQL}
+      )) NOT VALID
+      $d063_check$,
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I VALIDATE CONSTRAINT %I',
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+      target.table_name,
+      target.constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+      target.table_name,
+      temporary_constraint_name,
+      target.constraint_name
+    );
+  END LOOP;
+END
+$d063_authority_blocker$;
+`;
+
 async function runNativeAdSchemaMigrations(
   timeoutMs: number,
   verifyCapabilities: boolean,
@@ -1649,6 +1730,8 @@ async function runNativeAdSchemaMigrations(
     async () => {
       const db = getDbWithTimeout(timeoutMs);
       const inspectorDb = createMigrationDb(db);
+
+      await db.query(D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL);
 
       // SQL-capture unit tests exercise the emitted migration text with a
       // deliberately non-stateful DB mock. Production and the ephemeral

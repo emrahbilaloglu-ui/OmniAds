@@ -91,12 +91,95 @@ describe("diagnoseGate", () => {
     );
   });
 
+  it("fails closed when zero purchases contradict positive value and ROAS", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveCohort: "purchase",
+          purchases: 0,
+          purchaseValue: 600,
+          roas: 2,
+          spend: 300,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.preAuthorityLabel).toBe("diagnose");
+    expect(output.blockedActionType).toBeNull();
+    expect(output.reason).toContain("contradictory purchase truth");
+    expect(output.badges).toContainEqual({
+      type: "tracking_anomaly",
+      label: "Tracking anomaly",
+      severity: "warning",
+    });
+  });
+
+  it("fails closed when positive purchases contradict zero value and ROAS", () => {
+    const output = terminalOutput(
+      diagnoseGate(
+        resolvedContext({
+          effectiveCohort: "purchase",
+          purchases: 4,
+          purchaseValue: 0,
+          roas: 0,
+          spend: 300,
+        }),
+      ),
+    );
+
+    expect(output.label).toBe("diagnose");
+    expect(output.preAuthorityLabel).toBe("diagnose");
+    expect(output.blockedActionType).toBeNull();
+    expect(output.reason).toContain("4 purchases conflicts");
+    expect(output.badges).toContainEqual(
+      expect.objectContaining({ type: "tracking_anomaly" }),
+    );
+  });
+
+  it("preserves coherent purchase truth in both zero and positive cases", () => {
+    const coherentZero = diagnoseGate(
+      resolvedContext({
+        effectiveCohort: "purchase",
+        purchases: 0,
+        purchaseValue: 0,
+        roas: 0,
+        ctr: null,
+        impressions: null,
+        linkClicks: null,
+        outboundClicks: null,
+        landingPageViews: null,
+        addToCart: null,
+        initiateCheckout: null,
+        thumbstop: null,
+      }),
+    );
+    const coherentPositive = diagnoseGate(
+      resolvedContext({
+        effectiveCohort: "purchase",
+        purchases: 4,
+        purchaseValue: 300,
+        roas: 1,
+        spend: 300,
+        impressions: 5000,
+        linkClicks: 100,
+        landingPageViews: 80,
+        addToCart: 20,
+        initiateCheckout: 10,
+      }),
+    );
+
+    expect(coherentZero.kind).toBe("advance");
+    expect(coherentPositive.kind).toBe("advance");
+  });
+
   it("adds a warning but does not diagnose active creatives with no recent spend", () => {
     const result = diagnoseGate(
       resolvedContext({
         effectiveStatus: "ACTIVE",
         recent7dSpend: 0,
         spend: 500,
+        accountCurrency: "GBP",
       }),
     );
 
@@ -105,7 +188,7 @@ describe("diagnoseGate", () => {
       expect(result.context.badges).toContainEqual({
         type: "delivery_limited",
         label:
-          "Active creative has 0 spend in last 7d after $500 28d spend; treat as low-delivery warning, not creative failure",
+          "Active creative has 0 spend in last 7d after GBP 500 28d spend; treat as low-delivery warning, not creative failure",
         severity: "info",
       });
       expect(result.context.confidenceDeltas).toContain(-5);
@@ -338,6 +421,8 @@ describe("diagnoseGate", () => {
         addToCart: 0,
         initiateCheckout: 0,
         purchases: 0,
+        purchaseValue: 0,
+        roas: 0,
       }),
     );
 
@@ -349,13 +434,14 @@ describe("diagnoseGate", () => {
       diagnoseGate(
         resolvedContext({
           spend: 500,
-          roas: 1,
+          roas: 0,
           impressions: 5000,
           linkClicks: 100,
           landingPageViews: 80,
           addToCart: 0,
           initiateCheckout: 0,
           purchases: 0,
+          purchaseValue: 0,
         }),
       ),
     );
@@ -375,13 +461,14 @@ describe("diagnoseGate", () => {
         resolvedContext({
           objective: "OUTCOME_SALES",
           spend: 500,
-          roas: 1,
+          roas: 0,
           impressions: 5000,
           linkClicks: 100,
           landingPageViews: 80,
           addToCart: 20,
           initiateCheckout: 10,
           purchases: 0,
+          purchaseValue: 0,
         }),
       ),
     );

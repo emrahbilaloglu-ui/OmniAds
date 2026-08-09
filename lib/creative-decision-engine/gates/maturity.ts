@@ -1,10 +1,16 @@
 import { finalizeDecision, type GateContext, type GateResult } from "./types";
 import { LAUNCH_MONITOR_WINDOW_DAYS } from "../config-values";
 import { comparisonLabel, formatReasonNumber } from "./reason-format";
+import {
+  effectiveCommercialStopLossThresholds,
+  hasExplicitBreakEven,
+  isBelowExplicitBreakEven,
+  maturitySpendThresholdFor,
+  resolveCanonicalCutZoneGeometry,
+  resolveSevereMaturityCutMatch,
+} from "./cut-policy";
 
-function positiveFinite(value: number | null | undefined): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
+export { isBelowExplicitBreakEven } from "./cut-policy";
 
 function dateOnlyMs(value: string | null | undefined) {
   if (typeof value !== "string" || value.trim().length === 0) return null;
@@ -24,68 +30,75 @@ function launchAgeDays(ctx: GateContext) {
   return Math.floor((generatedAt - launchAt) / 86_400_000);
 }
 
-export function commercialMaturitySpendThreshold(ctx: GateContext): number {
-  const minSpendFloor = ctx.profile.thresholds.recentSampleMinSpend ?? 50;
-  const configuredThreshold = ctx.profile.thresholds.commercialMaturitySpend;
-  if (positiveFinite(configuredThreshold)) {
-    return Math.max(minSpendFloor, configuredThreshold);
-  }
+export function commercialStopLossThresholds(ctx: GateContext) {
+  return effectiveCommercialStopLossThresholds(ctx);
+}
 
-  const accountCpaP50 =
-    ctx.profile.accountBaselines.accountCpaP50 ??
-    ctx.profile.spendUnitEvidence.accountCpaP50;
-
-  if (positiveFinite(accountCpaP50)) {
-    return Math.max(minSpendFloor, accountCpaP50 * ctx.profile.multipliers.lossBudget);
-  }
-
-  if (positiveFinite(ctx.profile.thresholds.sustainedLoserSpend)) {
-    return Math.max(minSpendFloor, ctx.profile.thresholds.sustainedLoserSpend);
-  }
-
-  return (
-    ctx.profile.accountBaselines.matureSpendP50 ??
-    ctx.profile.thresholds.recentSampleMinSpend ??
-    300
-  );
+export function commercialMaturitySpendThreshold(
+  ctx: GateContext,
+  mode: "default" | "commercial_stop_loss" = "default",
+): number {
+  const thresholds =
+    mode === "commercial_stop_loss"
+      ? effectiveCommercialStopLossThresholds(ctx)
+      : ctx.profile.thresholds;
+  return maturitySpendThresholdFor(ctx, thresholds);
 }
 
 export function maturityGate(ctx: GateContext): GateResult {
   const purchases = ctx.input.purchases ?? 0;
   const ageDays = ctx.input.ageDays;
   const ageDaysSuffix = ageDays !== null ? `, age ${ageDays}d` : "";
-  const spendThreshold = commercialMaturitySpendThreshold(ctx);
+  const commercialStopLossThresholdView =
+    effectiveCommercialStopLossThresholds(ctx);
+  const commercialStopLossMode =
+    commercialStopLossThresholdView !== ctx.profile.thresholds;
+  const spendThreshold = commercialMaturitySpendThreshold(
+    ctx,
+    commercialStopLossMode ? "commercial_stop_loss" : "default",
+  );
   const comparison = comparisonLabel(ctx.truthSource);
 
   if (ctx.input.spend < spendThreshold) {
     const ratio = ctx.ratioToTarget;
-    const hardCutSpend = ctx.profile.thresholds.hardCutSpend;
-    const severeLoserRatio = ctx.profile.thresholds.severeLoserRatio;
+    const severeCut = resolveSevereMaturityCutMatch(
+      ctx,
+      commercialStopLossThresholdView,
+    );
 
-    if (
-      ratio !== null &&
-      ctx.input.roas !== null &&
-      hardCutSpend !== null &&
-      severeLoserRatio !== null &&
-      ctx.input.spend >= hardCutSpend &&
-      ratio < severeLoserRatio
-    ) {
-      return {
-        kind: "terminal",
-        output: finalizeDecision(
-          ctx,
-          "cut",
-          `Severe loser at scale: ROAS ${ctx.input.roas.toFixed(2)} = ${(
-            ratio * 100
-          ).toFixed(0)}% of ${comparison} on ${formatReasonNumber(
-            ctx.input.spend,
-          )} spend (28d) — spend exceeded hard-cut threshold ${formatReasonNumber(
-            hardCutSpend,
-          )} and ratio is below severe-loser zone (${(
-            severeLoserRatio * 100
-          ).toFixed(0)}%); decisive cut despite young age / thin sample.`,
-        ),
-      };
+    if (severeCut !== null && ratio !== null && ctx.input.roas !== null) {
+      const cutZone = resolveCanonicalCutZoneGeometry(ctx);
+      // D063's bounded economic strip owns its own recent-evidence tri-state
+      // and must observe working-zone Refresh precedence. Do not let this
+      // earlier severe-loss gate bypass that ordered branch.
+      if (cutZone === "expanded_economic_loss") {
+        return { kind: "advance", context: ctx };
+      }
+
+      // A severe target-relative ratio is not economic-loss authority above
+      // an explicit break-even. If no explicit break-even exists, retain the
+      // prior severe-loss safety path byte-for-byte.
+      if (
+        !hasExplicitBreakEven(ctx) ||
+        isBelowExplicitBreakEven(ctx)
+      ) {
+        return {
+          kind: "terminal",
+          output: finalizeDecision(
+            ctx,
+            "cut",
+            `Severe loser at scale: ROAS ${ctx.input.roas.toFixed(2)} = ${(
+              ratio * 100
+            ).toFixed(0)}% of ${comparison} on ${formatReasonNumber(
+              ctx.input.spend,
+            )} spend (28d) — spend exceeded hard-cut threshold ${formatReasonNumber(
+              severeCut.hardCutSpend,
+            )} and ratio is below severe-loser zone (${(
+              severeCut.severeLoserRatio * 100
+            ).toFixed(0)}%); decisive cut despite young age / thin sample.`,
+          ),
+        };
+      }
     }
 
     const explicitLaunchAgeDays = launchAgeDays(ctx);

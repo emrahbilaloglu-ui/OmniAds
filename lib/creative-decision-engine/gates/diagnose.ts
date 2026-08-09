@@ -1,5 +1,6 @@
 import {
   finalizeDecision,
+  formatAccountCurrencySpend,
   type GateContext,
   type GateResult,
 } from "./types";
@@ -61,6 +62,65 @@ function hasFreshDeliveryEvidence(ctx: GateContext) {
     ctx.input.dataFreshnessHours !== null &&
     ctx.input.dataFreshnessHours <= STALE_TIER_NONE_MAX_HOURS
   );
+}
+
+function finiteNonNegative(value: number | null | undefined): value is number {
+  return (
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+  );
+}
+
+/**
+ * Purchase decisions must not infer economics from internally contradictory
+ * conversion facts. Production hydration can legitimately surface a row while
+ * one aggregate is missing or disagrees with the others, so this belongs in
+ * the canonical diagnose gate rather than in one downstream Cut matcher.
+ */
+function purchaseTruthAnomaly(ctx: GateContext): string | null {
+  if (ctx.input.effectiveCohort !== "purchase") return null;
+
+  const { purchases, purchaseValue, roas, spend } = ctx.input;
+  if (!finiteNonNegative(purchases)) {
+    return "purchase count is missing, negative, or non-finite";
+  }
+  if (!finiteNonNegative(purchaseValue)) {
+    return "purchase value is missing, negative, or non-finite";
+  }
+  if (!finiteNonNegative(roas)) {
+    return "purchase ROAS is missing, negative, or non-finite";
+  }
+
+  if (purchases <= 0 && (purchaseValue > 0 || roas > 0)) {
+    return `0 purchases conflicts with purchase value ${purchaseValue} and ROAS ${roas}`;
+  }
+  if (purchases > 0 && (purchaseValue <= 0 || (spend > 0 && roas <= 0))) {
+    return `${purchases} purchases conflicts with purchase value ${purchaseValue} and ROAS ${roas}`;
+  }
+  if (
+    spend > 0 &&
+    ((purchaseValue <= 0 && roas > 0) ||
+      (purchaseValue > 0 && roas <= 0))
+  ) {
+    return `purchase value ${purchaseValue} conflicts with ROAS ${roas}`;
+  }
+
+  const {
+    recent7dSpend,
+    recent7dPurchases,
+    recent7dRoas,
+  } = ctx.input;
+  if (
+    finiteNonNegative(recent7dSpend) &&
+    recent7dSpend > 0 &&
+    finiteNonNegative(recent7dPurchases) &&
+    finiteNonNegative(recent7dRoas) &&
+    ((recent7dPurchases <= 0 && recent7dRoas > 0) ||
+      (recent7dPurchases > 0 && recent7dRoas <= 0))
+  ) {
+    return `recent purchase count ${recent7dPurchases} conflicts with recent ROAS ${recent7dRoas}`;
+  }
+
+  return null;
 }
 
 function withFreshnessEvidence(ctx: GateContext): GateContext {
@@ -171,6 +231,25 @@ export function diagnoseGate(ctx: GateContext): GateResult {
     );
   }
 
+  const purchaseTruthIssue = purchaseTruthAnomaly(ctx);
+  if (purchaseTruthIssue !== null) {
+    return terminal(
+      {
+        ...ctx,
+        badges: [
+          ...ctx.badges,
+          {
+            type: "tracking_anomaly",
+            label: "Tracking anomaly",
+            severity: "warning",
+          },
+        ],
+      },
+      `Tracking anomaly: contradictory purchase truth (${purchaseTruthIssue}). Verify pixel/CAPI purchase count, value, and ROAS aggregation before acting.`,
+      85,
+    );
+  }
+
   if (isVerifiedNoDelivery24h(ctx)) {
     return terminal(
       {
@@ -204,8 +283,9 @@ export function diagnoseGate(ctx: GateContext): GateResult {
           ...ctx.badges,
           {
             type: "delivery_limited",
-            label: `Active creative has 0 spend in last 7d after $${spend.toFixed(
-              0,
+            label: `Active creative has 0 spend in last 7d after ${formatAccountCurrencySpend(
+              spend,
+              ctx.input.accountCurrency,
             )} 28d spend; treat as low-delivery warning, not creative failure`,
             severity: "info",
           },

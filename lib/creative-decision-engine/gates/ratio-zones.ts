@@ -15,12 +15,33 @@ import {
   TARGET_BAND_MIN_RATIO,
   UNCALIBRATED_CUT_RATIO_FALLBACK,
   WEAK_TARGET_MAX_RATIO,
-  CUT_BOUNDARY_RATIO_CLAMP,
 } from "../config-values";
 import { computeFunnelDiagnosis, hasUpperFunnelStrength } from "../funnel";
-import { finalizeDecision, type GateContext, type GateResult } from "./types";
-import { commercialMaturitySpendThreshold } from "./maturity";
+import {
+  finalizeDecision,
+  type DecisionAuthorityHold,
+  type GateContext,
+  type GateResult,
+} from "./types";
+import {
+  commercialMaturitySpendThreshold,
+  commercialStopLossThresholds,
+} from "./maturity";
+import {
+  hasCanonicalRecentRecovery,
+  resolveCanonicalCutZone,
+  resolveCanonicalCutZoneGeometry,
+  resolveRatioZoneCutMatch,
+  resolveRatioZoneCutMaturityMatch,
+  resolveCutBoundary,
+  resolveExpandedEconomicRecentEvidence,
+  hasExplicitBreakEven,
+  isBelowExplicitBreakEven,
+  type RatioZoneCutMatch,
+} from "./cut-policy";
 import { comparisonLabel, formatReasonNumber } from "./reason-format";
+
+export { resolveCutBoundary, type CutBoundaryResolution } from "./cut-policy";
 
 const FATIGUE_WATCH_BADGE: DecisionBadge = {
   type: "fatigue_watch",
@@ -276,20 +297,6 @@ function recentToTotalRoasRatio(input: CreativeInput): number | null {
   return input.recent7dRoas / input.roas;
 }
 
-function hasRecentRecovery(ctx: GateContext): boolean {
-  const recentSpend = ctx.input.recent7dSpend;
-  const recentRoas = ctx.input.recent7dRoas;
-  const recentSpendThreshold = ctx.profile.thresholds.recentSampleMinSpend;
-
-  return (
-    recentSpend !== null &&
-    recentRoas !== null &&
-    recentSpendThreshold !== null &&
-    recentSpend >= recentSpendThreshold &&
-    recentRoas > ctx.effectiveTargetRoas
-  );
-}
-
 function appendReasonSuffix(reason: string, suffix: string): string {
   const stem = reason.endsWith(".") ? reason.slice(0, -1) : reason;
   return `${stem}${suffix}`;
@@ -472,6 +479,7 @@ function terminal(
   reason: string,
   badges: readonly DecisionBadge[] = [],
   blockers: readonly DecisionPredicateBlocker[] = [],
+  authorityHold?: DecisionAuthorityHold,
 ): GateResult {
   const adjusted = funnelAdjustedDecision({
     ctx,
@@ -490,8 +498,98 @@ function terminal(
       },
       adjusted.label,
       withLifecycleHint(adjusted.reason, ctx, adjusted.label),
+      authorityHold,
     ),
   };
+}
+
+function expandedEconomicCutReason(
+  ctx: GateContext,
+  cutMatch: RatioZoneCutMatch,
+  comparison: string,
+): string {
+  const ratio = ctx.ratioToTarget ?? 0;
+  const roas = ctx.input.roas ?? 0;
+  const prefix = `[economic stop-loss] ROAS ${formatRoas(
+    roas,
+  )} (28d) = ${formatRatioPercent(ratio)}% of ${comparison}, below explicit break-even, after ${formatReasonNumber(
+    ctx.input.spend,
+  )} spend (28d)`;
+
+  if (cutMatch.kind === "hard_cut") {
+    return `${prefix} — clear loser at scale.`;
+  }
+  if (cutMatch.kind === "sustained_loser") {
+    return `${prefix} — sustained loser.`;
+  }
+  return `${prefix} — loss-budget maturity reached at ${formatReasonNumber(
+    cutMatch.commercialMaturitySpend,
+  )}; cut underperforming creative.`;
+}
+
+function authorityDeniedExpandedCutReview(
+  ctx: GateContext,
+  comparison: string,
+): GateResult | null {
+  if (
+    resolveCanonicalCutZoneGeometry(ctx) !== "expanded_economic_loss" ||
+    resolveCanonicalCutZone(ctx) !== null
+  ) {
+    return null;
+  }
+
+  const profileCutDenied = !ctx.profile.hardActionEligibility.cut;
+  const authorityReason = profileCutDenied
+    ? (ctx.profile.hardActionEligibility.reasons?.cut ??
+      ctx.profile.hardActionEligibility.reason ??
+      "hard Cut profile eligibility unavailable")
+    : (ctx.profile.expandedEconomicCutAuthority?.reason ??
+      "expanded economic stop-loss authority unavailable");
+  const authorityPredicate = profileCutDenied
+    ? "hard_action_eligibility.cut"
+    : "expanded_economic_cut_authority";
+  const authorityThreshold = profileCutDenied ? "true" : "eligible";
+  const reviewReason =
+    `ROAS ${formatRoas(ctx.input.roas ?? 0)} (28d) is below explicit break-even ${formatRoas(
+      ctx.profile.spendUnitEvidence.breakEvenRoas ?? 0,
+    )} (${formatRatioPercent(
+      ctx.ratioToTarget ?? 0,
+    )}% of ${comparison}), but automatic expanded-zone Cut authority is unavailable`;
+  const fatigueBadges =
+    ctx.input.fatigueStatus === "watch"
+      ? [FATIGUE_WATCH_BADGE]
+      : ctx.input.fatigueStatus === "fatigued"
+        ? [FATIGUE_FATIGUED_BADGE]
+        : [];
+  const fatigueWatchSuffix =
+    ctx.input.fatigueStatus === "watch"
+      ? "; fatigue watch — monitor for refresh signal"
+      : "";
+
+  return terminal(
+    ctx,
+    "keep",
+    `[below break-even - stop-loss review] ${reviewReason}; keep fail-closed and review the stop-loss authority before action${fatigueWatchSuffix}.`,
+    [
+      BELOW_BREAKEVEN_BADGE,
+      WEAK_PERFORMANCE_BADGE,
+      {
+        type: "stop_loss_review",
+        label: "Below break-even - automatic Cut authority unavailable",
+        severity: "warning",
+      },
+      ...fatigueBadges,
+    ],
+    [
+      blocker({
+        predicate: authorityPredicate,
+        observed: authorityReason,
+        threshold: authorityThreshold,
+        status: "missing",
+        reason: reviewReason,
+      }),
+    ],
+  );
 }
 
 export function ratioZonesGate(ctx: GateContext): GateResult {
@@ -501,6 +599,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
   const purchases = input.purchases ?? 0;
   const cutBoundary = resolveCutBoundary(ctx);
   const workingZoneMinRatio = cutBoundary.ratio;
+  const canonicalCutZone = resolveCanonicalCutZone(ctx);
   const comparison = comparisonLabel(ctx.truthSource);
 
   if (ratio === null || roas === null) {
@@ -589,52 +688,66 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       );
     }
 
-    const fatigueBadges =
-      input.fatigueStatus === "watch"
-        ? [FATIGUE_WATCH_BADGE]
-        : input.fatigueStatus === "fatigued"
-          ? [FATIGUE_FATIGUED_BADGE]
-          : [];
-    const fatigueWatchSuffix =
-      input.fatigueStatus === "watch"
-        ? "; fatigue watch — monitor for refresh signal"
-        : "";
-    const targetBandReason =
-      ratio < WEAK_TARGET_MAX_RATIO
-        ? `[weak target] ROAS ${formatRoas(
-            roas,
-          )} (28d) just above breakeven (${formatRatioPercent(
-            ratio,
-          )}% of ${comparison}) — keep observing; consider tightening if recent 7d weakens`
-        : ratio < AT_TARGET_MAX_RATIO
-          ? `[at target] ROAS ${formatRoas(
-              roas,
-            )} (28d) at/around ${comparison} ${formatRoas(
-              ctx.effectiveTargetRoas,
-            )} (${formatRatioPercent(ratio)}%) — stable, let it run`
-          : `[near scale] ROAS ${formatRoas(
-              roas,
-            )} (28d) approaching scale threshold (${formatRatioPercent(
-              ratio,
-            )}% of ${comparison}) — performance ratio remains below the ${formatRatioPercent(
-              scaleRatioThreshold(profile),
-            )}% scale zone; keep running`;
+    // D063's economic strip may extend above the generic 0.85 target band
+    // when explicit break-even is closer to the target. Refresh keeps its
+    // precedence, but the generic Keep must not make that Cut zone unreachable.
+    if (canonicalCutZone !== "expanded_economic_loss") {
+      const fatigueBadges =
+        input.fatigueStatus === "watch"
+          ? [FATIGUE_WATCH_BADGE]
+          : input.fatigueStatus === "fatigued"
+            ? [FATIGUE_FATIGUED_BADGE]
+            : [];
+      const fatigueWatchSuffix =
+        input.fatigueStatus === "watch"
+          ? "; fatigue watch — monitor for refresh signal"
+          : "";
 
-    return terminal(
-      ctx,
-      "keep",
-      `${targetBandReason}${fatigueWatchSuffix}.`,
-      fatigueBadges,
-    );
+      const authorityDeniedReview = authorityDeniedExpandedCutReview(
+        ctx,
+        comparison,
+      );
+      if (authorityDeniedReview !== null) {
+        return authorityDeniedReview;
+      }
+
+      const targetBandReason =
+        ratio < WEAK_TARGET_MAX_RATIO
+          ? `[weak target] ROAS ${formatRoas(
+              roas,
+            )} (28d) just above breakeven (${formatRatioPercent(
+              ratio,
+            )}% of ${comparison}) — keep observing; consider tightening if recent 7d weakens`
+          : ratio < AT_TARGET_MAX_RATIO
+            ? `[at target] ROAS ${formatRoas(
+                roas,
+              )} (28d) at/around ${comparison} ${formatRoas(
+                ctx.effectiveTargetRoas,
+              )} (${formatRatioPercent(ratio)}%) — stable, let it run`
+            : `[near scale] ROAS ${formatRoas(
+                roas,
+              )} (28d) approaching scale threshold (${formatRatioPercent(
+                ratio,
+              )}% of ${comparison}) — performance ratio remains below the ${formatRatioPercent(
+                scaleRatioThreshold(profile),
+              )}% scale zone; keep running`;
+
+      return terminal(
+        ctx,
+        "keep",
+        `${targetBandReason}${fatigueWatchSuffix}.`,
+        fatigueBadges,
+      );
+    }
   }
 
-  if (ratio < workingZoneMinRatio) {
-    const commercialMaturitySpend = commercialMaturitySpendThreshold(ctx);
-    const hardCutSpend = profile.thresholds.hardCutSpend;
-    const sustainedLoserSpend = profile.thresholds.sustainedLoserSpend;
-    const severeLoserRatio = profile.thresholds.severeLoserRatio;
+  if (
+    ratio < workingZoneMinRatio &&
+    (!hasExplicitBreakEven(ctx) || isBelowExplicitBreakEven(ctx))
+  ) {
+    const stopLossThresholds = commercialStopLossThresholds(ctx);
 
-    if (hasRecentRecovery(ctx)) {
+    if (hasCanonicalRecentRecovery(ctx)) {
       return terminal(
         ctx,
         "keep",
@@ -649,7 +762,8 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       );
     }
 
-    if (hardCutSpend !== null && input.spend >= hardCutSpend) {
+    const cutMatch = resolveRatioZoneCutMatch(ctx, stopLossThresholds);
+    if (cutMatch?.kind === "hard_cut") {
       return terminal(
         ctx,
         "cut",
@@ -661,12 +775,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       );
     }
 
-    if (
-      sustainedLoserSpend !== null &&
-      severeLoserRatio !== null &&
-      input.spend >= sustainedLoserSpend &&
-      ratio < severeLoserRatio
-    ) {
+    if (cutMatch?.kind === "sustained_loser") {
       return terminal(
         ctx,
         "cut",
@@ -676,7 +785,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
       );
     }
 
-    if (input.spend >= commercialMaturitySpend) {
+    if (cutMatch?.kind === "loss_budget_maturity") {
       return terminal(
         ctx,
         "cut",
@@ -685,7 +794,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
         )}% of ${comparison} after ${formatReasonNumber(
           input.spend,
         )} spend (28d) — loss-budget maturity reached at ${formatReasonNumber(
-          commercialMaturitySpend,
+          cutMatch.commercialMaturitySpend,
         )}; cut underperforming creative.`,
       );
     }
@@ -724,6 +833,110 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     );
   }
 
+  // D063's authority presentation is independent of the generic 0.85 target
+  // band. Refresh retains precedence, while an authority-denied economic loss
+  // remains visible as a truthful, non-executable stop-loss review.
+  const authorityDeniedReview = authorityDeniedExpandedCutReview(
+    ctx,
+    comparison,
+  );
+  if (authorityDeniedReview !== null) {
+    return authorityDeniedReview;
+  }
+
+  if (canonicalCutZone === "expanded_economic_loss") {
+    const cutMatch = resolveRatioZoneCutMaturityMatch(
+      ctx,
+      commercialStopLossThresholds(ctx),
+    );
+
+    if (cutMatch !== null) {
+      const recentEvidence = resolveExpandedEconomicRecentEvidence(ctx);
+      if (recentEvidence.status === "recovery") {
+        return terminal(
+          ctx,
+          "keep",
+          `[economic recovery hold] ROAS ${formatRoas(
+            roas,
+          )} (28d) remains below break-even, but sufficiently sampled recent 7d ROAS ${formatRoas(
+            recentEvidence.recentRoas,
+          )} is at or above break-even ${formatRoas(
+            recentEvidence.breakEvenRoas,
+          )} on ${formatReasonNumber(
+            recentEvidence.recentSpend,
+          )} recent spend — do not cut while economic recovery is holding.`,
+          [BELOW_BREAKEVEN_BADGE, WEAK_PERFORMANCE_BADGE],
+        );
+      }
+
+      const reason = expandedEconomicCutReason(ctx, cutMatch, comparison);
+      if (
+        recentEvidence.status === "unverifiable" ||
+        recentEvidence.status === "thin"
+      ) {
+        const evidenceReason =
+          recentEvidence.status === "thin"
+            ? `recent spend ${formatReasonNumber(
+                recentEvidence.recentSpend ?? 0,
+              )} is below the canonical evidence floor ${formatReasonNumber(
+                recentEvidence.recentSpendThreshold ?? 0,
+              )}`
+            : "recent ROAS, spend, canonical sample floor, or break-even evidence is unavailable";
+        return terminal(
+          ctx,
+          "cut",
+          `${reason} Recent recovery cannot be ruled out because ${evidenceReason}.`,
+          [
+            BELOW_BREAKEVEN_BADGE,
+            WEAK_PERFORMANCE_BADGE,
+            ...(recentEvidence.status === "unverifiable" &&
+            recentEvidence.missingRecentData
+              ? [
+                  {
+                    type: "missing_recent_data" as const,
+                    label: "Recent break-even evidence unavailable",
+                    severity: "warning" as const,
+                  },
+                ]
+              : []),
+          ],
+          [
+            blocker({
+              predicate: "expanded_cut_recent_recovery_evidence",
+              observed: recentEvidence.recentSpend,
+              threshold: recentEvidence.recentSpendThreshold,
+              status:
+                recentEvidence.status === "unverifiable" ? "missing" : "failed",
+              reason: evidenceReason,
+            }),
+          ],
+          {
+            authorityBlocker: "recent_recovery_unverifiable",
+            blockedActionType: "cut",
+            label: "test_more",
+            reasonPrefix:
+              "[cut verdict held - sufficient recent break-even evidence required]",
+          },
+        );
+      }
+
+      if (recentEvidence.status === "confirmed_loss") {
+        return terminal(
+          ctx,
+          "cut",
+          `${reason} Recent 7d ROAS ${formatRoas(
+            recentEvidence.recentRoas,
+          )} remains below break-even ${formatRoas(
+            recentEvidence.breakEvenRoas,
+          )} on ${formatReasonNumber(
+            recentEvidence.recentSpend,
+          )} recent spend.`,
+          [BELOW_BREAKEVEN_BADGE, WEAK_PERFORMANCE_BADGE],
+        );
+      }
+    }
+  }
+
   const fatigueBadges =
     input.fatigueStatus === "fatigued" ? [FATIGUE_FATIGUED_BADGE] : [];
 
@@ -753,7 +966,7 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
             )}% and breakeven ${formatRatioPercent(
               cutBoundary.breakevenRatio ?? breakevenRatio,
             )}%)`
-        : `account bottom quartile (${formatRatioPercent(cutBoundary.ratio)}%)`;
+          : `account bottom quartile (${formatRatioPercent(cutBoundary.ratio)}%)`;
     return terminal(
       ctx,
       "keep",
@@ -776,61 +989,4 @@ export function ratioZonesGate(ctx: GateContext): GateResult {
     )}% of ${comparison} — below the comparison benchmark but in the working zone; no aggressive action, revisit if ROAS drifts further.`,
     [WEAK_PERFORMANCE_BADGE, ...fatigueBadges],
   );
-}
-
-export interface CutBoundaryResolution {
-  ratio: number;
-  mode:
-    | "account_p25"
-    | "breakeven_ceiling"
-    | "uncalibrated_commercial_stop_loss";
-  accountP25: number | null;
-  breakevenRatio: number | null;
-}
-
-export function resolveCutBoundary(ctx: GateContext): CutBoundaryResolution {
-  const configuredAccountP25 = ctx.profile.thresholds.bottomQuartileRatio;
-  const accountP25 = positiveFinite(configuredAccountP25)
-    ? configuredAccountP25
-    : null;
-  const currentRatio = Math.min(
-    accountP25 ?? UNCALIBRATED_CUT_RATIO_FALLBACK,
-    CUT_BOUNDARY_RATIO_CLAMP,
-  );
-  const breakEvenRoas = ctx.profile.spendUnitEvidence.breakEvenRoas;
-  const canUseBreakevenCeiling =
-    ctx.truthSource === "commercial_truth" &&
-    ctx.profile.hardActionEligibility.cut &&
-    breakEvenRoas !== null &&
-    Number.isFinite(breakEvenRoas) &&
-    breakEvenRoas > 0 &&
-    Number.isFinite(ctx.effectiveTargetRoas) &&
-    ctx.effectiveTargetRoas > 0;
-
-  if (!canUseBreakevenCeiling) {
-    return {
-      ratio: currentRatio,
-      mode: "account_p25",
-      accountP25,
-      breakevenRatio: null,
-    };
-  }
-
-  const breakevenRatio = breakEvenRoas / ctx.effectiveTargetRoas;
-  const ratio = Math.min(
-    currentRatio,
-    breakevenRatio,
-    CUT_BOUNDARY_RATIO_CLAMP,
-  );
-  return {
-    ratio,
-    mode:
-      accountP25 === null
-        ? "uncalibrated_commercial_stop_loss"
-        : ratio < currentRatio
-          ? "breakeven_ceiling"
-          : "account_p25",
-    accountP25,
-    breakevenRatio,
-  };
 }

@@ -127,3 +127,39 @@ describe("the dashboard sends what the operator picked", () => {
     expect(dashboard).toContain("effectiveCompareMode");
   });
 });
+
+describe("no surface offers a comparison it does not read", () => {
+  const read = async (file: string) => {
+    const { readFileSync } = await import("node:fs");
+    return readFileSync(file, "utf8");
+  };
+
+  it("Overview offers only the pair its route can carry", async () => {
+    // lib/overview-summary-support.ts types CompareMode as
+    // "none" | "previous_period". Offering previousYear here would have put a
+    // year-over-year label on a previous-period delta.
+    const page = await read("app/(dashboard)/overview/page.tsx");
+    expect(page).toContain("comparisonPresets={OVERVIEW_COMPARISON_PRESETS}");
+    expect(page).not.toContain(
+      'dateRange.comparisonPreset === "none" ? "none" : "previous_period"',
+    );
+    const support = await read("lib/overview-summary-support.ts");
+    expect(support).toContain('export type CompareMode = "none" | "previous_period";');
+  });
+
+  for (const file of [
+    "app/(dashboard)/insights/analytics/page.tsx",
+    "app/(dashboard)/insights/seo/page.tsx",
+    "app/(dashboard)/insights/ai-visibility/page.tsx",
+    "app/(dashboard)/platforms/meta/landing-pages/page.tsx",
+  ]) {
+    it(`${file.split("/").slice(-2)[0]} hides the comparison it never reads`, async () => {
+      const page = await read(file);
+      // These surfaces rendered an active-looking Compare chip and read
+      // nothing from it: the operator could pick "Previous year", watch the
+      // chip light up and print year-ago dates, and change nothing at all.
+      expect(page).toContain("showComparisonTrigger={false}");
+      expect(page).not.toMatch(/compareMode|comparisonMode/);
+    });
+  }
+});

@@ -9,7 +9,11 @@ vi.mock("@/lib/auth", () => ({ getSessionFromRequest }));
 // its test has to supply one. Default: connected, which is the case the health
 // assertions below vary against.
 const connectionRows = vi.hoisted(() => ({
-  value: [] as Array<{ business_id: string; status: string }>,
+  value: [] as Array<{
+    business_id: string;
+    status: string;
+    selected_count?: number;
+  }>,
 }));
 vi.mock("@/lib/db", () => ({
   getDb: () => ({ query: async () => connectionRows.value }),
@@ -106,7 +110,9 @@ describe("GET /api/agency-today", () => {
   });
 
   it("marks a client with no totals as unrankable rather than zero-spend", async () => {
-    connectionRows.value = [{ business_id: "biz-1", status: "connected" }];
+    connectionRows.value = [
+      { business_id: "biz-1", status: "connected", selected_count: 1 },
+    ];
     readAgencyTodayTotals.mockResolvedValue(new Map());
     const body = await (await GET(request())).json();
     // A connected client with no totals is degraded, not unknown: we know the
@@ -161,14 +167,32 @@ describe("GET /api/agency-today", () => {
       ["connected", "healthy"],
       ["revoked", "action_required"],
       ["expired", "action_required"],
+      // Integrations maps error to action_required too; diverging here is how
+      // the two surfaces disagreed about the same client.
+      ["error", "action_required"],
     ] as const) {
-      connectionRows.value = [{ business_id: "biz-1", status }];
+      connectionRows.value = [
+        { business_id: "biz-1", status, selected_count: 1 },
+      ];
       const response = await GET(request());
       const body = (await response.json()) as {
         model: { rows: Array<{ dataHealth: string }> };
       };
       expect(body.model.rows[0]?.dataHealth, `status ${status}`).toBe(expected);
     }
+
+    // Connected with nothing selected needs a person: no account can produce
+    // data for this client. Reporting it as healthy is finding G0-F5 (an
+    // unassigned account is indistinguishable from an empty one) on the
+    // surface whose entire job is deciding who to look at.
+    connectionRows.value = [
+      { business_id: "biz-1", status: "connected", selected_count: 0 },
+    ];
+    const unassigned = await GET(request());
+    const unassignedBody = (await unassigned.json()) as {
+      model: { rows: Array<{ dataHealth: string }> };
+    };
+    expect(unassignedBody.model.rows[0]?.dataHealth).toBe("action_required");
 
     // No connection row at all is disconnected -- never "unknown", which would
     // read as "we could not tell" when in fact we know there is nothing.

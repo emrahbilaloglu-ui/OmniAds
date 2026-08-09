@@ -79,16 +79,34 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // One read for every client's canonical connection state. Absent means no
-  // provider was ever connected, which is disconnected rather than unknown.
+  // One read for every client's canonical connection state, plus whether an
+  // account is actually selected.
+  //
+  // Connection status alone was not enough. A client can be perfectly
+  // connected and have no account selected, in which case nothing can produce
+  // data for it -- and this surface reported it as healthy or merely degraded
+  // while Integrations showed action required for the same client at the same
+  // moment. That is finding G0-F5 (an unassigned account is indistinguishable
+  // from an empty one) reappearing on the triage surface, where it is worse:
+  // the whole point of Agency Today is deciding who to look at.
   const connectionRows = (await getDb().query(
-    `SELECT business_id::text AS business_id, status
-     FROM provider_connections
-     WHERE business_id = ANY($1::text[]) AND provider = 'meta'`,
+    `SELECT pc.business_id::text AS business_id,
+            pc.status,
+            COALESCE(assignment.selected_count, 0) AS selected_count
+     FROM provider_connections pc
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*)::int AS selected_count
+       FROM business_provider_accounts binding
+       WHERE binding.business_id = pc.business_id::text
+         AND binding.provider = 'meta'
+         AND binding.is_selected
+     ) assignment ON TRUE
+     WHERE pc.business_id = ANY($1::text[]) AND pc.provider = 'meta'`,
     [businesses.map((business) => business.id)],
   ).catch(() => [])) as unknown as Array<{
     business_id: string;
     status: string;
+    selected_count: number;
   }>;
   const connectionByBusiness = new Map(
     connectionRows.map((row) => [row.business_id, row]),
@@ -105,13 +123,20 @@ export async function GET(request: NextRequest) {
     const connection = connectionByBusiness.get(business.id);
     const dataHealth: ClientDataHealth = !connection
       ? "disconnected"
-      : connection.status === "connected"
-        ? clientTotals
-          ? "healthy"
-          : "degraded"
-        : connection.status === "revoked" || connection.status === "expired"
-          ? "action_required"
-          : "unknown";
+      : connection.status === "revoked" ||
+          connection.status === "expired" ||
+          connection.status === "error"
+        ? "action_required"
+        : connection.status !== "connected"
+          ? "unknown"
+          : // Connected but nothing selected: no account can produce data, and
+            // it needs a person, so it is action_required rather than merely
+            // degraded. Integrations says the same thing about the same client.
+            Number(connection.selected_count ?? 0) === 0
+            ? "action_required"
+            : clientTotals
+              ? "healthy"
+              : "degraded";
 
     return {
       businessId: business.id,

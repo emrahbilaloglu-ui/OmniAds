@@ -1,6 +1,10 @@
 "use client";
 
 import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  OVERVIEW_COMPARISON_PRESETS,
+  compareModeForPreset,
+} from "@/lib/comparison-preset-contract";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
@@ -162,8 +166,14 @@ export default function OverviewPage() {
           dateRange.customStart,
           dateRange.customEnd
         );
+  // The picker on this surface offers only the two the route can carry, so
+  // this is a narrowing rather than a collapse: an unrecognised preset (a
+  // stored saved view, a hand-edited URL) shows no comparison instead of a
+  // confident delta against a baseline nobody chose.
   const compareMode: CompareMode =
-    dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+    compareModeForPreset(dateRange.comparisonPreset) === "previous_period"
+      ? "previous_period"
+      : "none";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -765,11 +775,19 @@ function DataStatusRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+          {/*
+            Only the comparisons this surface's route can actually carry.
+            `lib/overview-summary-support.ts` types CompareMode as
+            "none" | "previous_period", so offering a year-over-year choice
+            here would produce a previous-period delta under a year-over-year
+            label -- the defect this narrowing exists to remove.
+          */}
           <DateRangePicker
             value={dateRange}
             onChange={onDateRangeChange}
             referenceDate={referenceDate}
             timeZoneLabel={timeZoneLabel}
+            comparisonPresets={OVERVIEW_COMPARISON_PRESETS}
           />
         </div>
       </div>

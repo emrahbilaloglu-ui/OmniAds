@@ -1,5 +1,8 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+// The console frame renders the notification bell, which reads data. The app
+// mounts it under the root QueryProvider, so the test renders it the same way.
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopSidebar } from "@/components/layout/sidebar";
 import { SidebarContent } from "@/components/layout/sidebar-content";
@@ -177,9 +180,11 @@ describe("phase shell redesign", () => {
     state.selectedBusinessId = "biz_1";
 
     const html = renderToStaticMarkup(
-      <DashboardFrame userName="Shopify App Reviewer">
-        <div>Meta body</div>
-      </DashboardFrame>,
+      <QueryClientProvider client={new QueryClient()}>
+        <DashboardFrame userName="Shopify App Reviewer">
+          <div>Meta body</div>
+        </DashboardFrame>
+      </QueryClientProvider>,
     );
 
     expect(html).toContain("ad-console-brand");
@@ -201,9 +206,11 @@ describe("phase shell redesign", () => {
       state.selectedBusinessId = "biz_1";
 
       const html = renderToStaticMarkup(
-        <DashboardFrame userName="Shopify App Reviewer">
-          <div>{pathname} body</div>
-        </DashboardFrame>,
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
       );
 
       expect(html).toContain('data-mobile-surface="none"');
@@ -226,9 +233,11 @@ describe("phase shell redesign", () => {
       state.selectedBusinessId = "biz_1";
 
       const html = renderToStaticMarkup(
-        <DashboardFrame userName="Shopify App Reviewer">
-          <div>{pathname} responsive body</div>
-        </DashboardFrame>,
+        <QueryClientProvider client={new QueryClient()}>
+          <DashboardFrame userName="Shopify App Reviewer">
+            <div>{pathname} responsive body</div>
+          </DashboardFrame>
+        </QueryClientProvider>,
       );
 
       expect(html).toContain('data-mobile-surface="none"');

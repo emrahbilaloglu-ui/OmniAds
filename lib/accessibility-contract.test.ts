@@ -32,8 +32,12 @@ function read(key: keyof typeof FILES): string {
 describe("every control can be reached and named without sight", () => {
   it("gives icon-only controls an accessible name", () => {
     // An icon with no name is a control a screen reader announces as "button".
-    const topbar = read("topbar");
-    expect(topbar).toContain("aria-label");
+    // The bell is icon-only and now lives in its own component, so the check
+    // follows it there rather than passing because the topbar happens to hold
+    // some other labelled control.
+    expect(
+      readFileSync("components/notifications/NotificationBell.tsx", "utf8"),
+    ).toContain("aria-label");
     const savedViews = read("savedViews");
     expect(savedViews).toContain("aria-label={`Delete view ${view.name}`}");
   });
@@ -69,10 +73,20 @@ describe("a disabled control says why it is disabled", () => {
     expect(savedViews).toContain("— unavailable");
   });
 
-  it("explains why the bell is not available yet", () => {
-    const topbar = read("topbar");
-    expect(topbar).toContain("Notifications are not available yet");
-    expect(topbar).toContain("(not available yet)");
+  it("names the bell's state rather than leaving it unexplained", () => {
+    // Superseded: the bell used to be disabled with "not available yet",
+    // because no producer wrote notification events. The producer now runs on
+    // the maintenance cron, so the bell works — and its accessible name has to
+    // distinguish the three states a sighted user reads from the badge, since
+    // an absent badge and an unreadable count look identical to a screen
+    // reader otherwise.
+    const bell = readFileSync(
+      "components/notifications/NotificationBell.tsx",
+      "utf8",
+    );
+    expect(bell).toContain("Notifications — count unavailable");
+    expect(bell).toContain("Notifications — loading");
+    expect(bell).toContain("unacknowledged`");
   });
 });
 

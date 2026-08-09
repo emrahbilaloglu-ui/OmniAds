@@ -1196,7 +1196,8 @@ export interface DateRangePickerProps {
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
   rangePresets?: RangePreset[];
-  comparisonPresets?: ComparisonPreset[];
+  /** Narrow the offered comparisons to the ones this surface can carry. */
+  comparisonPresets?: readonly ComparisonPreset[];
   referenceDate?: string;
   timeZoneLabel?: string;
   minDate?: string;

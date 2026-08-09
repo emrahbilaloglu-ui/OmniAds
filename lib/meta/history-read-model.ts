@@ -813,13 +813,16 @@ history_entries AS (
       'bidValue', config.bid_value,
       'optimizationGoal', config.optimization_goal,
       'previousDailyBudget', previous.daily_budget,
+      'previousLifetimeBudget', previous.lifetime_budget,
       'previousBidValue', previous.bid_value,
       'previousBidStrategyType', previous.bid_strategy_type,
+      'previousOptimizationGoal', previous.optimization_goal,
       'observedAt', config.captured_at
     )
   FROM meta_campaign_config_history config
   LEFT JOIN LATERAL (
-    SELECT prior.daily_budget, prior.bid_value, prior.bid_strategy_type
+    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
+           prior.bid_strategy_type, prior.optimization_goal
     FROM meta_campaign_config_history prior
     WHERE prior.business_id = config.business_id
       AND prior.provider_account_id = config.provider_account_id
@@ -841,7 +844,19 @@ history_entries AS (
     AND config.provider_account_id = $2
     -- Only rows that represent a change; the first snapshot of a campaign is
     -- not something anyone did.
-    AND previous.daily_budget IS DISTINCT FROM config.daily_budget
+    --
+    -- Gated on daily_budget alone, this reported nothing at all on an
+    -- ABO account: budget lives on the ad set there, so the campaign's
+    -- daily_budget is null in every row and null IS NOT DISTINCT FROM null.
+    -- A bid-strategy or optimization-goal change is just as much an edit, and
+    -- was equally invisible on every account.
+    AND (
+      previous.daily_budget IS DISTINCT FROM config.daily_budget
+      OR previous.lifetime_budget IS DISTINCT FROM config.lifetime_budget
+      OR previous.bid_value IS DISTINCT FROM config.bid_value
+      OR previous.bid_strategy_type IS DISTINCT FROM config.bid_strategy_type
+      OR previous.optimization_goal IS DISTINCT FROM config.optimization_goal
+    )
 
   UNION ALL
 

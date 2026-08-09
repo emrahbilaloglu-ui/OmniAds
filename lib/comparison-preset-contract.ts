@@ -69,3 +69,19 @@ export function customComparisonIsComplete(input: {
 }): boolean {
   return Boolean(input.comparisonStart && input.comparisonEnd);
 }
+
+/**
+ * The comparisons the Overview route can carry.
+ *
+ * `lib/overview-summary-support.ts` types its compare mode as
+ * `"none" | "previous_period"`, and the route resolves exactly one baseline
+ * window. Offering more here would put a year-over-year label on a
+ * previous-period delta, which is the defect this module exists to remove.
+ *
+ * Narrowing per surface rather than globally, because the Google surface
+ * genuinely computes all four and should keep offering them.
+ */
+export const OVERVIEW_COMPARISON_PRESETS = [
+  "none",
+  "previousPeriod",
+] as const satisfies ReadonlyArray<SupportedComparisonPreset>;

@@ -62,6 +62,22 @@ describe("every editable level reaches History", () => {
 });
 
 describe("a re-observation is not a change", () => {
+  it("does not gate campaign changes on a budget that is null on ABO accounts", () => {
+    // daily_budget alone reported nothing at all on an ABO account: budget
+    // lives on the ad set there, so the campaign column is null in every row
+    // and null IS NOT DISTINCT FROM null. A bid-strategy or optimization-goal
+    // change is just as much an edit and was invisible on every account.
+    expect(readModel).toContain(
+      "previous.lifetime_budget IS DISTINCT FROM config.lifetime_budget",
+    );
+    expect(readModel).toContain(
+      "previous.bid_strategy_type IS DISTINCT FROM config.bid_strategy_type",
+    );
+    expect(readModel).toContain(
+      "previous.optimization_goal IS DISTINCT FROM config.optimization_goal",
+    );
+  });
+
   it("requires a previous ad-set config that actually differs", () => {
     // Without this, every sync run would file an ad set as edited.
     expect(readModel).toContain(

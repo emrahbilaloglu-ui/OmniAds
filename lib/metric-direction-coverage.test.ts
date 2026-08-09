@@ -119,9 +119,32 @@ describe("surfaces defer to the shared direction instead of re-deriving it", () 
     expect(copies).not.toContain('tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const)');
   });
 
-  it("the Overview metric card colours through the helper", () => {
+  it("the Overview Pins card colours through the helper", () => {
     const card = readFileSync("components/overview/MetricCard.tsx", "utf8");
     expect(card).toMatch(/metric-semantics|sentiment/);
+  });
+
+  it("the main Overview summary card colours by meaning, not by sign", () => {
+    // This is the card most people actually read, and it took the arithmetic
+    // sign straight to the colour: emerald for up, rose for down. A rising
+    // CPA, CPC or refund rate got the same green as rising revenue.
+    const card = readFileSync(
+      "components/overview/SummaryMetricCard.tsx",
+      "utf8",
+    );
+    expect(card).toContain("trendSentiment");
+    expect(card).toContain('trendSentiment === "positive"');
+    expect(card).toContain('trendSentiment === "negative"');
+    // The arrow is still arithmetic; only the colour changed hands.
+    expect(card).toContain('trendDirection === "up"');
+    // The old rule is gone.
+    expect(card).not.toContain('if (trendDirection === "up") {');
+  });
+
+  it("the card's sentiment is resolved from the metric, not passed in by a caller", () => {
+    const support = readFileSync("lib/overview-summary-support.ts", "utf8");
+    expect(support).toContain("deltaSentiment(");
+    expect(support).toContain("getMetricDirection(params.metricKey ?? params.id)");
   });
 
   it("the arrow glyph and the colour are decided separately", () => {

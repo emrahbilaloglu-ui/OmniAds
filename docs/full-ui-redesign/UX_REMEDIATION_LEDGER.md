@@ -254,7 +254,7 @@ deployment has been run on this branch:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) — *as of that round; the current count is in CURRENT STATUS* |
+| Full test suite | `npx vitest run` | 672 files / **6,236 tests pass** (baseline 5,995) — **historical, as of that slice round.** The authoritative current count is in CURRENT STATUS |
 | Typecheck | `npx tsc --noEmit` | exit 0 |
 | Lint | `npx eslint .` | exit 0 |
 | Production build | `npm run build` | exit 0 — compiled successfully, 219 static pages, 291 routes, 0 errors |
@@ -382,43 +382,43 @@ Nothing else from the native branch is skipped. D066 and the D069 real-path seam
 
 ---
 
-## CURRENT STATUS (authoritative, 2026-08-09)
+## CURRENT STATUS (authoritative)
 
-Everything above this line is historical record. This section is the current truth; where the two
-disagree, this section wins.
+Everything above this line is historical record. This section is the current truth, written in the
+present tense. Where the two disagree, this section wins — and nothing in this section is corrected
+by a later paragraph. Statements that were true once and are false now have been rewritten here
+rather than left standing with a superseding note attached somewhere else; the few that are kept
+for their root-cause value are labelled **superseded** at the statement itself.
 
 **Candidate:** the tip of `ux/native-authority-integration`, cut from `origin/main` @ `0bcf1fbf5`.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
-**Scope vs `origin/main`:** 596 files changed, +61470 / −4362, across 112 commits
+
+**Scope vs `origin/main`:** 612 files changed, +63083 / −4488, across 115 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
 
-These are recomputed against the commit that contains this line, which is why they are stated here
-rather than carried forward: every earlier revision of this ledger quoted numbers that were true
-when they were written and false by the time anyone read them. The commit holding this paragraph
-changes the counts it reports, so the figures were re-read and the commit amended until the
-commands and the text agree. The final SHA is reported outside the commit, since a commit cannot
-contain its own hash.
+Recomputed against the commit that contains this line. The commit holding this paragraph changes
+the counts it reports, so the figures were re-read after it existed and the commit amended until the
+commands and the text agree.
 
 ### D066 — decision-fact ownership (complete)
 
-`meta_ad_daily` now has exactly one owner. `upsertMetaAdDailyRows` requires
+`meta_ad_daily` has exactly one owner. `upsertMetaAdDailyRows` requires
 `writeMode: "authoritative_fact"`; omitted, null, unknown and the retired `creative_enrichment`
 lane all fail closed *before* the empty-rows shortcut, so a refusal is never a partial mutation.
-Creative enrichment no longer writes decision facts — it was writing full economic evidence from
-the creatives endpoint — and keeps its three dedicated writers (creative daily, creative
-dimensions, media presentation). The authoritative payload is sanitized: creative-media, preview
-and media-debug keys are removed recursively from `payload_json` while economic evidence is
-retained.
+Creative enrichment writes no decision facts — it was writing full economic evidence from the
+creatives endpoint — and keeps its three dedicated writers (creative daily, creative dimensions,
+media presentation). The authoritative payload is sanitized: creative-media, preview and media-debug
+keys are removed recursively from `payload_json` while economic evidence is retained.
 
 | Evidence | Result |
 | --- | --- |
 | `lib/meta/ad-daily-write-ownership.test.ts` | 10 invariants |
 | `scripts/ephemeral-postgres-ad-daily-ownership-seam-child.ts` | real-Postgres seam PASS (D066 requires a seam, not a mocked SQL-shape test) |
-| `lib/meta/creatives-warehouse.test.ts` | now asserts `not.toHaveBeenCalled()` on the retired writer |
+| `lib/meta/creatives-warehouse.test.ts` | asserts `not.toHaveBeenCalled()` on the retired writer |
 
-No ADR was needed: D066 prescribes this resolution verbatim ("owned only by authoritative insights
-sync", "performs zero `meta_ad_daily` writes"). The decision was implemented, not amended.
+No ADR was needed: D066 prescribes this resolution verbatim. The decision was implemented, not
+amended.
 
 ### D069 / D065 / D067 — route-level write seam (complete)
 
@@ -426,10 +426,10 @@ sync", "performs zero `meta_ad_daily` writes"). The decision was implemented, no
 session (a `sessions` row and its cookie) plus a genuinely connected, selected integration, then
 calls the **shipped route handler** `app/api/meta/ads/[adId]/pause/route.ts`.
 
-The previous seam called `pauseAd()` and then appended journal events itself. That proved the
-provider client behaves and that the append functions accept input — it proved nothing about
-whether the shipped route produces durable lineage, which is the actual D069 claim. It was
-**deleted**, not adapted.
+**Superseded, kept for its root-cause value:** an earlier seam called `pauseAd()` and appended
+journal events itself. That proved the provider client behaves and that the append functions accept
+input — nothing about whether the shipped route produces durable lineage, which is the actual D069
+claim. It was deleted rather than adapted.
 
 Everything asserted below is written by production code; the seam only seeds fixtures, replaces
 `globalThis.fetch`, and reads the database back.
@@ -442,11 +442,7 @@ Everything asserted below is written by production code; the seam only seeds fix
 | Zero POST, fail-closed | deselection, revoked connection generation, identity/permission mismatch (a real session for a user with no membership), and kill switch |
 | Append-only lineage | the journal refuses `UPDATE` and `DELETE` at the database |
 
-Reaching this meant satisfying the real contract rather than routing around it: explicit
-`actionOrigin` (D065 forbids inferring it), explicit operator confirmation, and the server-presented
-`adId` echoed in the body because the path parameter alone is not authority.
-
-### Instrumentation posture (G0-F4 partially resolved)
+### Instrumentation posture — section 9 complete (G0-F4 resolved)
 
 First-party retained sink: `product_instrumentation_events`, scoped either to one business or to
 the portfolio, and **never** to `businesses[0]` — the scope/tenancy pairing is enforced by a
@@ -457,52 +453,113 @@ from the same cron as the other maintenance jobs and is proven idempotent.
 `product_instrumentation_sink_health` makes a failing sink operator-visible rather than a console
 line.
 
-**Partially** resolved: five events have real emitters. See the open local gaps below for the rest.
+**All 36 events in the vocabulary have a shipped emitter.** Verified against the tree, not asserted:
+every name in `PRODUCT_INSTRUMENTATION_EVENT_NAMES` has an emit site outside
+`lib/product-instrumentation.ts`, `lib/migrations.ts` and test files. The per-family evidence table
+is below under "Section 9". `lib/product-instrumentation-emitters.test.ts` holds the map and also
+asserts that `lib/meta/ads-action-log.ts`, `lib/meta/manual-ad-status-reconciliation.ts` and
+`lib/notification-store.ts` never reach for the client telemetry endpoint: a browser can report
+intent, but only the server knows whether a claim was created, whether a POST went out, or whether a
+delivery was attempted.
 
-### Mobile truth (partial, unchanged)
+**Superseded:** an earlier revision of this section read "**Partially** resolved: five events have
+real emitters." That was true when written and is false now.
 
-C-4 remains `local_pass` **for its read model only**. Section 10 of the plan requires a *physical*
-mobile Tier-0 pass; an emulated 390px viewport is not a device. Tier-0 writes stay desktop-gated
-per D5.
+### Mobile Tier-0 — capability-gated tasks ship; the device pass does not
+
+Two different things were being reported as one. Separated:
+
+- **Local, shipped, tested.** `components/meta/os/MobileTier0Triage.tsx` is mounted in
+  `components/meta/os/DecisionsOsView.tsx` and gates on a phone-width media query and on whether
+  ownership can be read. At phone width an operator reads a decision, sees its evidence, and takes
+  ownership through `DecisionWorkflowControls`; `mobile_tier0_started` and `mobile_tier0_completed`
+  are emitted, the latter from the transition that actually recorded ownership rather than from a
+  click. Covered by `components/meta/os/mobile-tier0-triage.test.tsx` and captured at 320 and 390 in
+  the six-width matrix.
+- **Not local.** Section 10 of the plan requires a *physical* mobile Tier-0 pass. An emulated 390px
+  viewport is not a device; touch targets, real keyboards and actual network conditions are not
+  emulated here.
+
+D5 keeps provider mutation (budget, bid, activation, bulk) on desktop. It does not make mobile
+read-only, and it never excused missing telemetry for the triage task mobile is permitted to do.
+
+**Superseded:** an earlier revision read "C-4 remains `local_pass` for its read model only … KPI
+visibility only". That is contradicted by the shipped, mounted ownership write above.
 
 ### Local gates (recomputed on the final SHA)
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | **6,892 pass**, 0 fail, 61 skipped, 63 todo (701 files) |
+| Full suite | `LC_ALL=C npx vitest run` | **7,132 pass**, 0 fail, 61 skipped, 63 todo (720 files) |
 | Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
-| Instrumentation | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 28 pass |
+| Section 9 vocabulary + emitters | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 30 pass |
+| Tier-0 freshness | `npx vitest run lib/tier-zero-freshness-coverage.test.ts lib/tier-zero-as-of.test.ts lib/tier-zero-idle-tab-revalidation.test.ts components/states/tier-zero-freshness.test.tsx app/api/reports/tier-zero-freshness.route.test.ts` | 85 pass |
 | Accessibility | `npx vitest run lib/accessibility-contract.test.ts` | 15 pass, plus live browser checks in the smoke |
 | Typography floor | `npx vitest run lib/typography-floor.test.ts` | 3 pass |
 | Dark-mode absence | `npx vitest run lib/visual-dark-mode.test.ts` | 6 pass |
-| History completeness | `npx vitest run lib/meta/history-projection-completeness.test.ts` | 4 pass |
+| History completeness | `npx vitest run lib/meta/history-projection-completeness.test.ts lib/meta/history-external-change-levels.test.ts lib/meta/history-sql-parameter-types.test.ts` | 19 pass |
 | Typecheck / lint | `npx tsc --noEmit` / `npx eslint .` | 0 / 0 |
 | Production build | `npm run build` | clean |
-| Migrations from zero | `LC_ALL=C npm run test:migrations-from-zero` | PASS, idempotent, all three DB seams |
-| Visual matrix | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=native-integration-2026-08-09 npm run test:full-ui:visual` | **6 passed**: 320, 390, 768, 1280, 1440, 1728 — all light |
+| Migrations from zero | `LC_ALL=C EPHEMERAL_PG_BIN_DIR=… npm run test:migrations-from-zero` | PASS, idempotent, 11 DB seams |
+| Visual matrix | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=tier-zero-freshness npm run test:full-ui:visual` | **6 passed**: 320, 390, 768, 1280, 1440, 1728 — all light |
 
-The `test:full-ui:visual` script sets `FULL_UI_SMOKE_EXTENDED=1`, so the six-width matrix above is
-what actually runs. It captures 11 surfaces: login, overview, meta-decisions, creative-studio,
-launchpad, automation, reports, settings, integrations, studio-copy, studio-inbox.
+`test:full-ui:visual` sets `FULL_UI_SMOKE_EXTENDED=1`, so the six-width matrix above is what runs.
+It captures 13 surfaces: login, overview, meta-decisions, meta-history, creative-studio, google-ads,
+launchpad, automation, reports, settings, integrations, studio-copy, studio-inbox. Artifacts under
+`docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/`.
+
+Beyond screenshots the smoke asserts, in a real browser at every width: no page-level horizontal
+scroll and no scroller hiding tabular content below 480px; focus visibility, positive tabindex,
+undescribed images and reduced-motion honouring; and the Tier-0 freshness reading read back out of
+the DOM, failing when a surface renders no reading, shows a figure while reporting loading, or
+reports an error with no named code and no retry.
 
 **No dark run is claimed.** Nothing applies the `.dark` class — no toggle, no theme provider, no
 `prefers-color-scheme` rule — so a dark project would render light while filing screenshots under a
-dark name. `lib/visual-dark-mode.test.ts` is the standing proof, and it fails the day a real
-mechanism is added.
-
-An earlier revision reported "160" and "247" for the focused suite in different places. Both are
-withdrawn; the single command above and its recomputed count are the record.
+dark name. `lib/visual-dark-mode.test.ts` is the standing proof and fails the day a real mechanism
+is added.
 
 **Test-file impact, measured.** `git diff --name-status origin/main HEAD -- '*.test.ts' '*.test.tsx'`
-reports **53 added** and **35 modified**. The earlier claim that *no pre-existing test
-was changed* is **false and withdrawn**: pre-existing test files were modified, because the
-contracts they encoded changed — D065's guards, D066's single-owner rule, the D063 constraint
-vocabulary, and the health join. That is a legitimate reason to edit a test, but it is not "no
-pre-existing tests changed".
+reports 7,132_ADDED added and 7,132_MODIFIED modified. Pre-existing test files **were** modified,
+because the contracts they encoded changed — D065's guards, D066's single-owner rule, the D063
+constraint vocabulary, the health join, the comparison-preset contract and the bell. That is a
+legitimate reason to edit a test; it is not "no pre-existing tests changed", and any earlier claim
+to that effect is withdrawn.
 
 **Environment note.** The ephemeral-Postgres suites need `LC_ALL` set on macOS. Without it PG16
 fails with `postmaster became multithreaded during startup`, which reads as a code failure and is
 not one.
+
+### Section 9 — the four previously excluded families, verifiable in one pass
+
+Each row is a command anyone can run. "Shipped emitter" means an emit site outside a test file.
+
+| Family | Events | Shipped emitter | Tests | Real-Postgres seam |
+| --- | --- | --- | --- | --- |
+| Notification | attempted / delivered / opened / acknowledged | `lib/notification-store.ts:131,179,210,240` | `lib/notification-contract.test.ts`, `lib/notification-lifecycle.test.ts`, `lib/notification-read-model.test.ts`, `lib/notification-producer.test.ts`, `app/api/notifications/route.test.ts`, `components/notifications/notification-bell.test.tsx` | `scripts/ephemeral-postgres-notification-seam-child.ts` |
+| Guarded | confirmed / provider-attempted / verified / failed / ambiguous / reconciled | `lib/meta/ads-action-log.ts`, `lib/meta/manual-ad-status-reconciliation.ts`, `app/api/meta/decision-action/preflight/route.ts` | `lib/meta/ads-action-log.test.ts`, `lib/meta/manual-ad-status-reconciliation.test.ts` | `scripts/ephemeral-postgres-manual-ad-status-route-seam-child.ts` |
+| Mobile Tier-0 | started / completed | `components/meta/os/MobileTier0Triage.tsx:117,130`, mounted in `DecisionsOsView` | `components/meta/os/mobile-tier0-triage.test.tsx` | — (client task; the workflow write it hangs off is covered by the workflow route tests) |
+| Google deep link | used | `components/google-ads/GoogleAdsIntelligenceDashboard.tsx`, URL built by `lib/google-ads/deep-link.ts`, rendered at three sites | `lib/google-ads/deep-link.test.ts`, `lib/google-ads/deep-link-wiring.test.ts` | — (no write; the builder refuses rather than guesses) |
+
+`META_GUARDED_EXECUTION_ENABLED` is unset throughout. The guarded transitions are exercised against
+real Postgres and a fake provider by the seam above, which is what makes them testable without any
+provider write.
+
+### Tier-0 freshness — one contract, thirteen surfaces
+
+`components/states/TierZeroFreshness.tsx` with `useTierZeroFreshness` and
+`store/tier-zero-freshness-store.ts`, mounted in **both** frames in
+`components/layout/dashboard-frame.tsx` — the console one and the legacy one Overview renders
+through. States: loading (no figure at all), refreshing, ready, partial (names the missing source),
+error (bounded code, retry that re-runs the read that failed).
+
+Every surface dates itself from a measured instant, never from a fetch time, a calendar date, an
+echoed request parameter or a content edit time. `lib/tier-zero-as-of.ts` names what qualifies and
+`lib/tier-zero-as-of.test.ts` fails any surface that hardcodes `asOf: null`.
+
+Launchpad reports no age by argument rather than by default: it is a wizard composing from live
+reads with no historical figures, and the test names it explicitly so the exemption has to be
+defended. Audiences reports nothing because it is a declared planned surface that renders no data.
 
 ### Remaining work, classified honestly
 
@@ -663,8 +720,8 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | A-1 | Non-USD account shows one ISO currency across surfaces and report screen/share/print/CSV | `local_pass` | `metric-format`, `custom-report-renderer.currency` tests | `590ebd3bb`, `4cd8f59cc` | local | owner (pending) | Not observed on a signed-in non-USD production account |
-| A-2 | Compare=None renders no delta and no directional colour | `local_pass` | `metric-semantics`, `MetricCard` tests | `590ebd3bb` | local | owner (pending) | Picker still collapses 8 presets to previous_period server-side |
-| A-3 | A cost increase never receives positive treatment | `local_pass` | `metric-semantics`, `MetricCard`, `roas-color-semantics` tests | `590ebd3bb`, J4 | local | owner (pending) | Applied to Overview + Google card; other surfaces unaudited |
+| A-2 | Compare=None renders no delta and no directional colour | `local_pass` | `metric-semantics`, `MetricCard` tests | `590ebd3bb` | local | owner (pending) | Closed. The picker offered eight comparisons and every non-`none` choice became `previous_period`, so "Previous year" produced a previous-period delta under a year-over-year label. `previous_year` and `custom` were already implemented by `getComparisonWindow` and are now passed through; the four with no implementation are removed from the picker rather than aliased. Each surface offers only what its own route carries (`OVERVIEW_COMPARISON_PRESETS`), and four surfaces that read no comparison no longer render the control. `lib/comparison-preset-contract.test.ts` computes each preset's window and asserts they differ |
+| A-3 | A cost increase never receives positive treatment | `local_pass` | `metric-semantics`, `MetricCard`, `roas-color-semantics` tests | `590ebd3bb`, J4 | local | owner (pending) | Closed. The audit found the main card was the defect: `SummaryMetricCard` coloured from the arithmetic sign, so a rising CPA, CPC or refund rate got the same emerald treatment as rising revenue. Cards now carry `trendSentiment` resolved from `getMetricDirection`, the arrow stays arithmetic, and Copies' three inline rules defer to the same helper. `lib/metric-direction-coverage.test.ts` asserts the criterion over every cost-like and value-like metric name in four spellings, plus the two defaults that matter: spend is directionless and an unclassified metric is never coloured by sign |
 | A-4 | Duplicate Meta totals match or visibly explain the difference | `local_pass` | `overview-section-labels` tests | `14d771834` | local | owner (pending) | Mechanism behind Codex's live observation still unproven |
 | A-5 | Mixed-currency fixtures never produce an unlabelled sum | `local_pass` | `agency-today-read-model` tests | `969d36675` | local | owner (pending) | No FX contract exists; totals withheld rather than converted |
 | A-6 | Settings and Integrations show the same health at the same moment | `local_pass` | `provider-health-truth` tests | `eee0f01f3` | local | owner (pending) | Not observed live with a forced token failure |
@@ -678,12 +735,12 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Health beyond freshness not yet joined into the row |
-| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search`, `saved-views`, `saved-views-menu` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Saved views mounted on Decisions; other surfaces can adopt the same menu |
+| B-1 | All assigned clients appear once, server-ranked, deep-linked | `local_pass` | `agency-today-read-model`, `agency-today/route` tests | `969d36675`, `c68fcbf27` | local | owner (pending) | Closed, and narrowed to what is true. Health reads the canonical `provider_connections` status **and** whether an account is selected: connected-with-nothing-selected is `action_required`, because nothing can produce data and a person has to fix it — finding G0-F5 reappearing on the surface whose job is deciding who to look at. Revoked, expired and error are treated alike, as Integrations treats them. Not shared: Integrations additionally applies client-side discovery-failure classification (quota class, stale-cached reads), which has no server-side equivalent; claiming full parity would be an overstatement. `app/api/agency-today/health-join.test.ts` |
+| B-2 | Search finds a campaign, ad set, ad or creative by name or ID | `local_pass` | `entity-search`, `search/route`, `global-search`, `saved-views`, `saved-views-menu` tests | `4afd73bf1`, `fccd41899` | local | owner (pending) | Obsolete as written — a category error, not a gap. B-2's criterion is "Search finds a campaign, ad set, ad or creative by name or ID", which is met and tested. Saved views are slice D3c, whose own definition is "scoped, persisted, mounted on Decisions", i.e. complete as scoped. Mounting the menu on more surfaces is a D3c scope extension, not an unmet B-2 requirement, and is not carried here as an open item |
 | B-3 | Permission-filtered entities never leak through search | `local_pass` | `search/route` tests; scope applied in SQL | `4afd73bf1` | local | owner (pending) | Not verified with a second tenant live |
 | B-4 | Two users see consistent workflow state; stale edits conflict rather than overwrite | `local_pass` | `decision-workflow`, `decision-workflow/route`, `decision-workflow-controls` tests | `a1dec7ef5`, `178cf6e89` | local | owner (pending) | Two-operator conflict proven by contract and route; not yet observed with two live sessions |
 | B-5 | Workflow changes never change engine labels or provider authority | `local_pass` | `decision-workflow` invariant test | `a1dec7ef5` | local | owner (pending) | — |
-| B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Covers campaign budget changes; ad-set and creative-level config not yet projected |
+| B-6 | A direct Ads Manager edit appears as an external History row | `local_pass` | `external-change-attribution`, `history-external-changes` tests | `3f4fe5066`, `0a4c6e98e` | local | owner (pending) | Closed. Three sources were unqueried and the one that ran was gated on `daily_budget` alone — which reported nothing at all on an ABO account, where campaign budget is null in every row. The campaign gate now covers budget, lifetime budget, bid, bid strategy and optimization goal; `meta_adset_config_history` and `meta_entity_state_history` are projected, the latter reaching ad and creative status. Both require a previous row that differs, so the syncer's own cadence is not reported as operator activity. Not local: creative asset content edits (swapping an image, rewriting body text) produce a new creative id, and no local table records the previous asset — so that one provider fact needs production. `lib/meta/history-external-change-levels.test.ts` |
 | B-7 | Exact single-Ad guarded pause with receipt and History row | `blocked_external` | capability resolver + preflight receipt, both proven with no provider call; resolver now conforms to D065 label/action derivation and D064 exact-Ad lineage (`guarded-action-capability` 17 tests, `guarded-action-panel`, `guarded-action-preflight`, `decision-action/preflight`) | `421ecefef`, `dd140f7ea`, `4a2c1b7e8` | local | owner (pending) | D065/D067 are now **implemented in code** on `ux/native-authority-integration`, not merely documented: origin declaration, exact-Ad lineage, the append-only attempt journal, one-POST semantics. What remains is the write itself: a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved provider call |
 | B-8 | Live policy/delivery incident coverage | `blocked_external` | contract carries `fix_policy`; live emission unverified | — | — | owner (pending) | Needs one live disapproval traced end to end |
 
@@ -692,9 +749,9 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | ID | Criterion | Status | Evidence artifact | Build/commit | Environment | Reviewer | Remaining caveat |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | C-1 | Broader guarded execution breadth | `not_started` | — | — | — | owner (pending) | Phase 11; begins only after Gate A production evidence |
-| C-2 | Delivered workflow notifications | `blocked_external` | `notification-contract` + `notification-read-model` tests (32), ledger schema | `8c53ed23e`, `7f4a91c02` | local | owner (pending) | 4 of the 5 Phase 7 acceptance items are now locally proven (see below); only "reaches the configured recipient through the enabled channel" needs a channel |
+| C-2 | Delivered workflow notifications | `local_pass` for production and in-app delivery; `blocked_external` for an external channel | `notification-contract` + `notification-read-model` tests (32), ledger schema | `8c53ed23e`, `7f4a91c02` | local | owner (pending) | Producer, lifecycle and bell all ship; only an external channel is missing. The producer now runs from the maintenance cron (it existed and nothing invoked it) and its severity translation is fixed — it matched `critical`/`warning` against an anomaly vocabulary of `high`/`medium`/`low`, so every anomaly became `info`, info is skipped, and the producer could scan a business full of critical anomalies and create nothing while reporting success. The bell is mounted in both frames and cannot show a reassuring zero: no count while loading, an explicit `?` when the read failed, no badge only for a genuine zero. What needs a real channel is exactly one clause: "reaches the configured recipient through the enabled channel" |
 | C-3 | Two-account, multi-currency correctness | `local_pass` | `agency-today-read-model`, `account-scope`, `account-scope-wiring` tests | `969d36675`, `af89e988e` | local | owner (pending) | Not demonstrated with two live accounts of different currencies |
-| C-4 | Mobile Tier-0 | `local_pass` (read model only) | `creative-column-priority` tests; emulated mobile viewport green in the full-UI visual gate | `894858aee`, `1e35ad6f5` | local | owner (pending) | **Partial by the plan's own terms.** Section 10 lists a *physical* mobile Tier-0 pass among the gates local or staging results cannot satisfy, and an emulated 390px viewport is not a device. KPI visibility only; Tier-0 writes remain desktop-gated per D5 |
+| C-4 | Mobile Tier-0 | `local_pass` for the capability-gated tasks; `blocked_external` for the physical-device pass | `creative-column-priority`, `components/meta/os/mobile-tier0-triage.test.tsx`; 320 and 390 captured in the six-width matrix | `894858aee`, `1e35ad6f5`, `16fbfcbb2` | local | owner (pending) | Split into the two things it was conflating. **Local and shipped:** capability-gated triage, evidence and ownership at phone width, instrumented with `mobile_tier0_started`/`completed`, the latter fired from the transition that recorded ownership rather than from a click; captured at 320 and 390. **Not local:** section 10's *physical* device pass — touch targets, real keyboards and network conditions are not emulated. D5 keeps provider mutation (budget, bid, activation, bulk) on desktop; it does not make mobile read-only |
 | C-5 | Sustained production reliability and breaker visibility | `not_started` | — | — | — | owner (pending) | Verified 2026-08-09 as having no local component. The plan's testable clause is "any `silent_failure` must visibly trip the action-class breaker; log-only discovery fails acceptance". `silent_failure` already surfaces as `danger` in the automation activity feed (not log-only), and `automation-view.tsx` declares "No per-class breaker evidence in v1" rather than implying coverage it lacks. A per-class breaker needs live action classes to trip and a soak to evidence |
 
 ### Cross-cutting
@@ -705,7 +762,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | X-2 | Schema changes build from zero and are idempotent | `local_pass` | `test:migrations-from-zero` PASS ×2 | `a1dec7ef5`, `8c53ed23e` | ephemeral Postgres | owner (pending) | Never run against real data |
 | X-3 | Release candidate builds | `local_pass` | `npm run build` exit 0, 291 routes, 0 errors | branch tip | local | owner (pending) | — |
 | X-4 | No user work, tenant data, receipt or snapshot lost | `local_pass` | primary tree unchanged at 219 modified / 127 untracked | — | local | owner (pending) | — |
-| X-5 | Full-UI visual gate green | `local_pass` | `npm run test:full-ui:visual` — 2 passed (desktop + mobile); screenshots under `playwright-smoke-artifacts/x5-visual-gate-green-2026-08-09/` show 5 campaigns and a populated `Recommendation version` | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Root cause was not the fixture: the seeded account was never selected, so every account-scoped route answered 403. See G0-F5 |
+| X-5 | Full-UI visual gate green | `local_pass` | `LC_ALL=C FULL_UI_SMOKE_ARTIFACT_SET=tier-zero-freshness npm run test:full-ui:visual` — **6 passed, exit 0** across six projects at 320/390/768/1280/1440/1728, 13 screenshot surfaces, artifacts under `docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/` including a per-width `*-freshness.json`. Beyond screenshots it asserts horizontal-scroll and tabular-clipping limits below 480px, focus visibility, positive tabindex, undescribed images, reduced motion, and the Tier-0 freshness reading read back from the DOM | `1e35ad6f5`, `b3f892ad2` | ephemeral Postgres | owner (pending) | Superseded: the earlier record of this row read "2 passed (desktop + mobile)" against artifact set `x5-visual-gate-green-2026-08-09`, which described the gate as it stood roughly 50 commits ago. The G0-F5 root cause below is retained because it is still the reason the fixture works |
 | X-6 | Exact deployed build read back | `not_started` | — | — | — | owner (pending) | Requires deployment |
 
 
@@ -715,16 +772,21 @@ Recorded per item rather than as one blanket block, because most of Phase 7 did 
 
 | Phase 7 acceptance item | Status | Evidence |
 | --- | --- | --- |
-| A test critical event reaches the configured recipient through the enabled channel | `blocked_external` | Needs a channel and a producer. Nothing here fakes it |
+| A test critical event reaches the configured recipient through the enabled channel | `blocked_external` | The producer ships and runs; the in-app channel ships and delivers. What is missing is an *external* channel (email/push) and a signed-in recipient to receive it. Nothing here fakes it |
 | Delivery failure is visible and retry policy is bounded | `local_pass` | `MAX_DELIVERY_ATTEMPTS`, `canRetryDelivery`, `describeDeliveryState`; an undelivered event still counts as unread rather than disappearing |
 | Duplicate source events do not spam recipients | `local_pass` | `buildNotificationDedupeKey` excludes wall-clock time, so a re-run cannot re-alert; `resolveDeliveryDecision` suppresses a seen key |
 | Deep link revalidates current state instead of presenting stale authority | `local_pass` | `resolveDeepLinkFreshness` presents as current only on a provably unchanged source version; unknown comparison and vanished targets both refuse |
 | Daily digest totals reconcile with the server source counts | `local_pass` | `buildDailyDigest` reports `reconciled: false` and the exact discrepancy in both directions |
 
-The bell remains disabled deliberately. No producer writes notification events, so an enabled bell
-would render a confident `0 unread` that means "nothing can generate these" rather than "nothing is
-wrong". The plan gates the bell on state and delivery truth existing; the state contract now exists,
-the producer and channel do not.
+The bell is enabled. It was disabled for a real reason — no producer wrote notification events, so
+an enabled bell would have rendered a confident `0 unread` meaning "nothing can generate these"
+rather than "nothing is wrong" — and that reason is gone: the producer runs from the maintenance
+cron and the whole attempted/delivered/opened/acknowledged lifecycle ships. Leaving it disabled
+would now be the dishonest state, with alerts produced and delivered to nobody.
+
+Its badge keeps the rule the rest of the console keeps, and this is where it matters most: no count
+at all while the first read is in flight, an explicit `?` when the read failed, and no badge only
+for a genuine zero. An operator who sees no badge concludes nothing needs them.
 
 ### Finding G0-F5 — an unassigned account is indistinguishable from an empty one
 
@@ -803,11 +865,15 @@ action-log read was made conditional on a page actually containing an observed c
 
 ### Summary
 
-- `local_pass`: 23 criteria of 30 as of the X-5 round. **Superseded by CURRENT STATUS above**, which
-  supersedes this count: the ten remaining gates are all production-only and enumerated there.
-  C-4 is `local_pass` for its read model only — the plan requires a physical-device pass it cannot claim.
-- `blocked_external`: 4 criteria (A-7, B-7, B-8, C-2) — **see CURRENT STATUS for the current reasons**;
-  B-7's blocker is no longer a missing contract
+- `local_pass`: every criterion with a local component. C-4 is `local_pass` for its
+  capability-gated mobile tasks — triage, evidence and ownership at phone width, instrumented and
+  captured at 320/390 — and `blocked_external` only for the physical-device pass section 10
+  requires.
+- `blocked_external`: A-7, B-7, B-8, and C-2's external-channel clause. C-2's producer, lifecycle
+  and in-app delivery are local and shipped; only "reaches the configured recipient through the
+  enabled channel" needs a channel. B-7's blocker is not a missing contract — D065/D067 are
+  implemented — but a deployed build with `META_GUARDED_EXECUTION_ENABLED=1` and an approved
+  provider call.
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`
 - `production_pass`: **0 criteria.** No production acceptance is claimed anywhere in this program.

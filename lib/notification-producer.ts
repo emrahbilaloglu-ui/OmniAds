@@ -16,15 +16,37 @@ import type { NotificationEvent } from "@/lib/notification-contract";
 import { recordNotificationEvent } from "@/lib/notification-store";
 
 /**
- * Anomaly severity maps to notification severity directly. Only `critical`
- * overrides quiet hours, which is the whole reason the distinction exists.
+ * Anomaly severity, translated into notification severity.
+ *
+ * These are two different vocabularies and this function used to assume they
+ * were one. Anomalies are graded `high` / `medium` / `low`
+ * (`lib/meta/anomalies.ts`); notifications are `critical` / `warning` / `info`.
+ * Matching on "critical" and "warning" meant nothing ever matched, every
+ * anomaly fell through to `info`, and the caller skips info — so the producer
+ * could scan a business full of critical anomalies and create exactly zero
+ * notifications, for ever, while reporting success.
+ *
+ * Both vocabularies are accepted now, because a producer that silently drops
+ * an input it does not recognise is how this happened. An unrecognised grade
+ * is `info` — not alerted on, but the caller counts it as skipped rather than
+ * losing it.
+ *
+ * Only `critical` overrides quiet hours, which is the whole reason the
+ * distinction exists.
  */
-function notificationSeverity(
+export function notificationSeverity(
   severity: string,
 ): NotificationEvent["severity"] {
-  if (severity === "critical") return "critical";
-  if (severity === "warning") return "warning";
-  return "info";
+  switch (severity.trim().toLowerCase()) {
+    case "critical":
+    case "high":
+      return "critical";
+    case "warning":
+    case "medium":
+      return "warning";
+    default:
+      return "info";
+  }
 }
 
 function eventType(anomalyType: string): NotificationEvent["eventType"] {

@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
+import type { ProductInstrumentationSurface } from "@/lib/product-instrumentation";
 import { readFreshness } from "@/lib/data-freshness";
 
 /**
@@ -13,13 +16,35 @@ export function FreshnessChip({
   onRefresh,
   refreshing = false,
   className = "",
+  businessId = null,
+  surface = "meta_decisions",
 }: {
   asOf: string | Date | null | undefined;
   onRefresh?: () => void;
   refreshing?: boolean;
   className?: string;
+  /** Present when the chip belongs to one client's data. */
+  businessId?: string | null;
+  surface?: ProductInstrumentationSurface;
 }) {
   const reading = readFreshness(asOf);
+
+  // Section 9: how often an operator is actually shown stale data. Emitted once
+  // per mount of a stale or unknown reading rather than on every render, so the
+  // count is "times disclosed", not "times re-rendered".
+  const disclosed = useRef(false);
+  useEffect(() => {
+    if (disclosed.current) return;
+    if (reading.level !== "stale" && reading.level !== "unknown") return;
+    disclosed.current = true;
+    emitProductInstrumentation({
+      eventName: "freshness_stale_disclosed",
+      surface,
+      outcome: "withheld",
+      scope: businessId ? "business" : "portfolio",
+      businessId,
+    });
+  }, [reading.level, businessId, surface]);
 
   const tone =
     reading.level === "stale"

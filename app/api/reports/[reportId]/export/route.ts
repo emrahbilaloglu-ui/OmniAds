@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCurrency } from "@/lib/account-store";
@@ -57,6 +58,16 @@ export async function GET(
   }
 
   const csv = renderWidgetCsv(widget);
+
+  // Section 9: the CSV escape hatch was used. No row content recorded.
+  await recordProductInstrumentationEvent({
+    businessId: report.businessId,
+    scope: "business",
+    eventName: "report_csv_created",
+    surface: "reports",
+    outcome: "ok",
+    occurredAt: new Date().toISOString(),
+  });
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

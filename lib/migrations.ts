@@ -13762,10 +13762,15 @@ export async function runMigrations(options?: {
           business_id       TEXT,
           scope             TEXT NOT NULL CHECK (scope IN ('business', 'portfolio')),
           event_name        TEXT NOT NULL CHECK (event_name IN (
-                              'agency_today_viewed',
-                              'search_submitted', 'search_zero_result',
-                              'decision_workflow_changed',
-                              'guarded_action_preflight'
+                              'agency_today_viewed', 'agency_today_client_opened', 'search_submitted',
+                              'search_zero_result', 'search_result_opened', 'saved_view_created',
+                              'saved_view_applied', 'decision_opened', 'decision_evidence_viewed',
+                              'decision_workflow_changed', 'report_generated', 'report_widget_failed',
+                              'report_widget_retried', 'report_share_created', 'report_print_opened',
+                              'report_csv_created', 'google_copy_used', 'google_csv_used',
+                              'provider_health_recovery_started', 'provider_health_recovery_completed', 'guarded_action_preflight',
+                              'guarded_action_dry_run', 'guarded_action_verified', 'guarded_action_failed',
+                              'guarded_action_ambiguous', 'freshness_stale_disclosed'
                             )),
           surface           TEXT NOT NULL CHECK (surface IN (
                               'overview', 'global_search', 'meta_decisions',

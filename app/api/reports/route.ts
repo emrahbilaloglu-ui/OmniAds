@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
@@ -52,6 +53,17 @@ export async function POST(request: NextRequest) {
     description: body.description ?? null,
     templateId: body.templateId ?? null,
     definition: ensureReportDefinition(body.definition as never),
+  });
+
+  // Section 9: a report was generated. Business-scoped, awaited, and carrying no
+  // report content -- only that one was created.
+  await recordProductInstrumentationEvent({
+    businessId: body.businessId,
+    scope: "business",
+    eventName: "report_generated",
+    surface: "reports",
+    outcome: "ok",
+    occurredAt: new Date().toISOString(),
   });
 
   return NextResponse.json({ report }, { status: 201 });

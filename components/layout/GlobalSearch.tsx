@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
@@ -145,6 +146,15 @@ export function GlobalSearch() {
                 role="option"
                 aria-selected={false}
                 onClick={() => {
+                  // Section 9: search success is "a result was opened", not
+                  // "results were shown". The query text is never sent.
+                  emitProductInstrumentation({
+                    eventName: "search_result_opened",
+                    surface: "global_search",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId: result.businessId,
+                  });
                   setOpen(false);
                   router.push(result.href);
                 }}

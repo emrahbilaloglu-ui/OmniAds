@@ -15,11 +15,43 @@ import {
  * measuring nothing. This test is what stops that.
  */
 const EMITTERS: Record<ProductInstrumentationEventName, string> = {
+  // Agency Today
   agency_today_viewed: "app/api/agency-today/route.ts",
+  agency_today_client_opened: "components/overview/AgencyToday.tsx",
+  // Global search
   search_submitted: "app/api/search/route.ts",
   search_zero_result: "app/api/search/route.ts",
+  search_result_opened: "components/layout/GlobalSearch.tsx",
+  // Saved views
+  saved_view_created: "components/views/SavedViewsMenu.tsx",
+  saved_view_applied: "components/views/SavedViewsMenu.tsx",
+  // Decisions
+  decision_opened: "components/meta/os/DecisionsOsView.tsx",
+  decision_evidence_viewed: "components/meta/os/DecisionsOsView.tsx",
   decision_workflow_changed: "app/api/meta/decision-workflow/route.ts",
+  // Reports
+  report_generated: "app/api/reports/route.ts",
+  report_widget_failed: "app/api/reports/render/route.ts",
+  report_widget_retried: "app/api/reports/render/route.ts",
+  report_share_created: "app/api/reports/[reportId]/share/route.ts",
+  report_print_opened: "components/reports/report-print-page.tsx",
+  report_csv_created: "app/api/reports/[reportId]/export/route.ts",
+  // Google escape hatches
+  google_copy_used: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
+  google_csv_used: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
+  // Provider health recovery
+  provider_health_recovery_started:
+    "components/integrations/integrations-card.tsx",
+  provider_health_recovery_completed:
+    "app/(dashboard)/integrations/callback/[provider]/page.tsx",
+  // Guarded action lifecycle (the stages this build can reach)
   guarded_action_preflight: "app/api/meta/decision-action/preflight/route.ts",
+  guarded_action_dry_run: "app/api/meta/decision-action/preflight/route.ts",
+  guarded_action_verified: "app/api/meta/decision-action/preflight/route.ts",
+  guarded_action_failed: "app/api/meta/decision-action/preflight/route.ts",
+  guarded_action_ambiguous: "app/api/meta/decision-action/preflight/route.ts",
+  // Freshness
+  freshness_stale_disclosed: "components/states/FreshnessChip.tsx",
 };
 
 describe("every declared event has a real emitter", () => {
@@ -39,9 +71,10 @@ describe("every declared event has a real emitter", () => {
   it("emits each event from that file, through the real recorder", () => {
     for (const [name, file] of Object.entries(EMITTERS)) {
       const source = readFileSync(file, "utf8");
-      expect(source, `${file} does not call the recorder`).toContain(
-        "await recordProductInstrumentationEvent(",
-      );
+      const emits =
+        source.includes("await recordProductInstrumentationEvent(") ||
+        source.includes("emitProductInstrumentation(");
+      expect(emits, `${file} does not emit through the contract`).toBe(true);
       expect(source, `${file} does not emit ${name}`).toContain(`"${name}"`);
     }
   });

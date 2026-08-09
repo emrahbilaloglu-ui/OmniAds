@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ReportCanvas } from "@/components/reports/report-canvas";
@@ -23,6 +24,14 @@ export function ReportPrintPage({ reportId }: { reportId: string }) {
 
   useEffect(() => {
     if (!reportQuery.data) return;
+    // Section 9: the print path was taken. Period fidelity is measured
+    // elsewhere; this only records that printing happened.
+    emitProductInstrumentation({
+      eventName: "report_print_opened",
+      surface: "reports",
+      outcome: "ok",
+      scope: "portfolio",
+    });
     const timeoutId = window.setTimeout(() => window.print(), 250);
     return () => window.clearTimeout(timeoutId);
   }, [reportQuery.data]);

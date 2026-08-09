@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -1173,7 +1174,17 @@ export function DecisionsOsView({
                 currency={currency}
                 expandedGroups={expandedGroups}
                 onToggle={toggleGroup}
-                onSelect={(value) => setSelected({ kind: "structure", value })}
+                onSelect={(value) => {
+                  // Section 9: a decision was opened for reading.
+                  emitProductInstrumentation({
+                    eventName: "decision_opened",
+                    surface: "meta_decisions",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId,
+                  });
+                  setSelected({ kind: "structure", value });
+                }}
                 selected={selected}
               />
               {remainingStructureGroups > 0 ? (
@@ -1245,7 +1256,22 @@ export function DecisionsOsView({
               }
               readOnly={workspace?.viewer?.readOnly === true}
               howOpen={howOpen}
-              onToggleHow={() => setHowOpen((open) => !open)}
+              onToggleHow={() => {
+                setHowOpen((open) => {
+                  // Section 9: evidence viewed, counted only when the
+                  // disclosure is opened rather than on every toggle.
+                  if (!open) {
+                    emitProductInstrumentation({
+                      eventName: "decision_evidence_viewed",
+                      surface: "meta_decision_inspector",
+                      outcome: "ok",
+                      scope: "business",
+                      businessId,
+                    });
+                  }
+                  return !open;
+                });
+              }}
               onWorkspaceRefresh={() => workspaceQuery.refetch()}
               onClose={() => setSelected(null)}
             />

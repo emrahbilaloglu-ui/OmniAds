@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { MISSING_VALUE, formatMoneyIso } from "@/lib/metric-format";
@@ -46,6 +47,17 @@ function ClientRow({ row }: { row: AgencyTodayRow }) {
     <Link
       href={row.href}
       className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-neutral-200 px-4 py-3 last:border-b-0 hover:bg-neutral-50"
+      onClick={() =>
+        // Section 9: which client the buyer actually opened from the morning
+        // view. Business-scoped, because this one names a client.
+        emitProductInstrumentation({
+          eventName: "agency_today_client_opened",
+          surface: "overview",
+          outcome: "ok",
+          scope: "business",
+          businessId: row.businessId,
+        })
+      }
     >
       <span className="min-w-[9rem] flex-1 text-[13px] font-medium text-neutral-900">
         {row.businessName}

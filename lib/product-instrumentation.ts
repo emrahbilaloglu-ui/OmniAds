@@ -41,23 +41,63 @@ export const PRODUCT_INSTRUMENTATION_CONTRACT_VERSION =
 /**
  * The event vocabulary.
  *
- * Every name here has a real emission point in shipped production code, and
- * `product-instrumentation-emitters.test.ts` fails if one does not. That rule
- * is why this list is shorter than master-plan section 9's full minimum: the
- * remaining section-9 events (client row opened, search result opened, saved
- * view create/apply, evidence viewed, the report generate/fail/retry/share/
- * print/CSV family, Google copy/CSV/deep link, health recovery, notification
- * delivery lifecycle, guarded dry-run, mobile Tier-0) have no server emission
- * point on this candidate. Declaring them here with nothing emitting would be a
- * dead vocabulary that reads like coverage. They are recorded as an open local
- * gap in UX_REMEDIATION_LEDGER.md instead.
+ * Every name here has a real emission point in shipped code, proven by
+ * `product-instrumentation-emitters.test.ts`, which fails on an orphan in
+ * either direction. A declared name with nothing emitting it reads like
+ * coverage in the schema and in a dashboard while measuring nothing.
+ *
+ * Section 9 lists four families this candidate cannot honestly emit, so they
+ * are absent rather than declared dead:
+ *
+ * - **notification attempted/delivered/opened/acknowledged** — the ledger
+ *   contract exists but nothing produces or delivers a notification, so every
+ *   count would be a constant zero that reads as "no incidents";
+ * - **guarded confirmed / provider attempted / reconciled** — these require the
+ *   execution path, which is gated off in this build. The stages that do occur
+ *   (preflight, dry run, verified, failed, ambiguous) are emitted;
+ * - **mobile Tier-0 started/completed** — mobile is read-only here and D5 keeps
+ *   Tier-0 writes desktop-gated, so there is no action to start or complete;
+ * - **Google deep link used** — no deep link into the Google Ads UI is
+ *   rendered on this candidate.
+ *
+ * Each is recorded as an open local gap in UX_REMEDIATION_LEDGER.md.
  */
 export const PRODUCT_INSTRUMENTATION_EVENT_NAMES = [
+  // Agency Today
   "agency_today_viewed",
+  "agency_today_client_opened",
+  // Global search
   "search_submitted",
   "search_zero_result",
+  "search_result_opened",
+  // Saved views
+  "saved_view_created",
+  "saved_view_applied",
+  // Decisions
+  "decision_opened",
+  "decision_evidence_viewed",
   "decision_workflow_changed",
+  // Reports
+  "report_generated",
+  "report_widget_failed",
+  "report_widget_retried",
+  "report_share_created",
+  "report_print_opened",
+  "report_csv_created",
+  // Google escape hatches
+  "google_copy_used",
+  "google_csv_used",
+  // Provider health recovery
+  "provider_health_recovery_started",
+  "provider_health_recovery_completed",
+  // Guarded action lifecycle
   "guarded_action_preflight",
+  "guarded_action_dry_run",
+  "guarded_action_verified",
+  "guarded_action_failed",
+  "guarded_action_ambiguous",
+  // Freshness disclosure
+  "freshness_stale_disclosed",
 ] as const;
 
 export type ProductInstrumentationEventName =

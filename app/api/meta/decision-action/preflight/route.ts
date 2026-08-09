@@ -117,8 +117,29 @@ export async function POST(request: NextRequest) {
     checkedAt: new Date().toISOString(),
   });
 
-  // Section 9: a guarded-action preflight ran. Recorded on the success path
-  // only, so a rejected request is not counted as an operator check.
+  // Section 9: the guarded-action lifecycle, recorded from the verdict the
+  // preflight actually reached rather than as a flat "a check happened".
+  //
+  // This build has no execution path, so the honest lifecycle stages available
+  // here are the check itself, the dry run it amounts to, and the terminal
+  // states the verdict can reach. `blocked` is a refusal, not a failure of the
+  // system, so it is recorded as withheld; `ambiguous` and `drifted` are the
+  // states worth counting because they are where an operator is left unsure.
+  const lifecycleEvent =
+    receipt.verdict === "ambiguous"
+      ? ("guarded_action_ambiguous" as const)
+      : receipt.verdict === "blocked"
+        ? ("guarded_action_failed" as const)
+        : receipt.verdict === "ready"
+          ? ("guarded_action_verified" as const)
+          : ("guarded_action_dry_run" as const);
+  const lifecycleOutcome =
+    receipt.verdict === "ready"
+      ? ("ok" as const)
+      : receipt.verdict === "blocked"
+        ? ("withheld" as const)
+        : ("failed" as const);
+
   await recordProductInstrumentationEvent({
     businessId,
     scope: "business",
@@ -126,6 +147,16 @@ export async function POST(request: NextRequest) {
     surface: "meta_decision_inspector",
     outcome: "ok",
     provider: "meta",
+    occurredAt: new Date().toISOString(),
+  });
+  await recordProductInstrumentationEvent({
+    businessId,
+    scope: "business",
+    eventName: lifecycleEvent,
+    surface: "meta_decision_inspector",
+    outcome: lifecycleOutcome,
+    provider: "meta",
+    failureCode: lifecycleOutcome === "failed" ? "contract_violation" : null,
     occurredAt: new Date().toISOString(),
   });
 

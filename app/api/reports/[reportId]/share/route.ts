@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { listUserBusinesses, requireBusinessAccess } from "@/lib/access";
 import { renderCustomReportRecord } from "@/lib/custom-report-renderer";
@@ -56,6 +57,25 @@ export async function POST(
     currency: business?.currency ?? null,
     clientEmail: null,
   });
+
+  // Section 9: a share snapshot was created. No report content recorded.
+
+  await recordProductInstrumentationEvent({
+
+    businessId: report.businessId,
+
+    scope: "business",
+
+    eventName: "report_share_created",
+
+    surface: "reports",
+
+    outcome: "ok",
+
+    occurredAt: new Date().toISOString(),
+
+  });
+
 
   return NextResponse.json({
     token: snapshot.token,

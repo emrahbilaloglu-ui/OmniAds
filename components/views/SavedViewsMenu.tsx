@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useMemo, useState } from "react";
 import { usePreferencesStore } from "@/store/preferences-store";
 import {
@@ -62,6 +63,13 @@ export function SavedViewsMenu({
       createdAt: new Date().toISOString(),
     });
     saveView(view);
+    emitProductInstrumentation({
+      eventName: "saved_view_created",
+      surface: "meta_decisions",
+      outcome: "ok",
+      scope: "business",
+      businessId,
+    });
     setName("");
     setError(null);
   }
@@ -97,6 +105,13 @@ export function SavedViewsMenu({
                       title={reason ?? undefined}
                       onClick={() => {
                         onApply(view.config);
+                        emitProductInstrumentation({
+                          eventName: "saved_view_applied",
+                          surface: "meta_decisions",
+                          outcome: "ok",
+                          scope: "business",
+                          businessId,
+                        });
                         setOpen(false);
                       }}
                       className="flex-1 truncate rounded px-1.5 py-1 text-left text-[12px] text-neutral-800 hover:bg-neutral-50 disabled:text-neutral-400 disabled:hover:bg-transparent"

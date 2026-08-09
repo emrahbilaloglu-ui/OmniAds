@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GoogleIntegrationProgress } from "@/components/integrations/google-integration-progress";
@@ -241,7 +242,18 @@ export function IntegrationsCard({
               >
                 {view.primaryActionLabel}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "portfolio",
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button
@@ -260,7 +272,18 @@ export function IntegrationsCard({
               <Button size="sm" className="min-w-[108px]" onClick={() => onRetry(provider)}>
                 Retry
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "portfolio",
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button

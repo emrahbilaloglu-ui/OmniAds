@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
@@ -1480,6 +1481,18 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             void navigator.clipboard?.writeText(
                               buildNegativeKeywordList(searchTermNegativeCandidates, "phrase"),
                             );
+                            // Section 9: the zero-risk escape hatch was used.
+                            // Only that it happened and how many rows -- never
+                            // the keywords themselves.
+                            emitProductInstrumentation({
+                              eventName: "google_copy_used",
+                              surface: "google_ads",
+                              outcome: "ok",
+                              scope: "business",
+                              businessId,
+                              provider: "google",
+                              itemCount: searchTermNegativeCandidates.length,
+                            });
                           }}
                           title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
                         >
@@ -1489,6 +1502,15 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           type="button"
                           className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
                           onClick={() => {
+                            emitProductInstrumentation({
+                              eventName: "google_csv_used",
+                              surface: "google_ads",
+                              outcome: "ok",
+                              scope: "business",
+                              businessId,
+                              provider: "google",
+                              itemCount: searchTermNegativeCandidates.length,
+                            });
                             downloadSearchTermCsv(
                               buildSearchTermCsv(
                                 searchTermNegativeCandidates,

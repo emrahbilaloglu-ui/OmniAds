@@ -2633,9 +2633,9 @@ async function main() {
       databaseUrl,
       path.join(
         "scripts",
-        "ephemeral-postgres-manual-ad-status-seam-child.ts",
+        "ephemeral-postgres-manual-ad-status-route-seam-child.ts",
       ),
-      "manual Ad status write-path DB seam check",
+      "manual Ad status ROUTE-level DB seam check",
     );
 
     // Production-seam checks against the freshly migrated schema: real

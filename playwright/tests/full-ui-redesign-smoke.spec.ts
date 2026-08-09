@@ -5,6 +5,7 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import fs from "node:fs";
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
 import { seedReviewerAccount } from "../helpers/reviewer-auth";
@@ -128,6 +129,7 @@ const SCREENSHOT_ROUTES = [
   },
   { actor: "dashboard", path: "/reports", name: "reports" },
   // Explicit Tier-0 surfaces the earlier matrix never captured.
+  { actor: "dashboard", path: "/platforms/google", name: "google-ads" },
   { actor: "dashboard", path: "/overview", name: "overview" },
   { actor: "dashboard", path: "/integrations", name: "integrations" },
   { actor: "dashboard", path: "/settings", name: "settings" },
@@ -146,6 +148,28 @@ const SELECTED_SCREENSHOT_NAMES = new Set(
     .map((name) => name.trim())
     .filter(Boolean),
 );
+
+/**
+ * The surfaces whose freshness reading is asserted in the browser.
+ *
+ * Keyed by screenshot name so the evidence and the assertion cannot drift: a
+ * surface captured at six widths is a surface checked at six widths.
+ */
+const TIER_ZERO_FRESHNESS_SURFACES = new Set<string>([
+  "overview",
+  "meta-decisions",
+  "meta-history",
+  "creative-studio",
+  "google-ads",
+  "reports",
+  "launchpad",
+  "automation",
+  "settings",
+  "integrations",
+]);
+
+/** Written next to the screenshots so the matrix is readable, not just visual. */
+const freshnessEvidence: Array<Record<string, unknown>> = [];
 
 const ACTIVE_SCREENSHOT_ROUTES =
   SELECTED_SCREENSHOT_NAMES.size === 0
@@ -1188,6 +1212,73 @@ test.describe("full UI redesign route and visual smoke", () => {
           ),
           fullPage: true,
         });
+        // The freshness contract, checked in a real browser at every width.
+        //
+        // A screenshot proves a page rendered, not that it told the truth about
+        // how old its numbers are. So on the Tier-0 surfaces the reading is read
+        // back out of the DOM and the dishonest combinations are rejected:
+        // figures shown next to a "loading" reading, or an error reading with no
+        // named code and no way to retry.
+        if (TIER_ZERO_FRESHNESS_SURFACES.has(shot.name)) {
+          const reading = await shotPage.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(
+              "[data-freshness-state]",
+            );
+            if (!node) return null;
+            return {
+              state: node.getAttribute("data-freshness-state"),
+              errorCode: node.getAttribute("data-freshness-error"),
+              text: (node.textContent ?? "").trim().slice(0, 160),
+              hasRetry: Boolean(node.querySelector("button")),
+            };
+          });
+
+          if (reading) {
+            expect(
+              reading.state,
+              `${shot.path} reported an unknown freshness state`,
+            ).toMatch(/^(loading|refreshing|ready|partial|error)$/);
+
+            if (reading.state === "loading") {
+              // A figure next to "we do not know yet" is the whole bug.
+              expect(
+                reading.text,
+                `${shot.path} shows figures while reporting loading`,
+              ).not.toMatch(/\d/);
+            }
+
+            if (reading.state === "error") {
+              expect(
+                reading.errorCode,
+                `${shot.path} reports an error with no named code`,
+              ).toBeTruthy();
+              expect(
+                reading.hasRetry,
+                `${shot.path} reports a terminal error with no way to retry`,
+              ).toBe(true);
+            }
+
+            freshnessEvidence.push({
+              width: shotPage.viewportSize()?.width ?? null,
+              project: testInfo.project.name,
+              surface: shot.name,
+              path: shot.path,
+              ...reading,
+            });
+          } else {
+            freshnessEvidence.push({
+              width: shotPage.viewportSize()?.width ?? null,
+              project: testInfo.project.name,
+              surface: shot.name,
+              path: shot.path,
+              state: "not-rendered",
+              errorCode: null,
+              text: "",
+              hasRetry: false,
+            });
+          }
+        }
+
 
         const advancedCalendarTestId =
           shot.name === "meta-decisions"
@@ -1415,6 +1506,24 @@ test.describe("full UI redesign route and visual smoke", () => {
       } finally {
         await shotPage.close();
       }
+    }
+
+    // The matrix as text, next to the pixels. A reviewer can read what each
+    // surface claimed at each width without opening ten screenshots, and a
+    // surface that rendered no reading at all shows up as "not-rendered"
+    // rather than silently missing from the evidence.
+    if (freshnessEvidence.length > 0) {
+      await testInfo.attach(
+        `freshness-${testInfo.project.name}.json`,
+        {
+          body: JSON.stringify(freshnessEvidence, null, 2),
+          contentType: "application/json",
+        },
+      );
+      await fs.promises.writeFile(
+        testInfo.outputPath(`${testInfo.project.name}-freshness.json`),
+        JSON.stringify(freshnessEvidence, null, 2),
+      );
     }
   });
 });

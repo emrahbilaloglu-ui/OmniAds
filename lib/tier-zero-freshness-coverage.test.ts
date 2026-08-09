@@ -9,36 +9,70 @@ import { describe, expect, it } from "vitest";
  * old. Adding a surface without wiring it is the easy mistake, so it is the one
  * this test catches.
  */
-const TIER_ZERO_SURFACES: Array<{ label: string; file: string }> = [
-  { label: "Overview / Agency Today", file: "app/(dashboard)/overview/page.tsx" },
+const TIER_ZERO_SURFACES: Array<{
+  label: string;
+  /** The route entry the user actually navigates to. */
+  route: string;
+  /** The component that route renders, when it delegates. */
+  file: string;
+}> = [
+  {
+    label: "Overview / Agency Today",
+    route: "app/(dashboard)/overview/page.tsx",
+    file: "app/(dashboard)/overview/page.tsx",
+  },
   {
     label: "Decisions and inspector",
-    file: "components/meta/redesign/MetaPlatformPage.tsx",
+    route: "app/(dashboard)/platforms/meta/page.tsx",
+    file: "components/meta/os/DecisionsOsView.tsx",
   },
   {
     label: "History",
+    route: "app/(dashboard)/platforms/meta/history/page.tsx",
     file: "app/(dashboard)/platforms/meta/history/history-view.tsx",
   },
   {
     label: "Creative Studio",
-    file: "components/creatives/CreativeStudioWorkspace.tsx",
+    route: "app/(dashboard)/platforms/meta/creatives/page.tsx",
+    file: "app/(dashboard)/platforms/meta/creatives/page.tsx",
   },
   {
     label: "Google Ads",
+    route: "app/(dashboard)/platforms/google/page.tsx",
     file: "components/google-ads/GoogleAdsIntelligenceDashboard.tsx",
   },
-  { label: "Reports", file: "app/(dashboard)/reports/page.tsx" },
+  {
+    label: "Reports",
+    route: "app/(dashboard)/reports/page.tsx",
+    file: "app/(dashboard)/reports/page.tsx",
+  },
   {
     label: "Launchpad",
+    route: "app/(dashboard)/platforms/meta/launchpad/page.tsx",
     file: "app/(dashboard)/platforms/meta/launchpad/page.tsx",
   },
   {
     label: "Automation",
+    route: "app/(dashboard)/platforms/meta/automation/page.tsx",
     file: "app/(dashboard)/platforms/meta/automation/automation-view.tsx",
   },
-  { label: "Settings", file: "app/(dashboard)/settings/page.tsx" },
-  { label: "Integrations", file: "app/(dashboard)/integrations/page.tsx" },
+  {
+    label: "Settings",
+    route: "app/(dashboard)/settings/page.tsx",
+    file: "app/(dashboard)/settings/page.tsx",
+  },
+  {
+    label: "Integrations",
+    route: "app/(dashboard)/integrations/page.tsx",
+    file: "app/(dashboard)/integrations/page.tsx",
+  },
 ];
+
+/** The component name a route file must reference for the wiring to be live. */
+function componentName(file: string): string {
+  const base = file.split("/").pop() ?? file;
+  return base.replace(/\.tsx?$/, "");
+}
 
 const contract = readFileSync(
   "components/states/TierZeroFreshness.tsx",
@@ -53,13 +87,21 @@ describe("every Tier-0 surface reports its data age", () => {
   for (const surface of TIER_ZERO_SURFACES) {
     it(`${surface.label} reports freshness`, () => {
       const source = readFileSync(surface.file, "utf8");
-      const reports =
-        source.includes("useTierZeroFreshness(") ||
-        source.includes("FreshnessChip") ||
-        source.includes("TierZeroFreshness");
       expect(
-        reports,
+        source.includes("useTierZeroFreshness("),
         `${surface.file} does not report its data age; silence reads as "current"`,
+      ).toBe(true);
+    });
+
+    it(`${surface.label} wires the component its route actually renders`, () => {
+      // The wiring was once added to a component the route had stopped
+      // rendering. The file passed its own check and the surface still said
+      // nothing, so the route has to vouch for the component.
+      if (surface.route === surface.file) return;
+      const route = readFileSync(surface.route, "utf8");
+      expect(
+        route.includes(componentName(surface.file)),
+        `${surface.route} does not render ${surface.file}; the wiring is dead`,
       ).toBe(true);
     });
   }

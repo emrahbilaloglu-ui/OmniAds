@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
@@ -272,6 +273,27 @@ export default function OverviewPage() {
   }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
 
   // Charts show a pulsing skeleton while sparklines are loading.
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "overview",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // A provider we could not read is a hole in the totals, not a zero.
+    partialReason:
+      metaStatusQuery.error || googleAdsStatusQuery.error
+        ? "Some provider health could not be read; this view is incomplete"
+        : null,
+    asOf: query.dataUpdatedAt
+      ? new Date(query.dataUpdatedAt).toISOString()
+      : null,
+    businessId: businessId || null,
+    onRetry: () => void query.refetch(),
+  });
+
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
 
   if (!selectedBusinessId) return <BusinessEmptyState />;

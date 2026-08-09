@@ -517,6 +517,9 @@ export default function MetaHistoryView() {
     // honest as-of. Claiming "now" would overstate what we fetched.
     asOf: entries[0]?.occurredAt ?? null,
     businessId: payload?.scope.businessId ?? selectedBusinessId ?? null,
+    // The journal already knows how to re-read itself; without this the
+    // surface named a terminal failure and offered no way out of it.
+    onRetry: () => setReloadToken((value) => value + 1),
   });
 
   useEffect(() => {

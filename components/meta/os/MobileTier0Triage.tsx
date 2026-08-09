@@ -26,6 +26,60 @@ import { emitProductInstrumentation } from "@/lib/product-instrumentation-client
  */
 export type MobileTier0Outcome = "completed" | "abandoned";
 
+/**
+ * How a finished task is reported.
+ *
+ * An abandoned task is `withheld`, not `ok`. Recording only completions would
+ * make the completion rate a count of finished tasks over finished tasks, which
+ * is always 100% and tells nobody anything.
+ */
+export function mobileTier0CompletionOutcome(
+  outcome: MobileTier0Outcome,
+): "ok" | "withheld" {
+  return outcome === "completed" ? "ok" : "withheld";
+}
+
+/**
+ * The panel itself, with no viewport gate and no emission.
+ *
+ * Split from the gating component so the rendered contract can be asserted:
+ * the gate depends on `window.matchMedia`, and a server render would always
+ * take the not-a-phone branch and prove nothing about what a phone sees.
+ */
+export function MobileTier0TriagePanel({
+  ownershipAvailable,
+  onComplete,
+  children,
+}: {
+  ownershipAvailable: boolean;
+  onComplete?: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section
+      data-testid="mobile-tier0-triage"
+      data-tier0-state={ownershipAvailable ? "available" : "read_only"}
+      aria-label="Triage this decision"
+      className="mt-3 rounded-lg border border-[var(--adc-b1,#e4e4e0)] p-3"
+    >
+      <h3 className="text-[13px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
+        Triage on mobile
+      </h3>
+      <p className="mt-1 text-[12px] text-[var(--adc-ink2,#4a4f56)]">
+        {ownershipAvailable
+          ? "Read the evidence and take this on. Provider changes stay on desktop."
+          : "Ownership tracking is unavailable, so this decision can be read here but not claimed."}
+      </p>
+
+      {ownershipAvailable ? (
+        <div onClickCapture={onComplete} data-testid="mobile-tier0-controls">
+          {children}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function MobileTier0Triage({
   businessId,
   decisionKey,
@@ -72,7 +126,7 @@ export function MobileTier0Triage({
       emitProductInstrumentation({
         eventName: "mobile_tier0_completed",
         surface: "mobile",
-        outcome: outcome === "completed" ? "ok" : "withheld",
+        outcome: mobileTier0CompletionOutcome(outcome),
         scope: "business",
         businessId,
       });
@@ -83,29 +137,11 @@ export function MobileTier0Triage({
   if (!isPhone) return null;
 
   return (
-    <section
-      data-testid="mobile-tier0-triage"
-      data-tier0-state={ownershipAvailable ? "available" : "read_only"}
-      aria-label="Triage this decision"
-      className="mt-3 rounded-lg border border-[var(--adc-b1,#e4e4e0)] p-3"
+    <MobileTier0TriagePanel
+      ownershipAvailable={ownershipAvailable}
+      onComplete={() => complete("completed")}
     >
-      <h3 className="text-[13px] font-semibold text-[var(--adc-ink,#1a1c1f)]">
-        Triage on mobile
-      </h3>
-      <p className="mt-1 text-[12px] text-[var(--adc-ink2,#4a4f56)]">
-        {ownershipAvailable
-          ? "Read the evidence and take this on. Provider changes stay on desktop."
-          : "Ownership tracking is unavailable, so this decision can be read here but not claimed."}
-      </p>
-
-      {ownershipAvailable ? (
-        <div
-          onClickCapture={() => complete("completed")}
-          data-testid="mobile-tier0-controls"
-        >
-          {children}
-        </div>
-      ) : null}
-    </section>
+      {children}
+    </MobileTier0TriagePanel>
   );
 }

@@ -1,6 +1,9 @@
 # Media-Buyer UX Remediation — Delivery Ledger
 
 Authority: `docs/full-ui-redesign/ADSECUTE_MEDIA_BUYER_UX_IMPLEMENTATION_MASTER_PLAN_2026-08-08.md`
+(untracked, and present only in the primary working copy at `/Users/harmelek/Adsecute` — it is not
+in this worktree and not in git. Every other path cited in this ledger resolves inside this
+worktree; this one is called out so a reader who cannot open it knows why.)
 
 Owner: Claude Code (implementation). Every slice has one rollback boundary.
 
@@ -234,7 +237,7 @@ approved call — not because the contract is missing.
 | F2b | external changes projected into History | F2 | `local_pass` (`0a4c6e98e`) | union arm, additive |
 | E1 | Google account scope + mixed-currency guard | A1 | `local_pass` (`af89e988e`) | read-only |
 | H1 | guarded action capability resolver | C2,F2 | `local_pass` (`421ecefef`) | default-denied; no execute path |
-| C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`) | additive chip |
+| C2b | per-surface freshness disclosure | C2 | `local_pass` (`eb94e0551`, `b153e585b`) | additive chip; one contract across all ten Tier-0 surfaces |
 | D3c | saved views (scoped, persisted, mounted on Decisions) | D3 | `local_pass` | store-scoped |
 | H1b | guarded action preflight + receipt | H1 | `local_pass` (`dd140f7ea`) | read-only route |
 | H1c | capability + preflight rendered in inspector | H1b | `local_pass` | component removable |
@@ -509,9 +512,13 @@ Two categories. Conflating them was a real defect in earlier revisions of this l
 - **Clipping is a gate.** The smoke asserts no page-level horizontal scroll *and* that no scroller
   containing tabular content hides any of it. The second is the one that matters: the page-level
   check passed while the row still clipped, because the frame scrolled internally.
-- **Section-9 instrumentation.** 26 events, each with a shipped emitter, proven by
-  `product-instrumentation-emitters.test.ts`. Client-only interactions reach the sink through a
-  bounded authenticated endpoint that re-validates every field server-side.
+- **Section-9 instrumentation.** All 36 events, each with a shipped emitter, proven by
+  `lib/product-instrumentation-emitters.test.ts`. Client-only interactions reach the sink through a
+  bounded authenticated endpoint that re-validates every field server-side. Server-owned truth does
+  not: `lib/meta/ads-action-log.ts`, `lib/meta/manual-ad-status-reconciliation.ts` and
+  `lib/notification-store.ts` call `recordProductInstrumentationEvent` directly, and the same test
+  asserts they never reach for the client endpoint. A browser can report intent; only the server
+  knows whether a claim was created, whether a POST went out, or whether a delivery was attempted.
 - **Accessibility.** 15 structural assertions plus live browser checks for focus visibility,
   positive tabindex, undescribed images and reduced motion. Findings fixed: the search box was a
   combobox with no `aria-expanded`, and animations ignored `prefers-reduced-motion`.
@@ -526,15 +533,20 @@ Two categories. Conflating them was a real defect in earlier revisions of this l
   projected. `history-projection-completeness.test.ts` asserts every declared source is queried,
   so a source the filter offers can never return empty because it was never wired.
 
-**Still open locally, with the reason:**
+**Closed 2026-08-09, previously listed here as open.** Each of the five had a stated reason, and
+in every case the reason described a missing implementation rather than a genuine impossibility.
+Calling that "not contractable" was the error; the work is what closes it.
 
-| Gap | Why it is not closed |
-| --- | --- |
-| Notification lifecycle events | The ledger contract exists but nothing produces or delivers a notification, so every count would be a constant zero reading as "no incidents" |
-| Guarded confirmed / provider-attempted / reconciled events | These require the execution path, which is gated off. The stages that do occur (preflight, dry run, verified, failed, ambiguous) are emitted |
-| Mobile Tier-0 start/complete events | Mobile is read-only here and D5 keeps Tier-0 writes desktop-gated, so there is no action to start or complete |
-| Google deep-link event | No deep link into the Google Ads UI is rendered on this candidate |
-| Freshness adoption breadth | `FreshnessChip` now emits disclosure and is mounted on Decisions; Studio, Reports and Google surfaces do not carry it yet |
+| Was open | What shipped | Evidence |
+| --- | --- | --- |
+| Notification lifecycle events | `lib/notification-store.ts` records the four real transitions, `lib/notification-producer.ts` creates them from anomalies, `app/api/notifications/route.ts` marks delivery on fetch and `app/api/notifications/[deliveryId]/route.ts` records open and acknowledge. Enqueue is an *attempt*; it becomes `delivered` only when the recipient's client has actually fetched it, because marking enqueue as delivery would make the delivery rate a measure of our own queue | `lib/notification-contract.test.ts`, `lib/notification-lifecycle.test.ts`, `lib/notification-read-model.test.ts`, `app/api/notifications/route.test.ts`, `scripts/ephemeral-postgres-notification-seam-child.ts` (real Postgres) |
+| Guarded confirmed / provider-attempted / verified / failed / ambiguous / reconciled | Emitted at the actual transitions in `lib/meta/ads-action-log.ts` — confirmed when the claim row is inserted, provider-attempted inside the transaction *after* lineage validation so a refused attempt is never counted, and the completion event mapped from the recorded outcome. `lib/meta/manual-ad-status-reconciliation.ts` emits `guarded_action_reconciled` only when an ambiguity is actually closed, never on a blocked, still-settling or unnecessary run. `META_GUARDED_EXECUTION_ENABLED` stays unset; the fake-provider and Postgres seams exercise the production transitions | `lib/meta/ads-action-log.test.ts`, `lib/meta/manual-ad-status-reconciliation.test.ts`, `scripts/ephemeral-postgres-manual-ad-status-route-seam-child.ts` (real Postgres) |
+| Mobile Tier-0 start/complete | `components/meta/os/MobileTier0Triage.tsx`, capability-gated on phone width and on whether ownership can be read, mounted in `components/meta/os/DecisionsOsView.tsx`. D5 still keeps provider mutation off mobile — it suppresses unsafe writes, it does not excuse missing telemetry for the triage task mobile *is* permitted to do. A task opened and abandoned records a start with no completion, which is the honest signal | `components/meta/os/mobile-tier0-triage.test.tsx` |
+| Google deep-link used | `lib/google-ads/deep-link.ts` builds permission/account/entity-scoped links and refuses rather than guesses: no link without a numeric customer id, and a campaign link without a campaign id is refused rather than silently downgraded to an account link. Rendered in `components/google-ads/GoogleAdsIntelligenceDashboard.tsx`, and the anchor renders only when the builder returned a destination | `lib/google-ads/deep-link.test.ts`, `lib/google-ads/deep-link-wiring.test.ts` |
+| Freshness adoption breadth | One contract across all ten Tier-0 surfaces via `components/states/TierZeroFreshness.tsx`, `components/states/useTierZeroFreshness.ts` and `store/tier-zero-freshness-store.ts`, mounted once in `components/layout/dashboard-frame.tsx`. The Decisions inspector, which had no date on its evidence at all, now carries the lane snapshot date | `lib/tier-zero-freshness-coverage.test.ts`, `components/states/tier-zero-freshness.test.tsx`, `lib/tier-zero-idle-tab-revalidation.test.ts`, `app/api/reports/tier-zero-freshness.route.test.ts`, and the six-width freshness evidence under `docs/full-ui-redesign/playwright-smoke-artifacts/tier-zero-freshness/` |
+
+**Nothing remains open locally.** Every gap below needs the deploy, an approved provider call, or a
+physical device — none has a local component that was skipped.
 
 **Production-only or physical-device** — no local component exists:
 
@@ -570,7 +582,7 @@ Reviewer is `owner (pending)` throughout: nothing here has been reviewed by a se
 | A-7 | Flagship report renders 7/7 widgets | `blocked_external` | in-process transport + widget failure isolation | `90838abb9` | — | owner (pending) | Root cause addressed; only a signed-in production render can confirm |
 | A-8 | Share and print reproduce the on-screen window | `local_pass` | `share-period-fidelity` tests | `4cd8f59cc` | local | owner (pending) | Not confirmed against a live share link |
 | A-9 | A failed widget is visible, scoped and never becomes empty data | `local_pass` | `report-widget-failure` tests | `90838abb9` | local | owner (pending) | — |
-| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client`, `data-freshness` tests | `ec5b46ddf`, `eb94e0551` | local | owner (pending) | Chip mounted on Overview; Decisions had its own; other surfaces still to adopt it |
+| A-10 | An idle tab revalidates or declares its age | `local_pass` | `query-client`, `data-freshness`, `tier-zero-freshness-coverage`, `tier-zero-idle-tab-revalidation`, `tier-zero-freshness` component and route tests, plus six-width rendered freshness evidence | `ec5b46ddf`, `eb94e0551`, `b153e585b` | local | owner (pending) | All ten Tier-0 surfaces report through one contract; revalidation proven through a real `QueryObserver` rather than by reading the config flag |
 | A-11 | A failed workspace read produces error plus retry, not eternal loading or fabricated zero lanes | `local_pass` | `decision-lane-counts`, `decisions-error-recovery` tests | `ec5b46ddf`, `178cf6e89` | local | owner (pending) | — |
 
 ### Gate B — credible co-pilot

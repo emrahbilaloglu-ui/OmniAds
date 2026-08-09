@@ -5,6 +5,8 @@ import { emitProductInstrumentation } from "@/lib/product-instrumentation-client
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   AlertTriangle,
   ChevronDown,
@@ -615,6 +617,28 @@ export function DecisionsOsView({
     workspace?.system.laneSnapshotCreatedAt ??
     workspace?.pulse.lastSyncAt ??
     null;
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    isLoading: providerAccountsQuery.isLoading || workspaceQuery.isLoading,
+    isFetching: providerAccountsQuery.isFetching || workspaceQuery.isFetching,
+    error: providerAccountsQuery.error ?? workspaceQuery.error,
+    // Anomalies failing does not empty the decisions; it removes the integrity
+    // count from them, and saying so beats showing a confident zero.
+    partialReason: anomaliesQuery.error
+      ? "Integrity checks could not be read; the anomaly count is incomplete"
+      : null,
+    asOf: freshAt,
+    businessId,
+    onRetry: () => {
+      if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
+      void workspaceQuery.refetch();
+    },
+  });
+
   const remainingAds = Math.max(
     0,
     (presentation?.ads.eligiblePreCapCount ?? 0) - adItems.length,

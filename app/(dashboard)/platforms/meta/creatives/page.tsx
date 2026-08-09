@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { ExternalLink, ImageIcon, X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -349,6 +351,23 @@ export default function MetaCreativeStudioPage() {
     queryFn: () => fetchCreativeShareLedger({ businessId, providerAccountId }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: creativesQuery.isLoading,
+    isFetching: creativesQuery.isFetching,
+    error: creativesQuery.error,
+    // Briefs failing leaves a workspace that looks complete but is not.
+    partialReason: briefingQuery.error
+      ? "Creative briefs could not be read; this view is incomplete"
+      : null,
+    asOf: briefingQuery.data?.source?.asOf ?? null,
+    businessId,
+    onRetry: () => void creativesQuery.refetch(),
   });
 
   const allRows = useMemo(

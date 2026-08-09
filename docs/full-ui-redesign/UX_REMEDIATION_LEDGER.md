@@ -394,7 +394,7 @@ for their root-cause value are labelled **superseded** at the statement itself.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
 
-**Scope vs `origin/main`:** 612 files changed, +63083 / −4488, across 115 commits
+**Scope vs `origin/main`:** 612 files changed, +63289 / −4488, across 116 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
 
 Recomputed against the commit that contains this line. The commit holding this paragraph changes
@@ -490,7 +490,7 @@ visibility only". That is contradicted by the shipped, mounted ownership write a
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | **7,132 pass**, 0 fail, 61 skipped, 63 todo (720 files) |
+| Full suite | `LC_ALL=C npx vitest run` | **7,139 pass**, 0 fail, 61 skipped, 63 todo (720 files) |
 | Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
 | Section 9 vocabulary + emitters | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 30 pass |
 | Tier-0 freshness | `npx vitest run lib/tier-zero-freshness-coverage.test.ts lib/tier-zero-as-of.test.ts lib/tier-zero-idle-tab-revalidation.test.ts components/states/tier-zero-freshness.test.tsx app/api/reports/tier-zero-freshness.route.test.ts` | 85 pass |
@@ -560,6 +560,37 @@ echoed request parameter or a content edit time. `lib/tier-zero-as-of.ts` names 
 Launchpad reports no age by argument rather than by default: it is a wizard composing from live
 reads with no historical figures, and the test names it explicitly so the exemption has to be
 defended. Audiences reports nothing because it is a declared planned surface that renders no data.
+
+### Mobile Creative Studio — stacked cells carry their names
+
+Below 767px `StudioOsView` turns each table row into a card and takes the header row out of the
+layout, so no `<th>` can label anything. The stylesheet was written for exactly that —
+`components/creatives/StudioOsView.tsx:154` renders
+`tbody td::before { content: attr(data-label) }` — and **no `<td>` ever set the attribute**. The
+comment three lines above it claimed "each cell carries its own label"; none did.
+
+The committed 390px artifact was the proof: `$840.00`, `47`, `$3,360.00`, `$17.87`, `4.00x` — five
+values in a fixed order that a buyer is expected to recognise by position, with the only thing that
+named them hidden by the same stylesheet. It passed every clipping and overflow check because
+nothing was clipped. The numbers were all visible; none of them said what it was.
+
+Fixed in the rendered DOM: the metric cells carry `data-label={stackedCellLabel(id)}` and the
+identity cell `data-label="Creative"`. `stackedCellLabel` resolves through the same `metricLabel(id)`
+the column header uses, so the phone and the desktop cannot drift, and it keeps the `Meta-attr.`
+qualifier — a Meta-attributed ROAS is not the same claim as the account's ROAS, and the phone is
+where that context is least inferable.
+
+| Evidence | Result |
+| --- | --- |
+| `components/creatives/StudioOsView.test.tsx` | 14 pass. The mobile-label block parses `<td>` elements out of the real `renderToStaticMarkup` output rather than testing `resolveCreativeColumnPriority`, which was already correct and unused by the table. Reverting the fix fails it with "9 of 9 stacked cells render a value with no name" |
+| Six-width smoke | Below 480px it finds tables the stylesheet actually stacked (first body cell computed `display: flex`) and fails on any non-empty cell without a label |
+| 320px artifact | `Creative`, `Spend $840.00`, `Purchases 47` — labelled, no horizontal scroll |
+| 390px artifact | `Creative`, `Spend $840.00`, `Purchases 47`, `Meta-attr. Revenue $3,360.00`, `CPA $17.87`, `Meta-attr. ROAS 4.00x` — every value named |
+
+The smoke also hides the Next.js dev-tools badge before capturing. It runs `next dev`, so that
+floating indicator is in every screenshot and exists in no production build; it sat directly over
+the CPA label at 390px and over `Spend` at 320px, which made the committed evidence unreadable for
+the one thing it exists to show. It changes nothing the assertions read from the DOM.
 
 ### Remaining work, classified honestly
 

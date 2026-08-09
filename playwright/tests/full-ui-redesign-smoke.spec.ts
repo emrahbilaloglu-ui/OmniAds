@@ -1096,6 +1096,19 @@ test.describe("full UI redesign route and visual smoke", () => {
         await waitForDashboardWorkspaceReady(shotPage, shot.path);
         await assertRepresentativeVisualSettled(shotPage, shot.path);
 
+        // Hide the Next.js dev-tools indicator before capturing.
+        //
+        // The smoke runs `next dev`, so that floating badge is in every
+        // screenshot and does not exist in production. It sat directly over the
+        // CPA label in the 390px Studio card, which made the committed evidence
+        // unreadable for exactly the thing that evidence is meant to show. This
+        // hides the harness's own overlay; it changes nothing about the product
+        // and nothing the assertions read from the DOM.
+        await shotPage.addStyleTag({
+          content:
+            "nextjs-portal,[data-nextjs-dev-tools-button],#__next-dev-tools-indicator{display:none!important}",
+        }).catch(() => {});
+
         // No surface may scroll the page sideways on a phone. A single
         // overflowing child does it, and it is exactly how the assessment
         // column ended up off-screen in the 390px Studio artifact. A passing
@@ -1141,6 +1154,47 @@ test.describe("full UI redesign route and visual smoke", () => {
           expect(
             clipped,
             `${shot.path} clips tabular content inside a scroller`,
+          ).toEqual([]);
+        }
+
+        // A stacked table row has to say what each number is.
+        //
+        // Below 767px these tables become one card per row and the header is
+        // taken out of the layout, so no column header can label anything. The
+        // stylesheet renders each cell's name from `attr(data-label)` -- and
+        // when no cell sets it, the phone shows a column of bare values in a
+        // fixed order that the reader is expected to recognise by position.
+        // That passed every clipping and overflow check, because nothing was
+        // clipped: the numbers were all visible and none of them said what it
+        // was.
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+          const unlabelled = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            for (const table of Array.from(
+              document.querySelectorAll<HTMLElement>("table"),
+            )) {
+              // Only tables the stylesheet actually stacks. A table still in
+              // column layout is labelled by its header, as it should be.
+              const body = table.querySelector("tbody");
+              if (!body) continue;
+              const firstCell = body.querySelector("td");
+              if (!firstCell) continue;
+              if (getComputedStyle(firstCell).display !== "flex") continue;
+
+              for (const cell of Array.from(body.querySelectorAll("td"))) {
+                const text = (cell.textContent ?? "").trim();
+                if (!text) continue;
+                const label = (cell.getAttribute("data-label") ?? "").trim();
+                if (!label) {
+                  offenders.push(`${table.className || "table"}: "${text.slice(0, 24)}"`);
+                }
+              }
+            }
+            return offenders.slice(0, 6);
+          });
+          expect(
+            unlabelled,
+            `${shot.path} stacks table cells with no label, so the values have no names`,
           ).toEqual([]);
         }
 

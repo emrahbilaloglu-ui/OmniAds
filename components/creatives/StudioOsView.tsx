@@ -365,6 +365,28 @@ function metricLabel(id: string): string {
   return studioMetricDefinition(id)?.label ?? id;
 }
 
+/**
+ * The name a stacked cell shows on a phone.
+ *
+ * Below 767px each row becomes a card and the header row is taken out of the
+ * accessibility tree, so a column header can no longer label anything. The
+ * stylesheet already renders `td::before { content: attr(data-label) }` for
+ * exactly this -- and no cell ever set the attribute, so the phone showed a
+ * column of bare numbers: $840, 47, $3,360, $17.87, 4.00x, 2.9%. Six values in
+ * a fixed order that a buyer is expected to recognise by position, with the
+ * only thing that named them hidden.
+ *
+ * The attribution prefix is carried through because it changes what the number
+ * means: a Meta-attributed ROAS is not the same claim as the account's ROAS,
+ * and dropping the qualifier on the surface where there is least room for
+ * context is where it matters most.
+ */
+function stackedCellLabel(id: string): string {
+  const attr = ATTR_COLUMNS[id];
+  const label = metricLabel(id);
+  return attr ? `${attr} ${label}` : label;
+}
+
 export interface StudioSelectedRow {
   row: MetaCreativeRow;
   outsideCurrentFilter: boolean;
@@ -2297,6 +2319,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       return (
                         <tr key={row.id}>
                           <td
+                            data-label="Creative"
                             style={{
                               position: "sticky",
                               left: 0,
@@ -2441,6 +2464,10 @@ export function StudioOsView(props: StudioOsViewProps) {
                             return (
                               <td
                                 key={id}
+                                // Names the value when the row is stacked into
+                                // a card and the header is gone. Without it the
+                                // phone shows an unlabelled column of numbers.
+                                data-label={stackedCellLabel(id)}
                                 style={{
                                   padding: "6px 12px",
                                   borderBottom: "1px solid var(--b1)",

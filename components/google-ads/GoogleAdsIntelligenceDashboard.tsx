@@ -2119,7 +2119,7 @@ function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { la
       <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
       <p className={cn("mt-1.5 text-[22px] font-semibold tracking-tight", highlight && "text-emerald-700")}>{value}</p>
       <div className="mt-1">
-        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
+        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
       </div>
     </div>
   );
@@ -2240,7 +2240,7 @@ function OverviewMetric({
       <p className="mt-2 text-[12px] font-medium tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
       <div className="mt-1.5">
-        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
+        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
       </div>
     </div>
   );

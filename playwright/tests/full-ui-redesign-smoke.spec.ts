@@ -1198,6 +1198,170 @@ test.describe("full UI redesign route and visual smoke", () => {
           ).toEqual([]);
         }
 
+        // The global topbar's controls must not physically overlap.
+        //
+        // At 320px the bar packed brand, platform, freshness, notifications and
+        // the account menu into one 50px row with overflow hidden. Measured in
+        // signed-in production, Refresh overlapped Meta by 3x16px and Meta
+        // overlapped Notifications by 28x28px: two separate hit targets sharing
+        // pixels, so a tap near the seam went to whichever happened to be on
+        // top. Nothing was reported as clipped because nothing was clipped --
+        // it was stacked.
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+          const topbar = await shotPage.evaluate(() => {
+            const bar = document.querySelector<HTMLElement>(".ad-console-topbar");
+            if (!bar) return null;
+
+            // Independent interactive targets only: a control nested inside
+            // another legitimately shares its box.
+            const visible = Array.from(
+              bar.querySelectorAll<HTMLElement>(
+                'button, a[href], input, [role="button"], [data-testid="tier-zero-freshness"]',
+              ),
+            ).filter((el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            });
+            const candidates = visible.filter(
+              (el) => !visible.some((other) => other !== el && other.contains(el)),
+            );
+
+            const overlaps: string[] = [];
+            for (let i = 0; i < candidates.length; i += 1) {
+              for (let j = i + 1; j < candidates.length; j += 1) {
+                const a = candidates[i].getBoundingClientRect();
+                const b = candidates[j].getBoundingClientRect();
+                const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                if (w > 1 && h > 1) {
+                  const name = (el: HTMLElement) =>
+                    el.getAttribute("aria-label") ||
+                    el.getAttribute("data-testid") ||
+                    (el.textContent ?? "").trim().slice(0, 18) ||
+                    el.tagName;
+                  overlaps.push(
+                    `${name(candidates[i])} x ${name(candidates[j])} = ${Math.round(w)}x${Math.round(h)}px`,
+                  );
+                }
+              }
+            }
+
+            const freshness = document.querySelector<HTMLElement>(
+              '[data-testid="tier-zero-freshness"]',
+            );
+            const freshnessRect = freshness?.getBoundingClientRect();
+            return {
+              overlaps: overlaps.slice(0, 6),
+              freshnessVisible: Boolean(
+                freshnessRect && freshnessRect.width > 0 && freshnessRect.height > 0,
+              ),
+              smallTargets: candidates
+                .filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return r.height < 24 || r.width < 24;
+                })
+                .map((el) => {
+                  const r = el.getBoundingClientRect();
+                  return `${el.getAttribute("aria-label") || el.tagName}: ${Math.round(r.width)}x${Math.round(r.height)}`;
+                })
+                .slice(0, 6),
+            };
+          });
+
+
+        // No card may print a percentage for a comparison that was never made.
+        //
+        // Under Compare=None `changePct` is null, and the summary cards
+        // rendered `0.0%` for it while the Pins strip on the same screen said
+        // "No comparison selected". Zero percent is a measurement; "not
+        // compared" is not, and the two were indistinguishable.
+        {
+          const fabricated = await shotPage.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>('[data-delta-state="unavailable"]'),
+            )
+              .map((el) => (el.textContent ?? "").trim())
+              .filter((text) => /\d/.test(text))
+              .slice(0, 5),
+          );
+          expect(
+            fabricated,
+            `${shot.path} prints a percentage for a comparison that does not exist`,
+          ).toEqual([]);
+        }
+
+        // Essential text has to be readable: at least 12px and at least 4.5:1.
+        {
+          const unreadable = await shotPage.evaluate(() => {
+            const luminance = (rgb: string) => {
+              const [r, g, b] = (rgb.match(/\d+(\.\d+)?/g) ?? ["0", "0", "0"]).map(
+                (v) => Number(v) / 255,
+              );
+              const ch = (c: number) =>
+                c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+              return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+            };
+            const backdrop = (el: HTMLElement): string => {
+              let node: HTMLElement | null = el;
+              while (node) {
+                const bg = getComputedStyle(node).backgroundColor;
+                if (bg && !/rgba?\(0,\s*0,\s*0,\s*0\)|transparent/.test(bg)) return bg;
+                node = node.parentElement;
+              }
+              return "rgb(255,255,255)";
+            };
+            const offenders: string[] = [];
+            const main = document.querySelector("#main-content") ?? document.body;
+            for (const el of Array.from(main.querySelectorAll<HTMLElement>("*"))) {
+              const text = Array.from(el.childNodes)
+                .filter((n) => n.nodeType === Node.TEXT_NODE)
+                .map((n) => (n.textContent ?? "").trim())
+                .join("");
+              if (text.length < 3) continue;
+              const style = getComputedStyle(el);
+              if (style.visibility === "hidden" || style.display === "none") continue;
+              // Decorative and disabled content is exempt by declaration, not
+              // by being quietly hard to read.
+              if (el.getAttribute("aria-hidden") === "true") continue;
+              if (el.closest("[data-decorative='true']")) continue;
+
+              const size = Number.parseFloat(style.fontSize);
+              if (size > 0 && size < 12) {
+                offenders.push(`${size}px: "${text.slice(0, 22)}"`);
+                continue;
+              }
+              const fg = luminance(style.color);
+              const bg = luminance(backdrop(el));
+              const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
+              const ratio = (hi + 0.05) / (lo + 0.05);
+              if (ratio < 4.5) {
+                offenders.push(`${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`);
+              }
+            }
+            return offenders.slice(0, 8);
+          });
+          expect(
+            unreadable,
+            `${shot.path} has essential text below 12px or 4.5:1`,
+          ).toEqual([]);
+        }
+
+          if (topbar) {
+            expect(
+              topbar.overlaps,
+              `${shot.path} topbar controls physically overlap at ${shotPage.viewportSize()?.width}px`,
+            ).toEqual([]);
+            expect(
+              topbar.freshnessVisible,
+              `${shot.path} lost the freshness reading while fixing the topbar`,
+            ).toBe(true);
+            expect(
+              topbar.smallTargets,
+              `${shot.path} topbar has touch targets below 24px`,
+            ).toEqual([]);
+          }
+        }
+
         // Live accessibility checks. These need a real browser: focus
         // visibility, Escape behaviour and zoom cannot be read off markup.
         {

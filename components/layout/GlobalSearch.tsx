@@ -35,6 +35,49 @@ const TYPE_LABEL: Record<EntitySearchResult["entityType"], string> = {
  * by name was unreachable unless it happened to be on the visible page. This
  * queries the server directly rather than filtering what is already loaded.
  */
+
+/**
+ * What a keystroke should do to global search.
+ *
+ * Pure so the rules can be asserted directly, because most of them are about
+ * when *not* to act. The platform menu advertised this shortcut for a while
+ * with nothing behind it; making it real means also making it safe:
+ *
+ * - Cmd+K and Ctrl+K both open, because the product runs on both platforms.
+ * - A bare "k" does nothing, or typing the letter anywhere would open a panel.
+ * - Inside an input, textarea or contenteditable the key belongs to the field:
+ *   Ctrl+K is a real editing shortcut, and stealing it loses someone's work.
+ * - During IME composition nothing is intercepted at all; interrupting a
+ *   composition can drop characters the user has already typed.
+ * - Escape closes only when the panel is open, and still closes from inside
+ *   search's own field, which is the one case where it must win.
+ */
+export type GlobalSearchShortcutAction = "open" | "close" | "ignore";
+
+export function resolveGlobalSearchShortcut(input: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  target: "body" | "input" | "textarea" | "contenteditable";
+  isOpen?: boolean;
+  isComposing?: boolean;
+  inOwnField?: boolean;
+}): GlobalSearchShortcutAction {
+  if (input.isComposing) return "ignore";
+
+  if (input.key === "Escape") {
+    if (!input.isOpen) return "ignore";
+    if (input.target === "body" || input.inOwnField) return "close";
+    return "ignore";
+  }
+
+  if (input.key.toLowerCase() !== "k") return "ignore";
+  if (!input.metaKey && !input.ctrlKey) return "ignore";
+  // An editable target keeps its own key.
+  if (input.target !== "body") return "ignore";
+  return "open";
+}
+
 export function GlobalSearch() {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -43,6 +86,7 @@ export function GlobalSearch() {
   const [state, setState] = useState<"idle" | "searching" | "ready" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -86,6 +130,48 @@ export function GlobalSearch() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  // The shortcut, actually wired. `preventDefault` runs only when this handler
+  // genuinely took the key, so every other keystroke keeps its browser default.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const node = event.target as HTMLElement | null;
+      const tag = node?.tagName?.toLowerCase();
+      const target: "body" | "input" | "textarea" | "contenteditable" =
+        node?.isContentEditable
+          ? "contenteditable"
+          : tag === "input"
+            ? "input"
+            : tag === "textarea"
+              ? "textarea"
+              : "body";
+
+      const action = resolveGlobalSearchShortcut({
+        key: event.key,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        target,
+        isOpen: open,
+        isComposing: event.isComposing,
+        inOwnField: node === inputRef.current,
+      });
+
+      if (action === "open") {
+        event.preventDefault();
+        setOpen(true);
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        return;
+      }
+      if (action === "close") {
+        event.preventDefault();
+        setOpen(false);
+        inputRef.current?.blur();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
@@ -104,6 +190,7 @@ export function GlobalSearch() {
       <div className="flex h-7 items-center gap-1.5 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2">
         <Search className="h-3.5 w-3.5 text-[var(--adc-ink3)]" aria-hidden="true" />
         <input
+          ref={inputRef}
           id="global-search"
           type="search"
           // A search box that opens a result list is a combobox. Without these
@@ -125,6 +212,14 @@ export function GlobalSearch() {
           placeholder="Search campaigns, ads, clients"
           className="w-56 bg-transparent text-[12px] text-[var(--adc-ink)] outline-none placeholder:text-[var(--adc-ink3)]"
         />
+        {/* The hint belongs where the shortcut works. */}
+        <kbd
+          data-search-shortcut-hint="true"
+          aria-hidden="true"
+          className="ml-auto shrink-0 rounded border border-[var(--adc-b1)] px-1 text-[12px] font-mono text-[var(--adc-ink3)]"
+        >
+          ⌘K
+        </kbd>
       </div>
 
       {showPanel ? (

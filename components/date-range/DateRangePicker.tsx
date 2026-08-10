@@ -1192,6 +1192,14 @@ export interface DateRangePickerProps {
   onChange: (value: DateRangeValue) => void;
   className?: string;
   label?: string;
+  /**
+   * One line explaining what the range actually changes.
+   *
+   * A range control implies the whole surface is scoped by it. Where that is
+   * not true, the label alone cannot correct an operator who already believes
+   * the usual meaning, so the surface can state the boundary here.
+   */
+  hint?: string;
   testId?: string;
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
@@ -1212,6 +1220,7 @@ export function DateRangePicker({
   onChange,
   className,
   label = "Date range",
+  hint,
   testId = "date-range-picker",
   showComparisonTrigger = true,
   comparisonPlaceholderLabel = "None",
@@ -1368,8 +1377,16 @@ export function DateRangePicker({
               <CalendarIcon className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0">
-              <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+              <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
               <span className="block truncate text-xs font-semibold text-slate-900">{rangeLabel}</span>
+              {hint ? (
+                <span
+                  data-date-range-hint="true"
+                  className="mt-0.5 block max-w-[42ch] text-[12px] font-normal normal-case tracking-normal text-slate-600"
+                >
+                  {hint}
+                </span>
+              ) : null}
             </span>
             <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-600 sm:inline-flex">
               {rangeMetaLabel}

@@ -42,7 +42,19 @@ import {
 const STUDIO_CSS = `
 .studio-os{
   --s1:#f5f5f3; --s2:#ffffff; --s3:#ededea; --s4:#e6e6e1;
-  --ink:#1a1c1f; --ink2:#4a4f56; --ink3:#7d838c; --ink4:#a6abb2;
+  /*
+   * Studio scopes its own palette, so the console-wide contrast pass never
+   * reached it: --ink3 sat at 3.82:1 on this surface and --ink4 at 2.31:1,
+   * both carrying essential 12px text -- the Analyzing line, the account and
+   * window, dates, row metadata, the stacked mobile labels. That is not
+   * decoration; it is how a buyer knows what they are reading.
+   *
+   * Raised to clear 4.5:1 rather than overridden globally, and
+   * --ink-decorative exists so the genuinely non-informational case has a
+   * token of its own instead of being justified after the fact.
+   */
+  --ink:#1a1c1f; --ink2:#4a4f56; --ink3:#5f656c; --ink4:#6b7280;
+  --ink-decorative:#a6abb2;
   --b1:#e4e4e0; --b2:#cdcdc7; --b3:#bcbcb4;
   --focus:#1e62d0;
   --danger-fg:#a6224a; --danger-bg:#fbedf1; --danger-bd:#efc4d1;
@@ -69,7 +81,10 @@ const STUDIO_CSS = `
 }
 .studio-os.studio-dark{
   --s1:#141518; --s2:#1c1e22; --s3:#24262b; --s4:#2b2e34;
-  --ink:#f1f1ee; --ink2:#c3c6cb; --ink3:#8a9099; --ink4:#636972;
+  /* Same floor on the dark surface. No dark mode ships today; these would be
+     wrong the day one does, and 3.02:1 is exactly how that ships unnoticed. */
+  --ink:#f1f1ee; --ink2:#c3c6cb; --ink3:#8a9099; --ink4:#8f959e;
+  --ink-decorative:#636972;
   --b1:#31343a; --b2:#3d4149; --b3:#4a4f58;
   --focus:#5b9dff;
   --danger-fg:#f1859f; --danger-bg:#341c24; --danger-bd:#552b38;
@@ -1168,7 +1183,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     Assigned accounts · no cross-account totals
                   </div>
                   {providerAccounts.length === 0 ? (
-                    <div style={{ padding: "10px 11px", fontSize: "11.5px", color: "var(--ink3)" }}>
+                    <div style={{ padding: "10px 11px", fontSize: "12px", color: "var(--ink3)" }}>
                       No assigned Meta ad account.
                     </div>
                   ) : (
@@ -1309,7 +1324,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       display: "grid",
                       gridTemplateColumns: "auto 1fr",
                       gap: "6px 12px",
-                      fontSize: 11,
+                      fontSize: 12,
                     }}
                   >
                     {[
@@ -1346,7 +1361,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 height: 32,
                 padding: "0 11px",
                 borderRadius: 8,
-                fontSize: "11.5px",
+                fontSize: "12px",
                 fontWeight: 600,
                 border: `1px solid ${killSwitchEngaged === true ? "var(--danger-bd)" : "var(--b2)"}`,
                 background: killSwitchEngaged === true ? "var(--danger-bg)" : "var(--s1)",
@@ -1376,8 +1391,8 @@ export function StudioOsView(props: StudioOsViewProps) {
               }}
             >
               <span style={{ color: "var(--danger-fg)", fontSize: 12 }}>◼</span>
-              <span style={{ fontSize: "11.5px", color: "var(--danger-fg)", fontWeight: 600 }}>Business STOP engaged</span>
-              <span style={{ fontSize: 11, color: "var(--ink2)" }}>
+              <span style={{ fontSize: "12px", color: "var(--danger-fg)", fontWeight: 600 }}>Business STOP engaged</span>
+              <span style={{ fontSize: 12, color: "var(--ink2)" }}>
                 New mutations are blocked. A request already accepted may still complete.
               </span>
               <div style={{ flex: 1 }} />
@@ -1388,7 +1403,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   border: "1px solid var(--b2)",
                   borderRadius: 6,
                   padding: "3px 9px",
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 600,
                   color: "var(--ink3)",
                   textDecoration: "none",
@@ -1412,7 +1427,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 background: "var(--warn-bg)",
                 padding: "7px 16px",
                 color: "var(--warn)",
-                fontSize: 11,
+                fontSize: 12,
               }}
             >
               <span aria-hidden>!</span>
@@ -1570,7 +1585,7 @@ export function StudioOsView(props: StudioOsViewProps) {
       <div className="studio-assets">
         {/* 1 · compact studio header */}
         <div className="studio-analysis-meta" style={{ flex: "none", display: "flex", alignItems: "center", gap: 9, padding: "9px 16px 7px 16px" }}>
-          <span style={{ fontSize: 11, color: "var(--ink3)" }}>Analyzing</span>
+          <span style={{ fontSize: 12, color: "var(--ink3)" }}>Analyzing</span>
           <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--ink)" }}>{account?.name ?? "—"}</span>
           <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
             {account?.id ?? "—"}
@@ -1580,7 +1595,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             {account?.currency ?? "—"}
           </span>
           <span style={{ width: 1, height: 13, background: "var(--b1)" }} />
-          <span style={{ fontSize: 11, color: "var(--ink3)" }}>{dateRangeLabel}</span>
+          <span style={{ fontSize: 12, color: "var(--ink3)" }}>{dateRangeLabel}</span>
           <div style={{ flex: 1 }} />
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--ink3)" }}>
             Account-scoped metrics · missing shown as —
@@ -1781,7 +1796,7 @@ export function StudioOsView(props: StudioOsViewProps) {
               borderRadius: 8,
               border: "1px solid var(--b2)",
               background: "var(--s2)",
-              fontSize: "11.5px",
+              fontSize: "12px",
               fontWeight: 600,
               color: "var(--ink)",
               whiteSpace: "nowrap",
@@ -1827,7 +1842,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   background: "transparent",
                   color: "var(--ink3)",
                   fontWeight: 600,
-                  fontSize: "11.5px",
+                  fontSize: "12px",
                 }}
               >
                 More
@@ -1872,7 +1887,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         background: actionFilter === chip.key ? "var(--sel)" : "transparent",
                         color: "var(--ink)",
                         borderRadius: 6,
-                        fontSize: "11.5px",
+                        fontSize: "12px",
                       }}
                     >
                       <span>{chip.label}</span>
@@ -1905,12 +1920,12 @@ export function StudioOsView(props: StudioOsViewProps) {
                 borderRadius: 8,
                 border: "1px solid var(--b2)",
                 background: "var(--s2)",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--ink2)",
               }}
             >
-              <span aria-hidden style={{ fontSize: 11 }}>
+              <span aria-hidden style={{ fontSize: 12 }}>
                 ▥
               </span>
               Columns
@@ -2022,7 +2037,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 borderRadius: 8,
                 border: "1px solid var(--b2)",
                 background: "var(--s2)",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--ink2)",
               }}
@@ -2513,7 +2528,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   background: "var(--s2)",
                 }}
               >
-                <span className="tnum" style={{ fontSize: 11, color: "var(--ink2)", fontWeight: 600 }}>
+                <span className="tnum" style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>
                   Showing {sortedRows.length === 0 ? 0 : 1}–{Math.min(rowLimit, sortedRows.length)} of {sortedRows.length}
                 </span>
                 {rowLimit < sortedRows.length ? (
@@ -2526,7 +2541,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       borderRadius: 7,
                       border: "1px solid var(--b2)",
                       background: "var(--s2)",
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: "var(--ink2)",
                     }}
@@ -2554,7 +2569,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       borderRadius: 7,
                       border: "1px solid var(--b2)",
                       background: "var(--s2)",
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: "var(--ink2)",
                     }}
@@ -2601,7 +2616,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                             background: pageSize === size ? "var(--sel)" : "transparent",
                             color: "var(--ink)",
                             borderRadius: 6,
-                            fontSize: "11.5px",
+                            fontSize: "12px",
                           }}
                         >
                           <span>{size}</span>
@@ -2647,7 +2662,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             borderRadius: 8,
             border: `1px solid ${active ? "var(--b3)" : "var(--b2)"}`,
             background: "var(--s2)",
-            fontSize: "11.5px",
+            fontSize: "12px",
             whiteSpace: "nowrap",
           }}
         >
@@ -2693,7 +2708,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   background: option.on ? "var(--sel)" : "transparent",
                   color: "var(--ink)",
                   borderRadius: 6,
-                  fontSize: "11.5px",
+                  fontSize: "12px",
                 }}
               >
                 <span>{option.label}</span>
@@ -2728,7 +2743,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           background: active ? "var(--s2)" : "transparent",
           color: active ? "var(--ink)" : "var(--ink3)",
           fontWeight: 600,
-          fontSize: "11.5px",
+          fontSize: "12px",
           cursor: "pointer",
         }}
       >
@@ -2780,7 +2795,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 borderRadius: 7,
                 border: "1px solid var(--b2)",
                 background: "var(--s2)",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--ink2)",
               }}
@@ -2831,7 +2846,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         background: "transparent",
                         color: "var(--ink)",
                         borderRadius: 6,
-                        fontSize: "11.5px",
+                        fontSize: "12px",
                       }}
                     >
                       <span
@@ -2867,7 +2882,7 @@ export function StudioOsView(props: StudioOsViewProps) {
               borderRadius: 7,
               border: "1px solid var(--b2)",
               background: "var(--s2)",
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 600,
               color: "var(--ink3)",
             }}
@@ -2959,7 +2974,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <div style={{ padding: "8px 10px 10px 10px" }}>
                   <div
                     style={{
-                      fontSize: "11.5px",
+                      fontSize: "12px",
                       fontWeight: 600,
                       lineHeight: 1.25,
                       whiteSpace: "nowrap",
@@ -3055,7 +3070,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 borderRadius: 7,
                 border: "1px solid var(--b2)",
                 background: "var(--s2)",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--ink2)",
               }}
@@ -3073,7 +3088,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 borderRadius: 7,
                 border: "1px solid transparent",
                 background: "transparent",
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--ink3)",
               }}
@@ -3210,11 +3225,11 @@ export function StudioOsView(props: StudioOsViewProps) {
           </div>
 
           <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 5, padding: "12px 16px 8px 16px", flexWrap: "wrap" }}>
-            <span style={{ color: "var(--info-fg)", fontSize: 11, fontWeight: 600 }}>
+            <span style={{ color: "var(--info-fg)", fontSize: 12, fontWeight: 600 }}>
               {account?.name ?? "Account"}
             </span>
             <span style={{ color: "var(--ink4)", fontSize: 12 }}>›</span>
-            <span style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 600 }}>Exact ad usages</span>
+            <span style={{ fontSize: 12, color: "var(--ink3)", fontWeight: 600 }}>Exact ad usages</span>
             <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink4)" }}>{dateRangeLabel}</span>
           </div>
 
@@ -3225,9 +3240,9 @@ export function StudioOsView(props: StudioOsViewProps) {
 
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {usageRowsState === "loading" ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 11.5 }}>Loading exact ad usages…</div>
+              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12.5 }}>Loading exact ad usages…</div>
             ) : usageRowsState === "error" ? (
-              <div style={{ margin: "4px 16px 12px", padding: 12, border: "1px solid var(--danger-bd)", borderRadius: 8, background: "var(--danger-bg)", color: "var(--danger-fg)", fontSize: 11 }}>
+              <div style={{ margin: "4px 16px 12px", padding: 12, border: "1px solid var(--danger-bd)", borderRadius: 8, background: "var(--danger-bg)", color: "var(--danger-fg)", fontSize: 12 }}>
                 <strong style={{ display: "block", marginBottom: 3 }}>Usage performance unavailable</strong>
                 <span>{usageRowsError ?? "The account-scoped usage query failed."}</span>
                 <button type="button" onClick={() => void openUsageDrawer(row)} style={{ display: "block", marginTop: 8, border: "1px solid var(--danger-bd)", borderRadius: 6, background: "var(--s2)", color: "var(--danger-fg)", padding: "4px 8px", fontWeight: 600 }}>
@@ -3235,7 +3250,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 </button>
               </div>
             ) : usageRows.length === 0 ? (
-              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 11.5 }}>
+              <div style={{ padding: "24px 16px", color: "var(--ink3)", fontSize: 12.5 }}>
                 No exact ad usage has performance in this window. No representative row is substituted.
               </div>
             ) : (
@@ -3265,7 +3280,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     {["spend", "roas", "purchases"].map((metricId) => (
                       <div key={metricId}>
                         <div style={{ fontSize: 12, color: "var(--ink3)", textTransform: "uppercase" }}>{metricLabel(metricId)}</div>
-                        <div className="tnum" style={{ fontSize: 11.5, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
+                        <div className="tnum" style={{ fontSize: 12.5, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
                       </div>
                     ))}
                   </div>
@@ -3288,7 +3303,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   background: "var(--s2)",
                   padding: "9px 11px",
                   color: "var(--ink2)",
-                  fontSize: "11.5px",
+                  fontSize: "12px",
                   fontWeight: 600,
                 }}
               >
@@ -3298,7 +3313,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <span style={{ fontSize: "12px", color: "var(--ink4)", fontWeight: 500 }}>collapsed by default</span>
               </button>
               {drawerTrends ? (
-                <div style={{ marginTop: 8, padding: 11, border: "1px solid var(--b1)", borderRadius: 8, fontSize: 11, color: "var(--ink3)", lineHeight: 1.5 }}>
+                <div style={{ marginTop: 8, padding: 11, border: "1px solid var(--b1)", borderRadius: 8, fontSize: 12, color: "var(--ink3)", lineHeight: 1.5 }}>
                   Exact per-ad 7 / 28 / 90-day trend series are not returned in one response. No interpolated trend is shown.
                 </div>
               ) : null}
@@ -3321,7 +3336,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>truth-source qualified · 7d / 28d / 90d</span>
         </div>
         {evidence.qualified.length === 0 ? (
-          <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "11.5px", color: "var(--ink3)", marginBottom: 22 }}>
+          <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "12px", color: "var(--ink3)", marginBottom: 22 }}>
             No creative is truth-source qualified as a current winner for this account and window. Winner language is withheld until server
             truth source, threshold quality, confidence and engine era are all present.
           </div>
@@ -3351,7 +3366,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     )}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {winnerName}
                     </div>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginTop: 2 }}>
@@ -3373,7 +3388,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           <span style={{ fontSize: 12, color: "var(--ink3)" }}>separated by engine-version era</span>
         </div>
         {historical.status !== "available" ? (
-          <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "11.5px", color: "var(--ink3)" }}>
+          <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "12px", color: "var(--ink3)" }}>
             {historical.reason}
           </div>
         ) : (
@@ -3408,7 +3423,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           )}
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <div style={{ fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {entry.creativeName}
                           </div>
                           <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 4 }}>
@@ -3459,7 +3474,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
             {creativeBriefsState !== "ready" ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--ink3)" }}>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--ink3)" }}>
                 {creativeBriefsState === "error"
                   ? "Creative briefs are unavailable."
                   : creativeBriefsState === "migration_required"
@@ -3467,7 +3482,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     : "Loading account-scoped briefs…"}
               </div>
             ) : creativeBriefs.length === 0 ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--ink3)" }}>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--ink3)" }}>
                 No reviewed briefs yet. Briefs are created from a persisted decision snapshot.
               </div>
             ) : (
@@ -3511,7 +3526,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           {brief.status}
                         </span>
                       </div>
-                      <div style={{ fontSize: "11.5px", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div style={{ fontSize: "12px", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {brief.sourceDecision.rawLabel} · {brief.sourceDecision.creativeId}
                       </div>
                       <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 1 }}>
@@ -3577,7 +3592,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     <div style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: ".04em", color: column.tone, fontWeight: 600, marginBottom: 5 }}>
                       {column.title}
                     </div>
-                    <div style={{ fontSize: "11.5px", color: "var(--ink2)", lineHeight: 1.5, border: "1px solid var(--b1)", borderRadius: 8, padding: 9, minHeight: 92 }}>
+                    <div style={{ fontSize: "12px", color: "var(--ink2)", lineHeight: 1.5, border: "1px solid var(--b1)", borderRadius: 8, padding: 9, minHeight: 92 }}>
                       {column.text?.trim() ? column.text : "—"}
                     </div>
                   </div>
@@ -3660,15 +3675,15 @@ export function StudioOsView(props: StudioOsViewProps) {
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
             {shareGrantsCapability?.status === "migration_required" ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--caution-fg)", lineHeight: 1.5 }}>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--caution-fg)", lineHeight: 1.5 }}>
                 Creator share ledger requires the pending database migration. Grant, rotate and revoke actions are disabled.
               </div>
             ) : shareGrantsState === "loading" ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--ink3)" }}>Loading account-scoped grants…</div>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--ink3)" }}>Loading account-scoped grants…</div>
             ) : shareGrantsState === "error" ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--danger-fg)" }}>Creator share ledger could not load.</div>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--danger-fg)" }}>Creator share ledger could not load.</div>
             ) : creatorGrants.length === 0 ? (
-              <div style={{ padding: 12, fontSize: "11.5px", color: "var(--ink3)", lineHeight: 1.5 }}>
+              <div style={{ padding: 12, fontSize: "12px", color: "var(--ink3)", lineHeight: 1.5 }}>
                 No creator-share grants for this Meta account. Select creatives in Performance, then mint a scoped Tier-0 link.
               </div>
             ) : (
@@ -3697,7 +3712,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       </span>
                       <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{grant.token.slice(-6)}</span>
                     </div>
-                    <div style={{ marginTop: 4, fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ marginTop: 4, fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {grant.title} · {audienceLabel(grant.audience)}
                     </div>
                     <div style={{ marginTop: 1, fontSize: 12, color: "var(--ink3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -3718,13 +3733,13 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{activeGrant.token.slice(-6)}</span>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 5 }}>{activeGrant.title}</div>
-                <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
                   {activeGrant.firstCreativeName ?? `${activeGrant.creativeCount} creatives`} · Tier 0 · {expiryLabel(activeGrant)}
                 </div>
               </div>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)" }}>
                 <div style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink3)", fontWeight: 600, marginBottom: 6 }}>Access ledger</div>
-                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 11 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 12 }}>
                   <span style={{ color: "var(--ink3)" }}>Permission tier</span><span>Tier 0 · creative signals only</span>
                   <span style={{ color: "var(--ink3)" }}>Audience</span><span>{audienceLabel(activeGrant.audience)}</span>
                   <span style={{ color: "var(--ink3)" }}>Token</span><span className="mono">…{activeGrant.token.slice(-6)}</span>
@@ -3732,7 +3747,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <span style={{ color: "var(--ink3)" }}>Creatives</span><span className="tnum">{activeGrant.creativeCount}</span>
                 </div>
               </div>
-              {shareMutationError ? <div style={{ padding: "9px 15px", color: "var(--danger-fg)", fontSize: 11 }}>{shareMutationError}</div> : null}
+              {shareMutationError ? <div style={{ padding: "9px 15px", color: "var(--danger-fg)", fontSize: 12 }}>{shareMutationError}</div> : null}
               {activeGrant.status === "active" ? (
                 <div style={{ padding: "12px 15px", display: "flex", gap: 7 }}>
                   <button
@@ -3750,7 +3765,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <button type="button" disabled={!onRevokeShare || shareMutationToken === activeGrant.token} onClick={() => void onRevokeShare?.(activeGrant.token)} style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-bd)", borderRadius: 8, padding: "7px 12px", fontWeight: 600, fontSize: 12, color: "var(--danger-fg)" }}>
                     Revoke access
                   </button>
-                  <a href={`/share/creative/${activeGrant.token}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", alignSelf: "center", fontSize: 11 }}>Open link ↗</a>
+                  <a href={`/share/creative/${activeGrant.token}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", alignSelf: "center", fontSize: 12 }}>Open link ↗</a>
                 </div>
               ) : null}
               <div style={{ padding: "0 15px 14px 15px", fontSize: 12, color: "var(--ink4)" }}>
@@ -3761,9 +3776,9 @@ export function StudioOsView(props: StudioOsViewProps) {
             <>
               <div style={{ padding: "13px 15px", borderBottom: "1px solid var(--b1)" }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Creator share policy</div>
-                <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 2 }}>Tier 0 · creative signals only</div>
+                <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>Tier 0 · creative signals only</div>
               </div>
-              <div style={{ padding: 15, fontSize: 11, color: "var(--ink3)" }}>No creator grant is selected.</div>
+              <div style={{ padding: 15, fontSize: 12, color: "var(--ink3)" }}>No creator grant is selected.</div>
             </>
           )}
         </div>

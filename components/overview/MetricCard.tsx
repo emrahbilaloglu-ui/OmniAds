@@ -142,7 +142,7 @@ export function MetricCard({
         <MiniTrendAreaChart
           data={trendData}
           comparisonData={comparisonTrendData}
-          tone={delta.direction === "up" ? "up" : delta.direction === "down" ? "down" : "neutral"}
+          label={title}
           unit={unit}
           valueFormatter={(nextValue) => formatValue(nextValue, unit, currencySymbol)}
           loading={trendLoading}

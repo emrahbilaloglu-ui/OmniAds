@@ -639,6 +639,69 @@ campaign label guard implements the review-only policy, and the briefing action 
 candidate-id matching with exact-identity authority — stricter than what they removed, with
 `hasNativeDecisionOriginLineage` still exported and used.
 
+### Released to production
+
+Deploy identity: `72b3897cfeb57eb17e86d8d20dfb28a8d6bdd1ca` — the merge commit for PR #205, which
+differs from the local candidate `6b815b72297533dcb8e1dbdeb1fb8cc2d902ada8`.
+
+| Step | Evidence |
+| --- | --- |
+| PR #205 CI | typecheck, test, database-seams, build — 4/4 pass; merge state CLEAN |
+| Images | `omniads-web` `sha256:9809139b320d…`, `omniads-worker` `sha256:8cb5347734f1…`, both tagged with the exact SHA |
+| `deploy/CUTOVER_REQUIRED` | absent on main |
+| Deploy run 31347693416 | success — cutover gate, registry verification, migrations, recreate, local readiness, public build propagation, ingress smoke, all green |
+| Public build readback | `https://adsecute.com/api/build-info` and `https://www.adsecute.com/api/build-info` both return the exact SHA; `/api/healthz` `ok: true` |
+| Post-deploy verification 31347866497 | success; artifact records `deployGate: pass` and `releaseGate: pass` for the exact SHA |
+
+Read-only production acceptance, signed in, no writes of any kind:
+
+- **Agency Today / Overview** — 12 clients ranked, "1 of 12 clients need you first". A disconnected
+  provider reads "Needs you first / Provider disconnected" with `—` rather than a fabricated zero,
+  which is the health join. "No portfolio total — clients use different currencies" is the
+  mixed-currency withholding, over live TRY/USD/GBP. Compare=None renders `— —` and "No comparison
+  selected for this period", not a 0%.
+- **Meta Decisions** — caught mid-load showing "Loading — no figures yet", then settled at "as of
+  21h ago" with 64 structures and 21 ads. Two fail-closed disclosures render and name their source:
+  "Native Ad decisions are degraded… Source: native_latest_job_engine_mismatch", and a commercial
+  target review notice that states explicitly it does not suppress Scale/Cut authority.
+- **Creative Studio** — 22 creatives, `Meta-attr.` qualifiers intact on Revenue and ROAS. The mobile
+  fix is live and measured in the deployed DOM: 180 `td[data-label]` cells carrying `Creative`,
+  `Spend`, `Purchases`, `Meta-attr. Revenue`, `CPA`, `Meta-attr. ROAS`, `Link CTR`,
+  `CVR LPV to purchase`, and the deployed stylesheet carries
+  `@media (max-width: 767px) .studio-table-scroll tbody td::before { content: attr(data-label) }`.
+- **Reports** — "as of just now", from the route `generatedAt` added this session rather than the
+  newest report's edit time. An empty list reads as genuinely empty.
+- **Integrations** — "as of 1m ago" from each provider's own last completed sync. Meta Connected,
+  Google Action required with a named queue-recovery reason, TikTok labelled "a visible roadmap
+  placeholder, not a working connector".
+- **Settings** — "as of just now" while "Member since 3/8/2026" appears only as account content.
+  Before this session's fix the bar would have reported the signup date as the data's age.
+
+**Not verified in production, and why.** The 320/390 Creative Studio *screenshot* was not retaken
+against production: the available browser could not be resized below 1281px. Both halves of the fix
+were measured in the deployed build instead — the labelled cells and the media rule above — and the
+visual confirmation at 320 and 390 is the committed local evidence for the identical code.
+
+### Post-release defects found in signed-in production, and closed
+
+The release at `72b3897cf` was green on every gate and still shipped seven defects that only a
+signed-in production pass could surface. Each is recorded here with the evidence that found it,
+because "all gates green" was true at the time and was not enough.
+
+| # | Defect | How it was found | Fix |
+| --- | --- | --- | --- |
+| 1 | Overview printed `0.0%` under Compare=None | Observed on live `/overview`: Pins said "No comparison selected" while Store Metrics, Meta, Google and Expenses cards showed `0.0%` for the same period | `resolveDelta` did `changePct ?? 0`. A missing comparison now renders `—` with the reason, no arrow and no colour; a genuine zero keeps its `0.0%`, because flat is a real result |
+| 2 | Decisions called its range a "Decision date range" | The canonical read model types the scope `metricsRangeAffectsDecisionSnapshot: false` | Renamed to "Metrics window" with a line stating it does not change the current verdict or its authority. No resolver, threshold, confidence or snapshot semantics touched |
+| 3 | 320px topbar controls physically overlapped | Measured in production: Refresh over Meta `3×16px`, Meta over Notifications `28×28px` | The bar was one fixed 50px row with `overflow: hidden`, so the controls stacked rather than clipped and nothing reported it. Freshness now takes its own row below 720px; nothing is hidden |
+| 4 | Two dead affordances | "Notify me" wrote one line to the console; a `⌘K` hint sat in the platform menu with no handler | The notify link is removed rather than backed by an invented store. The shortcut is real, lives on the search control, and yields to inputs, textareas, contenteditable and IME composition |
+| 5 | Studio essential text below the contrast and size floor | Token audit: Studio scopes its own palette, so the console-wide pass never reached it — `--ink3` 3.82:1, `--ink4` 2.31:1, and 81 sub-12px sizes | Tokens raised to clear 4.5:1 in both palettes, `--ink-decorative` added so the decorative case is declared rather than implied, and every sub-12px size raised |
+| 6 | The sparkline implied a verdict | It accepted `tone` and dropped it (`tone: _tone`), painting every metric blue-to-emerald; the SVG was `aria-hidden` and the readout pointer-only | One neutral line for every metric, because there is no trustworthy per-metric direction here to colour from. Accessible name and summary, keyboard focus, Arrow/Home/End navigation, live region, dashed comparison |
+| 7 | A false mobile read-only claim | The banner rendered on every route without its own mobile surface, including Settings and Integrations, which render working write controls at that width | Gated on a route/capability matrix. D5 gates provider mutation to desktop; it never covered account or workspace settings, and that is the distinction the old condition flattened |
+
+Every one has a behaviour test proven to fail on the pre-fix code first, and the six-width matrix
+now asserts each in a real browser: topbar rectangle intersections, fabricated comparison
+percentages, computed contrast and computed type size.
+
 ### Remaining work, classified honestly
 
 Two categories. Conflating them was a real defect in earlier revisions of this ledger.

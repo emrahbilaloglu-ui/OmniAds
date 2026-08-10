@@ -1062,11 +1062,35 @@
   }
 
   @media (max-width: 720px) {
+    /*
+     * Two rows, not one clipped row.
+     *
+     * This bar used to be a fixed 50px with `overflow: hidden`, and at 320px
+     * its children physically overlapped: measured in production, Refresh over
+     * Meta by 3x16px and Meta over Notifications by 28x28px. `overflow: hidden`
+     * hid the symptom -- nothing looked cut off, because the controls were
+     * stacked rather than clipped -- while a tap near the seam went to whatever
+     * was on top.
+     *
+     * Wrapping lets the freshness reading take its own full-width row beneath
+     * the controls. Nothing is hidden, every target keeps its own box, and the
+     * bar grows by one line instead of overlapping.
+     */
     .ad-console-shell .ad-console-topbar {
-      height: 50px;
+      height: auto;
+      min-height: 50px;
+      flex-wrap: wrap;
+      row-gap: 4px;
       gap: 8px;
+      overflow: visible;
+      padding: 6px 10px;
+    }
+
+    .ad-console-shell .ad-console-freshness {
+      order: 99;
+      flex: 1 0 100%;
+      min-width: 0;
       overflow: hidden;
-      padding: 0 10px;
     }
 
     .ad-console-shell .ad-console-brand {

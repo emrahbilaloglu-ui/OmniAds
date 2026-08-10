@@ -65,7 +65,7 @@ function KpiTile({ label, value, sub }: { label: string; value: string; sub?: st
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
       <div className="text-[12px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-1 font-mono text-[14px] font-semibold tabular-nums text-slate-900">{value}</div>
-      {sub ? <div className="mt-1 text-[11px] text-slate-500">{sub}</div> : null}
+      {sub ? <div className="mt-1 text-[12px] text-slate-500">{sub}</div> : null}
     </div>
   );
 }

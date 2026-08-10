@@ -51,7 +51,7 @@ export function MetaAnalysisStatusCard({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             Analysis status
           </p>
           <p className="mt-1 text-sm font-semibold text-slate-950">{status.message}</p>

@@ -116,7 +116,7 @@ function SectionLabel({ number, children }: { number?: string; children: React.R
     <div
       className="mono"
       style={{
-        fontSize: 11,
+        fontSize: 12,
         letterSpacing: "0.03em",
         color: "var(--muted)",
         marginBottom: 6,
@@ -352,7 +352,7 @@ function MetricRow({
       <span style={{ color: "var(--ink-2)" }}>{k}</span>
       <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: toneColor }}>
         {v}
-        {note ? <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 11 }}> {note}</span> : null}
+        {note ? <span style={{ fontWeight: 400, color: "var(--muted)", fontSize: 12 }}> {note}</span> : null}
       </span>
     </div>
   );
@@ -925,7 +925,7 @@ export function MetaDrillDrawer({
                     const formattedValue = formatChangeValue(change.value);
                     return (
                       <div key={`${change.type}-${change.applied_at}-${index}`} style={{ borderTop: index === 0 ? 0 : "1px solid var(--border)", paddingTop: index === 0 ? 0 : 6 }}>
-                        <div className="mono" style={{ fontSize: 11, color: "var(--ink)" }}>{changeSummary(change)}</div>
+                        <div className="mono" style={{ fontSize: 12, color: "var(--ink)" }}>{changeSummary(change)}</div>
                         {formattedValue ? (
                           <div style={{ fontSize: 12, color: "var(--muted)", overflowWrap: "anywhere" }}>{formattedValue}</div>
                         ) : null}
@@ -949,7 +949,7 @@ export function MetaDrillDrawer({
 
             <Panel section="provenance">
               <SectionLabel number="13">Provenance</SectionLabel>
-              <div className="mono" style={{ fontSize: 11, color: "var(--ink-2)", lineHeight: 1.8 }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.8 }}>
                 engine {item.rec.engineVersion ?? "—"}
                 {calibrationScopeText(item.rec) ? <><br />calibration: {calibrationScopeText(item.rec)}</> : null}
                 {signalCapText(item.rec) ? <><br />signal cap: {signalCapText(item.rec)}</> : null}
@@ -980,7 +980,7 @@ export function MetaDrillDrawer({
                         border: "1px solid var(--border)",
                         borderRadius: "var(--r-sm)",
                         padding: 10,
-                        fontSize: 11,
+                        fontSize: 12,
                         color: "var(--ink-2)",
                         overflowX: "auto",
                         whiteSpace: "pre-wrap",

@@ -926,7 +926,7 @@ function RoasScenarioSection({
               gridTemplateColumns: `200px repeat(${cols.length}, minmax(0, 1fr))`,
             }}
           >
-            <div className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
+            <div className="px-4 py-3 text-[12px] font-bold uppercase tracking-[0.14em] text-[var(--adc-s2)]/70">
               Spend / month
             </div>
             {spendLevels.map((s, i) => (

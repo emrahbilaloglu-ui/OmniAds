@@ -102,7 +102,7 @@ export function LaunchpadManageExistingReview({
             <div key={creative.id} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
-                <p className="mono text-[11px] text-[var(--muted)]">
+                <p className="mono text-[12px] text-[var(--muted)]">
                   {resolveLaunchpadAdActionId(creative) || "Meta ad id unavailable"} · {creative.campaignName ?? "No campaign"}
                 </p>
               </div>

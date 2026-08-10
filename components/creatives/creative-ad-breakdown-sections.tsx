@@ -59,7 +59,7 @@ export function CreativeDrawerHeader({
         <div className="flex items-center gap-2">
           <div className="flex h-6 items-center rounded-md bg-primary/10 px-2">
             <Layers className="mr-1.5 h-3 w-3 text-primary" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+            <span className="text-[12px] font-semibold uppercase tracking-wider text-primary">
               Ad breakdown
             </span>
           </div>
@@ -107,31 +107,31 @@ export function CreativeDrawerHeader({
                 {formatLabel}
               </span>
             ) : null}
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[12px] text-muted-foreground">
               {adsLabel}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
               Placements{" "}
               <strong className="font-mono text-neutral-950">{windowAdsCount || lifetimeAdsCount}</strong>
               {lifetimeAdsCount > 0 && windowAdsCount > 0 && windowAdsCount !== lifetimeAdsCount ? (
                 <span className="ml-1 text-neutral-500">/ {lifetimeAdsCount} lifetime</span>
               ) : null}
             </span>
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
               Spend{" "}
               <strong className="font-mono text-neutral-950">
                 {formatMoney(totalSpend, currency, defaultCurrency)}
               </strong>
             </span>
-            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600">
+            <span className="rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-[12px] text-neutral-600">
               Weighted ROAS{" "}
               <strong className="font-mono text-neutral-950">{weightedRoas.toFixed(2)}x</strong>
             </span>
           </div>
           {creative?.launchDate && (
-            <p className="mt-1 text-[11px] text-muted-foreground/70">
+            <p className="mt-1 text-[12px] text-muted-foreground/70">
               Launched {creative.launchDate}
             </p>
           )}
@@ -235,7 +235,7 @@ export function CreativePerformanceChart({
           <h4 className="text-[13px] font-semibold">
             Performance by Ad
             {rows.length > 0 ? (
-              <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
+              <span className="ml-2 font-mono text-[12px] font-normal text-muted-foreground">
                 ({rows.length})
               </span>
             ) : null}
@@ -248,7 +248,7 @@ export function CreativePerformanceChart({
               type="button"
               onClick={() => onMetricChange(metricOption.key)}
               className={cn(
-                "rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "rounded-lg px-2.5 py-1 text-[12px] font-medium transition-colors",
                 metric === metricOption.key
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -282,7 +282,7 @@ export function CreativePerformanceChart({
                   <div className="mb-0.5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p
-                        className="max-w-[20rem] truncate text-[11px] font-medium text-foreground"
+                        className="max-w-[20rem] truncate text-[12px] font-medium text-foreground"
                         data-chart-row-label={label}
                       >
                         {label}
@@ -293,7 +293,7 @@ export function CreativePerformanceChart({
                         </p>
                       ) : null}
                     </div>
-                    <span className="text-[11px] font-semibold tabular-nums text-foreground">{displayValue}</span>
+                    <span className="text-[12px] font-semibold tabular-nums text-foreground">{displayValue}</span>
                   </div>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
                     <div

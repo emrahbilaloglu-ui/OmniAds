@@ -83,7 +83,7 @@ export function LaunchpadProgress({
             : mode === "add_to_existing"
               ? "Submitting PAUSED ad creation to the selected ad sets..."
               : "Submitting PAUSED campaign, ad set, and ad creation..."}
-          <span className="text-[11px] text-[var(--muted)]">No simulated per-object progress is available.</span>
+          <span className="text-[12px] text-[var(--muted)]">No simulated per-object progress is available.</span>
         </div>
       ) : null}
 
@@ -169,9 +169,9 @@ export function LaunchpadProgress({
                       {step.kind} · {step.name}
                     </p>
                     {step.error ? (
-                      <p className="mono text-[11px] text-[var(--danger)]">{step.error.code} — {step.error.message}</p>
+                      <p className="mono text-[12px] text-[var(--danger)]">{step.error.code} — {step.error.message}</p>
                     ) : (
-                      <p className="mono text-[11px] text-[var(--muted)]">{step.id ?? "pending"}</p>
+                      <p className="mono text-[12px] text-[var(--muted)]">{step.id ?? "pending"}</p>
                     )}
                   </div>
                 </div>
@@ -180,7 +180,7 @@ export function LaunchpadProgress({
                     href={step.adsManagerUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex max-w-[220px] shrink-0 items-center gap-1 text-right text-[11px] leading-tight text-[var(--info)] hover:underline"
+                    className="inline-flex max-w-[220px] shrink-0 items-center gap-1 text-right text-[12px] leading-tight text-[var(--info)] hover:underline"
                   >
                     Open Ads Manager · link built from provider-returned ID ↗
                   </a>
@@ -196,7 +196,7 @@ export function LaunchpadProgress({
           <p className="text-[12px] font-semibold text-[var(--danger)]">Write-time validation blocked the request</p>
           <div className="mt-2 space-y-1.5">
             {result.blockers.map((blocker) => (
-              <p key={`${blocker.code}-${blocker.message}`} className="mono text-[11px] text-[var(--danger)]">
+              <p key={`${blocker.code}-${blocker.message}`} className="mono text-[12px] text-[var(--danger)]">
                 {blocker.code} — {blocker.message}
               </p>
             ))}

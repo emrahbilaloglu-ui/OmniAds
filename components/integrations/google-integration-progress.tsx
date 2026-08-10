@@ -39,7 +39,7 @@ export function GoogleIntegrationProgress({
                 <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   {stage.title}
                 </p>
-                <p className="mt-1 text-[11px] font-medium leading-4 text-foreground">
+                <p className="mt-1 text-[12px] font-medium leading-4 text-foreground">
                   {stage.detail}
                 </p>
               </div>

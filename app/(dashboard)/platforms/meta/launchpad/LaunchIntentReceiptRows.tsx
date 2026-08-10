@@ -60,7 +60,7 @@ export function LaunchIntentReceiptRows({
                     ? "New campaign"
                     : "Add to existing"}
                 </p>
-                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                <p className="mt-0.5 text-[12px] text-[var(--muted)]">
                   {summarizeLineage(intent)} · PAUSED only
                 </p>
               </div>

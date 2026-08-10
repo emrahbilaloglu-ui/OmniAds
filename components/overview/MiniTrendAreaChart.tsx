@@ -277,7 +277,7 @@ export function MiniTrendAreaChart({
       </span>
       {hoverIndex !== null ? (
         <div
-          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-neutral-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-neutral-200/70 backdrop-blur-sm"
+          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-neutral-200 bg-white/95 px-2.5 py-1.5 text-[12px] shadow-md shadow-neutral-200/70 backdrop-blur-sm"
           style={tooltipStyle}
         >
           <p className="font-medium text-neutral-500">{activeLabel}</p>

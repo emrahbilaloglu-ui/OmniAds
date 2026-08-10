@@ -108,7 +108,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
           <div className="px-2.5 py-1.5">
             <p className="text-xs font-medium text-neutral-700">{session.user.name}</p>
-            <p className="truncate text-[11px] text-neutral-400">{session.user.email}</p>
+            <p className="truncate text-[12px] text-neutral-400">{session.user.email}</p>
           </div>
         </div>
       </aside>

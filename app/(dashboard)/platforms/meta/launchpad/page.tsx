@@ -1968,7 +1968,7 @@ export default function MetaLaunchpadPage() {
                       </strong>
                     </div>
                     {selectionSummary.count > 0 ? (
-                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)] tabular-nums">
+                      <div className="mt-0.5 text-[12px] text-[var(--muted-2)] tabular-nums">
                         selection · spend{" "}
                         {selectionSummary.totalSpend == null
                           ? "unavailable"
@@ -1982,7 +1982,7 @@ export default function MetaLaunchpadPage() {
                           : `${selectionSummary.averageRoas.toFixed(1)}x`}
                       </div>
                     ) : (
-                      <div className="mt-0.5 text-[11px] text-[var(--muted-2)]">
+                      <div className="mt-0.5 text-[12px] text-[var(--muted-2)]">
                         Create changes provider state to PAUSED and cannot begin
                         delivery.
                       </div>
@@ -2142,7 +2142,7 @@ function LaunchpadContextBar({
         <div className="text-[13px] font-semibold text-[var(--ink)]">
           Launchpad
         </div>
-        <div className="mono mt-0.5 text-[11px] text-[var(--muted)]">
+        <div className="mono mt-0.5 text-[12px] text-[var(--muted)]">
           Meta · {businessName} · {currency ?? "currency unavailable"}
         </div>
       </div>
@@ -2150,7 +2150,7 @@ function LaunchpadContextBar({
         Guarded write surface — everything launches PAUSED
       </span>
       <div className="min-w-0 flex-1" />
-      <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
+      <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-[var(--muted)]">
         Ad account
         <select
           aria-label="Meta ad account for Launchpad"
@@ -2538,11 +2538,11 @@ function LaunchpadSourceStep({
                         <span className="block truncate text-[13px] font-medium text-[var(--ink)]">
                           {draft.name}
                         </span>
-                        <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                        <span className="mt-0.5 block truncate text-[12px] text-[var(--muted)]">
                           {summarizeDraft(draft)}
                         </span>
                       </span>
-                      <span className="hidden shrink-0 items-center gap-2 text-right text-[11px] text-[var(--muted)] sm:flex">
+                      <span className="hidden shrink-0 items-center gap-2 text-right text-[12px] text-[var(--muted)] sm:flex">
                         {formatRelativeTime(draft.updatedAt)}
                         {failed ? (
                           <span className="chip chip--action">
@@ -2567,10 +2567,10 @@ function LaunchpadSourceStep({
                   </div>
                   {failed && storedError ? (
                     <div className="rounded-[8px] border border-[var(--danger-bd)] bg-[var(--danger-bg)] px-3 py-2">
-                      <div className="mono text-[11px] text-[var(--danger)]">
+                      <div className="mono text-[12px] text-[var(--danger)]">
                         stored error: {storedError}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+                      <div className="mt-0.5 text-[12px] text-[var(--muted)]">
                         The error is the server&apos;s, rendered verbatim. Fix
                         it, then resume.
                       </div>
@@ -2632,7 +2632,7 @@ function LaunchpadSourceStep({
                         </span>
                       ) : null}
                     </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">
+                    <span className="mt-0.5 block truncate text-[12px] text-[var(--muted)]">
                       {template.description ?? summarizeTemplate(template)}
                     </span>
                     {template.source === "auto_recent" ? (
@@ -2646,7 +2646,7 @@ function LaunchpadSourceStep({
                       </span>
                     ) : null}
                   </span>
-                  <span className="hidden shrink-0 text-right text-[11px] text-[var(--muted)] sm:block">
+                  <span className="hidden shrink-0 text-right text-[12px] text-[var(--muted)] sm:block">
                     <span className="chip chip--ghost">Use</span>
                   </span>
                 </button>
@@ -2756,7 +2756,7 @@ function LaunchpadStepper({
             >
               <span
                 className={cn(
-                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[12px] font-semibold tabular-nums",
                   done
                     ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                     : active

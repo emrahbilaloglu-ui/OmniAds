@@ -16,7 +16,7 @@ function SectionList({
 
   return (
     <section className="space-y-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{title}</h3>
+      <h3 className="text-[12px] font-semibold uppercase tracking-wide text-neutral-600">{title}</h3>
       <ul className="space-y-1.5 text-sm text-neutral-700">
         {items.map((item, index) => (
           <li key={`${title}_${index}`} className="flex items-start gap-2">
@@ -87,7 +87,7 @@ export function AiDailyBrief({
               {regenerating ? getTranslations(language).common.generating : getTranslations(language).common.regenerate}
             </Button>
           ) : null}
-          <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[11px] font-medium text-neutral-600">
+          <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[12px] font-medium text-neutral-600">
             {t.insightDate}: {insight.insightDate}
           </span>
         </div>

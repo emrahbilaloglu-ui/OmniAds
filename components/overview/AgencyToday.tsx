@@ -64,7 +64,7 @@ function ClientRow({ row }: { row: AgencyTodayRow }) {
       </span>
 
       <span
-        className={`rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${severity.className}`}
+        className={`rounded-md border px-1.5 py-0.5 text-[12px] font-semibold ${severity.className}`}
       >
         {severity.label}
       </span>
@@ -76,7 +76,7 @@ function ClientRow({ row }: { row: AgencyTodayRow }) {
         {formatRoas(row.roas)}
       </span>
 
-      <span className="min-w-[10rem] text-[11px] text-neutral-500">
+      <span className="min-w-[10rem] text-[12px] text-neutral-500">
         {row.severityReasons.length > 0
           ? row.severityReasons.join(" · ")
           : row.freshness === "unknown"
@@ -140,7 +140,7 @@ export function AgencyToday({ businessCount }: { businessCount: number }) {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 px-4 py-3">
         <div>
           <p className="text-[13px] font-semibold text-neutral-900">Agency Today</p>
-          <p className="text-[11px] text-neutral-500">
+          <p className="text-[12px] text-neutral-500">
             {model
               ? `${model.needsAttentionCount} of ${model.clientCount} clients need you · ${query.data?.startDate} to ${query.data?.endDate}`
               : null}
@@ -155,7 +155,7 @@ export function AgencyToday({ businessCount }: { businessCount: number }) {
             </span>
           </p>
         ) : (
-          <p className="text-[11px] text-neutral-500">
+          <p className="text-[12px] text-neutral-500">
             {model?.portfolio.withheldReason === "mixed_currency"
               ? "No portfolio total — clients use different currencies"
               : model?.portfolio.withheldReason === "unknown_currency"

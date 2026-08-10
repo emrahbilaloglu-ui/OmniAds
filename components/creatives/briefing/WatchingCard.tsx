@@ -213,7 +213,7 @@ export function WatchingCard({
             ))}
             <ConfidencePill confidence={confidence} size="sm" />
           </div>
-          <div className="text-[11px] text-neutral-500 mt-0.5">
+          <div className="text-[12px] text-neutral-500 mt-0.5">
             {cardCampaign(card)} <span className="text-neutral-300">·</span> {cardAdset(card)}
           </div>
           <div className="text-[12px] text-neutral-600 mt-1 leading-snug">
@@ -234,7 +234,7 @@ export function WatchingCard({
           <DeferTooltip>
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
               data-action="defer"
               data-id={watchingCardId}
               disabled={deferred}
@@ -249,7 +249,7 @@ export function WatchingCard({
           </DeferTooltip>
           <button
             type="button"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[11px]"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 text-[12px]"
             data-action="evidence"
             data-id={watchingCardId}
             aria-haspopup="dialog"
@@ -263,7 +263,7 @@ export function WatchingCard({
           {label === "test_more" ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px]"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[12px]"
               data-action="primary"
               data-kind="fresh_test"
               data-id={watchingCardId}

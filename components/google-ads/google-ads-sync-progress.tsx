@@ -143,15 +143,15 @@ export function GoogleAdsSyncProgress({
       <div
         className={cn(
           resolved.kind === "advisor"
-            ? "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]"
-            : "inline-flex min-w-[150px] max-w-[250px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]",
+            ? "inline-flex min-w-[170px] max-w-[320px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12px]"
+            : "inline-flex min-w-[150px] max-w-[250px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12px]",
           tone.border,
           tone.bg,
           tone.detail,
           className
         )}
       >
-        <span className="shrink-0 text-[11px] font-semibold tabular-nums">
+        <span className="shrink-0 text-[12px] font-semibold tabular-nums">
           {showsPercent ? `${progress}%` : resolved.freshnessLabel}
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -182,7 +182,7 @@ export function GoogleAdsSyncProgress({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{title}</p>
-            <p className={cn("mt-1 line-clamp-2 text-[11px] leading-4", tone.subtext)}>
+            <p className={cn("mt-1 line-clamp-2 text-[12px] leading-4", tone.subtext)}>
               {description}
             </p>
           </div>

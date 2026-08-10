@@ -120,7 +120,7 @@ export function BulkToolbar({
                 </button>
               ) : null}
               {visibleActions.has("clear") ? (
-                <span className="ml-auto text-[11px] text-neutral-500">
+                <span className="ml-auto text-[12px] text-neutral-500">
                   <button type="button" className="hover:text-neutral-900" data-bulk="clear" onClick={() => handleAction("clear")}>Clear</button>
                 </span>
               ) : null}

@@ -227,14 +227,14 @@ export function CrossPlacementCard({
                 width={60}
                 height={18}
               />
-              <span className="font-mono tabular-nums text-[11px] font-medium text-neutral-900">
+              <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
                 {formatOptionalRoas(card.roas)}
               </span>
             </div>
             <MetricDivider />
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
-            <span className="font-mono tabular-nums text-[11px] text-neutral-500">
+            <span className="font-mono tabular-nums text-[12px] text-neutral-500">
               {formatOptionalCurrency(card.spend)} spend · {formatOptionalInteger(card.purchases)} purch.
             </span>
           </div>

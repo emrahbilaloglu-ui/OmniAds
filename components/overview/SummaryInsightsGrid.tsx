@@ -25,7 +25,7 @@ export function SummaryInsightsGrid({ insights }: { insights: OverviewInsightCar
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-semibold text-neutral-950">{insight.title}</h3>
-                  <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium capitalize text-neutral-600">
+                  <span className="rounded-full bg-neutral-100 px-2 py-1 text-[12px] font-medium capitalize text-neutral-600">
                     {insight.severity}
                   </span>
                 </div>

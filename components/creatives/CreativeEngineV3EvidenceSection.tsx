@@ -346,7 +346,7 @@ function EngineTrailEvidence({
             <span
               key={`${badge.type}-${badge.label}`}
               className={cn(
-                "rounded px-1.5 py-0.5 text-[11px] font-medium",
+                "rounded px-1.5 py-0.5 text-[12px] font-medium",
                 badge.severity === "warning"
                   ? "bg-amber-500/15 text-amber-800"
                   : "bg-neutral-100 text-neutral-600",

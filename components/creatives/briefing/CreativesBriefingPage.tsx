@@ -566,7 +566,7 @@ function CreativeEngineProfileStrip({
           </span>
         ) : null}
         {asOf ? (
-          <span className="text-[11px] text-neutral-400">as of {asOf}</span>
+          <span className="text-[12px] text-neutral-400">as of {asOf}</span>
         ) : null}
       </div>
       <div className="mt-2 grid gap-2 text-[12px] text-neutral-600 md:grid-cols-5">

@@ -77,7 +77,7 @@ export default function MetaAudiencesPage() {
           <div className="overflow-hidden rounded-[var(--r-lg)] border border-[var(--border)] bg-[var(--surface)]" data-testid="audience-readiness-ledger">
             <div className="flex items-start justify-between gap-4">
               <div className="px-4 py-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                   Readiness ledger
                 </div>
                 <h2 className="mt-1 text-[15px] font-semibold text-[var(--ink)]">No live audience contract</h2>

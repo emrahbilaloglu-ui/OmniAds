@@ -69,7 +69,7 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
               <span className="block truncate text-[12.5px] font-semibold text-slate-900">{anomaly.title}</span>
               <span className="block truncate text-[12px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
             </span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+            <span className="inline-flex items-center gap-1 text-[12px] text-slate-500">
               <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
               {anomaly.detectedAt}
             </span>

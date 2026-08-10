@@ -2,7 +2,7 @@
   display: block;
   margin-top: 3px;
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -70,7 +70,7 @@
   align-items: center;
   gap: 6px;
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .toolbarSort select {
@@ -361,7 +361,7 @@
   color: var(--adc-ink2);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 8px;
 }
 
@@ -378,7 +378,7 @@
   margin-bottom: 8px;
   border-bottom: 1px solid var(--adc-b1);
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .queueHeader strong {
@@ -987,7 +987,7 @@
   gap: 10px;
   border-bottom: 1px solid var(--adc-b1);
   padding: 6px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .drawerFacts dt {
@@ -1021,7 +1021,7 @@
   margin: 7px 0 0;
   border-left: 2px solid var(--adc-caution-fg);
   color: var(--adc-ink2);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
   padding-left: 8px;
 }
@@ -1099,7 +1099,7 @@
 .osIdentity p {
   margin: 5px 0 0;
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -1155,7 +1155,7 @@
   background: var(--adc-s2);
   color: var(--adc-ink);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   outline: none;
   padding: 4px 22px 4px 7px;
 }
@@ -1173,7 +1173,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 5px 8px;
   white-space: nowrap;
 }
@@ -1360,7 +1360,7 @@
   color: var(--adc-ink3);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 9px;
 }
 
@@ -1390,7 +1390,7 @@
 .historyHandoff p {
   margin-top: 3px;
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .contextDock {
@@ -1454,7 +1454,7 @@
 .contextIdle p {
   margin: 4px 0 0;
   color: var(--adc-ink3);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1469,7 +1469,7 @@
   gap: 12px;
   border-bottom: 1px solid var(--adc-b1);
   padding: 6px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .contextIdle dl div:last-child {
@@ -1496,7 +1496,7 @@
 
 .contextIdle > footer a {
   color: var(--adc-info-fg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-decoration: none;
 }

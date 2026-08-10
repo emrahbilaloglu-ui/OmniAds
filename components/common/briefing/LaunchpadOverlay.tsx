@@ -112,7 +112,7 @@ export function LaunchpadOverlay({
           {mode !== "apply_bid" ? (
             <div className="rounded-lg border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-3 py-2" data-testid="launchpad-handoff-unavailable">
               <div className="text-[12px] font-semibold text-[var(--adc-caution-fg)]">Stored LaunchIntent unavailable</div>
-              <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--adc-ink3,#7d838c)]">
+              <div className="mt-0.5 text-[12px] leading-relaxed text-[var(--adc-ink3,#7d838c)]">
                 Current navigation passes legacy URL prefill only. Opening Launchpad starts manual setup and does not claim durable decision or brief lineage.
               </div>
             </div>

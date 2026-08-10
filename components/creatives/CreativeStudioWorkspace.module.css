@@ -718,7 +718,7 @@
   justify-content: space-between;
   gap: 10px;
   padding: 9px 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .eraBlock span {
@@ -836,7 +836,7 @@
   min-height: 38px;
   padding: 7px 10px;
   border-top: 1px solid var(--adc-b1, #e4e4e0);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .readinessRow:first-child {
@@ -863,7 +863,7 @@
   gap: 9px;
   margin-top: 10px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .briefFooter span {

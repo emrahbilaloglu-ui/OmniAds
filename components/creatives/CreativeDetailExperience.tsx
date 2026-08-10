@@ -494,7 +494,7 @@ export function CreativeDetailExperience({
 	                className="flex flex-col gap-2.5 rounded-xl border border-neutral-200 bg-white p-4"
 	                data-testid="creative-detail-performance"
               >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Performance</p>
+                <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Performance</p>
                 <div
                   className="grid grid-cols-2 overflow-hidden rounded-xl border border-neutral-200"
                   style={{ gap: 1, background: "#e5e5e5" }}

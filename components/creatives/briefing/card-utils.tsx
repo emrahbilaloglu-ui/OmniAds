@@ -605,7 +605,7 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
               {blocker.predicate}
             </div>
             {blocker.reason ? (
-              <div className="mt-0.5 text-[11px] leading-snug text-neutral-500">
+              <div className="mt-0.5 text-[12px] leading-snug text-neutral-500">
                 {blocker.reason}
               </div>
             ) : null}
@@ -731,7 +731,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             <span className="text-neutral-400">·</span>
             <span>{priority.reason}</span>
           </div>
-          <div className="mt-1 text-[11px] text-neutral-500">
+          <div className="mt-1 text-[12px] text-neutral-500">
             spend at risk {formatCurrency(priority.inputs.spendAtRisk)} ·
             opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
@@ -776,7 +776,7 @@ function TrailItem({
       <div className="flex items-center gap-2 text-neutral-900 font-medium text-[12px]">
         {label}
       </div>
-      <div className="text-[11px] text-neutral-500 flex items-center gap-2">
+      <div className="text-[12px] text-neutral-500 flex items-center gap-2">
         <span className="font-mono tabular-nums">{date}</span>
         <span className="text-neutral-300">·</span>
         <span>{version}</span>

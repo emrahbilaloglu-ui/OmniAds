@@ -267,11 +267,11 @@ export function GlobalSearch() {
                   <span className="truncate text-[12.5px] font-medium text-[var(--adc-ink)]">
                     {result.name ?? result.entityId}
                   </span>
-                  <span className="ml-auto shrink-0 text-[11px] text-[var(--adc-ink3)]">
+                  <span className="ml-auto shrink-0 text-[12px] text-[var(--adc-ink3)]">
                     {TYPE_LABEL[result.entityType]}
                   </span>
                 </span>
-                <span className="flex w-full items-center gap-2 text-[11px] text-[var(--adc-ink3)]">
+                <span className="flex w-full items-center gap-2 text-[12px] text-[var(--adc-ink3)]">
                   {result.businessName ? <span>{result.businessName}</span> : null}
                   {result.status ? <span>· {result.status}</span> : null}
                   {/* Say why this matched, so a surprising hit is explainable. */}

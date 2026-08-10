@@ -12,27 +12,29 @@
 # Error details
 
 ```
-Error: /login has essential text below 12px or 4.5:1
+Error: /platforms/meta has essential text below 12px or 4.5:1
 
 expect(received).toEqual(expected) // deep equality
 
-- Expected  - 1
-+ Received  + 3
+- Expected  -  1
++ Received  + 10
 
 - Array []
 + Array [
-+   "1.00:1 \"Skip to main content\"",
++   "11px: \"act_210009998877·USD\"",
++   "11px: \"Business STOP\"",
++   "11px: \"Native Ad decisions ar\"",
++   "11px: \"The native Ad decision\"",
++   "11px: \"Commercial targets are\"",
++   "11px: \"Set at least one valid\"",
++   "11px: \"All\"",
++   "11px: \"Act Now\"",
 + ]
 ```
 
 # Test source
 
 ```ts
-  1260 |                   const r = el.getBoundingClientRect();
-  1261 |                   return r.height < 24 || r.width < 24;
-  1262 |                 })
-  1263 |                 .map((el) => {
-  1264 |                   const r = el.getBoundingClientRect();
   1265 |                   return `${el.getAttribute("aria-label") || el.tagName}: ${Math.round(r.width)}x${Math.round(r.height)}`;
   1266 |                 })
   1267 |                 .slice(0, 6),
@@ -97,137 +99,142 @@ expect(received).toEqual(expected) // deep equality
   1326 |               if (el.closest("[data-decorative='true']")) continue;
   1327 | 
   1328 |               // Visually-hidden text has no rendered contrast to measure. The
-  1329 |               // skip link is the case that matters: it is deliberately clipped
+  1329 |               // skip link is the case that matters: it sits at left:-9999px
   1330 |               // until focused, and must stay in the accessibility tree, so it
   1331 |               // cannot be excluded with aria-hidden. Measuring it reported
   1332 |               // 1.00:1 for something no sighted user ever sees, which would
-  1333 |               // have made the real 11.5px findings look like noise.
-  1334 |               const rect = el.getBoundingClientRect();
-  1335 |               const clipped =
-  1336 |                 style.clip === "rect(0px, 0px, 0px, 0px)" ||
-  1337 |                 style.clipPath === "inset(50%)" ||
-  1338 |                 rect.width <= 1 ||
-  1339 |                 rect.height <= 1;
-  1340 |               if (clipped) continue;
-  1341 | 
-  1342 |               const size = Number.parseFloat(style.fontSize);
-  1343 |               if (size > 0 && size < 12) {
-  1344 |                 offenders.push(`${size}px: "${text.slice(0, 22)}"`);
-  1345 |                 continue;
-  1346 |               }
-  1347 |               const fg = luminance(style.color);
-  1348 |               const bg = luminance(backdrop(el));
-  1349 |               const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
-  1350 |               const ratio = (hi + 0.05) / (lo + 0.05);
-  1351 |               if (ratio < 4.5) {
-  1352 |                 offenders.push(`${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`);
-  1353 |               }
-  1354 |             }
-  1355 |             return offenders.slice(0, 8);
-  1356 |           });
-  1357 |           expect(
-  1358 |             unreadable,
-  1359 |             `${shot.path} has essential text below 12px or 4.5:1`,
-> 1360 |           ).toEqual([]);
-       |             ^ Error: /login has essential text below 12px or 4.5:1
-  1361 |         }
-  1362 | 
-  1363 |           if (topbar) {
-  1364 |             expect(
-  1365 |               topbar.overlaps,
-  1366 |               `${shot.path} topbar controls physically overlap at ${shotPage.viewportSize()?.width}px`,
-  1367 |             ).toEqual([]);
-  1368 |             expect(
-  1369 |               topbar.freshnessVisible,
-  1370 |               `${shot.path} lost the freshness reading while fixing the topbar`,
-  1371 |             ).toBe(true);
-  1372 |             expect(
-  1373 |               topbar.smallTargets,
-  1374 |               `${shot.path} topbar has touch targets below 24px`,
-  1375 |             ).toEqual([]);
-  1376 |           }
-  1377 |         }
-  1378 | 
-  1379 |         // Live accessibility checks. These need a real browser: focus
-  1380 |         // visibility, Escape behaviour and zoom cannot be read off markup.
-  1381 |         {
-  1382 |           // 1. Every focusable control has a visible focus indicator. A focus
-  1383 |           //    ring removed for aesthetics makes keyboard navigation invisible.
-  1384 |           const focusInvisible = await shotPage.evaluate(() => {
-  1385 |             const offenders: string[] = [];
-  1386 |             const focusables = Array.from(
-  1387 |               document.querySelectorAll<HTMLElement>(
-  1388 |                 "a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex='-1'])",
-  1389 |               ),
-  1390 |             ).slice(0, 40);
-  1391 |             for (const element of focusables) {
-  1392 |               element.focus();
-  1393 |               if (document.activeElement !== element) continue;
-  1394 |               const style = window.getComputedStyle(element);
-  1395 |               const hasRing =
-  1396 |                 style.outlineStyle !== "none" ||
-  1397 |                 style.boxShadow !== "none" ||
-  1398 |                 style.borderColor !== "";
-  1399 |               if (!hasRing) offenders.push(element.tagName.toLowerCase());
-  1400 |             }
-  1401 |             return offenders.slice(0, 5);
-  1402 |           });
-  1403 |           expect(
-  1404 |             focusInvisible,
-  1405 |             `${shot.path} has focusable controls with no visible focus`,
-  1406 |           ).toEqual([]);
-  1407 | 
-  1408 |           // 2. No positive tabindex. It reorders the whole page's tab sequence
-  1409 |           //    and is nearly always a bug rather than an intent.
-  1410 |           const positiveTabindex = await shotPage.evaluate(
-  1411 |             () =>
-  1412 |               Array.from(document.querySelectorAll("[tabindex]")).filter(
-  1413 |                 (element) =>
-  1414 |                   Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) > 0,
-  1415 |               ).length,
-  1416 |           );
-  1417 |           expect(
-  1418 |             positiveTabindex,
-  1419 |             `${shot.path} uses a positive tabindex`,
-  1420 |           ).toBe(0);
-  1421 | 
-  1422 |           // 3. Every image is either described or explicitly decorative. An
-  1423 |           //    undescribed image is announced as its file name.
-  1424 |           const undescribedImages = await shotPage.evaluate(
-  1425 |             () =>
-  1426 |               Array.from(document.querySelectorAll("img")).filter(
-  1427 |                 (image) =>
-  1428 |                   image.getAttribute("alt") === null &&
-  1429 |                   image.getAttribute("aria-hidden") !== "true" &&
-  1430 |                   image.getAttribute("role") !== "presentation",
-  1431 |               ).length,
-  1432 |           );
-  1433 |           expect(
-  1434 |             undescribedImages,
-  1435 |             `${shot.path} has images with neither alt nor aria-hidden`,
-  1436 |           ).toBe(0);
-  1437 | 
-  1438 |           // 4. Reduced motion is honoured: no element may animate when the
-  1439 |           //    viewer has asked for stillness.
-  1440 |           await shotPage.emulateMedia({ reducedMotion: "reduce" });
-  1441 |           const animating = await shotPage.evaluate(() => {
-  1442 |             return Array.from(document.querySelectorAll<HTMLElement>("*")).filter(
-  1443 |               (element) => {
-  1444 |                 const style = window.getComputedStyle(element);
-  1445 |                 const duration = Number.parseFloat(style.animationDuration);
-  1446 |                 return (
-  1447 |                   style.animationName !== "none" &&
-  1448 |                   Number.isFinite(duration) &&
-  1449 |                   duration > 0.05
-  1450 |                 );
-  1451 |               },
-  1452 |             ).length;
-  1453 |           });
-  1454 |           await shotPage.emulateMedia({ reducedMotion: null });
-  1455 |           expect(
-  1456 |             animating,
-  1457 |             `${shot.path} keeps animating under prefers-reduced-motion`,
-  1458 |           ).toBe(0);
-  1459 |         }
-  1460 | 
+  1333 |               // have made the real 11.5px findings look like noise. Both the
+  1334 |               // off-screen and the clip technique count as hidden.
+  1335 |               const rect = el.getBoundingClientRect();
+  1336 |               const offScreen =
+  1337 |                 rect.right <= 0 ||
+  1338 |                 rect.bottom <= 0 ||
+  1339 |                 rect.left >= window.innerWidth;
+  1340 |               const clipped =
+  1341 |                 style.clip === "rect(0px, 0px, 0px, 0px)" ||
+  1342 |                 style.clipPath === "inset(50%)" ||
+  1343 |                 rect.width <= 1 ||
+  1344 |                 rect.height <= 1;
+  1345 |               if (offScreen || clipped) continue;
+  1346 | 
+  1347 |               const size = Number.parseFloat(style.fontSize);
+  1348 |               if (size > 0 && size < 12) {
+  1349 |                 offenders.push(`${size}px: "${text.slice(0, 22)}"`);
+  1350 |                 continue;
+  1351 |               }
+  1352 |               const fg = luminance(style.color);
+  1353 |               const bg = luminance(backdrop(el));
+  1354 |               const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
+  1355 |               const ratio = (hi + 0.05) / (lo + 0.05);
+  1356 |               if (ratio < 4.5) {
+  1357 |                 offenders.push(`${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`);
+  1358 |               }
+  1359 |             }
+  1360 |             return offenders.slice(0, 8);
+  1361 |           });
+  1362 |           expect(
+  1363 |             unreadable,
+  1364 |             `${shot.path} has essential text below 12px or 4.5:1`,
+> 1365 |           ).toEqual([]);
+       |             ^ Error: /platforms/meta has essential text below 12px or 4.5:1
+  1366 |         }
+  1367 | 
+  1368 |           if (topbar) {
+  1369 |             expect(
+  1370 |               topbar.overlaps,
+  1371 |               `${shot.path} topbar controls physically overlap at ${shotPage.viewportSize()?.width}px`,
+  1372 |             ).toEqual([]);
+  1373 |             expect(
+  1374 |               topbar.freshnessVisible,
+  1375 |               `${shot.path} lost the freshness reading while fixing the topbar`,
+  1376 |             ).toBe(true);
+  1377 |             expect(
+  1378 |               topbar.smallTargets,
+  1379 |               `${shot.path} topbar has touch targets below 24px`,
+  1380 |             ).toEqual([]);
+  1381 |           }
+  1382 |         }
+  1383 | 
+  1384 |         // Live accessibility checks. These need a real browser: focus
+  1385 |         // visibility, Escape behaviour and zoom cannot be read off markup.
+  1386 |         {
+  1387 |           // 1. Every focusable control has a visible focus indicator. A focus
+  1388 |           //    ring removed for aesthetics makes keyboard navigation invisible.
+  1389 |           const focusInvisible = await shotPage.evaluate(() => {
+  1390 |             const offenders: string[] = [];
+  1391 |             const focusables = Array.from(
+  1392 |               document.querySelectorAll<HTMLElement>(
+  1393 |                 "a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex='-1'])",
+  1394 |               ),
+  1395 |             ).slice(0, 40);
+  1396 |             for (const element of focusables) {
+  1397 |               element.focus();
+  1398 |               if (document.activeElement !== element) continue;
+  1399 |               const style = window.getComputedStyle(element);
+  1400 |               const hasRing =
+  1401 |                 style.outlineStyle !== "none" ||
+  1402 |                 style.boxShadow !== "none" ||
+  1403 |                 style.borderColor !== "";
+  1404 |               if (!hasRing) offenders.push(element.tagName.toLowerCase());
+  1405 |             }
+  1406 |             return offenders.slice(0, 5);
+  1407 |           });
+  1408 |           expect(
+  1409 |             focusInvisible,
+  1410 |             `${shot.path} has focusable controls with no visible focus`,
+  1411 |           ).toEqual([]);
+  1412 | 
+  1413 |           // 2. No positive tabindex. It reorders the whole page's tab sequence
+  1414 |           //    and is nearly always a bug rather than an intent.
+  1415 |           const positiveTabindex = await shotPage.evaluate(
+  1416 |             () =>
+  1417 |               Array.from(document.querySelectorAll("[tabindex]")).filter(
+  1418 |                 (element) =>
+  1419 |                   Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) > 0,
+  1420 |               ).length,
+  1421 |           );
+  1422 |           expect(
+  1423 |             positiveTabindex,
+  1424 |             `${shot.path} uses a positive tabindex`,
+  1425 |           ).toBe(0);
+  1426 | 
+  1427 |           // 3. Every image is either described or explicitly decorative. An
+  1428 |           //    undescribed image is announced as its file name.
+  1429 |           const undescribedImages = await shotPage.evaluate(
+  1430 |             () =>
+  1431 |               Array.from(document.querySelectorAll("img")).filter(
+  1432 |                 (image) =>
+  1433 |                   image.getAttribute("alt") === null &&
+  1434 |                   image.getAttribute("aria-hidden") !== "true" &&
+  1435 |                   image.getAttribute("role") !== "presentation",
+  1436 |               ).length,
+  1437 |           );
+  1438 |           expect(
+  1439 |             undescribedImages,
+  1440 |             `${shot.path} has images with neither alt nor aria-hidden`,
+  1441 |           ).toBe(0);
+  1442 | 
+  1443 |           // 4. Reduced motion is honoured: no element may animate when the
+  1444 |           //    viewer has asked for stillness.
+  1445 |           await shotPage.emulateMedia({ reducedMotion: "reduce" });
+  1446 |           const animating = await shotPage.evaluate(() => {
+  1447 |             return Array.from(document.querySelectorAll<HTMLElement>("*")).filter(
+  1448 |               (element) => {
+  1449 |                 const style = window.getComputedStyle(element);
+  1450 |                 const duration = Number.parseFloat(style.animationDuration);
+  1451 |                 return (
+  1452 |                   style.animationName !== "none" &&
+  1453 |                   Number.isFinite(duration) &&
+  1454 |                   duration > 0.05
+  1455 |                 );
+  1456 |               },
+  1457 |             ).length;
+  1458 |           });
+  1459 |           await shotPage.emulateMedia({ reducedMotion: null });
+  1460 |           expect(
+  1461 |             animating,
+  1462 |             `${shot.path} keeps animating under prefers-reduced-motion`,
+  1463 |           ).toBe(0);
+  1464 |         }
+  1465 | 
 ```

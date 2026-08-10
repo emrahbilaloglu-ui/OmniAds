@@ -1346,7 +1346,7 @@ export function CreativesTableSection({
                     )}
                   >
                     <p className="font-medium text-foreground">{preset.presetName}</p>
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 text-[12px] leading-snug text-muted-foreground">
                       {preset.summary}
                     </p>
                   </button>
@@ -1508,7 +1508,7 @@ export function CreativesTableSection({
                         )}
                       >
                         <span>{item.label}</span>
-                        <span className="text-[11px]">
+                        <span className="text-[12px]">
                           {selectedAiTagColumns.includes(item.value) ? "✓" : ""}
                         </span>
                       </button>
@@ -1531,7 +1531,7 @@ export function CreativesTableSection({
         {tablePreset.colorFormatting === "heatmap" ? (
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex flex-wrap items-center gap-3 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-1.5 text-[11px] text-[var(--adc-ink2,#4a4f56)]"
+              className="inline-flex flex-wrap items-center gap-3 rounded-lg border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-1.5 text-[12px] text-[var(--adc-ink2,#4a4f56)]"
               title={heatmapGuideTitle}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -2303,9 +2303,9 @@ function MetricModal({
               ))}
             </div>
 
-            <p className="mt-3 text-[11px] text-muted-foreground">Preset: {presetName}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{presetSummary}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{PRESET_NOTES}</p>
+            <p className="mt-3 text-[12px] text-muted-foreground">Preset: {presetName}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{presetSummary}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{PRESET_NOTES}</p>
 
             <label className="mt-3 flex items-center gap-2 text-xs">
               <input
@@ -2461,7 +2461,7 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
   const safeValues = safeTableStringArray(values);
   if (safeValues.length === 0) {
     return (
-      <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", getAiTagPillStyles(tagKey, "None").className)}>
+      <span className={cn("rounded-full border px-2 py-0.5 text-[12px] font-medium", getAiTagPillStyles(tagKey, "None").className)}>
         None
       </span>
     );
@@ -2473,7 +2473,7 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
         <span
           key={value}
           className={cn(
-            "max-w-[145px] truncate rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4",
+            "max-w-[145px] truncate rounded-full border px-2 py-0.5 text-[12px] font-medium leading-4",
             getAiTagPillStyles(tagKey, value).className
           )}
           title={value}
@@ -2481,7 +2481,7 @@ function AiTagPills({ values, tagKey }: { values: string[]; tagKey: TagKey }) {
           {value}
         </span>
       ))}
-      {safeValues.length > 3 ? <span className="text-[11px] text-muted-foreground">+{safeValues.length - 3}</span> : null}
+      {safeValues.length > 3 ? <span className="text-[12px] text-muted-foreground">+{safeValues.length - 3}</span> : null}
     </div>
   );
 }

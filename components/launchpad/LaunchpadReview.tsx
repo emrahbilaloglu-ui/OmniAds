@@ -525,7 +525,7 @@ export function LaunchpadReview({
           {jsonOpen ? "▾" : "▸"} raw launch JSON
         </button>
         {jsonOpen ? (
-          <pre className="mono max-h-[420px] overflow-auto rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--ink-2)]">
+          <pre className="mono max-h-[420px] overflow-auto rounded-[8px] border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] leading-relaxed text-[var(--ink-2)]">
             {JSON.stringify(payload, null, 2)}
           </pre>
         ) : null}

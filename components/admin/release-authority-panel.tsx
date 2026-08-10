@@ -77,10 +77,10 @@ function SurfaceReferences({ surface }: { surface: ReleaseAuthoritySurface }) {
     <div className="space-y-1">
       {surface.references.map((reference) => (
         <div key={`${surface.id}-${reference.kind}-${reference.path}`}>
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+          <span className="text-[12px] font-semibold uppercase tracking-widest text-gray-400">
             {reference.kind}
           </span>
-          <p className="font-mono text-[11px] text-gray-700">{reference.path}</p>
+          <p className="font-mono text-[12px] text-gray-700">{reference.path}</p>
         </div>
       ))}
     </div>

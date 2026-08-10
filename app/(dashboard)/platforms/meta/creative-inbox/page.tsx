@@ -208,7 +208,7 @@ export default function MetaCreativeInboxPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[11px] text-[var(--muted)]">
+              <label className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 text-[12px] text-[var(--muted)]">
                 Account
                 <select
                   value={providerAccountId}
@@ -225,7 +225,7 @@ export default function MetaCreativeInboxPage() {
                     }
                     setSelectedProviderAccountId(nextProviderAccountId);
                   }}
-                  className="max-w-[190px] border-0 bg-transparent font-mono text-[11px] text-[var(--ink)] outline-none"
+                  className="max-w-[190px] border-0 bg-transparent font-mono text-[12px] text-[var(--ink)] outline-none"
                   aria-label="Select Meta account for Creative Inbox"
                   disabled={providerAccountsQuery.isLoading}
                 >
@@ -310,7 +310,7 @@ export default function MetaCreativeInboxPage() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     {card.providerAccountId ?? card.accountId ?? "Account unavailable"}
                   </div>
                   <div className="mt-1 font-semibold text-[var(--ink)]">
@@ -321,7 +321,7 @@ export default function MetaCreativeInboxPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
                     Decision context
                   </div>
                   <div className="text-[12px] font-semibold text-[var(--ink)]">

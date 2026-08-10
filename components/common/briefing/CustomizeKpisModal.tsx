@@ -275,7 +275,7 @@ export function CustomizeKpisModal({
                 {activeEntry.description}
               </div>
               {activeEntry.unavailable ? (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-800">
                   {activeEntry.unavailableReason ?? "Requires backend support."}
                 </div>
               ) : null}

@@ -585,7 +585,7 @@ function CampaignRow({
                 </div>
               ) : null}
               {campaign.topActionHint ? (
-                <div className="mt-1 truncate text-[11px] text-muted-foreground" title={campaign.topActionHint}>
+                <div className="mt-1 truncate text-[12px] text-muted-foreground" title={campaign.topActionHint}>
                   {campaign.topActionHint}
                 </div>
               ) : null}

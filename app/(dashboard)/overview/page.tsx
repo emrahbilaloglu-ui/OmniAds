@@ -726,7 +726,7 @@ function DataStatusRow({
     <section className="rounded-xl border border-neutral-200 bg-white p-3.5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-3">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+          <p className="text-[12px] font-medium uppercase tracking-[0.08em] text-neutral-500">
             Live Status
           </p>
           {/* Overview previously gave no cue at all about how old these numbers

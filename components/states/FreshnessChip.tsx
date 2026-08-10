@@ -55,7 +55,7 @@ export function FreshnessChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] ${tone} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[12px] ${tone} ${className}`}
       title={reading.description}
     >
       <span className="tabular-nums">

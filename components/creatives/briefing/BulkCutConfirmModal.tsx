@@ -103,7 +103,7 @@ export function BulkCutConfirmModal({
                     <div className="text-[12.5px] font-medium text-neutral-900 truncate">
                       {name}
                     </div>
-                    <div className="text-[11px] text-neutral-500 truncate">
+                    <div className="text-[12px] text-neutral-500 truncate">
                       {card.campaign || card.campaignName || "Campaign"}
                     </div>
                   </div>

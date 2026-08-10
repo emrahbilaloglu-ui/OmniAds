@@ -170,7 +170,7 @@ function InsightsWidget({ widget }: { widget: InsightWidget }) {
       className="rounded-lg border border-neutral-200 bg-white p-4 shadow-[0_1px_2px_rgba(16,21,28,0.04)]"
       data-testid={`insights-widget-${widget.key}`}
     >
-      <h3 className="m-0 mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.05em] text-neutral-500">
+      <h3 className="m-0 mb-3 flex items-center justify-between text-[12px] font-semibold uppercase tracking-[0.05em] text-neutral-500">
         <span>{widget.title}</span>
         {widget.trailingLabel ? (
           <span className="font-bold text-neutral-900">{widget.trailingLabel}</span>

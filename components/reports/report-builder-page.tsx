@@ -236,17 +236,17 @@ export function ReportBuilderPage({
                     </button>
                     {shareUrl && (
                       <div className="mt-2 rounded-lg border bg-neutral-50 p-2">
-                        <p className="mb-1 text-[11px] text-neutral-500">{language === "tr" ? "Paylaşım linki hazır" : "Share link ready"}</p>
+                        <p className="mb-1 text-[12px] text-neutral-500">{language === "tr" ? "Paylaşım linki hazır" : "Share link ready"}</p>
                         <div className="flex items-center gap-1.5">
                           <input
                             readOnly
                             value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
-                            className="h-7 flex-1 rounded border border-neutral-200 bg-white px-2 text-[11px] text-neutral-600 min-w-0"
+                            className="h-7 flex-1 rounded border border-neutral-200 bg-white px-2 text-[12px] text-neutral-600 min-w-0"
                           />
                           <button
                             type="button"
                             onClick={copyShareUrl}
-                            className="inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[11px] hover:bg-neutral-100 transition"
+                            className="inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[12px] hover:bg-neutral-100 transition"
                           >
                             <Copy className="h-3 w-3" />
                             {copied ? (language === "tr" ? "Kopyalandi!" : "Copied!") : language === "tr" ? "Kopyala" : "Copy"}

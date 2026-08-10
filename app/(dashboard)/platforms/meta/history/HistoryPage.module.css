@@ -127,7 +127,7 @@
   border-radius: 6px;
   color: var(--history-focus);
   background: var(--history-focus-bg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -381,14 +381,14 @@
 
 .replayCopy span {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .replayCopy small {
   margin-top: 2px;
   color: var(--history-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .readOnlySeal {
@@ -459,7 +459,7 @@
 
 .limitations p {
   margin: 4px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .journalSection {
@@ -495,7 +495,7 @@
   flex: none;
   color: var(--history-ink-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -641,7 +641,7 @@
 .entryMain p {
   margin: 2px 0 0;
   color: var(--history-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .entryMain small {
@@ -842,7 +842,7 @@
 .errorState p,
 .emptyState p {
   margin: 3px 0 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .emptyState {

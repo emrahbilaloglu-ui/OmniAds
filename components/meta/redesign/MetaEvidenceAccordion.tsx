@@ -15,7 +15,7 @@ interface MetaEvidenceAccordionProps {
 function JsonBlock({ value }: { value: unknown }) {
   if (value == null) return <span className="text-slate-400">None</span>;
   return (
-    <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-600">
+    <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[12px] leading-relaxed text-slate-600">
       {JSON.stringify(value, null, 2)}
     </pre>
   );

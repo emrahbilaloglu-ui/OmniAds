@@ -108,7 +108,7 @@ function RecommendationCard({
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex items-center gap-2.5">
           <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}
+            className={`rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${decisionTone(recommendation.decisionState)}`}
           >
             {decisionLabel}
           </span>
@@ -116,7 +116,7 @@ function RecommendationCard({
             <p className="truncate text-xs font-semibold text-foreground">
               {recommendation.campaignName ?? t.accountLevelRecommendation}
             </p>
-            <p className="truncate text-[11px] text-muted-foreground">
+            <p className="truncate text-[12px] text-muted-foreground">
               {recommendation.title}
             </p>
           </div>
@@ -127,7 +127,7 @@ function RecommendationCard({
             <button
               type="button"
               onClick={() => onOpenCampaign?.(recommendation.campaignId!)}
-              className="text-[11px] font-medium text-blue-700 hover:underline"
+              className="text-[12px] font-medium text-blue-700 hover:underline"
             >
               {t.jumpToCampaign}
             </button>
@@ -185,7 +185,7 @@ function RecommendationCard({
         <button
           type="button"
           onClick={() => setShowDetails((v) => !v)}
-          className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-dashed px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted/40"
         >
           <span>{showDetails ? "Hide details" : "Analysis details"}</span>
           {showDetails ? (
@@ -441,7 +441,7 @@ export function MetaInsightPanel({
       </div>
 
       <div className="mt-4 rounded-xl border bg-muted/25 p-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
           {t.accountSummary}
         </p>
         <p className="mt-1 text-base font-semibold">{data.summary.title}</p>

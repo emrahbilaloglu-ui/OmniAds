@@ -166,7 +166,7 @@ export function ShareViewModal({
                     }
                   >
                     <div className="font-semibold">{aud.label}</div>
-                    <div className="mt-0.5 text-[11px] text-neutral-500">
+                    <div className="mt-0.5 text-[12px] text-neutral-500">
                       {aud.description}
                     </div>
                   </button>

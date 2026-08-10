@@ -367,7 +367,7 @@ function QuietChip({
         border: "1px solid var(--border-2)",
         borderRadius: 6,
         padding: "1px 7px",
-        fontSize: 11,
+        fontSize: 12,
         color: tone === "muted" ? "var(--muted)" : TONE_INK[tone],
         background: "var(--surface)",
         whiteSpace: "nowrap",

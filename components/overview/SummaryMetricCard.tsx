@@ -66,11 +66,11 @@ export function SummaryMetricCard({
               </span>
             ) : null}
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium uppercase tracking-[0.07em] text-neutral-500">
+              <p className="truncate text-[12px] font-medium uppercase tracking-[0.07em] text-neutral-500">
                 {metric.title}
               </p>
               {metric.subtitle ? (
-                <p className="truncate text-[11px] text-neutral-500">{metric.subtitle}</p>
+                <p className="truncate text-[12px] text-neutral-500">{metric.subtitle}</p>
               ) : null}
             </div>
           </div>

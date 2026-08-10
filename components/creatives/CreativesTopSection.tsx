@@ -710,7 +710,7 @@ function AddFilterDropdown({
           <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(520px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] duration-150">
             <div className="grid gap-2 md:grid-cols-[1.15fr_0.9fr_1.15fr_auto]">
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Field
                 </span>
                 <select
@@ -736,7 +736,7 @@ function AddFilterDropdown({
               </label>
 
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Operator
                 </span>
                 <select
@@ -753,7 +753,7 @@ function AddFilterDropdown({
               </label>
 
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                   Query
                 </span>
                 <div className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2">
@@ -800,7 +800,7 @@ function AddFilterDropdown({
               </div>
             ) : null}
 
-            <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-[11px] text-neutral-600">
+            <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-[12px] text-neutral-600">
 	              AI tag filters use tag values only and do not rewrite taxonomy.
 	            </div>
           </div>
@@ -900,17 +900,17 @@ function TopExportDropdown({
 
           {shareUrl && (
             <div className="mt-2 space-y-1 rounded-md border bg-muted/30 p-2">
-              <p className="text-[11px] text-muted-foreground">Share link ready</p>
+              <p className="text-[12px] text-muted-foreground">Share link ready</p>
               <div className="flex items-center gap-1.5">
                 <input
                   readOnly
                   value={`${typeof window !== "undefined" ? window.location.origin : ""}${shareUrl}`}
-                  className="h-7 flex-1 rounded border bg-background px-2 text-[11px] text-muted-foreground"
+                  className="h-7 flex-1 rounded border bg-background px-2 text-[12px] text-muted-foreground"
                 />
                 <button
                   type="button"
                   onClick={copyShareUrl}
-                  className="inline-flex h-7 items-center gap-1 rounded border px-2 text-[11px]"
+                  className="inline-flex h-7 items-center gap-1 rounded border px-2 text-[12px]"
                 >
                   <Copy className="h-3 w-3" />
                   {copied ? "Copied" : "Copy"}
@@ -919,8 +919,8 @@ function TopExportDropdown({
             </div>
           )}
 
-          {shareError ? <p className="mt-2 text-[11px] text-[var(--adc-danger-fg,#a6224a)]">{shareError}</p> : null}
-          {csvError ? <p className="mt-1 text-[11px] text-[var(--adc-danger-fg,#a6224a)]">{csvError}</p> : null}
+          {shareError ? <p className="mt-2 text-[12px] text-[var(--adc-danger-fg,#a6224a)]">{shareError}</p> : null}
+          {csvError ? <p className="mt-1 text-[12px] text-[var(--adc-danger-fg,#a6224a)]">{csvError}</p> : null}
         </div>
       )}
     </div>
@@ -1339,7 +1339,7 @@ function PreviewStrip({
                     const heatStyle = evaluation ? toHeatCellStyle(evaluation.tone, evaluation.intensity) : undefined;
 
                     return (
-                      <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
+                      <div key={metric.id} className="flex items-center justify-between gap-2 text-[12px]">
                         <p className="truncate text-muted-foreground">{metric.label}</p>
                         <span
                           className="rounded-full px-1.5 py-0.5 font-semibold tabular-nums"

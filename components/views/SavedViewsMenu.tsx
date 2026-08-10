@@ -81,7 +81,7 @@ export function SavedViewsMenu({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="rounded-md border border-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-700 hover:bg-neutral-50"
+        className="rounded-md border border-neutral-200 px-2 py-0.5 text-[12px] font-medium text-neutral-700 hover:bg-neutral-50"
         aria-expanded={open}
       >
         Views{views.length > 0 ? ` (${views.length})` : ""}
@@ -90,7 +90,7 @@ export function SavedViewsMenu({
       {open ? (
         <div className="absolute right-0 z-50 mt-1 w-72 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg">
           {views.length === 0 ? (
-            <p className="px-1 py-1.5 text-[11px] text-neutral-500">
+            <p className="px-1 py-1.5 text-[12px] text-neutral-500">
               No saved views for this client yet.
             </p>
           ) : (
@@ -122,7 +122,7 @@ export function SavedViewsMenu({
                     <button
                       type="button"
                       onClick={() => deleteSavedView(surface, businessId, view.id)}
-                      className="rounded px-1 text-[11px] text-neutral-500 hover:text-rose-700"
+                      className="rounded px-1 text-[12px] text-neutral-500 hover:text-rose-700"
                       aria-label={`Delete view ${view.name}`}
                     >
                       Remove
@@ -146,12 +146,12 @@ export function SavedViewsMenu({
             <button
               type="button"
               onClick={handleSave}
-              className="rounded bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white"
+              className="rounded bg-neutral-900 px-2 py-1 text-[12px] font-medium text-white"
             >
               Save
             </button>
           </div>
-          {error ? <p className="mt-1 text-[11px] text-rose-700">{error}</p> : null}
+          {error ? <p className="mt-1 text-[12px] text-rose-700">{error}</p> : null}
         </div>
       ) : null}
     </div>

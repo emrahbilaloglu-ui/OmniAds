@@ -56,7 +56,7 @@ export function SettingsField({
     <label className="space-y-1.5">
       <div>
         <p className="text-[12px] font-medium text-[var(--adc-ink3)]">{label}</p>
-        {hint ? <p className="text-[11px] text-[var(--adc-ink3)]">{hint}</p> : null}
+        {hint ? <p className="text-[12px] text-[var(--adc-ink3)]">{hint}</p> : null}
       </div>
       {children}
     </label>

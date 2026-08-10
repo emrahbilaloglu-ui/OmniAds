@@ -351,7 +351,7 @@ export function MetaCampaignLabelsSection({
                     <div className="truncate font-medium text-slate-900">
                       {campaign.name}
                     </div>
-                    <div className="truncate text-[11px] text-slate-500">
+                    <div className="truncate text-[12px] text-slate-500">
                       {campaign.accountId}
                     </div>
                   </div>

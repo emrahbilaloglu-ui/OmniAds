@@ -43,7 +43,7 @@
 .scopeBlock p {
   margin: 2px 0 0;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .wizardFrame {
@@ -113,7 +113,7 @@
   color: var(--muted);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 4px 8px;
 }
@@ -237,7 +237,7 @@
 }
 
 .stepLabel {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .receiptRail {
@@ -518,7 +518,7 @@
 
   .mobileHeader > span {
     color: var(--ink-3);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .mobileBody {
@@ -538,7 +538,7 @@
     border-radius: 6px;
     background: var(--warn-bg);
     color: var(--warn);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.45;
     padding: 9px 10px;
   }

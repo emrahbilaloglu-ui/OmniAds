@@ -479,7 +479,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
       <article className={embedded ? "p-4 h-full" : "rounded-xl border border-neutral-200 bg-white p-6"}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-neutral-400">
               Section
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
@@ -545,7 +545,7 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
                   {(widget.columns ?? []).map((column) => (
                     <th
                       key={column}
-                      className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-500"
+                      className="px-3 py-2 text-left text-[12px] font-semibold uppercase tracking-wide text-neutral-500"
                     >
                       {getColumnLabel(column)}
                     </th>

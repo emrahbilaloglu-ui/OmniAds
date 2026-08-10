@@ -1063,3 +1063,41 @@ action-log read was made conditional on a page actually containing an observed c
 - `not_started`: 3 criteria (C-1, C-5, X-6) — all downstream of deployment
 - `failed`: **0 criteria.** X-5 was the last one and is now `local_pass`
 - `production_pass`: **0 criteria.** No production acceptance is claimed anywhere in this program.
+
+## Signed-in production acceptance — `ed3a09a3687eee88f46e8f21427d3aa9bad39b5e`
+
+Deployed 2026-08-10 through `deploy-hetzner.yml` with `image_namespace=current`,
+`require_current_main_head=true`, `run_migrations=true`, `break_glass=false`. Apex and www both
+report the exact merge SHA; `healthz` is `ok:true` on the same build; deploy gate and release gate
+both `verdict: pass` in `mode: block`, exact and latest alike.
+
+Read against live `adsecute.com` in the existing signed-in Chrome session. No provider, campaign,
+ad, account or report write was made, and no protected flag was touched.
+
+| Defect | What was read live | Result |
+| --- | --- | --- |
+| 1 — fabricated comparison | `/overview`, 24 `[data-delta-state]` nodes | all `unavailable` rendering `—`; zero nodes carry a digit. Production previously printed `0.0%` here |
+| 2 — Decisions window label | `/platforms/meta` | reads "Metrics window", with "It does not change the current verdict or its authority" |
+| 4 — dead affordances | `/platforms/meta` | no "Notify me" anywhere; the `⌘K` hint sits on the search control; with focus on `body`, both Ctrl+K and Cmd+K focus `#global-search` and set `aria-expanded=true`, and Escape closes it and releases focus |
+| 5 — Studio contrast and type | `/platforms/meta/creatives` at 1281px | 333 rendered text nodes measured with canvas-normalised colour and composited backdrops: zero below 12px, zero below 4.5:1 |
+| 6 — sparkline semantics | `/overview`, 26 charts | every chart has an accessible name and `tabIndex=0`; every gradient stop is `#2F6BFF` with no emerald; ArrowRight moved the reading to point 8 announcing "Aug 9, 2026: $3.1K" and ArrowLeft to point 7 "Aug 8, 2026: $2.8K" |
+| 7 — mobile read-only claim | `/platforms/google`, `/settings`, `/integrations`, `/platforms/meta/automation` | present only where true: Google carries the banner (hidden by CSS above the breakpoint); Settings has no banner and 13 write controls; Integrations has no banner; automation has none because it owns its own mobile surface — three different routes, three correct outcomes |
+| 3 — 320px topbar | deployed stylesheet | ships `@media (max-width:720px){.ad-console-shell .ad-console-topbar{flex-wrap:wrap;gap:8px;height:auto;min-height:50px;padding:6px 10px;overflow:visible}}` with freshness on its own row |
+| 8 — border colour as text | deployed stylesheet | `--muted-2:var(--adc-ink3)`; the `var(--adc-b2)` form is absent |
+
+### What this pass could not do
+
+Defects 3 and 8 are recorded above from the deployed stylesheet, not from rendered geometry in the
+production browser, and that distinction is the point of separating the rows.
+
+The signed-in Chrome tab would not change viewport. `resize_window` reported success for both 320
+and 390 while `window.innerWidth` stayed at 1281 and `window.outerWidth` read `0` — the tab is not
+in a resizable window. The in-app browser resizes but is not signed in, and signing it in would
+mean entering credentials, which is out of bounds. So no rendered 320/390 production geometry was
+captured.
+
+What stands in its place is narrower and should be read as such: the six-width matrix measured
+rendered geometry at 320 and 390 on this exact commit locally — zero topbar rectangle
+intersections across 12 of 13 surfaces, freshness visible, no horizontal overflow — and the
+stylesheet that produced it is byte-for-byte the one now served. That is good evidence about the
+same code. It is not the same thing as having measured the live page at 320.

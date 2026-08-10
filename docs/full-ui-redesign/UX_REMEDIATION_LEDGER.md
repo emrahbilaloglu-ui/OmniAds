@@ -716,6 +716,28 @@ now asserts each in a real browser: topbar rectangle intersections, fabricated c
 percentages, computed contrast, computed type size, the Cmd/Ctrl+K and Escape path on the real
 search field, and Arrow-key movement of the trend chart's reading.
 
+Two things about that sentence were untrue before this branch, and both were found by making the
+run count what it actually exercised rather than trusting that green meant covered.
+
+**The checks ran at two widths, not six.** Every assertion listed above sat inside a
+`width <= 480` guard. A six-width green run proved them at 320 and 390 and silently skipped 768,
+1280, 1440 and 1728. The contract names 1280 for computed contrast specifically, so this was not a
+technicality. Only the 24px touch-target minimum is genuinely phone-only and stays guarded; a
+fabricated percentage, an overlapping control and unreadable text are defects at any width.
+
+**The landing surface was never geometry-checked.** The app ships two frames. `/overview*` renders
+`LegacyDashboardFrame`, whose bar is a plain `<header>` with no `.ad-console-topbar` class. The
+geometry check queried that one class, got `null`, and `if (topbar)` skipped without reporting
+anything — so the claim "topbar hitbox intersections equal zero" was made on evidence that
+excluded Overview at every width. The check now follows whichever header the product rendered.
+
+Measured after both corrections: at 1440 the search field is found and fully exercised on 11
+surfaces and is absent on `/login` and `/overview`, which use the legacy frame; at 320 it is absent
+everywhere and correctly claims nothing, because the bar is hidden below `md`. The geometry check
+covers 12 of 13 surfaces at both widths — everything but `/login` — and Overview's legacy bar
+passes it. Those counts are asserted and printed, so a future skip fails the run instead of
+quietly shrinking what "six widths green" means.
+
 Two of those assertions had to be corrected rather than satisfied, and both corrections preserved a
 finding instead of erasing one. The contrast probe first reported 1.23:1 for black text on a pale
 green cell — impossible, and caused by parsing `color-mix(in oklab, ...)` with an rgb-shaped

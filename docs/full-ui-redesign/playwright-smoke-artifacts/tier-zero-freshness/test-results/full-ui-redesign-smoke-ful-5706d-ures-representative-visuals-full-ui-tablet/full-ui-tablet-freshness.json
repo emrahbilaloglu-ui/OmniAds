@@ -1,7 +1,7 @@
 [
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "meta-decisions",
     "path": "/platforms/meta",
     "state": "ready",
@@ -10,8 +10,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "meta-history",
     "path": "/platforms/meta/history",
     "state": "ready",
@@ -20,8 +20,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "creative-studio",
     "path": "/platforms/meta/creatives",
     "state": "ready",
@@ -30,8 +30,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "launchpad",
     "path": "/platforms/meta/launchpad",
     "state": "ready",
@@ -40,18 +40,18 @@
     "hasRetry": false
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "automation",
     "path": "/platforms/meta/automation",
-    "state": "loading",
+    "state": "ready",
     "errorCode": null,
-    "text": "Loading — no figures yet",
-    "hasRetry": false
+    "text": "age unknownRefresh",
+    "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "reports",
     "path": "/reports",
     "state": "ready",
@@ -60,8 +60,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "google-ads",
     "path": "/platforms/google",
     "state": "partial",
@@ -70,8 +70,8 @@
     "hasRetry": false
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "overview",
     "path": "/overview",
     "state": "ready",
@@ -80,8 +80,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "integrations",
     "path": "/integrations",
     "state": "ready",
@@ -90,8 +90,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 768,
+    "project": "full-ui-tablet",
     "surface": "settings",
     "path": "/settings",
     "state": "ready",

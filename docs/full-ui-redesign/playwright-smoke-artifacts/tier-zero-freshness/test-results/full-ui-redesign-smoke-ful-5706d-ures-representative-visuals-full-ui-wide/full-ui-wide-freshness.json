@@ -1,27 +1,27 @@
 [
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "meta-decisions",
     "path": "/platforms/meta",
-    "state": "ready",
-    "errorCode": null,
-    "text": "as of 1m agoRefresh",
-    "hasRetry": true
-  },
-  {
-    "width": 390,
-    "project": "full-ui-mobile",
-    "surface": "meta-history",
-    "path": "/platforms/meta/history",
     "state": "ready",
     "errorCode": null,
     "text": "as of just nowRefresh",
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
+    "surface": "meta-history",
+    "path": "/platforms/meta/history",
+    "state": "ready",
+    "errorCode": null,
+    "text": "as of 1m agoRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "creative-studio",
     "path": "/platforms/meta/creatives",
     "state": "ready",
@@ -30,8 +30,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "launchpad",
     "path": "/platforms/meta/launchpad",
     "state": "ready",
@@ -40,18 +40,18 @@
     "hasRetry": false
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "automation",
     "path": "/platforms/meta/automation",
-    "state": "loading",
+    "state": "ready",
     "errorCode": null,
-    "text": "Loading — no figures yet",
-    "hasRetry": false
+    "text": "age unknownRefresh",
+    "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "reports",
     "path": "/reports",
     "state": "ready",
@@ -60,8 +60,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "google-ads",
     "path": "/platforms/google",
     "state": "partial",
@@ -70,8 +70,8 @@
     "hasRetry": false
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "overview",
     "path": "/overview",
     "state": "ready",
@@ -80,8 +80,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "integrations",
     "path": "/integrations",
     "state": "ready",
@@ -90,8 +90,8 @@
     "hasRetry": true
   },
   {
-    "width": 390,
-    "project": "full-ui-mobile",
+    "width": 1728,
+    "project": "full-ui-wide",
     "surface": "settings",
     "path": "/settings",
     "state": "ready",

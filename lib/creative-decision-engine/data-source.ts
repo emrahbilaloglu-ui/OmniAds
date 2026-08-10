@@ -1089,6 +1089,12 @@ WITH assigned_accounts AS (
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
+    -- Current execution, not historical attribution. This CTE decides which
+    -- accounts the engine hydrates and decides FOR right now, so a deselected
+    -- account must not receive decisions. Already-written snapshots, outcomes
+    -- and backtests join on provider_account_ref_id and are untouched, so past
+    -- attribution still resolves through a deselected binding.
+    AND binding.is_selected
     AND (NOT $4::boolean OR binding.provider_account_id = ANY($3::text[]))
 ),
 selected_ad_days AS (
@@ -1495,12 +1501,12 @@ SELECT
   assignment.provider_account_ref_id,
   cumulative.provider_account_id,
   COALESCE(
-    account_identity.account_timezone,
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,
+    account_identity.account_timezone
   ) AS account_timezone,
   COALESCE(
-    account_identity.account_currency,
-    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END
+    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,
+    account_identity.account_currency
   ) AS account_currency,
   cumulative.ad_id,
   COALESCE(cumulative.ad_name, dimensions.ad_name_current) AS ad_name,
@@ -1830,6 +1836,10 @@ WITH assigned_accounts AS (
   FROM business_provider_accounts binding
   WHERE binding.business_id = $1::text
     AND binding.provider = 'meta'
+    -- Must match the hydration CTE above exactly. This proves the manifest is
+    -- complete for the accounts being hydrated; a wider set here would report
+    -- the run as incomplete for accounts that were deliberately excluded.
+    AND binding.is_selected
     AND (NOT $5::boolean OR binding.provider_account_id = ANY($4::text[]))
 ), complete_runs AS (
   SELECT
@@ -1856,6 +1866,23 @@ WITH assigned_accounts AS (
       AND run.observed_at >= $2::date
       AND run.observed_at <= $3::timestamptz
       AND run.captured_at <= $3::timestamptz
+      -- Compaction may retain a duplicate run receipt while removing its
+      -- redundant state rows. Skip only fully removed positive-row runs;
+      -- base_counts still exposes partially retained sets as a mismatch.
+      AND (
+        run.row_count = 0
+        OR EXISTS (
+          SELECT 1
+          FROM meta_entity_state_history retained_state
+          WHERE retained_state.run_id = run.id
+            AND retained_state.business_ref_id = run.business_ref_id
+            AND retained_state.business_id = run.business_id
+            AND retained_state.provider_account_ref_id =
+              run.provider_account_ref_id
+            AND retained_state.provider_account_id = run.provider_account_id
+            AND retained_state.entity_type = run.entity_type
+        )
+      )
     ORDER BY run.observed_at DESC, run.captured_at DESC, run.created_at DESC, run.id DESC
     LIMIT 1
   ) run ON true

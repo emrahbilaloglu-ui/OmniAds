@@ -592,6 +592,21 @@ floating indicator is in every screenshot and exists in no production build; it 
 the CPA label at 390px and over `Spend` at 320px, which made the committed evidence unreadable for
 the one thing it exists to show. It changes nothing the assertions read from the DOM.
 
+### Integration of current `origin/main`
+
+`origin/main` advanced to `4ddba8d0a` ("Keep a scope alive while its business cycle is still
+running") while this candidate was frozen. Merged in with `--no-ff`.
+
+That commit touches exactly one file, `lib/sync/worker-runtime.ts`, and this branch never modifies
+it — so there was no semantic conflict to resolve, and `git diff origin/main HEAD --
+lib/sync/worker-runtime.ts` is empty: the worker fix is carried through byte-for-byte alongside the
+whole UX/native-authority body.
+
+What it fixes matters for this release: the health gate asked whether each provider scope
+heartbeated inside a five-minute window, and a business cycle only heartbeats at its boundaries, so
+a long Google cycle looked dead while it was working. Fifty autoheal restarts across the acceptance
+window were retiring a worker that was never unwell.
+
 ### Remaining work, classified honestly
 
 Two categories. Conflating them was a real defect in earlier revisions of this ledger.

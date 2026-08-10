@@ -121,7 +121,7 @@ Rollout grants nothing: nothing reads `NEXT_PUBLIC_*`, and a test asserts the co
 
 ## 8 · State and rollback
 
-- Branch `codex/adsecute-zero-base-implementation`, **12 commits** ahead of `origin/main` (4 safety commits brought in by the WP-00 merge + WP-00, WP-00.5, docs, WP-01, WP-02, ledger stamp, WP-03, WP-03A); worktree clean.
+- Branch `codex/adsecute-zero-base-implementation`, **13 commits** ahead of `origin/main` (4 safety commits brought in by the WP-00 merge + WP-00, WP-00.5, docs, WP-01, WP-02, ledger stamp, WP-03, WP-03A, final stamp); worktree clean.
 - `package-lock.json` unmodified. No push, PR, deploy, production migration, remote or production database, provider call, campaign mutation, or live-state change. Only ephemeral local PostgreSQL clusters, all removed. No `.env` file was read into the repo, created or committed, and no secret was printed.
 - `/Users/harmelek/Adsecute` untouched at `c46d91c2a` with 346 dirty files.
 

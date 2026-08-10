@@ -698,9 +698,32 @@ because "all gates green" was true at the time and was not enough.
 | 6 | The sparkline implied a verdict | It accepted `tone` and dropped it (`tone: _tone`), painting every metric blue-to-emerald; the SVG was `aria-hidden` and the readout pointer-only | One neutral line for every metric, because there is no trustworthy per-metric direction here to colour from. Accessible name and summary, keyboard focus, Arrow/Home/End navigation, live region, dashed comparison |
 | 7 | A false mobile read-only claim | The banner rendered on every route without its own mobile surface, including Settings and Integrations, which render working write controls at that width | Gated on a route/capability matrix. D5 gates provider mutation to desktop; it never covered account or workspace settings, and that is the distinction the old condition flattened |
 
+An eighth was found by the matrix itself while proving the seventh, and is recorded here because
+it was not on the list and would otherwise go unmentioned:
+
+| # | Defect | How it was found | Fix |
+| --- | --- | --- | --- |
+| 8 | Console text painted in a border colour | The six-width run measured `data as of 8/10/2026` on `/platforms/meta/copies` at 1.60:1, at both 320 and 390 | `.ad-final` aliased `--muted-2` to `--adc-b2`, a hairline shade the next line also publishes as `--border-3`. Twenty-five text sites drew through it. `--muted-2` now resolves to `--adc-ink3`; the two genuine hairline users moved to `--border-3` and render identically |
+
+Defect 8 is the same shape as defect 5 seen from the other side. Defect 5 was Studio scoping its
+own palette so the console-wide pass never reached it; defect 8 was the console-wide layer itself
+being wrong in a way no name revealed — `--muted-2` sits in the ink family and reads like "slightly
+quieter than `--muted`". Only resolving the alias to a literal colour shows it, which is why
+`lib/console-ink-token-contrast.test.ts` measures rather than lints the name.
+
 Every one has a behaviour test proven to fail on the pre-fix code first, and the six-width matrix
 now asserts each in a real browser: topbar rectangle intersections, fabricated comparison
-percentages, computed contrast and computed type size.
+percentages, computed contrast, computed type size, the Cmd/Ctrl+K and Escape path on the real
+search field, and Arrow-key movement of the trend chart's reading.
+
+Two of those assertions had to be corrected rather than satisfied, and both corrections preserved a
+finding instead of erasing one. The contrast probe first reported 1.23:1 for black text on a pale
+green cell — impossible, and caused by parsing `color-mix(in oklab, ...)` with an rgb-shaped
+regex; it now normalises through canvas and composites alpha up the tree, and skips any colour it
+cannot resolve rather than guessing. The token test first reported `--muted` failing at 1.17:1,
+which was a file-wide search finding one of the five `--muted` declarations in `globals.css` — the
+shadcn one, which nothing paints text with. Scoped to the declaring block, only the real defect
+failed, at 1.5966:1 against the browser's independently measured 1.60.
 
 ### Remaining work, classified honestly
 

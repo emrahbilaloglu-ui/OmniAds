@@ -1,0 +1,102 @@
+[
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "meta-decisions",
+    "path": "/platforms/meta",
+    "state": "ready",
+    "errorCode": null,
+    "text": "as of 1m agoRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "meta-history",
+    "path": "/platforms/meta/history",
+    "state": "ready",
+    "errorCode": null,
+    "text": "as of just nowRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "creative-studio",
+    "path": "/platforms/meta/creatives",
+    "state": "ready",
+    "errorCode": null,
+    "text": "age unknownRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "launchpad",
+    "path": "/platforms/meta/launchpad",
+    "state": "ready",
+    "errorCode": null,
+    "text": "age unknown",
+    "hasRetry": false
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "automation",
+    "path": "/platforms/meta/automation",
+    "state": "ready",
+    "errorCode": null,
+    "text": "age unknownRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "reports",
+    "path": "/reports",
+    "state": "ready",
+    "errorCode": null,
+    "text": "as of just nowRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "google-ads",
+    "path": "/platforms/google",
+    "state": "partial",
+    "errorCode": null,
+    "text": "age unknownNo Google Ads accounts are assigned to this business.",
+    "hasRetry": false
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "overview",
+    "path": "/overview",
+    "state": "ready",
+    "errorCode": null,
+    "text": "age unknownRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "integrations",
+    "path": "/integrations",
+    "state": "ready",
+    "errorCode": null,
+    "text": "age unknownRefresh",
+    "hasRetry": true
+  },
+  {
+    "width": 390,
+    "project": "full-ui-mobile",
+    "surface": "settings",
+    "path": "/settings",
+    "state": "ready",
+    "errorCode": null,
+    "text": "as of just now",
+    "hasRetry": false
+  }
+]

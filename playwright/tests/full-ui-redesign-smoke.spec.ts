@@ -172,6 +172,24 @@ const TIER_ZERO_FRESHNESS_SURFACES = new Set<string>([
 /** Written next to the screenshots so the matrix is readable, not just visual. */
 const freshnessEvidence: Array<Record<string, unknown>> = [];
 
+/**
+ * How often the two keyboard checks actually ran.
+ *
+ * Both are guarded -- the search bar is `hidden md:block`, and a chart with no
+ * points renders a "No trend data" note instead of a figure -- so a green run
+ * is not by itself evidence that either was exercised. A guard that never
+ * opens is indistinguishable from a passing assertion unless the count is
+ * asserted too, and "all six widths green" would then be quietly overstating
+ * what was proven. These counts are asserted after the loop and attached to
+ * the report so a zero is visible rather than silent.
+ */
+const keyboardCoverage = {
+  searchFieldsSeen: 0,
+  searchExercised: 0,
+  chartsSeen: 0,
+  chartsExercised: 0,
+};
+
 const ACTIVE_SCREENSHOT_ROUTES =
   SELECTED_SCREENSHOT_NAMES.size === 0
     ? SCREENSHOT_ROUTES
@@ -1452,6 +1470,7 @@ test.describe("full UI redesign route and visual smoke", () => {
           // not catch that -- a display:none element is still in the DOM --
           // so this asks whether it is actually on screen.
           if (await field.isVisible().catch(() => false)) {
+            keyboardCoverage.searchFieldsSeen += 1;
             await shotPage.locator("body").click({ position: { x: 2, y: 2 } });
 
             await shotPage.keyboard.press("ControlOrMeta+k");
@@ -1473,6 +1492,7 @@ test.describe("full UI redesign route and visual smoke", () => {
               await field.getAttribute("aria-expanded"),
               `${shot.path} search cannot be dismissed with Escape`,
             ).toBe("false");
+            keyboardCoverage.searchExercised += 1;
           }
         }
 
@@ -1483,6 +1503,7 @@ test.describe("full UI redesign route and visual smoke", () => {
           const charts = shotPage.locator('[data-mini-trend-chart="true"]');
           const count = await charts.count();
           if (count > 0) {
+            keyboardCoverage.chartsSeen += 1;
             const chart = charts.first();
             expect(
               (await chart.getAttribute("aria-label"))?.trim() || "",
@@ -1515,6 +1536,7 @@ test.describe("full UI redesign route and visual smoke", () => {
               (await chart.locator("[aria-live]").first().textContent())?.trim() || "",
               `${shot.path} trend chart moves without announcing the value`,
             ).not.toBe("");
+            keyboardCoverage.chartsExercised += 1;
           }
         }
 
@@ -1996,6 +2018,38 @@ test.describe("full UI redesign route and visual smoke", () => {
       } finally {
         await shotPage.close();
       }
+    }
+
+    // What the two guarded keyboard checks actually did.
+    {
+      await testInfo.attach("keyboard-coverage.json", {
+        body: JSON.stringify(keyboardCoverage, null, 2),
+        contentType: "application/json",
+      });
+
+      const width = page.viewportSize()?.width ?? 1440;
+
+      // The search bar lives in the shell, so above the `md` breakpoint every
+      // surface has one. Seeing none there means the shell did not render, the
+      // selector drifted, or the run never reached a signed-in page -- all of
+      // which would have let the shortcut check pass by never running.
+      if (width >= 768) {
+        expect(
+          keyboardCoverage.searchFieldsSeen,
+          `no search field was found at ${width}px, so the Cmd/Ctrl+K check never ran`,
+        ).toBeGreaterThan(0);
+      }
+
+      // Below `md` there is deliberately no search bar and nothing is claimed.
+      // What must hold at every width is that anything found was exercised.
+      expect(
+        keyboardCoverage.searchExercised,
+        `search fields were found at ${width}px but none completed the shortcut path`,
+      ).toBe(keyboardCoverage.searchFieldsSeen);
+      expect(
+        keyboardCoverage.chartsExercised,
+        `trend charts were found at ${width}px but none completed the Arrow-key path`,
+      ).toBe(keyboardCoverage.chartsSeen);
     }
 
     // The matrix as text, next to the pixels. A reviewer can read what each

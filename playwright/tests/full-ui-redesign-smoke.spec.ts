@@ -2,9 +2,11 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type APIResponse,
   type BrowserContext,
   type Page,
 } from "@playwright/test";
+import fs from "node:fs";
 import bcrypt from "bcryptjs";
 import { Client } from "pg";
 import { seedReviewerAccount } from "../helpers/reviewer-auth";
@@ -127,6 +129,10 @@ const SCREENSHOT_ROUTES = [
     name: "automation",
   },
   { actor: "dashboard", path: "/reports", name: "reports" },
+  // Explicit Tier-0 surfaces the earlier matrix never captured.
+  { actor: "dashboard", path: "/platforms/google", name: "google-ads" },
+  { actor: "dashboard", path: "/overview", name: "overview" },
+  { actor: "dashboard", path: "/integrations", name: "integrations" },
   { actor: "dashboard", path: "/settings", name: "settings" },
   { actor: "admin", path: "/admin", name: "admin" },
   {
@@ -143,6 +149,28 @@ const SELECTED_SCREENSHOT_NAMES = new Set(
     .map((name) => name.trim())
     .filter(Boolean),
 );
+
+/**
+ * The surfaces whose freshness reading is asserted in the browser.
+ *
+ * Keyed by screenshot name so the evidence and the assertion cannot drift: a
+ * surface captured at six widths is a surface checked at six widths.
+ */
+const TIER_ZERO_FRESHNESS_SURFACES = new Set<string>([
+  "overview",
+  "meta-decisions",
+  "meta-history",
+  "creative-studio",
+  "google-ads",
+  "reports",
+  "launchpad",
+  "automation",
+  "settings",
+  "integrations",
+]);
+
+/** Written next to the screenshots so the matrix is readable, not just visual. */
+const freshnessEvidence: Array<Record<string, unknown>> = [];
 
 const ACTIVE_SCREENSHOT_ROUTES =
   SELECTED_SCREENSHOT_NAMES.size === 0
@@ -276,18 +304,24 @@ async function seedMetaDecisionDemoData() {
       [providerAccountId],
     );
     await client.query(
+      // is_selected must be set explicitly. It defaults to FALSE on purpose, so
+      // that deploying code can never silently select an account on a business's
+      // behalf; a row without it is present but unassigned, and every account
+      // -scoped Meta route answers 403 provider_account_not_assigned.
       `INSERT INTO business_provider_accounts (
          business_id,
          provider,
          provider_account_ref_id,
          provider_account_id,
          position,
+         is_selected,
          updated_at
-       ) VALUES ($1, 'meta', $2::uuid, $3, 0, now())
+       ) VALUES ($1, 'meta', $2::uuid, $3, 0, TRUE, now())
        ON CONFLICT (business_id, provider, provider_account_ref_id)
        DO UPDATE SET
          provider_account_id = EXCLUDED.provider_account_id,
          position = 0,
+         is_selected = TRUE,
          updated_at = now()`,
       [DEMO_BUSINESS_ID, providerAccount.rows[0]!.id, providerAccountId],
     );
@@ -357,6 +391,71 @@ async function seedMetaDecisionDemoData() {
          adset_status = EXCLUDED.adset_status,
          updated_at = now()`,
       [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId],
+    );
+
+    // The mounted Decisions workspace builds its evidence from creatives that
+    // carry an engine_v3 snapshot, not from the legacy
+    // meta_decision_snapshots_daily table this seed was originally written
+    // against. These rows populate what readSnapshotRows actually joins: an
+    // account-scoped creative, its ad, and a snapshot row.
+    const creativeId = "m-cr-1";
+    const adId = "m-ad-1";
+
+    await client.query(
+      `INSERT INTO meta_creative_dimensions (
+         business_id,
+         provider_account_id,
+         creative_id,
+         creative_name,
+         campaign_id,
+         adset_id,
+         updated_at
+       ) VALUES ($1, $2, $3, 'Backpack Hook A', $4, $5, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, providerAccountId, creativeId, campaignId, adsetId],
+    );
+
+    await client.query(
+      `INSERT INTO meta_ad_dimensions (
+         business_id,
+         provider_account_id,
+         campaign_id,
+         adset_id,
+         ad_id,
+         ad_name_current,
+         ad_status,
+         creative_id,
+         updated_at
+       ) VALUES ($1, $2, $3, $4, $5, 'Backpack Hook A - Ad', 'ACTIVE', $6, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, providerAccountId, campaignId, adsetId, adId, creativeId],
+    );
+
+    await client.query(
+      `INSERT INTO engine_v3_decision_snapshots_daily (
+         business_ref_id,
+         business_id,
+         creative_id,
+         as_of_date,
+         engine_version,
+         scope_type,
+         scope_id,
+         label,
+         confidence,
+         truth_source,
+         effective_target_roas,
+         ratio_to_target,
+         reason,
+         spend,
+         purchases,
+         roas,
+         computed_at
+       ) VALUES ($1::uuid, $1, $2, $3::date, 'v3-full-ui-smoke', 'account', '*',
+                 'cut', 86, 'commercial_truth', 3.5, 0.67,
+                 'Spend is material while ROAS remains under the account target.',
+                 1180, 28, 2.36, now())
+       ON CONFLICT DO NOTHING`,
+      [DEMO_BUSINESS_ID, creativeId, snapshotDate],
     );
 
     await client.query(
@@ -476,13 +575,84 @@ async function seedMetaDecisionDemoData() {
   }
 }
 
+/**
+ * POST the login endpoint, tolerating the two things that are not failures.
+ *
+ * A 429 is the rate limiter doing its job: the extended matrix authenticates
+ * the same reviewer from six projects in quick succession, which is exactly the
+ * pattern the limiter exists to stop. Backing off keeps a real protection
+ * intact rather than weakening it to make a test convenient.
+ *
+ * A connection reset is the dev server closing a socket while it is still
+ * settling. It throws rather than returning a status, so the 429 loop never
+ * saw it and one reset failed the whole width matrix. A gate that fails for
+ * reasons unrelated to the product is a gate people learn to ignore, which is
+ * worse than not having it.
+ *
+ * Everything else is surfaced unchanged. Only transport-level resets are
+ * retried, and only a bounded number of times, so a genuinely broken login
+ * still fails the run.
+ */
+async function postLoginWithBackoff(
+  post: (path: string, options: { data: SmokeActor }) => Promise<APIResponse>,
+  actor: SmokeActor,
+  wait: (ms: number) => Promise<void>,
+): Promise<APIResponse> {
+  let lastTransportError: unknown = null;
+  let resets = 0;
+
+  // Twelve attempts with the delay capped at 5s is about 50s of patience. The
+  // previous budget was ~31s and a stall outlasted it once in six projects.
+  const ATTEMPTS = 12;
+
+  for (let attempt = 0; attempt <= ATTEMPTS; attempt += 1) {
+    if (attempt > 0) await wait(Math.min(attempt * 1_500, 5_000));
+    try {
+      const response = await post("/api/auth/login", { data: actor });
+      if (response.status() !== 429) return response;
+      lastTransportError = null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isTransportReset =
+        /ECONNRESET|ECONNREFUSED|socket hang up|EPIPE|Connection closed|fetch failed/i.test(
+          message,
+        );
+      // Anything that is not a reset is a real failure and must not be retried
+      // into silence.
+      if (!isTransportReset) throw error;
+      resets += 1;
+      lastTransportError = error;
+    }
+  }
+
+  if (lastTransportError) {
+    // Say which failure this was. A gate that reports "login broken" for a
+    // stalled dev server teaches people to ignore it; one that reports
+    // "unreachable for 50s across 13 attempts" is actionable either way.
+    throw new Error(
+      `Login endpoint never became reachable: ${resets} connection reset(s) across ${ATTEMPTS + 1} attempts over ~50s. ` +
+        `Last error: ${lastTransportError instanceof Error ? lastTransportError.message : String(lastTransportError)}`,
+    );
+  }
+  // Rate limited for the whole budget. Surface the 429 rather than a reset.
+  return post("/api/auth/login", { data: actor });
+}
+
 async function signIn(page: Page, actor: SmokeActor) {
   // BrowserContext.request shares its cookie jar with every page in the
   // context. Authenticating here avoids a pending /login UI redirect racing
   // the representative route navigation.
-  const loginResponse = await page.request.post("/api/auth/login", {
-    data: actor,
-  });
+  //
+  // The login endpoint is rate-limited, and it should be. Running the extended
+  // width matrix means several projects authenticating the same reviewer in
+  // quick succession, which is exactly the pattern the limiter exists to stop.
+  // Backing off and retrying keeps the limiter intact rather than weakening a
+  // real protection to make a test convenient.
+  const loginResponse = await postLoginWithBackoff(
+    (path, options) => page.request.post(path, options),
+    actor,
+    (ms) => page.waitForTimeout(ms),
+  );
   expect(
     loginResponse.ok(),
     `login failed for ${actor.email}: ${loginResponse.status()} ${await loginResponse.text()}`,
@@ -493,9 +663,11 @@ async function signIn(page: Page, actor: SmokeActor) {
 }
 
 async function signInRequest(context: APIRequestContext, actor: SmokeActor) {
-  const response = await context.post("/api/auth/login", {
-    data: actor,
-  });
+  const response = await postLoginWithBackoff(
+    (path, options) => context.post(path, options),
+    actor,
+    (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  );
   expect(
     response.ok(),
     `request login failed for ${actor.email}: ${response.status()}`,
@@ -923,6 +1095,218 @@ test.describe("full UI redesign route and visual smoke", () => {
         await assertRouteHealthy(shotPage, shot.path);
         await waitForDashboardWorkspaceReady(shotPage, shot.path);
         await assertRepresentativeVisualSettled(shotPage, shot.path);
+
+        // Hide the Next.js dev-tools indicator before capturing.
+        //
+        // The smoke runs `next dev`, so that floating badge is in every
+        // screenshot and does not exist in production. It sat directly over the
+        // CPA label in the 390px Studio card, which made the committed evidence
+        // unreadable for exactly the thing that evidence is meant to show. This
+        // hides the harness's own overlay; it changes nothing about the product
+        // and nothing the assertions read from the DOM.
+        await shotPage.addStyleTag({
+          content:
+            "nextjs-portal,[data-nextjs-dev-tools-button],#__next-dev-tools-indicator{display:none!important}",
+        }).catch(() => {});
+
+        // No surface may scroll the page sideways on a phone. A single
+        // overflowing child does it, and it is exactly how the assessment
+        // column ended up off-screen in the 390px Studio artifact. A passing
+        // screenshot is not acceptance if content is pushed out of frame, so
+        // this is asserted rather than eyeballed.
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+          const overflow = await shotPage.evaluate(() => ({
+            scrollWidth: document.documentElement.scrollWidth,
+            innerWidth: window.innerWidth,
+          }));
+          expect(
+            overflow.scrollWidth,
+            `${shot.path} scrolls horizontally at ${overflow.innerWidth}px (scrollWidth ${overflow.scrollWidth})`,
+          ).toBeLessThanOrEqual(overflow.innerWidth);
+        }
+
+        // Page-level overflow is not enough: a frame with overflow:auto keeps
+        // the page from scrolling while its own content is still cut off, which
+        // is exactly how the assessment column stayed off-screen at 390px while
+        // every page-level check passed. Assert no scroller hides content.
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+          const clipped = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            for (const element of Array.from(
+              document.body.querySelectorAll<HTMLElement>("*"),
+            )) {
+              const style = window.getComputedStyle(element);
+              const scrolls =
+                style.overflowX === "auto" || style.overflowX === "scroll";
+              if (!scrolls) continue;
+              const hidden = element.scrollWidth - element.clientWidth;
+              // Tab strips and toolbars are deliberately swipeable; a data
+              // frame hiding a column is not the same thing, so only flag
+              // scrollers that actually contain tabular content.
+              if (hidden > 4 && element.querySelector("table")) {
+                offenders.push(
+                  `${element.className || element.tagName} hides ${hidden}px`,
+                );
+              }
+            }
+            return offenders.slice(0, 5);
+          });
+          expect(
+            clipped,
+            `${shot.path} clips tabular content inside a scroller`,
+          ).toEqual([]);
+        }
+
+        // A stacked table row has to say what each number is.
+        //
+        // Below 767px these tables become one card per row and the header is
+        // taken out of the layout, so no column header can label anything. The
+        // stylesheet renders each cell's name from `attr(data-label)` -- and
+        // when no cell sets it, the phone shows a column of bare values in a
+        // fixed order that the reader is expected to recognise by position.
+        // That passed every clipping and overflow check, because nothing was
+        // clipped: the numbers were all visible and none of them said what it
+        // was.
+        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+          const unlabelled = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            for (const table of Array.from(
+              document.querySelectorAll<HTMLElement>("table"),
+            )) {
+              // Only tables the stylesheet actually stacks. A table still in
+              // column layout is labelled by its header, as it should be.
+              const body = table.querySelector("tbody");
+              if (!body) continue;
+              const firstCell = body.querySelector("td");
+              if (!firstCell) continue;
+              if (getComputedStyle(firstCell).display !== "flex") continue;
+
+              for (const cell of Array.from(body.querySelectorAll("td"))) {
+                const text = (cell.textContent ?? "").trim();
+                if (!text) continue;
+                const label = (cell.getAttribute("data-label") ?? "").trim();
+                if (!label) {
+                  offenders.push(`${table.className || "table"}: "${text.slice(0, 24)}"`);
+                }
+              }
+            }
+            return offenders.slice(0, 6);
+          });
+          expect(
+            unlabelled,
+            `${shot.path} stacks table cells with no label, so the values have no names`,
+          ).toEqual([]);
+        }
+
+        // Live accessibility checks. These need a real browser: focus
+        // visibility, Escape behaviour and zoom cannot be read off markup.
+        {
+          // 1. Every focusable control has a visible focus indicator. A focus
+          //    ring removed for aesthetics makes keyboard navigation invisible.
+          const focusInvisible = await shotPage.evaluate(() => {
+            const offenders: string[] = [];
+            const focusables = Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex='-1'])",
+              ),
+            ).slice(0, 40);
+            for (const element of focusables) {
+              element.focus();
+              if (document.activeElement !== element) continue;
+              const style = window.getComputedStyle(element);
+              const hasRing =
+                style.outlineStyle !== "none" ||
+                style.boxShadow !== "none" ||
+                style.borderColor !== "";
+              if (!hasRing) offenders.push(element.tagName.toLowerCase());
+            }
+            return offenders.slice(0, 5);
+          });
+          expect(
+            focusInvisible,
+            `${shot.path} has focusable controls with no visible focus`,
+          ).toEqual([]);
+
+          // 2. No positive tabindex. It reorders the whole page's tab sequence
+          //    and is nearly always a bug rather than an intent.
+          const positiveTabindex = await shotPage.evaluate(
+            () =>
+              Array.from(document.querySelectorAll("[tabindex]")).filter(
+                (element) =>
+                  Number.parseInt(element.getAttribute("tabindex") ?? "0", 10) > 0,
+              ).length,
+          );
+          expect(
+            positiveTabindex,
+            `${shot.path} uses a positive tabindex`,
+          ).toBe(0);
+
+          // 3. Every image is either described or explicitly decorative. An
+          //    undescribed image is announced as its file name.
+          const undescribedImages = await shotPage.evaluate(
+            () =>
+              Array.from(document.querySelectorAll("img")).filter(
+                (image) =>
+                  image.getAttribute("alt") === null &&
+                  image.getAttribute("aria-hidden") !== "true" &&
+                  image.getAttribute("role") !== "presentation",
+              ).length,
+          );
+          expect(
+            undescribedImages,
+            `${shot.path} has images with neither alt nor aria-hidden`,
+          ).toBe(0);
+
+          // 4. Reduced motion is honoured: no element may animate when the
+          //    viewer has asked for stillness.
+          await shotPage.emulateMedia({ reducedMotion: "reduce" });
+          const animating = await shotPage.evaluate(() => {
+            return Array.from(document.querySelectorAll<HTMLElement>("*")).filter(
+              (element) => {
+                const style = window.getComputedStyle(element);
+                const duration = Number.parseFloat(style.animationDuration);
+                return (
+                  style.animationName !== "none" &&
+                  Number.isFinite(duration) &&
+                  duration > 0.05
+                );
+              },
+            ).length;
+          });
+          await shotPage.emulateMedia({ reducedMotion: null });
+          expect(
+            animating,
+            `${shot.path} keeps animating under prefers-reduced-motion`,
+          ).toBe(0);
+        }
+
+        // The typography floor, checked on what the browser actually computed
+        // rather than on the stylesheet: a cascade or an inline style can
+        // still land under it.
+        const tinyText = await shotPage.evaluate(() => {
+          const offenders: string[] = [];
+          for (const element of Array.from(document.body.querySelectorAll("*"))) {
+            const text = (element.textContent ?? "").trim();
+            if (!text || element.children.length > 0) continue;
+            const size = Number.parseFloat(
+              window.getComputedStyle(element).fontSize,
+            );
+            if (Number.isFinite(size) && size < 11) {
+              const cls =
+                typeof element.className === "string"
+                  ? element.className.slice(0, 60)
+                  : "";
+              offenders.push(
+                `${element.tagName.toLowerCase()}.${cls} @ ${size}px :: ${text.slice(0, 24)}`,
+              );
+            }
+          }
+          return offenders.slice(0, 10);
+        });
+        expect(
+          tinyText,
+          `${shot.path} renders text below the 11px floor`,
+        ).toEqual([]);
         if (darkProject && shot.actor !== "public") {
           await expect
             .poll(
@@ -944,6 +1328,111 @@ test.describe("full UI redesign route and visual smoke", () => {
           ),
           fullPage: true,
         });
+        // The freshness contract, checked in a real browser at every width.
+        //
+        // A screenshot proves a page rendered, not that it told the truth about
+        // how old its numbers are. So on the Tier-0 surfaces the reading is read
+        // back out of the DOM and the dishonest combinations are rejected:
+        // figures shown next to a "loading" reading, or an error reading with no
+        // named code and no way to retry.
+        if (TIER_ZERO_FRESHNESS_SURFACES.has(shot.name)) {
+          const reading = await shotPage.evaluate(() => {
+            const node = document.querySelector<HTMLElement>(
+              "[data-freshness-state]",
+            );
+            if (!node) return null;
+            return {
+              state: node.getAttribute("data-freshness-state"),
+              errorCode: node.getAttribute("data-freshness-error"),
+              text: (node.textContent ?? "").trim().slice(0, 160),
+              hasRetry: Boolean(node.querySelector("button")),
+            };
+          });
+
+          if (reading) {
+            expect(
+              reading.state,
+              `${shot.path} reported an unknown freshness state`,
+            ).toMatch(/^(loading|refreshing|ready|partial|error)$/);
+
+            if (reading.state === "loading") {
+              // Assert against the PAGE, not the bar.
+              //
+              // Checking `reading.text` was a tautology: that string is the
+              // bar's own label, "Loading — no figures yet", which contains no
+              // digit by construction. It would have passed while the page
+              // behind it rendered a full grid of zeros -- the exact failure
+              // the loading state exists to prevent.
+              const figures = await shotPage.evaluate(() => {
+                const main =
+                  document.querySelector("#main-content") ?? document.body;
+                const text = (main.textContent ?? "").replace(
+                  /Loading[^]*?no figures yet/g,
+                  "",
+                );
+                // A currency amount or a large formatted number is a figure.
+                // Dates, counts in labels and pagination are not what this is
+                // about, so the match is deliberately narrow.
+                return (
+                  text.match(/[$€£₺]\s?\d[\d.,]*|\b\d{1,3}(?:[.,]\d{3})+\b/g) ??
+                  []
+                ).slice(0, 5);
+              });
+              expect(
+                figures,
+                `${shot.path} renders figures while reporting loading`,
+              ).toEqual([]);
+            }
+
+            if (reading.state === "error") {
+              // A bounded code from the shared vocabulary, not any truthy
+              // string: "unknown" is what the component falls back to when the
+              // surface named nothing, and it must not satisfy this.
+              expect(
+                reading.errorCode,
+                `${shot.path} reports an error with no named code`,
+              ).toMatch(/^[a-z][a-z0-9_]+$/);
+              expect(
+                reading.errorCode,
+                `${shot.path} reports an error whose code is the fallback`,
+              ).not.toBe("unknown");
+              expect(
+                reading.hasRetry,
+                `${shot.path} reports a terminal error with no way to retry`,
+              ).toBe(true);
+            }
+
+            freshnessEvidence.push({
+              width: shotPage.viewportSize()?.width ?? null,
+              project: testInfo.project.name,
+              surface: shot.name,
+              path: shot.path,
+              ...reading,
+            });
+          } else {
+            freshnessEvidence.push({
+              width: shotPage.viewportSize()?.width ?? null,
+              project: testInfo.project.name,
+              surface: shot.name,
+              path: shot.path,
+              state: "not-rendered",
+              errorCode: null,
+              text: "",
+              hasRetry: false,
+            });
+            // Silence is the failure this whole contract exists to prevent: a
+            // surface that says nothing about the age of its data reads as
+            // current. It is also how a surface goes quiet without anyone
+            // noticing -- wiring added to a component the route stopped
+            // rendering, or a route on a frame with no bar mounted. Both
+            // happened; neither showed up anywhere else.
+            expect(
+              reading,
+              `${shot.path} rendered no freshness reading at ${shotPage.viewportSize()?.width}px; silence reads as "current"`,
+            ).not.toBeNull();
+          }
+        }
+
 
         const advancedCalendarTestId =
           shot.name === "meta-decisions"
@@ -966,8 +1455,13 @@ test.describe("full UI redesign route and visual smoke", () => {
           const visibleCalendars = shotPage.locator(
             'section[aria-label$=" calendar"]:visible',
           );
+          // The calendar collapses to a single month on narrow viewports. Key
+          // the expectation off the actual width, not off one project name --
+          // otherwise every new width added to the matrix inherits the wrong
+          // expectation and fails for a reason that has nothing to do with it.
+          const calendarViewport = shotPage.viewportSize();
           await expect(visibleCalendars).toHaveCount(
-            testInfo.project.name === "full-ui-mobile" ? 1 : 2,
+            (calendarViewport?.width ?? 1440) < 640 ? 1 : 2,
           );
           await expect
             .poll(() =>
@@ -1070,10 +1564,21 @@ test.describe("full UI redesign route and visual smoke", () => {
             timeout: 30_000,
           });
           await shotPage.getByRole("button", { name: /How this was decided/i }).click();
+          // The disclosure names the engine record the decision came from. For a
+          // structure node that is the source recommendation and its version; the
+          // ad-level trail shows a post-authority raw label and engine version
+          // instead. Assert the version is actually populated, not merely that a
+          // heading rendered — an empty version is the failure worth catching.
           await expect(
-            shotPage.getByText("Raw engine label"),
+            shotPage.getByText("Source recommendation", { exact: true }),
             "Meta Decisions versioned engine evidence",
           ).toBeVisible();
+          await expect(
+            shotPage
+              .locator("dt", { hasText: /^Recommendation version$/ })
+              .locator("xpath=following-sibling::dd[1]"),
+            "Meta Decisions engine evidence must carry a version",
+          ).not.toBeEmpty();
           await shotPage.screenshot({
             path: testInfo.outputPath(
               `${testInfo.project.name}-${shot.name}-inspector.png`,
@@ -1155,6 +1660,24 @@ test.describe("full UI redesign route and visual smoke", () => {
       } finally {
         await shotPage.close();
       }
+    }
+
+    // The matrix as text, next to the pixels. A reviewer can read what each
+    // surface claimed at each width without opening ten screenshots, and a
+    // surface that rendered no reading at all shows up as "not-rendered"
+    // rather than silently missing from the evidence.
+    if (freshnessEvidence.length > 0) {
+      await testInfo.attach(
+        `freshness-${testInfo.project.name}.json`,
+        {
+          body: JSON.stringify(freshnessEvidence, null, 2),
+          contentType: "application/json",
+        },
+      );
+      await fs.promises.writeFile(
+        testInfo.outputPath(`${testInfo.project.name}-freshness.json`),
+        JSON.stringify(freshnessEvidence, null, 2),
+      );
     }
   });
 });

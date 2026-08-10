@@ -339,9 +339,8 @@ describe("meta creatives warehouse", () => {
       assignedAccountIds: ["act_1"],
     });
 
-    expect(warehouse.upsertMetaAdDailyRows).toHaveBeenCalledWith([
-      expect.objectContaining({ accountCurrency: "TRY" }),
-    ]);
+    // D066: creatives sync owns creative storage and writes zero Ad-days.
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaCreativeDailyRows).toHaveBeenCalledWith([
       expect.objectContaining({ accountCurrency: "TRY" }),
     ]);
@@ -404,21 +403,10 @@ describe("meta creatives warehouse", () => {
         }),
       ]),
     );
-    const adRows = vi.mocked(warehouse.upsertMetaAdDailyRows).mock.calls[0]?.[0] ?? [];
-    expect(adRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adId: "ad-1",
-          destinationUrl: "https://iwastore.com/products/lp",
-          destinationUrlRaw: "https://iwastore.com/products/lp?utm_source=meta",
-          destinationUrlSource: "creative_link_data",
-          destinationUrlConfidence: "high",
-          ctaType: "SHOP_NOW",
-          objectStoryId: "123_456",
-          effectiveObjectStoryId: "123_789",
-        }),
-      ]),
-    );
+    // D066: this path is not a decision-fact writer. Ad-grain presentation
+    // data lives in the media rows asserted above; meta_ad_daily belongs to
+    // authoritative insights sync alone.
+    expect(warehouse.upsertMetaAdDailyRows).not.toHaveBeenCalled();
     const creativeRows =
       vi.mocked(warehouse.upsertMetaCreativeDailyRows).mock.calls[0]?.[0] ?? [];
     expect(creativeRows).toHaveLength(1);

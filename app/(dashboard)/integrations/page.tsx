@@ -1,5 +1,7 @@
 "use client";
 
+import { newestObservation } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -242,6 +244,7 @@ function hasRenderableProviderViews(
 }
 
 export default function IntegrationsPage() {
+
   const router = useRouter();
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const authBootstrapStatus = useAppStore((state) => state.authBootstrapStatus);
@@ -333,6 +336,34 @@ export default function IntegrationsPage() {
         query.state.data as ShopifyStatusResponse | undefined
       ),
     queryFn: () => fetchShopifyStatus(businessId!),
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "integrations",
+    isLoading: metaStatusQuery.isLoading,
+    isFetching: metaStatusQuery.isFetching,
+    error: metaStatusQuery.error,
+    // A provider we could not read is a hole in the picture, not a healthy
+    // provider: say which one rather than showing a confident row.
+    partialReason:
+      googleAdsStatusQuery.error || shopifyStatusQuery.error
+        ? "Some providers could not be read; connection status is incomplete"
+        : null,
+    // Each provider's own last sync. `dataUpdatedAt` would report when the
+    // status request returned, which says nothing about the provider data.
+    asOf: newestObservation([
+      metaStatusQuery.data?.latestSync?.finishedAt ?? null,
+      googleAdsStatusQuery.data?.latestSync?.finishedAt ?? null,
+    ]),
+    businessId,
+    onRetry: () => {
+      void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (shopifyStatusQuery.isError) void shopifyStatusQuery.refetch();
+    },
   });
 
   const closeSearchConsoleSelector = useCallback(() => {
@@ -681,7 +712,7 @@ export default function IntegrationsPage() {
               Active business
               <span className="text-[var(--adc-ink)]">{activeBusiness?.name ?? "Unknown"}</span>
               {isDemoWorkspace ? (
-                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--adc-caution-fg)]">
+                <span className="rounded-[4px] border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-2 py-0.5 text-[12px] font-semibold text-[var(--adc-caution-fg)]">
                   Demo fixtures active
                 </span>
               ) : null}
@@ -730,6 +761,7 @@ export default function IntegrationsPage() {
                   <IntegrationsCard
                     key={item.provider}
                     provider={item.provider}
+                    businessId={businessId ?? null}
                     language={language}
                     description={DESCRIPTIONS[item.provider]}
                     view={item.view}
@@ -992,7 +1024,7 @@ function SummaryTile({
         tone === "accent" && "border-[var(--adc-info-bd)] bg-[var(--adc-info-bg)] text-[var(--adc-info-fg)]",
       )}
     >
-      <p className="font-mono text-[10.5px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+      <p className="font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
         {label}
       </p>
       <div className="mt-1 flex items-end gap-2">

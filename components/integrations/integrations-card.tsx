@@ -1,5 +1,6 @@
 "use client";
 
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GoogleIntegrationProgress } from "@/components/integrations/google-integration-progress";
@@ -29,6 +30,15 @@ import Image from "next/image";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
+  /**
+   * The business this connection belongs to.
+   *
+   * Required for the recovery-started event. It used to be emitted with
+   * portfolio scope while its completed half is business-scoped, so the two
+   * ends of the pair could never be joined and the recovery rate was
+   * unmeasurable -- the exact thing the pair exists to measure.
+   */
+  businessId: string | null;
   language?: MetaUiLanguage;
   description: string;
   view: ProviderViewState;
@@ -53,6 +63,7 @@ interface IntegrationsCardProps {
 
 export function IntegrationsCard({
   provider,
+  businessId,
   language = "en",
   description,
   view,
@@ -241,7 +252,19 @@ export function IntegrationsCard({
               >
                 {view.primaryActionLabel}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId,
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button
@@ -260,7 +283,19 @@ export function IntegrationsCard({
               <Button size="sm" className="min-w-[108px]" onClick={() => onRetry(provider)}>
                 Retry
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onReconnect(provider)}>
+              <Button size="sm" variant="outline" onClick={() => {
+                  // Section 9: provider health recovery started. Completion is
+                  // recorded by the callback path when the connection lands.
+                  emitProductInstrumentation({
+                    eventName: "provider_health_recovery_started",
+                    surface: "integrations",
+                    outcome: "ok",
+                    scope: "business",
+                    businessId,
+                    provider: provider === "google" ? "google" : "meta",
+                  });
+                  onReconnect(provider);
+                }}>
                 Reconnect
               </Button>
               <Button
@@ -323,24 +358,24 @@ function withGoogleFreshnessTruth(
 function StatusBadge({ status }: { status: ProviderViewState["status"] }) {
   if (status === "ready") {
     return (
-      <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">
+      <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">
         Connected
       </Badge>
     );
   }
   if (status === "degraded") {
-    return <Badge className="border border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">Degraded</Badge>;
+    return <Badge className="border border-emerald-200 bg-emerald-50 text-[12px] text-emerald-700">Degraded</Badge>;
   }
   if (status === "loading_data") {
-    return <Badge className="border border-blue-200 bg-blue-50 text-[10px] text-blue-700">Loading</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Loading</Badge>;
   }
   if (status === "needs_assignment") {
-    return <Badge className="border border-blue-200 bg-blue-50 text-[10px] text-blue-700">Needs setup</Badge>;
+    return <Badge className="border border-blue-200 bg-blue-50 text-[12px] text-blue-700">Needs setup</Badge>;
   }
   if (status === "action_required") {
-    return <Badge className="border border-amber-200 bg-amber-50 text-[10px] text-amber-800">Action required</Badge>;
+    return <Badge className="border border-amber-200 bg-amber-50 text-[12px] text-amber-800">Action required</Badge>;
   }
-  return <Badge className="border border-border bg-muted text-[10px] text-muted-foreground">Not connected</Badge>;
+  return <Badge className="border border-border bg-muted text-[12px] text-muted-foreground">Not connected</Badge>;
 }
 
 function CompactMetaRow({
@@ -385,16 +420,16 @@ function ShopifyIntegrationStatus({
     <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[11px] leading-4 dark:bg-muted/30">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="tracking-[0.18em] text-[10px] font-semibold uppercase text-muted-foreground">
+          <p className="tracking-[0.18em] text-[12px] font-semibold uppercase text-muted-foreground">
             Shopify sync
           </p>
           <p className="mt-1 text-foreground">{summary.message}</p>
         </div>
-        <Badge className={cn("shrink-0 border text-[10px]", summary.badgeClass)}>
+        <Badge className={cn("shrink-0 border text-[12px]", summary.badgeClass)}>
           {summary.label}
         </Badge>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
         {readyThrough ? <span>Ready through {readyThrough}</span> : null}
         {latestSync ? <span>Last sync {new Date(latestSync).toLocaleDateString()}</span> : null}
         {orderCount !== null ? <span>{orderCount.toLocaleString()} orders</span> : null}

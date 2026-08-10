@@ -46,14 +46,14 @@ export function WorkspaceTaskCard({
         </Badge>
       </div>
       <div className="mt-4 rounded-xl bg-background/70 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Evidence
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {evidence.map((item) => (
             <span
               key={item}
-              className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+              className="rounded-full bg-muted px-2 py-0.5 text-[12px] font-semibold text-muted-foreground"
             >
               {item}
             </span>
@@ -61,7 +61,7 @@ export function WorkspaceTaskCard({
         </div>
       </div>
       <div className="mt-4 border-t border-border/60 pt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Recommended action
         </p>
         <p className="mt-1 text-xs font-medium">{action}</p>

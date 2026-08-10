@@ -231,7 +231,17 @@ export default function SeoIntelligencePage() {
         <>
           <section className="rounded-xl border border-neutral-200 bg-white p-3">
             <div className="flex flex-wrap items-center gap-3">
-              <DateRangePicker value={dateRange} onChange={setDateRange} />
+              {/*
+            This surface reads no comparison, so it does not offer one. The
+            Compare control was rendered here and never read: an operator could
+            pick "Previous year", watch the chip turn active and print the
+            year-ago dates, and change nothing at all.
+          */}
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            showComparisonTrigger={false}
+          />
             </div>
           </section>
 

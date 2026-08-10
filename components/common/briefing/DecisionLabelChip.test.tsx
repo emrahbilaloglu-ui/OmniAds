@@ -23,7 +23,7 @@ describe("DecisionLabelChip", () => {
   it("renders meta surface and small size with source classes", () => {
     const html = renderToStaticMarkup(<DecisionLabelChip label="rebuild" surface="meta" size="sm" />);
 
-    expect(html).toContain("px-1.5 py-0 rounded-md border font-semibold uppercase tracking-wider text-[9.5px]");
+    expect(html).toContain("px-1.5 py-0 rounded-md border font-semibold uppercase tracking-wider text-[12px]");
     expect(html).toContain("bg-rose-50 text-rose-700 border-rose-200");
   });
 

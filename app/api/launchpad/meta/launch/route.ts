@@ -78,7 +78,12 @@ function ensureRecord(value: Record<string, unknown> | null | undefined) {
   return value ?? null;
 }
 
-function getFailureLogStatus(result: MetaAdsWriteFailure): MetaAdsActionStatus {
+// Narrowed during the native integration: MetaAdsActionStatus gained "pending"
+// for D065's in-flight rows, and a completed failure is never pending. The
+// annotation now says what the function actually returns.
+function getFailureLogStatus(
+  result: MetaAdsWriteFailure,
+): Exclude<MetaAdsActionStatus, "pending"> {
   return result.error.code === "silent_failure" ? "silent_failure" : "failure";
 }
 

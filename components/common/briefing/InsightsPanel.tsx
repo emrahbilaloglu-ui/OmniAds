@@ -106,7 +106,7 @@ export function InsightsPanel({
         }
       >
         {attentionCount > 0 ? (
-          <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-[1px] font-mono text-[10px] font-bold text-white">
+          <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-[1px] font-mono text-[12px] font-bold text-white">
             {attentionCount}
           </span>
         ) : null}

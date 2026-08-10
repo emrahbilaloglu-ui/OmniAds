@@ -238,7 +238,17 @@ export interface OverviewMetricCardData {
   changePct: number | null;
   sparklineData: Array<{ date: string; value: number }>;
   previousSparklineData?: Array<{ date: string; value: number }>;
+  /** Which way the number moved. Drives the arrow glyph only. */
   trendDirection: "up" | "down" | "neutral";
+  /**
+   * What the move means for this metric. Drives the colour.
+   *
+   * Separate from `trendDirection` because they disagree for cost-like
+   * metrics: a rising CPA is an up arrow and a negative outcome. Colouring
+   * from the arrow gave a rising CPA the same emerald treatment as rising
+   * revenue.
+   */
+  trendSentiment?: "positive" | "negative" | "neutral";
   dataSource: {
     key: string;
     label: string;

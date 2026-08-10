@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import {
@@ -18,7 +19,11 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const reports = await listCustomReportsByBusiness(businessId);
-  return NextResponse.json({ reports });
+  // When this list was read. The surface used to date itself from the newest
+  // row's `updatedAt`, which is when a human last saved a report definition --
+  // a property of the content, not of the read. A list nobody has edited in a
+  // month is not a month old.
+  return NextResponse.json({ reports, generatedAt: new Date().toISOString() });
 }
 
 export async function POST(request: NextRequest) {
@@ -52,6 +57,17 @@ export async function POST(request: NextRequest) {
     description: body.description ?? null,
     templateId: body.templateId ?? null,
     definition: ensureReportDefinition(body.definition as never),
+  });
+
+  // Section 9: a report was generated. Business-scoped, awaited, and carrying no
+  // report content -- only that one was created.
+  await recordProductInstrumentationEvent({
+    businessId: body.businessId,
+    scope: "business",
+    eventName: "report_generated",
+    surface: "reports",
+    outcome: "ok",
+    occurredAt: new Date().toISOString(),
   });
 
   return NextResponse.json({ report }, { status: 201 });

@@ -22,11 +22,11 @@ vi.mock("@/lib/meta/account-context", () => ({
   normalizeMetaCurrencyCode: vi.fn((value: unknown) =>
     typeof value === "string" && /^[A-Z]{3}$/.test(value) ? value : null,
   ),
-  // Campaign and ad-set actions now prove current selection at route admission
-  // AND again immediately before the POST. Default-admit here; refusal is
-  // proven in lib/meta/write-authority-toctou.test.ts.
+  // Default-authorised. The deselection refusal has its own suite
+  // (lib/meta/entity-action-selection.test.ts); these cases are about what the
+  // action does once the account is selected.
   resolveMetaAccountAuthority: vi.fn(async () => ({
-    state: "authorized",
+    state: "authorized" as const,
     errorMessage: null,
   })),
 }));
@@ -38,7 +38,13 @@ vi.mock("@/lib/meta/ads-action-log", () => ({
 }));
 
 vi.mock("@/lib/meta/ads-write", () => ({
+  hasSuccessfulMetaProviderMutationAttempt: vi.fn(
+    (result: {
+      mutationAttempt?: { providerResponseSuccessful?: boolean } | null;
+    }) => result.mutationAttempt?.providerResponseSuccessful === true,
+  ),
   pauseCampaign: vi.fn(),
+  readMetaEntityExecutionState: vi.fn(),
   resumeCampaign: vi.fn(),
   pauseAdset: vi.fn(),
   resumeAdset: vi.fn(),
@@ -58,12 +64,48 @@ const adsetPause = await import("@/app/api/meta/adsets/[adsetId]/pause/route");
 const adsetResume = await import("@/app/api/meta/adsets/[adsetId]/resume/route");
 const applyBid = await import("@/app/api/meta/adsets/[adsetId]/apply-bid/route");
 
-function request(body: Record<string, unknown>) {
+function request(
+  body: Record<string, unknown>,
+  options: { injectManualOrigin?: boolean } = {},
+) {
+  const injectManualOrigin = options.injectManualOrigin !== false;
   return new NextRequest("http://localhost/api/meta/entity", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...(injectManualOrigin
+        ? {
+            actionOrigin: "manual_operator_v1",
+            manualConfirmation: "explicit_operator_confirmation",
+            providerAccountId: "act_1",
+          }
+        : {}),
+      ...body,
+    }),
   });
 }
+
+
+// Restored from current main during the native integration: the native branch
+// predates these guards, so its route fixtures exercised the write path with
+// the reconnect and selection checks switched off.
+vi.mock("@/lib/provider-account-snapshots", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    readProviderConnectionGenerationToken: vi
+      .fn()
+      .mockResolvedValue("1:connected"),
+  };
+});
+vi.mock("@/lib/provider-write-authority", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    assertProviderWriteAuthorityUnchanged: vi
+      .fn()
+      .mockResolvedValue({ ok: true }),
+  };
+});
 
 describe("Meta entity write routes", () => {
   beforeEach(() => {
@@ -72,26 +114,7 @@ describe("Meta entity write routes", () => {
       session: { user: { id: "user_1" } } as never,
       membership: { businessId: "biz_1" } as never,
     });
-    // The pre-POST authority snapshot reads credential, generation, connection
-    // status and this account's selection in ONE statement, so the fake answers
-    // that shape too — a route that cannot resolve it refuses with 503 rather
-    // than POSTing.
-    vi.mocked(db.getDb).mockReturnValue(
-      vi.fn(async (strings: TemplateStringsArray) => {
-        const text = strings.join(" ");
-        if (text.includes("account_selected")) {
-          return [
-            {
-              status: "connected",
-              connection_generation: "1",
-              access_token: "token-1",
-              account_selected: true,
-            },
-          ];
-        }
-        return [{ provider_account_id: "act_1", label: "Entity" }];
-      }) as never,
-    );
+    vi.mocked(db.getDb).mockReturnValue(vi.fn(async () => [{ provider_account_id: "act_1", label: "Entity" }]) as never);
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
       provider_account_id: "act_1",
@@ -106,6 +129,21 @@ describe("Meta entity write routes", () => {
     vi.mocked(logs.hasRecentPendingMetaAdsAction).mockResolvedValue(false);
     vi.mocked(logs.createMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
     vi.mocked(logs.completeMetaAdsActionLog).mockResolvedValue({ id: "log_1" } as never);
+    vi.mocked(writes.readMetaEntityExecutionState).mockImplementation(
+      async (_ctx, scopeType, entityId) => ({
+        ok: true,
+        scopeType,
+        entityId,
+        providerAccountId: "act_1",
+        configuredStatus: "ACTIVE",
+        effectiveStatus: "ACTIVE",
+        campaignId: scopeType === "campaign" ? entityId : "cmp_1",
+        campaignProviderAccountId: "act_1",
+        campaignConfiguredStatus: "ACTIVE",
+        campaignEffectiveStatus: "ACTIVE",
+        observedAt: "2026-07-18T14:00:00.000Z",
+      }),
+    );
     vi.mocked(writes.pauseCampaign).mockResolvedValue({
       ok: true,
       verifiedStatus: "PAUSED",
@@ -148,20 +186,116 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("PAUSED");
     expect(writes.pauseCampaign).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       "cmp_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "pause", recIdOrigin: "rec_1", adId: "cmp_1" }),
+      expect.objectContaining({
+        action: "pause",
+        source: "manual_operator_v1",
+        recIdOrigin: "rec_1",
+        adId: "cmp_1",
+        payloadRequest: expect.objectContaining({
+          action_origin: "manual_operator_v1",
+          manual_confirmation: "explicit_operator_confirmation",
+        }),
+      }),
     );
+  });
+
+  it("rejects campaign and ad set writes without an explicit action origin", async () => {
+    const response = await campaignPause.POST(
+      request(
+        {
+          businessId: "biz_1",
+          manualConfirmation: "explicit_operator_confirmation",
+        },
+        { injectManualOrigin: false },
+      ),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("action_origin_required");
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(db.getDb).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
+  });
+
+  it("rejects manual campaign and ad set writes without explicit confirmation", async () => {
+    const response = await adsetPause.POST(
+      request({ businessId: "biz_1", manualConfirmation: undefined }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("manual_confirmation_required");
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(db.getDb).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(writes.pauseAdset).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["contractVersion", null],
+    ["snapshot_id", ""],
+    ["evaluationId", null],
+    ["engine_version", ""],
+    ["decisionHash", null],
+    ["decision_action", ""],
+  ])(
+    "rejects explicit native lineage field %s=%j on manual entity writes",
+    async (field, value) => {
+      const response = await campaignPause.POST(
+        request({ businessId: "biz_1", [field]: value }),
+        { params: Promise.resolve({ campaignId: "cmp_1" }) },
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(payload.error.code).toBe("mixed_action_origin_contract");
+      expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+      expect(writes.pauseCampaign).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a conflicting entity action-origin alias", async () => {
+    const response = await campaignPause.POST(
+      request({
+        businessId: "biz_1",
+        action_origin: "native_decision_v1",
+      }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("mixed_action_origin_contract");
+    expect(access.requireBusinessAccess).not.toHaveBeenCalled();
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed dryRun before creating a log or provider write", async () => {
+    const response = await campaignPause.POST(
+      request({ businessId: "biz_1", dryRun: "true" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("invalid_dry_run");
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
   });
 
   it("rejects reviewer read-only provider writes before kill-switch or Meta calls", async () => {
@@ -192,23 +326,109 @@ describe("Meta entity write routes", () => {
 
     expect(response.status).toBe(200);
     expect(writes.pauseAdset).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       "adset_1",
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "pause", recIdOrigin: "rec_2", adId: "adset_1" }),
+      expect.objectContaining({
+        action: "pause",
+        source: "manual_operator_v1",
+        recIdOrigin: "rec_2",
+        adId: "adset_1",
+        payloadRequest: expect.objectContaining({
+          action_origin: "manual_operator_v1",
+          manual_confirmation: "explicit_operator_confirmation",
+        }),
+      }),
     );
   });
 
+  it("blocks entity writes when the server-presented account no longer matches", async () => {
+    const response = await adsetPause.POST(
+      request({
+        businessId: "biz_1",
+        providerAccountId: "act_other",
+      }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("provider_account_mismatch");
+    expect(writes.readMetaEntityExecutionState).not.toHaveBeenCalled();
+    expect(writes.pauseAdset).not.toHaveBeenCalled();
+  });
+
+  it("blocks ad set writes when the live parent campaign is missing", async () => {
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "adset",
+      entityId: "adset_1",
+      providerAccountId: "act_1",
+      configuredStatus: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      campaignId: null,
+      campaignProviderAccountId: null,
+      campaignConfiguredStatus: null,
+      campaignEffectiveStatus: null,
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
+
+    const response = await adsetPause.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe(
+      "current_hierarchy_identity_mismatch",
+    );
+    expect(writes.pauseAdset).not.toHaveBeenCalled();
+  });
+
+  it("fails retryably when live entity state cannot be read", async () => {
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: false,
+      scopeType: "campaign",
+      entityId: "cmp_1",
+      error: { code: "network_error", message: "connection reset" },
+      httpStatus: null,
+    });
+
+    const response = await campaignPause.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ campaignId: "cmp_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.error.code).toBe("network_error");
+    expect(writes.pauseCampaign).not.toHaveBeenCalled();
+    expect(logs.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
   it("resumes campaigns with verify-after-write infrastructure", async () => {
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "campaign",
+      entityId: "cmp_1",
+      providerAccountId: "act_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignId: "cmp_1",
+      campaignProviderAccountId: "act_1",
+      campaignConfiguredStatus: "PAUSED",
+      campaignEffectiveStatus: "PAUSED",
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
     const response = await campaignResume.POST(
       request({ businessId: "biz_1" }),
       { params: Promise.resolve({ campaignId: "cmp_1" }) },
@@ -218,13 +438,12 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "campaign", status: "ACTIVE" });
     expect(writes.resumeCampaign).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       "cmp_1",
@@ -232,6 +451,7 @@ describe("Meta entity write routes", () => {
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "resume",
+        source: "manual_operator_v1",
         recIdOrigin: null,
         adId: "cmp_1",
         payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
@@ -240,6 +460,19 @@ describe("Meta entity write routes", () => {
   });
 
   it("resumes adsets with verify-after-write infrastructure", async () => {
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "adset",
+      entityId: "adset_1",
+      providerAccountId: "act_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignId: "cmp_1",
+      campaignProviderAccountId: "act_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
     const response = await adsetResume.POST(
       request({ businessId: "biz_1" }),
       { params: Promise.resolve({ adsetId: "adset_1" }) },
@@ -249,13 +482,12 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, action: "resume", scopeType: "adset", status: "ACTIVE" });
     expect(writes.resumeAdset).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       "adset_1",
@@ -263,6 +495,7 @@ describe("Meta entity write routes", () => {
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "resume",
+        source: "manual_operator_v1",
         recIdOrigin: null,
         adId: "adset_1",
         payloadRequest: expect.objectContaining({ body: { status: "ACTIVE" } }),
@@ -271,6 +504,19 @@ describe("Meta entity write routes", () => {
   });
 
   it("surfaces resume silent_failure without marking the route successful", async () => {
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "adset",
+      entityId: "adset_1",
+      providerAccountId: "act_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignId: "cmp_1",
+      campaignProviderAccountId: "act_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
     vi.mocked(writes.resumeAdset).mockResolvedValueOnce({
       ok: false,
       httpStatus: 502,
@@ -304,6 +550,69 @@ describe("Meta entity write routes", () => {
     );
   });
 
+  it("records a successful entity POST with failed verification as non-retryable silent_failure", async () => {
+    const mutationAttempt = {
+      attemptCount: 1 as const,
+      method: "POST" as const,
+      path: "adset_1",
+      attemptedAt: "2026-07-18T15:00:00.000Z",
+      completedAt: "2026-07-18T15:00:01.000Z",
+      providerResponseReceived: true,
+      providerResponseSuccessful: true,
+      httpStatus: 200,
+      outcome: "provider_response_received" as const,
+      automaticRetryAttempted: false as const,
+      transportError: null,
+    };
+    vi.mocked(writes.readMetaEntityExecutionState).mockResolvedValueOnce({
+      ok: true,
+      scopeType: "adset",
+      entityId: "adset_1",
+      providerAccountId: "act_1",
+      configuredStatus: "PAUSED",
+      effectiveStatus: "PAUSED",
+      campaignId: "cmp_1",
+      campaignProviderAccountId: "act_1",
+      campaignConfiguredStatus: "ACTIVE",
+      campaignEffectiveStatus: "ACTIVE",
+      observedAt: "2026-07-18T14:00:00.000Z",
+    });
+    vi.mocked(writes.resumeAdset).mockResolvedValueOnce({
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "definite_failure",
+      mutationAttempt,
+      error: {
+        code: "network_error",
+        message: "verification connection reset",
+      },
+      responsePayload: { success: true },
+      verificationPayload: null,
+    } as never);
+
+    const response = await adsetResume.POST(
+      request({ businessId: "biz_1" }),
+      { params: Promise.resolve({ adsetId: "adset_1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toMatchObject({
+      ok: false,
+      providerOutcome: "definite_failure",
+      mutationAttempt,
+      retryAllowed: false,
+      error: { code: "network_error" },
+    });
+    expect(logs.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "log_1",
+        status: "silent_failure",
+        errorCode: "network_error",
+      }),
+    );
+  });
+
   it("applies adset bid caps and persists rec_id_origin", async () => {
     const response = await applyBid.POST(
       request({ businessId: "biz_1", bidAmountMinor: 2200, recId: "rec_bid" }),
@@ -314,19 +623,26 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload.bidAmountMinor).toBe(2200);
     expect(writes.updateAdsetBidAmount).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       { adsetId: "adset_1", bidAmountMinor: 2200 },
     );
     expect(logs.createMetaAdsActionLog).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "launch_adset", recIdOrigin: "rec_bid" }),
+      expect.objectContaining({
+        action: "launch_adset",
+        source: "manual_operator_v1",
+        recIdOrigin: "rec_bid",
+        payloadRequest: expect.objectContaining({
+          action_origin: "manual_operator_v1",
+          manual_confirmation: "explicit_operator_confirmation",
+        }),
+      }),
     );
   });
 
@@ -392,13 +708,12 @@ describe("Meta entity write routes", () => {
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({ ok: true, dryRun: true, bidAmountMinor: 2200 });
     expect(writes.updateAdsetBidAmount).toHaveBeenCalledWith(
-      // The write context now carries the generation the token was read under, so
-      // the pre-POST snapshot can refuse a reconnect that left the account
-      // selected.
       {
         businessId: "biz_1",
         providerAccountId: "act_1",
         accessToken: "token",
+        // Asserted on current main: the guarded write context carries the
+        // generation the token was read under. The native branch predates it.
         connectionGeneration: "1:connected",
       },
       { adsetId: "adset_1", bidAmountMinor: 2200, dryRun: true },

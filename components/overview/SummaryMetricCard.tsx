@@ -48,7 +48,11 @@ export function SummaryMetricCard({
   chartLoading?: boolean;
 }) {
   const Icon = metric.icon ? ICONS[metric.icon] : null;
-  const delta = resolveDelta(metric.changePct, metric.trendDirection);
+  const delta = resolveDelta(
+    metric.changePct,
+    metric.trendDirection,
+    metric.trendSentiment
+  );
   const DeltaIcon = delta.direction === "up" ? ArrowUpRight : delta.direction === "down" ? ArrowDownRight : Minus;
 
   return (
@@ -73,7 +77,7 @@ export function SummaryMetricCard({
         </div>
         <span
           className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+            "rounded-full px-2 py-0.5 text-[12px] font-medium capitalize",
             metric.status === "available"
               ? "bg-neutral-100 text-neutral-500"
               : metric.status === "partial"
@@ -143,28 +147,39 @@ function formatMetricNumber(
   return formatMetricByUnit(value, unit, currencySymbol);
 }
 
+/**
+ * The delta chip: which way it moved, and whether that is good.
+ *
+ * These used to be one decision. The chip took `trendDirection` — the
+ * arithmetic sign of the change — and painted emerald for up, rose for down.
+ * On this card that meant a rising CPA, a rising CPC and a rising refund rate
+ * all got the same green treatment as rising revenue: the single thing A-3
+ * says must never happen, on the most-read card in the product.
+ *
+ * The arrow still comes from the arithmetic. The colour comes from what the
+ * change means for that particular metric, and an unclassified metric gets the
+ * neutral treatment rather than being coloured by its sign.
+ */
 function resolveDelta(
   changePct: number | null,
-  trendDirection: OverviewMetricCardData["trendDirection"]
+  trendDirection: OverviewMetricCardData["trendDirection"],
+  trendSentiment: OverviewMetricCardData["trendSentiment"]
 ) {
   const value = changePct ?? 0;
-  if (trendDirection === "up") {
-    return {
-      direction: "up" as const,
-      label: `${value > 0 ? "+" : ""}${value.toFixed(1)}%`,
-      className: "bg-emerald-500/10 text-emerald-600",
-    };
-  }
-  if (trendDirection === "down") {
-    return {
-      direction: "down" as const,
-      label: `${value > 0 ? "+" : ""}${value.toFixed(1)}%`,
-      className: "bg-rose-500/10 text-rose-600",
-    };
-  }
-  return {
-    direction: "neutral" as const,
-    label: `${value > 0 ? "+" : ""}${value.toFixed(1)}%`,
-    className: "bg-neutral-200/70 text-neutral-600",
-  };
+  const label = `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+  const direction =
+    trendDirection === "up"
+      ? ("up" as const)
+      : trendDirection === "down"
+        ? ("down" as const)
+        : ("neutral" as const);
+
+  const className =
+    trendSentiment === "positive"
+      ? "bg-emerald-500/10 text-emerald-600"
+      : trendSentiment === "negative"
+        ? "bg-rose-500/10 text-rose-600"
+        : "bg-neutral-200/70 text-neutral-600";
+
+  return { direction, label, className };
 }

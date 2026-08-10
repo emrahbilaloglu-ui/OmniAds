@@ -14,16 +14,21 @@ import {
   buildNativeAdOptimizationContext,
   NATIVE_AD_ACCOUNT_WIDE_OPTIMIZATION_CONTEXT,
   NATIVE_AD_CALIBRATION_BATCH_TABLE,
+  NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR,
   NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR,
   NATIVE_AD_CALIBRATION_POLICY_VERSION,
   NATIVE_AD_CALIBRATION_TABLE,
+  isNativeAdTargetAuthorityCutoffSafe,
   resolveNativeAdCalibrationDate,
   resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdTargetAuthority,
+  recomputeNativeAdCalibrationCellInputManifestHash,
+  recomputeNativeAdSpendUnitAuthorityHash,
   type NativeAdCalibrationCell,
   type NativeAdCalibrationCellKey,
   type NativeAdCalibrationCellScope,
   type NativeAdTargetAuthorityInput,
+  type NativeAdSpendUnitAuthority,
 } from "./jobs/ad-calibration-job";
 import type { MetaFunnelCohort } from "@/lib/meta/funnel-cohort";
 
@@ -128,8 +133,6 @@ WITH exact_binding AS (
   WHERE binding.business_id = $1
     AND binding.provider = 'meta'
     AND binding.provider_account_id = $2
-    -- Current selection; the JOIN already pins physical identity.
-    AND binding.is_selected
 ), latest_batch AS (
   SELECT batch.*
   FROM ${NATIVE_AD_CALIBRATION_BATCH_TABLE} batch
@@ -347,7 +350,12 @@ export async function resolveNativeAdAccountDecisionProfile(
   );
   if (
     selectedCell.targetAuthority.status !== targetAuthority.status ||
-    selectedCell.targetAuthority.authorityHash !== targetAuthority.authorityHash
+    selectedCell.targetAuthority.authorityHash !==
+      targetAuthority.authorityHash ||
+    !nativeSpendUnitAuthorityMatchesTarget(
+      selectedCell.actionReadiness.spendUnitAuthority,
+      targetAuthority,
+    )
   ) {
     return failClosed({
       reason: "native_target_authority_mismatch",
@@ -375,15 +383,28 @@ export async function resolveNativeAdAccountDecisionProfile(
     asOf: cutoff.asOfDate,
     dataSource: compatibilityDataSource,
     flags: input.flags,
+    commercialStopLossAovAuthority:
+      commercialStopLossAovRepairAuthorityFromExactCell(selectedCell),
   });
   const hardActionEligibility = intersectNativeActionReadiness({
     retained: retainedProfile.hardActionEligibility,
     readiness: selectedCell.actionReadiness,
   });
+  const commercialStopLossCanonicalHardActionEligibility =
+    retainedProfile.commercialStopLossCanonicalHardActionEligibility
+      ? intersectNativeActionReadiness({
+          retained:
+            retainedProfile.commercialStopLossCanonicalHardActionEligibility,
+          readiness: selectedCell.actionReadiness,
+        })
+      : null;
   const profile: AccountDecisionProfile = {
     ...retainedProfile,
     scope: { type: "account", id: selectedCell.key.providerAccountId },
     hardActionEligibility,
+    commercialStopLossCanonicalHardActionEligibility,
+    expandedEconomicCutAuthority:
+      expandedEconomicCutAuthorityFromNativeCell(selectedCell),
   };
 
   return {
@@ -395,6 +416,27 @@ export async function resolveNativeAdAccountDecisionProfile(
     selectedCell,
     profile,
     hardActionEligibility,
+  };
+}
+
+export function expandedEconomicCutAuthorityFromNativeCell(
+  cell: NativeAdCalibrationCell,
+): NonNullable<AccountDecisionProfile["expandedEconomicCutAuthority"]> {
+  const readiness = cell.actionReadiness.cut;
+  const authorityBasis = readiness.authorityBasis;
+  const eligible =
+    readiness.ready &&
+    (authorityBasis ===
+      "calibrated_relative_with_economic_stop_loss" ||
+      authorityBasis === "commercial_stop_loss");
+  return {
+    eligible,
+    authorityBasis: eligible ? authorityBasis : null,
+    reason: eligible
+      ? null
+      : readiness.ready && authorityBasis === "calibrated_relative"
+        ? "economic_spend_unit_authority_missing"
+        : `native_ad_calibration:${readiness.reason ?? "cut_not_ready"}`,
   };
 }
 
@@ -447,7 +489,7 @@ function buildCompatibilityDataSource(input: {
   };
 }
 
-function targetAuthorityToBusinessTargetPack(
+export function targetAuthorityToBusinessTargetPack(
   authority: ReturnType<typeof resolveNativeAdTargetAuthority>,
 ): BusinessTargetPack {
   return {
@@ -465,6 +507,187 @@ function targetAuthorityToBusinessTargetPack(
           ? "stale"
           : "unknown",
   };
+}
+
+export function commercialStopLossAovAuthorityFromProof(
+  authority: NativeAdSpendUnitAuthority,
+) {
+  const evidence = authority.accountAovEvidence;
+  if (
+    authority.status !== "ready" ||
+    authority.basis !== "physical_account_purchase_aov_90d" ||
+    evidence.status !== "ready" ||
+    !positiveFinite(evidence.meanAov) ||
+    !Number.isInteger(evidence.observedPurchaseCount) ||
+    evidence.observedPurchaseCount <
+      NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR ||
+    !positiveFinite(evidence.totalRevenue)
+  ) {
+    return null;
+  }
+  return {
+    meanAov: evidence.meanAov,
+    purchaseCount: evidence.observedPurchaseCount,
+    totalRevenue: evidence.totalRevenue,
+  };
+}
+
+/**
+ * The account/currency AOV proof is a repair authority, not a second profile.
+ * It is reachable only when the selected exact decision cell is itself thin
+ * and its persisted Cut readiness explicitly names commercial stop-loss as
+ * the zero-sample fallback authority. Mature/calibrated cells keep their
+ * canonical D049 thresholds and authority byte-for-byte.
+ */
+export function commercialStopLossAovRepairAuthorityFromExactCell(
+  cell: NativeAdCalibrationCell,
+) {
+  const cutReadiness = cell.actionReadiness.cut;
+  const exactAovPurchaseCount =
+    cell.accountCalibration.metaAttributedAovPurchaseCount90d;
+  const exactAovIsThin =
+    Number.isInteger(exactAovPurchaseCount) &&
+    exactAovPurchaseCount >= 0 &&
+    exactAovPurchaseCount < NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR &&
+    cell.accountCalibration.metaAovQuality !== "ready";
+  const isExactRepairCell =
+    cell.key.cellScope === "objective_cohort_context" &&
+    exactAovIsThin &&
+    cutReadiness.ready &&
+    cutReadiness.authorityBasis === "commercial_stop_loss" &&
+    cutReadiness.requiredSampleCount === 0;
+
+  return isExactRepairCell
+    ? commercialStopLossAovAuthorityFromProof(
+        cell.actionReadiness.spendUnitAuthority,
+      )
+    : null;
+}
+
+function approximatelyEqual(
+  left: number | null,
+  right: number | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    Number.isFinite(left) &&
+    Number.isFinite(right) &&
+    Math.abs(left - right) <= Math.max(1e-9, Math.abs(right) * 1e-9)
+  );
+}
+
+function nativeSpendUnitAuthorityMatchesTarget(
+  authority: NativeAdSpendUnitAuthority,
+  target: ReturnType<typeof resolveNativeAdTargetAuthority>,
+): boolean {
+  if (authority.targetAuthorityHash !== target.authorityHash) return false;
+  let expectedBasis: NativeAdSpendUnitAuthority["basis"] = null;
+  let expectedBaseSpendUnit: number | null = null;
+  if (
+    isNativeAdTargetAuthorityCutoffSafe(target.status) &&
+    positiveFinite(target.targetCpa)
+  ) {
+    expectedBasis = "target_cpa";
+    expectedBaseSpendUnit = target.targetCpa;
+  } else if (
+    isNativeAdTargetAuthorityCutoffSafe(target.status) &&
+    positiveFinite(target.operatorAovAssumption) &&
+    target.targetRoasAuthority &&
+    positiveFinite(target.targetRoas)
+  ) {
+    expectedBasis = "operator_aov";
+    expectedBaseSpendUnit = target.operatorAovAssumption / target.targetRoas;
+  } else if (
+    authority.accountAovEvidence.status === "ready" &&
+    positiveFinite(authority.accountAovEvidence.meanAov) &&
+    target.targetRoasAuthority &&
+    positiveFinite(target.targetRoas)
+  ) {
+    expectedBasis = "physical_account_purchase_aov_90d";
+    expectedBaseSpendUnit =
+      authority.accountAovEvidence.meanAov / target.targetRoas;
+  }
+  return (
+    authority.basis === expectedBasis &&
+    authority.status === (expectedBasis === null ? "blocked" : "ready") &&
+    approximatelyEqual(authority.baseSpendUnit, expectedBaseSpendUnit)
+  );
+}
+
+function nativeSpendUnitAuthorityMatchesCell(
+  cell: NativeAdCalibrationCell,
+): boolean {
+  const authority = cell.actionReadiness.spendUnitAuthority;
+  const evidence = authority.accountAovEvidence;
+  const integers = [
+    evidence.observedPurchaseCount,
+    evidence.requiredPurchaseCount,
+    evidence.revenueBackedRowCount,
+    evidence.canonicalRowCount,
+    evidence.contradictoryRowCount,
+    evidence.legacySchemaRowCount,
+    evidence.unsupportedSchemaRowCount,
+  ];
+  if (
+    authority.contractVersion !==
+      "engine-v3-native-ad-spend-unit-authority.v1" ||
+    authority.businessId !== cell.key.businessId ||
+    authority.providerAccountRefId !== cell.key.providerAccountRefId ||
+    authority.providerAccountId !== cell.key.providerAccountId ||
+    authority.accountCurrency !== cell.key.accountCurrency ||
+    authority.asOfCutoff !== cell.asOfCutoff ||
+    authority.targetAuthorityHash !== cell.targetAuthority.authorityHash ||
+    !/^[0-9a-f]{64}$/.test(authority.authorityHash) ||
+    recomputeNativeAdSpendUnitAuthorityHash(authority) !==
+      authority.authorityHash ||
+    evidence.scope !== "business_provider_account_currency" ||
+    evidence.businessId !== cell.key.businessId ||
+    evidence.providerAccountRefId !== cell.key.providerAccountRefId ||
+    evidence.providerAccountId !== cell.key.providerAccountId ||
+    evidence.accountCurrency !== cell.key.accountCurrency ||
+    evidence.sampleWindowStart !== cell.sampleWindowStart ||
+    evidence.sampleWindowEnd !== cell.sampleWindowEnd ||
+    evidence.asOfCutoff !== cell.asOfCutoff ||
+    evidence.requiredPurchaseCount !==
+      NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR ||
+    integers.some((value) => !Number.isInteger(value) || value < 0) ||
+    evidence.contradictoryRowCount < evidence.unsupportedSchemaRowCount ||
+    evidence.revenueBackedRowCount > evidence.canonicalRowCount ||
+    evidence.observedPurchaseCount < evidence.revenueBackedRowCount ||
+    evidence.observedPurchaseCount > 0 !== evidence.revenueBackedRowCount > 0 ||
+    evidence.observedPurchaseCount > 0 !== evidence.totalRevenue > 0 ||
+    !Number.isFinite(evidence.totalRevenue) ||
+    evidence.totalRevenue < 0 ||
+    !/^[0-9a-f]{64}$/.test(evidence.evidenceHash)
+  ) {
+    return false;
+  }
+  const expectedEvidenceStatus =
+    evidence.contradictoryRowCount > 0
+      ? "contradictory_purchase_truth"
+      : evidence.observedPurchaseCount >= evidence.requiredPurchaseCount &&
+          evidence.totalRevenue > 0
+        ? "ready"
+        : evidence.canonicalRowCount === 0
+          ? "unavailable"
+          : "insufficient_sample";
+  const expectedMean =
+    evidence.observedPurchaseCount > 0
+      ? evidence.totalRevenue / evidence.observedPurchaseCount
+      : null;
+  const structurallyReady =
+    authority.status === "ready" &&
+    authority.basis !== null &&
+    positiveFinite(authority.baseSpendUnit);
+  return (
+    evidence.status === expectedEvidenceStatus &&
+    approximatelyEqual(evidence.meanAov, expectedMean) &&
+    (authority.status === "ready"
+      ? structurallyReady
+      : authority.basis === null && authority.baseSpendUnit === null) &&
+    (authority.basis !== "physical_account_purchase_aov_90d" ||
+      evidence.status === "ready")
+  );
 }
 
 function validateCell(
@@ -512,7 +735,10 @@ function validateCell(
     cell.accountCalibration.matureCreativeCount === cell.matureAdCount &&
     /^[0-9a-f]{64}$/.test(cell.batchInputManifestHash) &&
     /^[0-9a-f]{64}$/.test(cell.inputManifestHash) &&
+    recomputeNativeAdCalibrationCellInputManifestHash(cell) ===
+      cell.inputManifestHash &&
     /^[0-9a-f]{64}$/.test(cell.sourceManifestHash) &&
+    nativeSpendUnitAuthorityMatchesCell(cell) &&
     nativeCutBoundaryAuthorityMatchesCell(cell) &&
     (["scale", "cut", "refresh"] as const).every((action) => {
       const readiness = cell.actionReadiness[action];
@@ -521,6 +747,11 @@ function validateCell(
         (readiness.authorityBasis === "calibrated_relative"
           ? readiness.requiredSampleCount > 0 &&
             readiness.observedSampleCount >= readiness.requiredSampleCount
+          : readiness.authorityBasis ===
+                "calibrated_relative_with_economic_stop_loss"
+            ? action === "cut" &&
+              readiness.requiredSampleCount > 0 &&
+              readiness.observedSampleCount >= readiness.requiredSampleCount
           : readiness.authorityBasis === "commercial_stop_loss" &&
             action === "cut" &&
             readiness.requiredSampleCount === 0);
@@ -545,14 +776,28 @@ function nativeCutBoundaryAuthorityMatchesCell(
   const readiness = cell.actionReadiness.cut;
   if (!readiness.ready) return readiness.authorityBasis === null;
   const accountP25 = cell.accountCalibration.roasRatioP25;
+  const calibratedRelativeReady =
+    cell.metricSampleCounts.roasRatio >=
+      NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR && positiveFinite(accountP25);
+  const exactSpendAuthorityReady =
+    cell.accountCalibration.accountCpaSampleCount >=
+      NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR &&
+    positiveFinite(cell.accountCalibration.accountCpaP50);
+  const economicSpendAuthorityReady =
+    cell.actionReadiness.spendUnitAuthority.status === "ready" ||
+    exactSpendAuthorityReady;
   if (readiness.authorityBasis === "calibrated_relative") {
-    return (
-      cell.metricSampleCounts.roasRatio >=
-        NATIVE_AD_FUNNEL_METRIC_SAMPLE_FLOOR && positiveFinite(accountP25)
-    );
+    return calibratedRelativeReady && !economicSpendAuthorityReady;
+  }
+  if (
+    readiness.authorityBasis ===
+    "calibrated_relative_with_economic_stop_loss"
+  ) {
+    return calibratedRelativeReady && economicSpendAuthorityReady;
   }
   return (
     readiness.authorityBasis === "commercial_stop_loss" &&
+    cell.actionReadiness.spendUnitAuthority.status === "ready" &&
     (accountP25 === null || accountP25 === 0)
   );
 }
@@ -566,6 +811,7 @@ function nativeActionReadinessMatchesComputedCell(
     metricSampleCounts: cell.metricSampleCounts,
     targetAuthority: cell.targetAuthority,
     accountCalibration: cell.accountCalibration,
+    spendUnitAuthority: cell.actionReadiness.spendUnitAuthority,
   });
   return (["scale", "cut", "refresh"] as const).every((action) => {
     const stored = cell.actionReadiness[action];
@@ -580,7 +826,7 @@ function nativeActionReadinessMatchesComputedCell(
   });
 }
 
-function intersectNativeActionReadiness(input: {
+export function intersectNativeActionReadiness(input: {
   retained: HardActionEligibility;
   readiness: NativeAdCalibrationCell["actionReadiness"];
 }): HardActionEligibility {
@@ -611,6 +857,55 @@ function intersectNativeActionReadiness(input: {
     refresh,
     reason:
       scale && cut && refresh
+        ? null
+        : (reasons.scale ?? reasons.cut ?? reasons.refresh),
+    reasons,
+  };
+}
+
+const LEGACY_NATIVE_ACCOUNT_AOV_CUT_BLOCKER =
+  "native_ad_calibration:commercial_spend_unit_authority_missing";
+
+function eligibilityReason(
+  eligibility: HardActionEligibility,
+  action: "scale" | "cut" | "refresh",
+) {
+  return (
+    eligibility.reasons?.[action] ??
+    (eligibility[action] ? null : eligibility.reason)
+  );
+}
+
+/**
+ * Reconciles a persisted native profile with the new account-AOV Cut overlay.
+ *
+ * This is intentionally narrower than action-readiness intersection: it may
+ * repair only the legacy missing-commercial-spend-unit Cut veto. Every other
+ * persisted Cut veto remains closed, while Scale and Refresh are copied from
+ * the persisted profile without recomputation.
+ */
+export function reconcilePersistedNativeCutEligibilityWithAccountAov(input: {
+  persisted: HardActionEligibility;
+  accountAovOverlay: HardActionEligibility;
+}): HardActionEligibility {
+  const persistedCutReason = eligibilityReason(input.persisted, "cut");
+  const cutMayFollowOverlay =
+    input.persisted.cut ||
+    persistedCutReason === LEGACY_NATIVE_ACCOUNT_AOV_CUT_BLOCKER;
+  const cut = cutMayFollowOverlay && input.accountAovOverlay.cut;
+  const reasons = {
+    scale: eligibilityReason(input.persisted, "scale"),
+    cut: cutMayFollowOverlay
+      ? eligibilityReason(input.accountAovOverlay, "cut")
+      : persistedCutReason,
+    refresh: eligibilityReason(input.persisted, "refresh"),
+  };
+  return {
+    scale: input.persisted.scale,
+    cut,
+    refresh: input.persisted.refresh,
+    reason:
+      input.persisted.scale && cut && input.persisted.refresh
         ? null
         : (reasons.scale ?? reasons.cut ?? reasons.refresh),
     reasons,

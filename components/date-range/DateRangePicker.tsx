@@ -25,15 +25,22 @@ export type RangePreset =
   | "lastMonth"
   | "custom";
 
+/**
+ * The comparisons this product can actually compute.
+ *
+ * Four more were offered here — previous week, month, quarter, and a
+ * weekday-matched previous year — and none had a server implementation. Every
+ * one of them resolved to a previous-*period* delta, so an operator picking
+ * "Previous year" saw a number measured against something else entirely and
+ * had no way to tell. `lib/comparison-preset-contract.ts` is the single place
+ * these map to compare modes, and its test fails if this list grows past what
+ * `getComparisonWindow` implements.
+ */
 export type ComparisonPreset =
   | "none"
   | "custom"
   | "previousPeriod"
-  | "previousWeek"
-  | "previousMonth"
-  | "previousQuarter"
-  | "previousYear"
-  | "previousYearMatch";
+  | "previousYear";
 
 export interface DateRangeValue {
   rangePreset: RangePreset;
@@ -149,15 +156,19 @@ const RANGE_PRESETS: ReadonlyArray<PresetOption<RangePreset>> = [
   { value: "custom", label: "Custom range", hint: "Pick exact dates", group: "Custom" },
 ];
 
+/** The exact list the picker offers, exported so a test can hold it to it. */
+export const COMPARISON_PRESET_VALUES = [
+  "none",
+  "custom",
+  "previousPeriod",
+  "previousYear",
+] as const satisfies ReadonlyArray<ComparisonPreset>;
+
 const COMPARISON_PRESETS: ReadonlyArray<PresetOption<ComparisonPreset>> = [
   { value: "none", label: "None", hint: "Keep the view focused on one period", group: "Compare" },
   { value: "custom", label: "Custom range", hint: "Pick exact comparison dates", group: "Compare" },
   { value: "previousPeriod", label: "Previous period", hint: "Same length immediately before", group: "Compare" },
-  { value: "previousWeek", label: "Previous week", hint: "Useful for weekly pacing", group: "Compare" },
-  { value: "previousMonth", label: "Previous month", hint: "Month-over-month check", group: "Compare" },
-  { value: "previousQuarter", label: "Previous quarter", hint: "Quarter-level benchmark", group: "Compare" },
   { value: "previousYear", label: "Previous year", hint: "Year-over-year comparison", group: "Compare" },
-  { value: "previousYearMatch", label: "Previous year (weekday match)", hint: "52-week weekday-aligned comparison", group: "Compare" },
 ];
 
 function toISO(date: Date): string {
@@ -497,16 +508,8 @@ function getComparisonDescription(preset: ComparisonPreset): string {
       return "Use an exact comparison range that you choose manually.";
     case "previousPeriod":
       return "Matches the selected range length and compares it against the immediately preceding window.";
-    case "previousWeek":
-      return "Useful for weekly pacing, traffic quality shifts, and recent operational checks.";
-    case "previousMonth":
-      return "Helps you benchmark the current period against the prior calendar month.";
-    case "previousQuarter":
-      return "Best when you want a broader benchmark for seasonal or strategic movement.";
     case "previousYear":
       return "A direct year-over-year lens for growth, efficiency, and seasonality.";
-    case "previousYearMatch":
-      return "Shifts by exactly 52 weeks so weekdays stay aligned for retail and paid-media pacing.";
   }
 }
 
@@ -570,39 +573,14 @@ export function getDerivedComparisonRange(
     return { start, end };
   }
 
-  if (preset === "previousWeek") {
-    return {
-      start: toISO(addDays(parseISODate(primaryStart), -7)),
-      end: toISO(addDays(parseISODate(primaryEnd), -7)),
-    };
-  }
-
-  if (preset === "previousMonth") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -1),
-      end: shiftIsoDateByMonths(primaryEnd, -1),
-    };
-  }
-
-  if (preset === "previousQuarter") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -3),
-      end: shiftIsoDateByMonths(primaryEnd, -3),
-    };
-  }
-
-  if (preset === "previousYear") {
-    return {
-      start: shiftIsoDateByMonths(primaryStart, -12),
-      end: shiftIsoDateByMonths(primaryEnd, -12),
-    };
-  }
-
-  // A 52-week shift preserves weekday alignment for retail and paid-media
-  // comparisons where a Monday should be compared with a Monday.
+  // Only the comparisons the server can actually compute are offered, so this
+  // resolver has nothing left to guess. The week/month/quarter and
+  // weekday-matched windows it used to build were never requested from the
+  // server: every one of them was collapsed to previous-period on the way out,
+  // so the preview here disagreed with the numbers that came back.
   return {
-    start: toISO(addDays(parseISODate(primaryStart), -364)),
-    end: toISO(addDays(parseISODate(primaryEnd), -364)),
+    start: shiftIsoDateByMonths(primaryStart, -12),
+    end: shiftIsoDateByMonths(primaryEnd, -12),
   };
 }
 
@@ -647,7 +625,7 @@ function CalendarMonth({
           <div
             key={label}
             className={cn(
-              "flex h-7 items-center justify-center text-[10px] font-semibold uppercase tracking-[0.16em]",
+              "flex h-7 items-center justify-center text-[12px] font-semibold uppercase tracking-[0.16em]",
               label === "Sa" ? "text-slate-900" : "text-slate-400"
             )}
           >
@@ -751,7 +729,7 @@ function CompactPanelHeader({
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-600"
             >
               {chip}
             </span>
@@ -871,13 +849,13 @@ function RangePanel({
       <div className="grid grid-cols-1 md:grid-cols-[196px_minmax(0,1fr)]">
         <aside className="border-b border-slate-200/80 bg-white/92 p-3 md:border-b-0 md:border-r">
           <div className="mb-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date Range</div>
+            <div className="text-[12px] font-semibold uppercase tracking-[0.2em] text-slate-400">Date Range</div>
           </div>
 
           <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1 md:max-h-[420px]">
             {presetSections.map((section) => (
               <div key={section.label} className="space-y-1">
-                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="px-1 text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   {section.label}
                 </div>
                 {section.items.map((preset) => {
@@ -918,7 +896,7 @@ function RangePanel({
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold">{preset.label}</span>
-                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                        <span className={cn("mt-0.5 block text-[12px]", selected ? "text-white/75" : "text-slate-500")}>
                           {preset.hint}
                         </span>
                       </span>
@@ -1076,12 +1054,12 @@ function ComparisonPanel({
     >
       <div className="grid grid-cols-1 md:grid-cols-[196px_minmax(0,1fr)]">
         <aside className="border-b border-slate-200/80 bg-white/92 p-3 md:border-b-0 md:border-r">
-          <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Compare To</div>
+          <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-slate-400">Compare To</div>
 
           <div className="max-h-[320px] overflow-y-auto pr-1 md:max-h-[380px]">
             {presetSections.map((section) => (
               <div key={section.label} className="mb-3 space-y-1">
-                <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <div className="px-1 text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   {section.label}
                 </div>
                 {section.items.map((preset) => {
@@ -1130,7 +1108,7 @@ function ComparisonPanel({
                       </span>
                       <span className="min-w-0">
                         <span className="block text-xs font-semibold">{preset.label}</span>
-                        <span className={cn("mt-0.5 block text-[10px]", selected ? "text-white/75" : "text-slate-500")}>
+                        <span className={cn("mt-0.5 block text-[12px]", selected ? "text-white/75" : "text-slate-500")}>
                           {preset.hint}
                         </span>
                       </span>
@@ -1218,7 +1196,8 @@ export interface DateRangePickerProps {
   showComparisonTrigger?: boolean;
   comparisonPlaceholderLabel?: string;
   rangePresets?: RangePreset[];
-  comparisonPresets?: ComparisonPreset[];
+  /** Narrow the offered comparisons to the ones this surface can carry. */
+  comparisonPresets?: readonly ComparisonPreset[];
   referenceDate?: string;
   timeZoneLabel?: string;
   minDate?: string;
@@ -1389,10 +1368,10 @@ export function DateRangePicker({
               <CalendarIcon className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0">
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+              <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</span>
               <span className="block truncate text-xs font-semibold text-slate-900">{rangeLabel}</span>
             </span>
-            <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 sm:inline-flex">
+            <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-600 sm:inline-flex">
               {rangeMetaLabel}
             </span>
             <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
@@ -1449,7 +1428,7 @@ export function DateRangePicker({
               )}
             >
               <span className="block">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compare</span>
+                <span className="block text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compare</span>
                 <span className="block text-xs font-semibold">{comparisonLabel}</span>
               </span>
               <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
@@ -1558,7 +1537,7 @@ export function DatePicker({
           >
             <CalendarIcon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              <span className="block truncate text-[12px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                 {label}
               </span>
               <span className={cn("block truncate text-xs font-semibold", value ? "text-slate-900" : "text-slate-500")}>

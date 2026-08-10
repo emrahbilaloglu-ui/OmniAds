@@ -842,7 +842,7 @@ describe("meta warehouse ownership safety", () => {
         sourceSnapshotId: "snapshot-1",
         payloadJson: null,
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     const adDailyQueryIndex = queries.findIndex((query) =>
       query.includes("INSERT INTO meta_ad_daily"),
@@ -1241,7 +1241,7 @@ describe("meta warehouse ownership safety", () => {
         sourceSnapshotId: "snapshot-2",
         payloadJson: { adId: "ad-2" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     const adDailyQueries = queries.filter((query) =>
       query.includes("INSERT INTO meta_ad_daily"),
@@ -4111,7 +4111,7 @@ describe("meta warehouse config columns", () => {
         sourceSnapshotId: null,
         payloadJson: { adId: "ad-1" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     await upsertMetaCreativeDailyRows([
       {
@@ -4284,7 +4284,7 @@ describe("meta warehouse config columns", () => {
         sourceRunId: "run-1",
         payloadJson: { adId: "ad-1" },
       },
-    ]);
+    ], { writeMode: "authoritative_fact" });
 
     await upsertMetaCreativeDailyRows([
       {

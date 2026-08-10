@@ -115,11 +115,11 @@ export function PresetBar({
                   <div className="flex items-center gap-1.5 font-semibold">
                     <span>{preset.label}</span>
                     {preset.unavailable ? (
-                      <span className="rounded bg-neutral-100 px-1.5 py-px font-mono text-[9.5px] text-neutral-500">
+                      <span className="rounded bg-neutral-100 px-1.5 py-px font-mono text-[12px] text-neutral-500">
                         backend-dep
                       </span>
                     ) : (
-                      <span className="text-[10.5px] font-mono text-neutral-500">
+                      <span className="text-[12px] font-mono text-neutral-500">
                         · {preset.metricsCount} KPIs
                       </span>
                     )}
@@ -132,7 +132,7 @@ export function PresetBar({
                       {preset.metricChips.slice(0, 5).map((chip) => (
                         <span
                           key={chip}
-                          className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[9.5px] text-neutral-600"
+                          className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[12px] text-neutral-600"
                         >
                           {chip}
                         </span>
@@ -140,7 +140,7 @@ export function PresetBar({
                     </div>
                   ) : null}
                   {preset.unavailable && preset.unavailableReason ? (
-                    <div className="mt-1 text-[10.5px] text-amber-700">
+                    <div className="mt-1 text-[12px] text-amber-700">
                       {preset.unavailableReason}
                     </div>
                   ) : null}

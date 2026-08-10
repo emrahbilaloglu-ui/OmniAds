@@ -305,17 +305,8 @@ export function applyCreativeCampaignLabelGuard({
 
   if (label?.contextTrust === "medium") {
     // Medium-confidence automatic context: canonical baselines, no kind
-    // semantics. Mature stop-loss cut stays visible with a low-confidence
-    // badge (user-approved medium-cut policy); hard scale/refresh demote.
-    if (decision.label === "cut") {
-      return withCampaignContext(decision, {
-        status: "labeled",
-        kind: null,
-        testDimension: null,
-        blockedActionType: null,
-        badges: withContextBadge(decision.badges, "campaign_context_low_confidence"),
-      });
-    }
+    // semantics. Hard verdicts stay explicit, including mature stop-loss Cut,
+    // but remain review-only until inferred context has hard authority.
     if (isHardDecision(decision.label)) {
       return guardHardDecisionWithContext(decision, {
         status: "labeled",

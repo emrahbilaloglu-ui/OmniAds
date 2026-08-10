@@ -1,9 +1,12 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { ExternalLink, ImageIcon, X } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
@@ -349,6 +352,36 @@ export default function MetaCreativeStudioPage() {
     queryFn: () => fetchCreativeShareLedger({ businessId, providerAccountId }),
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: creativesQuery.isLoading,
+    isFetching: creativesQuery.isFetching,
+    error: creativesQuery.error,
+    // Briefs failing leaves a workspace that looks complete but is not.
+    partialReason: briefingQuery.error
+      ? "Creative briefs could not be read; this view is incomplete"
+      : null,
+    // `source.asOf` is the client's own request parameter echoed back by the
+    // route, so it measures nothing. Use a timestamp the server actually
+    // observed, and say "age unknown" when there is none.
+    // When the snapshot rows were computed. Not `source.asOf` (the client's
+    // own request parameter echoed back) and not `asOfDate` (the calendar day
+    // the rows describe) -- a date is not an instant, and using one made the
+    // same data read as a different age depending on the hour.
+    asOf: measuredAsOf(
+      briefingQuery.data?.source?.measurementReconciliation?.snapshotLatest
+        ?.observedAt ?? null,
+    ),
+    businessId,
+    onRetry: () => {
+      void creativesQuery.refetch();
+      if (briefingQuery.isError) void briefingQuery.refetch();
+    },
   });
 
   const allRows = useMemo(
@@ -912,7 +945,7 @@ function ReadOnlyCreativeDrawer({
             <div className="grid grid-cols-2 gap-2">
               {metrics.map(([label, value]) => (
                 <div key={label} className="rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--surface-2)] p-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">{label}</p>
                   <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--ink)]">{value}</p>
                 </div>
               ))}

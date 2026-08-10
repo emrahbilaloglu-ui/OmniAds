@@ -135,6 +135,15 @@ function MiniChart({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [tooltipPixel, setTooltipPixel] = useState<{ x: number; y: number } | null>(null);
 
+  // Above the empty-data guard on purpose. It used to sit below it, so a chart
+  // that went from having points to having none rendered a different number of
+  // hooks than the render before it -- React throws "Rendered fewer hooks than
+  // expected" and the widget crashes rather than saying it has no data.
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIdx(null);
+    setTooltipPixel(null);
+  }, []);
+
   const activeSeries = series?.length ? series : [{ key: "default", label: "", color: "#2563eb", points }];
   if (!activeSeries.some((item) => item.points.length > 0)) {
     return <div className="text-xs text-muted-foreground">No chart data yet.</div>;
@@ -158,11 +167,6 @@ function MiniChart({
     val,
     y: PAD_TOP + chartH - (val / niceMax) * chartH,
   }));
-
-  const handleMouseLeave = useCallback(() => {
-    setHoveredIdx(null);
-    setTooltipPixel(null);
-  }, []);
 
   if (tone === "bar") {
     const labels = activeSeries[0]?.points.map((p) => p.label) ?? [];
@@ -255,7 +259,7 @@ function MiniChart({
             pixelY={tooltipPixel.y}
           />
         ) : null}
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground">
           {activeSeries.map((item) => (
             <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
@@ -453,13 +457,13 @@ function MiniChart({
       ) : null}
 
       {activeSeries.length > 1 && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground shrink-0">
+        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-muted-foreground shrink-0">
           {activeSeries.map((item) => (
             <span key={item.key} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
               {item.label}
               {dualAxis && rightSeries.includes(item) && (
-                <span className="text-[9px] opacity-50" title="Shared right-axis scale">~</span>
+                <span className="text-[12px] opacity-50" title="Shared right-axis scale">~</span>
               )}
             </span>
           ))}
@@ -499,8 +503,12 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
             <p className="mt-1 text-xs text-neutral-500">{widget.subtitle}</p>
           ) : null}
         </div>
-        {widget.warning ? (
-          <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">
+        {widget.errorMessage ? (
+          <span className="rounded-full bg-rose-50 px-2 py-1 text-[12px] font-medium text-rose-700">
+            Failed to load
+          </span>
+        ) : widget.warning ? (
+          <span className="rounded-full bg-amber-50 px-2 py-1 text-[12px] font-medium text-amber-700">
             Warning
           </span>
         ) : null}
@@ -566,10 +574,18 @@ export function ReportWidgetCard({ widget, embedded }: { widget: RenderedReportW
         </div>
       ) : null}
 
-      {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
-        <p className="mt-4 text-xs text-neutral-400">{widget.emptyMessage}</p>
-      ) : null}
-      {widget.warning ? <p className="mt-4 text-xs text-amber-700">{widget.warning}</p> : null}
+      {/* A widget that failed says so. It never borrows the empty-state voice,
+          which would read as "this period had no data". */}
+      {widget.errorMessage ? (
+        <p className="mt-4 text-xs text-rose-700">{widget.errorMessage}</p>
+      ) : (
+        <>
+          {widget.emptyMessage && !widget.rows?.length && !widget.points?.length && !widget.value ? (
+            <p className="mt-4 text-xs text-neutral-400">{widget.emptyMessage}</p>
+          ) : null}
+          {widget.warning ? <p className="mt-4 text-xs text-amber-700">{widget.warning}</p> : null}
+        </>
+      )}
     </article>
   );
 }

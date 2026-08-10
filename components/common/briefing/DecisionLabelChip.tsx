@@ -41,7 +41,7 @@ export function DecisionLabelChip({
           "inline-flex items-center px-1.5",
           size === "sm" ? "py-0" : "py-0.5",
           "rounded-md border font-semibold uppercase tracking-wider",
-          size === "sm" ? "text-[9.5px]" : "text-[10px]",
+          size === "sm" ? "text-[12px]" : "text-[12px]",
           palette.metaClassName,
           className,
         ]
@@ -50,7 +50,7 @@ export function DecisionLabelChip({
       : [
           "inline-flex items-center gap-1 rounded-md border",
           palette.creativeClassName,
-          size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[10.5px]",
+          size === "sm" ? "px-1.5 py-0.5 text-[12px]" : "px-2 py-0.5 text-[12px]",
           "font-semibold uppercase tracking-wider",
           className,
         ]

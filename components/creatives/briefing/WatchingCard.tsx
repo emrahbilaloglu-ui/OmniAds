@@ -204,7 +204,7 @@ export function WatchingCard({
               </button>
             </h4>
             <CampaignKindChip card={card} />
-            <span className="text-[10px] uppercase tracking-wider text-neutral-400">
+            <span className="text-[12px] uppercase tracking-wider text-neutral-400">
               {card.brand || "Brand"}
             </span>
             <DecisionLabelChip label={label} size="sm" />
@@ -219,7 +219,7 @@ export function WatchingCard({
           <div className="text-[11.5px] text-neutral-600 mt-1 leading-snug">
             {card.reason || "No engine reason supplied."}
           </div>
-          <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-neutral-500">
+          <div className="flex items-center gap-3 mt-1.5 text-[12px] text-neutral-500">
             <span className="font-mono tabular-nums">{formatOptionalCurrency(card.spend)}</span>
             <span className="text-neutral-300">·</span>
             <span className="font-mono tabular-nums">{formatOptionalRoas(card.roas)}</span>

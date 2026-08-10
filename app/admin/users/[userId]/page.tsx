@@ -192,7 +192,7 @@ export default function AdminUserDetailPage() {
               <dt className="text-gray-400 text-xs mb-0.5">Aktif Plan</dt>
               <dd className="font-semibold text-gray-900">
                 {PLAN_LABELS[effectivePlan] ?? effectivePlan}
-                {user.plan_override && <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Override</span>}
+                {user.plan_override && <span className="ml-1.5 text-[12px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Override</span>}
               </dd>
             </div>
             <div>

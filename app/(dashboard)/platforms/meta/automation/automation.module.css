@@ -365,7 +365,7 @@
   border-radius: 999px;
   background: var(--auto-subtle);
   color: var(--auto-ink-2);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   padding: 3px 7px;
@@ -451,7 +451,7 @@
 
 .summaryLabel {
   color: var(--auto-ink-3);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -465,7 +465,7 @@
 
 .summaryDetail {
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -476,7 +476,7 @@
   gap: 6px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
   padding: 8px 14px;
 }
 
@@ -526,7 +526,7 @@
 
 .actionClassHeading p {
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .actionClassFacts {
@@ -542,7 +542,7 @@
 
 .actionClassFacts dt {
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -565,7 +565,7 @@
 .actionClassFacts dd span {
   overflow-wrap: anywhere;
   color: var(--auto-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .rowFootnotes {
@@ -574,7 +574,7 @@
   flex-wrap: wrap;
   gap: 4px 14px;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .evidenceTable {
@@ -600,7 +600,7 @@
   min-height: 34px;
   background: var(--auto-subtle);
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -614,7 +614,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--auto-ink-2);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .evidenceRow > span:first-child {
@@ -655,17 +655,17 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-danger-fg);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .gateRequirement {
   color: var(--auto-ink-2);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .gateMissing {
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .controlGrid,
@@ -719,7 +719,7 @@
 .switchIdentity small {
   overflow: hidden;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
 
@@ -788,7 +788,7 @@
   border-radius: 5px;
   background: var(--auto-warning-bg);
   color: var(--auto-warning-fg);
-  font-size: 10px;
+  font-size: 12px;
   padding: 7px 8px;
 }
 
@@ -809,13 +809,13 @@
 
 .guardrailRow > span:first-child {
   color: var(--auto-ink-3);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .guardrailRow > strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 10.5px;
+  font-size: 12px;
   text-align: right;
 }
 
@@ -883,7 +883,7 @@
   gap: 3px 10px;
   margin-top: 4px;
   color: var(--auto-ink-3);
-  font-size: 9.5px;
+  font-size: 12px;
 }
 
 .ledgerMeta code {
@@ -906,12 +906,12 @@
   align-items: center;
   gap: 6px;
   color: var(--auto-ink-3);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .promotionRow p,
 .promotionRow time {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .promotionRow time {

@@ -238,7 +238,7 @@ export function CreativeBriefPanel({
         ) : null}
       </div>
 
-      <p className="mt-2 font-mono text-[10px] leading-4 text-[var(--muted)]">
+      <p className="mt-2 font-mono text-[12px] leading-4 text-[var(--muted)]">
         {currentBrief
           ? `brief ${currentBrief.id} · v${currentBrief.version} · source ${currentBrief.sourceDecision.snapshotId}`
           : snapshotId

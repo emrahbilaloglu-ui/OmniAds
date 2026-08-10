@@ -196,7 +196,7 @@ export function GoogleAdsSyncProgress({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className={cn("mt-2 text-[10px] leading-4", tone.subtext)}>
+        <p className={cn("mt-2 text-[12px] leading-4", tone.subtext)}>
           {resolved.freshnessLabel} — {resolved.freshnessDetail}
         </p>
       </div>

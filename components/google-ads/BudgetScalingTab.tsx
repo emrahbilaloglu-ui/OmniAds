@@ -110,7 +110,7 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
         <div className={cn("rounded-xl border p-4", budgetLimited > 0 ? "border-amber-200 dark:border-amber-900/50" : "bg-card")}>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Budget-Limited</p>
           <p className={cn("text-2xl font-bold mt-1", budgetLimited > 0 ? "text-amber-600 dark:text-amber-400" : "")}>{budgetLimited}</p>
-          <p className="text-[10px] text-muted-foreground">campaigns losing IS</p>
+          <p className="text-[12px] text-muted-foreground">campaigns losing IS</p>
         </div>
       </div>
 
@@ -148,7 +148,7 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
             <p className="text-xs font-semibold text-emerald-900 dark:text-emerald-100 mb-1">
               {scalingCandidates.length} campaign{scalingCandidates.length > 1 ? "s" : ""} ready to scale
             </p>
-            <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mb-3">
+            <p className="text-[12px] text-emerald-700 dark:text-emerald-300 mb-3">
               Strong ROAS but losing impression share to budget — increasing budgets here should yield efficient growth.
             </p>
             <div className="space-y-2">
@@ -170,7 +170,7 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
             <p className="text-xs font-semibold text-rose-900 dark:text-rose-100 mb-1">
               {fmtCurrency(wastedCampaigns.reduce((s, c) => s + c.spend, 0))} in low-efficiency spend
             </p>
-            <p className="text-[10px] text-rose-700 dark:text-rose-300 mb-3">
+            <p className="text-[12px] text-rose-700 dark:text-rose-300 mb-3">
               These campaigns have significant spend with weak or zero returns — reallocate to high performers.
             </p>
             <div className="space-y-2">
@@ -199,13 +199,13 @@ export function BudgetScalingTab({ campaigns, recommendations, totalSpend, accou
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs truncate max-w-[180px]" title={c.name}>{c.name}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{pct.toFixed(1)}%</span>
+                    <span className="text-[12px] text-muted-foreground shrink-0 ml-2">{pct.toFixed(1)}%</span>
                   </div>
                   <SpendBar value={c.spend} max={spend} />
                 </div>
                 <div className="text-right shrink-0 w-20">
                   <p className="text-xs tabular-nums">{fmtCurrency(c.spend)}</p>
-                  <p className={cn("text-[10px]", c.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : c.roas < 1 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground")}>
+                  <p className={cn("text-[12px]", c.roas >= 3 ? "text-emerald-600 dark:text-emerald-400" : c.roas < 1 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground")}>
                     {c.roas > 0 ? `${fmtRoas(c.roas)} ROAS` : "—"}
                   </p>
                 </div>

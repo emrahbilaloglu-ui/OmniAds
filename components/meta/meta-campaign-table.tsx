@@ -381,7 +381,7 @@ function AdSetSubTable({
                     </div>
                     {(typeof adset.previousDailyBudget === "number" ||
                       typeof adset.previousLifetimeBudget === "number") && (
-                      <div className="truncate text-[10px] tabular-nums text-muted-foreground">
+                      <div className="truncate text-[12px] tabular-nums text-muted-foreground">
                         {language === "tr" ? "önceki" : "prev"} {fmtBudget(adset.previousDailyBudget ?? null, adset.previousLifetimeBudget ?? null, sym)}
                         {formatRelativeAge(adset.previousBudgetCapturedAt)
                           ? ` · ${formatRelativeAge(adset.previousBudgetCapturedAt)}`
@@ -392,7 +392,7 @@ function AdSetSubTable({
                       typeof adset.previousLifetimeBudget === "number") &&
                       isPrevLoading &&
                       hasBudgetValue(adset.dailyBudget, adset.lifetimeBudget) && (
-                        <div className="truncate text-[10px] text-muted-foreground">
+                        <div className="truncate text-[12px] text-muted-foreground">
                           {language === "tr" ? "getiriliyor..." : "fetching..."}
                         </div>
                       )}
@@ -404,7 +404,7 @@ function AdSetSubTable({
                   {renderBidValueText(effectiveBidValue, effectiveBidValueFormat, adset.isBidValueMixed, sym)}
                 </div>
                 {typeof effectivePreviousBidValue === "number" && !adset.isBidValueMixed && (
-                  <div className="text-[10px] tabular-nums text-muted-foreground">
+                  <div className="text-[12px] tabular-nums text-muted-foreground">
                     {language === "tr" ? "önceki" : "prev"} {fmtBidValue(
                       effectivePreviousBidValue,
                       effectivePreviousBidValueFormat ?? effectiveBidValueFormat,
@@ -419,7 +419,7 @@ function AdSetSubTable({
                   !adset.isBidValueMixed &&
                   isPrevLoading &&
                   typeof effectiveBidValue === "number" && (
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-[12px] text-muted-foreground">
                       {language === "tr" ? "getiriliyor..." : "fetching..."}
                     </div>
                   )}
@@ -578,7 +578,7 @@ function CampaignRow({
                     <LaneBadge lane={campaign.laneLabel} />
                   ) : null}
                   {campaign.recommendationCount ? (
-                    <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {campaign.recommendationCount} {language === "tr" ? "icgoru" : `insight${campaign.recommendationCount > 1 ? "s" : ""}`}
                     </span>
                   ) : null}
@@ -617,7 +617,7 @@ function CampaignRow({
               </div>
               {(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") && (
-                <div className="truncate text-[10px] tabular-nums text-muted-foreground">
+                <div className="truncate text-[12px] tabular-nums text-muted-foreground">
                   {language === "tr" ? "önceki" : "prev"} {fmtBudget(campaign.previousDailyBudget ?? null, campaign.previousLifetimeBudget ?? null, sym)}
                   {formatRelativeAge(campaign.previousBudgetCapturedAt)
                     ? ` · ${formatRelativeAge(campaign.previousBudgetCapturedAt)}`
@@ -627,7 +627,7 @@ function CampaignRow({
               {!(typeof campaign.previousDailyBudget === "number" ||
                 typeof campaign.previousLifetimeBudget === "number") &&
                 isCampaignPrevLoading && (
-                  <div className="truncate text-[10px] text-muted-foreground">
+                  <div className="truncate text-[12px] text-muted-foreground">
                     {language === "tr" ? "getiriliyor..." : "fetching..."}
                   </div>
                 )}
@@ -642,7 +642,7 @@ function CampaignRow({
           <span className="tabular-nums">{fmt$(campaign.spend, sym)}</span>
           {typeof campaign.previousSpend === "number" && (
             <div
-              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
                 campaign.spend,
                 campaign.previousSpend
               )}`}
@@ -671,7 +671,7 @@ function CampaignRow({
           <span className="tabular-nums">{fmt$(campaign.revenue, sym)}</span>
           {typeof campaign.previousRevenue === "number" && (
             <div
-              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
                 campaign.revenue,
                 campaign.previousRevenue
               )}`}
@@ -693,7 +693,7 @@ function CampaignRow({
           <RoasCell roas={campaign.roas} />
           {typeof campaign.previousRoas === "number" && (
             <div
-              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
                 campaign.roas,
                 campaign.previousRoas
               )}`}
@@ -708,7 +708,7 @@ function CampaignRow({
           {fmt$(campaign.cpa, sym)}
           {typeof campaign.previousCpa === "number" && (
             <div
-              className={`mt-0.5 text-[10px] font-medium tabular-nums ${diffClass(
+              className={`mt-0.5 text-[12px] font-medium tabular-nums ${diffClass(
                 campaign.previousCpa,
                 campaign.cpa
               )}`}

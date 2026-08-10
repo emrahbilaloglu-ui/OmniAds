@@ -1,5 +1,11 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  deltaSentiment,
+  getMetricDirection,
+} from "@/lib/metric-semantics";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   useEffect,
   useMemo,
@@ -44,7 +50,10 @@ interface MetaCopiesResponse {
   rows: MetaCopyApiRow[];
   meta?: {
     unresolved_filtered_count?: number;
+    /** When the route ran. Not the data's age. */
     generatedAt?: string;
+    /** When the warehouse rows behind this response were last written. */
+    warehouseObservedAt?: string | null;
     provider_account_id?: string;
   };
 }
@@ -169,6 +178,26 @@ function exportCopiesCsv(rows: CopyMotionRow[], defaultCurrency: string | null) 
   URL.revokeObjectURL(url);
 }
 
+
+/**
+ * Colour a delta by what it means, not by its arithmetic sign.
+ *
+ * Each of these deltas used to carry its own inline rule -- ROAS up is good,
+ * CPA up is bad, CTR up is good -- correct today and three separate places for
+ * it to drift tomorrow. `getMetricDirection` already owns that knowledge for
+ * the whole product, so the surfaces defer to it and a metric added to the
+ * wrong set is wrong in exactly one place.
+ */
+function toneForDelta(
+  metricKey: string,
+  changeValue: number,
+): "pos" | "neg" | "muted" {
+  const sentiment = deltaSentiment(getMetricDirection(metricKey), changeValue);
+  if (sentiment === "positive") return "pos";
+  if (sentiment === "negative") return "neg";
+  return "muted";
+}
+
 export default function CopiesPage() {
   const searchParams = useSearchParams();
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -264,6 +293,22 @@ export default function CopiesPage() {
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     placeholderData: (previousData) => previousData,
+  });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: copiesQuery.isLoading,
+    isFetching: copiesQuery.isFetching,
+    error: copiesQuery.error ?? providerAccountsQuery.error,
+    // When the warehouse rows behind this view were last written by a sync.
+    // Not the route's `generatedAt`, which records when the request ran and
+    // would restate the age of the request as the age of the data.
+    asOf: measuredAsOf(copiesQuery.data?.meta?.warehouseObservedAt ?? null),
+    businessId,
+    onRetry: () => void copiesQuery.refetch(),
   });
 
   const allRows = useMemo(() => {
@@ -516,7 +561,7 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Angles
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
@@ -525,7 +570,7 @@ export default function CopiesPage() {
               style={{ ...modeTabStyle(false), cursor: "default" }}
             >
               Usage Map
-              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+              <span className="chip chip--auto" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
                 needs server contract
               </span>
             </span>
@@ -889,7 +934,7 @@ function CopyCompareOverlay({
     const diff = row.roas - baseline.roas;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}x`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta("roas", diff),
     };
   };
 
@@ -899,10 +944,9 @@ function CopyCompareOverlay({
       return { text: "", tone: "muted" as const };
     }
     const diff = row.cpa - baseline.cpa;
-    // Higher CPA is worse.
     return {
       text: `${diff >= 0 ? "+" : "−"}${money(row, Math.abs(diff))}`,
-      tone: diff > 0 ? ("neg" as const) : diff < 0 ? ("pos" as const) : ("muted" as const),
+      tone: toneForDelta("cpa", diff),
     };
   };
 
@@ -925,7 +969,7 @@ function CopyCompareOverlay({
     const diff = value - base;
     return {
       text: `${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(2)}pt`,
-      tone: diff >= 0 ? ("pos" as const) : ("neg" as const),
+      tone: toneForDelta(key === "linkCtr" ? "ctr" : "cvr", diff),
     };
   };
 
@@ -1041,7 +1085,7 @@ function CopyCompareOverlay({
               >
                 {row.copyText}
               </div>
-              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
                 {row.campaignName ?? "—"}
               </div>
             </div>
@@ -1073,7 +1117,7 @@ function CopyCompareOverlay({
                   >
                     <b style={{ fontWeight: 600 }}>{metric.value(row)}</b>{" "}
                     {delta.text ? (
-                      <span style={{ fontSize: 10.5, color: toneColor(delta.tone) }}>{delta.text}</span>
+                      <span style={{ fontSize: 12, color: toneColor(delta.tone) }}>{delta.text}</span>
                     ) : null}
                   </div>
                 );

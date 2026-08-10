@@ -205,7 +205,7 @@ export default function AdminBusinessesPage() {
                       {b.name}
                     </Link>
                     {b.is_demo_business && (
-                      <span className="ml-1.5 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Demo</span>
+                      <span className="ml-1.5 text-[12px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">Demo</span>
                     )}
                   </td>
                   <td className="px-5 py-3.5">
@@ -219,7 +219,7 @@ export default function AdminBusinessesPage() {
                       {PLAN_LABELS[effectivePlan] ?? effectivePlan}
                     </span>
                     {b.plan_override && (
-                      <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">Override</span>
+                      <span className="ml-1.5 text-[12px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">Override</span>
                     )}
                   </td>
                   <td className="px-5 py-3.5 text-gray-500">{b.member_count}</td>

@@ -6,16 +6,17 @@ import {
   type LaunchpadBridgeMode,
 } from "@/components/creatives/briefing/launchpad-bridge";
 import {
+  BRIEFING_NATIVE_DECISION_ACTION_ORIGIN,
   buildBriefingDecisionOriginAdActionRequest,
   getBriefingAdActionInputId,
   getCreativeScopeId,
-  getManualBriefingAdActionCandidateIds,
-  hasNativeDecisionOriginLineage,
-  isCutPrimaryAction,
   type DecisionOriginBriefingCard,
 } from "@/components/creatives/briefing/action-handlers";
 import {
-  asDecisionLabel,
+  getBriefingCanonicalDecisionPresentation,
+  hasBriefingCanonicalNativeActionAuthority,
+} from "@/components/creatives/briefing/action-authority";
+import {
   cardId,
   cardName,
   numberOrZero,
@@ -70,22 +71,14 @@ export function successfulBulkPauseCardIds(
   const successfulResults = (result.results ?? []).filter((item) => item.ok);
   if (successfulResults.length === 0) return [];
   return cards.flatMap((card) => {
-    const candidateIds = getManualBriefingAdActionCandidateIds(card);
-    const candidateIdSet = new Set(candidateIds);
-    const inputAdId = getBriefingAdActionInputId(card) || candidateIds[0];
+    const inputAdId = getBriefingAdActionInputId(card);
     if (!inputAdId) return [];
 
-    const matched = successfulResults.some((item) => {
-      if (item.inputAdId?.trim() !== inputAdId) return false;
-      const resolvedAdId = item.adId?.trim();
-      if (!resolvedAdId || resolvedAdId === inputAdId) return true;
-      if (hasNativeDecisionOriginLineage(card)) return false;
-      if (candidateIdSet.has(resolvedAdId)) return true;
-      const resolvedFromCandidate = item.attemptedIds?.at(-1)?.trim();
-      return Boolean(
-        resolvedFromCandidate && candidateIdSet.has(resolvedFromCandidate),
-      );
-    });
+    const matched = successfulResults.some(
+      (item) =>
+        item.inputAdId?.trim() === inputAdId &&
+        item.adId?.trim() === inputAdId,
+    );
     return matched ? [cardId(card)] : [];
   });
 }
@@ -95,67 +88,14 @@ export function buildBulkPauseRequestBody(input: {
   cards: DecisionOriginBriefingCard[];
   idempotencyKey?: string;
 }) {
-  input.cards.forEach((card) => {
-    if (!isCutPrimaryAction(card)) {
-      throw new Error("Every bulk card must carry a server-authorized cut action.");
-    }
-  });
-  const nativeLineageCount = input.cards.filter(
-    hasNativeDecisionOriginLineage,
-  ).length;
-  if (nativeLineageCount > 0 && nativeLineageCount < input.cards.length) {
+  if (
+    input.cards.some(
+      (card) => !hasBriefingCanonicalNativeActionAuthority(card, "cut"),
+    )
+  ) {
     throw new Error(
-      "Bulk cut cannot mix native decision lineage with legacy briefing cards.",
+      "Every bulk card requires exact native eligible authorized Cut authority.",
     );
-  }
-
-  if (nativeLineageCount === 0) {
-    const adsById = new Map<
-      string,
-      {
-        adId: string;
-        candidateAdIds: string[];
-        creativeId: string;
-        name: string | null;
-      }
-    >();
-    input.cards.forEach((card) => {
-      const candidateAdIds = getManualBriefingAdActionCandidateIds(card);
-      const adId = candidateAdIds[0] ?? "";
-      if (!adId) {
-        throw new Error(
-          "Every legacy bulk card requires at least one Meta ad candidate.",
-        );
-      }
-      adsById.set(adId, {
-        adId,
-        candidateAdIds,
-        creativeId: getCreativeScopeId(card),
-        name: cardName(card),
-      });
-    });
-    const ads = Array.from(adsById.values());
-    const providerAccountIds = new Set(
-      input.cards
-        .map((card) => card.providerAccountId?.trim())
-        .filter((value): value is string => Boolean(value)),
-    );
-    if (providerAccountIds.size > 1) {
-      throw new Error(
-        "Bulk legacy execution requires exactly one provider account.",
-      );
-    }
-    const stableBulkKey = `manual-legacy-bulk-pause:${input.businessId}:${ads
-      .map((ad) => ad.adId)
-      .sort()
-      .join("|")}`;
-    return {
-      businessId: input.businessId,
-      providerAccountId: Array.from(providerAccountIds)[0],
-      action: "pause" as const,
-      idempotencyKey: input.idempotencyKey?.trim() || stableBulkKey,
-      ads,
-    };
   }
 
   const adsById = new Map<
@@ -196,6 +136,7 @@ export function buildBulkPauseRequestBody(input: {
 
   return {
     contractVersion: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+    actionOrigin: BRIEFING_NATIVE_DECISION_ACTION_ORIGIN,
     businessId: input.businessId,
     providerAccountId: ads[0]?.providerAccountId ?? "",
     action: "pause",
@@ -254,35 +195,39 @@ export function buildBulkLaunchpadHref(
 }
 
 export function buildCompareDrawerItems(cards: BriefingCreativeCard[]): CompareDrawerItem[] {
-  return cards.map((card) => ({
-    id: getCreativeScopeId(card),
-    name: cardName(card),
-    brand: card.brand || undefined,
-    label: asDecisionLabel(card.label),
-    spend: numberOrZero(card.spend),
-    roas: numberOrZero(card.roas),
-    ctr: numberOrZero(card.ctr),
-    cpa: numberOrZero(card.cpa),
-    purchases: numberOrZero(card.purchases),
-    frequency: numberOrZero(card.frequency),
-    sparkline: card.sparkline ?? undefined,
-    mediaPreviewUrl: card.mediaPreviewUrl ?? null,
-    thumbnailUrl: card.thumbnailUrl ?? null,
-    tableThumbnailUrl: card.tableThumbnailUrl ?? null,
-    cardPreviewUrl: card.cardPreviewUrl ?? null,
-    previewUrl: card.previewUrl ?? null,
-    imageUrl: card.imageUrl ?? null,
-    cachedThumbnailUrl: card.cachedThumbnailUrl ?? null,
-    preview: card.preview ?? null,
-    format: card.format ?? null,
-    creativeVisualFormat: card.creativeVisualFormat ?? null,
-    creativePrimaryType: card.creativePrimaryType ?? null,
-    creativePrimaryLabel: card.creativePrimaryLabel ?? null,
-    creativeSecondaryType: card.creativeSecondaryType ?? null,
-    creativeSecondaryLabel: card.creativeSecondaryLabel ?? null,
-    creativeDeliveryType: card.creativeDeliveryType ?? null,
-    isCatalog: card.isCatalog ?? null,
-  }));
+  return cards.map((card) => {
+    const presentation = getBriefingCanonicalDecisionPresentation(card);
+    return {
+      id: getCreativeScopeId(card),
+      name: cardName(card),
+      brand: card.brand || undefined,
+      label: presentation.label,
+      ...(presentation.text ? { labelText: presentation.text } : {}),
+      spend: numberOrZero(card.spend),
+      roas: numberOrZero(card.roas),
+      ctr: numberOrZero(card.ctr),
+      cpa: numberOrZero(card.cpa),
+      purchases: numberOrZero(card.purchases),
+      frequency: numberOrZero(card.frequency),
+      sparkline: card.sparkline ?? undefined,
+      mediaPreviewUrl: card.mediaPreviewUrl ?? null,
+      thumbnailUrl: card.thumbnailUrl ?? null,
+      tableThumbnailUrl: card.tableThumbnailUrl ?? null,
+      cardPreviewUrl: card.cardPreviewUrl ?? null,
+      previewUrl: card.previewUrl ?? null,
+      imageUrl: card.imageUrl ?? null,
+      cachedThumbnailUrl: card.cachedThumbnailUrl ?? null,
+      preview: card.preview ?? null,
+      format: card.format ?? null,
+      creativeVisualFormat: card.creativeVisualFormat ?? null,
+      creativePrimaryType: card.creativePrimaryType ?? null,
+      creativePrimaryLabel: card.creativePrimaryLabel ?? null,
+      creativeSecondaryType: card.creativeSecondaryType ?? null,
+      creativeSecondaryLabel: card.creativeSecondaryLabel ?? null,
+      creativeDeliveryType: card.creativeDeliveryType ?? null,
+      isCatalog: card.isCatalog ?? null,
+    };
+  });
 }
 
 export function weakestByRoas(cards: BriefingCreativeCard[]) {

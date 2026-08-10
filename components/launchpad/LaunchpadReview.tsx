@@ -322,7 +322,7 @@ export function LaunchpadReview({
               <p className="mt-0.5 text-[15px] font-[650] leading-tight tabular-nums text-[var(--ink)]">
                 {budgetReview.amount}
               </p>
-              <p className="mt-1 text-[10.5px] text-[var(--muted)]">
+              <p className="mt-1 text-[12px] text-[var(--muted)]">
                 {budgetReview.detail}
               </p>
             </div>

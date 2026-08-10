@@ -1123,7 +1123,7 @@ export function AssetLibrarySection({
                     {visibleMetricColumns.map((column) => (
                       <td key={column.id} className={column.className}>{column.value(row)}</td>
                     ))}
-                    <td><span className={gapClass} style={{ fontSize: 9.5 }}>{typeof gap === "string" ? gap : gap.label}</span></td>
+                    <td><span className={gapClass} style={{ fontSize: 12 }}>{typeof gap === "string" ? gap : gap.label}</span></td>
                     <td style={{ textAlign: "right" }}>
                       <button
                         type="button"

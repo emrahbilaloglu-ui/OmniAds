@@ -78,7 +78,7 @@ function OperatorRowCard({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span
             className={cn(
-              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              "rounded-full px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
               tones.action,
             )}
           >
@@ -86,7 +86,7 @@ function OperatorRowCard({
           </span>
           <span
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
               tones.pill,
             )}
           >
@@ -94,7 +94,7 @@ function OperatorRowCard({
           </span>
           <span
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              "rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
               confidenceTone(item.confidence),
             )}
           >
@@ -108,7 +108,7 @@ function OperatorRowCard({
           {item.secondaryLabels.slice(0, 3).map((label) => (
             <span
               key={`${item.id}:${label}`}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700"
+              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-medium uppercase tracking-wide text-slate-700"
             >
               {label}
             </span>

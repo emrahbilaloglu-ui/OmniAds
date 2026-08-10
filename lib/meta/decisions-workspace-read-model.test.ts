@@ -1654,7 +1654,7 @@ describe("Meta Decisions workspace canonical read model", () => {
       legacy.queue.sections.creative_rotation.items[0] ??
       legacy.queue.adCandidates?.items[0];
 
-    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v3");
+    expect(legacy.contractVersion).toBe("meta-decisions-workspace.read.v4");
     expect(legacyDecision?.sourceDecision).toMatchObject({
       label: "keep",
       rawLabel: "keep",

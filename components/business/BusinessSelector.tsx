@@ -127,12 +127,12 @@ export function BusinessSelector() {
         className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm"
         disabled
       >
-        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[12px] font-bold text-primary">
           {getInitials(selectedBusiness.name)}
         </div>
         <span className="truncate hidden sm:block">{selectedBusiness.name}</span>
         {selectedIsDemo ? (
-          <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+          <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[12px] font-semibold uppercase tracking-wider">
             Demo
           </span>
         ) : null}
@@ -147,14 +147,14 @@ export function BusinessSelector() {
           variant="outline"
           className="h-9 max-w-[220px] gap-2 rounded-lg border-neutral-200 bg-white px-3 text-sm transition-colors hover:bg-neutral-50"
         >
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-[12px] font-bold text-primary">
             {selectedBusiness ? getInitials(selectedBusiness.name) : "SB"}
           </div>
           <span className="truncate hidden sm:block">
             {selectedBusiness?.name ?? t.selectBusiness}
           </span>
           {selectedIsDemo ? (
-            <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+            <span className="inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[12px] font-semibold uppercase tracking-wider">
               Demo
             </span>
           ) : null}
@@ -173,14 +173,14 @@ export function BusinessSelector() {
             className="cursor-pointer gap-2"
             disabled={pendingBusinessId === business.id}
           >
-            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-[12px] font-bold text-primary">
               {getInitials(business.name)}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
                 {business.name}
                 {business.isDemoBusiness ? (
-                  <span className="ml-2 inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">
+                  <span className="ml-2 inline-flex items-center px-1 py-px rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[12px] font-semibold uppercase tracking-wider">
                     Demo
                   </span>
                 ) : null}

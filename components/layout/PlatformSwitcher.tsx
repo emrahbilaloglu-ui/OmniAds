@@ -29,7 +29,7 @@ function StatusBadge({ status, compact = false }: { status: PlatformStatus; comp
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md border text-[9.5px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center rounded-md border text-[12px] font-semibold uppercase tracking-wider",
         pad,
         STATUS_BADGE_CLASSES[status]
       )}
@@ -110,10 +110,10 @@ export function PlatformSwitcher() {
           role="menu"
         >
           <div className="px-3 py-2 border-b border-neutral-100 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+            <span className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
               Switch platform
             </span>
-            <span className="text-[10.5px] text-neutral-400 font-mono">⌘K</span>
+            <span className="text-[12px] text-neutral-400 font-mono">⌘K</span>
           </div>
           <div className="py-1">
             {platformOrder.map((platformId) => {
@@ -149,7 +149,7 @@ export function PlatformSwitcher() {
                   <StatusBadge status={platform.status} />
                   {platform.status === "soon" ? (
                     <span
-                      className="ml-2 text-[10.5px] text-blue-600 hover:underline cursor-pointer"
+                      className="ml-2 text-[12px] text-blue-600 hover:underline cursor-pointer"
                       onClick={(event) => {
                         event.stopPropagation();
                         console.info(`[PlatformSwitcher] Notify me requested for ${platform.id}`);
@@ -162,7 +162,7 @@ export function PlatformSwitcher() {
               );
             })}
           </div>
-          <div className="px-3 py-2 border-t border-neutral-100 text-[10.5px] text-neutral-500 flex items-center gap-1">
+          <div className="px-3 py-2 border-t border-neutral-100 text-[12px] text-neutral-500 flex items-center gap-1">
             <Info className="h-[11px] w-[11px]" />
             <span>Last viewed platform per business is remembered.</span>
           </div>

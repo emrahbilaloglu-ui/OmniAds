@@ -19,6 +19,7 @@ import {
   buildNativeAdDataHealth,
   computeNativeAdDecisions,
   computeSoftOnlyNativeAdDecisions,
+  persistedAdDecisionHydrationReceipt,
   pruneStaleNativeAdSnapshots,
   reconcileNativeAdDecisionChangeEvents,
   resolveNativeAdDecisionProfileGroups,
@@ -32,7 +33,10 @@ import {
   resolveNativeAdCalibrationCutoff,
   resolveNativeAdCalibrationActionReadiness,
   resolveNativeAdTargetAuthority,
+  recomputeNativeAdCalibrationCellInputManifestHash,
+  recomputeNativeAdSpendUnitAuthorityHash,
   type NativeAdCalibrationCell,
+  type NativeAdSpendUnitAuthority,
   type NativeAdTargetAuthorityInput,
 } from "../../jobs/ad-calibration-job";
 import type { EngineV3Flags } from "../../feature-flags";
@@ -63,6 +67,48 @@ const TARGET_AUTHORITY: NativeAdTargetAuthorityInput = {
   effectiveAt: "2026-07-01T00:00:00.000Z",
   recordedAt: "2026-07-01T00:00:01.000Z",
 };
+
+function targetCpaSpendUnitAuthority(input: {
+  targetAuthority: ReturnType<typeof resolveNativeAdTargetAuthority>;
+  cutoff: ReturnType<typeof resolveNativeAdCalibrationCutoff>;
+}): NativeAdSpendUnitAuthority {
+  const authority: NativeAdSpendUnitAuthority = {
+    contractVersion: "engine-v3-native-ad-spend-unit-authority.v1",
+    status: "ready",
+    basis: "target_cpa",
+    businessId: BUSINESS_ID,
+    providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+    providerAccountId: "act-1",
+    accountCurrency: "USD",
+    asOfCutoff: input.cutoff.asOfCutoff,
+    targetAuthorityHash: input.targetAuthority.authorityHash,
+    baseSpendUnit: input.targetAuthority.targetCpa,
+    accountAovEvidence: {
+      status: "unavailable",
+      scope: "business_provider_account_currency",
+      businessId: BUSINESS_ID,
+      providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+      providerAccountId: "act-1",
+      accountCurrency: "USD",
+      sampleWindowStart: input.cutoff.sampleWindowStart,
+      sampleWindowEnd: input.cutoff.sampleWindowEnd,
+      asOfCutoff: input.cutoff.asOfCutoff,
+      observedPurchaseCount: 0,
+      requiredPurchaseCount: 20,
+      revenueBackedRowCount: 0,
+      canonicalRowCount: 0,
+      contradictoryRowCount: 0,
+      legacySchemaRowCount: 0,
+      unsupportedSchemaRowCount: 0,
+      totalRevenue: 0,
+      meanAov: null,
+      evidenceHash: "5".repeat(64),
+    },
+    authorityHash: "",
+  };
+  authority.authorityHash = recomputeNativeAdSpendUnitAuthorityHash(authority);
+  return authority;
+}
 
 function nativeFlags(): EngineV3Flags {
   return {
@@ -136,7 +182,11 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
     computedAt: `${AS_OF}T03:05:00.000Z`,
     matureCreativeCount: 50,
   };
-  return {
+  const spendUnitAuthority = targetCpaSpendUnitAuthority({
+    targetAuthority,
+    cutoff,
+  });
+  const cell: NativeAdCalibrationCell = {
     batchId: "00000000-0000-4000-8000-000000000746",
     batchCompleteness: "complete",
     batchCellCount: 1,
@@ -163,6 +213,7 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
       metricSampleCounts,
       targetAuthority,
       accountCalibration,
+      spendUnitAuthority,
     }),
     sourceMinDate: cutoff.sampleWindowStart,
     sourceMaxDate: cutoff.sampleWindowEnd,
@@ -171,7 +222,7 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
     accountCalibration,
     funnelCalibration: profile.funnelCalibration,
     batchInputManifestHash: "8".repeat(64),
-    inputManifestHash: "7".repeat(64),
+    inputManifestHash: "0".repeat(64),
     sourceManifestHash: "6".repeat(64),
     qualityCounts: {
       candidateSourceRowCount: 50,
@@ -186,6 +237,8 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
       mixedCurrencyAdExclusionCount: 0,
       mixedObjectiveAdExclusionCount: 0,
       mixedCohortAdExclusionCount: 0,
+      peerTruthFinalizedAtMissingSourceRowCount: 0,
+      peerTruthFinalizedAtMissingAdCount: 0,
       censoredSourceRowExclusionCount: 0,
       censoredAdExclusionCount: 0,
       freshnessSourceRowExclusionCount: 0,
@@ -193,6 +246,9 @@ function readyNativeCalibrationCell(): NativeAdCalibrationCell {
       commercialAuthorityAdExclusionCount: 0,
     },
   };
+  cell.inputManifestHash =
+    recomputeNativeAdCalibrationCellInputManifestHash(cell);
+  return cell;
 }
 
 function adInput(input: {
@@ -300,6 +356,35 @@ function campaignContext(): CampaignContextLabelMap {
       },
     ]),
   );
+}
+
+function automaticCampaignContext(
+  contextTrust: "medium" | "high",
+): CampaignContextLabelMap {
+  return new Map([
+    [
+      "campaign-a",
+      {
+        kind: "main",
+        testDimension: null,
+        contextTrust,
+        provenance: {
+          mode: "automatic",
+          source: "system_inferred",
+          campaignId: "campaign-a",
+          kind: "main",
+          testDimension: null,
+          contextTrust,
+          sourceRecordType: "engine_v3_campaign_context_daily",
+          sourceRecordId: `context-campaign-a-${contextTrust}`,
+          sourceAsOfDate: AS_OF,
+          sourceUpdatedAt: `${AS_OF}T01:00:00.000Z`,
+          sourceHash:
+            contextTrust === "high" ? "c".repeat(64) : "d".repeat(64),
+        },
+      },
+    ],
+  ]);
 }
 
 function hydrationReceipt(input: {
@@ -461,6 +546,122 @@ describe("native ad decision computation", () => {
       blocked_action_type: null,
       authorized_action: "cut",
     });
+  });
+
+  it("keeps a confirmed medium-context Cut review-only while high context remains authorized", () => {
+    const profile = makeAccountDecisionProfile({
+      asOfDate: AS_OF,
+      scope: { type: "account", id: "act-1" },
+    });
+    const adId = "ad-context-cut";
+    const stabilityKey = `${BUSINESS_ID}\u0000${PROVIDER_ACCOUNT_REF_ID}\u0000act-1\u0000ad\u0000${adId}\u0000account\u0000act-1`;
+    const previousLabels = new Map([
+      [
+        stabilityKey,
+        {
+          businessId: BUSINESS_ID,
+          providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+          providerAccountId: "act-1",
+          decisionEntityType: "ad" as const,
+          decisionEntityId: adId,
+          sourceSnapshotId: "snapshot-prior-context-cut",
+          sourceEvaluationId: "evaluation-prior-context-cut",
+          sourceEngineVersion: NATIVE_AD_ENGINE_VERSION,
+          sourceAsOfDate: "2026-07-11",
+          sourceComputedAt: "2026-07-11T03:15:00.000Z",
+          sourceInputHash: "c".repeat(64),
+          sourceDecisionHash: "d".repeat(64),
+          publishedLabel: "keep" as const,
+          rawLabel: "cut" as const,
+        },
+      ],
+    ]);
+    const compute = (contextTrust: "medium" | "high") => {
+      const computation = computeNativeAdDecisions({
+        businessId: BUSINESS_ID,
+        profile,
+        dataHealth: makeDataHealth(),
+        adInputs: [adInput({ adId, campaignId: "campaign-a" })],
+        campaignContextMode: "automatic",
+        campaignContextById: automaticCampaignContext(contextTrust),
+        previousLabels,
+        resolveDecision: (resolverInput) =>
+          hardCutDecision({ creativeId: resolverInput.creativeId }),
+      })[0];
+      if (!computation) throw new Error("Expected context Cut computation.");
+      return computation;
+    };
+
+    const medium = compute("medium");
+    expect(medium).toMatchObject({
+      rawLabel: "cut",
+      hysteresisSuppressed: false,
+      decision: {
+        label: "cut",
+        preAuthorityLabel: "cut",
+        authorityBlocker: "campaign_context",
+        blockedActionType: "cut",
+      },
+    });
+    expect(
+      medium.decision.badges.map((badge) => badge.type),
+    ).toEqual(
+      expect.arrayContaining([
+        "campaign_context_low_confidence",
+        "stop_loss_review",
+      ]),
+    );
+    const mediumPayload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000765",
+      scope: profile.scope,
+      computation: medium,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000766",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "e".repeat(64),
+        decisionHash: "f".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:20:00.000Z`,
+    });
+    expect(mediumPayload).toMatchObject({
+      label: "cut",
+      raw_label: "cut",
+      authority_blocker: "campaign_context",
+      blocked_action_type: "cut",
+      authorized_action: null,
+    });
+
+    const high = compute("high");
+    expect(high.decision).toMatchObject({
+      label: "cut",
+      authorityBlocker: null,
+      blockedActionType: null,
+    });
+    const highPayload = toNativeSnapshotPayload({
+      businessId: BUSINESS_ID,
+      asOf: AS_OF,
+      jobRunId: "00000000-0000-4000-8000-000000000767",
+      scope: profile.scope,
+      computation: high,
+      stored: {
+        evaluationId: "00000000-0000-4000-8000-000000000768",
+        providerAccountRefId: PROVIDER_ACCOUNT_REF_ID,
+        providerAccountId: "act-1",
+        decisionEntityId: adId,
+        inputHash: "1".repeat(64),
+        decisionHash: "2".repeat(64),
+      },
+      calibrationRowId: NATIVE_CALIBRATION_ROW_ID,
+      hardActionEligibility: profile.hardActionEligibility,
+      computedAt: `${AS_OF}T03:20:00.000Z`,
+    });
+    expect(highPayload.authorized_action).toBe("cut");
   });
 
   it("publishes a low-peer commercial stop-loss only after a later-date confirmation", () => {
@@ -1335,6 +1536,32 @@ function fakeDb(rows: Record<string, unknown>[]): DbClient {
 }
 
 describe("native ad producer persistence contract", () => {
+  it("persists the full hydration authority receipt needed for independent replay", () => {
+    const receipt = hydrationReceipt({ adIds: ["ad-b", "ad-a"] });
+
+    expect(persistedAdDecisionHydrationReceipt(receipt)).toEqual({
+      contract_version: AD_DECISION_HYDRATION_RECEIPT_CONTRACT_VERSION,
+      provider_account_ref_id: PROVIDER_ACCOUNT_REF_ID,
+      provider_account_id: "act-1",
+      decision_cutoff: `${AS_OF}T03:10:00.000Z`,
+      source_run_id: "00000000-0000-4000-8000-000000000749",
+      source_observed_at: `${AS_OF}T02:00:00.000Z`,
+      source_captured_at: `${AS_OF}T02:01:00.000Z`,
+      source_run_hash: "a".repeat(64),
+      source_payload_hash: "b".repeat(64),
+      source_expected_row_count: 2,
+      source_persisted_row_count: 2,
+      expected_ad_count: 2,
+      expected_manifest_hash: receipt.expectedManifestHash,
+      hydrated_ad_count: 2,
+      hydrated_manifest_hash: receipt.hydratedManifestHash,
+      source_complete: true,
+      hydration_complete: true,
+      authoritative_for_prune: true,
+      reason: null,
+    });
+  });
+
   it("rejects empty hydration unless every assigned account proves an authoritative zero set", () => {
     expect(() =>
       assertEmptyNativeAdHydrationIsAuthoritative({

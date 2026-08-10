@@ -1,3 +1,8 @@
+import {
+  buildDefaultProviderDomains,
+  deriveProviderViewState,
+} from "@/store/integrations-support";
+import type { IntegrationProvider, ProviderDomainState } from "@/store/integrations-store";
 export type WorkspaceRole = "admin" | "collaborator" | "guest";
 
 export type MemberRow = {
@@ -74,4 +79,28 @@ export async function fetchWorkspaceTeam(selectedBusinessId: string) {
     members: membersPayload?.members ?? [],
     invites: invitesPayload?.invites ?? [],
   };
+}
+
+/**
+ * Provider health for the Settings surface.
+ *
+ * Settings used to judge health from the account-list snapshot alone, so a
+ * revoked token could read "Healthy" here while Integrations showed action
+ * required for the same provider at the same moment. Both surfaces now project
+ * this one derivation, so they cannot disagree.
+ */
+export function projectProviderHealth(
+  domains: Record<IntegrationProvider, ProviderDomainState> | undefined,
+  providers: readonly IntegrationProvider[] = ["meta", "google"],
+): Record<string, { label: string; value: string }> {
+  const resolved = domains ?? buildDefaultProviderDomains();
+  const health: Record<string, { label: string; value: string }> = {};
+  for (const provider of providers) {
+    const view = deriveProviderViewState(provider, resolved[provider]);
+    health[provider] = {
+      label: view.statusLabel,
+      value: view.errorMessage ?? view.notice ?? view.assignedSummary,
+    };
+  }
+  return health;
 }

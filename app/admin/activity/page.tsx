@@ -112,7 +112,7 @@ export default function AdminActivityPage() {
                     <span className="mr-1.5">{TARGET_ICONS[row.target_type] ?? "•"}</span>
                     <span className="text-xs text-gray-400 capitalize">{row.target_type}</span>
                     {row.target_id && (
-                      <p className="text-[10px] font-mono text-gray-300 mt-0.5">{row.target_id.slice(0, 18)}…</p>
+                      <p className="text-[12px] font-mono text-gray-300 mt-0.5">{row.target_id.slice(0, 18)}…</p>
                     )}
                   </td>
                   <td className="px-5 py-3.5 text-xs text-gray-400 max-w-xs">

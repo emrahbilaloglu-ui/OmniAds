@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getCustomReportById } from "@/lib/custom-report-store";
+import { getBusinessCurrency } from "@/lib/account-store";
 import { renderCustomReport, renderCustomReportRecord } from "@/lib/custom-report-renderer";
 
 export async function GET(
@@ -40,6 +41,7 @@ export async function GET(
     definition,
     startDateOverride: startDate ?? undefined,
     endDateOverride: endDate ?? undefined,
+    currency: await getBusinessCurrency(report.businessId),
   });
   return NextResponse.json({ report: rendered });
 }

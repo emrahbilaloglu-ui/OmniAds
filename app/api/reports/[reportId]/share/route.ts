@@ -1,3 +1,4 @@
+import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
 import { listUserBusinesses, requireBusinessAccess } from "@/lib/access";
 import { renderCustomReportRecord } from "@/lib/custom-report-renderer";
@@ -28,9 +29,26 @@ export async function POST(
     (item) => item.id === report.businessId,
   );
 
-  const body = (await request.json().catch(() => null)) as { expiryDays?: number } | null;
+  const body = (await request.json().catch(() => null)) as {
+    expiryDays?: number;
+    startDate?: string;
+    endDate?: string;
+  } | null;
   const expiryDays = body?.expiryDays === 1 || body?.expiryDays === 30 ? body.expiryDays : 7;
-  const rendered = await renderCustomReportRecord(request, report);
+
+  // Share the period the operator actually reviewed. Without these, the snapshot
+  // re-renders the report's stored trailing preset, so the client can receive a
+  // different window from the one that was approved on screen.
+  const isIsoDate = (value: unknown): value is string =>
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const viewStart = isIsoDate(body?.startDate) ? body.startDate : undefined;
+  const viewEnd = isIsoDate(body?.endDate) ? body.endDate : undefined;
+
+  const rendered = await renderCustomReportRecord(request, report, {
+    startDateOverride: viewStart && viewEnd ? viewStart : undefined,
+    endDateOverride: viewStart && viewEnd ? viewEnd : undefined,
+    currency: business?.currency ?? null,
+  });
   const expiresAt = new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000).toISOString();
   const snapshot = await createCustomReportShareSnapshot(report.id, {
     ...rendered,
@@ -39,6 +57,25 @@ export async function POST(
     currency: business?.currency ?? null,
     clientEmail: null,
   });
+
+  // Section 9: a share snapshot was created. No report content recorded.
+
+  await recordProductInstrumentationEvent({
+
+    businessId: report.businessId,
+
+    scope: "business",
+
+    eventName: "report_share_created",
+
+    surface: "reports",
+
+    outcome: "ok",
+
+    occurredAt: new Date().toISOString(),
+
+  });
+
 
   return NextResponse.json({
     token: snapshot.token,

@@ -1,9 +1,11 @@
+import { DECISION_AUTHORITY_BLOCKERS } from "@/lib/creative-decision-engine/types";
 import {
   getDb,
   getDbWithTimeout,
   runDbTransaction,
   type DbClient,
 } from "@/lib/db";
+import { META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL } from "@/lib/meta/duplicate-ad-reconciliation-store";
 import {
   encryptIntegrationSecret,
   isEncryptedIntegrationSecret,
@@ -60,6 +62,9 @@ let loggedMigrationSkip = false;
 const DEFAULT_MIGRATION_TIMEOUT_MS = 60_000;
 type MigrationBatchQuery = Promise<unknown>;
 const DESTRUCTIVE_COLUMN_DROP_LOCK_TIMEOUT_MS = 2_000;
+const AUTHORITY_BLOCKER_CHECK_VALUES_SQL = DECISION_AUTHORITY_BLOCKERS.map(
+  (value) => `'${value.replaceAll("'", "''")}'`,
+).join(", ");
 
 function authorityProvenanceSchemaSql(
   table: string,
@@ -113,6 +118,1470 @@ const NATIVE_AD_OUTCOME_PROVENANCE_SCHEMA_SQL = authorityProvenanceSchemaSql(
   "engine_v3_ad_outcomes",
   true,
 );
+
+/**
+ * Manual Meta status writes can end without a trustworthy provider outcome.
+ * This append-only event closes that quarantine only after a fresh exact GET,
+ * never by rewriting the original action log. Five minutes is the fixed,
+ * provider-generic settlement floor; the observation itself must be no more
+ * than sixty seconds old when it is persisted.
+ */
+export const META_AD_STATUS_RECONCILIATION_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS meta_ads_action_mutation_attempt_events (
+  id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_version           TEXT NOT NULL
+                               DEFAULT 'meta-manual-ad-status-mutation-attempt.v1'
+                               CHECK (
+                                 contract_version =
+                                   'meta-manual-ad-status-mutation-attempt.v1'
+                               ),
+  source_action_log_id       UUID NOT NULL,
+  business_id                UUID NOT NULL,
+  provider_account_ref_id    UUID NOT NULL,
+  provider_account_id        TEXT NOT NULL
+                               CHECK (length(btrim(provider_account_id)) > 0),
+  ad_id                      TEXT NOT NULL
+                               CHECK (length(btrim(ad_id)) > 0),
+  creative_id                TEXT NOT NULL
+                               CHECK (length(btrim(creative_id)) > 0),
+  campaign_id                TEXT NOT NULL
+                               CHECK (length(btrim(campaign_id)) > 0),
+  adset_id                   TEXT NOT NULL
+                               CHECK (length(btrim(adset_id)) > 0),
+  action                     TEXT NOT NULL
+                               CHECK (action IN ('pause', 'resume')),
+  attempt_id                 UUID NOT NULL,
+  event_kind                 TEXT NOT NULL
+                               CHECK (
+                                 event_kind IN (
+                                   'attempt_started',
+                                   'attempt_completed'
+                                 )
+                               ),
+  post_path                  TEXT NOT NULL
+                               CHECK (length(btrim(post_path)) > 0),
+  started_at                 TIMESTAMPTZ NOT NULL,
+  lease_deadline             TIMESTAMPTZ NOT NULL,
+  attempted_at               TIMESTAMPTZ,
+  completed_at               TIMESTAMPTZ,
+  completion_outcome         TEXT CHECK (
+                               completion_outcome IS NULL OR
+                               completion_outcome IN (
+                                 'provider_outcome_ambiguous',
+                                 'provider_response_succeeded_verification_failed',
+                                 'provider_response_verified_success',
+                                 'provider_definite_failure'
+                               )
+                             ),
+  provider_response_received BOOLEAN,
+  provider_response_successful BOOLEAN,
+  http_status                INTEGER,
+  provider_outcome           TEXT CHECK (
+                               provider_outcome IS NULL OR
+                               provider_outcome IN (
+                                 'outcome_ambiguous',
+                                 'definite_failure',
+                                 'provider_response_succeeded',
+                                 'verified_success'
+                               )
+                             ),
+  provider_response_json     JSONB,
+  verification_json          JSONB,
+  transport_error_json       JSONB,
+  evidence_json              JSONB NOT NULL
+                               CHECK (jsonb_typeof(evidence_json) = 'object'),
+  evidence_hash              CHAR(64) NOT NULL
+                               CHECK (evidence_hash ~ '^[0-9a-f]{64}$'),
+  created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT meta_ads_action_mutation_attempt_source_fk
+    FOREIGN KEY (source_action_log_id, business_id)
+    REFERENCES meta_ads_action_log (id, business_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT meta_ads_action_mutation_attempt_account_fk
+    FOREIGN KEY (provider_account_ref_id, provider_account_id)
+    REFERENCES provider_accounts (id, external_account_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT meta_ads_action_mutation_attempt_source_event_unique
+    UNIQUE (source_action_log_id, event_kind),
+  CONSTRAINT meta_ads_action_mutation_attempt_id_event_unique
+    UNIQUE (attempt_id, event_kind),
+  CONSTRAINT meta_ads_action_mutation_attempt_time_check CHECK (
+    lease_deadline > started_at AND
+    lease_deadline <= started_at + interval '2 minutes' AND
+    (
+      event_kind = 'attempt_started' OR (
+        attempted_at >= started_at AND
+        completed_at >= attempted_at AND
+        completed_at <= lease_deadline
+      )
+    )
+  ),
+  CONSTRAINT meta_ads_action_mutation_attempt_shape_check CHECK (
+    (
+      event_kind = 'attempt_started' AND
+      attempted_at IS NULL AND completed_at IS NULL AND
+      completion_outcome IS NULL AND
+      provider_response_received IS NULL AND
+      provider_response_successful IS NULL AND
+      http_status IS NULL AND provider_outcome IS NULL AND
+      provider_response_json IS NULL AND verification_json IS NULL AND
+      transport_error_json IS NULL
+    ) OR (
+      event_kind = 'attempt_completed' AND
+      attempted_at IS NOT NULL AND completed_at IS NOT NULL AND
+      completion_outcome IS NOT NULL AND
+      provider_response_received IS NOT NULL AND
+      provider_response_successful IS NOT NULL AND
+      provider_outcome IS NOT NULL
+    )
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_meta_ads_action_mutation_attempt_business_ad
+  ON meta_ads_action_mutation_attempt_events
+  (business_id, provider_account_id, ad_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION validate_meta_ads_action_mutation_attempt_event()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $meta_action_mutation_attempt_validation$
+DECLARE
+  source_action meta_ads_action_log%ROWTYPE;
+  started_event meta_ads_action_mutation_attempt_events%ROWTYPE;
+  evidence_target JSONB;
+  mutation_attempt JSONB;
+  verification_provider_get JSONB;
+  verification_creative JSONB;
+  verification_campaign JSONB;
+  verification_adset JSONB;
+  expected_verified_status TEXT;
+  verification_observed_at TIMESTAMPTZ;
+  verification_is_exact BOOLEAN;
+BEGIN
+  -- Attempt-event authority is anchored to the database commit path. Callers
+  -- cannot backdate created_at to make a stale provider observation appear
+  -- newer than a late completion.
+  NEW.created_at := clock_timestamp();
+
+  SELECT *
+    INTO source_action
+  FROM meta_ads_action_log
+  WHERE id = NEW.source_action_log_id
+  FOR UPDATE;
+
+  IF NOT FOUND
+     OR source_action.source = 'decision_origin'
+     OR source_action.action NOT IN ('pause', 'resume')
+     OR source_action.status <> 'pending'
+     OR source_action.creative_id IS NULL
+     OR source_action.payload_request->>'mutation_journal_contract_version'
+       IS DISTINCT FROM 'meta-manual-ad-status-mutation-attempt.v1'
+     OR source_action.payload_request->>'mutation_journal_required'
+       IS DISTINCT FROM 'true'
+     OR jsonb_typeof(
+       source_action.payload_request->'manual_status_mutation_target'
+     ) IS DISTINCT FROM 'object'
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'businessId'
+       IS DISTINCT FROM NEW.business_id::text
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'providerAccountId'
+       IS DISTINCT FROM NEW.provider_account_id
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'adId'
+       IS DISTINCT FROM NEW.ad_id
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'creativeId'
+       IS DISTINCT FROM NEW.creative_id
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'campaignId'
+       IS DISTINCT FROM NEW.campaign_id
+     OR source_action.payload_request
+       ->'manual_status_mutation_target'->>'adsetId'
+       IS DISTINCT FROM NEW.adset_id
+     OR EXISTS (
+       SELECT 1
+       FROM meta_ads_action_reconciliation_events reconciliation
+       WHERE reconciliation.source_action_log_id =
+         NEW.source_action_log_id
+     )
+     OR COALESCE(
+       source_action.payload_request->>'dry_run' = 'true',
+       source_action.dry_run,
+       false
+     )
+     OR NEW.business_id <> source_action.business_id
+     OR NEW.provider_account_id IS DISTINCT FROM
+       source_action.provider_account_id
+     OR NEW.ad_id <> source_action.ad_id
+     OR NEW.creative_id <> source_action.creative_id
+     OR NEW.action <> source_action.action
+     OR (
+       SELECT count(*)
+       FROM business_provider_accounts binding
+       WHERE binding.business_id = NEW.business_id::text
+         AND binding.provider = 'meta'
+         AND binding.provider_account_id = NEW.provider_account_id
+     ) <> 1
+     OR NOT EXISTS (
+       SELECT 1
+       FROM business_provider_accounts binding
+       WHERE binding.business_id = NEW.business_id::text
+         AND binding.provider = 'meta'
+         AND binding.provider_account_ref_id =
+           NEW.provider_account_ref_id
+         AND binding.provider_account_id = NEW.provider_account_id
+     ) THEN
+    RAISE EXCEPTION
+      'Manual Meta mutation attempt lineage is not an exact live pending action.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF trim(both '/' from NEW.post_path) <> NEW.ad_id
+     OR NEW.started_at <
+       date_trunc('milliseconds', source_action.requested_at)
+     OR (
+       NEW.event_kind = 'attempt_started' AND (
+         NEW.started_at < clock_timestamp() - interval '30 seconds'
+         OR NEW.started_at > clock_timestamp() + interval '5 seconds'
+       )
+     )
+     OR NEW.evidence_json->>'contractVersion' IS DISTINCT FROM
+       'meta-manual-ad-status-mutation-attempt.v1'
+     OR NEW.evidence_json->>'eventKind' IS DISTINCT FROM NEW.event_kind
+     OR NEW.evidence_json->>'sourceActionLogId' IS DISTINCT FROM
+       NEW.source_action_log_id::text
+     OR NEW.evidence_json->>'attemptId' IS DISTINCT FROM NEW.attempt_id::text
+     OR NEW.evidence_json->>'action' IS DISTINCT FROM NEW.action
+     OR NEW.evidence_json->>'postPath' IS DISTINCT FROM NEW.post_path
+     OR NEW.evidence_json->>'startedAt' IS DISTINCT FROM
+       to_char(NEW.started_at AT TIME ZONE 'UTC',
+         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+     OR NEW.evidence_json->>'leaseDeadline' IS DISTINCT FROM
+       to_char(NEW.lease_deadline AT TIME ZONE 'UTC',
+         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+     OR NEW.evidence_hash <>
+       encode(digest(NEW.evidence_json::text, 'sha256'), 'hex') THEN
+    RAISE EXCEPTION
+      'Manual Meta mutation attempt timing, path, or evidence is invalid.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  evidence_target := NEW.evidence_json->'target';
+  IF jsonb_typeof(evidence_target) IS DISTINCT FROM 'object'
+     OR evidence_target->>'businessId' IS DISTINCT FROM NEW.business_id::text
+     OR evidence_target->>'providerAccountRefId' IS DISTINCT FROM
+       NEW.provider_account_ref_id::text
+     OR evidence_target->>'providerAccountId' IS DISTINCT FROM
+       NEW.provider_account_id
+     OR evidence_target->>'adId' IS DISTINCT FROM NEW.ad_id
+     OR evidence_target->>'creativeId' IS DISTINCT FROM NEW.creative_id
+     OR evidence_target->>'campaignId' IS DISTINCT FROM NEW.campaign_id
+     OR evidence_target->>'adsetId' IS DISTINCT FROM NEW.adset_id THEN
+    RAISE EXCEPTION
+      'Manual Meta mutation attempt target evidence is not exact.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.event_kind = 'attempt_completed' THEN
+    SELECT *
+      INTO started_event
+    FROM meta_ads_action_mutation_attempt_events
+    WHERE source_action_log_id = NEW.source_action_log_id
+      AND event_kind = 'attempt_started'
+    FOR KEY SHARE;
+    IF NOT FOUND
+       OR NEW.attempt_id <> started_event.attempt_id
+       OR NEW.business_id <> started_event.business_id
+       OR NEW.provider_account_ref_id <>
+         started_event.provider_account_ref_id
+       OR NEW.provider_account_id <> started_event.provider_account_id
+       OR NEW.ad_id <> started_event.ad_id
+       OR NEW.creative_id <> started_event.creative_id
+       OR NEW.campaign_id <> started_event.campaign_id
+       OR NEW.adset_id <> started_event.adset_id
+       OR NEW.action <> started_event.action
+       OR NEW.post_path <> started_event.post_path
+       OR NEW.started_at <> started_event.started_at
+       OR NEW.lease_deadline <> started_event.lease_deadline THEN
+      RAISE EXCEPTION
+        'Manual Meta mutation completion does not match its immutable start.'
+        USING ERRCODE = '23514';
+    END IF;
+
+    mutation_attempt := NEW.evidence_json->'mutationAttempt';
+    verification_provider_get :=
+      NEW.verification_json->'providerGetEvidence';
+    verification_creative :=
+      verification_provider_get->'creative';
+    verification_campaign :=
+      verification_provider_get->'campaign';
+    verification_adset :=
+      verification_provider_get->'adset';
+    expected_verified_status :=
+      CASE NEW.action WHEN 'pause' THEN 'PAUSED' ELSE 'ACTIVE' END;
+    verification_observed_at := NULLIF(
+      NEW.verification_json->>'observedAt',
+      ''
+    )::timestamptz;
+    verification_is_exact :=
+      jsonb_typeof(NEW.verification_json) = 'object'
+      AND NEW.verification_json->>'contractVersion' =
+        'meta-ad-status-write-verification.v1'
+      AND btrim(NEW.verification_json->>'adId') = NEW.ad_id
+      AND btrim(NEW.verification_json->>'providerAccountId') =
+        NEW.provider_account_id
+      AND btrim(NEW.verification_json->>'creativeId') = NEW.creative_id
+      AND btrim(NEW.verification_json->>'campaignId') = NEW.campaign_id
+      AND btrim(NEW.verification_json->>'adsetId') = NEW.adset_id
+      AND upper(btrim(
+        NEW.verification_json->>'configuredStatus'
+      )) = expected_verified_status
+      AND upper(btrim(
+        NEW.verification_json->>'effectiveStatus'
+      )) = expected_verified_status
+      AND upper(btrim(
+        NEW.verification_json->>'campaignConfiguredStatus'
+      )) = 'ACTIVE'
+      AND upper(btrim(
+        NEW.verification_json->>'campaignEffectiveStatus'
+      )) = 'ACTIVE'
+      AND upper(btrim(
+        NEW.verification_json->>'adsetConfiguredStatus'
+      )) = 'ACTIVE'
+      AND upper(btrim(
+        NEW.verification_json->>'adsetEffectiveStatus'
+      )) = 'ACTIVE'
+      AND NEW.verification_json->'policyEligible' = 'true'::jsonb
+      AND NEW.verification_json->'reviewStatus' = 'null'::jsonb
+      AND verification_observed_at >= NEW.completed_at
+      AND verification_observed_at <= clock_timestamp()
+      AND jsonb_typeof(verification_provider_get) = 'object'
+      AND btrim(verification_provider_get->>'id') = NEW.ad_id
+      AND regexp_replace(
+        btrim(verification_provider_get->>'account_id'),
+        '^act_',
+        '',
+        'i'
+      ) = regexp_replace(
+        NEW.provider_account_id,
+        '^act_',
+        '',
+        'i'
+      )
+      AND upper(btrim(verification_provider_get->>'status')) =
+        expected_verified_status
+      AND upper(btrim(
+        verification_provider_get->>'effective_status'
+      )) = expected_verified_status
+      AND jsonb_typeof(verification_creative) = 'object'
+      AND btrim(verification_creative->>'id') = NEW.creative_id
+      AND jsonb_typeof(verification_campaign) = 'object'
+      AND btrim(verification_campaign->>'id') = NEW.campaign_id
+      AND upper(btrim(verification_campaign->>'status')) = 'ACTIVE'
+      AND upper(btrim(
+        verification_campaign->>'effective_status'
+      )) = 'ACTIVE'
+      AND jsonb_typeof(verification_adset) = 'object'
+      AND btrim(verification_adset->>'id') = NEW.adset_id
+      AND upper(btrim(verification_adset->>'status')) = 'ACTIVE'
+      AND upper(btrim(
+        verification_adset->>'effective_status'
+      )) = 'ACTIVE';
+    IF NEW.evidence_json->>'completionOutcome' IS DISTINCT FROM
+         NEW.completion_outcome
+       OR NEW.evidence_json->>'providerOutcome' IS DISTINCT FROM
+         NEW.provider_outcome
+       OR jsonb_typeof(mutation_attempt) IS DISTINCT FROM 'object'
+       OR mutation_attempt->'attemptCount' IS DISTINCT FROM '1'::jsonb
+       OR mutation_attempt->>'method' IS DISTINCT FROM 'POST'
+       OR mutation_attempt->>'path' IS DISTINCT FROM NEW.post_path
+       OR mutation_attempt->>'attemptedAt' IS DISTINCT FROM to_char(
+         NEW.attempted_at AT TIME ZONE 'UTC',
+         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+       )
+       OR mutation_attempt->>'completedAt' IS DISTINCT FROM to_char(
+         NEW.completed_at AT TIME ZONE 'UTC',
+         'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+       )
+       OR mutation_attempt->'providerResponseReceived' IS DISTINCT FROM
+         to_jsonb(NEW.provider_response_received)
+       OR mutation_attempt->'providerResponseSuccessful' IS DISTINCT FROM
+         to_jsonb(NEW.provider_response_successful)
+       OR mutation_attempt->'httpStatus' IS DISTINCT FROM
+         COALESCE(to_jsonb(NEW.http_status), 'null'::jsonb)
+       OR mutation_attempt->>'outcome' IS DISTINCT FROM
+         (CASE
+           WHEN NEW.provider_response_received
+             THEN 'provider_response_received'
+           ELSE 'outcome_ambiguous'
+         END)
+       OR mutation_attempt->'automaticRetryAttempted' IS DISTINCT FROM
+         'false'::jsonb
+       OR mutation_attempt->'transportError' IS DISTINCT FROM
+         COALESCE(NEW.transport_error_json, 'null'::jsonb)
+       OR NEW.evidence_json->'providerResponse' IS DISTINCT FROM
+         COALESCE(NEW.provider_response_json, 'null'::jsonb)
+       OR NEW.evidence_json->'verification' IS DISTINCT FROM
+         COALESCE(NEW.verification_json, 'null'::jsonb) THEN
+      RAISE EXCEPTION
+        'Manual Meta mutation completion evidence is not exact.'
+        USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.completion_outcome = 'provider_outcome_ambiguous' THEN
+      IF NEW.provider_outcome <> 'outcome_ambiguous'
+         OR NEW.provider_response_received
+         OR NEW.provider_response_successful
+         OR NEW.http_status IS NOT NULL
+         OR NEW.provider_response_json IS NOT NULL
+         OR NEW.verification_json IS NOT NULL
+         OR jsonb_typeof(NEW.transport_error_json) IS DISTINCT FROM
+           'object' THEN
+        RAISE EXCEPTION
+          'Manual Meta ambiguous mutation completion geometry is invalid.'
+          USING ERRCODE = '23514';
+      END IF;
+    ELSIF NEW.completion_outcome =
+      'provider_response_succeeded_verification_failed' THEN
+      IF NEW.provider_outcome <> 'provider_response_succeeded'
+         OR NOT NEW.provider_response_received
+         OR NOT NEW.provider_response_successful
+         OR NEW.http_status < 200
+         OR NEW.http_status >= 300
+         OR jsonb_typeof(NEW.provider_response_json) IS DISTINCT FROM
+           'object'
+         OR NEW.provider_response_json->>'success' IS DISTINCT FROM 'true'
+         OR jsonb_typeof(NEW.verification_json) IS DISTINCT FROM 'object'
+         OR NEW.verification_json = '{}'::jsonb
+         OR verification_is_exact IS TRUE
+         OR NEW.transport_error_json IS NOT NULL THEN
+        RAISE EXCEPTION
+          'Manual Meta verification-failed mutation geometry is invalid.'
+          USING ERRCODE = '23514';
+      END IF;
+    ELSIF NEW.completion_outcome = 'provider_response_verified_success' THEN
+      IF NEW.provider_outcome <> 'verified_success'
+         OR NOT NEW.provider_response_received
+         OR NOT NEW.provider_response_successful
+         OR NEW.http_status < 200
+         OR NEW.http_status >= 300
+         OR jsonb_typeof(NEW.provider_response_json) IS DISTINCT FROM
+           'object'
+         OR NEW.provider_response_json->>'success' IS DISTINCT FROM 'true'
+         OR jsonb_typeof(NEW.verification_json) IS DISTINCT FROM 'object'
+         OR verification_is_exact IS DISTINCT FROM TRUE
+         OR NEW.transport_error_json IS NOT NULL THEN
+        RAISE EXCEPTION
+          'Manual Meta verified mutation completion geometry is invalid.'
+          USING ERRCODE = '23514';
+      END IF;
+    ELSIF NEW.completion_outcome = 'provider_definite_failure' THEN
+      IF NEW.provider_outcome <> 'definite_failure'
+         OR NOT NEW.provider_response_received
+         OR NEW.provider_response_successful
+         OR NEW.http_status IS NULL
+         OR (
+           NEW.http_status < 400 AND
+           jsonb_typeof(NEW.provider_response_json->'error') IS DISTINCT FROM
+             'object'
+         )
+         OR jsonb_typeof(NEW.provider_response_json) IS DISTINCT FROM
+           'object'
+         OR NEW.verification_json IS NOT NULL
+         OR NEW.transport_error_json IS NOT NULL THEN
+        RAISE EXCEPTION
+          'Manual Meta definite-failure mutation geometry is invalid.'
+          USING ERRCODE = '23514';
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END
+$meta_action_mutation_attempt_validation$;
+
+DO $meta_action_mutation_attempt_validation_trigger$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgrelid =
+      'meta_ads_action_mutation_attempt_events'::regclass
+      AND tgname = 'trg_meta_ads_action_mutation_attempt_validate'
+      AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER trg_meta_ads_action_mutation_attempt_validate
+    BEFORE INSERT ON meta_ads_action_mutation_attempt_events
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_meta_ads_action_mutation_attempt_event();
+  END IF;
+END
+$meta_action_mutation_attempt_validation_trigger$;
+
+CREATE OR REPLACE FUNCTION reject_meta_ads_action_mutation_attempt_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $meta_action_mutation_attempt_immutable$
+BEGIN
+  RAISE EXCEPTION
+    'meta_ads_action_mutation_attempt_events is append-only.'
+    USING ERRCODE = '55000';
+END
+$meta_action_mutation_attempt_immutable$;
+
+DO $meta_action_mutation_attempt_immutable_trigger$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgrelid =
+      'meta_ads_action_mutation_attempt_events'::regclass
+      AND tgname = 'trg_meta_ads_action_mutation_attempt_immutable'
+      AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER trg_meta_ads_action_mutation_attempt_immutable
+    BEFORE UPDATE OR DELETE ON meta_ads_action_mutation_attempt_events
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_meta_ads_action_mutation_attempt_mutation();
+  END IF;
+END
+$meta_action_mutation_attempt_immutable_trigger$;
+
+CREATE TABLE IF NOT EXISTS meta_ads_action_reconciliation_events (
+  id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contract_version           TEXT NOT NULL
+                               DEFAULT 'meta-manual-ad-status-reconciliation.v1'
+                               CHECK (
+                                 contract_version =
+                                   'meta-manual-ad-status-reconciliation.v1'
+                               ),
+  source_action_log_id       UUID NOT NULL,
+  source_attempt_id          UUID,
+  source_attempt_completed_event_id UUID,
+  business_id                UUID NOT NULL,
+  provider_account_ref_id    UUID NOT NULL,
+  source_provider_account_id TEXT,
+  provider_account_id        TEXT NOT NULL
+                               CHECK (length(btrim(provider_account_id)) > 0),
+  ad_id                      TEXT NOT NULL
+                               CHECK (length(btrim(ad_id)) > 0),
+  creative_id                TEXT NOT NULL
+                               CHECK (length(btrim(creative_id)) > 0),
+  campaign_id                TEXT NOT NULL
+                               CHECK (length(btrim(campaign_id)) > 0),
+  adset_id                   TEXT NOT NULL
+                               CHECK (length(btrim(adset_id)) > 0),
+  action                     TEXT NOT NULL
+                               CHECK (action IN ('pause', 'resume')),
+  source_authority_kind      TEXT NOT NULL CHECK (
+                               source_authority_kind IN (
+                                 'completed_attempt',
+                                 'lease_expired_started',
+                                 'pre_provider_no_attempt',
+                                 'legacy_quarantine'
+                               )
+                             ),
+  source_outcome             TEXT NOT NULL CHECK (
+                               source_outcome IN (
+                                 'provider_outcome_ambiguous',
+                                 'provider_response_succeeded_verification_failed',
+                                 'provider_response_verified_success',
+                                 'provider_definite_failure',
+                                 'attempt_lease_expired_without_completion',
+                                 'pre_provider_no_mutation_attempt',
+                                 'legacy_precontract_quarantine_elapsed'
+                               )
+                             ),
+  source_requested_at        TIMESTAMPTZ NOT NULL,
+  source_lease_deadline      TIMESTAMPTZ,
+  source_attempted_at        TIMESTAMPTZ,
+  source_completed_at        TIMESTAMPTZ,
+  source_terminal_finalized_at TIMESTAMPTZ,
+  source_legacy_anchor_at    TIMESTAMPTZ,
+  settlement_not_before     TIMESTAMPTZ NOT NULL,
+  resolution                 TEXT NOT NULL CHECK (
+                               resolution IN (
+                                 'current_state_matches_requested',
+                                 'current_state_matches_precondition'
+                               )
+                             ),
+  requested_status           TEXT NOT NULL
+                               CHECK (requested_status IN ('ACTIVE', 'PAUSED')),
+  observed_status            TEXT NOT NULL
+                               CHECK (observed_status IN ('ACTIVE', 'PAUSED')),
+  observed_effective_status  TEXT NOT NULL
+                               CHECK (
+                                 observed_effective_status IN (
+                                   'ACTIVE',
+                                   'PAUSED'
+                                 )
+                               ),
+  observed_campaign_status   TEXT NOT NULL
+                               CHECK (
+                                 observed_campaign_status IN (
+                                   'ACTIVE',
+                                   'PAUSED'
+                                 )
+                               ),
+  observed_campaign_effective_status TEXT NOT NULL
+                               CHECK (
+                                 observed_campaign_effective_status IN (
+                                   'ACTIVE',
+                                   'PAUSED'
+                                 )
+                               ),
+  observed_adset_status      TEXT NOT NULL
+                               CHECK (
+                                 observed_adset_status IN (
+                                   'ACTIVE',
+                                   'PAUSED'
+                                 )
+                               ),
+  observed_adset_effective_status TEXT NOT NULL
+                               CHECK (
+                                 observed_adset_effective_status IN (
+                                   'ACTIVE',
+                                   'PAUSED'
+                                 )
+                               ),
+  policy_eligible            BOOLEAN NOT NULL CHECK (policy_eligible),
+  review_status              TEXT,
+  observed_at                TIMESTAMPTZ NOT NULL,
+  captured_at                TIMESTAMPTZ NOT NULL,
+  evidence_json              JSONB NOT NULL
+                               CHECK (jsonb_typeof(evidence_json) = 'object'),
+  evidence_hash              CHAR(64) NOT NULL
+                               CHECK (evidence_hash ~ '^[0-9a-f]{64}$'),
+  created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT meta_ads_action_reconciliation_source_action_fk
+    FOREIGN KEY (source_action_log_id, business_id)
+    REFERENCES meta_ads_action_log (id, business_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT meta_ads_action_reconciliation_attempt_event_fk
+    FOREIGN KEY (source_attempt_completed_event_id)
+    REFERENCES meta_ads_action_mutation_attempt_events (id)
+    ON DELETE RESTRICT,
+  CONSTRAINT meta_ads_action_reconciliation_account_fk
+    FOREIGN KEY (provider_account_ref_id, provider_account_id)
+    REFERENCES provider_accounts (id, external_account_id)
+    ON DELETE RESTRICT,
+  CONSTRAINT meta_ads_action_reconciliation_source_unique
+    UNIQUE (source_action_log_id),
+  CONSTRAINT meta_ads_action_reconciliation_source_account_check CHECK (
+    source_provider_account_id IS NULL OR
+    source_provider_account_id = provider_account_id
+  ),
+  CONSTRAINT meta_ads_action_reconciliation_requested_status_check CHECK (
+    (action = 'pause' AND requested_status = 'PAUSED') OR
+    (action = 'resume' AND requested_status = 'ACTIVE')
+  ),
+  CONSTRAINT meta_ads_action_reconciliation_resolution_geometry_check CHECK (
+    observed_effective_status = observed_status AND
+    observed_campaign_status = 'ACTIVE' AND
+    observed_campaign_effective_status = 'ACTIVE' AND
+    observed_adset_status = 'ACTIVE' AND
+    observed_adset_effective_status = 'ACTIVE' AND
+    review_status IS NULL AND
+    (
+      (
+        resolution = 'current_state_matches_requested' AND
+        observed_status = requested_status
+      ) OR (
+        resolution = 'current_state_matches_precondition' AND
+        observed_status <> requested_status
+      )
+    )
+  ),
+  CONSTRAINT meta_ads_action_reconciliation_time_check CHECK (
+    (
+      (
+        source_authority_kind = 'completed_attempt' AND
+        source_attempt_id IS NOT NULL AND
+        source_attempt_completed_event_id IS NOT NULL AND
+        source_lease_deadline IS NOT NULL AND
+        source_attempted_at >= source_requested_at AND
+        source_completed_at >= source_attempted_at AND
+        source_completed_at <= source_lease_deadline AND
+        source_legacy_anchor_at IS NULL AND
+        settlement_not_before =
+          source_completed_at + interval '5 minutes' AND
+        (
+          source_terminal_finalized_at IS NULL OR (
+            source_terminal_finalized_at >= source_completed_at AND
+            observed_at >= source_terminal_finalized_at
+          )
+        )
+      ) OR (
+        source_authority_kind = 'lease_expired_started' AND
+        source_outcome =
+          'attempt_lease_expired_without_completion' AND
+        source_attempt_id IS NOT NULL AND
+        source_attempt_completed_event_id IS NULL AND
+        source_lease_deadline IS NOT NULL AND
+        source_attempted_at IS NULL AND
+        source_completed_at IS NULL AND
+        source_terminal_finalized_at IS NULL AND
+        source_legacy_anchor_at IS NULL AND
+        settlement_not_before =
+          source_lease_deadline + interval '5 minutes'
+      ) OR (
+        source_authority_kind = 'pre_provider_no_attempt' AND
+        source_outcome = 'pre_provider_no_mutation_attempt' AND
+        source_attempt_id IS NULL AND
+        source_attempt_completed_event_id IS NULL AND
+        source_lease_deadline IS NULL AND
+        source_attempted_at IS NULL AND
+        source_completed_at IS NULL AND
+        source_terminal_finalized_at IS NULL AND
+        source_legacy_anchor_at IS NULL AND
+        settlement_not_before =
+          source_requested_at + interval '5 minutes'
+      ) OR (
+        source_authority_kind = 'legacy_quarantine' AND
+        source_outcome = 'legacy_precontract_quarantine_elapsed' AND
+        source_attempt_id IS NULL AND
+        source_attempt_completed_event_id IS NULL AND
+        source_lease_deadline IS NULL AND
+        source_attempted_at IS NULL AND
+        source_completed_at IS NULL AND
+        source_terminal_finalized_at IS NULL AND
+        source_legacy_anchor_at IS NOT NULL AND
+        settlement_not_before =
+          source_legacy_anchor_at + interval '7 days'
+      )
+    ) AND
+    observed_at >= settlement_not_before AND
+    captured_at >= observed_at AND
+    captured_at - observed_at <= interval '60 seconds'
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_meta_ads_action_reconciliation_business_ad
+  ON meta_ads_action_reconciliation_events
+  (business_id, provider_account_id, ad_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION validate_meta_ads_action_reconciliation_event()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $meta_action_reconciliation_validation$
+DECLARE
+  source_action meta_ads_action_log%ROWTYPE;
+  started_event meta_ads_action_mutation_attempt_events%ROWTYPE;
+  completed_event meta_ads_action_mutation_attempt_events%ROWTYPE;
+  expected_requested_status TEXT;
+  provider_get JSONB;
+  provider_creative JSONB;
+  provider_campaign JSONB;
+  provider_adset JSONB;
+  resolved_target JSONB;
+  policy_proof JSONB;
+  source_authority_evidence JSONB;
+  pre_provider_target JSONB;
+  legacy_anchor TIMESTAMPTZ;
+  dimension_count INTEGER;
+  exact_dimension_count INTEGER;
+  unresolved_source_count INTEGER;
+BEGIN
+  SELECT *
+    INTO source_action
+  FROM meta_ads_action_log
+  WHERE id = NEW.source_action_log_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation source action does not exist.'
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF source_action.source = 'decision_origin'
+     OR source_action.action NOT IN ('pause', 'resume')
+     OR source_action.status NOT IN ('pending', 'silent_failure')
+     OR source_action.creative_id IS NULL
+     OR COALESCE(
+       source_action.payload_request->>'dry_run' = 'true',
+       source_action.dry_run,
+       false
+     ) THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation requires a live manual silent_failure source.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.business_id <> source_action.business_id
+     OR NEW.ad_id <> source_action.ad_id
+     OR NEW.creative_id <> source_action.creative_id
+     OR NEW.action <> source_action.action
+     OR NEW.source_requested_at <>
+       date_trunc('milliseconds', source_action.requested_at)
+     OR NEW.source_terminal_finalized_at IS DISTINCT FROM
+       date_trunc('milliseconds', source_action.terminal_finalized_at)
+     OR NEW.source_provider_account_id IS DISTINCT FROM
+       source_action.provider_account_id
+     OR (
+       source_action.provider_account_id IS NOT NULL AND
+       NEW.provider_account_id <> source_action.provider_account_id
+     ) THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation lineage does not match its source action.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM business_provider_accounts binding
+    WHERE binding.business_id = NEW.business_id::text
+      AND binding.provider = 'meta'
+      AND binding.provider_account_id = NEW.provider_account_id
+  ) <> 1 OR NOT EXISTS (
+    SELECT 1
+    FROM business_provider_accounts binding
+    WHERE binding.business_id = NEW.business_id::text
+      AND binding.provider = 'meta'
+      AND binding.provider_account_ref_id = NEW.provider_account_ref_id
+      AND binding.provider_account_id = NEW.provider_account_id
+  ) THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation account binding is not exact.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  SELECT count(*)::integer
+    INTO unresolved_source_count
+  FROM meta_ads_action_log unresolved
+  WHERE unresolved.business_id = NEW.business_id
+    AND unresolved.ad_id = NEW.ad_id
+    AND unresolved.source <> 'decision_origin'
+    AND unresolved.action IN ('pause', 'resume')
+    AND unresolved.status IN ('pending', 'silent_failure')
+    AND NOT COALESCE(
+      unresolved.payload_request->>'dry_run' = 'true',
+      unresolved.dry_run,
+      false
+    )
+    AND (
+      unresolved.provider_account_id = NEW.provider_account_id
+      OR unresolved.provider_account_id IS NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM meta_ads_action_reconciliation_events prior
+      WHERE prior.source_action_log_id = unresolved.id
+    );
+  IF unresolved_source_count <> 1 THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation requires exactly one unresolved source.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.source_authority_kind = 'completed_attempt' THEN
+    SELECT *
+      INTO completed_event
+    FROM meta_ads_action_mutation_attempt_events
+    WHERE id = NEW.source_attempt_completed_event_id
+      AND source_action_log_id = NEW.source_action_log_id
+      AND event_kind = 'attempt_completed'
+    FOR KEY SHARE;
+    SELECT *
+      INTO started_event
+    FROM meta_ads_action_mutation_attempt_events
+    WHERE source_action_log_id = NEW.source_action_log_id
+      AND event_kind = 'attempt_started'
+    FOR KEY SHARE;
+    IF completed_event.id IS NULL
+       OR started_event.id IS NULL
+       OR completed_event.attempt_id <> NEW.source_attempt_id
+       OR started_event.attempt_id <> NEW.source_attempt_id
+       OR completed_event.completion_outcome <> NEW.source_outcome
+       OR completed_event.business_id <> NEW.business_id
+       OR completed_event.provider_account_ref_id <>
+         NEW.provider_account_ref_id
+       OR completed_event.provider_account_id <> NEW.provider_account_id
+       OR completed_event.ad_id <> NEW.ad_id
+       OR completed_event.creative_id <> NEW.creative_id
+       OR completed_event.campaign_id <> NEW.campaign_id
+       OR completed_event.adset_id <> NEW.adset_id
+       OR completed_event.action <> NEW.action
+       OR completed_event.lease_deadline <> NEW.source_lease_deadline
+       OR completed_event.attempted_at <> NEW.source_attempted_at
+       OR completed_event.completed_at <> NEW.source_completed_at
+       OR NEW.observed_at < completed_event.created_at THEN
+      RAISE EXCEPTION
+        'Manual Meta status reconciliation lacks exact completed-attempt authority.'
+        USING ERRCODE = '23514';
+    END IF;
+    source_authority_evidence := completed_event.evidence_json;
+  ELSIF NEW.source_authority_kind = 'lease_expired_started' THEN
+    SELECT *
+      INTO started_event
+    FROM meta_ads_action_mutation_attempt_events
+    WHERE source_action_log_id = NEW.source_action_log_id
+      AND event_kind = 'attempt_started'
+    FOR KEY SHARE;
+    IF started_event.id IS NULL
+       OR started_event.attempt_id <> NEW.source_attempt_id
+       OR started_event.business_id <> NEW.business_id
+       OR started_event.provider_account_ref_id <>
+         NEW.provider_account_ref_id
+       OR started_event.provider_account_id <> NEW.provider_account_id
+       OR started_event.ad_id <> NEW.ad_id
+       OR started_event.creative_id <> NEW.creative_id
+       OR started_event.campaign_id <> NEW.campaign_id
+       OR started_event.adset_id <> NEW.adset_id
+       OR started_event.action <> NEW.action
+       OR started_event.lease_deadline <> NEW.source_lease_deadline
+       OR EXISTS (
+         SELECT 1
+         FROM meta_ads_action_mutation_attempt_events completion
+         WHERE completion.source_action_log_id = NEW.source_action_log_id
+           AND completion.event_kind = 'attempt_completed'
+       ) THEN
+      RAISE EXCEPTION
+        'Manual Meta status reconciliation lacks exact expired-start authority.'
+        USING ERRCODE = '23514';
+    END IF;
+    source_authority_evidence := started_event.evidence_json;
+  ELSIF NEW.source_authority_kind = 'pre_provider_no_attempt' THEN
+    pre_provider_target :=
+      source_action.payload_request->'manual_status_mutation_target';
+    IF source_action.status <> 'pending'
+       OR source_action.payload_request->>'mutation_journal_contract_version'
+         IS DISTINCT FROM
+         'meta-manual-ad-status-mutation-attempt.v1'
+       OR source_action.payload_request->>'mutation_journal_required'
+         IS DISTINCT FROM 'true'
+       OR jsonb_typeof(pre_provider_target) IS DISTINCT FROM 'object'
+       OR pre_provider_target->>'businessId' IS DISTINCT FROM
+         NEW.business_id::text
+       OR pre_provider_target->>'providerAccountId' IS DISTINCT FROM
+         NEW.provider_account_id
+       OR pre_provider_target->>'adId' IS DISTINCT FROM NEW.ad_id
+       OR pre_provider_target->>'creativeId' IS DISTINCT FROM NEW.creative_id
+       OR pre_provider_target->>'campaignId' IS DISTINCT FROM NEW.campaign_id
+       OR pre_provider_target->>'adsetId' IS DISTINCT FROM NEW.adset_id
+       OR EXISTS (
+         SELECT 1
+         FROM meta_ads_action_mutation_attempt_events attempt
+         WHERE attempt.source_action_log_id = NEW.source_action_log_id
+       ) THEN
+      RAISE EXCEPTION
+        'Manual Meta status reconciliation lacks exact pre-provider authority.'
+        USING ERRCODE = '23514';
+    END IF;
+    source_authority_evidence := jsonb_build_object(
+      'contractVersion', 'meta-manual-ad-status-mutation-attempt.v1',
+      'authority', 'pre_provider_no_attempt',
+      'sourceActionLogId', NEW.source_action_log_id::text,
+      'target', pre_provider_target
+    );
+  ELSIF NEW.source_authority_kind = 'legacy_quarantine' THEN
+    legacy_anchor := date_trunc('milliseconds', GREATEST(
+      source_action.requested_at,
+      source_action.updated_at,
+      source_action.verified_at
+    ));
+    SELECT
+      count(*)::integer,
+      count(*) FILTER (
+        WHERE provider_account_ref_id = NEW.provider_account_ref_id
+          AND provider_account_id = NEW.provider_account_id
+          AND creative_id = NEW.creative_id
+          AND campaign_id = NEW.campaign_id
+          AND adset_id = NEW.adset_id
+      )::integer
+    INTO dimension_count, exact_dimension_count
+    FROM meta_ad_dimensions
+    WHERE business_id = NEW.business_id::text
+      AND ad_id = NEW.ad_id;
+    IF source_action.status <> 'silent_failure'
+       OR source_action.provider_account_id IS NOT NULL
+       OR source_action.terminal_finalized_at IS NOT NULL
+       OR NEW.source_legacy_anchor_at <> legacy_anchor
+       OR dimension_count <> 1
+       OR exact_dimension_count <> 1
+       OR EXISTS (
+         SELECT 1
+         FROM meta_ads_action_mutation_attempt_events attempt
+         WHERE attempt.source_action_log_id = NEW.source_action_log_id
+       ) THEN
+      RAISE EXCEPTION
+        'Legacy manual Meta reconciliation lacks one quarantined exact target.'
+        USING ERRCODE = '23514';
+    END IF;
+    source_authority_evidence := jsonb_build_object(
+      'contractVersion', 'meta-manual-ad-status-legacy-quarantine.v1',
+      'authority', 'legacy_quarantine',
+      'sourceActionLogId', NEW.source_action_log_id::text,
+      'anchorAt', to_char(
+        NEW.source_legacy_anchor_at AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+      ),
+      'settlementNotBefore', to_char(
+        NEW.settlement_not_before AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+      ),
+      'target', jsonb_build_object(
+        'businessId', NEW.business_id::text,
+        'providerAccountRefId', NEW.provider_account_ref_id::text,
+        'providerAccountId', NEW.provider_account_id,
+        'adId', NEW.ad_id,
+        'creativeId', NEW.creative_id,
+        'campaignId', NEW.campaign_id,
+        'adsetId', NEW.adset_id
+      )
+    );
+  ELSE
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation authority kind is unsupported.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.observed_at < NEW.settlement_not_before
+     OR (
+       source_action.terminal_finalized_at IS NOT NULL AND
+       NEW.observed_at < source_action.terminal_finalized_at
+     ) THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation observation predates authority settlement.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.captured_at < clock_timestamp() - interval '30 seconds'
+     OR NEW.captured_at > clock_timestamp() + interval '5 seconds' THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation capture time is not current.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  expected_requested_status :=
+    CASE NEW.action WHEN 'pause' THEN 'PAUSED' ELSE 'ACTIVE' END;
+  IF NEW.requested_status <> expected_requested_status THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation requested status is contradictory.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  provider_get := NEW.evidence_json->'providerGet';
+  provider_creative := provider_get->'creative';
+  provider_campaign := provider_get->'campaign';
+  provider_adset := provider_get->'adset';
+  resolved_target := NEW.evidence_json->'resolvedTarget';
+  policy_proof := NEW.evidence_json->'policyProof';
+  IF NEW.evidence_json->>'contractVersion' IS DISTINCT FROM
+       'meta-manual-ad-status-reconciliation.v1'
+     OR NEW.evidence_json->'sourceMutation' IS DISTINCT FROM
+       source_authority_evidence
+     OR jsonb_typeof(provider_get) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(provider_creative) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(provider_campaign) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(provider_adset) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(resolved_target) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(policy_proof) IS DISTINCT FROM 'object'
+     OR btrim(provider_get->>'id') IS DISTINCT FROM NEW.ad_id
+     OR regexp_replace(
+       btrim(provider_get->>'account_id'),
+       '^act_',
+       '',
+       'i'
+     ) IS DISTINCT FROM regexp_replace(
+       NEW.provider_account_id,
+       '^act_',
+       '',
+       'i'
+     )
+     OR upper(btrim(provider_get->>'status')) IS DISTINCT FROM
+       NEW.observed_status
+     OR upper(btrim(provider_get->>'effective_status')) IS DISTINCT FROM
+       NEW.observed_effective_status
+     OR btrim(provider_creative->>'id') IS DISTINCT FROM NEW.creative_id
+     OR btrim(provider_campaign->>'id') IS DISTINCT FROM NEW.campaign_id
+     OR upper(btrim(provider_campaign->>'status')) IS DISTINCT FROM
+       NEW.observed_campaign_status
+     OR upper(btrim(provider_campaign->>'effective_status')) IS DISTINCT FROM
+       NEW.observed_campaign_effective_status
+     OR btrim(provider_adset->>'id') IS DISTINCT FROM NEW.adset_id
+     OR upper(btrim(provider_adset->>'status')) IS DISTINCT FROM
+       NEW.observed_adset_status
+     OR upper(btrim(provider_adset->>'effective_status')) IS DISTINCT FROM
+       NEW.observed_adset_effective_status
+     OR resolved_target->>'businessId' IS DISTINCT FROM NEW.business_id::text
+     OR resolved_target->>'providerAccountId' IS DISTINCT FROM
+       NEW.provider_account_id
+     OR resolved_target->>'adId' IS DISTINCT FROM NEW.ad_id
+     OR resolved_target->>'creativeId' IS DISTINCT FROM NEW.creative_id
+     OR resolved_target->>'campaignId' IS DISTINCT FROM NEW.campaign_id
+     OR resolved_target->>'adsetId' IS DISTINCT FROM NEW.adset_id
+     OR policy_proof->>'eligible' IS DISTINCT FROM 'true'
+     OR policy_proof->'reviewStatus' IS DISTINCT FROM 'null'::jsonb
+     OR policy_proof->>'basis' IS DISTINCT FROM
+       'exact_configured_effective_statuses'
+     OR NEW.policy_eligible IS DISTINCT FROM true
+     OR NEW.review_status IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation evidence is not exact.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.evidence_hash <>
+       encode(digest(NEW.evidence_json::text, 'sha256'), 'hex') THEN
+    RAISE EXCEPTION
+      'Manual Meta status reconciliation evidence hash is invalid.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END
+$meta_action_reconciliation_validation$;
+
+DO $meta_action_reconciliation_validation_trigger$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgrelid = 'meta_ads_action_reconciliation_events'::regclass
+      AND tgname = 'trg_meta_ads_action_reconciliation_validate'
+      AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER trg_meta_ads_action_reconciliation_validate
+    BEFORE INSERT ON meta_ads_action_reconciliation_events
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_meta_ads_action_reconciliation_event();
+  END IF;
+END
+$meta_action_reconciliation_validation_trigger$;
+
+CREATE OR REPLACE FUNCTION reject_meta_ads_action_reconciliation_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $meta_action_reconciliation_immutable$
+BEGIN
+  RAISE EXCEPTION
+    'meta_ads_action_reconciliation_events is append-only.'
+    USING ERRCODE = '55000';
+END
+$meta_action_reconciliation_immutable$;
+
+DO $meta_action_reconciliation_immutable_trigger$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgrelid = 'meta_ads_action_reconciliation_events'::regclass
+      AND tgname = 'trg_meta_ads_action_reconciliation_immutable'
+      AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER trg_meta_ads_action_reconciliation_immutable
+    BEFORE UPDATE OR DELETE ON meta_ads_action_reconciliation_events
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_meta_ads_action_reconciliation_mutation();
+  END IF;
+END
+$meta_action_reconciliation_immutable_trigger$;
+
+CREATE OR REPLACE FUNCTION validate_manual_meta_ads_action_terminalization()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $manual_meta_action_terminal_validation$
+DECLARE
+  old_journal_required BOOLEAN;
+  new_journal_required BOOLEAN;
+  started_count INTEGER;
+  completed_count INTEGER;
+  completed_outcome TEXT;
+  completed_event meta_ads_action_mutation_attempt_events%ROWTYPE;
+  pre_provider_proof BOOLEAN;
+  durable_target JSONB;
+BEGIN
+  old_journal_required := COALESCE((
+    OLD.source <> 'decision_origin'
+    AND OLD.action IN ('pause', 'resume')
+    AND NOT COALESCE(
+      OLD.payload_request->>'dry_run' = 'true',
+      OLD.dry_run,
+      false
+    )
+    AND OLD.payload_request->>'mutation_journal_contract_version' =
+      'meta-manual-ad-status-mutation-attempt.v1'
+    AND OLD.payload_request->>'mutation_journal_required' = 'true'
+  ), FALSE);
+  new_journal_required := COALESCE((
+    NEW.source <> 'decision_origin'
+    AND NEW.action IN ('pause', 'resume')
+    AND NOT COALESCE(
+      NEW.payload_request->>'dry_run' = 'true',
+      NEW.dry_run,
+      false
+    )
+    AND NEW.payload_request->>'mutation_journal_contract_version' =
+      'meta-manual-ad-status-mutation-attempt.v1'
+    AND NEW.payload_request->>'mutation_journal_required' = 'true'
+  ), FALSE);
+
+  IF NOT old_journal_required AND NOT new_journal_required THEN
+    RETURN NEW;
+  END IF;
+
+  IF old_journal_required IS DISTINCT FROM new_journal_required
+     OR NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.business_id IS DISTINCT FROM OLD.business_id
+     OR NEW.provider_account_ref_id IS DISTINCT FROM
+       OLD.provider_account_ref_id
+     OR NEW.provider_account_id IS DISTINCT FROM OLD.provider_account_id
+     OR NEW.ad_id IS DISTINCT FROM OLD.ad_id
+     OR NEW.creative_id IS DISTINCT FROM OLD.creative_id
+     OR NEW.action IS DISTINCT FROM OLD.action
+     OR NEW.source IS DISTINCT FROM OLD.source
+     OR NEW.requested_by IS DISTINCT FROM OLD.requested_by
+     OR NEW.requested_at IS DISTINCT FROM OLD.requested_at
+     OR NEW.payload_request IS DISTINCT FROM OLD.payload_request
+     OR NEW.rec_id_origin IS DISTINCT FROM OLD.rec_id_origin
+     OR NEW.launch_intent_id IS DISTINCT FROM OLD.launch_intent_id
+     OR NEW.decision_contract_version IS DISTINCT FROM
+       OLD.decision_contract_version
+     OR NEW.decision_episode_key IS DISTINCT FROM OLD.decision_episode_key
+     OR NEW.decision_snapshot_id IS DISTINCT FROM OLD.decision_snapshot_id
+     OR NEW.decision_evaluation_id IS DISTINCT FROM
+       OLD.decision_evaluation_id
+     OR NEW.decision_engine_version IS DISTINCT FROM
+       OLD.decision_engine_version
+     OR NEW.decision_hash IS DISTINCT FROM OLD.decision_hash
+     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+     OR NEW.dry_run IS DISTINCT FROM OLD.dry_run
+     OR NEW.provider_verified IS DISTINCT FROM OLD.provider_verified
+     OR NEW.verification_entity_id IS DISTINCT FROM
+       OLD.verification_entity_id
+     OR NEW.verification_status IS DISTINCT FROM OLD.verification_status
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION
+      'Journal-required manual Meta claim identity and envelope are immutable.'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF OLD.status <> 'pending'
+     OR OLD.terminal_finalized_at IS NOT NULL THEN
+    IF NEW.status IS DISTINCT FROM OLD.status
+       OR NEW.payload_response IS DISTINCT FROM OLD.payload_response
+       OR NEW.error_code IS DISTINCT FROM OLD.error_code
+       OR NEW.error_message IS DISTINCT FROM OLD.error_message
+       OR NEW.resulting_ad_id IS DISTINCT FROM OLD.resulting_ad_id
+       OR NEW.duration_ms IS DISTINCT FROM OLD.duration_ms
+       OR NEW.verified_at IS DISTINCT FROM OLD.verified_at
+       OR NEW.verification_payload IS DISTINCT FROM
+         OLD.verification_payload
+       OR NEW.terminal_finalized_at IS DISTINCT FROM
+         OLD.terminal_finalized_at THEN
+      RAISE EXCEPTION
+        'Journal-required manual Meta terminal fact is immutable.'
+        USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status = 'pending' THEN
+    IF NEW.payload_response IS DISTINCT FROM OLD.payload_response
+       OR NEW.error_code IS DISTINCT FROM OLD.error_code
+       OR NEW.error_message IS DISTINCT FROM OLD.error_message
+       OR NEW.resulting_ad_id IS DISTINCT FROM OLD.resulting_ad_id
+       OR NEW.duration_ms IS DISTINCT FROM OLD.duration_ms
+       OR NEW.verified_at IS DISTINCT FROM OLD.verified_at
+       OR NEW.verification_payload IS DISTINCT FROM
+         OLD.verification_payload
+       OR NEW.terminal_finalized_at IS DISTINCT FROM
+         OLD.terminal_finalized_at THEN
+      RAISE EXCEPTION
+        'Journal-required manual Meta pending terminal fields are immutable.'
+        USING ERRCODE = '55000';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  durable_target :=
+    OLD.payload_request->'manual_status_mutation_target';
+  IF OLD.provider_account_id IS NULL
+     OR OLD.creative_id IS NULL
+     OR jsonb_typeof(durable_target) IS DISTINCT FROM 'object'
+     OR durable_target->>'businessId' IS DISTINCT FROM OLD.business_id::text
+     OR durable_target->>'providerAccountId' IS DISTINCT FROM
+       OLD.provider_account_id
+     OR durable_target->>'adId' IS DISTINCT FROM OLD.ad_id
+     OR durable_target->>'creativeId' IS DISTINCT FROM OLD.creative_id
+     OR NULLIF(btrim(durable_target->>'campaignId'), '') IS NULL
+     OR NULLIF(btrim(durable_target->>'adsetId'), '') IS NULL
+     OR (
+       SELECT count(*)
+       FROM business_provider_accounts binding
+       WHERE binding.business_id = OLD.business_id::text
+         AND binding.provider = 'meta'
+         AND binding.provider_account_id = OLD.provider_account_id
+     ) <> 1
+     OR OLD.payload_response IS NOT NULL
+     OR OLD.error_code IS NOT NULL
+     OR OLD.error_message IS NOT NULL
+     OR OLD.resulting_ad_id IS NOT NULL
+     OR OLD.duration_ms IS NOT NULL
+     OR OLD.verified_at IS NOT NULL
+     OR OLD.verification_payload IS NOT NULL
+     OR OLD.terminal_finalized_at IS NOT NULL
+     OR NEW.terminal_finalized_at IS NULL
+     OR EXISTS (
+       SELECT 1
+       FROM meta_ads_action_reconciliation_events reconciliation
+       WHERE reconciliation.source_action_log_id = OLD.id
+     ) THEN
+    RAISE EXCEPTION
+      'Journal-required manual Meta terminalization source is not exact.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  SELECT
+    count(*) FILTER (
+      WHERE event_kind = 'attempt_started'
+    )::integer,
+    count(*) FILTER (
+      WHERE event_kind = 'attempt_completed'
+    )::integer,
+    max(completion_outcome) FILTER (
+      WHERE event_kind = 'attempt_completed'
+    )
+  INTO started_count, completed_count, completed_outcome
+  FROM meta_ads_action_mutation_attempt_events
+  WHERE source_action_log_id = OLD.id;
+
+  SELECT *
+    INTO completed_event
+  FROM meta_ads_action_mutation_attempt_events
+  WHERE source_action_log_id = OLD.id
+    AND event_kind = 'attempt_completed';
+
+  pre_provider_proof :=
+    started_count = 0
+    AND completed_count = 0
+    AND NEW.status = 'failure'
+    AND NULLIF(btrim(NEW.error_code), '') IS NOT NULL
+    AND (
+      NEW.payload_response = jsonb_build_object(
+        'post_claim_preflight',
+        jsonb_build_object(
+          'should_mutate', false,
+          'blocker', NEW.error_code
+        )
+      )
+      OR NEW.payload_response = jsonb_build_object(
+        'bulk_pre_provider_abort',
+        jsonb_build_object(
+          'code', NEW.error_code,
+          'provider_mutation_attempted', false
+        )
+      )
+      OR NEW.payload_response = jsonb_build_object(
+        'adapter_pre_provider_abort',
+        jsonb_build_object(
+          'code', NEW.error_code,
+          'provider_mutation_attempted', false
+        )
+      )
+      OR (
+        NEW.error_code =
+          'manual_mutation_attempt_start_persistence_failed'
+        AND NEW.payload_response = jsonb_build_object(
+          'mutation_attempt_journal',
+          jsonb_build_object(
+            'started', false,
+            'provider_write_attempted', false
+          )
+        )
+      )
+    );
+
+  IF NEW.resulting_ad_id IS NOT NULL
+     OR (NEW.duration_ms IS NOT NULL AND NEW.duration_ms < 0) THEN
+    RAISE EXCEPTION
+      'Journal-required manual Meta terminal common fields are invalid.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NOT (
+    (
+      NEW.status = 'success'
+      AND started_count = 1
+      AND completed_count = 1
+      AND completed_outcome =
+        'provider_response_verified_success'
+      AND NEW.payload_response IS NOT DISTINCT FROM
+        completed_event.provider_response_json
+      AND NEW.verification_payload IS NOT DISTINCT FROM
+        completed_event.verification_json
+      AND NEW.verified_at IS NOT DISTINCT FROM
+        NULLIF(
+          completed_event.verification_json->>'observedAt',
+          ''
+        )::timestamptz
+      AND NEW.error_code IS NULL
+      AND NEW.error_message IS NULL
+    )
+    OR (
+      NEW.status = 'silent_failure'
+      AND started_count = 1
+      AND completed_count = 1
+      AND completed_outcome IN (
+        'provider_outcome_ambiguous',
+        'provider_response_succeeded_verification_failed'
+      )
+      AND NEW.payload_response IS NOT DISTINCT FROM
+        completed_event.provider_response_json
+      AND NEW.verification_payload IS NOT DISTINCT FROM
+        completed_event.verification_json
+      AND NEW.verified_at IS NULL
+      AND NULLIF(btrim(NEW.error_code), '') IS NOT NULL
+      AND NULLIF(btrim(NEW.error_message), '') IS NOT NULL
+    )
+    OR (
+      NEW.status = 'failure'
+      AND started_count = 1
+      AND completed_count = 1
+      AND completed_outcome = 'provider_definite_failure'
+      AND NEW.payload_response IS NOT DISTINCT FROM
+        completed_event.provider_response_json
+      AND NEW.verification_payload IS NULL
+      AND NEW.verified_at IS NULL
+      AND NULLIF(btrim(NEW.error_code), '') IS NOT NULL
+      AND NULLIF(btrim(NEW.error_message), '') IS NOT NULL
+    )
+    OR (
+      pre_provider_proof
+      AND NEW.verification_payload IS NULL
+      AND NEW.verified_at IS NULL
+      AND NULLIF(btrim(NEW.error_message), '') IS NOT NULL
+    )
+  ) THEN
+    RAISE EXCEPTION
+      'Journal-required manual Meta terminalization lacks exact attempt authority.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END
+$manual_meta_action_terminal_validation$;
+
+DROP TRIGGER IF EXISTS trg_manual_meta_ads_action_terminal_validate
+ON meta_ads_action_log;
+
+CREATE TRIGGER trg_manual_meta_ads_action_terminal_validate
+BEFORE UPDATE OF
+  id, business_id, provider_account_ref_id, provider_account_id,
+  ad_id, creative_id, action, source, requested_by, requested_at,
+  payload_request, rec_id_origin, launch_intent_id,
+  decision_contract_version, decision_episode_key, decision_snapshot_id,
+  decision_evaluation_id, decision_engine_version, decision_hash,
+  idempotency_key, dry_run, provider_verified, verification_entity_id,
+  verification_status, created_at, status, payload_response, error_code,
+  error_message, resulting_ad_id, duration_ms, verified_at,
+  verification_payload, terminal_finalized_at
+ON meta_ads_action_log
+FOR EACH ROW
+EXECUTE FUNCTION validate_manual_meta_ads_action_terminalization();
+`;
 
 type NativeSchemaCapability = {
   ready: boolean;
@@ -176,6 +1645,83 @@ async function hasPartialNonIdempotentNativeSchema(
   );
 }
 
+export const D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL = `
+DO $d063_authority_blocker$
+DECLARE
+  target RECORD;
+  canonical_ready BOOLEAN;
+  temporary_constraint_name TEXT;
+BEGIN
+  PERFORM pg_advisory_xact_lock(
+    hashtext('engine-v3-d063-authority-blocker-constraints')
+  );
+
+  FOR target IN
+    SELECT *
+    FROM (VALUES
+      ('engine_v3_decision_snapshots_daily',
+       'engine_v3_decision_snapshots_authority_blocker_check'),
+      ('engine_v3_decision_outcomes_daily',
+       'engine_v3_decision_outcomes_authority_blocker_check'),
+      ('engine_v3_ad_decision_snapshots_daily',
+       'engine_v3_ad_snapshots_authority_blocker_check'),
+      ('engine_v3_ad_decision_outcomes_daily',
+       'engine_v3_ad_outcomes_authority_blocker_check')
+    ) AS constraints(table_name, constraint_name)
+  LOOP
+    CONTINUE WHEN to_regclass(target.table_name) IS NULL;
+
+    canonical_ready := FALSE;
+    SELECT constraint_row.convalidated
+      AND POSITION(
+        'recent_recovery_unverifiable' IN
+        LOWER(pg_get_constraintdef(constraint_row.oid, TRUE))
+      ) > 0
+    INTO canonical_ready
+    FROM pg_constraint constraint_row
+    WHERE constraint_row.conrelid = to_regclass(target.table_name)
+      AND constraint_row.conname = target.constraint_name
+      AND constraint_row.contype = 'c';
+
+    CONTINUE WHEN COALESCE(canonical_ready, FALSE);
+
+    temporary_constraint_name := target.constraint_name || '_d063';
+    EXECUTE format(
+      'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      $d063_check$
+      ALTER TABLE %I ADD CONSTRAINT %I
+      CHECK (authority_blocker IS NULL OR authority_blocker IN (
+        ${AUTHORITY_BLOCKER_CHECK_VALUES_SQL}
+      )) NOT VALID
+      $d063_check$,
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I VALIDATE CONSTRAINT %I',
+      target.table_name,
+      temporary_constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
+      target.table_name,
+      target.constraint_name
+    );
+    EXECUTE format(
+      'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+      target.table_name,
+      temporary_constraint_name,
+      target.constraint_name
+    );
+  END LOOP;
+END
+$d063_authority_blocker$;
+`;
+
 async function runNativeAdSchemaMigrations(
   timeoutMs: number,
   verifyCapabilities: boolean,
@@ -184,6 +1730,8 @@ async function runNativeAdSchemaMigrations(
     async () => {
       const db = getDbWithTimeout(timeoutMs);
       const inspectorDb = createMigrationDb(db);
+
+      await db.query(D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL);
 
       // SQL-capture unit tests exercise the emitted migration text with a
       // deliberately non-stateful DB mock. Production and the ephemeral
@@ -5280,6 +6828,98 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_decision_responses_business_timestamp
           ON meta_decision_responses (business_id, timestamp)`.catch(() => {}),
+        // Operator workflow overlay. This records who owns a decision and what
+        // they did about it. It is deliberately separate from engine truth: no
+        // column here can change a decision's label, authority, or provider
+        // eligibility, and nothing in the engine reads it.
+        sql`CREATE TABLE IF NOT EXISTS decision_workflow_state (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id  TEXT,
+          entity_type          TEXT NOT NULL,
+          entity_id            TEXT NOT NULL,
+          decision_key         TEXT NOT NULL,
+          state                TEXT NOT NULL DEFAULT 'open' CHECK (state IN (
+                                 'open','acknowledged','deferred','snoozed','rejected','resolved'
+                               )),
+          assignee_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+          due_at               TIMESTAMPTZ,
+          snooze_until         TIMESTAMPTZ,
+          reason_code          TEXT,
+          state_version        INTEGER NOT NULL DEFAULT 1,
+          updated_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, decision_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_state_business_state
+          ON decision_workflow_state (business_id, state, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_state_assignee
+          ON decision_workflow_state (assignee_user_id, state)`.catch(() => {}),
+        // Append-only journal. Rolling the overlay back hides the controls but
+        // never destroys the record of what an operator decided.
+        sql`CREATE TABLE IF NOT EXISTS decision_workflow_events (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        TEXT NOT NULL,
+          decision_key       TEXT NOT NULL,
+          event              TEXT NOT NULL,
+          from_state         TEXT,
+          to_state           TEXT,
+          assignee_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          reason_code        TEXT,
+          comment            TEXT,
+          actor_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+          state_version      INTEGER NOT NULL,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_events_decision
+          ON decision_workflow_events (business_id, decision_key, created_at DESC)`.catch(() => {}),
+        // Notification ledger. Every event that was worth telling someone about
+        // is recorded here whether or not a channel ever carried it, so the
+        // product can never report "notified" without evidence of delivery.
+        sql`CREATE TABLE IF NOT EXISTS notification_events (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          TEXT NOT NULL,
+          business_ref_id      UUID REFERENCES businesses(id) ON DELETE CASCADE,
+          provider_account_id  TEXT,
+          event_type           TEXT NOT NULL,
+          severity             TEXT NOT NULL CHECK (severity IN ('critical','warning','info')),
+          entity_type          TEXT,
+          entity_id            TEXT,
+          source_kind          TEXT NOT NULL,
+          source_id            TEXT NOT NULL,
+          occurred_on          DATE NOT NULL,
+          dedupe_key           TEXT NOT NULL,
+          deep_link            TEXT,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (dedupe_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_notification_events_business_created
+          ON notification_events (business_id, created_at DESC)`.catch(() => {}),
+        // Delivery attempts are separate from the event: one event may be
+        // attempted several times across channels, and queued is not delivered.
+        sql`CREATE TABLE IF NOT EXISTS notification_deliveries (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          notification_event_id UUID NOT NULL REFERENCES notification_events(id) ON DELETE CASCADE,
+          recipient_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+          channel               TEXT NOT NULL,
+          state                 TEXT NOT NULL DEFAULT 'queued' CHECK (state IN (
+                                  'queued','attempted','delivered','failed','suppressed','acknowledged'
+                                )),
+          suppression_reason    TEXT,
+          attempts              INTEGER NOT NULL DEFAULT 0,
+          failure_reason        TEXT,
+          queued_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          attempted_at          TIMESTAMPTZ,
+          delivered_at          TIMESTAMPTZ,
+          failed_at             TIMESTAMPTZ,
+          opened_at             TIMESTAMPTZ,
+          acknowledged_at       TIMESTAMPTZ,
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_state
+          ON notification_deliveries (state, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_decision_action_outcome_logs (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -12105,6 +13745,85 @@ export async function runMigrations(options?: {
         timeoutMs,
         options?.verifyNativeSchemaCapabilities ?? true,
       );
+      await sql.query(META_AD_STATUS_RECONCILIATION_SCHEMA_SQL);
+      // Product instrumentation: first-party, tenant-scoped, retained.
+      //
+      // Every string column is an allowlist enforced here, so there is nowhere
+      // for a query, an exception message, a token, ad copy or PII to land.
+      // Scope and tenancy are constrained together: a business event must name
+      // a business, and a portfolio event must not, so cross-tenant work can
+      // never be attributed to one tenant.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS product_instrumentation_events (
+          id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          contract_version  TEXT NOT NULL
+                              DEFAULT 'product-instrumentation-event.v1'
+                              CHECK (contract_version = 'product-instrumentation-event.v1'),
+          business_id       TEXT,
+          scope             TEXT NOT NULL CHECK (scope IN ('business', 'portfolio')),
+          event_name        TEXT NOT NULL CHECK (event_name IN (
+                              'agency_today_viewed', 'agency_today_client_opened', 'search_submitted',
+                              'search_zero_result', 'search_result_opened', 'saved_view_created',
+                              'saved_view_applied', 'decision_opened', 'decision_evidence_viewed',
+                              'decision_workflow_changed', 'report_generated', 'report_widget_failed',
+                              'report_widget_retried', 'report_share_created', 'report_print_opened',
+                              'report_csv_created', 'google_copy_used', 'google_csv_used',
+                              'google_deep_link_used', 'provider_health_recovery_started', 'provider_health_recovery_completed',
+                              'notification_attempted', 'notification_delivered', 'notification_opened',
+                              'notification_acknowledged', 'guarded_action_preflight', 'guarded_action_dry_run',
+                              'guarded_action_confirmed', 'guarded_action_provider_attempted', 'guarded_action_verified',
+                              'guarded_action_failed', 'guarded_action_ambiguous', 'guarded_action_reconciled',
+                              'mobile_tier0_started', 'mobile_tier0_completed', 'freshness_stale_disclosed'
+                            )),
+          surface           TEXT NOT NULL CHECK (surface IN (
+                              'overview', 'global_search', 'meta_decisions',
+                              'meta_decision_inspector', 'creative_studio', 'reports',
+                              'google_ads', 'integrations', 'settings', 'launchpad',
+                              'automation', 'mobile', 'system'
+                            )),
+          outcome           TEXT NOT NULL CHECK (outcome IN ('ok', 'failed', 'withheld')),
+          provider          TEXT CHECK (provider IS NULL OR provider IN ('meta', 'google')),
+          item_count        INTEGER CHECK (item_count IS NULL OR item_count >= 0),
+          duration_ms       INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+          failure_code      TEXT CHECK (failure_code IS NULL OR failure_code IN (
+                              'upstream_unavailable', 'upstream_timeout',
+                              'not_authorized', 'not_assigned',
+                              'contract_violation', 'unknown'
+                            )),
+          occurred_at       TIMESTAMPTZ NOT NULL,
+          retain_until      DATE NOT NULL,
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          CONSTRAINT product_instrumentation_failure_needs_code
+            CHECK (outcome <> 'failed' OR failure_code IS NOT NULL),
+          CONSTRAINT product_instrumentation_scope_tenancy
+            CHECK (
+              (scope = 'business' AND business_id IS NOT NULL) OR
+              (scope = 'portfolio' AND business_id IS NULL)
+            )
+        )
+      `);
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_business_event
+         ON product_instrumentation_events (business_id, event_name, occurred_at DESC)`,
+      );
+      await sql.query(
+        `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_retention
+         ON product_instrumentation_events (retain_until)`,
+      );
+      // Operator-visible sink health: a failing sink must be a fact someone can
+      // read, not a console line.
+      await sql.query(`
+        CREATE TABLE IF NOT EXISTS product_instrumentation_sink_health (
+          day          DATE NOT NULL,
+          status       TEXT NOT NULL CHECK (status IN (
+                         'recorded', 'invalid_event', 'sink_unavailable', 'timeout'
+                       )),
+          event_count  BIGINT NOT NULL DEFAULT 0 CHECK (event_count >= 0),
+          updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (day, status)
+        )
+      `);
+      await sql.query(META_AD_DUPLICATE_RECONCILIATION_SCHEMA_SQL);
 
       if (legacyCoreDropEnabled) {
         await runMigrationBatchSequentially([

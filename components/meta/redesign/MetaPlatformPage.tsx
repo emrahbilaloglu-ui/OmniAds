@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -36,6 +37,10 @@ import type {
   MetaCanonicalDecision,
   MetaDecisionQueueSection,
 } from "@/lib/meta/decisions-workspace-contract";
+import {
+  describeDecisionWorkspaceFailure,
+  MetaRequestFailure,
+} from "@/lib/meta/workspace-failure";
 import type { MetaOsDecisionsPresentation } from "@/lib/meta/decisions-os-contract";
 import { metaDecisionSourceFallbackDetail } from "@/lib/meta/decision-source-health";
 import { cn } from "@/lib/utils";
@@ -271,11 +276,15 @@ async function readJson<T>(url: string): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const message =
+    const serverMessage =
       payload && typeof payload === "object" && "message" in payload
         ? String((payload as { message?: unknown }).message)
-        : `Request failed (${response.status})`;
-    throw new Error(message);
+        : null;
+    throw new MetaRequestFailure({
+      message: serverMessage ?? `Request failed (${response.status})`,
+      status: response.status,
+      hasServerReason: Boolean(serverMessage && serverMessage.trim()),
+    });
   }
   return payload as T;
 }
@@ -2751,6 +2760,19 @@ export function MetaPlatformPage({
   }, [workspaceQuery.data, pulseQuery.data, laneQuery.data, trackingBlocked]);
 
   const laneSnapshotDate = laneQuery.data?.snapshotDate ?? null;
+
+  // One freshness contract, reported from the query state this surface already
+  // has. Deriving it from a second read would create exactly the disagreement
+  // this replaces.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    isLoading: briefingLoading,
+    isFetching: workspaceQuery.isFetching,
+    error: briefingError,
+    asOf: laneSnapshotDate,
+    businessId,
+    onRetry: () => void workspaceQuery.refetch(),
+  });
   const deferredCount =
     localDeferredIds.size +
     campaignDefer.deferredCount +
@@ -3561,7 +3583,7 @@ export function MetaPlatformPage({
               {briefingLoading
                 ? "Loading the latest persisted decision snapshot"
                 : briefingError
-                  ? "Decision workspace unavailable - counts are withheld"
+                  ? describeDecisionWorkspaceFailure(briefingError)
                   : `Snapshot ${laneSnapshotDate ?? "unavailable"} · date range scopes metrics, not decisions`}
             </p>
           </div>
@@ -4285,6 +4307,7 @@ export function MetaPlatformPage({
                   moneyCurrency={moneyCurrency}
                   targetRoas={targetRoas}
                   item={drillItem}
+                  asOf={laneSnapshotDate}
                   variant="push"
                   onClose={closeDrill}
                   onLaunch={
@@ -4645,6 +4668,7 @@ export function MetaPlatformPage({
           moneyCurrency={moneyCurrency}
           targetRoas={targetRoas}
           item={drillItem}
+          asOf={laneSnapshotDate}
           variant="overlay"
           onClose={closeDrill}
           onLaunch={

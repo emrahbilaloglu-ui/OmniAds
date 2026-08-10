@@ -67,7 +67,7 @@ function SubStatusBadge({ status }: { status: NonNullable<ShellNavItem["subStatu
   return (
     <span
       className={cn(
-        "inline-flex items-center px-1 py-px rounded border text-[9px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center px-1 py-px rounded border text-[12px] font-semibold uppercase tracking-wider",
         L2_SUB_STATUS_CLASSES[status]
       )}
     >
@@ -78,7 +78,7 @@ function SubStatusBadge({ status }: { status: NonNullable<ShellNavItem["subStatu
 
 function LockTrail({ requiredPlan }: { requiredPlan: PlanId }) {
   return (
-    <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-neutral-400">
+    <span className="ml-auto inline-flex items-center gap-0.5 text-[12px] text-neutral-400">
       <Lock className="h-[11px] w-[11px]" />
       <span className="font-medium uppercase tracking-wider">{PLAN_LABELS[requiredPlan]}</span>
     </span>
@@ -268,7 +268,7 @@ function SoonPlatformEmpty({
       <div className="text-[11.5px] font-medium text-neutral-700">
         {platform.name} not live yet
       </div>
-      <div className="text-[10.5px] text-neutral-500 mt-0.5">
+      <div className="text-[12px] text-neutral-500 mt-0.5">
         No tools to show. Switch platform from the topbar.
       </div>
     </div>
@@ -340,7 +340,7 @@ export function SidebarContent({
       <nav className={cn("flex-1 overflow-y-auto space-y-0.5", isConsole ? "py-3" : "py-2")}>
         <div
           className={cn(
-            "px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold",
+            "px-2 pt-1 pb-1 text-[12px] uppercase tracking-wider text-neutral-400 font-semibold",
             collapsed ? "sr-only" : "",
           )}
         >
@@ -373,7 +373,7 @@ export function SidebarContent({
             <span
               className={cn(
                 collapsed ? "sr-only" : "",
-                "text-[10px] uppercase tracking-wider text-neutral-400 font-semibold"
+                "text-[12px] uppercase tracking-wider text-neutral-400 font-semibold"
               )}
             >
               Platform
@@ -385,13 +385,13 @@ export function SidebarContent({
             <span
               className={cn(
                 collapsed ? "sr-only" : "",
-                "text-[10.5px] font-semibold text-neutral-700"
+                "text-[12px] font-semibold text-neutral-700"
               )}
             >
               {platform.name}
             </span>
             {dimLayer2 && !collapsed ? (
-              <span className="ml-auto text-[10px] text-neutral-400 italic">last viewed</span>
+              <span className="ml-auto text-[12px] text-neutral-400 italic">last viewed</span>
             ) : null}
           </div>
           <div className="space-y-0.5">
@@ -423,7 +423,7 @@ export function SidebarContent({
 
         <div
           className={cn(
-            "px-2 pt-1 pb-1 text-[10px] uppercase tracking-wider text-neutral-400 font-semibold",
+            "px-2 pt-1 pb-1 text-[12px] uppercase tracking-wider text-neutral-400 font-semibold",
             collapsed ? "sr-only" : "",
           )}
         >

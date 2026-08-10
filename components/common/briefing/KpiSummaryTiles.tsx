@@ -41,7 +41,7 @@ export function KpiSummaryTiles({
             HIGHLIGHT_STYLES[tile.highlight ?? "neutral"]
           }
         >
-          <div className="flex items-center justify-between text-[10.5px] uppercase tracking-wider text-neutral-500">
+          <div className="flex items-center justify-between text-[12px] uppercase tracking-wider text-neutral-500">
             <span className="font-semibold">{tile.title}</span>
             {tile.scope ? <span className="font-mono normal-case">{tile.scope}</span> : null}
           </div>

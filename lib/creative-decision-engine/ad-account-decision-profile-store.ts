@@ -18,6 +18,7 @@ import {
   type NativeAdCalibrationActionReadiness,
   type NativeAdCalibrationActionBlockReason,
   type NativeAdCalibrationActionAuthorityBasis,
+  type NativeAdSpendUnitAuthority,
   type NativeAdTargetAuthorityInput,
   type NativeAdTargetAuthorityStatus,
 } from "./jobs/ad-calibration-job";
@@ -312,8 +313,7 @@ function mapNativeAdCalibrationCell(row: Row): NativeAdCalibrationCell {
       defaultRiskPosture: null,
       effectiveAt: optionalTimestamp(row.target_effective_at),
       recordedAt: optionalTimestamp(row.target_recorded_at),
-      targetRoasAuthority:
-        cutoffSafeTargetAuthority && positive(targetRoas),
+      targetRoasAuthority: cutoffSafeTargetAuthority && positive(targetRoas),
       breakEvenRoasAuthority:
         cutoffSafeTargetAuthority && positive(breakEvenRoas),
       authorityHash: requiredHash(
@@ -505,6 +505,7 @@ const NATIVE_ACTION_BLOCK_REASONS =
     "unsupported_cohort",
     "target_roas_authority_missing",
     "break_even_roas_authority_missing",
+    "commercial_spend_unit_authority_missing",
     "scale_calibration_sample_low",
     "scale_winner_benchmark_missing",
     "cut_calibration_sample_low",
@@ -514,6 +515,7 @@ const NATIVE_ACTION_BLOCK_REASONS =
 const NATIVE_ACTION_AUTHORITY_BASES =
   new Set<NativeAdCalibrationActionAuthorityBasis>([
     "calibrated_relative",
+    "calibrated_relative_with_economic_stop_loss",
     "commercial_stop_loss",
   ]);
 
@@ -558,7 +560,12 @@ function nativeActionReadiness(
       NATIVE_ACTION_AUTHORITY_BASES.has(authorityBasis) &&
       (authorityBasis === "commercial_stop_loss"
         ? action === "cut" && requiredSampleCount === 0
-        : requiredSampleCount > 0 &&
+        : authorityBasis ===
+              "calibrated_relative_with_economic_stop_loss"
+          ? action === "cut" &&
+            requiredSampleCount > 0 &&
+            observedSampleCount >= requiredSampleCount
+          : requiredSampleCount > 0 &&
           observedSampleCount >= requiredSampleCount);
     if (
       observedSampleCount < 0 ||
@@ -582,9 +589,169 @@ function nativeActionReadiness(
     };
   };
   return {
+    spendUnitAuthority: nativeSpendUnitAuthority(object.spendUnitAuthority),
     scale: parse("scale"),
     cut: parse("cut"),
     refresh: parse("refresh"),
+  };
+}
+
+function nativeSpendUnitAuthority(value: unknown): NativeAdSpendUnitAuthority {
+  const object = requiredJsonObject(
+    value,
+    "action_readiness_json.spendUnitAuthority",
+  );
+  const evidence = requiredJsonObject(
+    object.accountAovEvidence,
+    "action_readiness_json.spendUnitAuthority.accountAovEvidence",
+  );
+  const contractVersion = requiredText(
+    object.contractVersion,
+    "spendUnitAuthority.contractVersion",
+  );
+  if (contractVersion !== "engine-v3-native-ad-spend-unit-authority.v1") {
+    throw new TypeError("Unsupported native spend-unit authority contract.");
+  }
+  const status = requiredText(object.status, "spendUnitAuthority.status");
+  if (status !== "ready" && status !== "blocked") {
+    throw new TypeError("Invalid native spend-unit authority status.");
+  }
+  const basis = requiredNullableText(object.basis, "spendUnitAuthority.basis");
+  if (
+    basis !== null &&
+    basis !== "target_cpa" &&
+    basis !== "operator_aov" &&
+    basis !== "physical_account_purchase_aov_90d"
+  ) {
+    throw new TypeError("Invalid native spend-unit authority basis.");
+  }
+  const evidenceStatus = requiredText(
+    evidence.status,
+    "spendUnitAuthority.accountAovEvidence.status",
+  );
+  if (
+    evidenceStatus !== "ready" &&
+    evidenceStatus !== "insufficient_sample" &&
+    evidenceStatus !== "contradictory_purchase_truth" &&
+    evidenceStatus !== "unavailable"
+  ) {
+    throw new TypeError("Invalid native account-AOV evidence status.");
+  }
+  const scope = requiredText(
+    evidence.scope,
+    "spendUnitAuthority.accountAovEvidence.scope",
+  );
+  if (scope !== "business_provider_account_currency") {
+    throw new TypeError("Invalid native account-AOV evidence scope.");
+  }
+  return {
+    contractVersion,
+    status,
+    basis,
+    businessId: requiredText(
+      object.businessId,
+      "spendUnitAuthority.businessId",
+    ),
+    providerAccountRefId: requiredText(
+      object.providerAccountRefId,
+      "spendUnitAuthority.providerAccountRefId",
+    ),
+    providerAccountId: requiredText(
+      object.providerAccountId,
+      "spendUnitAuthority.providerAccountId",
+    ),
+    accountCurrency: requiredNullableText(
+      object.accountCurrency,
+      "spendUnitAuthority.accountCurrency",
+    ),
+    asOfCutoff: requiredTimestamp(
+      object.asOfCutoff,
+      "spendUnitAuthority.asOfCutoff",
+    ),
+    targetAuthorityHash: requiredHash(
+      object.targetAuthorityHash,
+      "spendUnitAuthority.targetAuthorityHash",
+    ),
+    baseSpendUnit: optionalJsonNumber(
+      object.baseSpendUnit,
+      "spendUnitAuthority.baseSpendUnit",
+    ),
+    accountAovEvidence: {
+      status: evidenceStatus,
+      scope,
+      businessId: requiredText(
+        evidence.businessId,
+        "spendUnitAuthority.accountAovEvidence.businessId",
+      ),
+      providerAccountRefId: requiredText(
+        evidence.providerAccountRefId,
+        "spendUnitAuthority.accountAovEvidence.providerAccountRefId",
+      ),
+      providerAccountId: requiredText(
+        evidence.providerAccountId,
+        "spendUnitAuthority.accountAovEvidence.providerAccountId",
+      ),
+      accountCurrency: requiredNullableText(
+        evidence.accountCurrency,
+        "spendUnitAuthority.accountAovEvidence.accountCurrency",
+      ),
+      sampleWindowStart: requiredDate(
+        evidence.sampleWindowStart,
+        "spendUnitAuthority.accountAovEvidence.sampleWindowStart",
+      ),
+      sampleWindowEnd: requiredDate(
+        evidence.sampleWindowEnd,
+        "spendUnitAuthority.accountAovEvidence.sampleWindowEnd",
+      ),
+      asOfCutoff: requiredTimestamp(
+        evidence.asOfCutoff,
+        "spendUnitAuthority.accountAovEvidence.asOfCutoff",
+      ),
+      observedPurchaseCount: requiredJsonInteger(
+        evidence.observedPurchaseCount,
+        "spendUnitAuthority.accountAovEvidence.observedPurchaseCount",
+      ),
+      requiredPurchaseCount: requiredJsonInteger(
+        evidence.requiredPurchaseCount,
+        "spendUnitAuthority.accountAovEvidence.requiredPurchaseCount",
+      ),
+      revenueBackedRowCount: requiredJsonInteger(
+        evidence.revenueBackedRowCount,
+        "spendUnitAuthority.accountAovEvidence.revenueBackedRowCount",
+      ),
+      canonicalRowCount: requiredJsonInteger(
+        evidence.canonicalRowCount,
+        "spendUnitAuthority.accountAovEvidence.canonicalRowCount",
+      ),
+      contradictoryRowCount: requiredJsonInteger(
+        evidence.contradictoryRowCount,
+        "spendUnitAuthority.accountAovEvidence.contradictoryRowCount",
+      ),
+      legacySchemaRowCount: requiredJsonInteger(
+        evidence.legacySchemaRowCount,
+        "spendUnitAuthority.accountAovEvidence.legacySchemaRowCount",
+      ),
+      unsupportedSchemaRowCount: requiredJsonInteger(
+        evidence.unsupportedSchemaRowCount,
+        "spendUnitAuthority.accountAovEvidence.unsupportedSchemaRowCount",
+      ),
+      totalRevenue: requiredJsonNumber(
+        evidence.totalRevenue,
+        "spendUnitAuthority.accountAovEvidence.totalRevenue",
+      ),
+      meanAov: optionalJsonNumber(
+        evidence.meanAov,
+        "spendUnitAuthority.accountAovEvidence.meanAov",
+      ),
+      evidenceHash: requiredHash(
+        evidence.evidenceHash,
+        "spendUnitAuthority.accountAovEvidence.evidenceHash",
+      ),
+    },
+    authorityHash: requiredHash(
+      object.authorityHash,
+      "spendUnitAuthority.authorityHash",
+    ),
   };
 }
 
@@ -650,6 +817,39 @@ function requiredInteger(value: unknown, field: string): number {
   const numeric = requiredNumber(value, field);
   if (!Number.isInteger(numeric))
     throw new TypeError(`${field} must be an integer.`);
+  return numeric;
+}
+
+function optionalJsonNumber(value: unknown, field: string): number | null {
+  if (value === null) return null;
+  if (value === undefined) {
+    throw new TypeError(
+      `${field} is required and must be a JSON number or null.`,
+    );
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`${field} must be a finite JSON number or null.`);
+  }
+  return value;
+}
+
+function requiredNullableText(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  return requiredText(value, field);
+}
+
+function requiredJsonNumber(value: unknown, field: string): number {
+  const numeric = optionalJsonNumber(value, field);
+  if (numeric === null)
+    throw new TypeError(`${field} must be a finite JSON number.`);
+  return numeric;
+}
+
+function requiredJsonInteger(value: unknown, field: string): number {
+  const numeric = requiredJsonNumber(value, field);
+  if (!Number.isInteger(numeric)) {
+    throw new TypeError(`${field} must be a JSON integer.`);
+  }
   return numeric;
 }
 

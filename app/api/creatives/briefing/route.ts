@@ -511,6 +511,12 @@ async function readMeasurementSnapshotSummary(input: {
     )
     SELECT
       (SELECT as_of_date FROM latest_day) AS as_of_date,
+      -- When these rows were actually computed, not the day they describe.
+      -- as_of_date is a calendar label: it parses as UTC midnight, so the same
+      -- snapshot reads as a different age depending on the hour and the
+      -- account offset. A surface can only state an honest age from a real
+      -- instant, and this is the one the warehouse already records.
+      MAX(latest_snapshots.computed_at) AS observed_at,
       $3::text AS engine_version,
       COUNT(DISTINCT latest_snapshots.creative_id) AS row_count,
       COUNT(*) FILTER (
@@ -527,6 +533,12 @@ async function readMeasurementSnapshotSummary(input: {
   if (!asOfDate) return null;
   return {
     asOfDate,
+    observedAt:
+      row?.observed_at instanceof Date
+        ? row.observed_at.toISOString()
+        : typeof row?.observed_at === "string"
+          ? new Date(row.observed_at).toISOString()
+          : null,
     engineVersion:
       typeof row?.engine_version === "string" ? row.engine_version : input.engineVersion,
     rowCount: numericCount(row?.row_count),

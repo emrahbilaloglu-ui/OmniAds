@@ -1,5 +1,7 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
@@ -141,6 +143,22 @@ export default function LandingPagesPage() {
     },
   });
 
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "creative_studio",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // When GA4 was actually read. This route caches, so the stamp is taken at
+    // the live retrieval and carried by the cache -- a response served an hour
+    // later reports the retrieval, not the hand-over.
+    asOf: measuredAsOf(query.data?.meta?.retrievedAt ?? null),
+    businessId,
+    onRetry: () => void query.refetch(),
+  });
+
   const visibleRows = useMemo(() => {
     const filtered = filterLandingPageRows(query.data?.rows ?? [], deferredSearchTerm);
     return sortLandingPageRows(filtered, sort);
@@ -202,7 +220,17 @@ export default function LandingPagesPage() {
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          {/*
+            This surface reads no comparison, so it does not offer one. The
+            Compare control was rendered here and never read: an operator could
+            pick "Previous year", watch the chip turn active and print the
+            year-ago dates, and change nothing at all.
+          */}
+          <DateRangePicker
+            value={dateRange}
+            onChange={setDateRange}
+            showComparisonTrigger={false}
+          />
           <label className="relative block min-w-[260px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--adc-ink3,#7d838c)]" />
             <input

@@ -15,7 +15,7 @@ const REGIME_TONES: Record<MetaBidRegime, string> = {
 export function MetaBidRegimeChip({ regime }: MetaBidRegimeChipProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider ${REGIME_TONES[regime]}`}
+      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${REGIME_TONES[regime]}`}
       data-bid-regime={regime}
     >
       {META_BID_REGIME_LABELS[regime]}

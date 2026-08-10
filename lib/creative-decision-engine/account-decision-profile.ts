@@ -9,6 +9,7 @@ import {
   MIN_CAMPAIGN_CALIBRATION_SAMPLE,
 } from "./config";
 import { ENGINE_PRESET_MULTIPLIERS } from "./engine-presets";
+import { NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR } from "./config-values";
 import {
   classifyMetaAovQuality,
   resolveSpendUnit,
@@ -35,8 +36,42 @@ const CALIBRATION_CAMPAIGN_KINDS: CalibrationCampaignKind[] = [
   "mixed",
 ];
 
+export interface CommercialStopLossAovAuthorityInput {
+  meanAov: number;
+  purchaseCount: number;
+  totalRevenue: number;
+}
+
 function positiveFinite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Validates the redundant account-AOV arithmetic without assuming that every
+ * account currency has two decimal places. The tolerance is relative to the
+ * represented magnitudes and only absorbs floating-point round-trip error.
+ */
+export function isAccountAovRevenueArithmeticConsistent(input: {
+  meanAov: number;
+  purchaseCount: number;
+  totalRevenue: number;
+}) {
+  if (
+    !positiveFinite(input.meanAov) ||
+    !Number.isSafeInteger(input.purchaseCount) ||
+    input.purchaseCount <= 0 ||
+    !positiveFinite(input.totalRevenue)
+  ) {
+    return false;
+  }
+  const derivedRevenue = input.meanAov * input.purchaseCount;
+  if (!Number.isFinite(derivedRevenue)) return false;
+  const magnitude = Math.max(
+    Math.abs(derivedRevenue),
+    Math.abs(input.totalRevenue),
+  );
+  const tolerance = magnitude * Number.EPSILON * 64;
+  return Math.abs(derivedRevenue - input.totalRevenue) <= tolerance;
 }
 
 function overrideMultiplier(
@@ -257,10 +292,7 @@ function resolveSpendUnitProfile(input: {
           ...resolution.evidence,
           confidenceBeforeFreshness: resolution.confidence,
           warnings: Array.from(
-            new Set([
-              ...resolution.evidence.warnings,
-              commercialTargetWarning,
-            ]),
+            new Set([...resolution.evidence.warnings, commercialTargetWarning]),
           ),
         }
       : {
@@ -312,7 +344,9 @@ function resolveHardActionEligibility(input: {
     positiveFinite(input.targetPack?.breakEvenRoas ?? null);
   const refreshEligible = commercialThresholdEligible;
   const scaleEligible =
-    commercialThresholdEligible && input.calibrationReady && scaleAnchorEligible;
+    commercialThresholdEligible &&
+    input.calibrationReady &&
+    scaleAnchorEligible;
   const scaleReason = scaleEligible
     ? null
     : !commercialThresholdEligible
@@ -358,6 +392,129 @@ function resolveHardActionEligibility(input: {
   };
 }
 
+function hardActionEligibilityReason(
+  eligibility: HardActionEligibility,
+  action: "scale" | "cut" | "refresh",
+) {
+  return (
+    eligibility.reasons?.[action] ??
+    (eligibility[action] ? null : eligibility.reason)
+  );
+}
+
+/**
+ * Applies an already-resolved commercial stop-loss view without allowing it
+ * to replace any non-Cut profile input or Scale/Refresh authority.
+ */
+export function applyCutOnlyCommercialStopLossProfile(input: {
+  baseProfile: AccountDecisionProfile;
+  commercialStopLossSpendUnit: SpendUnitProfile | null;
+  commercialStopLossThresholds: EngineThresholdSet | null;
+  commercialStopLossEligibility: HardActionEligibility;
+}): AccountDecisionProfile {
+  const canonicalEligibility =
+    input.baseProfile.commercialStopLossCanonicalHardActionEligibility ??
+    input.baseProfile.hardActionEligibility;
+  const hasCommercialStopLossOverlay =
+    input.commercialStopLossSpendUnit !== null &&
+    input.commercialStopLossThresholds !== null;
+  const scale = canonicalEligibility.scale;
+  const cut =
+    canonicalEligibility.cut ||
+    (hasCommercialStopLossOverlay && input.commercialStopLossEligibility.cut);
+  const refresh = canonicalEligibility.refresh;
+  const reasons = {
+    scale: hardActionEligibilityReason(canonicalEligibility, "scale"),
+    cut: canonicalEligibility.cut
+      ? hardActionEligibilityReason(canonicalEligibility, "cut")
+      : hardActionEligibilityReason(
+          input.commercialStopLossEligibility,
+          "cut",
+        ),
+    refresh: hardActionEligibilityReason(canonicalEligibility, "refresh"),
+  };
+  return {
+    ...input.baseProfile,
+    commercialStopLossSpendUnit: input.commercialStopLossSpendUnit,
+    commercialStopLossThresholds: input.commercialStopLossThresholds,
+    commercialStopLossCanonicalHardActionEligibility:
+      hasCommercialStopLossOverlay
+        ? canonicalEligibility
+        : null,
+    hardActionEligibility: {
+      scale,
+      cut,
+      refresh,
+      reason:
+        scale && cut && refresh
+          ? null
+          : (reasons.scale ?? reasons.cut ?? reasons.refresh),
+      reasons,
+    },
+  };
+}
+
+/**
+ * Resolves the physical-account AOV overlay against an immutable canonical
+ * profile. All canonical thresholds, peer evidence, maturity, Scale, Refresh,
+ * confidence and quality fields are retained byte-for-byte.
+ */
+export function applyCommercialStopLossAovAuthority(input: {
+  profile: AccountDecisionProfile;
+  targetPack: BusinessTargetPack | null;
+  attributionAovAdjustmentMultiplier: number;
+  shadowOnly: boolean;
+  authority?: CommercialStopLossAovAuthorityInput | null;
+}): AccountDecisionProfile {
+  const stopLossAov = input.authority;
+  const validStopLossAov =
+    stopLossAov !== null &&
+    stopLossAov !== undefined &&
+    positiveFinite(stopLossAov.meanAov) &&
+    Number.isInteger(stopLossAov.purchaseCount) &&
+    stopLossAov.purchaseCount >= NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR &&
+    positiveFinite(stopLossAov.totalRevenue) &&
+    isAccountAovRevenueArithmeticConsistent(stopLossAov);
+  const commercialStopLossSpendUnit = validStopLossAov
+    ? resolveSpendUnitProfile({
+        targetPack: input.targetPack,
+        accountBaselines: {
+          ...input.profile.accountBaselines,
+          metaAttributedAovMean90d: stopLossAov.meanAov,
+          metaAttributedAovPurchaseCount90d: stopLossAov.purchaseCount,
+          metaAttributedRevenue90d: stopLossAov.totalRevenue,
+          metaAovQuality: "ready",
+        },
+        attributionAovAdjustmentMultiplier:
+          input.attributionAovAdjustmentMultiplier,
+      })
+    : null;
+  const commercialStopLossThresholds = commercialStopLossSpendUnit
+    ? buildEngineThresholds({
+        spendUnit: commercialStopLossSpendUnit.spendUnit,
+        multipliers: input.profile.multipliers,
+        accountBaselines: input.profile.accountBaselines,
+      })
+    : null;
+  const commercialStopLossEligibility = commercialStopLossSpendUnit
+    ? resolveHardActionEligibility({
+        spendUnitProfile: commercialStopLossSpendUnit,
+        targetPack: input.targetPack,
+        metaAovQuality: "ready",
+        calibrationReady:
+          input.profile.accountBaselines.matureCreativeCount >=
+          MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+        shadowOnly: input.shadowOnly,
+      })
+    : input.profile.hardActionEligibility;
+  return applyCutOnlyCommercialStopLossProfile({
+    baseProfile: input.profile,
+    commercialStopLossSpendUnit,
+    commercialStopLossThresholds,
+    commercialStopLossEligibility,
+  });
+}
+
 function withAovFallback(input: {
   calibration: AccountCalibration;
   fallback: AccountCalibration;
@@ -387,6 +544,7 @@ export async function resolveAccountDecisionProfile(input: {
   dataSource: CreativeDecisionDataSource;
   flags?: EngineV3Flags;
   campaignId?: string;
+  commercialStopLossAovAuthority?: CommercialStopLossAovAuthorityInput | null;
 }): Promise<AccountDecisionProfile> {
   const targetPack = await input.dataSource.getBusinessTargetPack({
     businessId: input.businessId,
@@ -509,12 +667,13 @@ export async function resolveAccountDecisionProfile(input: {
     multipliers,
     accountBaselines,
   });
-  const finalHardActionEligibility = resolveHardActionEligibility({
+  const canonicalHardActionEligibility = resolveHardActionEligibility({
     spendUnitProfile: canonicalSpendUnitProfile,
     targetPack,
     metaAovQuality,
     calibrationReady:
-      accountBaselines.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+      accountBaselines.matureCreativeCount >=
+      MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
     shadowOnly: flags.shadowOnly,
   });
   const spendUnitByKind =
@@ -558,50 +717,59 @@ export async function resolveAccountDecisionProfile(input: {
         targetPack,
         metaAovQuality: calibration.metaAovQuality,
         calibrationReady:
-          calibration.matureCreativeCount >= MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+          calibration.matureCreativeCount >=
+          MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
         shadowOnly: flags.shadowOnly,
       });
     }
   }
 
-  return {
-    businessId: input.businessId,
-    asOfDate: input.asOf,
-    channel: "meta",
-    objectiveFamily: "sales",
-    preset,
-    presetSource,
-    spendUnit: canonicalSpendUnitProfile.spendUnit,
-    spendUnitSource: canonicalSpendUnitProfile.spendUnitSource,
-    spendUnitConfidence: canonicalSpendUnitProfile.spendUnitConfidence,
-    spendUnitEvidence: canonicalSpendUnitProfile.spendUnitEvidence,
-    multipliers,
-    thresholds,
-    accountBaselines,
-    funnelCalibration,
-    accountBaselinesByKind: resolvedAccountBaselinesByKind,
-    spendUnitByKind,
-    thresholdsByKind,
-    hardActionEligibilityByKind,
-    funnelCalibrationByKind,
-    scope: scopedCalibration.scope,
-    hardActionEligibility: finalHardActionEligibility,
-    quality: {
-      commercialTruthReady:
-        commercialTruthFreshness !== "unknown" &&
-        positiveFinite(targetPack?.targetRoas ?? null) &&
-        positiveFinite(targetPack?.breakEvenRoas ?? null),
-      commercialTruthFreshness,
-      calibrationReady:
-        accountBaselines.matureCreativeCount >=
-        MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
-      metaAovQuality,
-      thresholdQuality: resolveThresholdQuality({
-        spendUnit: canonicalSpendUnitProfile.spendUnit,
-        confidence: canonicalSpendUnitProfile.spendUnitConfidence,
-      }),
+  return applyCommercialStopLossAovAuthority({
+    profile: {
+      businessId: input.businessId,
+      asOfDate: input.asOf,
+      channel: "meta",
+      objectiveFamily: "sales",
+      preset,
+      presetSource,
+      spendUnit: canonicalSpendUnitProfile.spendUnit,
+      spendUnitSource: canonicalSpendUnitProfile.spendUnitSource,
+      spendUnitConfidence: canonicalSpendUnitProfile.spendUnitConfidence,
+      spendUnitEvidence: canonicalSpendUnitProfile.spendUnitEvidence,
+      multipliers,
+      thresholds,
+      commercialStopLossSpendUnit: null,
+      commercialStopLossThresholds: null,
+      accountBaselines,
+      funnelCalibration,
+      accountBaselinesByKind: resolvedAccountBaselinesByKind,
+      spendUnitByKind,
+      thresholdsByKind,
+      hardActionEligibilityByKind,
+      funnelCalibrationByKind,
+      scope: scopedCalibration.scope,
+      hardActionEligibility: canonicalHardActionEligibility,
+      quality: {
+        commercialTruthReady:
+          commercialTruthFreshness !== "unknown" &&
+          positiveFinite(targetPack?.targetRoas ?? null) &&
+          positiveFinite(targetPack?.breakEvenRoas ?? null),
+        commercialTruthFreshness,
+        calibrationReady:
+          accountBaselines.matureCreativeCount >=
+          MIN_ACCOUNT_SCALE_CALIBRATION_SAMPLE,
+        metaAovQuality,
+        thresholdQuality: resolveThresholdQuality({
+          spendUnit: canonicalSpendUnitProfile.spendUnit,
+          confidence: canonicalSpendUnitProfile.spendUnitConfidence,
+        }),
+      },
     },
-  };
+    targetPack,
+    attributionAovAdjustmentMultiplier,
+    shadowOnly: flags.shadowOnly,
+    authority: input.commercialStopLossAovAuthority,
+  });
 }
 
 async function resolveScopedCalibration(input: {

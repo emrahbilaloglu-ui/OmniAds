@@ -68,3 +68,9 @@ certificates
 /docs/creative-decision-center/generated/h1-country-parent-challenger-*.json
 /docs/creative-decision-center/generated/h11-campaign-context-challenger-*.json
 /docs/creative-decision-center/generated/h12-decision-hysteresis-challenger-*.json
+
+# Transient Playwright smoke output. Kept evidence lives in dated subdirectories
+# (e.g. playwright-smoke-artifacts/<name>-<date>/), which stay tracked; these two
+# paths are rewritten by every run and must not accumulate in the tree.
+/docs/full-ui-redesign/playwright-smoke-artifacts/html-report/
+/docs/full-ui-redesign/playwright-smoke-artifacts/test-results/

@@ -1,5 +1,13 @@
 "use client";
 
+import { newestObservation } from "@/lib/tier-zero-as-of";
+import {
+  compareModeForPreset,
+  customComparisonIsComplete,
+} from "@/lib/comparison-preset-contract";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
+import { buildGoogleAdsDeepLink, describeGoogleAdsDeepLink } from "@/lib/google-ads/deep-link";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
@@ -13,6 +21,12 @@ import {
 import { EmptyState } from "@/components/states/empty-state";
 import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
+import { MISSING_VALUE } from "@/lib/metric-format";
+import { resolveGoogleAccountScope } from "@/lib/google-ads/account-scope";
+import {
+  buildNegativeKeywordList,
+  buildSearchTermCsv,
+} from "@/lib/google-ads/search-term-export";
 import {
   DateRangePicker,
   getPresetDatesForReferenceDate,
@@ -207,34 +221,34 @@ function SurfaceRecoveryNotice({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+            "rounded-full border px-2 py-0.5 text-[12px] font-medium",
             getSurfaceBadgeClass(surface)
           )}
         >
           {getSurfaceBadgeLabel(surface)}
         </span>
-        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
           Coverage {surface.completedDays}/{surface.totalDays} days
         </span>
         {surface.readyThroughDate ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Ready through {surface.readyThroughDate}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Visible coverage {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[12px] text-muted-foreground">
             Historical {rangeCompletion.historical.completedDays}/{rangeCompletion.historical.totalDays} {rangeCompletion.historical.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">{surface.message}</p>
       {surface.latestBackgroundActivityAt ? (
-        <p className="mt-1 text-[10px] text-muted-foreground">
+        <p className="mt-1 text-[12px] text-muted-foreground">
           Latest background activity {surface.latestBackgroundActivityAt}
         </p>
       ) : null}
@@ -337,7 +351,63 @@ function buildGoogleAdsDataQueryParams(input: {
   return params;
 }
 
+/** Save a CSV the operator can open directly, without a server round trip. */
+function downloadSearchTermCsv(csv: string, filename: string) {
+  if (typeof document === "undefined") return;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${filename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Run a zero-risk escape hatch and report what actually happened.
+ *
+ * These events answer "does the escape hatch work" -- the whole point of a
+ * copy or CSV button is that an operator can take the work out of the product
+ * when the product cannot help. Hardcoding `outcome: "ok"` made the metric
+ * answer "was the button clicked" instead, so the hatch would have looked
+ * healthiest in exactly the browsers where it silently does nothing.
+ */
+async function reportGoogleEscapeHatch(input: {
+  eventName: "google_copy_used" | "google_csv_used";
+  businessId: string;
+  itemCount: number;
+  run: () => Promise<unknown>;
+}) {
+  try {
+    await input.run();
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "ok",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  } catch {
+    // Failed, not withheld: withheld means we chose not to, and we tried.
+    emitProductInstrumentation({
+      eventName: input.eventName,
+      surface: "google_ads",
+      outcome: "failed",
+      scope: "business",
+      businessId: input.businessId,
+      provider: "google",
+      itemCount: input.itemCount,
+    });
+  }
+}
+
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
+
+  const [selectedGoogleAccountId, setSelectedGoogleAccountId] = useState<string | null>(null);
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
@@ -398,7 +468,19 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           dateRange.customStart,
           dateRange.customEnd
         );
-  const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+  // The comparison the operator actually picked. This used to turn every
+  // non-"none" choice into `previous_period`, so "Previous year" produced a
+  // previous-period delta wearing a year-over-year label.
+  const compareMode = compareModeForPreset(dateRange.comparisonPreset);
+  // A custom comparison without both ends has no baseline; showing a delta
+  // against a guessed window would be the same substitution in a new place.
+  const comparisonWindowReady =
+    compareMode !== "custom" ||
+    customComparisonIsComplete({
+      comparisonStart: dateRange.comparisonStart,
+      comparisonEnd: dateRange.comparisonEnd,
+    });
+  const effectiveCompareMode = comparisonWindowReady ? compareMode : "none";
   const { labelMode: trendLabelMode } = useMemo(
     () => resolveTrendTimeline(startDate, endDate),
     [startDate, endDate]
@@ -417,9 +499,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const currentAdvisorKey = businessId;
 
   const { data, isLoading, isError } = useQuery<CampaignsResponse>({
-    queryKey: ["gads-campaigns", businessId, startDate, endDate, compareMode],
+    queryKey: ["gads-campaigns", businessId, startDate, endDate, effectiveCompareMode],
     queryFn: async () => {
-      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode });
+      const params = buildGoogleAdsDataQueryParams({ businessId, startDate, endDate, compareMode: effectiveCompareMode });
       const res = await fetch(`/api/google-ads/campaigns?${params}`);
       if (!res.ok) throw new Error("fetch failed");
       return res.json();
@@ -580,6 +662,38 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     refetchInterval: (query) =>
       getGoogleAdsStatusRefetchInterval(query.state.data),
   });
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "google_ads",
+    // The status read is included because it is what supplies both the as-of
+    // and the partial reason. Leaving it out let the surface settle on "ready,
+    // age unknown" while that read was still in flight, and then flip to
+    // "partial" a moment later -- the same reading meaning two different
+    // things depending on when you looked. The six-width evidence caught it:
+    // four widths reported partial and two reported ready, in one run, over
+    // identical data.
+    isLoading: isLoading || isSyncStatusLoading,
+    // The newest real observation across scopes. The reference date is what
+    // day it is in the account's timezone -- a range label, not a read time --
+    // and using it made the reading drift with the hour and never say "stale".
+    asOf: newestObservation(
+      (syncStatus?.freshness?.scopes ?? []).map(
+        (scope) => scope.latestObservationAt,
+      ),
+    ),
+    // Evidence we could not read is not evidence of freshness.
+    partialReason:
+      syncStatus?.freshness && syncStatus.freshness.evidenceAvailable === false
+        ? (syncStatus.freshness.unavailableReason ??
+          "Google freshness evidence could not be read; the age shown is unknown")
+        : null,
+    error:
+      isError || isSyncStatusError ? "google_ads_unreadable" : null,
+    businessId,
+  });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({
     connected: Boolean(syncStatus?.connected),
@@ -589,10 +703,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     fullSyncPriorityRequired: syncStatus?.operations?.fullSyncPriorityRequired === true,
     advisorMissingSurfaces: syncStatus?.advisor?.missingSurfaces ?? [],
   });
-  const advisorExecutionAccountId =
-    (syncStatus?.assignedAccountIds?.length ?? 0) === 1
-      ? syncStatus?.assignedAccountIds?.[0] ?? null
-      : null;
+  // Blending several accounts is allowed, but it is now a stated mode with a
+  // chooser, rather than an unlabelled sum that also silently removed deep links.
+  const accountScope = resolveGoogleAccountScope({
+    assignedAccountIds: syncStatus?.assignedAccountIds ?? [],
+    selectedAccountId: selectedGoogleAccountId,
+  });
+  const advisorExecutionAccountId = accountScope.accountId;
   const advisorCurrent = advisorAnalysisKey === currentAdvisorKey ? advisorData : undefined;
   const advisorIsStale = advisorAnalysisKey != null && advisorAnalysisKey !== currentAdvisorKey;
   const advisorCtaState = getGoogleAdsAdvisorCtaState({
@@ -876,7 +993,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     });
   }, [searchTermsData?.rows, sortedRows]);
 
-  const searchTermNegativeRows = useMemo(
+  // The full candidate set, before the display cap. The panel shows the top
+  // rows, but copy and CSV export the whole list — the long tail is exactly
+  // what a weekly negative-keyword sweep is for.
+  const searchTermNegativeCandidates = useMemo(
     () =>
       scopedSearchTerms
         .filter(
@@ -886,9 +1006,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             (row.spend > 20 && row.conversions === 0) ||
             (row.spend > 20 && row.roas < 1.3)
         )
-        .sort((a, b) => b.spend - a.spend)
-        .slice(0, 8),
+        .sort((a, b) => b.spend - a.spend),
     [scopedSearchTerms]
+  );
+
+  const searchTermNegativeRows = useMemo(
+    () => searchTermNegativeCandidates.slice(0, 8),
+    [searchTermNegativeCandidates]
   );
 
   const searchTermPositiveRows = useMemo(
@@ -1224,6 +1348,41 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         </div>
       </div>
 
+      {/* Scope receipt. An operator must be able to see which account these
+          numbers cover, and change it, before trusting any of them. */}
+      {accountScope.mode !== "none" && (syncStatus?.assignedAccountIds?.length ?? 0) > 1 ? (
+        <div
+          role="status"
+          className={`flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-[12px] ${
+            accountScope.mixedCurrency
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-border/70 bg-card/70 text-muted-foreground"
+          }`}
+        >
+          <span className="font-medium">
+            {accountScope.mode === "blended" ? "Blended view" : "Scoped to one account"}
+          </span>
+          {accountScope.notice ? <span>{accountScope.notice}</span> : null}
+          <label className="ml-auto flex items-center gap-1.5">
+            <span className="sr-only">Google account</span>
+            <select
+              value={selectedGoogleAccountId ?? ""}
+              onChange={(event) =>
+                setSelectedGoogleAccountId(event.target.value || null)
+              }
+              className="rounded-md border border-border/70 bg-background px-2 py-1 text-[12px]"
+            >
+              <option value="">All assigned accounts (blended)</option>
+              {(syncStatus?.assignedAccountIds ?? []).map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {shouldShowActionRequiredBanner ? (
         <div
           role="status"
@@ -1403,7 +1562,126 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
               <div className="grid gap-2 xl:grid-cols-2">
                 <div className="rounded-lg border border-border/70 bg-card p-3">
-                  <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold tracking-tight">Search terms - Negative / waste</p>
+                    {searchTermNegativeCandidates.length > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          onClick={() => {
+                            // Section 9: the zero-risk escape hatch was used.
+                            // Only that it happened and how many rows -- never
+                            // the keywords themselves.
+                            //
+                            // Reported from the clipboard's own result. The
+                            // write was fire-and-forget behind an optional
+                            // chain and the event hardcoded "ok", so a browser
+                            // with no Clipboard API (any non-secure context) or
+                            // a denied permission produced a clean success for
+                            // a copy that never happened -- the escape hatch
+                            // would have looked healthiest exactly where it was
+                            // broken.
+                            void reportGoogleEscapeHatch({
+                              eventName: "google_copy_used",
+                              businessId,
+                              itemCount: searchTermNegativeCandidates.length,
+                              run: () => {
+                                if (!navigator.clipboard?.writeText) {
+                                  return Promise.reject(
+                                    new Error("clipboard_unavailable"),
+                                  );
+                                }
+                                return navigator.clipboard.writeText(
+                                  buildNegativeKeywordList(
+                                    searchTermNegativeCandidates,
+                                    "phrase",
+                                  ),
+                                );
+                              },
+                            });
+                          }}
+                          title="Copy every candidate as a phrase-match negative list for the Google Ads bulk editor"
+                        >
+                          Copy negatives
+                        </button>
+                        {/*
+                          Scoped deep link into Google Ads. Refused rather than
+                          guessed when the account cannot be named -- landing on
+                          the wrong account is worse than no link, because the
+                          operator then acts on someone else's data.
+                        */}
+                        {buildGoogleAdsDeepLink({
+                          accountId: advisorExecutionAccountId,
+                          target: { kind: "search_terms" },
+                        }) ? (
+                          <a
+                            href={
+                              buildGoogleAdsDeepLink({
+                                accountId: advisorExecutionAccountId,
+                                target: { kind: "search_terms" },
+                              }) ?? undefined
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
+                            onClick={() =>
+                              emitProductInstrumentation({
+                                eventName: "google_deep_link_used",
+                                surface: "google_ads",
+                                outcome: "ok",
+                                scope: "business",
+                                businessId,
+                                provider: "google",
+                              })
+                            }
+                          >
+                            {describeGoogleAdsDeepLink({ kind: "search_terms" })}
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          onClick={() => {
+                            // Emitted after the download is handed off, not
+                            // before it: an event fired ahead of the action it
+                            // names counts intentions rather than downloads.
+                            void reportGoogleEscapeHatch({
+                              eventName: "google_csv_used",
+                              businessId,
+                              itemCount: searchTermNegativeCandidates.length,
+                              run: async () => {
+                                downloadSearchTermCsv(
+                                  buildSearchTermCsv(
+                                    searchTermNegativeCandidates,
+                                    {
+                                      accountLabel:
+                                        advisorExecutionAccountId ?? null,
+                                      currency: null,
+                                      windowStart: startDate,
+                                      windowEnd: endDate,
+                                    },
+                                    "phrase",
+                                  ),
+                                  "search-terms-negative",
+                                );
+                              },
+                            });
+                          }}
+                          title="Download every candidate with raw values, reasons, and window"
+                        >
+                          CSV
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {searchTermNegativeCandidates.length > searchTermNegativeRows.length ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Showing top {searchTermNegativeRows.length} of{" "}
+                      {searchTermNegativeCandidates.length} candidates by spend. Copy and CSV
+                      include all {searchTermNegativeCandidates.length}.
+                    </p>
+                  ) : null}
                   {searchTermNegativeRows.length === 0 ? (
                     <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
                   ) : (
@@ -1422,22 +1700,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
                             </div>
                           </div>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">Add negative</span>
+                            <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">Add negative</span>
                             {focusedSearchTerms.some(
                               (term) =>
                                 term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                              <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
                                 Advisor focus
                               </span>
                             ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">{row.recommendation}</span> : null}
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
                       ))}
@@ -1465,22 +1743,22 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
-                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
+                              <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
                             </div>
                           </div>
-                          <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
+                          <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)} · Conv {row.conversions.toFixed(0)}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
+                            <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">{row.recommendation === "Promote in headlines" ? "Promote headline" : "Add exact"}</span>
                             {focusedSearchTerms.some(
                               (term) =>
                                 term.toLowerCase().trim() === row.searchTerm.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                                 Advisor focus
                               </span>
                             ) : null}
-                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">{row.recommendation}</span> : null}
+                            {row.recommendation ? <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">{row.recommendation}</span> : null}
                           </div>
                         </div>
                       ))}
@@ -1590,12 +1868,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                             {focusedAssetGroups.some(
                               (name) => name.toLowerCase().trim() === group.name.toLowerCase().trim()
                             ) ? (
-                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                              <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                                 Advisor focus
                               </span>
                             ) : null}
                             {(group.coverageScore ?? 0) < 50 || group.messagingMismatchCount ? (
-                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                              <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
                                 Weak structure
                               </span>
                             ) : null}
@@ -1603,15 +1881,15 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-xs font-semibold">{group.name}</p>
-                              <p className="text-[10px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
+                              <p className="text-[12px] text-muted-foreground">Spend {fmtCurrency(group.spend)} · ROAS {fmtRoas(group.roas)}</p>
                             </div>
-                            <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
+                            <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", group.roas >= blendedRoas ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{group.roas >= blendedRoas ? "Above avg" : "Below avg"}</span>
                           </div>
 
                           <div className="mt-2 flex flex-wrap gap-1">
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
-                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
-                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Theme fit {fmtPct(groupThemeAlignment)}</span>
+                            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">Coverage {fmtPct(group.coverageScore ?? 0)}</span>
+                            {group.messagingMismatchCount ? <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">{group.messagingMismatchCount} mismatch</span> : null}
                           </div>
                         </div>
                       );
@@ -1646,7 +1924,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         >
                           <div className="min-w-0">
                             <p className="truncate font-medium">{row.type}</p>
-                            <p className="truncate text-[10px] text-muted-foreground">
+                            <p className="truncate text-[12px] text-muted-foreground">
                               {row.campaign ?? "Campaign signal"}
                             </p>
                           </div>
@@ -1702,17 +1980,17 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         {focusedProducts.some(
                           (name) => name.toLowerCase().trim() === (product.title ?? "").toLowerCase().trim()
                         ) ? (
-                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[9px] text-sky-700">
+                          <span className="rounded-full border border-border/70 bg-sky-50/40 px-1.5 py-0.5 text-[12px] text-sky-700">
                             Advisor focus
                           </span>
                         ) : null}
                         {product.title && productRows.some((row) => row.title === product.title && row.roas >= Math.max(avgProductRoas, 2.5)) ? (
-                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[9px] text-emerald-700">
+                          <span className="rounded-full border border-border/70 bg-emerald-50/40 px-1.5 py-0.5 text-[12px] text-emerald-700">
                             Scale candidate
                           </span>
                         ) : null}
                         {isWeak ? (
-                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[9px] text-rose-700">
+                          <span className="rounded-full border border-border/70 bg-rose-50/40 px-1.5 py-0.5 text-[12px] text-rose-700">
                             Reduce
                           </span>
                         ) : null}
@@ -1720,9 +1998,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-[12px] font-medium">{product.title ?? product.itemId ?? "Unnamed product"}</p>
-                          <p className="truncate text-[10px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
+                          <p className="truncate text-[12px] text-muted-foreground">{product.itemId ?? "No item id"}</p>
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-1 text-[10px]">
+                        <div className="flex flex-wrap items-center justify-end gap-1 text-[12px]">
                           <span className="rounded-full border border-border/70 px-1.5 py-0.5">S {fmtCurrency(product.spend)}</span>
                           <span className="rounded-full border border-border/70 px-1.5 py-0.5">R {fmtCurrency(product.revenue)}</span>
                           <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5">ROAS {fmtRoas(product.roas)}</span>
@@ -1773,7 +2051,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     <div key={type} className="rounded-lg border border-border/70 bg-card p-3">
                       <div className="mb-2 flex items-center justify-between">
                         <p className="text-xs font-semibold">{type}</p>
-                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
                       </div>
                       {list.length === 0 ? (
                         <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
@@ -1794,7 +2072,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                               )}
                             >
                               <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
-                              <p className="mt-0.5 text-[10px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
+                              <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
                               {focusedAssets.some(
                                 (name) =>
                                   name.toLowerCase().trim() ===
@@ -1803,7 +2081,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                     .trim()
                               ) ? (
                                 <div className="mt-1">
-                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[9px] text-amber-700">
+                                  <span className="rounded-full border border-border/70 bg-amber-50/40 px-1.5 py-0.5 text-[12px] text-amber-700">
                                     Advisor replace focus
                                   </span>
                                 </div>
@@ -1838,7 +2116,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { label: string; value: string; series: Array<{ date: string; value: number }>; formatter: (value: number) => string; dateLabelMode: TrendLabelMode; highlight?: boolean; }) {
   return (
     <div className={cn("rounded-xl border bg-card p-3", highlight && "border-emerald-200 bg-emerald-50/50")}>
-      <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
+      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
       <p className={cn("mt-1.5 text-[22px] font-semibold tracking-tight", highlight && "text-emerald-700")}>{value}</p>
       <div className="mt-1">
         <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
@@ -1862,7 +2140,15 @@ function CampaignCard({
   };
 }) {
   const cfg = ACTION_CONFIG[campaign.actionState];
-  const roasUp = campaign.roas >= accountAvgRoas;
+  // A campaign with no ROAS is not a campaign performing badly. Comparing an
+  // absent value against the account average made it fail the test and render
+  // in the loss colour, so "we have no data" read as "this is losing money".
+  const hasRoas = Number.isFinite(campaign.roas) && campaign.roas > 0;
+  const roasColor = !hasRoas
+    ? undefined
+    : campaign.roas >= accountAvgRoas
+      ? "text-emerald-700"
+      : "text-rose-600";
   return (
     <div className="h-full rounded-xl border bg-card p-3">
       <div className="flex items-center gap-2">
@@ -1870,16 +2156,16 @@ function CampaignCard({
         <p className="truncate text-[13px] font-medium">{campaign.name}</p>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">{campaign.channel}</span>
-        <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px] font-semibold", cfg.border, cfg.chip)}>
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">{campaign.channel}</span>
+        <span className={cn("rounded-full border px-1.5 py-0.5 text-[12px] font-semibold", cfg.border, cfg.chip)}>
           <span className={cn("mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle", cfg.dot)} />{cfg.label}
         </span>
         {advisorRow ? (
           <>
-            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[9px] text-foreground/80">
+            <span className="rounded-full border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[12px] text-foreground/80">
               {advisorRow.familyLabel}
             </span>
-            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">
               {advisorRow.roleLabel}
             </span>
           </>
@@ -1887,7 +2173,7 @@ function CampaignCard({
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1 text-right">
         <Metric label="Spend" value={fmtCurrency(campaign.spend)} />
-        <Metric label="ROAS" value={campaign.roas > 0 ? fmtRoas(campaign.roas) : "-"} valueColor={roasUp ? "text-emerald-700" : "text-rose-600"} />
+        <Metric label="ROAS" value={hasRoas ? fmtRoas(campaign.roas) : MISSING_VALUE} valueColor={roasColor} />
         <Metric label="Revenue" value={fmtCurrency(campaign.revenue)} />
         <Metric label="Conv." value={campaign.conversions.toFixed(0)} />
       </div>
@@ -1895,15 +2181,15 @@ function CampaignCard({
         <div className="mt-3 border-t border-border/70 pt-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                 Advisor
               </p>
-              <p className="mt-1 line-clamp-2 text-[10px] text-foreground/80">
+              <p className="mt-1 line-clamp-2 text-[12px] text-foreground/80">
                 {advisorRow.topActionHint}
               </p>
             </div>
             {advisorRow.recommendationCount > 0 ? (
-              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+              <span className="shrink-0 rounded-full border border-border/70 bg-muted/20 px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground">
                 {advisorRow.recommendationCount}
               </span>
             ) : null}
@@ -1917,7 +2203,7 @@ function CampaignCard({
 function Metric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div>
-      <p className="text-[9px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
       <p className={cn("text-[13px] font-semibold", valueColor)}>{value}</p>
     </div>
   );
@@ -1951,7 +2237,7 @@ function OverviewMetric({
   return (
     <div className="rounded-xl border border-border/70 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-card">
       <div className={cn("h-1 w-10 rounded-full bg-gradient-to-r", accentClasses[accent])} />
-      <p className="mt-2 text-[10px] font-medium tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-2 text-[12px] font-medium tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
       <div className="mt-1.5">
         <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />

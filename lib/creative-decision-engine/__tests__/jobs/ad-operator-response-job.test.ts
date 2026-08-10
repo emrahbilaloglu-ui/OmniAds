@@ -13,7 +13,10 @@ import {
   detectAdOperatorResponse,
   type ExactMetaAdsActionLineage,
 } from "../../ad-operator-response-detection";
-import { DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION } from "../../execution-safety";
+import {
+  DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
+  createDecisionOriginAdActionIdempotencyKey,
+} from "../../execution-safety";
 import { AD_DECISION_EVALUATION_CONTRACT_VERSION } from "../../evaluation-store";
 import { NATIVE_AD_CALIBRATION_CONTRACT_VERSION } from "../../jobs/ad-calibration-job";
 import {
@@ -45,23 +48,25 @@ import { ENGINE_VERSION, NATIVE_AD_ENGINE_VERSION } from "../../types";
 const CUTOFF = "2026-07-13T03:00:00.000Z";
 const JOB_RUN_ID = "00000000-0000-4000-8000-000000000099";
 
-describe("commercial stop-loss release epoch contract", () => {
+describe("decision-presentation hardening release epoch contract", () => {
   it("locks current contracts and the exact immediately previous rollback epoch", () => {
-    expect(ENGINE_VERSION).toBe("v3-2026-07-15-commercial-stop-loss");
+    expect(ENGINE_VERSION).toBe(
+      "v3-2026-07-18-decision-presentation-hardening",
+    );
     expect(NATIVE_AD_ENGINE_VERSION).toBe(
-      "v3-ad-2026-07-15-commercial-stop-loss-shadow",
+      "v3-ad-2026-07-18-decision-presentation-hardening-shadow",
     );
     expect(NATIVE_AD_CALIBRATION_CONTRACT_VERSION).toBe(
-      "engine-v3-native-ad-calibration.v2",
+      "engine-v3-native-ad-calibration.v3",
     );
     expect(CANONICAL_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-evaluation.v4",
+      "engine-v3-canonical-evaluation.v5",
     );
     expect(AD_DECISION_EVALUATION_CONTRACT_VERSION).toBe(
-      "engine-v3-canonical-ad-evaluation.v6",
+      "engine-v3-canonical-ad-evaluation.v7",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).toBe(
-      "v3-ad-2026-07-15-target-age-advisory-shadow",
+      "v3-ad-2026-07-15-commercial-stop-loss-shadow",
     );
     expect(NATIVE_AD_OPERATOR_ROLLBACK_ENGINE_VERSION).not.toBe(
       NATIVE_AD_ENGINE_VERSION,
@@ -83,7 +88,7 @@ function recommendationEpisode() {
     businessDisplayId: "business-a",
     providerAccountRefId: "00000000-0000-4000-8000-000000000010",
     providerAccountId: "act-a",
-    adId: "ad-a",
+    adId: "100000000000001",
     creativeId: "shared-creative",
     asOfDate: "2026-07-12",
     engineVersion: NATIVE_AD_ENGINE_VERSION,
@@ -103,6 +108,19 @@ function recommendationEpisode() {
 function immutablePauseReceipt(
   target = recommendationEpisode(),
 ): ExactMetaAdsActionLineage {
+  if (!target.creativeId) {
+    throw new TypeError("Test receipt requires an exact creative identity.");
+  }
+  const idempotencyKey = createDecisionOriginAdActionIdempotencyKey({
+    businessId: target.businessId,
+    providerAccountId: target.providerAccountId,
+    adId: target.adId,
+    snapshotId: target.snapshotId,
+    evaluationId: target.evaluationId,
+    engineVersion: target.engineVersion,
+    decisionHash: target.decisionHash,
+    action: "pause",
+  });
   const receipt: Omit<ExactMetaAdsActionLineage, "receiptHash"> = {
     receiptId: "00000000-0000-4000-8000-000000000005",
     actionLogId: "00000000-0000-4000-8000-000000000006",
@@ -120,7 +138,7 @@ function immutablePauseReceipt(
     action: "pause",
     successorKind: null,
     resultingAdId: null,
-    idempotencyKey: "decision-ad-action:exact-test",
+    idempotencyKey,
     status: "success",
     dryRun: false,
     providerVerified: true,
@@ -130,6 +148,15 @@ function immutablePauseReceipt(
     capturedAt: "2026-07-12T04:03:00.000Z",
     verificationEntityId: target.adId,
     verificationStatus: "PAUSED",
+    verificationLineage: {
+      sourceCreativeId: target.creativeId,
+      sourceCampaignId: target.sourceCampaignId,
+      sourceAdsetId: target.sourceAdsetId,
+      verifiedProviderAccountId: target.providerAccountId,
+      verifiedCreativeId: target.creativeId,
+      verifiedCampaignId: target.sourceCampaignId,
+      verifiedAdsetId: target.sourceAdsetId,
+    },
   };
   return {
     ...receipt,
@@ -214,6 +241,34 @@ describe("native ad operator-response job contract", () => {
     expect(allReadSql).not.toMatch(/POSITION\s*\(/i);
     expect(allReadSql).not.toContain("payload_request");
     expect(allReadSql).not.toMatch(/creative_id\s*=/i);
+  });
+
+  it("keeps the recommendation payload record declaration duplicate-free", () => {
+    const declarationStart =
+      INSERT_AD_RECOMMENDATION_EPISODES_QUERY.indexOf("AS row(");
+    const declarationEnd =
+      INSERT_AD_RECOMMENDATION_EPISODES_QUERY.indexOf(
+        "\n  )\n)\nINSERT",
+        declarationStart,
+      );
+    expect(declarationStart).toBeGreaterThanOrEqual(0);
+    expect(declarationEnd).toBeGreaterThan(declarationStart);
+    const declaredColumns = INSERT_AD_RECOMMENDATION_EPISODES_QUERY
+      .slice(declarationStart + "AS row(".length, declarationEnd)
+      .split(",")
+      .map((declaration) => declaration.trim().split(/\s+/)[0])
+      .filter((column): column is string => Boolean(column));
+
+    expect(new Set(declaredColumns).size).toBe(declaredColumns.length);
+    expect(declaredColumns).toEqual(
+      expect.arrayContaining([
+        "job_run_id",
+        "business_ref_id",
+        "business_id",
+        "provider_account_ref_id",
+        "provider_account_id",
+      ]),
+    );
   });
 
   it("fails schema capability closed before the parallel migration exists", async () => {
@@ -348,7 +403,7 @@ describe("native ad operator-response job contract", () => {
       return rows.flatMap((row) => {
         expect(row).toMatchObject({
           creative_id: "shared-creative",
-          ad_id: "ad-a",
+          ad_id: "100000000000001",
           provider_account_ref_id:
             "00000000-0000-4000-8000-000000000010",
           decision_snapshot_id: "00000000-0000-4000-8000-000000000002",
@@ -416,7 +471,13 @@ describe("native ad operator-response job contract", () => {
       resulting_ad_id: null,
       duration_ms: 10,
       verified_at: action.verifiedAt,
-      verification_payload: {},
+      verification_payload: {
+        id: target.adId,
+        account_id: target.providerAccountId,
+        creative: { id: target.creativeId },
+        campaign: { id: target.sourceCampaignId },
+        adset: { id: target.sourceAdsetId },
+      },
       rec_id_origin: null,
       launch_intent_id: null,
       decision_contract_version: DECISION_ORIGIN_AD_EXECUTION_CONTRACT_VERSION,
@@ -464,6 +525,7 @@ describe("native ad operator-response job contract", () => {
         provider_account_ref_id: target.providerAccountRefId,
         provider_account_id: target.providerAccountId,
         source_ad_id: target.adId,
+        verification_lineage: action.verificationLineage,
       });
       storedReceipt = {
         receipt_id: String(payload.id),

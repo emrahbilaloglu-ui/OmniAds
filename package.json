@@ -34,7 +34,7 @@
     "test:e2e": "playwright test",
     "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",
     "test:smoke:live": "PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=https://adsecute.com playwright test",
-    "test:full-ui:visual": "FULL_UI_SMOKE_VISUAL_ONLY=1 FULL_UI_SMOKE_SCREENSHOTS=login,meta-decisions,creative-studio,launchpad,automation node --import tsx scripts/full-ui-redesign-playwright-smoke.ts",
+    "test:full-ui:visual": "FULL_UI_SMOKE_VISUAL_ONLY=1 FULL_UI_SMOKE_EXTENDED=1 FULL_UI_SMOKE_SCREENSHOTS=login,overview,meta-decisions,creative-studio,launchpad,automation,reports,settings,integrations,google-ads,meta-history,studio-copy,studio-inbox node --import tsx scripts/full-ui-redesign-playwright-smoke.ts",
     "dev": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
     "dev:local": "node --import tsx scripts/with-local-postgres.ts -- next dev --turbopack --hostname 0.0.0.0 --port 3000",
     "dev:turbo": "next dev --turbopack --hostname 0.0.0.0 --port 3000",

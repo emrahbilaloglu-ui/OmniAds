@@ -996,7 +996,7 @@ function CreativeEvidenceDrawerContent({
                       <div
                         style={{
                           color: "var(--muted, #6b7280)",
-                          fontSize: "10px",
+                          fontSize: "12px",
                           fontWeight: 600,
                           letterSpacing: "0.04em",
                           textTransform: "uppercase",

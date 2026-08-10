@@ -132,7 +132,7 @@ function canonicalDecision(input: {
       },
     },
     classification: {
-      overlayVersion: "meta-decisions-classification-overlay.v3",
+      overlayVersion: "meta-decisions-classification-overlay.v4",
       queueSection: "creative_rotation",
       lifecycleRole: {
         value: input.role ?? "main",
@@ -275,7 +275,7 @@ function readModel(
     },
   });
   return {
-    contractVersion: "meta-decisions-workspace.read.v3",
+    contractVersion: "meta-decisions-workspace.read.v4",
     status: "available",
     generatedAt: "2026-07-10T04:00:00.000Z",
     scope: {

@@ -139,7 +139,7 @@ export function CustomizeKpisModal({
         </div>
 
         <div className="border-r border-neutral-200 px-3 py-3">
-          <div className="px-1 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+          <div className="px-1 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
             Selected ({draftKeys.length})
           </div>
           <ul className="mt-1 flex flex-col gap-1">
@@ -210,7 +210,7 @@ export function CustomizeKpisModal({
         <div className="max-h-[480px] overflow-y-auto px-4 py-3">
           {groupedCatalog.map(([group, entries]) => (
             <section key={group} className="mb-4">
-              <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+              <h3 className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
                 {group}
               </h3>
               <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -249,7 +249,7 @@ export function CustomizeKpisModal({
                       <span className="min-w-0 flex-1">
                         <span className="block font-semibold">{entry.label}</span>
                         {entry.unavailable ? (
-                          <span className="mt-0.5 block text-[10.5px] text-amber-700">
+                          <span className="mt-0.5 block text-[12px] text-amber-700">
                             {entry.unavailableReason ?? "Backend-dependent"}
                           </span>
                         ) : null}
@@ -263,7 +263,7 @@ export function CustomizeKpisModal({
         </div>
 
         <div className="border-l border-neutral-200 bg-neutral-50/60 px-4 py-3">
-          <div className="px-1 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+          <div className="px-1 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
             About
           </div>
           {activeEntry ? (

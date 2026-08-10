@@ -13,6 +13,12 @@ import {
 } from "@/lib/api/meta";
 import { getDb } from "@/lib/db";
 import {
+  classifyDecisionDateFallback,
+  describeDecisionDateFallback,
+  isExpectedCapabilityGate,
+} from "@/lib/meta/decision-date-fallback";
+import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
+import {
   META_DECISIONS_AD_CANDIDATE_LIMIT,
   META_DECISIONS_AD_CANDIDATE_MAX_LIMIT,
   type MetaDecisionsWorkspaceReadModel,
@@ -241,6 +247,28 @@ function previousUtcDate() {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Report why a snapshot-date lookup failed.
+ *
+ * An expected capability gate stays at info; anything else is a warning,
+ * because the resolver has quietly fallen back to yesterday and every decision
+ * surface downstream then answers for the wrong day without saying so. No raw
+ * identifiers are logged.
+ */
+function reportDecisionDateFallback(source: string, error: unknown) {
+  const cause = classifyDecisionDateFallback(error);
+  const details = {
+    source,
+    cause,
+    detail: describeDecisionDateFallback(cause),
+  };
+  if (isExpectedCapabilityGate(cause)) {
+    logRuntimeInfo("meta_decisions", "as_of_date_capability_gate", details);
+    return;
+  }
+  logRuntimeWarn("meta_decisions", "as_of_date_lookup_failed", details);
+}
+
 async function resolveWorkspaceEndDate(input: {
   businessId: string;
   providerAccountId: string | null;
@@ -251,17 +279,36 @@ async function resolveWorkspaceEndDate(input: {
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        WITH candidate_dates AS (
+        WITH creative_account_keys AS (
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_dimensions
+          WHERE business_id = $1
+          UNION
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_daily
+          WHERE business_id = $1
+        ),
+        creative_account_scope AS (
+          -- A creative seen under more than one account is excluded rather than
+          -- attributed to one of them (ADR D070, matching history-read-model).
+          SELECT creative_id
+          FROM creative_account_keys
+          GROUP BY creative_id
+          HAVING COUNT(DISTINCT provider_account_id) = 1
+             AND MIN(provider_account_id) = $2
+        ),
+        candidate_dates AS (
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_ad_decision_snapshots_daily
           WHERE business_ref_id = $1::uuid
             AND business_id = $1
             AND provider_account_id = $2
           UNION ALL
-          SELECT MAX(as_of_date) AS as_of_date
-          FROM engine_v3_decision_snapshots_daily
-          WHERE business_id::text = $1
-            AND provider_account_id = $2
+          SELECT MAX(snapshot.as_of_date) AS as_of_date
+          FROM engine_v3_decision_snapshots_daily snapshot
+          INNER JOIN creative_account_scope account_scope
+            ON account_scope.creative_id = snapshot.creative_id
+          WHERE snapshot.business_id::text = $1
           UNION ALL
           SELECT MAX(as_of_date) AS as_of_date
           FROM engine_v3_job_runs
@@ -276,24 +323,46 @@ async function resolveWorkspaceEndDate(input: {
     );
     const latest = rows[0]?.latest_as_of?.trim() ?? "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
-  } catch {
-    // Native tables are introduced behind a schema/capability gate.
+  } catch (error: unknown) {
+    // Native tables are introduced behind a schema/capability gate, so a
+    // missing relation is expected here. Anything else means this lookup is
+    // failing for a reason nobody has seen, and the resolver silently falls
+    // back to yesterday — so it is reported rather than swallowed.
+    reportDecisionDateFallback("native_ad_snapshot_union", error);
   }
   try {
     const rows = await getDb().query<{ latest_as_of: string | null }>(
       `
-        SELECT MAX(as_of_date)::text AS latest_as_of
-        FROM engine_v3_decision_snapshots_daily
-        WHERE business_id::text = $1
-          AND provider_account_id = $2
+        WITH creative_account_keys AS (
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_dimensions
+          WHERE business_id = $1
+          UNION
+          SELECT DISTINCT business_id, provider_account_id, creative_id
+          FROM meta_creative_daily
+          WHERE business_id = $1
+        ),
+        creative_account_scope AS (
+          SELECT creative_id
+          FROM creative_account_keys
+          GROUP BY creative_id
+          HAVING COUNT(DISTINCT provider_account_id) = 1
+             AND MIN(provider_account_id) = $2
+        )
+        SELECT MAX(snapshot.as_of_date)::text AS latest_as_of
+        FROM engine_v3_decision_snapshots_daily snapshot
+        INNER JOIN creative_account_scope account_scope
+          ON account_scope.creative_id = snapshot.creative_id
+        WHERE snapshot.business_id::text = $1
       `,
       [input.businessId, input.providerAccountId],
     );
     const latest = rows[0]?.latest_as_of?.trim() ?? "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(latest)) return latest;
-  } catch {
+  } catch (error: unknown) {
     // Older schemas still get the previous completed UTC day. Decisions never
     // need seven parallel current-day provider reads to serve a daily snapshot.
+    reportDecisionDateFallback("legacy_decision_snapshot", error);
   }
   return previousUtcDate();
 }

@@ -321,7 +321,7 @@ export default function AdminDashboard() {
           <p className="text-3xl font-bold text-gray-900">{totalActive}</p>
           <div className="flex flex-wrap gap-1 mt-2">
             {planBreakdown.map((p) => (
-              <span key={p.planId} className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${PLAN_COLORS[p.planId] ?? "bg-gray-100 text-gray-600"}`}>
+              <span key={p.planId} className={`text-[12px] font-medium px-1.5 py-0.5 rounded-full ${PLAN_COLORS[p.planId] ?? "bg-gray-100 text-gray-600"}`}>
                 {PLAN_LABELS[p.planId] ?? p.planId}: {p.count}
               </span>
             ))}
@@ -552,8 +552,8 @@ export default function AdminDashboard() {
                 <div>
                   <p className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
                     {u.name}
-                    {u.is_superadmin && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">Admin</span>}
-                    {u.suspended_at && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Askıda</span>}
+                    {u.is_superadmin && <span className="text-[12px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">Admin</span>}
+                    {u.suspended_at && <span className="text-[12px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Askıda</span>}
                   </p>
                   <p className="text-xs text-gray-400">{u.email}</p>
                 </div>

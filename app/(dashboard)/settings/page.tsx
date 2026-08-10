@@ -1,5 +1,6 @@
 "use client";
 
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -36,10 +37,12 @@ import {
   type InviteRow,
   type MemberRow,
   type WorkspaceRole,
+  projectProviderHealth,
 } from "@/app/(dashboard)/settings/settings-support";
 import { getTranslations } from "@/lib/i18n";
 
 export default function SettingsPage() {
+
   const router = useRouter();
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -49,6 +52,10 @@ export default function SettingsPage() {
   const selectBusiness = useAppStore((state) => state.selectBusiness);
 
   const byBusinessId = useIntegrationsStore((state) => state.byBusinessId);
+  const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
+  const integrationDomains = useIntegrationsStore((state) =>
+    selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
+  );
   const removeBusinessData = useIntegrationsStore((state) => state.removeBusinessData);
   const clearAllState = useIntegrationsStore((state) => state.clearAllState);
   const clearProviderAccountsForBusiness = useIntegrationsStore(
@@ -103,6 +110,7 @@ export default function SettingsPage() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [loadingTeam, setLoadingTeam] = useState(false);
+
   const [sendingInvite, setSendingInvite] = useState(false);
   const [runningDangerAction, setRunningDangerAction] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -113,6 +121,28 @@ export default function SettingsPage() {
   const [nextPassword, setNextPassword] = useState("");
   const [confirmModal, setConfirmModal] = useState<null | "disconnectAll" | "deleteWorkspace" | "revokeSessions">(null);
   const [providerHealth, setProviderHealth] = useState<Record<string, { label: string; value: string }>>({});
+  /**
+   * When this page's reads last resolved.
+   *
+   * Settings has no single upstream timestamp, so the honest as-of is the age
+   * of the read itself. It is stamped only on success: a failed reload must not
+   * refresh the age of data it did not replace.
+   */
+  const [settingsReadAt, setSettingsReadAt] = useState<string | null>(null);
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // state this surface already has, so it cannot drift from what is on screen.
+  useTierZeroFreshness({
+    surface: "settings",
+    isLoading: loadingTeam,
+    error: workspaceError ?? accountError ?? teamError,
+    // Not `accountCreatedAt`: that is the "Member since" date, a property of
+    // the account that never moves. Feeding it here made the chip report a
+    // steadily growing age for data fetched seconds ago, and fire a stale
+    // disclosure on every single mount.
+    asOf: settingsReadAt,
+    businessId: null,
+  });
 
   useEffect(() => {
     setWorkspaceName(activeBusiness?.name ?? "");
@@ -132,6 +162,9 @@ export default function SettingsPage() {
       setAccountName(user.name ?? "");
       setAccountEmail(user.email ?? "");
       setAccountCreatedAt(user.createdAt ?? null);
+      // Stamped on success only: a failed reload must not refresh the age of
+      // data it did not actually replace.
+      setSettingsReadAt(new Date().toISOString());
     } catch (error: unknown) {
       setAccountError(error instanceof Error ? error.message : "Could not load account settings.");
     }
@@ -173,36 +206,29 @@ export default function SettingsPage() {
     }
   }, [selectedBusinessId]);
 
+  // Provider health is projected from the same derivation Integrations renders.
+  // Settings previously judged health from the account-list snapshot alone, so a
+  // revoked token could read "Healthy" here while Integrations said action
+  // required — two answers to one question, from two different sources.
   const loadProviderHealth = useCallback(async () => {
     if (!selectedBusinessId) return;
     if (isDemoBusinessId(selectedBusinessId)) {
       setProviderHealth({
-        meta: { label: "Healthy", value: "Demo data fixture" },
-        google: { label: "Healthy", value: "Demo data fixture" },
+        meta: { label: "Connected", value: "Demo data fixture" },
+        google: { label: "Connected", value: "Demo data fixture" },
       });
       return;
     }
-    const nextHealth: Record<string, { label: string; value: string }> = {};
-    for (const provider of ["meta", "google"] as const) {
-      try {
-        const snapshot = await fetchProviderAccountSnapshot(provider, selectedBusinessId);
-        nextHealth[provider] = {
-          label: snapshot.meta?.refreshFailed
-            ? "Attention needed"
-            : snapshot.meta?.stale
-              ? "Stale snapshot"
-              : "Healthy",
-          value: snapshot.notice ?? snapshot.meta?.fetchedAt ?? "Snapshot available",
-        };
-      } catch {
-        nextHealth[provider] = {
-          label: "Unavailable",
-          value: "Snapshot unavailable",
-        };
-      }
-    }
-    setProviderHealth(nextHealth);
-  }, [selectedBusinessId]);
+    await ensureBusiness(selectedBusinessId);
+  }, [ensureBusiness, selectedBusinessId]);
+
+  const derivedProviderHealth = useMemo(() => {
+    if (!selectedBusinessId || isDemoBusinessId(selectedBusinessId)) return null;
+    return projectProviderHealth(integrationDomains);
+  }, [integrationDomains, selectedBusinessId]);
+
+  /** One health answer: the shared derivation, with the demo fixture as the only override. */
+  const effectiveProviderHealth = derivedProviderHealth ?? providerHealth;
 
   useEffect(() => {
     void loadAccount();
@@ -829,10 +855,10 @@ export default function SettingsPage() {
               <div key={provider} className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
                 <p className="text-sm font-medium capitalize">{provider}</p>
                 <p className="mt-2 text-sm text-[var(--adc-ink3)]">
-                  {providerHealth[provider]?.label ?? "Checking health..."}
+                  {effectiveProviderHealth[provider]?.label ?? "Checking health..."}
                 </p>
                 <p className="mt-1 text-xs text-[var(--adc-ink3)]">
-                  {providerHealth[provider]?.value ?? "Loading snapshot status"}
+                  {effectiveProviderHealth[provider]?.value ?? "Loading provider status"}
                 </p>
               </div>
             ))}
@@ -851,7 +877,7 @@ export default function SettingsPage() {
             <div className="rounded-[10px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4">
               <p className="text-sm font-medium">Provider snapshot health</p>
               <p className="mt-2 text-sm text-[var(--adc-ink3)]">
-                {Object.keys(providerHealth).length > 0 ? "Observed" : "Not available yet"}
+                {Object.keys(effectiveProviderHealth).length > 0 ? "Observed" : "Not available yet"}
               </p>
               <p className="mt-1 text-xs text-[var(--adc-ink3)]">
                 Snapshot actions refresh account discovery state without changing assignments.

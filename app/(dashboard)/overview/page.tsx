@@ -1,9 +1,15 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import {
+  OVERVIEW_COMPARISON_PRESETS,
+  compareModeForPreset,
+} from "@/lib/comparison-preset-contract";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SummaryMetricCard } from "@/components/overview/SummaryMetricCard";
@@ -11,6 +17,12 @@ import { SummarySection } from "@/components/overview/SummarySection";
 import { SummaryAttributionTable } from "@/components/overview/SummaryAttributionTable";
 import { AiDailyBrief } from "@/components/overview/AiDailyBrief";
 import { PinsSection } from "@/components/overview/PinsSection";
+import { AgencyToday } from "@/components/overview/AgencyToday";
+import { FreshnessChip } from "@/components/states/FreshnessChip";
+import {
+  resolvePlatformSectionLabels,
+  type ResolvedSectionLabel,
+} from "@/lib/overview-section-labels";
 import { CostModelSheet } from "@/components/overview/CostModelSheet";
 import { SyncStatusPill } from "@/components/sync/sync-status-pill";
 import {
@@ -154,8 +166,14 @@ export default function OverviewPage() {
           dateRange.customStart,
           dateRange.customEnd
         );
+  // The picker on this surface offers only the two the route can carry, so
+  // this is a narrowing rather than a collapse: an unrecognised preset (a
+  // stored saved view, a hand-edited URL) shows no comparison instead of a
+  // confident delta against a baseline nobody chose.
   const compareMode: CompareMode =
-    dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+    compareModeForPreset(dateRange.comparisonPreset) === "previous_period"
+      ? "previous_period"
+      : "none";
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -266,15 +284,44 @@ export default function OverviewPage() {
   }, [query.data, sparklineQuery.data, comparisonSparklineQuery.data]);
 
   // Charts show a pulsing skeleton while sparklines are loading.
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "overview",
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    error: query.error,
+    // A provider we could not read is a hole in the totals, not a zero.
+    // Every read this surface reports on. A failing sparkline used to leave
+    // the state at "ready" while the trend charts rendered empty -- an absent
+    // series is indistinguishable from a flat one, so a chart with no data
+    // read as a real chart showing nothing happening.
+    partialReason:
+      metaStatusQuery.error || googleAdsStatusQuery.error
+        ? "Some provider health could not be read; this view is incomplete"
+        : sparklineQuery.error || comparisonSparklineQuery.error
+          ? "Trend data could not be read; the charts are incomplete"
+          : null,
+    // The data's own timestamp. `dataUpdatedAt` is when the *response landed*,
+    // which is fresh by construction: it resets on every refetch no matter how
+    // far behind the sync is.
+    asOf: measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null),
+    businessId: businessId || null,
+    // Re-runs every read the reading covers. A retry that refetches only the
+    // primary query leaves the reported hole exactly where it was, so the
+    // button appears to do nothing and the partial state never clears.
+    onRetry: () => {
+      void query.refetch();
+      if (metaStatusQuery.isError) void metaStatusQuery.refetch();
+      if (googleAdsStatusQuery.isError) void googleAdsStatusQuery.refetch();
+      if (sparklineQuery.isError) void sparklineQuery.refetch();
+      if (comparisonSparklineQuery.isError) void comparisonSparklineQuery.refetch();
+    },
+  });
+
   const chartsLoading = sparklineQuery.isLoading && !sparklineQuery.data;
-
-  if (!selectedBusinessId) return <BusinessEmptyState />;
-
-  if (query.isError) {
-    const errorMessage =
-      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
-    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
-  }
 
   const symbol = currencySymbol(currency);
   // All render data reads from effectiveSummary so sparklines are reflected
@@ -315,9 +362,44 @@ export default function OverviewPage() {
     [effectiveSummary?.platforms]
   );
 
+  const platformSectionLabels = useMemo(
+    () =>
+      resolvePlatformSectionLabels(platformSections, (provider) =>
+        resolvePlatformLabel(provider, PLATFORM_TITLE_META[provider]?.label ?? provider)
+      ),
+    [platformSections]
+  );
+
+  // The early exits sit below every hook deliberately.
+  //
+  // They used to run above seven useMemo calls, so the first render took a
+  // different number of hooks than the next one. That is not a style point:
+  // when a refetch fails after a successful render, React sees fewer hooks and
+  // throws "Rendered fewer hooks than expected", crashing the page instead of
+  // showing the error state this very branch is supposed to guarantee. The
+  // memos all tolerate an undefined summary, so running them first costs
+  // nothing and keeps the hook count invariant.
+  if (!selectedBusinessId) return <BusinessEmptyState />;
+
+  if (query.isError) {
+    const errorMessage =
+      query.error instanceof Error ? query.error.message : "The request failed. Please try again.";
+    return <ErrorState description={errorMessage} onRetry={() => query.refetch()} />;
+  }
+
   return (
     <div className="flex flex-col space-y-6 pb-10">
+      {/* Agency Today sits above the selected client rather than replacing it:
+          a buyer with several clients needs to know who to open before they
+          need this client's detail. With one client there is nothing to rank,
+          so the surface stays out of the way. */}
+      {businesses.length > 1 ? <AgencyToday businessCount={businesses.length} /> : null}
+
       <DataStatusRow
+        dataAsOf={measuredAsOf(effectiveSummary?.shopifyServing?.lastSyncedAt ?? null)}
+        freshnessBusinessId={businessId || null}
+        onRefresh={() => void query.refetch()}
+        refreshing={query.isFetching}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
@@ -345,6 +427,7 @@ export default function OverviewPage() {
             endDate={endDate}
             currencySymbol={symbol}
             catalog={metricCatalog}
+            comparisonMode={compareMode}
             onViewBreakdown={() => {
               window.location.hash = "#attribution";
             }}
@@ -400,7 +483,8 @@ export default function OverviewPage() {
           title={renderPlatformSectionTitle(
             platform.provider,
             platform.title,
-            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null
+            platformSyncPills[platform.provider as keyof typeof platformSyncPills] ?? null,
+            platformSectionLabels[index]
           )}
           description={`Mini dashboard for ${resolvePlatformLabel(platform.provider, platform.title)} performance.`}
         >
@@ -508,7 +592,8 @@ function resolvePlatformLabel(provider: string, fallbackTitle: string) {
 function renderPlatformSectionTitle(
   provider: string,
   fallbackTitle: string,
-  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null
+  syncPill?: ReturnType<typeof resolveProviderSyncStatusPill> | null,
+  sectionLabel?: ResolvedSectionLabel
 ) {
   const configured = PLATFORM_TITLE_META[provider];
   if (!configured) return fallbackTitle;
@@ -524,6 +609,19 @@ function renderPlatformSectionTitle(
         />
       </span>
       <span>{configured.label}</span>
+      {/* Two sections can resolve to the same provider label. Show what tells
+          them apart so their differing totals are attributable. */}
+      {sectionLabel?.qualifier ? (
+        <span className="text-[13px] font-normal text-neutral-500">· {sectionLabel.qualifier}</span>
+      ) : null}
+      {sectionLabel?.ambiguous ? (
+        <span
+          className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-800"
+          title="Another section reports the same platform. These totals cover different scopes and are not comparable."
+        >
+          Scope unresolved
+        </span>
+      ) : null}
       <SyncStatusPill pill={syncPill ?? null} />
     </span>
   );
@@ -592,13 +690,21 @@ function DataStatusRow({
   referenceDate,
   timeZoneLabel,
   platformProviders = [],
+  dataAsOf,
+  onRefresh,
+  refreshing = false,
+  freshnessBusinessId = null,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
   shopifyServing?: OverviewSummaryData["shopifyServing"];
   referenceDate: string;
   timeZoneLabel: string;
+  dataAsOf?: string | null;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   platformProviders?: string[];
+  freshnessBusinessId?: string | null;
 }) {
   const shopifyBadge = shopifyServing
     ? shopifyServing.source === "ledger"
@@ -623,6 +729,21 @@ function DataStatusRow({
           <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
             Live Status
           </p>
+          {/* Overview previously gave no cue at all about how old these numbers
+              were, so a tab open since morning looked identical to a fresh load. */}
+          {/*
+            surface and businessId are passed explicitly. Without them the chip
+            falls back to its defaults and files Overview's stale disclosures
+            against meta_decisions with no business, so the surface that
+            actually disclosed cannot be told apart from the one that did not.
+          */}
+          <FreshnessChip
+            asOf={dataAsOf}
+            onRefresh={onRefresh}
+            refreshing={refreshing}
+            surface="overview"
+            businessId={freshnessBusinessId}
+          />
           {providerChips.map((provider) => (
             <div
               key={provider.label}
@@ -654,11 +775,19 @@ function DataStatusRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+          {/*
+            Only the comparisons this surface's route can actually carry.
+            `lib/overview-summary-support.ts` types CompareMode as
+            "none" | "previous_period", so offering a year-over-year choice
+            here would produce a previous-period delta under a year-over-year
+            label -- the defect this narrowing exists to remove.
+          */}
           <DateRangePicker
             value={dateRange}
             onChange={onDateRangeChange}
             referenceDate={referenceDate}
             timeZoneLabel={timeZoneLabel}
+            comparisonPresets={OVERVIEW_COMPARISON_PRESETS}
           />
         </div>
       </div>

@@ -96,6 +96,14 @@ export interface RenderedReportWidget {
   columns?: string[];
   text?: string;
   emptyMessage?: string;
+  /**
+   * Set only when this widget failed to build. A failure is distinct from an
+   * empty result: "no rows in this period" and "we could not load this" are
+   * different facts and must not render the same way.
+   */
+  errorMessage?: string | null;
+  /** True when the widget can be retried without rebuilding the whole report. */
+  retryable?: boolean;
   warning?: string | null;
   axisMode?: CustomReportAxisMode;
 }
@@ -106,6 +114,12 @@ export interface RenderedReportPayload {
   name: string;
   description?: string | null;
   dateRangeLabel: string;
+  /** Exact window this payload was rendered for. */
+  startDate?: string;
+  endDate?: string;
+  /** ISO 4217 code the amounts are denominated in; null when not established. */
+  currency?: string | null;
+  compareMode?: string | null;
   generatedAt: string;
   widgets: RenderedReportWidget[];
 }

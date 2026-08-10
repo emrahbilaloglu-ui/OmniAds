@@ -1,6 +1,10 @@
 export type AppLanguage = "en" | "tr";
 
-export const DEFAULT_LANGUAGE: AppLanguage = "en";
+/**
+ * Typed as the literal rather than the wider `AppLanguage`, so the compiler can
+ * prove the default is a language we actually have copy for.
+ */
+export const DEFAULT_LANGUAGE = "en" as const;
 export const LANGUAGE_COOKIE_NAME = "adsecute_locale";
 
 export const LANGUAGE_OPTIONS: Array<{
@@ -337,6 +341,36 @@ export const translations = {
   },
 } as const;
 
-export function getTranslations(_language?: AppLanguage) {
-  return translations.en;
+/**
+ * Languages the product actually has a dictionary for.
+ *
+ * Derived from the dictionaries themselves rather than declared by hand, so it
+ * cannot drift from reality: adding a language to `AppLanguage` does not make
+ * it translated, and only shipping its dictionary does.
+ */
+export const TRANSLATED_LANGUAGES = Object.keys(translations) as Array<
+  keyof typeof translations
+>;
+
+export function isTranslatedLanguage(
+  language: string | null | undefined,
+): language is keyof typeof translations {
+  return Boolean(language) && (TRANSLATED_LANGUAGES as string[]).includes(language as string);
+}
+
+/**
+ * Resolve the copy for a language.
+ *
+ * `AppLanguage` is wider than what is translated: a user can sign up in Turkish
+ * and carry `language: "tr"` all the way here, where there is no Turkish
+ * dictionary to serve. That request falls back to English — deliberately and
+ * visibly, rather than by an ignored parameter that reads as though it worked.
+ *
+ * Use `isTranslatedLanguage` before offering a language anywhere in the UI.
+ */
+export function getTranslations(language?: AppLanguage) {
+  if (isTranslatedLanguage(language)) {
+    return translations[language];
+  }
+  return translations[DEFAULT_LANGUAGE];
 }

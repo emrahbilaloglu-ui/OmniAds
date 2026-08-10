@@ -126,7 +126,7 @@ function PreviewFallback({ frameClass, name }: { frameClass: string; name: strin
       <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--adc-b2,#cdcdc7)] bg-white text-xs font-semibold">
         {initials || "NA"}
       </div>
-      <div className="line-clamp-2 px-1 text-center text-[10px] font-medium">
+      <div className="line-clamp-2 px-1 text-center text-[12px] font-medium">
         No media preview
       </div>
     </div>

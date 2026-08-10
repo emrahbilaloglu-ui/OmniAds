@@ -59,26 +59,26 @@ export function MetaAnalysisStatusCard({
         <div className="flex flex-wrap gap-2">
           {status.isAnalysisRunning ? (
             <span
-              className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-800"
+              className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-sky-800"
               data-testid="meta-analysis-running-label"
             >
               Analysis: Running
             </span>
           ) : null}
           <span
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(status.decisionOsStatus)}`}
+            className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide ${statusTone(status.decisionOsStatus)}`}
             data-testid="meta-analysis-decision-os-label"
           >
             Decision OS: {status.decisionOsLabel}
           </span>
           <span
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${sourceTone(status.recommendationSource)}`}
+            className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide ${sourceTone(status.recommendationSource)}`}
             data-testid="meta-analysis-source-label"
           >
             Recommendation source: {status.recommendationSourceLabel}
           </span>
           <span
-            className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700"
+            className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-slate-700"
             data-testid="meta-analysis-presentation-label"
           >
             Presentation: {status.presentationModeLabel}

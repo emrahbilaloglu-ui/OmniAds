@@ -554,14 +554,14 @@ function CreativeEngineProfileStrip({
           aria-hidden="true"
         />
         <span className="font-semibold text-neutral-900">Engine profile</span>
-        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
           {profile.scope.type}:{profile.scope.id}
         </span>
-        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
+        <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
           preset {profile.preset}
         </span>
         {dataSource ? (
-          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10.5px] font-medium text-neutral-600">
+          <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600">
             {dataSource}
           </span>
         ) : null}
@@ -1306,19 +1306,19 @@ function CreativePulseFinal({
         <div className="micro">ROAS <b>{formatRoas(topCreative?.roas)}</b> · spend {formatCurrency(topCreative?.spend)} · {topContext}</div>
       </div>
       <div className="cell">
-        <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />scoped</span></div>
+        <div className="label"><span>Account profile</span><span className="chip chip--info" style={{ height: 16, padding: "0 6px", fontSize: 12 }}><span className="dot" />scoped</span></div>
         <div className="value" style={{ fontSize: 14 }}>{profileLabel}</div>
         <div className="micro">scale floor · {profile?.thresholds.scaleMinPurchases ?? "—"} purchases / 7d</div>
       </div>
       <div className="cell">
-        <div className="label"><span>Parent labels</span><span className="chip chip--healthy" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}><span className="dot" />server</span></div>
+        <div className="label"><span>Parent labels</span><span className="chip chip--healthy" style={{ height: 16, padding: "0 6px", fontSize: 12 }}><span className="dot" />server</span></div>
         <div className="value" style={{ fontSize: 14 }}>{labelStatus}</div>
         <div className="micro">{trackingAnomalyActive ? "tracking confirmation required" : "briefing payload active"}</div>
       </div>
       <div className="cell">
         <div className="label">
           <span>Insights data</span>
-          <span className="chip" style={{ height: 16, padding: "0 6px", fontSize: 9.5 }}>
+          <span className="chip" style={{ height: 16, padding: "0 6px", fontSize: 12 }}>
             <span className="dot" />read-only
           </span>
         </div>
@@ -2595,7 +2595,7 @@ function WorkspaceButton({
       </span>
       <span
         className={[
-          "mt-0.5 block whitespace-nowrap font-mono text-[10.5px]",
+          "mt-0.5 block whitespace-nowrap font-mono text-[12px]",
           active ? "text-neutral-300" : "text-neutral-400",
         ].join(" ")}
       >
@@ -2799,7 +2799,7 @@ function PulseRight({
         className="flex flex-shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 whitespace-nowrap"
       >
         <span
-          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[12px] font-semibold uppercase tracking-wider ${
             engineLive
               ? "bg-emerald-500/15 text-emerald-700 border border-emerald-200"
               : "bg-amber-500/15 text-amber-800 border border-amber-200"

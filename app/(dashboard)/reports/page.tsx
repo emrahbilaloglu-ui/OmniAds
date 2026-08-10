@@ -1,5 +1,7 @@
 "use client";
 
+import { measuredAsOf } from "@/lib/tier-zero-as-of";
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -24,10 +26,17 @@ async function fetchReports(businessId: string) {
   if (!response.ok) {
     throw new Error((payload as { message?: string } | null)?.message ?? "Failed to load reports.");
   }
-  return (payload as { reports: CustomReportRecord[] }).reports;
+  const body = payload as {
+    reports: CustomReportRecord[];
+    generatedAt?: string | null;
+  };
+  // The read's own time travels with the rows so the surface can date itself
+  // from when it read, not from when someone last edited a report.
+  return { reports: body.reports, generatedAt: body.generatedAt ?? null };
 }
 
 export default function ReportsPage() {
+
   const language = usePreferencesStore((state) => state.language);
   const businesses = useAppStore((state) => state.businesses);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
@@ -44,7 +53,22 @@ export default function ReportsPage() {
     enabled: Boolean(selectedBusinessId),
     queryFn: () => fetchReports(businessId),
   });
-  const reports = reportsQuery.data ?? [];
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "reports",
+    isLoading: reportsQuery.isLoading,
+    isFetching: reportsQuery.isFetching,
+    error: reportsQuery.error,
+    // The newest row's `updatedAt` is when a human last saved a report
+    // definition, not when this list was read. Keep it as row content.
+    asOf: measuredAsOf(reportsQuery.data?.generatedAt ?? null),
+    businessId: selectedBusinessId,
+    onRetry: () => void reportsQuery.refetch(),
+  });
+  const reports = reportsQuery.data?.reports ?? [];
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredReports = (normalizedQuery
     ? reports.filter((report) => {
@@ -183,7 +207,7 @@ export default function ReportsPage() {
                       <p className="mt-1 text-[12px] text-[var(--adc-ink3)]">
                         {report.description || (language === "tr" ? "Henüz açıklama yok." : "No description yet.")}
                       </p>
-                      <p className="mt-2 font-mono text-[10.5px] text-[var(--adc-ink3)]">
+                      <p className="mt-2 font-mono text-[12px] text-[var(--adc-ink3)]">
                         {language === "tr" ? "Güncellendi" : "Updated"} {new Date(report.updatedAt).toLocaleString()}
                       </p>
                     </Link>
@@ -192,7 +216,7 @@ export default function ReportsPage() {
                     </Link>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[10.5px] font-medium text-[var(--adc-ink3)]">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-1 font-mono text-[12px] font-medium text-[var(--adc-ink3)]">
                       {report.definition?.widgets?.length ?? 0} {language === "tr" ? "widget" : "widgets"}
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -235,7 +259,7 @@ export default function ReportsPage() {
                 className="rounded-[10px] border border-dashed border-[var(--adc-b1)] bg-[var(--adc-s2)] p-4 transition hover:border-[var(--adc-b2)] hover:bg-[var(--adc-s1)]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
+                  <span className="rounded-[4px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 font-mono text-[12px] font-medium uppercase tracking-normal text-[var(--adc-ink3)]">
                     {template.category}
                   </span>
                   <TemplateProviders template={template} />

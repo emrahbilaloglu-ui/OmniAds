@@ -128,6 +128,40 @@ const STUDIO_CSS = `
   .studio-usage-drawer{position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100%!important;max-width:none!important}
   .studio-usage-row{flex-wrap:wrap}
   .studio-usage-metrics{width:100%;grid-template-columns:repeat(3,minmax(0,1fr))!important;text-align:left!important}
+
+  /*
+   * Task-priority mobile composition for the creative table.
+   *
+   * The table is laid out for desktop columns and carries min-width:920px. At
+   * 390px that guarantees the last columns -- which is where the assessment
+   * lives -- sit outside the frame. The page did not scroll sideways because
+   * the frame scrolls internally, so the row still clipped while every
+   * page-level check passed. Side-scrolling to reach the verdict is not
+   * reading the verdict.
+   *
+   * Each row becomes a card instead. Identity leads, then the economics, then
+   * the assessment: the same priority order the buyer scans on desktop, laid
+   * out vertically. Nothing is dropped -- secondary cells simply fall below
+   * rather than off the side -- and each cell carries its own label because a
+   * column header cannot label a stacked cell.
+   */
+  .studio-table-scroll,.studio-table-scroll table,.studio-table-scroll th,.studio-table-scroll td,.studio-table-scroll tr{min-width:0!important;max-width:none!important}
+  .studio-table-scroll table{width:100%!important;table-layout:fixed}
+  .studio-table-scroll{overflow-x:hidden!important}
+  .studio-table-scroll thead{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .studio-table-scroll tbody tr{display:block;border:1px solid var(--b1,#e4e4e0);border-radius:8px;margin-bottom:8px;padding:6px 8px}
+  .studio-table-scroll tbody td{display:flex;align-items:center;justify-content:space-between;gap:10px;width:auto!important;min-width:0!important;max-width:none!important;border:0!important;padding:4px 0!important;white-space:normal!important}
+  .studio-table-scroll tbody td::before{content:attr(data-label);flex:none;color:var(--ink3,#7d838c);font-size:12px;font-weight:600}
+  .studio-table-scroll tbody td:empty{display:none}
+  /*
+   * The assessment chip carries inline flex:none and white-space:nowrap so it
+   * keeps its shape in a desktop column. In a stacked card that is exactly what
+   * pushes it past the edge, so at phone width the whole cell is allowed to
+   * wrap and the chip is allowed to shrink. The verdict is the reason the row
+   * is being read; it may not be the thing that falls off.
+   */
+  .studio-table-scroll tbody td *{flex-wrap:wrap!important;max-width:100%!important}
+  .studio-table-scroll tbody td span{white-space:normal!important;flex-shrink:1!important}
 }
 @media (max-width:479px){
   .studio-compare-grid{grid-template-columns:1fr!important}
@@ -329,6 +363,28 @@ const GRID_KPI_OPTIONS = ["spend", "roas", "costPerPurchase", "purchases", "purc
 
 function metricLabel(id: string): string {
   return studioMetricDefinition(id)?.label ?? id;
+}
+
+/**
+ * The name a stacked cell shows on a phone.
+ *
+ * Below 767px each row becomes a card and the header row is taken out of the
+ * accessibility tree, so a column header can no longer label anything. The
+ * stylesheet already renders `td::before { content: attr(data-label) }` for
+ * exactly this -- and no cell ever set the attribute, so the phone showed a
+ * column of bare numbers: $840, 47, $3,360, $17.87, 4.00x, 2.9%. Six values in
+ * a fixed order that a buyer is expected to recognise by position, with the
+ * only thing that named them hidden.
+ *
+ * The attribution prefix is carried through because it changes what the number
+ * means: a Meta-attributed ROAS is not the same claim as the account's ROAS,
+ * and dropping the qualifier on the surface where there is least room for
+ * context is where it matters most.
+ */
+function stackedCellLabel(id: string): string {
+  const attr = ATTR_COLUMNS[id];
+  const label = metricLabel(id);
+  return attr ? `${attr} ${label}` : label;
 }
 
 export interface StudioSelectedRow {
@@ -1045,7 +1101,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: 700,
                     flex: "none",
                   }}
@@ -1073,11 +1129,11 @@ export function StudioOsView(props: StudioOsViewProps) {
                   >
                     {account ? account.name : accountsLoading ? "Loading accounts" : "Select account"}
                   </span>
-                  <span className="mono" style={{ fontSize: "9.5px", color: "var(--ink3)", whiteSpace: "nowrap" }}>
+                  <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)", whiteSpace: "nowrap" }}>
                     {account ? `${account.id} · ${account.currency ?? "—"}` : "no account scope"}
                   </span>
                 </span>
-                <span className="mono" aria-hidden style={{ color: "var(--ink3)", fontSize: 10, marginLeft: 2 }}>
+                <span className="mono" aria-hidden style={{ color: "var(--ink3)", fontSize: 12, marginLeft: 2 }}>
                   ▾
                 </span>
               </button>
@@ -1102,7 +1158,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     style={{
                       padding: "8px 11px",
                       borderBottom: "1px solid var(--b1)",
-                      fontSize: 10,
+                      fontSize: 12,
                       textTransform: "uppercase",
                       letterSpacing: ".04em",
                       color: "var(--ink3)",
@@ -1151,7 +1207,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              fontSize: 9,
+                              fontSize: 12,
                               fontWeight: 700,
                               color: "var(--ink2)",
                               flex: "none",
@@ -1172,7 +1228,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                             >
                               {entry.name ?? entry.id}
                             </span>
-                            <span className="mono" style={{ display: "block", fontSize: "9.5px", color: "var(--ink3)" }}>
+                            <span className="mono" style={{ display: "block", fontSize: "12px", color: "var(--ink3)" }}>
                               {entry.id}
                               {entry.currency ? ` · ${entry.currency}` : ""}
                             </span>
@@ -1188,7 +1244,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             <div style={{ width: 1, height: 22, background: "var(--b1)" }} />
             <div className="studio-header-title" style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
               <h1 style={{ margin: 0, fontSize: 15, fontWeight: 600, letterSpacing: "-.2px" }}>Creative Studio</h1>
-              <span className="mono" style={{ fontSize: "9.5px", color: "var(--ink3)" }}>
+              <span className="mono" style={{ fontSize: "12px", color: "var(--ink3)" }}>
                 Decision context {freshnessLabel}
               </span>
             </div>
@@ -1238,7 +1294,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     style={{
                       padding: "8px 11px",
                       borderBottom: "1px solid var(--b1)",
-                      fontSize: 10,
+                      fontSize: 12,
                       textTransform: "uppercase",
                       letterSpacing: ".04em",
                       color: "var(--ink3)",
@@ -1431,7 +1487,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     }}
                   >
                     More
-                    <span className="mono" style={{ fontSize: 9 }}>
+                    <span className="mono" style={{ fontSize: 12 }}>
                       ▾
                     </span>
                   </button>
@@ -1454,7 +1510,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         style={{
                           padding: "7px 11px",
                           borderBottom: "1px solid var(--b1)",
-                          fontSize: "9.5px",
+                          fontSize: "12px",
                           textTransform: "uppercase",
                           letterSpacing: ".04em",
                           color: "var(--ink3)",
@@ -1484,7 +1540,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           }}
                         >
                           <span style={{ fontSize: 12, fontWeight: 600 }}>{item.label}</span>
-                          <span style={{ fontSize: 10, color: "var(--ink3)" }}>{item.desc}</span>
+                          <span style={{ fontSize: 12, color: "var(--ink3)" }}>{item.desc}</span>
                         </Link>
                       ))}
                     </div>
@@ -1516,17 +1572,17 @@ export function StudioOsView(props: StudioOsViewProps) {
         <div className="studio-analysis-meta" style={{ flex: "none", display: "flex", alignItems: "center", gap: 9, padding: "9px 16px 7px 16px" }}>
           <span style={{ fontSize: 11, color: "var(--ink3)" }}>Analyzing</span>
           <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--ink)" }}>{account?.name ?? "—"}</span>
-          <span className="mono" style={{ fontSize: 10, color: "var(--ink4)" }}>
+          <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
             {account?.id ?? "—"}
           </span>
           <span style={{ width: 1, height: 13, background: "var(--b1)" }} />
-          <span className="mono" style={{ fontSize: "10.5px", color: "var(--ink2)" }}>
+          <span className="mono" style={{ fontSize: "12px", color: "var(--ink2)" }}>
             {account?.currency ?? "—"}
           </span>
           <span style={{ width: 1, height: 13, background: "var(--b1)" }} />
           <span style={{ fontSize: 11, color: "var(--ink3)" }}>{dateRangeLabel}</span>
           <div style={{ flex: 1 }} />
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "10.5px", color: "var(--ink3)" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--ink3)" }}>
             Account-scoped metrics · missing shown as —
           </span>
         </div>
@@ -1733,7 +1789,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           >
             <span style={{ color: "var(--ink3)", fontWeight: 500 }}>KPIs</span>
             {presetLabel}
-            <span className="mono" style={{ color: "var(--ink4)", fontSize: 9 }}>
+            <span className="mono" style={{ color: "var(--ink4)", fontSize: 12 }}>
               ▾
             </span>
           </button>
@@ -1775,7 +1831,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 }}
               >
                 More
-                <span className="mono" style={{ fontSize: 9 }}>
+                <span className="mono" style={{ fontSize: 12 }}>
                   ▾
                 </span>
               </button>
@@ -1820,7 +1876,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       }}
                     >
                       <span>{chip.label}</span>
-                      <span style={{ fontSize: "9.5px", color: "var(--ink4)", fontVariantNumeric: "tabular-nums" }}>
+                      <span style={{ fontSize: "12px", color: "var(--ink4)", fontVariantNumeric: "tabular-nums" }}>
                         {chip.count}
                       </span>
                     </button>
@@ -1878,7 +1934,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <div
                   style={{
                     padding: "8px 11px",
-                    fontSize: "9.5px",
+                    fontSize: "12px",
                     textTransform: "uppercase",
                     letterSpacing: ".04em",
                     color: "var(--ink3)",
@@ -1918,7 +1974,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           border: `1px solid ${allOn ? "var(--focus)" : "var(--b2)"}`,
                           background: allOn ? "var(--focus)" : "var(--s2)",
                           color: "var(--s2)",
-                          fontSize: 10,
+                          fontSize: 12,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -1931,7 +1987,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         <span
                           style={{
                             display: "block",
-                            fontSize: "9.5px",
+                            fontSize: "12px",
                             color: "var(--ink3)",
                             whiteSpace: "nowrap",
                             overflow: "hidden",
@@ -2003,7 +2059,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <div
                   style={{
                     padding: "8px 11px",
-                    fontSize: "9.5px",
+                    fontSize: "12px",
                     textTransform: "uppercase",
                     letterSpacing: ".04em",
                     color: "var(--ink3)",
@@ -2041,7 +2097,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     <span style={{ fontSize: 12, fontWeight: 600 }}>
                       {mode.label}
                     </span>
-                    <span style={{ fontSize: 10, color: "var(--ink3)" }}>
+                    <span style={{ fontSize: 12, color: "var(--ink3)" }}>
                       {mode.desc}
                     </span>
                   </button>
@@ -2072,7 +2128,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             <div
               style={{
                 padding: "8px 11px",
-                fontSize: "9.5px",
+                fontSize: "12px",
                 textTransform: "uppercase",
                 letterSpacing: ".04em",
                 color: "var(--ink3)",
@@ -2107,7 +2163,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 }}
               >
                 <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{preset.label}</span>
-                <span style={{ fontSize: 10, color: "var(--ink3)" }}>{preset.desc}</span>
+                <span style={{ fontSize: 12, color: "var(--ink3)" }}>{preset.desc}</span>
               </button>
             ))}
           </div>
@@ -2132,9 +2188,9 @@ export function StudioOsView(props: StudioOsViewProps) {
           >
             <div style={{ flex: "none", display: "flex", alignItems: "baseline", gap: 9, marginBottom: 7 }}>
               <span className="tnum" style={{ fontSize: "12.5px", fontWeight: 600 }}>{sortedRows.length} creative{sortedRows.length === 1 ? "" : "s"}</span>
-              <span style={{ fontSize: 10, color: "var(--ink4)" }}>one row per creative · usages aggregated</span>
+              <span style={{ fontSize: 12, color: "var(--ink4)" }}>one row per creative · usages aggregated</span>
               <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 10, color: "var(--ink3)" }}>KPI preset · {presetLabel} · Revenue and ROAS are Meta-attributed</span>
+              <span style={{ fontSize: 12, color: "var(--ink3)" }}>KPI preset · {presetLabel} · Revenue and ROAS are Meta-attributed</span>
             </div>
             <div
               className="studio-table-frame"
@@ -2163,7 +2219,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           padding: "8px 12px",
                           borderBottom: "1px solid var(--b2)",
                           borderRight: "1px solid var(--b1)",
-                          fontSize: "9.5px",
+                          fontSize: "12px",
                           textTransform: "uppercase",
                           letterSpacing: ".04em",
                           color: "var(--ink3)",
@@ -2209,7 +2265,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                 background: "transparent",
                                 color: activeSort ? "var(--ink)" : "var(--ink3)",
                                 fontWeight: 600,
-                                fontSize: "9.5px",
+                                fontSize: "12px",
                                 textTransform: "uppercase",
                                 letterSpacing: ".03em",
                                 cursor: "pointer",
@@ -2219,7 +2275,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               {attr ? (
                                 <span
                                   style={{
-                                    fontSize: "7.5px",
+                                    fontSize: "12px",
                                     color: "var(--ink4)",
                                     fontWeight: 500,
                                     textTransform: "none",
@@ -2231,7 +2287,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               ) : null}
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                                 {metricLabel(id)}
-                                <span className="mono" style={{ fontSize: 8, color: "var(--focus)" }}>
+                                <span className="mono" style={{ fontSize: 12, color: "var(--focus)" }}>
                                   {activeSort ? (sortDir === "desc" ? "▾" : "▴") : ""}
                                 </span>
                               </span>
@@ -2263,6 +2319,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       return (
                         <tr key={row.id}>
                           <td
+                            data-label="Creative"
                             style={{
                               position: "sticky",
                               left: 0,
@@ -2288,7 +2345,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                   border: `1px solid ${selected ? "var(--focus)" : "var(--b2)"}`,
                                   background: selected ? "var(--focus)" : "var(--s2)",
                                   color: "var(--s2)",
-                                  fontSize: 10,
+                                  fontSize: 12,
                                   lineHeight: "14px",
                                   display: "flex",
                                   alignItems: "center",
@@ -2323,7 +2380,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                   {row.name}
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                                  <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>
+                                  <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
                                     {(row.format || "—").toUpperCase()}
                                   </span>
                                   <button
@@ -2337,12 +2394,12 @@ export function StudioOsView(props: StudioOsViewProps) {
                                       border: "none",
                                       background: "transparent",
                                       color: "var(--ink3)",
-                                      fontSize: "9.5px",
+                                      fontSize: "12px",
                                       cursor: "pointer",
                                       padding: 0,
                                     }}
                                   >
-                                    <span aria-hidden style={{ fontSize: 10 }}>
+                                    <span aria-hidden style={{ fontSize: 12 }}>
                                       ▤
                                     </span>
                                     {formatUsageCount(row)}
@@ -2361,7 +2418,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 4,
-                                    fontSize: "9.5px",
+                                    fontSize: "12px",
                                     fontWeight: 600,
                                     borderRadius: 5,
                                     padding: "1px 6px",
@@ -2381,7 +2438,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                                     display: "inline-flex",
                                     alignItems: "center",
                                     gap: 4,
-                                    fontSize: "9.5px",
+                                    fontSize: "12px",
                                     fontWeight: 600,
                                     borderRadius: 5,
                                     padding: "1px 6px",
@@ -2407,6 +2464,10 @@ export function StudioOsView(props: StudioOsViewProps) {
                             return (
                               <td
                                 key={id}
+                                // Names the value when the row is stacked into
+                                // a card and the header is gone. Without it the
+                                // phone shows an unlabelled column of numbers.
+                                data-label={stackedCellLabel(id)}
                                 style={{
                                   padding: "6px 12px",
                                   borderBottom: "1px solid var(--b1)",
@@ -2473,7 +2534,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                     Show more
                   </button>
                 ) : null}
-                <span style={{ fontSize: 10, color: "var(--ink4)" }}>
+                <span style={{ fontSize: 12, color: "var(--ink4)" }}>
                   {selectedRows.length} selected · missing metrics render “—”
                 </span>
                 <div style={{ flex: 1 }} />
@@ -2500,7 +2561,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   >
                     <span style={{ color: "var(--ink3)", fontWeight: 500 }}>Rows</span>
                     {pageSize}
-                    <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>
+                    <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
                       ▾
                     </span>
                   </button>
@@ -2592,7 +2653,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         >
           <span style={{ color: "var(--ink3)", fontWeight: 500 }}>{label}</span>
           <span style={{ color: "var(--ink)", fontWeight: 600 }}>{value}</span>
-          <span className="mono" style={{ color: "var(--ink4)", fontSize: 9 }}>
+          <span className="mono" style={{ color: "var(--ink4)", fontSize: 12 }}>
             ▾
           </span>
         </button>
@@ -2675,7 +2736,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         {count !== null ? (
           <span
             style={{
-              fontSize: "9.5px",
+              fontSize: "12px",
               color: active ? "var(--ink2)" : "var(--ink4)",
               background: active ? "var(--s3)" : "transparent",
               borderRadius: 5,
@@ -2701,7 +2762,7 @@ export function StudioOsView(props: StudioOsViewProps) {
       <div className="studio-compare-section" style={{ flex: "none", maxHeight: "46vh", overflowY: "auto", padding: "11px 16px 6px 16px" }}>
         <div className="studio-compare-toolbar" style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}>
           <span style={{ fontSize: "12.5px", fontWeight: 600 }}>Comparing {selectedEntries.length} creatives</span>
-          <span style={{ fontSize: 10, color: "var(--ink4)" }}>grid metrics independent from the table</span>
+          <span style={{ fontSize: 12, color: "var(--ink4)" }}>grid metrics independent from the table</span>
           <div style={{ flex: 1 }} />
           <div data-studio-pop style={{ position: "relative" }}>
             <button
@@ -2726,7 +2787,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             >
               <span style={{ color: "var(--ink3)", fontWeight: 500 }}>Grid KPIs</span>
               {gridKpis.length}
-              <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>
+              <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>
                 ▾
               </span>
             </button>
@@ -2745,7 +2806,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   padding: 4,
                 }}
               >
-                <div style={{ padding: "6px 8px 4px 8px", fontSize: "9.5px", color: "var(--ink4)" }}>Remember 2–4 KPIs</div>
+                <div style={{ padding: "6px 8px 4px 8px", fontSize: "12px", color: "var(--ink4)" }}>Remember 2–4 KPIs</div>
                 {GRID_KPI_OPTIONS.map((id) => {
                   const on = gridKpiIds.includes(id);
                   return (
@@ -2782,7 +2843,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           border: `1px solid ${on ? "var(--focus)" : "var(--b2)"}`,
                           background: on ? "var(--focus)" : "var(--s2)",
                           color: "var(--s2)",
-                          fontSize: 10,
+                          fontSize: 12,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
@@ -2840,7 +2901,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       position: "absolute",
                       top: 7,
                       left: 8,
-                      fontSize: "8.5px",
+                      fontSize: "12px",
                       color: "var(--ink4)",
                       background: "var(--s2)",
                       border: "1px solid var(--b1)",
@@ -2864,7 +2925,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       border: "1px solid var(--b2)",
                       background: "var(--s2)",
                       color: "var(--ink3)",
-                      fontSize: 10,
+                      fontSize: 12,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -2881,7 +2942,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                        fontSize: "9.5px",
+                        fontSize: "12px",
                         fontWeight: 600,
                         borderRadius: 5,
                         padding: "1px 6px",
@@ -2921,7 +2982,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          fontSize: "9.5px",
+                          fontSize: "12px",
                           fontWeight: 600,
                           borderRadius: 5,
                           padding: "1px 6px",
@@ -2940,7 +3001,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          fontSize: "9.5px",
+                          fontSize: "12px",
                           fontWeight: 600,
                           borderRadius: 5,
                           padding: "1px 6px",
@@ -2953,15 +3014,15 @@ export function StudioOsView(props: StudioOsViewProps) {
                         Assessment unavailable
                       </span>
                     )}
-                    <span style={{ fontSize: "9.5px", color: "var(--ink3)" }}>{row.creativePrimaryLabel ?? "—"}</span>
+                    <span style={{ fontSize: "12px", color: "var(--ink3)" }}>{row.creativePrimaryLabel ?? "—"}</span>
                   </div>
-                  <div className="mono" style={{ fontSize: 9, color: "var(--ink4)", marginTop: 4 }}>
+                  <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 4 }}>
                     {formatUsageCount(row)} · {row.campaignName ?? "—"}
                   </div>
                   {outsideCurrentFilter ? (
                     <div
                       data-testid={`studio-outside-filter-${row.id}`}
-                      style={{ marginTop: 5, fontSize: 9, color: "var(--caution-fg)", background: "var(--caution-bg)", border: "1px solid var(--caution-bd)", borderRadius: 5, padding: "2px 6px", display: "inline-block" }}
+                      style={{ marginTop: 5, fontSize: 12, color: "var(--caution-fg)", background: "var(--caution-bg)", border: "1px solid var(--caution-bd)", borderRadius: 5, padding: "2px 6px", display: "inline-block" }}
                     >
                       Outside current filter
                     </div>
@@ -2969,7 +3030,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <div style={{ display: "flex", gap: 14, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--b1)" }}>
                     {gridKpis.map((id) => (
                       <div key={id}>
-                        <div style={{ fontSize: "8.5px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>
+                        <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>
                           {metricLabel(id)}
                         </div>
                         <div className="tnum" style={{ fontSize: 13, fontWeight: 600, marginTop: 1 }}>
@@ -3104,7 +3165,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       color: `var(--${kind}-fg)`,
                       background: `var(--${kind}-bg)`,
                       border: `1px solid var(--${kind}-bd)`,
-                      fontSize: "9.5px",
+                      fontSize: "12px",
                       fontWeight: 600,
                     }}
                   >
@@ -3112,16 +3173,16 @@ export function StudioOsView(props: StudioOsViewProps) {
                   </span>
                 ) : null}
               </div>
-              <div className="mono" style={{ fontSize: "9.5px", color: "var(--ink3)", marginTop: 3 }}>
+              <div className="mono" style={{ fontSize: "12px", color: "var(--ink3)", marginTop: 3 }}>
                 {(row.format || "—").toUpperCase()} · {row.creativeId}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 8 }}>
                 <div>
-                  <div style={{ fontSize: "8.5px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Usage</div>
+                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Usage</div>
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{usageCountLabel}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "8.5px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Ad-grain spend</div>
+                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Ad-grain spend</div>
                   <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>
                     {usageSpend === null
                       ? "—"
@@ -3133,7 +3194,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "8.5px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Weighted ROAS</div>
+                  <div style={{ fontSize: "12px", color: "var(--ink3)", textTransform: "uppercase", letterSpacing: ".02em" }}>Weighted ROAS</div>
                   <div className="tnum" style={{ fontSize: 12, fontWeight: 600 }}>{formatRoas(usageRoas)}</div>
                 </div>
               </div>
@@ -3152,12 +3213,12 @@ export function StudioOsView(props: StudioOsViewProps) {
             <span style={{ color: "var(--info-fg)", fontSize: 11, fontWeight: 600 }}>
               {account?.name ?? "Account"}
             </span>
-            <span style={{ color: "var(--ink4)", fontSize: 10 }}>›</span>
+            <span style={{ color: "var(--ink4)", fontSize: 12 }}>›</span>
             <span style={{ fontSize: 11, color: "var(--ink3)", fontWeight: 600 }}>Exact ad usages</span>
-            <span className="mono" style={{ marginLeft: "auto", fontSize: 9.5, color: "var(--ink4)" }}>{dateRangeLabel}</span>
+            <span className="mono" style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink4)" }}>{dateRangeLabel}</span>
           </div>
 
-          <div style={{ flex: "none", margin: "0 16px 8px", padding: "8px 10px", border: "1px solid var(--b1)", borderRadius: 8, background: "var(--s3)", fontSize: 10, color: "var(--ink3)", lineHeight: 1.45 }}>
+          <div style={{ flex: "none", margin: "0 16px 8px", padding: "8px 10px", border: "1px solid var(--b1)", borderRadius: 8, background: "var(--s3)", fontSize: 12, color: "var(--ink3)", lineHeight: 1.45 }}>
             Rows below are provider ad-grain performance for this account and window. The badge above remains the server&apos;s
             creative-level decision; Studio does not copy that action onto every ad usage.
           </div>
@@ -3186,15 +3247,15 @@ export function StudioOsView(props: StudioOsViewProps) {
                         {usage.campaignName ?? "Campaign unavailable"}
                       </strong>
                       {usage.effectiveStatus ? (
-                        <span style={{ flex: "none", border: "1px solid var(--b1)", borderRadius: 5, padding: "1px 5px", color: "var(--ink3)", background: "var(--s3)", fontSize: 8.5, fontWeight: 600 }}>
+                        <span style={{ flex: "none", border: "1px solid var(--b1)", borderRadius: 5, padding: "1px 5px", color: "var(--ink3)", background: "var(--s3)", fontSize: 12, fontWeight: 600 }}>
                           {usage.effectiveStatus}
                         </span>
                       ) : null}
                     </div>
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink3)", fontSize: 10, marginTop: 2 }}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink3)", fontSize: 12, marginTop: 2 }}>
                       {usage.adSetName ?? "Ad set unavailable"} › {usage.name}
                     </div>
-                    <div className="mono" style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--ink4)", fontSize: 8.5, marginTop: 3 }}>
+                    <div className="mono" style={{ display: "flex", gap: 8, flexWrap: "wrap", color: "var(--ink4)", fontSize: 12, marginTop: 3 }}>
                       <span>Ad {usage.realAdId ?? usage.id}</span>
                       {usage.optimizationGoal ? <span>{humanizeToken(usage.optimizationGoal)}</span> : null}
                       {usage.bidStrategy ? <span>{humanizeToken(usage.bidStrategy)}</span> : null}
@@ -3203,7 +3264,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <div className="studio-usage-metrics" style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(66px,auto))", gap: 14, flex: "none", textAlign: "right" }}>
                     {["spend", "roas", "purchases"].map((metricId) => (
                       <div key={metricId}>
-                        <div style={{ fontSize: 8.5, color: "var(--ink3)", textTransform: "uppercase" }}>{metricLabel(metricId)}</div>
+                        <div style={{ fontSize: 12, color: "var(--ink3)", textTransform: "uppercase" }}>{metricLabel(metricId)}</div>
                         <div className="tnum" style={{ fontSize: 11.5, fontWeight: 600 }}>{cellDisplay(usage, metricId)}</div>
                       </div>
                     ))}
@@ -3231,10 +3292,10 @@ export function StudioOsView(props: StudioOsViewProps) {
                   fontWeight: 600,
                 }}
               >
-                <span className="mono" style={{ fontSize: 10, color: "var(--ink4)" }}>{drawerTrends ? "▾" : "▸"}</span>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>{drawerTrends ? "▾" : "▸"}</span>
                 Trends (7 / 28 / 90d)
                 <span style={{ flex: 1 }} />
-                <span style={{ fontSize: "9.5px", color: "var(--ink4)", fontWeight: 500 }}>collapsed by default</span>
+                <span style={{ fontSize: "12px", color: "var(--ink4)", fontWeight: 500 }}>collapsed by default</span>
               </button>
               {drawerTrends ? (
                 <div style={{ marginTop: 8, padding: 11, border: "1px solid var(--b1)", borderRadius: 8, fontSize: 11, color: "var(--ink3)", lineHeight: 1.5 }}>
@@ -3257,7 +3318,7 @@ export function StudioOsView(props: StudioOsViewProps) {
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px 16px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <h2 style={{ margin: 0, fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "var(--ink2)" }}>Current winners</h2>
-          <span style={{ fontSize: 10, color: "var(--ink3)" }}>truth-source qualified · 7d / 28d / 90d</span>
+          <span style={{ fontSize: 12, color: "var(--ink3)" }}>truth-source qualified · 7d / 28d / 90d</span>
         </div>
         {evidence.qualified.length === 0 ? (
           <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "11.5px", color: "var(--ink3)", marginBottom: 22 }}>
@@ -3284,7 +3345,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                         assetFallbacks={[mediaRow.tableThumbnailUrl, mediaRow.cachedThumbnailUrl, mediaRow.thumbnailUrl, mediaRow.imageUrl, mediaRow.previewUrl]}
                       />
                     ) : (
-                      <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 8, color: "var(--ink4)" }}>
+                      <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink4)" }}>
                         Media unavailable
                       </span>
                     )}
@@ -3295,9 +3356,9 @@ export function StudioOsView(props: StudioOsViewProps) {
                     </div>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginTop: 2 }}>
                       <span className="tnum" style={{ fontSize: 18, fontWeight: 600 }}>{formatRoas(winner.roas)}</span>
-                      <span style={{ fontSize: 9, color: "var(--pos-fg)", fontWeight: 600 }}>{winner.truthSource ?? "—"}</span>
+                      <span style={{ fontSize: 12, color: "var(--pos-fg)", fontWeight: 600 }}>{winner.truthSource ?? "—"}</span>
                     </div>
-                    <div className="mono" style={{ fontSize: 9, color: "var(--ink4)", marginTop: 2 }}>
+                    <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 2 }}>
                       {winner.decisionCenterRow?.buyerLabel ?? "—"} · {(winner.format ?? "—").toUpperCase()}
                     </div>
                   </div>
@@ -3309,7 +3370,7 @@ export function StudioOsView(props: StudioOsViewProps) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <h2 style={{ margin: 0, fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: "var(--ink2)" }}>Historical winners</h2>
-          <span style={{ fontSize: 10, color: "var(--ink3)" }}>separated by engine-version era</span>
+          <span style={{ fontSize: 12, color: "var(--ink3)" }}>separated by engine-version era</span>
         </div>
         {historical.status !== "available" ? (
           <div style={{ border: "1px solid var(--b1)", borderRadius: 10, background: "var(--s2)", padding: 14, fontSize: "11.5px", color: "var(--ink3)" }}>
@@ -3319,7 +3380,7 @@ export function StudioOsView(props: StudioOsViewProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {historical.eras.map((era) => (
               <div key={era.engineVersion}>
-                <div className="mono" style={{ fontSize: 10, color: "var(--ink4)", marginBottom: 8 }}>engine {era.engineVersion}</div>
+                <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginBottom: 8 }}>engine {era.engineVersion}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(238px,1fr))", gap: 12 }}>
                   {era.entries.map((entry) => {
                     const mediaRow = findRow(entry.creativeId);
@@ -3341,7 +3402,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                               assetFallbacks={[mediaRow.tableThumbnailUrl, mediaRow.cachedThumbnailUrl, mediaRow.thumbnailUrl, mediaRow.imageUrl, mediaRow.previewUrl]}
                             />
                           ) : (
-                            <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 8, color: "var(--ink4)" }}>
+                            <span style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center", fontSize: 12, color: "var(--ink4)" }}>
                               Media unavailable
                             </span>
                           )}
@@ -3350,7 +3411,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           <div style={{ fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {entry.creativeName}
                           </div>
-                          <div className="mono" style={{ fontSize: 9, color: "var(--ink4)", marginTop: 4 }}>
+                          <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 4 }}>
                             {entry.entry.currentLabel} · {entry.entry.date}
                           </div>
                         </div>
@@ -3375,7 +3436,7 @@ export function StudioOsView(props: StudioOsViewProps) {
         <div className="studio-split-list" style={{ width: 320, flex: "none", display: "flex", flexDirection: "column", border: "1px solid var(--b1)", borderRadius: 11, background: "var(--s2)", overflow: "hidden" }}>
           <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--b1)", display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Creative Briefs</span>
-            <span className="tnum" style={{ fontSize: 10, color: "var(--ink3)" }}>{creativeBriefs.length}</span>
+            <span className="tnum" style={{ fontSize: 12, color: "var(--ink3)" }}>{creativeBriefs.length}</span>
             <div style={{ flex: 1 }} />
             <button
               type="button"
@@ -3388,7 +3449,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 border: `1px solid ${onNewBrief ? "var(--ink)" : "var(--b2)"}`,
                 borderRadius: 6,
                 padding: "3px 9px",
-                fontSize: "10.5px",
+                fontSize: "12px",
                 fontWeight: 600,
                 cursor: onNewBrief ? "pointer" : "not-allowed",
               }}
@@ -3431,13 +3492,13 @@ export function StudioOsView(props: StudioOsViewProps) {
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>{brief.id.slice(0, 8)}</span>
+                        <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>{brief.id.slice(0, 8)}</span>
                         <span
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
                             gap: 4,
-                            fontSize: "9.5px",
+                            fontSize: "12px",
                             fontWeight: 600,
                             borderRadius: 5,
                             padding: "1px 6px",
@@ -3453,7 +3514,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                       <div style={{ fontSize: "11.5px", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {brief.sourceDecision.rawLabel} · {brief.sourceDecision.creativeId}
                       </div>
-                      <div className="mono" style={{ fontSize: 9, color: "var(--ink4)", marginTop: 1 }}>
+                      <div className="mono" style={{ fontSize: 12, color: "var(--ink4)", marginTop: 1 }}>
                         {new Date(brief.updatedAt).toISOString().slice(0, 10)} · {brief.createdBy}
                       </div>
                     </div>
@@ -3469,7 +3530,7 @@ export function StudioOsView(props: StudioOsViewProps) {
             <>
               <div style={{ padding: "13px 15px", borderBottom: "1px solid var(--b1)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span className="mono" style={{ fontSize: 10, color: "var(--ink3)" }}>{active.id.slice(0, 8)}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--ink3)" }}>{active.id.slice(0, 8)}</span>
                   {(() => {
                     const p = tonePalette(active.status === "reviewed" ? "pos" : "info");
                     return (
@@ -3478,7 +3539,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                           display: "inline-flex",
                           alignItems: "center",
                           gap: 4,
-                          fontSize: "9.5px",
+                          fontSize: "12px",
                           fontWeight: 600,
                           borderRadius: 5,
                           padding: "1px 6px",
@@ -3496,13 +3557,13 @@ export function StudioOsView(props: StudioOsViewProps) {
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>
                   {active.sourceDecision.rawLabel} · {active.sourceDecision.creativeId}
                 </div>
-                <div className="mono" style={{ fontSize: "9.5px", color: "var(--ink4)", marginTop: 3 }}>
+                <div className="mono" style={{ fontSize: "12px", color: "var(--ink4)", marginTop: 3 }}>
                   updated {new Date(active.updatedAt).toISOString().slice(0, 16).replace("T", " ")} · {active.createdBy}
                 </div>
               </div>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)", display: "flex", alignItems: "center", gap: 8, background: "var(--s3)" }}>
-                <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>lineage</span>
-                <span className="mono" style={{ fontSize: "10.5px", color: "var(--ink2)" }}>
+                <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>lineage</span>
+                <span className="mono" style={{ fontSize: "12px", color: "var(--ink2)" }}>
                   {active.sourceDecision.decisionId} · snapshot {active.sourceDecision.snapshotAsOf} · engine {active.sourceDecision.engineVersion} · frozen at creation
                 </span>
               </div>
@@ -3513,7 +3574,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   { title: "Next", tone: "var(--info-fg)", text: active.content.next },
                 ].map((column) => (
                   <div key={column.title}>
-                    <div style={{ fontSize: "9.5px", textTransform: "uppercase", letterSpacing: ".04em", color: column.tone, fontWeight: 600, marginBottom: 5 }}>
+                    <div style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: ".04em", color: column.tone, fontWeight: 600, marginBottom: 5 }}>
                       {column.title}
                     </div>
                     <div style={{ fontSize: "11.5px", color: "var(--ink2)", lineHeight: 1.5, border: "1px solid var(--b1)", borderRadius: 8, padding: 9, minHeight: 92 }}>
@@ -3585,14 +3646,14 @@ export function StudioOsView(props: StudioOsViewProps) {
         <div className="studio-split-list" style={{ width: 340, flex: "none", display: "flex", flexDirection: "column", border: "1px solid var(--b1)", borderRadius: 11, background: "var(--s2)", overflow: "hidden" }}>
           <div style={{ padding: "9px 12px", borderBottom: "1px solid var(--b1)", display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Creator Shares</span>
-            <span className="tnum" style={{ fontSize: 10, color: "var(--ink3)" }}>{creatorGrants.length} grants</span>
+            <span className="tnum" style={{ fontSize: 12, color: "var(--ink3)" }}>{creatorGrants.length} grants</span>
             <div style={{ flex: 1 }} />
             <button
               type="button"
               onClick={onOpenGrant}
               disabled={shareGrantsCapability?.canWrite === false}
               title={shareGrantsCapability?.canWrite === false ? "Pending database migration" : "Mint a scoped creator link"}
-              style={{ background: "var(--ink)", color: "var(--s2)", border: "1px solid var(--ink)", borderRadius: 6, padding: "3px 9px", fontSize: "10.5px", fontWeight: 600 }}
+              style={{ background: "var(--ink)", color: "var(--s2)", border: "1px solid var(--ink)", borderRadius: 6, padding: "3px 9px", fontSize: "12px", fontWeight: 600 }}
             >
               + Grant
             </button>
@@ -3631,15 +3692,15 @@ export function StudioOsView(props: StudioOsViewProps) {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: palette.fg, background: palette.bg, border: `1px solid ${palette.bd}`, borderRadius: 5, padding: "1px 6px", fontSize: 9, fontWeight: 600, textTransform: "capitalize" }}>
+                      <span style={{ color: palette.fg, background: palette.bg, border: `1px solid ${palette.bd}`, borderRadius: 5, padding: "1px 6px", fontSize: 12, fontWeight: 600, textTransform: "capitalize" }}>
                         {grant.status}
                       </span>
-                      <span className="mono" style={{ fontSize: 9, color: "var(--ink4)" }}>…{grant.token.slice(-6)}</span>
+                      <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{grant.token.slice(-6)}</span>
                     </div>
                     <div style={{ marginTop: 4, fontSize: "11.5px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {grant.title} · {audienceLabel(grant.audience)}
                     </div>
-                    <div style={{ marginTop: 1, fontSize: 10, color: "var(--ink3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ marginTop: 1, fontSize: 12, color: "var(--ink3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {grant.firstCreativeName ?? `${grant.creativeCount} creatives`} · {expiryLabel(grant)}
                     </div>
                   </button>
@@ -3653,8 +3714,8 @@ export function StudioOsView(props: StudioOsViewProps) {
             <>
               <div style={{ padding: "13px 15px", borderBottom: "1px solid var(--b1)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span style={{ fontSize: 9.5, fontWeight: 600, textTransform: "capitalize", color: tonePalette(statusTone[activeGrant.status]).fg }}>{activeGrant.status}</span>
-                  <span className="mono" style={{ fontSize: 9.5, color: "var(--ink4)" }}>…{activeGrant.token.slice(-6)}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, textTransform: "capitalize", color: tonePalette(statusTone[activeGrant.status]).fg }}>{activeGrant.status}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--ink4)" }}>…{activeGrant.token.slice(-6)}</span>
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, marginTop: 5 }}>{activeGrant.title}</div>
                 <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 2 }}>
@@ -3662,7 +3723,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                 </div>
               </div>
               <div style={{ padding: "12px 15px", borderBottom: "1px solid var(--b1)" }}>
-                <div style={{ fontSize: "9.5px", textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink3)", fontWeight: 600, marginBottom: 6 }}>Access ledger</div>
+                <div style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: ".04em", color: "var(--ink3)", fontWeight: 600, marginBottom: 6 }}>Access ledger</div>
                 <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 11 }}>
                   <span style={{ color: "var(--ink3)" }}>Permission tier</span><span>Tier 0 · creative signals only</span>
                   <span style={{ color: "var(--ink3)" }}>Audience</span><span>{audienceLabel(activeGrant.audience)}</span>
@@ -3692,7 +3753,7 @@ export function StudioOsView(props: StudioOsViewProps) {
                   <a href={`/share/creative/${activeGrant.token}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", alignSelf: "center", fontSize: 11 }}>Open link ↗</a>
                 </div>
               ) : null}
-              <div style={{ padding: "0 15px 14px 15px", fontSize: 10, color: "var(--ink4)" }}>
+              <div style={{ padding: "0 15px 14px 15px", fontSize: 12, color: "var(--ink4)" }}>
                 No spend, revenue, CPA, ROAS, audiences, or campaign names are serialized to a creator view.
               </div>
             </>

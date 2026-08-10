@@ -1,3 +1,4 @@
+import { deltaSentiment, getMetricDirection } from "@/lib/metric-semantics";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { resolveGa4AnalyticsContext, runGA4Report } from "@/lib/google-analytics-reporting";
 import { type IntegrationStatusResponse } from "@/lib/integration-status";
@@ -110,6 +111,14 @@ export function buildMetricCard(params: {
   sparklineData?: Array<{ date: string; value: number }>;
   icon?: string;
   compareMode: CompareMode;
+  /**
+   * The metric this card shows, used to decide what a change means.
+   *
+   * Defaults to the card id, which is already the metric name on every caller.
+   * An unrecognised key resolves to neutral, so a metric nobody classified is
+   * never coloured by the sign of its change.
+   */
+  metricKey?: string;
 }): OverviewMetricCardData {
   const changePct = computeChangePct(params.value, params.previousValue ?? null, params.compareMode);
   return {
@@ -121,6 +130,13 @@ export function buildMetricCard(params: {
     changePct,
     sparklineData: params.sparklineData ?? [],
     trendDirection: trendDirection(changePct),
+    // The arrow says which way it moved; this says whether that is good. They
+    // disagree for every cost-like metric, and deriving the colour from the
+    // arrow gave a rising CPA the same treatment as rising revenue.
+    trendSentiment: deltaSentiment(
+      getMetricDirection(params.metricKey ?? params.id),
+      changePct ?? 0,
+    ),
     dataSource: {
       key: params.sourceKey,
       label: params.sourceLabel,

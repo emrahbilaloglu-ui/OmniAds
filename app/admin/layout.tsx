@@ -66,7 +66,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
           <div>
             <p className="text-sm font-bold leading-none text-neutral-950">Adsecute</p>
-            <p className="mt-0.5 text-[10px] font-medium uppercase tracking-widest leading-none text-neutral-500">Admin Console</p>
+            <p className="mt-0.5 text-[12px] font-medium uppercase tracking-widest leading-none text-neutral-500">Admin Console</p>
           </div>
         </div>
 
@@ -74,7 +74,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <nav className="ad-admin-nav flex-1 space-y-5 overflow-x-auto px-2.5 py-3 lg:overflow-y-auto">
           {navGroups.map((group) => (
             <div key={group.label}>
-              <p className="ad-admin-nav-group-label mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
+              <p className="ad-admin-nav-group-label mb-1 px-2.5 text-[12px] font-semibold uppercase tracking-widest text-neutral-400">
                 {group.label}
               </p>
               <ul className="flex gap-0.5 lg:block lg:space-y-0.5">

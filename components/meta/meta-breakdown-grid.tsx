@@ -62,12 +62,12 @@ function AgeBreakdownBadges({ rows, language }: { rows: BreakdownRow[]; language
         const { bg, border, text } = roasTheme(roas);
         return (
           <div key={row.key} className={cn("rounded-lg border p-2", border, bg)}>
-            <p className="text-[10px] font-medium leading-none text-muted-foreground">{row.label}</p>
+            <p className="text-[12px] font-medium leading-none text-muted-foreground">{row.label}</p>
             <p className={cn("mt-1 font-mono text-base font-bold leading-none", text)}>
               {roas.toFixed(2)}
               <span className="ml-0.5 text-xs font-normal opacity-70">×</span>
             </p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">{fmtK(row.spend, sym)}</p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{fmtK(row.spend, sym)}</p>
           </div>
         );
       })}
@@ -111,7 +111,7 @@ export function MetaBreakdownGrid({
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between text-left"
       >
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Performans Dağılımı" : "Performance Breakdown"}
         </p>
         <ChevronDown
@@ -126,7 +126,7 @@ export function MetaBreakdownGrid({
         <div className="mt-3 grid grid-cols-2 gap-4">
           {/* Age ROAS */}
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               {language === "tr" ? "Yaşa Göre ROAS" : "ROAS by Age"}
             </p>
             {isLoading ? <BreakdownSkeleton /> : <AgeBreakdownBadges rows={ageRows} language={language} />}
@@ -134,7 +134,7 @@ export function MetaBreakdownGrid({
 
           {/* Platform share */}
           <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               {language === "tr" ? "Platform Payı" : "Platform Share"}
             </p>
             {isLoading ? (

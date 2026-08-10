@@ -248,20 +248,27 @@ describe("automatic campaign context trust classes (D033)", () => {
     ).toBe(true);
   });
 
-  it("keeps mature cut visible at medium trust with a low-confidence badge", () => {
+  it("keeps mature cut visible but review-only at medium trust", () => {
     const guarded = applyCreativeCampaignLabelGuard({
       decision: makeDecision({ label: "cut", confidence: 78 }),
       input: makeInput("campaign-9"),
       campaignLabelsById: contextMap("medium"),
     });
     expect(guarded.label).toBe("cut");
-    expect(guarded.confidence).toBe(78);
     expect(guarded.campaignLabelStatus).toBe("labeled");
     expect(guarded.campaignKind).toBeNull();
+    expect(guarded.authorityBlocker).toBe("campaign_context");
+    expect(guarded.blockedActionType).toBe("cut");
+    expect(guarded.confidence).toBeLessThanOrEqual(
+      CREATIVE_CAMPAIGN_LABEL_CONFIDENCE_CAP,
+    );
     expect(
       guarded.badges.some(
         (badge) => badge.type === "campaign_context_low_confidence",
       ),
+    ).toBe(true);
+    expect(
+      guarded.badges.some((badge) => badge.type === "stop_loss_review"),
     ).toBe(true);
   });
 

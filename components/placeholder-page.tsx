@@ -39,7 +39,7 @@ export function PlaceholderPage({
       <ProductSection>
         <div className="flex items-center gap-2">
           {badge ? (
-            <Badge variant="secondary" className="rounded-md border border-neutral-200 bg-neutral-100 text-[10px] uppercase tracking-[0.12em] text-neutral-600">
+            <Badge variant="secondary" className="rounded-md border border-neutral-200 bg-neutral-100 text-[12px] uppercase tracking-[0.12em] text-neutral-600">
               {badge}
             </Badge>
           ) : null}

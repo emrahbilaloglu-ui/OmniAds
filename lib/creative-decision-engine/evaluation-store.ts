@@ -17,7 +17,7 @@ export { DECISION_AUTHORITY_BLOCKERS };
 export type { DecisionAuthorityBlocker };
 
 export const AD_DECISION_EVALUATION_CONTRACT_VERSION =
-  "engine-v3-canonical-ad-evaluation.v6" as const;
+  "engine-v3-canonical-ad-evaluation.v7" as const;
 
 export interface AdDecisionEvaluationIdentity {
   decisionEntityType: "ad";

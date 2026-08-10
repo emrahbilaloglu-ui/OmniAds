@@ -1,8 +1,12 @@
 "use client";
 
+import { MobileTier0Triage } from "@/components/meta/os/MobileTier0Triage";
+import { emitProductInstrumentation } from "@/lib/product-instrumentation-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+
+import { useTierZeroFreshness } from "@/components/states/useTierZeroFreshness";
 import {
   AlertTriangle,
   ChevronDown,
@@ -13,11 +17,14 @@ import {
   Info,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback} from "react";
 import type { MetaAnomaly } from "@/lib/meta/anomalies";
 import { fetchMetaHistoryAccounts } from "@/lib/meta/history-client";
 import type { MetaHistoryAccount } from "@/lib/meta/history-contract";
 import { buildMetaScopedHref } from "@/lib/meta/meta-route-scope";
+import { GuardedActionPanel } from "@/components/meta/os/GuardedActionPanel";
+import { SavedViewsMenu } from "@/components/views/SavedViewsMenu";
+import { DecisionWorkflowControls } from "@/components/meta/os/DecisionWorkflowControls";
 import type {
   MetaOsAdDecision,
   MetaOsDecisionAction,
@@ -248,12 +255,19 @@ function laneLabel(lane: MetaOsDecisionLane) {
   return "Monitoring";
 }
 
-function presentationLaneCount(
+/**
+ * Lane counts, or null when there is no server presentation yet.
+ *
+ * Returning 0 while the workspace is still loading — or after it failed — put a
+ * literal "Act Now 0" on screen, which a buyer scanning the tabs reads as
+ * "nothing to act on today". An unknown count renders as a dash instead.
+ */
+export function presentationLaneCount(
   presentation: MetaDecisionsOsWorkspacePayload["os"] | null | undefined,
   layer: DecisionLayer,
   lane: MetaOsDecisionLane,
-) {
-  if (!presentation) return 0;
+): number | null {
+  if (!presentation) return null;
   const group =
     layer === "structure" ? presentation.structure : presentation.ads;
   if (lane === "act") return group.actCount;
@@ -289,10 +303,10 @@ export function resolveAvailableDecisionLane(
   layer: DecisionLayer,
   current: MetaOsDecisionLane,
 ) {
-  if (presentationLaneCount(presentation, layer, current) > 0) return current;
+  if ((presentationLaneCount(presentation, layer, current) ?? 0) > 0) return current;
   return (
     DECISION_LANES.find(
-      (candidate) => presentationLaneCount(presentation, layer, candidate) > 0,
+      (candidate) => (presentationLaneCount(presentation, layer, candidate) ?? 0) > 0,
     ) ?? current
   );
 }
@@ -429,6 +443,8 @@ export function DecisionsOsView({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [howOpen, setHowOpen] = useState(false);
+  const [requestedCreativeUnresolved, setRequestedCreativeUnresolved] =
+    useState(false);
   const [adCandidateLimit, setAdCandidateLimit] = useState(
     META_DECISIONS_AD_CANDIDATE_LIMIT,
   );
@@ -529,6 +545,28 @@ export function DecisionsOsView({
     refetchOnWindowFocus: false,
   });
 
+  /**
+   * Every path that opens a decision goes through here.
+   *
+   * The emit used to live inline in the structure list's onSelect, so opening
+   * an *ad* decision -- the list an operator spends most of their time in, and
+   * the one a deep link lands on -- counted as nothing. A per-entry-point emit
+   * is a metric that silently narrows every time someone adds a way in.
+   */
+  const openDecision = useCallback(
+    (next: SelectedDecision) => {
+      emitProductInstrumentation({
+        eventName: "decision_opened",
+        surface: "meta_decisions",
+        outcome: "ok",
+        scope: "business",
+        businessId,
+      });
+      setSelected(next);
+    },
+    [businessId],
+  );
+
   const workspace = workspaceQuery.data ?? null;
   const presentation = workspace?.os ?? null;
   const lane = layer === "ads" ? adsLane : "monitor";
@@ -601,6 +639,31 @@ export function DecisionsOsView({
     workspace?.system.laneSnapshotCreatedAt ??
     workspace?.pulse.lastSyncAt ??
     null;
+
+  // One freshness contract across every Tier-0 surface. Derived from the
+  // query state this surface already has, so it cannot drift from what is
+  // actually on screen.
+  useTierZeroFreshness({
+    surface: "meta_decisions",
+    isLoading: providerAccountsQuery.isLoading || workspaceQuery.isLoading,
+    isFetching: providerAccountsQuery.isFetching || workspaceQuery.isFetching,
+    error: providerAccountsQuery.error ?? workspaceQuery.error,
+    // Anomalies failing does not empty the decisions; it removes the integrity
+    // count from them, and saying so beats showing a confident zero.
+    partialReason: anomaliesQuery.error
+      ? "Integrity checks could not be read; the anomaly count is incomplete"
+      : null,
+    asOf: freshAt,
+    businessId,
+    onRetry: () => {
+      if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
+      void workspaceQuery.refetch();
+      // The anomalies read is what raises the partial state; leaving it out
+      // meant the retry could never clear the hole it reported.
+      if (anomaliesQuery.isError) void anomaliesQuery.refetch();
+    },
+  });
+
   const remainingAds = Math.max(
     0,
     (presentation?.ads.eligiblePreCapCount ?? 0) - adItems.length,
@@ -627,17 +690,27 @@ export function DecisionsOsView({
   }, [presentation]);
 
   useEffect(() => {
-    if (!requestedCreativeId) return;
+    if (!requestedCreativeId) {
+      setRequestedCreativeUnresolved(false);
+      return;
+    }
     const item = adItems.find(
       (candidate) =>
         candidate.creativeId === requestedCreativeId ||
         candidate.adId === requestedCreativeId,
     );
-    if (!item) return;
+    if (!item) {
+      // The creative exists, but its decision is outside the loaded page. This
+      // used to return silently, so arriving from "Open Decisions" looked as if
+      // the app had lost the creative. Say so, and offer the way to reach it.
+      if (presentation) setRequestedCreativeUnresolved(true);
+      return;
+    }
+    setRequestedCreativeUnresolved(false);
     setLayer("ads");
     setAdsLane(item.lane);
-    setSelected({ kind: "ad", value: item });
-  }, [adItems, requestedCreativeId]);
+    openDecision({ kind: "ad", value: item });
+  }, [adItems, presentation, requestedCreativeId]);
 
   const chooseAccount = (accountId: string) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -860,6 +933,34 @@ export function DecisionsOsView({
         </div>
       ) : null}
 
+      {/* Arriving from another surface for a specific creative whose decision is
+          outside the loaded page. Saying nothing here reads as "the app lost my
+          creative", so the cap is stated and the way past it is offered. */}
+      {requestedCreativeUnresolved ? (
+        <div className={styles.integrityBand} role="status">
+          <Info size={13} aria-hidden="true" />
+          <span>
+            This creative&rsquo;s decision is outside the {adItems.length} loaded
+            {adItems.length === 1 ? " row" : " rows"}.
+          </span>
+          {canLoadMoreAds ? (
+            <button
+              type="button"
+              disabled={workspaceQuery.isFetching}
+              onClick={() =>
+                setAdCandidateLimit((current) => nextAdCandidateLimit(current))
+              }
+            >
+              {workspaceQuery.isFetching ? "Loading" : "Load more decisions"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setStatusOpen(true)}>
+              View evidence
+            </button>
+          )}
+        </div>
+      ) : null}
+
       <div className={styles.layerBar}>
         <div role="tablist" className={styles.layerTabs}>
           {(
@@ -877,7 +978,7 @@ export function DecisionsOsView({
                   : DECISION_LANES.reduce(
                       (sum, candidate) =>
                         sum +
-                        presentationLaneCount(presentation, value, candidate),
+                        (presentationLaneCount(presentation, value, candidate) ?? 0),
                       0,
                     );
             return (
@@ -997,11 +1098,34 @@ export function DecisionsOsView({
                 }}
               >
                 {laneLabel(value)}
-                <span>{presentationLaneCount(presentation, "ads", value)}</span>
+                <span>{presentationLaneCount(presentation, "ads", value) ?? "—"}</span>
               </button>
             ))}
           </div>
         )}
+        {/* The arrangement an operator narrowed to is worth keeping; rebuilding
+            it on every visit is most of what "using the tool" used to mean. */}
+        <SavedViewsMenu
+          surface="meta-decisions"
+          businessId={businessId}
+          availableAccountIds={providerAccounts.map((account) => account.id)}
+          currentConfig={{
+            providerAccountId,
+            lane: adsLane,
+            layer,
+          }}
+          onApply={(config) => {
+            if (config.layer === "structure" || config.layer === "ads" || config.layer === "inactive") {
+              setLayer(config.layer);
+            }
+            if (config.lane === "act" || config.lane === "blocked" || config.lane === "monitor") {
+              setAdsLane(config.lane);
+            }
+            if (config.providerAccountId && config.providerAccountId !== providerAccountId) {
+              chooseAccount(config.providerAccountId);
+            }
+          }}
+        />
         <span className={styles.listCaption}>
           {layer === "structure"
             ? `${visibleStructureGroups.length} of ${filteredStructureGroups.length} campaigns · urgency first`
@@ -1027,6 +1151,13 @@ export function DecisionsOsView({
                 "The server presentation could not be loaded."
               }
               danger
+              retrying={
+                providerAccountsQuery.isFetching || workspaceQuery.isFetching
+              }
+              onRetry={() => {
+                if (providerAccountsQuery.isError) void providerAccountsQuery.refetch();
+                if (workspaceQuery.isError) void workspaceQuery.refetch();
+              }}
             />
           ) : !providerAccountId ? (
             <DecisionState
@@ -1093,7 +1224,9 @@ export function DecisionsOsView({
                 currency={currency}
                 expandedGroups={expandedGroups}
                 onToggle={toggleGroup}
-                onSelect={(value) => setSelected({ kind: "structure", value })}
+                onSelect={(value) =>
+                  openDecision({ kind: "structure", value })
+                }
                 selected={selected}
               />
               {remainingStructureGroups > 0 ? (
@@ -1113,7 +1246,7 @@ export function DecisionsOsView({
               <AdsList
                 items={visibleAds}
                 currency={currency}
-                onSelect={(value) => setSelected({ kind: "ad", value })}
+                onSelect={(value) => openDecision({ kind: "ad", value })}
                 selected={selected}
               />
               {canLoadMoreAds ? (
@@ -1165,7 +1298,22 @@ export function DecisionsOsView({
               }
               readOnly={workspace?.viewer?.readOnly === true}
               howOpen={howOpen}
-              onToggleHow={() => setHowOpen((open) => !open)}
+              onToggleHow={() => {
+                setHowOpen((open) => {
+                  // Section 9: evidence viewed, counted only when the
+                  // disclosure is opened rather than on every toggle.
+                  if (!open) {
+                    emitProductInstrumentation({
+                      eventName: "decision_evidence_viewed",
+                      surface: "meta_decision_inspector",
+                      outcome: "ok",
+                      scope: "business",
+                      businessId,
+                    });
+                  }
+                  return !open;
+                });
+              }}
               onWorkspaceRefresh={() => workspaceQuery.refetch()}
               onClose={() => setSelected(null)}
             />
@@ -1180,15 +1328,27 @@ function DecisionState({
   title,
   detail,
   danger = false,
+  onRetry,
+  retrying = false,
 }: {
   title: string;
   detail: string;
   danger?: boolean;
+  /** Present only when the caller can actually re-run the read. */
+  onRetry?: () => void;
+  retrying?: boolean;
 }) {
   return (
     <div className={styles.emptyState} data-danger={danger}>
       <strong>{title}</strong>
       <span>{detail}</span>
+      {onRetry ? (
+        // A failed read used to leave a full browser reload as the only way
+        // forward, mid-triage.
+        <button type="button" onClick={onRetry} disabled={retrying}>
+          {retrying ? "Retrying" : "Try again"}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2034,7 +2194,51 @@ function DecisionInspector({
           </Link>
         ) : (
           <div className={styles.reviewActions}>
-            <span>No simulated preflight or receipt is shown.</span>
+            {/* The server decides what this action may do; the card renders that
+                answer. Preflight verifies the target without contacting the
+                provider, so an operator can see whether a decision still points
+                at the thing it named before anyone is allowed to act. */}
+            {/* Ownership sits beside the command: a decision someone has already
+                taken is not one you should act on twice. */}
+            {ad ? (
+              <>
+                <DecisionWorkflowControls
+                  businessId={businessId}
+                  decisionKey={ad.decisionId}
+                  entityType="ad"
+                  entityId={ad.adId}
+                  providerAccountId={providerAccountId}
+                />
+                {/*
+                  The phone task: read the evidence and take the decision on.
+                  Provider mutation stays on desktop per D5; ownership does not,
+                  and it is the part of triage a phone can finish.
+                */}
+                <MobileTier0Triage
+                  businessId={businessId}
+                  decisionKey={ad.decisionId}
+                  ownershipAvailable
+                >
+                  {(report) => (
+                    <DecisionWorkflowControls
+                      businessId={businessId}
+                      decisionKey={ad.decisionId}
+                      entityType="ad"
+                      entityId={ad.adId}
+                      providerAccountId={providerAccountId}
+                      onOwnershipRecorded={report}
+                    />
+                  )}
+                </MobileTier0Triage>
+              </>
+            ) : null}
+            <GuardedActionPanel
+              businessId={businessId}
+              providerAccountId={providerAccountId}
+              action={action}
+              ad={ad}
+              killSwitchEngaged={blocked}
+            />
             <a
               href={providerAccountHref(providerAccountId)}
               target="_blank"

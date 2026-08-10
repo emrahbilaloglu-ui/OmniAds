@@ -225,7 +225,7 @@ describe("CreativeDecisionEngineV3Surface", () => {
       'class="max-w-[14rem] shrink-0 truncate font-medium">WallArtCatalog</span>',
     );
     expect(html).toContain(
-      'class="max-w-[10rem] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">mock-creative-001</span>',
+      'class="max-w-[10rem] shrink-0 truncate font-mono text-[12px] text-muted-foreground/70">mock-creative-001</span>',
     );
     expect(html).toContain("Engine v3 stub - real gate logic not yet implemented.");
     expect(html).toContain("conf 50");

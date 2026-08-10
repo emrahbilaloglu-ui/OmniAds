@@ -140,7 +140,7 @@ export default function AdminBusinessDetailPage() {
               <dt className="text-gray-400">Aktif Plan</dt>
               <dd className="font-semibold text-gray-900">
                 {PLAN_LABELS[effectivePlan] ?? effectivePlan}
-                {business.plan_override && <span className="ml-1.5 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Override</span>}
+                {business.plan_override && <span className="ml-1.5 text-[12px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Override</span>}
               </dd>
             </div>
             {subscription && (

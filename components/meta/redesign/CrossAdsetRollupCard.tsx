@@ -35,7 +35,7 @@ export function CrossAdsetRollupCard({ campaignName, recs, onOpenRec }: CrossAds
           <div className="text-[11.5px] text-slate-500">Cross-adset rollup · mixed decisions</div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-slate-600">
             Mixed
           </span>
           <DecisionLabelChip label="review_adsets" surface="meta" size="sm">
@@ -67,7 +67,7 @@ export function CrossAdsetRollupCard({ campaignName, recs, onOpenRec }: CrossAds
             </span>
             <DecisionLabelChip label={decisionLabelForRec(rec)} surface="meta" size="sm" />
             <ConfidencePill confidence={Math.round((rec.confidenceScore ?? 0.5) * 100)} size="sm" />
-            <span className="hidden min-w-[72px] text-right font-mono text-[10.5px] text-slate-500 md:inline">
+            <span className="hidden min-w-[72px] text-right font-mono text-[12px] text-slate-500 md:inline">
               {evidenceValue(rec, "Ad set ROAS") ?? evidenceValue(rec, "Core ROAS") ?? "no ROAS"}
             </span>
           </button>
@@ -90,7 +90,7 @@ export function CrossAdsetRollupCard({ campaignName, recs, onOpenRec }: CrossAds
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-[12px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-0.5 truncate font-mono text-[12px] text-slate-800">{value}</div>
     </div>
   );

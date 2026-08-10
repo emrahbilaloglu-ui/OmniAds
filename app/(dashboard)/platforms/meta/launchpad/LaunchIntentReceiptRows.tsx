@@ -68,20 +68,20 @@ export function LaunchIntentReceiptRows({
                 {intent.status.replaceAll("_", " ")}
               </span>
             </div>
-            <p className="mono mt-2 truncate text-[10px] text-[var(--muted)]" title={intent.id}>
+            <p className="mono mt-2 truncate text-[12px] text-[var(--muted)]" title={intent.id}>
               {intent.id} · {formatTimestamp(intent.updatedAt)}
             </p>
             {facts.length > 0 ? (
-              <p className="mono mt-1 text-[10px] text-[var(--ink-3)]">
+              <p className="mono mt-1 text-[12px] text-[var(--ink-3)]">
                 receipt: {facts.join(" · ")}
               </p>
             ) : null}
             {intent.errorReceipt ? (
-              <p className="mono mt-1 text-[10px] text-[var(--danger)]">
+              <p className="mono mt-1 text-[12px] text-[var(--danger)]">
                 {intent.errorReceipt.code} — {intent.errorReceipt.message}
               </p>
             ) : null}
-            <p className="mt-1 text-[10.5px] text-[var(--muted)]">
+            <p className="mt-1 text-[12px] text-[var(--muted)]">
               Immutable receipt · no automatic retry or rollback
             </p>
           </div>

@@ -231,9 +231,9 @@ function DashboardMockup() {
               { label: "Purchases", value: "1,204", change: "+23%" },
             ].map((kpi) => (
               <div key={kpi.label} className="rounded-lg border border-border bg-card p-3">
-                <p className="text-[10px] text-muted-foreground mb-1">{kpi.label}</p>
+                <p className="text-[12px] text-muted-foreground mb-1">{kpi.label}</p>
                 <p className="text-sm font-semibold text-foreground leading-none">{kpi.value}</p>
-                <p className="text-[10px] text-green-600 mt-1">{kpi.change}</p>
+                <p className="text-[12px] text-green-600 mt-1">{kpi.change}</p>
               </div>
             ))}
           </div>

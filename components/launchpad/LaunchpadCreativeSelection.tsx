@@ -664,7 +664,7 @@ export function LaunchpadCreativeSelection({
             </FilterChip>
           ))}
         </FilterGroup>
-        <p className="pl-16 text-[10.5px] leading-relaxed text-[var(--muted)]">
+        <p className="pl-16 text-[12px] leading-relaxed text-[var(--muted)]">
           Engine-label filter vocabulary (scale / keep / refresh / cut /
           test_more / diagnose / out_of_scope) is the launch engine&apos;s —
           deliberately distinct from buyerAction.
@@ -681,7 +681,7 @@ export function LaunchpadCreativeSelection({
 
       {view === "list" ? (
         <div className="overflow-hidden rounded-[10px] border border-[var(--border)] bg-[var(--surface)]">
-          <div className="grid grid-cols-[44px_56px_1fr_220px] border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">
+          <div className="grid grid-cols-[44px_56px_1fr_220px] border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">
             <span />
             <span>Asset</span>
             <span>Creative</span>
@@ -954,7 +954,7 @@ function FilterGroup({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--muted-2)]">
+      <span className="w-14 shrink-0 text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--muted-2)]">
         {label}
       </span>
       {children}
@@ -1027,7 +1027,7 @@ function LaunchpadUploadContractNotice() {
         </button>
       </div>
       <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
-        <span className="mono text-[10.5px] text-[var(--muted)]">upload</span>
+        <span className="mono text-[12px] text-[var(--muted)]">upload</span>
         <span className="flex-1">
           No file is staged or transmitted from this surface. This is a visible
           backend contract gap, not a silent dead uploader.
@@ -1048,7 +1048,7 @@ function Metric({
 }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.03em] text-[var(--muted)]">
+      <div className="text-[12px] font-semibold uppercase tracking-[0.03em] text-[var(--muted)]">
         {label}
       </div>
       <div

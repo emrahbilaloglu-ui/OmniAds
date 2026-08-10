@@ -55,7 +55,7 @@ export function CreativeCommercialContextCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-neutral-500">
             Commercial Context
           </p>
           <h4 className="mt-1 text-sm font-semibold text-neutral-950">
@@ -64,7 +64,7 @@ export function CreativeCommercialContextCard({
         </div>
         <span
           className={cn(
-            "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+            "rounded-full px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
             tone.badge,
           )}
         >
@@ -101,7 +101,7 @@ export function CreativeCommercialContextCard({
               key={`${row.label}-${row.detail}`}
               className="rounded-xl border border-neutral-200 bg-white/85 px-3 py-2"
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
                 {row.label}
               </p>
               <p className="mt-1 text-sm text-neutral-800">{row.detail}</p>
@@ -111,7 +111,7 @@ export function CreativeCommercialContextCard({
       ) : null}
       {query.data.guardrails[0] ? (
         <div className="mt-3 rounded-xl border border-neutral-200 bg-white/85 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
             Guardrail
           </p>
           <p className="mt-1 text-sm text-neutral-800">{query.data.guardrails[0]}</p>

@@ -86,7 +86,7 @@ export default function MetaAudiencesPage() {
             </div>
             <div className="hidden overflow-x-auto border-t border-[var(--border)] md:block">
               <div className="min-w-[620px]">
-                <div className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 bg-[var(--surface-2)] px-4 py-2 text-[10px] font-semibold uppercase text-[var(--muted)]">
+                <div className="grid grid-cols-[minmax(160px,0.8fr)_110px_minmax(260px,1.4fr)] gap-3 bg-[var(--surface-2)] px-4 py-2 text-[12px] font-semibold uppercase text-[var(--muted)]">
                   <span>Contract</span><span>State</span><span>Current evidence</span>
                 </div>
                 {audienceReadiness.map((item) => (

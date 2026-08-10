@@ -1,11 +1,14 @@
 "use client";
 
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { Bell, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
 import { BusinessSelector } from "@/components/business/BusinessSelector";
 import { PersonalAccountMenu } from "@/components/layout/PersonalAccountMenu";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { BusinessGuard } from "@/components/layout/business-guard";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -77,6 +80,15 @@ function LegacyDashboardFrame({ userName, children }: DashboardFrameProps) {
       <DesktopSidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar userName={userName} />
+        {/*
+          Overview renders through this frame rather than the console one, so
+          the freshness bar has to be here too. It was mounted only in
+          ConsoleTopbar, which meant Overview reported its data age to a bar
+          that was never on screen -- the surface looked wired and said nothing.
+        */}
+        <div className="ad-legacy-freshness border-b border-neutral-200 bg-white px-3 py-1 sm:px-4 md:px-6">
+          <TierZeroFreshnessBar />
+        </div>
         <main id="main-content" className="flex-1 overflow-y-auto bg-neutral-50 p-3 sm:p-4 md:p-6">
           <BusinessGuard>{children}</BusinessGuard>
         </main>
@@ -89,6 +101,12 @@ function ConsoleTopbar({ userName }: { userName: string }) {
   return (
     <header className="ad-console-topbar">
       <MobileNav variant="console" />
+      {/*
+        The active surface's data age, in one place with one wording. A surface
+        that has reported nothing renders as unknown rather than silently, since
+        silence reads as "current".
+      */}
+      <TierZeroFreshnessBar />
       <div className="ad-console-brand flex min-w-0 items-center gap-2">
         <BrandLogo
           className="gap-2"
@@ -105,18 +123,11 @@ function ConsoleTopbar({ userName }: { userName: string }) {
         <PlatformSwitcher />
       </div>
       <div className="min-w-0 flex-1" />
-      {/* The "Jump or act… ⌘K" control was removed rather than restyled: it had
-          no onClick, and no command palette or ⌘K key handler exists anywhere in
-          the repo. It advertised a way to navigate that was never there. */}
-      <button
-        type="button"
-        disabled
-        title="Notifications are not available yet"
-        className="grid h-7 w-7 place-items-center rounded-[6px] border border-[var(--adc-b1)] text-[var(--adc-ink3)] opacity-60"
-        aria-label="Notifications (not available yet)"
-      >
-        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      {/* Replaces the removed "Jump or act… ⌘K" control. That one advertised a
+          way to navigate that did not exist; this one queries a real server
+          search and goes where it says it will. */}
+      <GlobalSearch />
+      <NotificationBell />
       <PersonalAccountMenu userName={userName} />
     </header>
   );

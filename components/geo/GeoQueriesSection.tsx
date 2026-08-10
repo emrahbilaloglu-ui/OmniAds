@@ -172,7 +172,7 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
               )}
             >
               {f.label}
-              <span className="ml-1.5 text-[10px] opacity-60">{count}</span>
+              <span className="ml-1.5 text-[12px] opacity-60">{count}</span>
             </button>
           );
         })}
@@ -241,7 +241,7 @@ export function GeoQueriesSection({ queries, isLoading }: GeoQueriesSectionProps
                 </td>
                 <td className="py-2.5 text-xs text-muted-foreground max-w-[170px]">
                   {q.recommendation && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate" title={q.recommendation}>
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] block truncate" title={q.recommendation}>
                       {q.recommendation}
                     </span>
                   )}

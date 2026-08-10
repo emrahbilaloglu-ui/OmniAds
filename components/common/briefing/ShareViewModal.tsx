@@ -139,7 +139,7 @@ export function ShareViewModal({
 
         <div className="px-5 py-4 space-y-4 text-[12.5px] text-neutral-700">
           <section>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+            <div className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
               Audience
             </div>
             <div className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
@@ -227,7 +227,7 @@ export function ShareViewModal({
           </section>
 
           <section>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+            <div className="text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
               Share link
             </div>
             <div className="mt-1.5 flex items-stretch overflow-hidden rounded-md border border-neutral-200">
@@ -247,7 +247,7 @@ export function ShareViewModal({
                 {copyState === "copied" ? "Copied" : "Copy"}
               </button>
             </div>
-            <div className="mt-1.5 text-[10.5px] text-neutral-500">
+            <div className="mt-1.5 text-[12px] text-neutral-500">
               Public URL pattern · /share/creative/[token] — token is minted on
               Confirm. Backend signing is future work.
             </div>

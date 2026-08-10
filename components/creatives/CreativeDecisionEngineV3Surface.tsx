@@ -113,7 +113,7 @@ export function CreativeDecisionEngineV3Surface(
           {props.dataHealth && props.dataHealth.worstTier !== "none" && (
             <span
               className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-medium",
                 displayHealthTier === "warning"
                   ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
                   : "bg-rose-500/15 text-rose-700 dark:text-rose-400",
@@ -410,7 +410,7 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
         {creativeName ?? decision.creativeId}
       </span>
       {creativeName && (
-        <span className="max-w-[10rem] shrink-0 truncate font-mono text-[10px] text-muted-foreground/70">
+        <span className="max-w-[10rem] shrink-0 truncate font-mono text-[12px] text-muted-foreground/70">
           {decision.creativeId}
         </span>
       )}
@@ -421,7 +421,7 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
             <span
               key={`${badge.type}-${idx}`}
               className={cn(
-                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium",
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-medium",
                 badge.severity === "warning"
                   ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
                   : "bg-muted text-muted-foreground",
@@ -440,7 +440,7 @@ function DecisionRow({ decision }: { decision: DecisionOutput }) {
       </span>
       {confidenceCopy && (
         <span
-          className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+          className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[12px] font-medium text-amber-700 dark:text-amber-400"
           data-confidence-copy="source_freshness_cap"
           title={confidenceCopy}
         >

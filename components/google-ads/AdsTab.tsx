@@ -38,12 +38,12 @@ const cols: ColDef<Ad>[] = [
       <div className="max-w-[220px]">
         <p className="text-xs font-medium truncate" title={r.headline || r.id}>{r.headline || r.id || "—"}</p>
         {r.description && (
-          <p className="text-[10px] text-muted-foreground truncate" title={r.description}>{r.description}</p>
+          <p className="text-[12px] text-muted-foreground truncate" title={r.description}>{r.description}</p>
         )}
         <div className="flex items-center gap-1 mt-0.5">
           <StatusBadge status={r.status} />
-          <span className="text-[9px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
-          {r.adStrength ? <span className="text-[9px] text-muted-foreground">· {r.adStrength}</span> : null}
+          <span className="text-[12px] text-muted-foreground">{r.type?.replace(/_/g, " ")}</span>
+          {r.adStrength ? <span className="text-[12px] text-muted-foreground">· {r.adStrength}</span> : null}
         </div>
       </div>
     ),

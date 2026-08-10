@@ -28,7 +28,7 @@ const FALLBACK_LABELS: Record<DisplayRole, string> = {
 export function MetaCampaignRoleChip({ role }: MetaCampaignRoleChipProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider ${ROLE_TONES[role]}`}
+      className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider ${ROLE_TONES[role]}`}
       data-campaign-role={role}
     >
       {FALLBACK_LABELS[role]}

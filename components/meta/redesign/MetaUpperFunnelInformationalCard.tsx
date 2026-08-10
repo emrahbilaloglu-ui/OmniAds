@@ -63,7 +63,7 @@ function costPerThruplay(metrics: MetaUpperFunnelMetrics) {
 function KpiTile({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-[12px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-1 font-mono text-[14px] font-semibold tabular-nums text-slate-900">{value}</div>
       {sub ? <div className="mt-1 text-[11px] text-slate-500">{sub}</div> : null}
     </div>
@@ -104,7 +104,7 @@ export function MetaUpperFunnelInformationalCard({
       <div className="flex items-center gap-1.5 flex-wrap">
         <MetaScopeChip level={rec.level} />
         <MetaCohortChip cohort={rec.cohort} />
-        <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10.5px] font-medium text-slate-600">
+        <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">
           <Info className="inline-block shrink-0" size={11} aria-hidden="true" />
           Informational
         </span>

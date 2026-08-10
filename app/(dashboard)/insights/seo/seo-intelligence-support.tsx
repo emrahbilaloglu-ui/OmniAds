@@ -720,7 +720,7 @@ function SortableHeader(props: {
         className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
       >
         <span>{props.label}</span>
-        <span className={cn("text-[10px]", isActive ? "text-foreground" : "text-muted-foreground")}>
+        <span className={cn("text-[12px]", isActive ? "text-foreground" : "text-muted-foreground")}>
           {indicator}
         </span>
       </button>

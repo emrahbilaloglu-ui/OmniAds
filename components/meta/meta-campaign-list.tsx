@@ -39,19 +39,19 @@ function statusDot(status: string) {
 function laneDot(lane: MetaCampaignTableRow["laneLabel"]) {
   if (lane === "Scaling")
     return (
-      <span className="shrink-0 rounded-sm bg-blue-500/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-blue-700">
+      <span className="shrink-0 rounded-sm bg-blue-500/10 px-1 py-px text-[12px] font-semibold uppercase tracking-wide text-blue-700">
         S
       </span>
     );
   if (lane === "Validation")
     return (
-      <span className="shrink-0 rounded-sm bg-slate-400/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+      <span className="shrink-0 rounded-sm bg-slate-400/10 px-1 py-px text-[12px] font-semibold uppercase tracking-wide text-slate-600">
         V
       </span>
     );
   if (lane === "Test")
     return (
-      <span className="shrink-0 rounded-sm bg-amber-500/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+      <span className="shrink-0 rounded-sm bg-amber-500/10 px-1 py-px text-[12px] font-semibold uppercase tracking-wide text-amber-700">
         T
       </span>
     );
@@ -103,7 +103,7 @@ export function MetaCampaignList({
             type="button"
             onClick={() => setStatusFilter(key)}
             className={cn(
-              "rounded px-2 py-0.5 text-[10px] font-semibold transition-colors",
+              "rounded px-2 py-0.5 text-[12px] font-semibold transition-colors",
               statusFilter === key
                 ? "bg-foreground/[0.08] text-foreground"
                 : "text-slate-400 hover:text-slate-600"
@@ -179,7 +179,7 @@ export function MetaCampaignList({
                 {(c.objective || c.laneLabel) && (
                   <div className="mt-0.5 flex items-center gap-1.5">
                     {c.objective && (
-                      <span className="truncate text-[10px] text-muted-foreground">
+                      <span className="truncate text-[12px] text-muted-foreground">
                         {c.objective}
                       </span>
                     )}
@@ -197,10 +197,10 @@ export function MetaCampaignList({
                   )}
                 >
                   {c.roas.toFixed(2)}
-                  <span className="text-[10px] font-normal opacity-60">×</span>
+                  <span className="text-[12px] font-normal opacity-60">×</span>
                 </span>
-                <p className="text-[10px] tabular-nums text-slate-400">
-                  <span className="mr-0.5 text-[9px] uppercase tracking-wide opacity-50">spend </span>
+                <p className="text-[12px] tabular-nums text-slate-400">
+                  <span className="mr-0.5 text-[12px] uppercase tracking-wide opacity-50">spend </span>
                   {fmtSpend(c.spend, sym)}
                 </p>
               </div>

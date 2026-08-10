@@ -71,9 +71,9 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
   if (type === "metric") {
     return (
       <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-400">KPI</div>
+        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">KPI</div>
         <div className="mt-2 text-lg font-semibold leading-none text-neutral-950">$12.4K</div>
-        <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
+        <div className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[12px] font-medium text-emerald-700">
           +12.4%
         </div>
       </div>
@@ -99,7 +99,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
             </div>
           ))}
         </div>
-        <div className="mt-3 flex justify-between text-[9px] text-neutral-400">
+        <div className="mt-3 flex justify-between text-[12px] text-neutral-400">
           <span>Mar</span>
           <span>Apr</span>
           <span>May</span>
@@ -116,7 +116,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
             <div key={index} className="flex-1 rounded-t-xl bg-[linear-gradient(180deg,#60a5fa,#2563eb)]" style={{ height }} />
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
           <BarChart3 className="h-3.5 w-3.5" />
           <span>Ranked comparison</span>
         </div>
@@ -135,7 +135,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
             />
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
           <Table2 className="h-3.5 w-3.5" />
           <span>Detailed rows</span>
         </div>
@@ -151,7 +151,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
           <div className="h-2 w-5/6 rounded-full bg-neutral-200" />
           <div className="h-2 w-2/3 rounded-full bg-neutral-100" />
         </div>
-        <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-400">
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-neutral-400">
           <TextCursorInput className="h-3.5 w-3.5" />
           <span>Narrative block</span>
         </div>
@@ -163,7 +163,7 @@ function WidgetLibraryPreview({ type }: { type: CustomReportWidgetType }) {
     <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3">
       <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 px-3 py-4 text-center">
         <LayoutPanelTop className="mx-auto h-5 w-5 text-neutral-500" />
-        <div className="mt-2 text-[10px] font-medium text-neutral-500">Section divider</div>
+        <div className="mt-2 text-[12px] font-medium text-neutral-500">Section divider</div>
       </div>
     </div>
   );
@@ -499,10 +499,25 @@ export function ReportBuilder({
     name: deferredName,
     description: deferredDescription,
   });
+  /**
+   * Whether the last render of this same preview left widgets failed.
+   *
+   * The server counts a retry only when told one is happening, and no caller
+   * was ever telling it -- so `report_widget_retried` could not fire at all and
+   * the recovery rate read as a permanent zero, which is indistinguishable from
+   * "nobody ever retries" and from "retries always fail".
+   *
+   * A ref rather than state: this must not itself trigger a re-render, and it
+   * is keyed to the preview so editing the report starts a fresh attempt rather
+   * than inheriting the previous one's failure.
+   */
+  const lastFailedPreviewKey = useRef<string | null>(null);
+
   const previewQuery = useQuery({
     queryKey: ["custom-report-preview", businessId, previewKey],
     enabled: shouldRenderPreview,
     queryFn: async () => {
+      const retryOfFailedRender = lastFailedPreviewKey.current === previewKey;
       const response = await fetch("/api/reports/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -511,13 +526,22 @@ export function ReportBuilder({
           name: deferredName,
           description: deferredDescription,
           definition: deferredDefinition,
+          retryOfFailedRender,
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error((payload as { message?: string } | null)?.message ?? tr("Preview failed.", "Onizleme başarısız oldu."));
       }
-      return (payload as { report: RenderedReportPayload }).report;
+      const report = (payload as { report: RenderedReportPayload }).report;
+      // Remember whether this render left anything failed, so the next attempt
+      // at the same preview is reported as the retry it is.
+      const failed = (report.widgets ?? []).some(
+        (widget: { errorMessage?: string | null }) =>
+          Boolean(widget.errorMessage),
+      );
+      lastFailedPreviewKey.current = failed ? previewKey : null;
+      return report;
     },
   });
 
@@ -991,7 +1015,7 @@ export function ReportBuilder({
                   </button>
                   <div className="my-1 border-t" />
                   <div className="px-4 py-2">
-                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Share expiry</div>
+                    <div className="mb-1.5 text-[12px] font-semibold uppercase tracking-widest text-neutral-400">Share expiry</div>
                     <select
                       value={String(shareExpiryDays)}
                       onChange={(event) => setShareExpiryDays(Number(event.target.value))}
@@ -1068,11 +1092,11 @@ export function ReportBuilder({
                     className="group relative flex flex-col items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-2 py-3 text-neutral-600 transition hover:border-neutral-400 hover:bg-white cursor-grab active:cursor-grabbing"
                   >
                     {WIDGET_ICONS[widget.type]}
-                    <span className="text-[10px] font-medium text-neutral-500">{widget.label}</span>
+                    <span className="text-[12px] font-medium text-neutral-500">{widget.label}</span>
                     {/* Tooltip */}
                     <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-36 -translate-x-1/2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center shadow-[0_8px_24px_-12px_rgba(16,21,28,0.18)] group-hover:block">
                       <div className="text-xs font-semibold text-neutral-900">{widget.label}</div>
-                      <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{widget.detail}</div>
+                      <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">{widget.detail}</div>
                       <div className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-neutral-200 bg-white" />
                     </div>
                   </div>
@@ -1206,7 +1230,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[9px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[12px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1396,7 +1420,7 @@ export function ReportBuilder({
                               ) : logo ? (
                                 <Image src={logo} alt={ch.label} width={16} height={16} className="h-4 w-4 object-contain" />
                               ) : (
-                                <span className="text-[9px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
+                                <span className="text-[12px] font-bold text-neutral-500">{ch.label.slice(0, 2)}</span>
                               )}
                             </button>
                           );
@@ -1516,7 +1540,7 @@ export function ReportBuilder({
                                       }`}
                                     >
                                       <span>{metric.label}</span>
-                                      {active && <span className="h-4 w-4 rounded-full bg-blue-500 text-white text-[9px] flex items-center justify-center">✓</span>}
+                                      {active && <span className="h-4 w-4 rounded-full bg-blue-500 text-white text-[12px] flex items-center justify-center">✓</span>}
                                     </button>
                                   );
                                 })}
@@ -1583,7 +1607,7 @@ export function ReportBuilder({
                                     return (
                                       <div key={opt.value}>
                                         {showGroupHeader && (
-                                          <p className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                                          <p className="px-3 pt-2 pb-0.5 text-[12px] font-semibold uppercase tracking-wider text-neutral-400">
                                             {opt.group}
                                           </p>
                                         )}
@@ -1680,7 +1704,7 @@ export function ReportBuilder({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="text-sm font-semibold">{template.name}</div>
-                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[12px] font-medium uppercase tracking-[0.08em] text-neutral-500">
                         {template.category}
                       </span>
                     </div>
@@ -1880,7 +1904,7 @@ export function ReportBuilder({
                               setSelectedWidgetId(widget.id);
                               setSelectedSlot(widget.slot);
                         }}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-neutral-600 hover:bg-neutral-100"
+                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100"
                             title={tr("Edit widget", "Widget'i düzenle")}
                           >
                             {tr("Edit", "Düzenle")}
@@ -1891,7 +1915,7 @@ export function ReportBuilder({
                               event.stopPropagation();
                               duplicateWidget(widget.id);
                             }}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-neutral-600 hover:bg-neutral-100"
+                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100"
                             title={tr("Duplicate widget", "Widget'i kopyala")}
                           >
                             {tr("Copy", "Kopyala")}
@@ -1902,7 +1926,7 @@ export function ReportBuilder({
                               event.stopPropagation();
                               removeWidget(widget.id);
                             }}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50"
+                            className="rounded-full px-2 py-1 text-[12px] font-semibold text-red-600 hover:bg-red-50"
                             title={tr("Remove widget", "Widget'i kaldir")}
                           >
                             Del

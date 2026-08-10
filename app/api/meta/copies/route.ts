@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDb } from "@/lib/db";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { getDemoMetaCopies, getDemoProviderAccounts } from "@/lib/demo-business";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
@@ -411,6 +412,46 @@ function shouldAttemptCopiesRecovery(input: {
   return null;
 }
 
+
+/**
+ * When the warehouse rows behind this response were last written.
+ *
+ * The copies surface reads decision facts that a sync writes; how old they are
+ * is a property of that write, not of this request. `meta.generatedAt` records
+ * when the route ran, which is fresh by construction and would report the age
+ * of the request as the age of the data -- the substitution the freshness
+ * contract exists to remove.
+ *
+ * Returns null rather than a guess when nothing matched, so the surface says
+ * the age is unknown instead of implying currency it cannot support.
+ */
+async function readCopiesWarehouseObservedAt(input: {
+  businessId: string;
+  providerAccountId: string;
+  start: string;
+  end: string;
+}): Promise<string | null> {
+  try {
+    const sql = getDb();
+    const rows = await sql.query<{ observed_at: Date | string | null }>(
+      `SELECT MAX(updated_at) AS observed_at
+         FROM meta_ad_daily
+        WHERE business_id = $1
+          AND provider_account_id = $2
+          AND date BETWEEN $3::date AND $4::date`,
+      [input.businessId, input.providerAccountId, input.start, input.end],
+    );
+    const observedAt = rows[0]?.observed_at ?? null;
+    if (!observedAt) return null;
+    return observedAt instanceof Date
+      ? observedAt.toISOString()
+      : new Date(observedAt).toISOString();
+  } catch {
+    // An unreadable timestamp is an unknown age, never a fresh one.
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const businessId = params.get("businessId")?.trim() ?? "";
@@ -469,7 +510,16 @@ export async function GET(request: NextRequest) {
       meta: {
         ...demoPayload.meta,
         provider_account_id: accountScope.providerAccountId,
-        generatedAt: new Date().toISOString(),
+        // When the route ran. Kept for debugging; it is not the data's age.
+      generatedAt: new Date().toISOString(),
+      // When the rows themselves were last written by a sync. This is what the
+      // surface reports as its as-of.
+      warehouseObservedAt: await readCopiesWarehouseObservedAt({
+        businessId,
+        providerAccountId,
+        start,
+        end,
+      }),
       },
       ...buildMetaCreativesAccountScopeMetadata(accountScope),
     });

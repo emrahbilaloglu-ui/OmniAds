@@ -20,14 +20,14 @@ export function GeoScoreBreakdown({ breakdown, total, className }: ScoreBreakdow
       {Object.entries(breakdown).map(([key, value]) => (
         <span
           key={key}
-          className="inline-flex items-center gap-0.5 rounded bg-muted/70 px-1.5 py-0.5 text-[9px] text-muted-foreground"
+          className="inline-flex items-center gap-0.5 rounded bg-muted/70 px-1.5 py-0.5 text-[12px] text-muted-foreground"
           title={`${formatKey(key)}: ${value} pts`}
         >
           <span className="capitalize">{formatKey(key)}</span>
           <span className="font-semibold text-foreground/80">{value}</span>
         </span>
       ))}
-      <span className="inline-flex items-center rounded bg-foreground/10 px-1.5 py-0.5 text-[9px] font-semibold text-foreground/70">
+      <span className="inline-flex items-center rounded bg-foreground/10 px-1.5 py-0.5 text-[12px] font-semibold text-foreground/70">
         = {total}
       </span>
     </div>
@@ -151,7 +151,7 @@ export function QueryIntentBadge({ intent, format, confidence, isAiStyle, classN
       <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold capitalize", cls)}>
         {isAiStyle ? "✦ " : ""}{intent}
       </span>
-      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground capitalize">
+      <span className="rounded bg-muted px-1.5 py-0.5 text-[12px] text-muted-foreground capitalize">
         {format.replace(/_/g, "-")}
       </span>
       <span className={cn("h-1.5 w-1.5 rounded-full", confidenceDot)} title={`${confidence} confidence`} />

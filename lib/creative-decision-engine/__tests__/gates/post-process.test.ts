@@ -287,22 +287,37 @@ describe("applyPostProcess - missing recent data", () => {
 describe("applyPostProcess - cut candidate", () => {
   it("adds cut_candidate for low-ratio test_more decisions with enough spend", () => {
     const result = runPostProcess("test_more", {
-      input: { spend: 300 },
+      input: { spend: 300, roas: 1 },
       gate: { ratioToTarget: 0.5 },
     });
 
     expect(result.badges).toContainEqual({
       type: "cut_candidate",
       label:
-        "Cut candidate — ROAS 50% of target on $300 spend; consider manual cut or wait for hard threshold",
+        "Cut candidate — ROAS 50% of target on 300 account-currency spend; consider manual cut or wait for hard threshold",
       severity: "warning",
     });
     expect(result.confidenceDeltas).toEqual([]);
   });
 
+  it("uses the provider account ISO currency in cut-candidate copy", () => {
+    const result = runPostProcess("test_more", {
+      input: { spend: 300, roas: 1, accountCurrency: "gbp" },
+      gate: { ratioToTarget: 0.5 },
+    });
+
+    expect(result.badges).toContainEqual(
+      expect.objectContaining({
+        type: "cut_candidate",
+        label:
+          "Cut candidate — ROAS 50% of target on GBP 300 spend; consider manual cut or wait for hard threshold",
+      }),
+    );
+  });
+
   it("adds cut_candidate for low-ratio keep decisions with enough spend", () => {
     const result = runPostProcess("keep", {
-      input: { spend: 450 },
+      input: { spend: 450, roas: 1.2 },
       gate: { ratioToTarget: 0.59 },
     });
 
@@ -346,6 +361,61 @@ describe("applyPostProcess - cut candidate", () => {
     });
 
     expect(badgeTypes(result)).not.toContain("cut_candidate");
+  });
+
+  it("never suggests a Cut advisory at or above explicit break-even", () => {
+    const profile = makeGateContext().profile;
+    profile.spendUnitEvidence = {
+      ...profile.spendUnitEvidence,
+      targetRoas: 4,
+      breakEvenRoas: 1,
+    };
+    profile.thresholds = {
+      ...profile.thresholds,
+      bottomQuartileRatio: null,
+      cutCandidateSpend: 300,
+    };
+
+    const aboveBreakEven = runPostProcess("keep", {
+      input: { spend: 500, roas: 1.1 },
+      gate: { ratioToTarget: 1.1 / 4, profile },
+    });
+    const belowBreakEven = runPostProcess("keep", {
+      input: { spend: 500, roas: 0.9 },
+      gate: { ratioToTarget: 0.9 / 4, profile },
+    });
+
+    expect(badgeTypes(aboveBreakEven)).not.toContain("cut_candidate");
+    expect(badgeTypes(belowBreakEven)).toContain("cut_candidate");
+  });
+
+  it("never widens a non-Cut advisory badge with account-AOV thresholds", () => {
+    const profile = makeGateContext().profile;
+    profile.spendUnitEvidence = {
+      ...profile.spendUnitEvidence,
+      targetRoas: 4,
+      breakEvenRoas: 2,
+    };
+    profile.thresholds = {
+      ...profile.thresholds,
+      cutCandidateSpend: 300,
+    };
+    profile.commercialStopLossThresholds = {
+      ...profile.thresholds,
+      cutCandidateSpend: 50,
+    };
+
+    const aboveBreakEven = runPostProcess("keep", {
+      input: { spend: 100, roas: 2.2 },
+      gate: { ratioToTarget: 0.55, profile },
+    });
+    const belowBreakEven = runPostProcess("keep", {
+      input: { spend: 100, roas: 1.8 },
+      gate: { ratioToTarget: 0.45, profile },
+    });
+
+    expect(badgeTypes(aboveBreakEven)).not.toContain("cut_candidate");
+    expect(badgeTypes(belowBreakEven)).not.toContain("cut_candidate");
   });
 });
 
@@ -478,9 +548,7 @@ describe("finalizeDecision - stale hard-action authority", () => {
     expect(decision.label).toBe("cut");
     expect(decision.blockedActionType).toBe("cut");
     expect(decision.confidence).toBeLessThanOrEqual(65);
-    expect(decision.badges.some((b) => b.type === "stale_evidence")).toBe(
-      true,
-    );
+    expect(decision.badges.some((b) => b.type === "stale_evidence")).toBe(true);
     expect(
       decision.badges.some((b) => b.type === "stale_hard_ceiling_advisory"),
     ).toBe(true);

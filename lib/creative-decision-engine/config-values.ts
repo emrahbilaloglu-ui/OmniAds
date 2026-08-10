@@ -110,6 +110,7 @@ export const QUALITY_ONLY_COMPONENT_WEIGHTS = {
 
 export const RESPONSE_WINDOW_DAYS = 30;
 export const SAMPLE_WINDOW_DAYS = 90;
+export const NATIVE_AD_ACCOUNT_AOV_PURCHASE_SAMPLE_FLOOR = 20;
 
 export const ENGINE_PRESET_MULTIPLIERS: Record<
   EngineRiskPreset,

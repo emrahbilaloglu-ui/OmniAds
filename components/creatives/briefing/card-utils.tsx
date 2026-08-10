@@ -204,7 +204,7 @@ export function Thumb({
         bg,
         fg,
         size === "xs" ? "rounded-md" : "rounded-xl",
-        size === "xs" ? "w-7 h-7 text-[10px]" : "",
+        size === "xs" ? "w-7 h-7 text-[12px]" : "",
         "grid place-items-center font-semibold tracking-tight shrink-0 select-none",
         className,
       ]
@@ -221,7 +221,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "unlabeled_campaign_context") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800"
         title="Campaign label missing. Mark this campaign as Main, Test, or Mixed before hard actions."
       >
         <AlertTriangle
@@ -237,7 +237,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "scale_readiness_blocked") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[12px] font-medium text-blue-700"
         title="This is a scale-zone creative, but the engine withheld hard scale until all scale readiness gates are met."
       >
         <Target
@@ -253,7 +253,7 @@ export function BadgeChip({ label }: { label: DecisionLabel | string }) {
   if (label === "scale_calibration_thin") {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+        className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800"
         title="Hard scale is blocked because the account winner benchmark is missing or the calibration sample is too thin."
       >
         <Database
@@ -296,7 +296,7 @@ export function CampaignKindChip({
       : "Campaign label missing.";
     return (
       <span
-        className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+        className="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold text-amber-800"
         title={detail}
       >
         Unlabeled
@@ -324,7 +324,7 @@ export function CampaignKindChip({
 
   return (
     <span
-      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${tone}`}
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[12px] font-semibold ${tone}`}
       title={detail}
     >
       {label}
@@ -398,7 +398,7 @@ export function CtrBar({
 
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10.5px] text-neutral-500">CTR</span>
+      <span className="text-[12px] text-neutral-500">CTR</span>
       <div className="relative w-20 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
         <div
           className={`absolute inset-y-0 left-0 ${
@@ -412,13 +412,13 @@ export function CtrBar({
         />
       </div>
       <span
-        className={`font-mono tabular-nums text-[10.5px] font-medium ${
+        className={`font-mono tabular-nums text-[12px] font-medium ${
           hasCtr ? (isAbove ? "text-emerald-700" : "text-rose-700") : "text-neutral-500"
         }`}
       >
         {hasCtr ? `${ctr.toFixed(2)}%` : "—"}
       </span>
-      <span className="font-mono tabular-nums text-[10px] text-neutral-400">
+      <span className="font-mono tabular-nums text-[12px] text-neutral-400">
         P50 {hasP50 ? `${midpoint.toFixed(2)}%` : "—"}
       </span>
     </div>
@@ -428,7 +428,7 @@ export function CtrBar({
 export function FatigueDot({ active }: { active?: boolean | null }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10.5px] ${
+      className={`inline-flex items-center gap-1 text-[12px] ${
         active ? "text-amber-700" : "text-neutral-400"
       }`}
     >
@@ -547,7 +547,7 @@ export function SecondaryButton({
 function Kv({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
+      <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
         {label}
       </div>
       <div className="font-mono tabular-nums text-neutral-900 text-[12.5px] font-medium">
@@ -589,7 +589,7 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
 
   return (
     <div className="overflow-hidden rounded-md border border-neutral-200">
-      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-neutral-500">
+      <div className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-200 bg-neutral-50 px-2 py-1.5 text-[12px] font-semibold uppercase tracking-wider text-neutral-500">
         <span>Predicate</span>
         <span>Observed</span>
         <span>Threshold</span>
@@ -888,7 +888,7 @@ export function buildEvidenceSections(
       content: (
         <div className="grid grid-cols-2 gap-3 text-[12px]">
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Engine label
             </div>
             <div className="flex items-center gap-2">
@@ -897,14 +897,14 @@ export function buildEvidenceSections(
             </div>
           </div>
           <div>
-            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Recommended action
             </div>
             <div className="text-neutral-900 font-medium">{primaryLabel}</div>
           </div>
           {priority ? (
             <div className="col-span-2 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
-              <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold">
+              <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
                 Priority model
               </div>
               <div className="mt-0.5 text-neutral-700">
@@ -919,12 +919,12 @@ export function buildEvidenceSections(
             </div>
           ) : null}
           <div className="col-span-2">
-            <div className="text-[10.5px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
+            <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1">
               Reason
             </div>
             <div className="text-neutral-700 leading-snug">{reason}</div>
             {card.labelTransform ? (
-              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-800">
+              <div className="mt-1 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800">
                 <SkipForward
                   className="inline-block shrink-0"
                   size={11}

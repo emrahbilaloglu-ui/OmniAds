@@ -1,4 +1,9 @@
 import { getDb } from "@/lib/db";
+import {
+  attributeObservedChange,
+  describeChangeOrigin,
+  type RecordedAction,
+} from "@/lib/external-change-attribution";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
   encodeMetaHistoryCursor,
@@ -768,6 +773,344 @@ history_entries AS (
   WHERE adset.business_id = $1
     AND adset.provider_account_id = $2
     AND UPPER(COALESCE(adset.adset_status, '')) IN ('PAUSED', 'ARCHIVED', 'DELETED')
+
+  UNION ALL
+
+  -- Campaign configuration observed to change. Whether it was this product or
+  -- somebody in Ads Manager is decided in mapHistoryRow by correlating against
+  -- the action log, not guessed at here: the SQL only reports what changed and
+  -- when, and carries the previous value so the reader can see the movement.
+  SELECT
+    'meta_campaign_config_history',
+    config.id::text,
+    'persisted_uuid',
+    'external_changes',
+    config.captured_at,
+    config.captured_at::date,
+    'Campaign configuration changed | '
+      || COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical, config.campaign_id),
+    NULL,
+    'campaign',
+    config.campaign_id,
+    COALESCE(campaign.campaign_name_current, campaign.campaign_name_historical),
+    NULL,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_config_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'configFingerprint', config.config_fingerprint,
+      'dailyBudget', config.daily_budget,
+      'lifetimeBudget', config.lifetime_budget,
+      'bidStrategyType', config.bid_strategy_type,
+      'bidValue', config.bid_value,
+      'optimizationGoal', config.optimization_goal,
+      'previousDailyBudget', previous.daily_budget,
+      'previousLifetimeBudget', previous.lifetime_budget,
+      'previousBidValue', previous.bid_value,
+      'previousBidStrategyType', previous.bid_strategy_type,
+      'previousOptimizationGoal', previous.optimization_goal,
+      'observedAt', config.captured_at
+    )
+  FROM meta_campaign_config_history config
+  LEFT JOIN LATERAL (
+    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
+           prior.bid_strategy_type, prior.optimization_goal
+    FROM meta_campaign_config_history prior
+    WHERE prior.business_id = config.business_id
+      AND prior.provider_account_id = config.provider_account_id
+      AND prior.campaign_id = config.campaign_id
+      AND prior.captured_at < config.captured_at
+    ORDER BY prior.captured_at DESC
+    LIMIT 1
+  ) previous ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT dimension.campaign_name_current, dimension.campaign_name_historical
+    FROM meta_campaign_dimensions dimension
+    WHERE dimension.business_id = config.business_id
+      AND dimension.provider_account_id = config.provider_account_id
+      AND dimension.campaign_id = config.campaign_id
+    ORDER BY dimension.updated_at DESC
+    LIMIT 1
+  ) campaign ON TRUE
+  WHERE config.business_id = $1
+    AND config.provider_account_id = $2
+    -- Only rows that represent a change; the first snapshot of a campaign is
+    -- not something anyone did.
+    --
+    -- Gated on daily_budget alone, this reported nothing at all on an
+    -- ABO account: budget lives on the ad set there, so the campaign's
+    -- daily_budget is null in every row and null IS NOT DISTINCT FROM null.
+    -- A bid-strategy or optimization-goal change is just as much an edit, and
+    -- was equally invisible on every account.
+    AND (
+      previous.daily_budget IS DISTINCT FROM config.daily_budget
+      OR previous.lifetime_budget IS DISTINCT FROM config.lifetime_budget
+      OR previous.bid_value IS DISTINCT FROM config.bid_value
+      OR previous.bid_strategy_type IS DISTINCT FROM config.bid_strategy_type
+      OR previous.optimization_goal IS DISTINCT FROM config.optimization_goal
+    )
+
+  UNION ALL
+
+  -- Ad-set configuration. The same shape as the campaign branch above, and it
+  -- was missing for the same reason it exists: an operator who changes an
+  -- ad-set budget or bid in Ads Manager has changed what the engine is
+  -- reasoning about, and History showed nothing. Budget lives at the campaign
+  -- level for some accounts and the ad-set level for others, so projecting only
+  -- campaigns made half the accounts look like nobody ever touched them.
+  SELECT
+    'meta_adset_config_history',
+    adset_config.id::text,
+    'persisted_uuid',
+    'external_changes',
+    adset_config.captured_at,
+    adset_config.captured_at::date,
+    'Ad set configuration changed | '
+      || COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical, adset_config.adset_id),
+    NULL,
+    'adset',
+    adset_config.adset_id,
+    COALESCE(adset_dim.adset_name_current, adset_dim.adset_name_historical),
+    NULL,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_config_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'configFingerprint', adset_config.config_fingerprint,
+      'campaignId', adset_config.campaign_id,
+      'dailyBudget', adset_config.daily_budget,
+      'lifetimeBudget', adset_config.lifetime_budget,
+      'bidStrategyType', adset_config.bid_strategy_type,
+      'bidValue', adset_config.bid_value,
+      'optimizationGoal', adset_config.optimization_goal,
+      'previousDailyBudget', adset_previous.daily_budget,
+      'previousBidValue', adset_previous.bid_value,
+      'previousBidStrategyType', adset_previous.bid_strategy_type,
+      'previousOptimizationGoal', adset_previous.optimization_goal,
+      'observedAt', adset_config.captured_at
+    )
+  FROM meta_adset_config_history adset_config
+  LEFT JOIN LATERAL (
+    SELECT prior.daily_budget, prior.lifetime_budget, prior.bid_value,
+           prior.bid_strategy_type, prior.optimization_goal
+    FROM meta_adset_config_history prior
+    WHERE prior.business_id = adset_config.business_id
+      AND prior.provider_account_id = adset_config.provider_account_id
+      AND prior.adset_id = adset_config.adset_id
+      AND prior.captured_at < adset_config.captured_at
+    ORDER BY prior.captured_at DESC
+    LIMIT 1
+  ) adset_previous ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT dimension.adset_name_current, dimension.adset_name_historical
+    FROM meta_adset_dimensions dimension
+    WHERE dimension.business_id = adset_config.business_id
+      AND dimension.provider_account_id = adset_config.provider_account_id
+      AND dimension.adset_id = adset_config.adset_id
+    ORDER BY dimension.updated_at DESC
+    LIMIT 1
+  ) adset_dim ON TRUE
+  WHERE adset_config.business_id = $1
+    AND adset_config.provider_account_id = $2
+    -- Only rows representing a change. The first snapshot of an ad set is not
+    -- something anyone did. Budget, bid and optimization goal are each a
+    -- separate way to change what the engine reasons about, so any of them
+    -- moving qualifies.
+    AND (
+      adset_previous.daily_budget IS DISTINCT FROM adset_config.daily_budget
+      OR adset_previous.lifetime_budget IS DISTINCT FROM adset_config.lifetime_budget
+      OR adset_previous.bid_value IS DISTINCT FROM adset_config.bid_value
+      OR adset_previous.bid_strategy_type IS DISTINCT FROM adset_config.bid_strategy_type
+      OR adset_previous.optimization_goal IS DISTINCT FROM adset_config.optimization_goal
+    )
+
+  UNION ALL
+
+  -- Status transitions at every level: campaign, ad set, ad and creative.
+  --
+  -- This is the source that made "ad and creative changes are not projected"
+  -- true. Someone pausing an ad in Ads Manager is the single most common
+  -- external change there is, and it was invisible here while a campaign
+  -- budget edit was not.
+  --
+  -- Only a genuine transition is reported: meta_entity_state_history records
+  -- an observation per run, so without the previous-state join this would
+  -- report an unchanged ad every time the syncer looked at it.
+  SELECT
+    'meta_entity_state_history',
+    entity_state.id::text,
+    'persisted_uuid',
+    'external_changes',
+    entity_state.observed_at,
+    entity_state.observed_at::date,
+    CASE entity_state.entity_type
+      WHEN 'campaign' THEN 'Campaign status changed | '
+      WHEN 'adset' THEN 'Ad set status changed | '
+      WHEN 'ad' THEN 'Ad status changed | '
+      WHEN 'creative' THEN 'Creative status changed | '
+      -- The column is CHECK-constrained to those four, so there is no fifth
+      -- case; naming them all keeps the label honest if one is ever added.
+      ELSE 'Entity status changed | '
+    END || COALESCE(entity_state.entity_name, entity_state.entity_id),
+    NULL,
+    entity_state.entity_type,
+    entity_state.entity_id,
+    entity_state.entity_name,
+    entity_state.configured_status,
+    'observed',
+    NULL,
+    NULL,
+    'not_applicable',
+    'direct_provider_account_id',
+    'provider_state_history',
+    'unavailable',
+    NULL,
+    'Origin is attributed from the action log when this row is presented.',
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'campaignId', entity_state.campaign_id,
+      'adsetId', entity_state.adset_id,
+      'adId', entity_state.ad_id,
+      'creativeId', entity_state.creative_id,
+      'configuredStatus', entity_state.configured_status,
+      'effectiveStatus', entity_state.effective_status,
+      'previousConfiguredStatus', entity_previous.configured_status,
+      'previousEffectiveStatus', entity_previous.effective_status,
+      'reviewStatus', entity_state.review_status,
+      'policyStatus', entity_state.policy_status,
+      'presence', entity_state.presence,
+      'observedAt', entity_state.observed_at
+    )
+  FROM meta_entity_state_history entity_state
+  LEFT JOIN LATERAL (
+    SELECT prior.configured_status, prior.effective_status
+    FROM meta_entity_state_history prior
+    WHERE prior.business_id = entity_state.business_id
+      AND prior.provider_account_id = entity_state.provider_account_id
+      AND prior.entity_type = entity_state.entity_type
+      AND prior.entity_id = entity_state.entity_id
+      AND prior.observed_at < entity_state.observed_at
+    ORDER BY prior.observed_at DESC
+    LIMIT 1
+  ) entity_previous ON TRUE
+  WHERE entity_state.business_id = $1
+    AND entity_state.provider_account_id = $2
+    -- A first observation is not a change, and an unchanged re-observation is
+    -- not either. Both would turn the syncer's own cadence into activity.
+    AND entity_previous.configured_status IS NOT NULL
+    AND entity_previous.configured_status IS DISTINCT FROM entity_state.configured_status
+
+  UNION ALL
+
+  -- Workflow ownership. Who claimed, deferred or disagreed with a decision is
+  -- part of what happened to it; without this History showed the engine's
+  -- verdict and nothing about the people acting on it.
+  SELECT
+    'decision_workflow_events',
+    workflow.id::text,
+    'persisted_uuid',
+    'decisions',
+    workflow.created_at,
+    workflow.created_at::date,
+    'Workflow ' || REPLACE(workflow.event, '_', ' '),
+    NULLIF(workflow.reason_code, ''),
+    'decision',
+    workflow.decision_key,
+    NULL,
+    workflow.to_state,
+    'recorded',
+    NULL,
+    NULL,
+    'not_applicable',
+    'decision_key',
+    'operator_workflow',
+    'unavailable',
+    NULL,
+    'Workflow state is owned by the operator, not by the engine.',
+    workflow.created_at::date::text,
+    NULL,
+    jsonb_build_object(
+      'event', workflow.event,
+      'fromState', workflow.from_state,
+      'toState', workflow.to_state,
+      'stateVersion', workflow.state_version
+    )
+  FROM decision_workflow_events workflow
+  WHERE workflow.business_id = $1
+
+  UNION ALL
+
+  -- The provider attempt journal. An operator reviewing an incident needs to
+  -- see that a write was attempted, what the provider said, and whether the
+  -- outcome was ambiguous -- not just that a decision existed.
+  SELECT
+    'meta_ads_action_mutation_attempt_events',
+    attempt.id::text,
+    'persisted_uuid',
+    'actions',
+    attempt.created_at,
+    attempt.created_at::date,
+    CASE attempt.event_kind
+      WHEN 'attempt_started' THEN 'Provider write attempted'
+      ELSE 'Provider write ' || COALESCE(
+        REPLACE(attempt.completion_outcome, '_', ' '),
+        'completed'
+      )
+    END,
+    NULL,
+    'ad',
+    attempt.ad_id,
+    NULL,
+    attempt.action,
+    CASE
+      WHEN attempt.event_kind = 'attempt_started' THEN 'pending'
+      WHEN attempt.completion_outcome = 'provider_response_verified_success'
+        THEN 'recorded'
+      ELSE 'failed'
+    END,
+    NULL,
+    NULL,
+    'not_applicable',
+    'exact_ad_key',
+    'provider_attempt',
+    'unavailable',
+    NULL,
+    'Attempt lineage is append-only and never rewritten.',
+    attempt.created_at::date::text,
+    NULL,
+    jsonb_build_object(
+      'eventKind', attempt.event_kind,
+      'completionOutcome', attempt.completion_outcome,
+      'providerOutcome', attempt.provider_outcome,
+      'httpStatus', attempt.http_status,
+      'creativeId', attempt.creative_id,
+      'campaignId', attempt.campaign_id,
+      'adsetId', attempt.adset_id
+    )
+  FROM meta_ads_action_mutation_attempt_events attempt
+  -- business_id is UUID on this table, and $1 is already pinned to text by the
+  -- earlier branches of this UNION. Without the cast Postgres refuses the whole
+  -- query with "operator does not exist: uuid = text", which took the entire
+  -- History surface down -- every source, not just this one.
+  WHERE attempt.business_id::text = $1
+    AND attempt.provider_account_id = $2
 ),
 filtered_entries AS (
   SELECT *
@@ -1014,6 +1357,7 @@ function normalizeStatus(value: string | null): MetaHistoryEntryStatus {
 function mapHistoryRow(
   row: MetaHistoryDbRow,
   currency: string | null,
+  recordedActions: RecordedAction[] = [],
 ): MetaHistoryEntry | null {
   if (
     !META_HISTORY_SOURCES.includes(row.source_key as MetaHistorySource) ||
@@ -1027,6 +1371,27 @@ function mapHistoryRow(
 
   const source = row.source_key as MetaHistorySource;
   const detail = asRecord(row.detail_json);
+
+  // Origin for an observed configuration change is decided here rather than in
+  // SQL, so the single tested correlation is the only implementation.
+  if (source === "meta_campaign_config_history" && detail) {
+    const attributed = attributeObservedChange(
+      {
+        entityType: "campaign",
+        entityId: row.entity_id,
+        businessId: "",
+        field: "daily_budget",
+        previousValue:
+          detail.previousDailyBudget == null ? null : String(detail.previousDailyBudget),
+        nextValue: detail.dailyBudget == null ? null : String(detail.dailyBudget),
+        observedAt: occurredAt,
+      },
+      recordedActions,
+    );
+    detail.origin = attributed.origin;
+    detail.originLabel = describeChangeOrigin(attributed.origin);
+    detail.originReason = attributed.reason;
+  }
   const sourceIdKind: MetaHistorySourceIdKind =
     row.source_id_kind === "persisted_composite_key"
       ? "persisted_composite_key"
@@ -1102,6 +1467,64 @@ export async function readMetaHistoryAccounts(
   }));
 }
 
+/**
+ * Recent provider actions this product recorded, shaped for attribution.
+ *
+ * Verification status matters more than success here: an action we never
+ * verified cannot be claimed as the cause of an observed change.
+ */
+async function readRecordedActionsForAttribution(input: {
+  businessId: string;
+}): Promise<RecordedAction[]> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["meta_ads_action_log"],
+  }).catch(() => null);
+  if (!readiness?.ready) return [];
+  const rows = (await getDb().query<{
+    entity_id: string;
+    requested_at: string;
+    status: string;
+    verified_at: string | null;
+    requested_by: string | null;
+  }>(
+    `
+      SELECT ad_id AS entity_id,
+             requested_at::text,
+             status,
+             verified_at::text,
+             requested_by::text
+      FROM meta_ads_action_log
+      WHERE business_id::text = $1
+      ORDER BY requested_at DESC
+      LIMIT 500
+    `,
+    [input.businessId],
+  )) as
+    | Array<{
+        entity_id: string;
+        requested_at: string;
+        status: string;
+        verified_at: string | null;
+        requested_by: string | null;
+      }>
+    | undefined;
+
+  return (rows ?? []).map((row) => ({
+    entityId: row.entity_id,
+    field: "daily_budget",
+    requestedAt: row.requested_at,
+    status:
+      row.status === "success" && row.verified_at
+        ? "verified"
+        : row.status === "failed"
+          ? "failed"
+          : row.status === "ambiguous"
+            ? "ambiguous"
+            : "pending",
+    actorUserId: row.requested_by,
+  }));
+}
+
 export async function readMetaHistoryJournal(input: {
   query: MetaHistoryQuery;
   account: MetaHistoryAccount;
@@ -1140,8 +1563,17 @@ export async function readMetaHistoryJournal(input: {
 
   const hasMore = sqlRows.length > input.query.limit;
   const visibleRows = sqlRows.slice(0, input.query.limit);
+  // Actions this product recorded, so an observed change can be attributed to
+  // us, to somebody else, or to neither with honesty about which. Only read
+  // when the page actually contains an observed change to attribute.
+  const needsAttribution = visibleRows.some(
+    (row) => row.source_key === "meta_campaign_config_history",
+  );
+  const recordedActions = needsAttribution
+    ? await readRecordedActionsForAttribution({ businessId: input.query.businessId })
+    : [];
   const entries = visibleRows
-    .map((row) => mapHistoryRow(row, input.account.currency))
+    .map((row) => mapHistoryRow(row, input.account.currency, recordedActions))
     .filter((entry): entry is MetaHistoryEntry => entry !== null);
   const lastRow = hasMore ? visibleRows.at(-1) : null;
   const lastOccurredAt = lastRow ? normalizedDateTime(lastRow.occurred_at) : null;

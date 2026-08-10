@@ -126,7 +126,7 @@ const columns: ColumnDef<AiSource>[] = [
     render: (r) =>
       r.recommendation ? (
         <span
-          className="rounded bg-muted px-1.5 py-0.5 text-[10px] block truncate max-w-[160px]"
+          className="rounded bg-muted px-1.5 py-0.5 text-[12px] block truncate max-w-[160px]"
           title={r.recommendation}
         >
           {r.recommendation}

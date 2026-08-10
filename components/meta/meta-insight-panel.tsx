@@ -149,7 +149,7 @@ function RecommendationCard({
                 key={`${recommendation.id}-${item.label}`}
                 className="rounded-lg border bg-background px-2.5 py-1.5"
               >
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {item.label}
                 </p>
                 <p className="text-xs font-semibold">{item.value}</p>
@@ -160,22 +160,22 @@ function RecommendationCard({
 
         {/* ── Meta badges ────────────────────────────────────────────── */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
+          <span className={`rounded-full px-2 py-1 text-[12px] font-medium uppercase tracking-wide ${badgeTone(recommendation.lens)}`}>
             {lensLabel}
           </span>
-          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
             {confidenceLabel} {t.confidenceSuffix}
           </span>
-          <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
             {priorityLabel} {t.prioritySuffix}
           </span>
           {recommendation.comparisonCohort ? (
-            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
               {t.comparedWithin} {recommendation.comparisonCohort}
             </span>
           ) : null}
           {recommendation.historicalRegime ? (
-            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
               {t.historicalRegimePrefix} {recommendation.historicalRegime}
             </span>
           ) : null}
@@ -209,7 +209,7 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.defensiveBidBand ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.defensiveBidBand}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.defensiveBidBand}</p>
@@ -217,7 +217,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.scaleBidBand ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.scaleBidBand}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.scaleBidBand}</p>
@@ -225,7 +225,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.requiresRebuild ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.rebuild}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.rebuildReason ?? t.recommended}</p>
@@ -239,12 +239,12 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.promoteCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.promoteToScaling}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.promoteCreatives.join(", ")}</p>
                     {recommendation.targetScalingLane ? (
-                      <p className="mt-1 text-[10px] text-muted-foreground">
+                      <p className="mt-1 text-[12px] text-muted-foreground">
                         {t.targetLane}: {recommendation.targetScalingLane}
                       </p>
                     ) : null}
@@ -252,7 +252,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.keepTestingCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepInTest}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.keepTestingCreatives.join(", ")}</p>
@@ -260,7 +260,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.doNotDeployCreatives?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepOutOfScaling}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.doNotDeployCreatives.join(", ")}</p>
@@ -274,7 +274,7 @@ function RecommendationCard({
               <div className="grid gap-2 md:grid-cols-3">
                 {recommendation.scalingGeoCluster?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.scalingGeoCluster}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.scalingGeoCluster.join(", ")}</p>
@@ -282,7 +282,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.testingGeoCluster?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.testGeoCluster}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.testingGeoCluster.join(", ")}</p>
@@ -290,7 +290,7 @@ function RecommendationCard({
                 ) : null}
                 {recommendation.matureGeoSplit?.length ? (
                   <div className="rounded-lg border bg-background px-3 py-2">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                       {t.keepSeparate}
                     </p>
                     <p className="mt-1 text-sm font-medium">{recommendation.matureGeoSplit.join(", ")}</p>
@@ -301,18 +301,18 @@ function RecommendationCard({
 
             {/* Decision model / timeframe context */}
             <div className="rounded-lg border border-dashed px-3 py-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
+              <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.decisionModel}</p>
               <div className="mt-2 space-y-2">
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
+                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.coreVerdict}</p>
                   <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.coreVerdict}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
+                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.selectedRangeNote}</p>
                   <p className="mt-1 text-xs text-foreground">{recommendation.timeframeContext.selectedRangeOverlay}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
+                  <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">{t.historicalSupport}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{recommendation.timeframeContext.historicalSupport}</p>
                 </div>
               </div>
@@ -434,7 +434,7 @@ export function MetaInsightPanel({
             </p>
           </div>
         </div>
-        <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
           <TestTube2 className="mr-1 inline h-3.5 w-3.5" />
           {t.conservativeRules}
         </div>
@@ -450,7 +450,7 @@ export function MetaInsightPanel({
           <div className="mt-3 grid gap-2 md:grid-cols-3">
             {data.summary.operatingMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.operatingMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.operatingMode}</p>
@@ -458,7 +458,7 @@ export function MetaInsightPanel({
             ) : null}
             {data.summary.currentRegime ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.currentRegime}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.currentRegime}</p>
@@ -466,7 +466,7 @@ export function MetaInsightPanel({
             ) : null}
             {data.summary.recommendedMode ? (
               <div className="rounded-lg border bg-background px-3 py-2">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t.recommendedMode}
                 </p>
                 <p className="mt-1 text-sm font-medium">{data.summary.recommendedMode}</p>
@@ -484,7 +484,7 @@ export function MetaInsightPanel({
                 <p className="text-sm font-semibold">{group.title}</p>
                 <p className="text-xs text-muted-foreground">{group.description}</p>
               </div>
-              <div className="rounded-full bg-muted px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-full bg-muted px-2 py-1 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                 {group.recommendations.length} {group.recommendations.length > 1 ? t.cards : t.card}
               </div>
             </div>

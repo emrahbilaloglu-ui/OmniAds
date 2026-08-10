@@ -66,7 +66,11 @@ export function FreshnessChip({
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60"
+          // A bare text link measured 43x17 on a phone. Underlined text is the
+          // right visual weight here -- it should not become a button -- so the
+          // target is grown with padding and a min-height rather than by making
+          // the label bigger, which would shout over the reading it sits beside.
+          className="inline-flex min-h-[24px] items-center px-1 font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60"
         >
           {refreshing ? "Refreshing" : "Refresh"}
         </button>

@@ -265,7 +265,7 @@ function SoonPlatformEmpty({
       <div className="flex justify-center mb-1.5">
         <PlatformLogo platformId={platformId} size={22} />
       </div>
-      <div className="text-[11.5px] font-medium text-neutral-700">
+      <div className="text-[12px] font-medium text-neutral-700">
         {platform.name} not live yet
       </div>
       <div className="text-[12px] text-neutral-500 mt-0.5">

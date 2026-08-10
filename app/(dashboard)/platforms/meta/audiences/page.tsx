@@ -108,7 +108,7 @@ export default function MetaAudiencesPage() {
                     <strong className="text-[12.5px] font-semibold text-[var(--ink)]">
                       {item.contract}
                     </strong>
-                    <span className="shrink-0 text-[11.5px] font-medium text-[var(--warn)]">
+                    <span className="shrink-0 text-[12px] font-medium text-[var(--warn)]">
                       {item.status}
                     </span>
                   </div>

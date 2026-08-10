@@ -147,7 +147,7 @@ function CtTooltip({ content }: { content: string }) {
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2 text-[11.5px] font-medium leading-snug text-[var(--adc-ink2)] shadow-lg group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-72 -translate-x-1/2 rounded-lg border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-3 py-2 text-[12px] font-medium leading-snug text-[var(--adc-ink2)] shadow-lg group-hover:block group-focus-within:block"
       >
         {content}
       </span>
@@ -176,7 +176,7 @@ function CtField({
       </div>
       {children}
       {helper && (
-        <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
+        <p className="text-[12px] leading-snug text-[var(--adc-ink3)]">
           {helper}
         </p>
       )}
@@ -351,7 +351,7 @@ function CtStatCard({
         {value}
       </p>
       <p
-        className={`text-[11.5px] leading-snug ${
+        className={`text-[12px] leading-snug ${
           dominant ? "text-[var(--adc-s2)]/65" : "text-[var(--adc-ink3)]"
         }`}
       >
@@ -635,7 +635,7 @@ export function DecisionCoverageSection({
                 <p className="truncate text-[12.5px] font-semibold text-[var(--adc-ink)]">
                   {r.label}
                 </p>
-                <p className="truncate text-[11.5px] text-[var(--adc-ink3)]">
+                <p className="truncate text-[12px] text-[var(--adc-ink3)]">
                   {r.detail}
                 </p>
               </div>
@@ -1288,7 +1288,7 @@ export function TargetRoasSection({
                 ? `${breakEven.toFixed(2)}x`
                 : "—"}
             </p>
-            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+            <p className="text-[12px] text-[var(--adc-ink3)]">
               Derived from your cost structure
             </p>
           </div>
@@ -1308,7 +1308,7 @@ export function TargetRoasSection({
               disabled={disabled || costStructureActive}
               testId="commercial-break-even-roas"
             />
-            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+            <p className="text-[12px] text-[var(--adc-ink3)]">
               {costStructureActive
                 ? "Cost structure is filled, so derived break-even will be saved."
                 : "Override if cost inputs are unavailable."}
@@ -1327,7 +1327,7 @@ export function TargetRoasSection({
               disabled={disabled}
               testId="commercial-target-cpa"
             />
-            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+            <p className="text-[12px] text-[var(--adc-ink3)]">
               Maximum desired acquisition cost.
             </p>
           </div>
@@ -1344,7 +1344,7 @@ export function TargetRoasSection({
               disabled={disabled}
               testId="commercial-break-even-cpa"
             />
-            <p className="text-[11.5px] text-[var(--adc-ink3)]">
+            <p className="text-[12px] text-[var(--adc-ink3)]">
               Highest acquisition cost before contribution turns negative.
             </p>
           </div>
@@ -1370,7 +1370,7 @@ export function TargetRoasSection({
                 : "Decision authority unavailable"}
           </p>
           <p
-            className="text-[11.5px] leading-snug text-[var(--adc-ink2)]"
+            className="text-[12px] leading-snug text-[var(--adc-ink2)]"
             data-testid="commercial-target-pack-updated-at"
           >
             Last updated or confirmed:{" "}
@@ -1387,13 +1387,13 @@ export function TargetRoasSection({
             </p>
           ) : null}
           {freshness?.reason ? (
-            <p className="text-[11.5px] leading-snug text-[var(--adc-ink3)]">
+            <p className="text-[12px] leading-snug text-[var(--adc-ink3)]">
               {freshness.reason}
             </p>
           ) : null}
           {reconfirmDisabledReason ? (
             <p
-              className="text-[11.5px] leading-snug text-[var(--adc-ink3)]"
+              className="text-[12px] leading-snug text-[var(--adc-ink3)]"
               data-testid="commercial-target-pack-reconfirm-disabled-reason"
             >
               {reconfirmDisabledReason}

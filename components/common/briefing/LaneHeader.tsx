@@ -62,7 +62,7 @@ export function LaneHeader({
         <span className="font-mono tabular-nums text-[11px] text-neutral-500 px-1.5 py-0.5 bg-neutral-50 border border-neutral-200 rounded-md">
           {count}
         </span>
-        {subtitle ? <span className="text-[11.5px] text-neutral-500">{subtitle}</span> : null}
+        {subtitle ? <span className="text-[12px] text-neutral-500">{subtitle}</span> : null}
         <button
           type="button"
           className="ml-auto text-[11px] text-neutral-500 hover:text-neutral-900 inline-flex items-center gap-1"

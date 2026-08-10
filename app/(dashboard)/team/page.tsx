@@ -343,7 +343,7 @@ export default function TeamPage() {
                     <button
                       type="button"
                       onClick={() => openWsModal(member)}
-                      className="inline-flex items-center gap-1 text-[11.5px] text-[var(--adc-ink3)] hover:text-[var(--adc-ink)]"
+                      className="inline-flex items-center gap-1 text-[12px] text-[var(--adc-ink3)] hover:text-[var(--adc-ink)]"
                     >
                       <Settings className="h-3 w-3" />
                       Manage workspaces

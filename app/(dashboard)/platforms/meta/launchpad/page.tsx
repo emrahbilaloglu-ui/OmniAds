@@ -1727,7 +1727,7 @@ export default function MetaLaunchpadPage() {
                     <span className="chip chip--info">
                       Provider write receipt
                     </span>
-                    <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
+                    <p className="text-[12px] leading-relaxed text-[var(--muted)]">
                       Result state comes from the completed route response. No
                       simulated progress is shown.
                     </p>
@@ -2694,7 +2694,7 @@ function LaunchpadSourceStep({
         </LaunchpadLibraryCard>
       </div>
 
-      <p className="text-[11.5px] leading-relaxed text-[var(--muted)]">
+      <p className="text-[12px] leading-relaxed text-[var(--muted)]">
         Launchpad currently supports Sales campaigns only. Create paths land
         PAUSED. Activation inside Adsecute is Proposed/contract required and no
         current one-click ACTIVE action is rendered.

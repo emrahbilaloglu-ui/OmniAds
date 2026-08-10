@@ -65,7 +65,7 @@
   border-bottom: 1px solid var(--adc-caution-bd, #e8d5a6);
   background: var(--adc-caution-bg, #faf2df);
   color: var(--adc-caution-fg, #86590a);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .contextNotice {
@@ -132,7 +132,7 @@
   background: var(--adc-s2, #fff);
   padding: 0 28px 0 9px;
   color: var(--adc-ink2, #4a4f56);
-  font-size: 11.5px;
+  font-size: 12px;
   outline: 0;
 }
 
@@ -179,7 +179,7 @@
   padding: 5px 12px;
   border-bottom: 1px solid var(--adc-b1, #e4e4e0);
   color: var(--adc-ink3, #7d838c);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .selectAll {
@@ -215,7 +215,7 @@
   background: var(--adc-s2, #fff);
   padding: 0 9px;
   color: var(--adc-ink2, #4a4f56);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -255,7 +255,7 @@
   border-top: 1px solid var(--adc-b1, #e4e4e0);
   padding: 7px 12px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .galleryPager > div {
@@ -489,7 +489,7 @@
 
 .emptyState span {
   max-width: 460px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .analysisPanel {
@@ -605,7 +605,7 @@
 .fatigueRow strong {
   overflow: hidden;
   color: var(--adc-ink, #1a1c1f);
-  font-size: 11.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -652,7 +652,7 @@
   background: var(--adc-s1, #f5f5f3);
   padding: 11px 12px;
   color: var(--adc-ink3, #7d838c);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -736,7 +736,7 @@
   gap: 10px;
   padding: 9px 10px;
   background: var(--adc-s1, #f5f5f3);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .fatigueGroupHeader span {
@@ -791,7 +791,7 @@
 .briefIdentity strong {
   overflow: hidden;
   color: var(--adc-ink, #1a1c1f);
-  font-size: 11.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -178,8 +178,8 @@ export function MetaHealthyRow({
           />
         ) : null}
       </div>
-      <div className="font-mono tabular-nums text-[11.5px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
-      <div className="font-mono tabular-nums text-[11.5px] text-emerald-700">{formatRoas(row.roas)}</div>
+      <div className="font-mono tabular-nums text-[12px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
+      <div className="font-mono tabular-nums text-[12px] text-emerald-700">{formatRoas(row.roas)}</div>
     </div>
   );
 }

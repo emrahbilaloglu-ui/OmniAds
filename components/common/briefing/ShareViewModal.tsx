@@ -123,7 +123,7 @@ export function ShareViewModal({
             <h2 className="text-[14px] font-bold tracking-tight text-neutral-900">
               Share view
             </h2>
-            <div className="text-[11.5px] text-neutral-500">
+            <div className="text-[12px] text-neutral-500">
               preset · {presetLabel} · {itemCount} creatives
             </div>
           </div>
@@ -235,7 +235,7 @@ export function ShareViewModal({
                 type="text"
                 value={url}
                 readOnly
-                className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[11.5px] text-neutral-700 focus:outline-none"
+                className="flex-1 bg-neutral-50 px-3 py-1.5 font-mono text-[12px] text-neutral-700 focus:outline-none"
                 aria-label="Share URL"
               />
               <button

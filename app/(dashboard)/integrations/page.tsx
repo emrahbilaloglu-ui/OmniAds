@@ -1033,7 +1033,7 @@ function SummaryTile({
         </span>
         <ArrowRight className="mb-0.5 h-3.5 w-3.5 text-current opacity-60" />
       </div>
-      <p className="mt-1 text-[11.5px] leading-5 text-current">{note}</p>
+      <p className="mt-1 text-[12px] leading-5 text-current">{note}</p>
     </div>
   );
 }

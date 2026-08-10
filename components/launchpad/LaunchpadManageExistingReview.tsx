@@ -121,7 +121,7 @@ export function LaunchpadManageExistingReview({
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-[var(--surface)] px-4 py-3">
-      <p className="text-[11.5px] text-[var(--muted)]">{label}</p>
+      <p className="text-[12px] text-[var(--muted)]">{label}</p>
       <p className="mt-1 text-[24px] font-[650] leading-none tabular-nums text-[var(--ink)]">{value}</p>
     </div>
   );

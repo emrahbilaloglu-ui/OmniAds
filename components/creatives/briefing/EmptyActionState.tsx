@@ -38,15 +38,15 @@ export function EmptyActionState({
             {matureCount} mature creatives · {watchingCount} watching · Data is loaded in the lanes below
           </div>
           <div className="flex items-center gap-2 flex-wrap mt-3">
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-white text-emerald-700 text-[11.5px] font-medium">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-white text-emerald-700 text-[12px] font-medium">
               <ShieldCheck className="inline-block shrink-0" size={12} aria-hidden="true" />
               Triage clear
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[11.5px]">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[12px]">
               <Eye className="inline-block shrink-0" size={12} aria-hidden="true" />
               {watchingCount > 0 ? "Expand Watching below" : "No watching cases"}
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[11.5px]">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-200 bg-white text-neutral-600 text-[12px]">
               <Clock className="inline-block shrink-0" size={12} aria-hidden="true" />
               Next engine pass: ~2h
             </span>

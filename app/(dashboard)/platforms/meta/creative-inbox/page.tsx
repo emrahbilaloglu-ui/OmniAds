@@ -358,7 +358,7 @@ export default function MetaCreativeInboxPage() {
         </div>
       )}
       {scoped.missingAccountCount > 0 ? (
-        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+        <div className="rounded-[var(--r)] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
           {scoped.missingAccountCount} {scoped.missingAccountCount === 1 ? "item was" : "items were"} withheld because provider account identity is missing.
         </div>
       ) : null}

@@ -482,7 +482,7 @@ function AttributionField({
           })}
         </div>
       ) : null}
-      <div className="mt-3 rounded-[6px] bg-[var(--surface-2)] p-2 text-[11.5px] text-[var(--ink-2)]">
+      <div className="mt-3 rounded-[6px] bg-[var(--surface-2)] p-2 text-[12px] text-[var(--ink-2)]">
         <span className="font-medium">attribution_spec preview: </span>
         <code className="mono text-[var(--muted)]">{JSON.stringify(adSet.attributionSpec)}</code>
       </div>
@@ -492,7 +492,7 @@ function AttributionField({
           At least one click window is required
         </span>
       ) : (
-        <p className="mt-2 text-[11.5px] text-[var(--muted)]">
+        <p className="mt-2 text-[12px] text-[var(--muted)]">
           {summarizeAttributionSpec(adSet.attributionSpec)}
         </p>
       )}

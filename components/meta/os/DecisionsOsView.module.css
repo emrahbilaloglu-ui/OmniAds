@@ -128,10 +128,10 @@
 .layerTabs button { display: inline-flex; align-items: center; gap: 7px; margin-right: 18px; padding: 8px 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--ink3); font-size: 13px; font-weight: 600; }
 .layerTabs button[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); }
 .layerTabs span, .laneSwitch span { padding: 0 5px; border-radius: 5px; background: var(--s3); color: var(--ink3); font-family: var(--font-ibm-plex-mono), ui-monospace, monospace; font-size: 11px; }
-.historyLink { display: inline-flex; align-items: center; gap: 5px; color: var(--ink3); font-size: 11.5px; font-weight: 600; text-decoration: none; }
+.historyLink { display: inline-flex; align-items: center; gap: 5px; color: var(--ink3); font-size: 12px; font-weight: 600; text-decoration: none; }
 .laneBar { display: flex; flex: none; align-items: center; gap: 10px; padding: 11px 16px 0; }
 .laneSwitch { display: inline-flex; overflow: hidden; border: 1px solid var(--b2); border-radius: 9px; background: var(--s2); }
-.laneSwitch button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink3); font-size: 11.5px; font-weight: 600; }
+.laneSwitch button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 0; background: transparent; color: var(--ink3); font-size: 12px; font-weight: 600; }
 .laneSwitch button[aria-pressed="true"] { background: var(--ink); color: var(--s2); }
 .laneSwitch button[aria-pressed="true"] span { background: rgb(255 255 255 / 15%); color: inherit; }
 .statusFilter { display: inline-flex; align-items: center; gap: 7px; color: var(--ink3); font-size: 11px; font-weight: 600; }
@@ -181,7 +181,7 @@
 .parentChain { overflow: hidden; color: var(--ink3); font-family: var(--font-ibm-plex-mono), ui-monospace, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .adMetrics { display: flex; flex: none; align-items: center; gap: 14px; }
 .adMetrics > span { display: flex; min-width: 56px; flex-direction: column; }
-.adMetrics strong { font-size: 11.5px; }
+.adMetrics strong { font-size: 12px; }
 .adMetrics small { color: var(--ink3); font-size: 11px; white-space: nowrap; }
 .assessmentBlock { display: flex; width: 158px; flex: none; flex-direction: column; align-items: flex-end; gap: 2px; }
 .assessmentBlock small { color: var(--ink3); font-size: 11px; white-space: nowrap; }
@@ -232,7 +232,7 @@
 .blockedBox[data-resolution="true"] { border-color: var(--caution-bd); background: var(--caution-bg); color: var(--caution-fg); }
 .roleCorrection { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 7px; }
 .roleSummary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.roleSummary strong { font-size: 11.5px; }
+.roleSummary strong { font-size: 12px; }
 .roleSummary span { color: var(--ink3); font-size: 11px; }
 .roleEditor { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--b1); }
 .roleEditor > summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; color: var(--ink2); font-size: 11px; font-weight: 600; list-style: none; }
@@ -249,7 +249,7 @@
 .roleNotice { grid-column: 1 / -1; color: var(--ink2); font-size: 11px; }
 .primaryLink { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border-radius: 8px; background: var(--ink); color: var(--s2); font-size: 12px; font-weight: 600; text-decoration: none; }
 .reviewActions { display: flex; flex-direction: column; gap: 7px; color: var(--ink3); font-size: 11px; }
-.reviewActions a { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px; border: 1px solid var(--b2); border-radius: 8px; color: var(--info-fg); font-size: 11.5px; font-weight: 600; text-decoration: none; }
+.reviewActions a { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px; border: 1px solid var(--b2); border-radius: 8px; color: var(--info-fg); font-size: 12px; font-weight: 600; text-decoration: none; }
 
 @media (max-width: 1279px) {
   .inspectorScrim { position: fixed; inset: 0; z-index: 49; display: block; border: 0; background: rgb(26 28 31 / 34%); }

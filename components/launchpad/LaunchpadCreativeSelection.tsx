@@ -980,7 +980,7 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-[6px] border px-2.5 py-1 text-[11.5px] capitalize transition-colors",
+        "rounded-[6px] border px-2.5 py-1 text-[12px] capitalize transition-colors",
         mono ? "mono" : null,
         className ??
           (active
@@ -1026,7 +1026,7 @@ function LaunchpadUploadContractNotice() {
           Choose files
         </button>
       </div>
-      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
         <span className="mono text-[12px] text-[var(--muted)]">upload</span>
         <span className="flex-1">
           No file is staged or transmitted from this surface. This is a visible

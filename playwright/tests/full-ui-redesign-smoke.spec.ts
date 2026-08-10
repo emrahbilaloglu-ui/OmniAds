@@ -1325,6 +1325,25 @@ test.describe("full UI redesign route and visual smoke", () => {
               if (el.getAttribute("aria-hidden") === "true") continue;
               if (el.closest("[data-decorative='true']")) continue;
 
+              // Visually-hidden text has no rendered contrast to measure. The
+              // skip link is the case that matters: it sits at left:-9999px
+              // until focused, and must stay in the accessibility tree, so it
+              // cannot be excluded with aria-hidden. Measuring it reported
+              // 1.00:1 for something no sighted user ever sees, which would
+              // have made the real 11.5px findings look like noise. Both the
+              // off-screen and the clip technique count as hidden.
+              const rect = el.getBoundingClientRect();
+              const offScreen =
+                rect.right <= 0 ||
+                rect.bottom <= 0 ||
+                rect.left >= window.innerWidth;
+              const clipped =
+                style.clip === "rect(0px, 0px, 0px, 0px)" ||
+                style.clipPath === "inset(50%)" ||
+                rect.width <= 1 ||
+                rect.height <= 1;
+              if (offScreen || clipped) continue;
+
               const size = Number.parseFloat(style.fontSize);
               if (size > 0 && size < 12) {
                 offenders.push(`${size}px: "${text.slice(0, 22)}"`);

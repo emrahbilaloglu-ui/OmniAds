@@ -300,25 +300,25 @@ export function LaunchpadReview({
         {mode === "new_campaign" ? (
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
             <div>
-              <p className="text-[11.5px] text-[var(--muted)]">Campaigns</p>
+              <p className="text-[12px] text-[var(--muted)]">Campaigns</p>
               <p className="mt-0.5 text-[26px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]">
                 1
               </p>
             </div>
             <div>
-              <p className="text-[11.5px] text-[var(--muted)]">Ad sets</p>
+              <p className="text-[12px] text-[var(--muted)]">Ad sets</p>
               <p className="mt-0.5 text-[26px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]">
                 {newCampaignAdSetCount}
               </p>
             </div>
             <div>
-              <p className="text-[11.5px] text-[var(--muted)]">Ads</p>
+              <p className="text-[12px] text-[var(--muted)]">Ads</p>
               <p className="mt-0.5 text-[26px] font-[650] leading-none tracking-[-0.02em] tabular-nums text-[var(--ink)]">
                 {newCampaignAdCount}
               </p>
             </div>
             <div>
-              <p className="text-[11.5px] text-[var(--muted)]">Budget</p>
+              <p className="text-[12px] text-[var(--muted)]">Budget</p>
               <p className="mt-0.5 text-[15px] font-[650] leading-tight tabular-nums text-[var(--ink)]">
                 {budgetReview.amount}
               </p>
@@ -398,7 +398,7 @@ export function LaunchpadReview({
               {targetSummary.budgetLines.map((line) => (
                 <div
                   key={line.label}
-                  className="flex items-start justify-between gap-4 py-2 text-[11.5px]"
+                  className="flex items-start justify-between gap-4 py-2 text-[12px]"
                 >
                   <span className="min-w-0 truncate text-[var(--muted)]">
                     {line.label}
@@ -421,7 +421,7 @@ export function LaunchpadReview({
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-[11.5px] text-[var(--muted)]">
+            <p className="mt-2 text-[12px] text-[var(--muted)]">
               Budget amount unavailable in the selected-target read contract.
             </p>
           )}
@@ -538,7 +538,7 @@ export function LaunchpadReview({
           </span>
           <span className="chip chip--warn">Proposed/contract required</span>
         </div>
-        <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--muted)]">
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
           No activation executor is wired here. The required future contract
           creates PAUSED, verifies every child, runs fresh exposure preflight,
           activates children first, and activates the campaign last.
@@ -555,7 +555,7 @@ export function LaunchpadReview({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="mr-auto text-[11.5px] text-[var(--muted)]">
+        <span className="mr-auto text-[12px] text-[var(--muted)]">
           No undo, rollback, or retry control is available.
         </span>
         {mode === "new_campaign" && onSaveTemplate ? (

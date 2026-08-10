@@ -99,7 +99,7 @@ export function LaunchpadOverlay({
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium text-[var(--adc-ink,#1a1c1f)] truncate">{name}</div>
-              <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)] truncate">
+              <div className="text-[12px] text-[var(--adc-ink3,#7d838c)] truncate">
                 {[item.brand, item.campaign].filter(Boolean).join(" · ") || "—"}
               </div>
               <div className="flex items-center gap-1 mt-1">
@@ -111,7 +111,7 @@ export function LaunchpadOverlay({
           <div className="text-[12px] text-[var(--adc-ink2,#4a4f56)] space-y-1.5">{config.body}</div>
           {mode !== "apply_bid" ? (
             <div className="rounded-lg border border-[var(--adc-caution-bd)] bg-[var(--adc-caution-bg)] px-3 py-2" data-testid="launchpad-handoff-unavailable">
-              <div className="text-[11.5px] font-semibold text-[var(--adc-caution-fg)]">Stored LaunchIntent unavailable</div>
+              <div className="text-[12px] font-semibold text-[var(--adc-caution-fg)]">Stored LaunchIntent unavailable</div>
               <div className="mt-0.5 text-[11px] leading-relaxed text-[var(--adc-ink3,#7d838c)]">
                 Current navigation passes legacy URL prefill only. Opening Launchpad starts manual setup and does not claim durable decision or brief lineage.
               </div>

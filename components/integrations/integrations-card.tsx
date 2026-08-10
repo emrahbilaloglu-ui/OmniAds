@@ -217,7 +217,7 @@ export function IntegrationsCard({
 
       <div className="mt-3 border-t border-border/70 pt-3">
         {comingSoon ? (
-          <p className="text-[11.5px] leading-4 text-muted-foreground">
+          <p className="text-[12px] leading-4 text-muted-foreground">
             {providerLabel} isn&apos;t connectable yet — no live authorization or data sync
             exists for it. This card is a visible roadmap placeholder, not a working connector.
           </p>

@@ -42,11 +42,11 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
         <span className="text-[12.5px] font-semibold text-rose-950">
           {anomalies.length} active anomal{anomalies.length === 1 ? "y" : "ies"}
         </span>
-        <span className="text-[11.5px] text-rose-700">diagnose before broad budget moves</span>
+        <span className="text-[12px] text-rose-700">diagnose before broad budget moves</span>
         {hidden.length > 0 ? (
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11.5px] text-rose-700 hover:text-rose-950"
+            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[12px] text-rose-700 hover:text-rose-950"
             onClick={() => setOpen((current) => !current)}
           >
             {open ? "Show less" : "View all"}
@@ -67,13 +67,13 @@ export function MetaAlertsStrip({ anomalies, snapshotDate, onOpenDiagnostic }: M
             </span>
             <span className="min-w-0">
               <span className="block truncate text-[12.5px] font-semibold text-slate-900">{anomaly.title}</span>
-              <span className="block truncate text-[11.5px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
+              <span className="block truncate text-[12px] text-slate-500">{anomaly.scopeType} · {anomaly.scopeLabel}</span>
             </span>
             <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
               <Clock className="inline-block shrink-0" size={11} aria-hidden="true" />
               {anomaly.detectedAt}
             </span>
-            <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-rose-700">
+            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-rose-700">
               Open diagnostic
               <ExternalLink className="inline-block shrink-0" size={11} aria-hidden="true" />
             </span>

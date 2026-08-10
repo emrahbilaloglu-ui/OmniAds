@@ -469,7 +469,7 @@ export function LaunchpadAddToExistingTarget({
                     </p>
                   </div>
                   {campaignAdsetsFailed ? (
-                    <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+                    <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
                       <span>Ad sets could not be loaded. Retry without changing the campaign selection.</span>
                       <button
                         type="button"
@@ -566,7 +566,7 @@ export function LaunchpadAddToExistingTarget({
             }`}
           >
             <span className="block font-medium">Duplicate</span>
-            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
+            <span className="mt-1 block text-[12px] text-[var(--muted)]">
               Use the existing Meta creative object.
             </span>
           </button>
@@ -580,7 +580,7 @@ export function LaunchpadAddToExistingTarget({
             }`}
           >
             <span className="block font-medium">Recreate exact ad</span>
-            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
+            <span className="mt-1 block text-[12px] text-[var(--muted)]">
               Create a new target-account creative from the same assets and copy.
             </span>
           </button>

@@ -1080,7 +1080,7 @@ function ShareSnapshotModal({
           </button>
         </div>
 
-        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
+        <div className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
           {selectedCount} creative{selectedCount === 1 ? "" : "s"} selected.
         </div>
 
@@ -1105,7 +1105,7 @@ function ShareSnapshotModal({
           })}
         </div>
 
-        <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[11.5px] leading-[1.55] text-[var(--adc-ink2,#4a4f56)]">
+        <div className="rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2.5 text-[12px] leading-[1.55] text-[var(--adc-ink2,#4a4f56)]">
           {activeNote}
         </div>
 
@@ -1130,17 +1130,17 @@ function ShareSnapshotModal({
           Allow CSV download
         </label>
 
-        <div className="text-[11.5px] text-[var(--adc-ink3,#7d838c)]">
+        <div className="text-[12px] text-[var(--adc-ink3,#7d838c)]">
           Decision language: <b className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{decisionLanguageState}</b>
         </div>
 
         {shareError ? (
-          <div className="rounded-[8px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-3 py-2 text-[11.5px] text-[var(--adc-danger-fg,#a6224a)]">
+          <div className="rounded-[8px] border border-[var(--adc-danger-bd,#efc4d1)] bg-[var(--adc-danger-bg,#fbedf1)] px-3 py-2 text-[12px] text-[var(--adc-danger-fg,#a6224a)]">
             {shareError}
           </div>
         ) : null}
         {shareUrl ? (
-          <div className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[11.5px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]" title={shareUrl}>
+          <div className="truncate rounded-[8px] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s1,#f5f5f3)] px-3 py-2 text-[12px] text-[var(--adc-ink2,#4a4f56)] [font-family:var(--font-ibm-plex-mono)]" title={shareUrl}>
             {shareUrl}
           </div>
         ) : null}

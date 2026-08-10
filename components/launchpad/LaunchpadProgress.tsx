@@ -230,12 +230,12 @@ export function LaunchpadProgress({
       ) : null}
 
       {hasProviderLinks ? (
-        <p className="text-[11.5px] text-[var(--muted)]">
+        <p className="text-[12px] text-[var(--muted)]">
           Ads Manager navigation links are built from provider-returned IDs. They are not represented as verified permalinks.
         </p>
       ) : null}
 
-      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[11.5px] leading-relaxed text-[var(--muted)]">
+      <div className="border-y border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-3 text-[12px] leading-relaxed text-[var(--muted)]">
         <span className="font-semibold text-[var(--warn)]">Publish ACTIVE · Proposed/contract required.</span>{" "}
         Everything created above remains PAUSED. No activation, undo, rollback, or retry control is available in this receipt.
       </div>

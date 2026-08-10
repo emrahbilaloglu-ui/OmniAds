@@ -43,6 +43,14 @@ function token(scope: string, name: string): string {
 const LIGHT_SCOPE = ".studio-os{";
 const DARK_SCOPE = ".studio-os.studio-dark{";
 const ESSENTIAL_MIN = 4.5;
+/**
+ * Tokens are picked against the lightest surface, but rows and tinted cells sit
+ * slightly darker: --ink4 measured 4.83:1 on pure white and 4.43:1 in the
+ * browser where the text actually lives. A token that only just clears the
+ * floor on the best-case background does not clear it in practice, so the
+ * static check keeps a margin the runtime check does not need.
+ */
+const TOKEN_FLOOR = 4.9;
 
 describe("essential Studio text clears the contrast floor", () => {
   it("light --ink3 is readable on the light surface", () => {
@@ -50,7 +58,7 @@ describe("essential Studio text clears the contrast floor", () => {
     expect(
       ratio,
       `--ink3 is ${ratio.toFixed(2)}:1 and carries essential 12px text`,
-    ).toBeGreaterThanOrEqual(ESSENTIAL_MIN);
+    ).toBeGreaterThanOrEqual(TOKEN_FLOOR);
   });
 
   it("light --ink4 is readable on the light surface", () => {
@@ -60,15 +68,13 @@ describe("essential Studio text clears the contrast floor", () => {
     expect(
       ratio,
       `--ink4 is ${ratio.toFixed(2)}:1 and carries essential 12px text`,
-    ).toBeGreaterThanOrEqual(ESSENTIAL_MIN);
+    ).toBeGreaterThanOrEqual(TOKEN_FLOOR);
   });
 
   it("dark --ink3 and --ink4 clear the floor on the dark surface", () => {
     for (const name of ["ink3", "ink4"]) {
       const ratio = contrast(token(DARK_SCOPE, name), token(DARK_SCOPE, "s2"));
-      expect(ratio, `dark --${name} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
-        ESSENTIAL_MIN,
-      );
+      expect(ratio, `dark --${name} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(TOKEN_FLOOR);
     }
   });
 

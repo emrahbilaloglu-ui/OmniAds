@@ -53,7 +53,7 @@ const STUDIO_CSS = `
    * --ink-decorative exists so the genuinely non-informational case has a
    * token of its own instead of being justified after the fact.
    */
-  --ink:#1a1c1f; --ink2:#4a4f56; --ink3:#5f656c; --ink4:#6b7280;
+  --ink:#1a1c1f; --ink2:#4a4f56; --ink3:#5f656c; --ink4:#63696f;
   --ink-decorative:#a6abb2;
   --b1:#e4e4e0; --b2:#cdcdc7; --b3:#bcbcb4;
   --focus:#1e62d0;

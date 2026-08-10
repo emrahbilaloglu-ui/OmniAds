@@ -12,7 +12,7 @@
 # Error details
 
 ```
-Error: /platforms/meta/history has essential text below 12px or 4.5:1
+Error: /platforms/meta/creatives has essential text below 12px or 4.5:1
 
 expect(received).toEqual(expected) // deep equality
 
@@ -21,14 +21,14 @@ expect(received).toEqual(expected) // deep equality
 
 - Array []
 + Array [
-+   "4.31:1 \"History\"",
-+   "4.31:1 \"Search\"",
-+   "4.31:1 \"Kind\"",
-+   "4.31:1 \"Entity\"",
-+   "4.31:1 \"Label\"",
-+   "4.11:1 \"Source\"",
-+   "4.11:1 \"Persisted ID\"",
-+   "4.11:1 \"Account scope\"",
++   "4.43:1 \"act_210009998877\"",
++   "4.43:1 \"one row per creative ·\"",
++   "1.23:1 \"$3,360.00\"",
++   "1.23:1 \"$17.87\"",
++   "1.23:1 \"4.00x\"",
++   "1.23:1 \"2.9%\"",
++   "1.23:1 \"4.8%\"",
++   "1.23:1 \"1.2\"",
 + ]
 ```
 
@@ -136,7 +136,7 @@ expect(received).toEqual(expected) // deep equality
   1368 |             unreadable,
   1369 |             `${shot.path} has essential text below 12px or 4.5:1`,
 > 1370 |           ).toEqual([]);
-       |             ^ Error: /platforms/meta/history has essential text below 12px or 4.5:1
+       |             ^ Error: /platforms/meta/creatives has essential text below 12px or 4.5:1
   1371 |         }
   1372 | 
   1373 |           if (topbar) {

@@ -1298,22 +1298,77 @@ test.describe("full UI redesign route and visual smoke", () => {
         // Essential text has to be readable: at least 12px and at least 4.5:1.
         {
           const unreadable = await shotPage.evaluate(() => {
-            const luminance = (rgb: string) => {
-              const [r, g, b] = (rgb.match(/\d+(\.\d+)?/g) ?? ["0", "0", "0"]).map(
-                (v) => Number(v) / 255,
-              );
+            // Colours reach here in whatever form the engine serialises, and
+            // this surface uses `color-mix(in oklab, ...)` for its cell tints.
+            // Parsing those with an rgb-shaped regex pulled the percentage out
+            // of the function text and reported 1.23:1 for black-on-pale-green
+            // -- a fabricated finding that would have been "fixed" by changing
+            // a colour that was fine. Canvas normalises any colour the engine
+            // understands; anything it cannot resolve is skipped rather than
+            // guessed at.
+            const probe = document.createElement("canvas").getContext("2d");
+            const toRgb = (value: string): [number, number, number, number] | null => {
+              const direct = /rgba?\(([^)]+)\)/.exec(value);
+              if (direct) {
+                const parts = direct[1]
+                  .split(/[,/\s]+/)
+                  .filter(Boolean)
+                  .map(Number);
+                if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
+                  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+                }
+              }
+              if (!probe) return null;
+              try {
+                probe.fillStyle = "#000000";
+                probe.fillStyle = value;
+                const normalised = probe.fillStyle as string;
+                if (normalised.startsWith("#") && normalised.length === 7) {
+                  return [
+                    parseInt(normalised.slice(1, 3), 16),
+                    parseInt(normalised.slice(3, 5), 16),
+                    parseInt(normalised.slice(5, 7), 16),
+                    1,
+                  ];
+                }
+                const again = /rgba?\(([^)]+)\)/.exec(normalised);
+                if (again) {
+                  const parts = again[1].split(/[,/\s]+/).filter(Boolean).map(Number);
+                  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+                }
+              } catch {
+                return null;
+              }
+              return null;
+            };
+
+            const luminance = (rgb: [number, number, number]) => {
+              const [r, g, b] = rgb.map((v) => v / 255);
               const ch = (c: number) =>
                 c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
               return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
             };
-            const backdrop = (el: HTMLElement): string => {
-              let node: HTMLElement | null = el;
+            // Composite up the tree so a translucent tint is measured against
+            // what is actually behind it, not as if it were opaque.
+            const backdrop = (el: HTMLElement): [number, number, number] => {
+              const layers: Array<[number, number, number, number]> = [];
+              let node: HTMLElement | null = el.parentElement;
               while (node) {
-                const bg = getComputedStyle(node).backgroundColor;
-                if (bg && !/rgba?\(0,\s*0,\s*0,\s*0\)|transparent/.test(bg)) return bg;
+                const parsed = toRgb(getComputedStyle(node).backgroundColor);
+                if (parsed && parsed[3] > 0) {
+                  layers.push(parsed);
+                  if (parsed[3] >= 1) break;
+                }
                 node = node.parentElement;
               }
-              return "rgb(255,255,255)";
+              let [r, g, b] = [255, 255, 255];
+              for (let i = layers.length - 1; i >= 0; i -= 1) {
+                const [lr, lg, lb, la] = layers[i];
+                r = lr * la + r * (1 - la);
+                g = lg * la + g * (1 - la);
+                b = lb * la + b * (1 - la);
+              }
+              return [r, g, b];
             };
             const offenders: string[] = [];
             const main = document.querySelector("#main-content") ?? document.body;
@@ -1354,8 +1409,22 @@ test.describe("full UI redesign route and visual smoke", () => {
                 offenders.push(`${size}px: "${text.slice(0, 22)}"`);
                 continue;
               }
-              const fg = luminance(style.color);
-              const bg = luminance(backdrop(el));
+              const colour = toRgb(style.color);
+              // Own background first, composited over what is behind it.
+              const own = toRgb(style.backgroundColor);
+              const behind = backdrop(el);
+              let surface = behind;
+              if (own && own[3] > 0) {
+                surface = [
+                  own[0] * own[3] + behind[0] * (1 - own[3]),
+                  own[1] * own[3] + behind[1] * (1 - own[3]),
+                  own[2] * own[3] + behind[2] * (1 - own[3]),
+                ];
+              }
+              // A colour the engine will not resolve is skipped, not guessed.
+              if (!colour) continue;
+              const fg = luminance([colour[0], colour[1], colour[2]]);
+              const bg = luminance(surface);
               const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
               const ratio = (hi + 0.05) / (lo + 0.05);
               if (ratio < 4.5) {

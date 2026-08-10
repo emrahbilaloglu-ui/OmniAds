@@ -66,11 +66,11 @@ export function SummaryMetricCard({
               </span>
             ) : null}
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium uppercase tracking-[0.07em] text-neutral-500">
+              <p className="truncate text-[12px] font-medium uppercase tracking-[0.07em] text-neutral-500">
                 {metric.title}
               </p>
               {metric.subtitle ? (
-                <p className="truncate text-[11px] text-neutral-500">{metric.subtitle}</p>
+                <p className="truncate text-[12px] text-neutral-500">{metric.subtitle}</p>
               ) : null}
             </div>
           </div>
@@ -96,14 +96,20 @@ export function SummaryMetricCard({
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <span
+              data-delta-state={delta.state}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-semibold tabular-nums",
                 delta.className
               )}
             >
-              <DeltaIcon className="h-3.5 w-3.5" />
+              {delta.state === "measured" ? (
+                <DeltaIcon className="h-3.5 w-3.5" />
+              ) : null}
               {delta.label}
             </span>
+            {delta.reason ? (
+              <span className="text-[12px] text-neutral-600">{delta.reason}</span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -112,7 +118,7 @@ export function SummaryMetricCard({
         <MiniTrendAreaChart
           data={metric.sparklineData}
           comparisonData={metric.previousSparklineData}
-          tone={metric.trendDirection}
+          label={metric.title}
           unit={metric.unit}
           valueFormatter={(value) => formatMetricNumber(value, metric.unit, currencySymbol)}
           className="h-12 w-full"
@@ -160,13 +166,38 @@ function formatMetricNumber(
  * change means for that particular metric, and an unclassified metric gets the
  * neutral treatment rather than being coloured by its sign.
  */
+/**
+ * The delta chip: what was measured, and whether that is good.
+ *
+ * `changePct ?? 0` was the defect. Under Compare=None there is no baseline, so
+ * `changePct` is null — and the card printed `0.0%` for it. Zero percent is a
+ * measurement; it says the metric held steady against the previous period.
+ * "We are not comparing" says nothing of the kind, and the two were
+ * indistinguishable on the cards a buyer reads first. The Pins strip on the
+ * same screen said "No comparison selected for this period" at the same
+ * moment, so /overview made both claims about the same numbers.
+ *
+ * A missing comparison now renders an em dash with the reason beside it, no
+ * arrow and no colour: a dash tinted green still tells the reader something
+ * happened. A genuine zero keeps its `0.0%`, because "flat" is a real result
+ * and worth showing.
+ */
 function resolveDelta(
   changePct: number | null,
   trendDirection: OverviewMetricCardData["trendDirection"],
   trendSentiment: OverviewMetricCardData["trendSentiment"]
 ) {
-  const value = changePct ?? 0;
-  const label = `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+  if (changePct === null || changePct === undefined || !Number.isFinite(changePct)) {
+    return {
+      state: "unavailable" as const,
+      direction: "neutral" as const,
+      label: "—",
+      reason: "No comparison selected",
+      className: "bg-neutral-100 text-neutral-600",
+    };
+  }
+
+  const label = `${changePct > 0 ? "+" : ""}${changePct.toFixed(1)}%`;
   const direction =
     trendDirection === "up"
       ? ("up" as const)
@@ -181,5 +212,5 @@ function resolveDelta(
         ? "bg-rose-500/10 text-rose-600"
         : "bg-neutral-200/70 text-neutral-600";
 
-  return { direction, label, className };
+  return { state: "measured" as const, direction, label, reason: null, className };
 }

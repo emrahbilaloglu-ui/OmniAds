@@ -381,7 +381,7 @@ export default function AdminDashboard() {
                         {provider.connectedBusinesses} bağlı workspace
                       </p>
                     </div>
-                    <span className={`text-[11px] font-medium px-2 py-1 rounded-full ${
+                    <span className={`text-[12px] font-medium px-2 py-1 rounded-full ${
                       provider.affectedBusinesses > 0
                         ? "bg-amber-100 text-amber-700"
                         : "bg-emerald-100 text-emerald-700"
@@ -395,28 +395,28 @@ export default function AdminDashboard() {
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.failedSnapshots}</p>
                       <div className="mt-1 flex items-center justify-center gap-1">
-                        <p className="text-[11px] text-gray-500">Failed</p>
+                        <p className="text-[12px] text-gray-500">Failed</p>
                         <InlineHelp text={DASHBOARD_HELP.Failed} />
                       </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.staleSnapshots}</p>
                       <div className="mt-1 flex items-center justify-center gap-1">
-                        <p className="text-[11px] text-gray-500">Stale</p>
+                        <p className="text-[12px] text-gray-500">Stale</p>
                         <InlineHelp text={DASHBOARD_HELP.Stale} />
                       </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.missingSnapshots}</p>
                       <div className="mt-1 flex items-center justify-center gap-1">
-                        <p className="text-[11px] text-gray-500">Missing</p>
+                        <p className="text-[12px] text-gray-500">Missing</p>
                         <InlineHelp text={DASHBOARD_HELP.Missing} />
                       </div>
                     </div>
                     <div>
                       <p className="text-lg font-semibold text-gray-900">{provider.refreshInProgress}</p>
                       <div className="mt-1 flex items-center justify-center gap-1">
-                        <p className="text-[11px] text-gray-500">Refreshing</p>
+                        <p className="text-[12px] text-gray-500">Refreshing</p>
                         <InlineHelp text={DASHBOARD_HELP.Refreshing} />
                       </div>
                     </div>
@@ -623,7 +623,7 @@ function SummaryPanel({
           </div>
         </div>
         <span
-          className={`text-[11px] font-medium px-2 py-1 rounded-full ${
+          className={`text-[12px] font-medium px-2 py-1 rounded-full ${
             badgeTone === "warning"
               ? "bg-amber-100 text-amber-700"
               : badgeTone === "healthy"
@@ -640,7 +640,7 @@ function SummaryPanel({
           <div key={metric.label}>
             <p className="text-lg font-semibold text-gray-900">{metric.value}</p>
             <div className="mt-1 flex items-center justify-center gap-1">
-              <p className="text-[11px] text-gray-500">{metric.label}</p>
+              <p className="text-[12px] text-gray-500">{metric.label}</p>
               {DASHBOARD_HELP[metric.label] ? <InlineHelp text={DASHBOARD_HELP[metric.label]} /> : null}
             </div>
           </div>

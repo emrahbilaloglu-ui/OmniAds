@@ -260,7 +260,7 @@ export function CreativeAdActionsSection({
           </div>
         </div>
         {pendingAction ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-[11px] font-medium text-neutral-600">
+          <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2 py-1 text-[12px] font-medium text-neutral-600">
             <Loader2 className="h-3 w-3 animate-spin" />
             Updating
           </span>
@@ -561,7 +561,7 @@ function statusClassName(status: string) {
 }
 
 function historyStatusClassName(status: ActionHistoryRow["status"]) {
-  const base = "rounded border px-2 py-0.5 text-center text-[11px] font-semibold";
+  const base = "rounded border px-2 py-0.5 text-center text-[12px] font-semibold";
   if (status === "success") return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
   if (status === "silent_failure") return `${base} border-amber-200 bg-amber-50 text-amber-700`;
   if (status === "failure") return `${base} border-rose-200 bg-rose-50 text-rose-700`;

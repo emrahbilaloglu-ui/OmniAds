@@ -305,7 +305,7 @@ export function SeoMonthlyAiActionsPanel(props: {
 function StatusMeta(props: { label: string; value: string }) {
   return (
     <div className="rounded-xl border bg-background px-3 py-2">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
         {props.label}
       </p>
       <p className="mt-1 text-sm font-medium">{props.value}</p>
@@ -556,7 +556,7 @@ function ToneBadge({ label }: { label: string }) {
       : label === "medium"
         ? "bg-amber-100 text-amber-700"
         : "bg-muted text-muted-foreground";
-  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", tone)}>{label}</span>;
+  return <span className={cn("rounded-full px-2 py-0.5 text-[12px] font-medium capitalize", tone)}>{label}</span>;
 }
 
 export function RecommendationsList({
@@ -783,7 +783,7 @@ function ClassificationBadge(props: {
                           : "bg-muted text-muted-foreground";
 
   return (
-    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium", className)}>
+    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[12px] font-medium", className)}>
       {props.label}
     </span>
   );
@@ -878,7 +878,7 @@ function SeverityBadge({ severity }: { severity: SeoTechnicalFindingsPayload["fi
         ? "bg-amber-100 text-amber-700"
         : "bg-sky-100 text-sky-700";
 
-  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium capitalize", className)}>{severity}</span>;
+  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[12px] font-medium capitalize", className)}>{severity}</span>;
 }
 
 export function ConfirmedExcludedPagesList({

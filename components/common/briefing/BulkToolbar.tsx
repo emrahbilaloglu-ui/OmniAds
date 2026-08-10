@@ -95,32 +95,32 @@ export function BulkToolbar({
               </span>
               <span className="text-neutral-200">|</span>
               {visibleActions.has("cut") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 text-[11.5px]" data-bulk="cut" onClick={() => handleAction("cut")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 text-[12px]" data-bulk="cut" onClick={() => handleAction("cut")}>
                   <X className="inline-block shrink-0" size={12} aria-hidden="true" /> Cut all
                 </button>
               ) : null}
               {visibleActions.has("rebuild") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 text-[11.5px]" data-bulk="rebuild" onClick={() => handleAction("rebuild")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 text-[12px]" data-bulk="rebuild" onClick={() => handleAction("rebuild")}>
                   <RefreshCw className="inline-block shrink-0" size={12} aria-hidden="true" /> Rebuild
                 </button>
               ) : null}
               {visibleActions.has("apply_bid") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[11.5px]" data-bulk="apply_bid" onClick={() => handleAction("apply_bid")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[12px]" data-bulk="apply_bid" onClick={() => handleAction("apply_bid")}>
                   <Sliders className="inline-block shrink-0" size={12} aria-hidden="true" /> Apply bid changes
                 </button>
               ) : null}
               {visibleActions.has("duplicate") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50 text-[11.5px]" data-bulk="duplicate" onClick={() => handleAction("duplicate")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50 text-[12px]" data-bulk="duplicate" onClick={() => handleAction("duplicate")}>
                   <Copy className="inline-block shrink-0" size={12} aria-hidden="true" /> Duplicate to test <ArrowRight className="inline-block shrink-0" size={12} aria-hidden="true" />
                 </button>
               ) : null}
               {visibleActions.has("compare") ? (
-                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[11.5px]" data-bulk="compare" onClick={() => handleAction("compare")}>
+                <button type="button" className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 text-[12px]" data-bulk="compare" onClick={() => handleAction("compare")}>
                   <GitCompare className="inline-block shrink-0" size={12} aria-hidden="true" /> Compare
                 </button>
               ) : null}
               {visibleActions.has("clear") ? (
-                <span className="ml-auto text-[11px] text-neutral-500">
+                <span className="ml-auto text-[12px] text-neutral-500">
                   <button type="button" className="hover:text-neutral-900" data-bulk="clear" onClick={() => handleAction("clear")}>Clear</button>
                 </span>
               ) : null}

@@ -266,8 +266,8 @@ export default function ReportsPage() {
                 </div>
                 <TemplateMiniPreview definition={template.definition} className="mt-6" />
                 <h3 className="mt-4 text-[13px] font-semibold text-[var(--adc-ink)]">{template.name}</h3>
-                <p className="mt-1 text-[11.5px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
-                <p className="mt-3 text-[11px] text-[var(--adc-ink3)]">
+                <p className="mt-1 text-[12px] leading-5 text-[var(--adc-ink3)]">{template.description}</p>
+                <p className="mt-3 text-[12px] text-[var(--adc-ink3)]">
                   {template.definition.widgets.length} widgets · share link · CSV · print
                 </p>
               </Link>

@@ -95,7 +95,7 @@ function formatCompactValue(value: number) {
 
 export function MiniTrendAreaChart({
   data,
-  tone: _tone,
+  label,
   unit = "unknown",
   loading = false,
   className = "h-12 w-full",
@@ -105,7 +105,11 @@ export function MiniTrendAreaChart({
   comparisonData,
 }: {
   data: Array<{ date: string; value: number }>;
-  tone: OverviewMetricCardData["trendDirection"];
+  /**
+   * What this line is of. Required for the accessible name: "a chart" tells a
+   * screen-reader user nothing about which metric they are on.
+   */
+  label: string;
   unit?: ChartUnit;
   loading?: boolean;
   className?: string;
@@ -144,7 +148,13 @@ export function MiniTrendAreaChart({
   }
 
   if (!data || data.length < 2 || points.length < 2) {
-    return <div className={className} aria-hidden="true" />;
+    // An empty box reads as a flat line to a sighted user and as nothing at
+    // all to everyone else.
+    return (
+      <div className={`${className} flex items-center text-[12px] text-neutral-600`}>
+        No trend data
+      </div>
+    );
   }
 
   const activeIndex = hoverIndex ?? points.length - 1;
@@ -194,11 +204,86 @@ export function MiniTrendAreaChart({
 
   const gradientId = `spark-line-${unit}`;
 
+  /**
+   * What a screen reader is told, and what a keyboard user moves through.
+   *
+   * The SVG was `aria-hidden` and the only way to read a point was a pointer
+   * tooltip, so the trend did not exist for anyone not using a mouse. The
+   * summary states arithmetic -- first, last, lowest, highest -- and no
+   * verdict, because the chart has no basis for one.
+   */
+  const fmt = (value: number) =>
+    valueFormatter ? valueFormatter(value) : formatCompactValue(value);
+  const first = points[0];
+  const last = points[points.length - 1];
+  const lowest = points.reduce((a, b) => (b.value < a.value ? b : a), points[0]);
+  const highest = points.reduce((a, b) => (b.value > a.value ? b : a), points[0]);
+  const accessibleSummary =
+    `${label} over ${points.length} points. ` +
+    `Starts ${fmt(first.value)} on ${formatPointLabel(first.date, dateLabelMode)}, ` +
+    `ends ${fmt(last.value)} on ${formatPointLabel(last.date, dateLabelMode)}. ` +
+    `Lowest ${fmt(lowest.value)}, highest ${fmt(highest.value)}.` +
+    (comparisonPoints.length >= 2
+      ? " A dashed line shows the previous period for comparison."
+      : "");
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const base = hoverIndex ?? points.length - 1;
+      const next = Math.min(points.length - 1, Math.max(0, base + step));
+      setHoverIndex(next);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setHoverIndex(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setHoverIndex(points.length - 1);
+      return;
+    }
+    if (event.key === "Escape") setHoverIndex(null);
+  };
+
   return (
-    <div className="relative overflow-visible">
+    <div
+      className="relative overflow-visible"
+      role="group"
+      tabIndex={0}
+      aria-label={accessibleSummary}
+      data-mini-trend-chart="true"
+      // Which point is being read, exposed so a browser test can prove an
+      // Arrow key moved the reading rather than merely being accepted. The
+      // sr-only live region carries the same fact for a screen reader; this
+      // is the machine-checkable form of it.
+      data-active-point={hoverIndex === null ? "none" : String(hoverIndex)}
+      onKeyDown={handleKeyDown}
+      onBlur={() => setHoverIndex(null)}
+    >
+      {/*
+        The tooltip's content, always in the accessibility tree. A hover-only
+        readout is unreachable by keyboard and invisible to a screen reader,
+        and this is the only place the individual values are stated.
+      */}
+      <span className="sr-only" data-chart-summary="true">
+        {accessibleSummary} Data points:{" "}
+        {points
+          .map((point) => `${point.date}: ${fmt(point.value)}`)
+          .join("; ")}
+        .
+      </span>
+      <span aria-live="polite" className="sr-only">
+        {hoverIndex !== null
+          ? `${formatPointLabel(points[hoverIndex].date, dateLabelMode)}: ${fmt(points[hoverIndex].value)}`
+          : ""}
+      </span>
       {hoverIndex !== null ? (
         <div
-          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-neutral-200 bg-white/95 px-2.5 py-1.5 text-[11px] shadow-md shadow-neutral-200/70 backdrop-blur-sm"
+          className="pointer-events-none absolute bottom-full z-20 mb-1.5 min-w-[7rem] rounded-md border border-neutral-200 bg-white/95 px-2.5 py-1.5 text-[12px] shadow-md shadow-neutral-200/70 backdrop-blur-sm"
           style={tooltipStyle}
         >
           <p className="font-medium text-neutral-500">{activeLabel}</p>
@@ -216,16 +301,26 @@ export function MiniTrendAreaChart({
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         className={className}
         preserveAspectRatio="none"
+        // The wrapper carries the role, name and keyboard behaviour; the SVG
+        // itself is presentation.
         aria-hidden="true"
+        focusable="false"
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
         <defs>
-          {/* Triple-Whale-calm sparkline: a thin horizontal blue->emerald
-              gradient line carries the trend; no area fill, muted baseline. */}
+          {/*
+            One neutral line for every metric.
+            
+            This used to fade blue into emerald, so a rising CPA and rising
+            revenue were drawn identically and both read as "good". The chart
+            has no trustworthy per-metric direction to colour from -- the prop
+            it accepted for that was dropped on the floor -- so it states the
+            shape and lets the numbers beside it carry the meaning.
+          */}
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="#2F6BFF" />
-            <stop offset="100%" stopColor="#0E9F6E" />
+            <stop offset="100%" stopColor="#2F6BFF" />
           </linearGradient>
         </defs>
 

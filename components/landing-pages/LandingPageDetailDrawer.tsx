@@ -312,12 +312,12 @@ function ScorePill({
     <div className="rounded-[var(--r-lg,11px)] border border-[var(--adc-b1,#e4e4e0)] bg-[var(--adc-s2,#ffffff)] p-3.5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--adc-ink3,#7d838c)]">{label}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[var(--adc-ink3,#7d838c)]">{label}</p>
           <p className="mt-1 text-lg font-semibold text-[var(--adc-ink,#1a1c1f)]">{tone.label}</p>
         </div>
         <div className="text-right">
           <p className="text-2xl font-semibold text-[var(--adc-ink,#1a1c1f)]" style={{ fontFeatureSettings: "'tnum'" }}>{rounded}</p>
-          <p className="text-[11px] text-[var(--adc-ink3,#7d838c)]">{language === "tr" ? "100 üzerinden" : "out of 100"}</p>
+          <p className="text-[12px] text-[var(--adc-ink3,#7d838c)]">{language === "tr" ? "100 üzerinden" : "out of 100"}</p>
         </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--adc-s3,#ededea)]">

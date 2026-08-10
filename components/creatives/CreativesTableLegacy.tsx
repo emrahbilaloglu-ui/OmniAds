@@ -238,7 +238,7 @@ function CreativeNameCell({ row }: { row: CreativeRowLike }) {
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold tracking-tight text-foreground">{row.name}</p>
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
           {formatLabel ? <span className="capitalize">{formatLabel}</span> : null}
           {associatedAdsCount > 1 && (
             <span className="flex items-center gap-1.5">

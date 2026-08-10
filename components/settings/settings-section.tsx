@@ -30,7 +30,7 @@ export function SettingsSection({
       <div className="flex flex-col gap-3 border-b border-[var(--adc-b1)] pb-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h2 className="text-[13px] font-semibold tracking-normal text-[var(--adc-ink)]">{title}</h2>
-          <p className="max-w-2xl text-[11.5px] leading-5 text-[var(--adc-ink3)]">{description}</p>
+          <p className="max-w-2xl text-[12px] leading-5 text-[var(--adc-ink3)]">{description}</p>
         </div>
         {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
       </div>
@@ -55,8 +55,8 @@ export function SettingsField({
   return (
     <label className="space-y-1.5">
       <div>
-        <p className="text-[11.5px] font-medium text-[var(--adc-ink3)]">{label}</p>
-        {hint ? <p className="text-[11px] text-[var(--adc-ink3)]">{hint}</p> : null}
+        <p className="text-[12px] font-medium text-[var(--adc-ink3)]">{label}</p>
+        {hint ? <p className="text-[12px] text-[var(--adc-ink3)]">{hint}</p> : null}
       </div>
       {children}
     </label>

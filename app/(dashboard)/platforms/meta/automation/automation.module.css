@@ -92,7 +92,7 @@
   gap: 8px;
   margin-bottom: 5px;
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .titleBlock h1,
@@ -143,7 +143,7 @@
   background: var(--auto-surface);
   padding: 4px 8px;
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .accountSelect select {
@@ -289,7 +289,7 @@
 }
 
 .alertCopy span {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .alertAction {
@@ -304,7 +304,7 @@
   gap: 8px;
   border-bottom: 1px solid var(--auto-border);
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 1px 9px;
 }
 
@@ -348,7 +348,7 @@
 .sectionHeader p,
 .panelHeader p {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .panelHeader > svg {
@@ -558,7 +558,7 @@
 .actionClassFacts strong,
 .promotionTransition code {
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -624,7 +624,7 @@
 
 .evidenceRow strong {
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .evidenceRow small {
@@ -713,7 +713,7 @@
 }
 
 .switchIdentity strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .switchIdentity small {
@@ -874,7 +874,7 @@
 .promotionTopline strong {
   overflow-wrap: anywhere;
   color: var(--auto-ink);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .ledgerMeta {
@@ -923,7 +923,7 @@
   border-radius: 5px;
   margin: 10px 12px;
   color: var(--auto-ink-3);
-  font-size: 11px;
+  font-size: 12px;
   padding: 11px;
 }
 
@@ -994,7 +994,7 @@
 
   .mobileFacts dt {
     color: var(--auto-ink-3);
-    font-size: 11px;
+    font-size: 12px;
   }
 
   .mobileFacts dd {
@@ -1002,7 +1002,7 @@
     margin: 0;
     overflow-wrap: anywhere;
     color: var(--auto-ink);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 650;
     text-align: right;
   }
@@ -1015,7 +1015,7 @@
     border-radius: 6px;
     background: var(--auto-danger-bg);
     color: var(--auto-danger-fg);
-    font-size: 11px;
+    font-size: 12px;
     padding: 9px 10px;
   }
 

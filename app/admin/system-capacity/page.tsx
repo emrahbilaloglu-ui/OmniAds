@@ -223,19 +223,19 @@ function DiskCapacityPanel({
               <div className="mt-3 grid grid-cols-4 gap-2 text-center">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{disk.usedPercent ?? "—"}%</p>
-                  <p className="text-[11px] text-gray-500">Kullanım</p>
+                  <p className="text-[12px] text-gray-500">Kullanım</p>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{formatDiskBytes(displayTotalBytes(disk))}</p>
-                  <p className="text-[11px] text-gray-500">Toplam</p>
+                  <p className="text-[12px] text-gray-500">Toplam</p>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{formatDiskBytes(disk.usedBytes)}</p>
-                  <p className="text-[11px] text-gray-500">Dolu</p>
+                  <p className="text-[12px] text-gray-500">Dolu</p>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{formatDiskBytes(disk.availableBytes)}</p>
-                  <p className="text-[11px] text-gray-500">Boş</p>
+                  <p className="text-[12px] text-gray-500">Boş</p>
                 </div>
               </div>
               {disk.error ? (

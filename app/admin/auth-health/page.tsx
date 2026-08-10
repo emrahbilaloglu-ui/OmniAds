@@ -237,7 +237,7 @@ function InfoPill({
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
       <div className="flex items-center gap-1.5">
-        <p className="text-[11px] uppercase tracking-wide text-gray-400">{label}</p>
+        <p className="text-[12px] uppercase tracking-wide text-gray-400">{label}</p>
         {help ? <InlineHelp text={help} /> : null}
       </div>
       <p className="text-lg font-semibold text-gray-900 mt-1">{value}</p>

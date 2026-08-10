@@ -246,7 +246,7 @@ function SurfaceRecoveryNotice({
           </span>
         ) : null}
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">{surface.message}</p>
+      <p className="mt-2 text-[12px] text-muted-foreground">{surface.message}</p>
       {surface.latestBackgroundActivityAt ? (
         <p className="mt-1 text-[12px] text-muted-foreground">
           Latest background activity {surface.latestBackgroundActivityAt}
@@ -280,7 +280,7 @@ function StatusDomainRow({
 }) {
   if (!summary) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+    <div className="flex flex-wrap items-center gap-2 text-[12px]">
       <span className="text-muted-foreground">{label}</span>
       <span
         className={cn(
@@ -1243,7 +1243,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 type="button"
                 onClick={() => setIncludeSpentInactive((p) => !p)}
                 className={cn(
-                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium",
+                  "inline-flex items-center rounded-md border px-2.5 py-1 text-[12px] font-medium",
                   includeSpentInactive ? "border-amber-200 bg-amber-50 text-amber-800" : "border-border bg-background text-muted-foreground"
                 )}
               >
@@ -1252,7 +1252,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11px] font-medium">
+                  <button type="button" className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[12px] font-medium">
                     Type: {channelFilter === "all" ? "All" : channelFilter}
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   </button>
@@ -1267,7 +1267,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="inline-flex max-w-[260px] items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11px] font-medium">
+                  <button type="button" className="inline-flex max-w-[260px] items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[12px] font-medium">
                     <span className="truncate">
                       {selectedInScope.length === 0 ? "Campaigns: All" : selectedInScope.length === 1 ? `Campaign: ${selectedInScope[0]}` : `${selectedInScope.length} campaigns selected`}
                     </span>
@@ -1324,7 +1324,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         title={advisorHelperText}
                         aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
                         className={cn(
-                          "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-semibold transition-colors",
+                          "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[12px] font-semibold transition-colors",
                           !advisorCanOpen || isAdvisorLoading
                             ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
                             : advisorCurrent
@@ -1552,7 +1552,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <EmptyState title={insightsEmptyState.title} description={insightsEmptyState.description} />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                 <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Search terms {scopedSearchTerms.length}</span>
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">PMax {searchSourceCounts.pmax}</span>
                 <span className="rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-foreground/80">Search {searchSourceCounts.search}</span>
@@ -1568,7 +1568,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
                           onClick={() => {
                             // Section 9: the zero-risk escape hatch was used.
                             // Only that it happened and how many rows -- never
@@ -1641,7 +1641,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         ) : null}
                         <button
                           type="button"
-                          className="rounded border border-border/70 px-2 py-0.5 text-[11px] text-foreground/80 hover:bg-muted/60"
+                          className="rounded border border-border/70 px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted/60"
                           onClick={() => {
                             // Emitted after the download is handed off, not
                             // before it: an event fired ahead of the action it
@@ -1676,14 +1676,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     ) : null}
                   </div>
                   {searchTermNegativeCandidates.length > searchTermNegativeRows.length ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
+                    <p className="mt-1 text-[12px] text-muted-foreground">
                       Showing top {searchTermNegativeRows.length} of{" "}
                       {searchTermNegativeCandidates.length} candidates by spend. Copy and CSV
                       include all {searchTermNegativeCandidates.length}.
                     </p>
                   ) : null}
                   {searchTermNegativeRows.length === 0 ? (
-                    <p className="mt-2 text-[11px] text-muted-foreground">No high-risk search term in this filter.</p>
+                    <p className="mt-2 text-[12px] text-muted-foreground">No high-risk search term in this filter.</p>
                   ) : (
                     <div className="mt-2 space-y-1.5">
                       {searchTermNegativeRows.map((row, index) => (
@@ -1698,7 +1698,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           )}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
+                            <p className="line-clamp-1 text-[12px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
                               <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
                               <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
@@ -1726,7 +1726,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 <div className="rounded-lg border border-border/70 bg-card p-3">
                   <p className="text-xs font-semibold tracking-tight">Search terms - Positive / opportunity</p>
                   {searchTermPositiveRows.length === 0 ? (
-                    <p className="mt-2 text-[11px] text-muted-foreground">No strong search term opportunity in this filter.</p>
+                    <p className="mt-2 text-[12px] text-muted-foreground">No strong search term opportunity in this filter.</p>
                   ) : (
                     <div className="mt-2 space-y-1.5">
                       {searchTermPositiveRows.map((row, index) => (
@@ -1741,7 +1741,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                           )}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <p className="line-clamp-1 text-[11px] font-medium">{row.searchTerm}</p>
+                            <p className="line-clamp-1 text-[12px] font-medium">{row.searchTerm}</p>
                             <div className="flex items-center gap-1">
                               <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-foreground/80">{row.campaign ?? "Campaign"}</span>
                               <span className="rounded-full border border-border/70 bg-background px-1.5 py-0.5 text-[12px] text-muted-foreground">{(row.matchSource ?? row.source ?? "SEARCH").toString().replaceAll("_", " ")}</span>
@@ -1772,7 +1772,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
                   <div className="mt-2 space-y-1.5">
                     {topGeoRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[12px] text-muted-foreground">
                         {geoSurfaceState && geoSurfaceState.state !== "ready"
                           ? geoSurfaceState.message
                           : geoEmptyState.description}
@@ -1781,7 +1781,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       topGeoRows.map((row, index) => (
                         <div
                           key={`${row.country}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
                         >
                           <span className="truncate font-medium">{row.country}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
@@ -1795,7 +1795,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
                   <div className="mt-2 space-y-1.5">
                     {topDeviceRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-[12px] text-muted-foreground">
                         {deviceSurfaceState && deviceSurfaceState.state !== "ready"
                           ? deviceSurfaceState.message
                           : deviceEmptyState.description}
@@ -1804,7 +1804,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       topDeviceRows.map((row, index) => (
                         <div
                           key={`${row.device}-${row.spend}-${row.roas}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
                         >
                           <span className="truncate font-medium">{row.device}</span>
                           <span className="text-muted-foreground">Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}</span>
@@ -1848,9 +1848,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">{campaign.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
+                      <p className="text-[12px] text-muted-foreground">{groups.length} asset group · {totalThemes} search theme · {audienceRows.length} audience signal</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                       <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Theme match {fmtPct(themeAlignment)} ({alignedThemes}/{totalThemes})</span>
                       <span className={cn("rounded-full border border-border/70 px-2 py-0.5", weakAudienceSegments.length === 0 ? "bg-emerald-50/40 text-emerald-700" : "bg-rose-50/40 text-rose-700")}>Audience risk {weakAudienceSegments.length}</span>
                     </div>
@@ -1908,7 +1908,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                     .slice(0, 8);
                   if (rows.length === 0) {
                     return (
-                      <p className="mt-2 text-[11px] text-muted-foreground">
+                      <p className="mt-2 text-[12px] text-muted-foreground">
                         {audienceSurfaceState && audienceSurfaceState.state !== "ready"
                           ? audienceSurfaceState.message
                           : audienceEmptyState.description}
@@ -1920,7 +1920,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       {rows.map((row, index) => (
                         <div
                           key={`${row.campaign ?? "audience"}-${row.type}-${index}`}
-                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[12px]"
                         >
                           <div className="min-w-0">
                             <p className="truncate font-medium">{row.type}</p>
@@ -1963,7 +1963,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <EmptyState title={productsEmptyState.title} description={productsEmptyState.description} />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                 <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Products {productRows.length}</span>
                 <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Total spend {fmtCurrency(totalProductSpend)}</span>
                 <span className="rounded-full border border-border/70 bg-muted/30 px-2 py-0.5 text-foreground/80">Avg ROAS {fmtRoas(avgProductRoas)}</span>
@@ -2039,7 +2039,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             <EmptyState title={assetsEmptyState.title} description={assetsEmptyState.description} />
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
                 <span className="rounded-full border border-border/70 bg-rose-50/40 px-2 py-0.5 text-rose-700">Underperforming {underperformingAssets.length}</span>
                 <span className="rounded-full border border-border/70 bg-emerald-50/40 px-2 py-0.5 text-emerald-700">Top assets {topAssets.length}</span>
                 <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">Total assets {scopedAssets.length}</span>
@@ -2054,7 +2054,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                         <span className={cn("rounded-full px-1.5 py-0.5 text-[12px] font-semibold", list.length === 0 ? "bg-emerald-50/50 text-emerald-700" : "bg-rose-50/50 text-rose-700")}>{list.length === 0 ? "Healthy" : `${list.length} issue`}</span>
                       </div>
                       {list.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground">No critical issue detected for this asset type.</p>
+                        <p className="text-[12px] text-muted-foreground">No critical issue detected for this asset type.</p>
                       ) : (
                         <div className="space-y-1.5">
                           {list.map((asset) => (
@@ -2071,7 +2071,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                                 ) && "border-rose-300 bg-rose-50/40"
                               )}
                             >
-                              <p className="line-clamp-1 text-[11px] font-medium">{getAssetDisplayLabel(asset)}</p>
+                              <p className="line-clamp-1 text-[12px] font-medium">{getAssetDisplayLabel(asset)}</p>
                               <p className="mt-0.5 text-[12px] text-muted-foreground">Spend {fmtCurrency(asset.spend)} · ROAS {fmtRoas(asset.roas)} · Conv {asset.conversions.toFixed(0)}</p>
                               {focusedAssets.some(
                                 (name) =>
@@ -2119,7 +2119,7 @@ function Kpi({ label, value, series, formatter, dateLabelMode, highlight }: { la
       <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{label}</p>
       <p className={cn("mt-1.5 text-[22px] font-semibold tracking-tight", highlight && "text-emerald-700")}>{value}</p>
       <div className="mt-1">
-        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
+        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-10 w-full" />
       </div>
     </div>
   );
@@ -2240,7 +2240,7 @@ function OverviewMetric({
       <p className="mt-2 text-[12px] font-medium tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-[18px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
       <div className="mt-1.5">
-        <MiniTrendAreaChart data={series} tone="neutral" valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
+        <MiniTrendAreaChart data={series} label={label} valueFormatter={formatter} dateLabelMode={dateLabelMode} className="h-8 w-full" />
       </div>
     </div>
   );

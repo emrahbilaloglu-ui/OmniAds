@@ -423,7 +423,7 @@ export function LaunchpadAddToExistingTarget({
                   />
                   <span className="min-w-0">
                     <span className="block truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</span>
-                    <span className="mono mt-1 block text-[11px] text-[var(--muted)]">
+                    <span className="mono mt-1 block text-[12px] text-[var(--muted)]">
                       {campaign.objective ?? "unknown"} ·{" "}
                       {campaign.isAdsetBudgetSharingEnabled ? "CBO" : "ABO"} ·{" "}
                       {campaign.adsetCount} ad sets · {formatMoney(campaign.lastSpend28d, currency)} 28d
@@ -460,7 +460,7 @@ export function LaunchpadAddToExistingTarget({
                 <div key={campaign.id} className="space-y-2 px-4 py-3">
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-[var(--ink)]">{campaign.name}</p>
-                    <p className="text-[11px] text-[var(--muted)]">
+                    <p className="text-[12px] text-[var(--muted)]">
                       {campaignAdsetsLoading
                         ? "Loading ad sets..."
                         : campaignAdsetsFailed
@@ -469,7 +469,7 @@ export function LaunchpadAddToExistingTarget({
                     </p>
                   </div>
                   {campaignAdsetsFailed ? (
-                    <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+                    <div className="flex items-center justify-between gap-3 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
                       <span>Ad sets could not be loaded. Retry without changing the campaign selection.</span>
                       <button
                         type="button"
@@ -538,7 +538,7 @@ export function LaunchpadAddToExistingTarget({
                   <span className="chip">{adset.status ?? "unknown"}</span>
                   <span className="chip">{adset.optimizationGoal ?? "unknown"}</span>
                 </div>
-                <p className="mono mt-1 truncate text-[11px] text-[var(--muted)]">
+                <p className="mono mt-1 truncate text-[12px] text-[var(--muted)]">
                   {campaign.name} · {adset.pixelId ?? "n/a"} ·{" "}
                   {adset.attributionSummary ?? summarizeAttributionSpec(adset.attributionSpec)}
                 </p>
@@ -566,7 +566,7 @@ export function LaunchpadAddToExistingTarget({
             }`}
           >
             <span className="block font-medium">Duplicate</span>
-            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
+            <span className="mt-1 block text-[12px] text-[var(--muted)]">
               Use the existing Meta creative object.
             </span>
           </button>
@@ -580,7 +580,7 @@ export function LaunchpadAddToExistingTarget({
             }`}
           >
             <span className="block font-medium">Recreate exact ad</span>
-            <span className="mt-1 block text-[11.5px] text-[var(--muted)]">
+            <span className="mt-1 block text-[12px] text-[var(--muted)]">
               Create a new target-account creative from the same assets and copy.
             </span>
           </button>
@@ -610,7 +610,7 @@ export function LaunchpadAddToExistingTarget({
                 />
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-medium text-[var(--ink)]">{creative.name}</p>
-                  <p className="mono text-[11px] text-[var(--muted)]">{creative.creativeId}</p>
+                  <p className="mono text-[12px] text-[var(--muted)]">{creative.creativeId}</p>
                 </div>
                 <input
                   value={name}
@@ -641,7 +641,7 @@ export function LaunchpadAddToExistingTarget({
 function Summary({ label, value, numeric = false }: { label: string; value: string; numeric?: boolean }) {
   return (
     <div className="min-w-0 rounded-[8px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
-      <p className="text-[11px] text-[var(--muted)]">{label}</p>
+      <p className="text-[12px] text-[var(--muted)]">{label}</p>
       <p
         className={
           numeric

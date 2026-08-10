@@ -188,7 +188,7 @@ export default function SeoIntelligencePage() {
       <div className="space-y-5">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
               Insights
             </p>
             <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>
@@ -207,7 +207,7 @@ export default function SeoIntelligencePage() {
     <div className="space-y-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+          <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-neutral-500">
             Insights
           </p>
           <h1 className="text-[24px] font-semibold tracking-tight text-neutral-950">SEO Intelligence</h1>

@@ -159,7 +159,7 @@ export function CreativeTagActionsRow({
                 <button
                   type="button"
                   onClick={() => onChange({ ...value, selectedTags: [] })}
-                  className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-[12px] text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Clear
                 </button>

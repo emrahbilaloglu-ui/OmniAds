@@ -123,7 +123,7 @@ export function CustomizeKpisModal({
               Customize KPIs
             </h2>
             {presetLabel ? (
-              <div className="text-[11.5px] text-neutral-500">
+              <div className="text-[12px] text-neutral-500">
                 preset · {presetLabel}
               </div>
             ) : null}
@@ -200,7 +200,7 @@ export function CustomizeKpisModal({
               );
             })}
             {draftKeys.length === 0 ? (
-              <li className="rounded-md border border-dashed border-neutral-200 px-2 py-3 text-center text-[11.5px] text-neutral-500">
+              <li className="rounded-md border border-dashed border-neutral-200 px-2 py-3 text-center text-[12px] text-neutral-500">
                 Pick KPIs from the catalog →
               </li>
             ) : null}
@@ -275,13 +275,13 @@ export function CustomizeKpisModal({
                 {activeEntry.description}
               </div>
               {activeEntry.unavailable ? (
-                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-800">
                   {activeEntry.unavailableReason ?? "Requires backend support."}
                 </div>
               ) : null}
             </>
           ) : (
-            <div className="mt-2 text-[11.5px] text-neutral-500">
+            <div className="mt-2 text-[12px] text-neutral-500">
               Click a KPI to see what it measures.
             </div>
           )}

@@ -131,8 +131,8 @@ export function SummaryAttributionTable({
                   key={column.key}
                   className={
                     column.key === "channel"
-                      ? "px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
-                      : "px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
+                      ? "px-3 py-3 text-left text-[12px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
+                      : "px-3 py-3 text-right text-[12px] font-semibold uppercase tracking-[0.16em] text-neutral-500"
                   }
                 >
                   <button

@@ -211,7 +211,7 @@ function L2NavItem({
           <Lock className="h-3 w-3" />
         </span>
       ) : !collapsed && item.badge != null ? (
-        <span className="ml-auto text-[11px] font-mono tabular-nums text-neutral-500 px-1.5 py-0.5 bg-white border border-neutral-200 rounded-md">
+        <span className="ml-auto text-[12px] font-mono tabular-nums text-neutral-500 px-1.5 py-0.5 bg-white border border-neutral-200 rounded-md">
           {item.badge}
         </span>
       ) : null}
@@ -265,7 +265,7 @@ function SoonPlatformEmpty({
       <div className="flex justify-center mb-1.5">
         <PlatformLogo platformId={platformId} size={22} />
       </div>
-      <div className="text-[11.5px] font-medium text-neutral-700">
+      <div className="text-[12px] font-medium text-neutral-700">
         {platform.name} not live yet
       </div>
       <div className="text-[12px] text-neutral-500 mt-0.5">

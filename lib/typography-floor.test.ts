@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 /**
  * The plan's typography floor, enforced so it cannot quietly regress.
  *
- * Essential data and body text must be at least 12px; 11px is permitted only
- * for demonstrably noncritical compact labels. Anything below 11px is a defect
+ * Essential data and body text must be at least 12px. 11px was permitted for
+ * "demonstrably noncritical compact labels", and in practice that exemption
+ * covered account identifiers, a kill-switch badge, the degraded-decisions
+ * banner and the decision lane names -- none of which is noncritical. The
+ * exemption is withdrawn: anything below 12px is a defect
  * regardless of where it appears — the audit found 7.5–10px table headers,
  * attribution labels, assessment text and reasons, which is essential content
  * rendered at a size people cannot comfortably read.
@@ -29,7 +32,7 @@ describe("no essential text is rendered below the readable floor", () => {
     expect(STYLESHEETS.length).toBeGreaterThan(5);
   });
 
-  it("has no font-size below 11px anywhere in shipped CSS", () => {
+  it("has no font-size below 12px anywhere in shipped CSS", () => {
     const violations: string[] = [];
     for (const file of STYLESHEETS) {
       const source = readFileSync(file, "utf8");
@@ -37,7 +40,7 @@ describe("no essential text is rendered below the readable floor", () => {
       lines.forEach((line, index) => {
         for (const match of line.matchAll(FONT_SIZE)) {
           const size = Number(match[1]);
-          if (size < 11) {
+          if (size < 12) {
             violations.push(`${file}:${index + 1} — ${size}px`);
           }
         }
@@ -45,7 +48,7 @@ describe("no essential text is rendered below the readable floor", () => {
     }
     expect(
       violations,
-      `text below the 11px floor:\n${violations.join("\n")}`,
+      `text below the 12px floor:\n${violations.join("\n")}`,
     ).toEqual([]);
   });
 

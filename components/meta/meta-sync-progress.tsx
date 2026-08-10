@@ -197,7 +197,7 @@ export function MetaSyncProgress({
       >
         <span className="shrink-0 font-semibold tabular-nums">{progress}%</span>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="line-clamp-2 text-[11px] font-medium leading-4">{caption ?? description}</div>
+          <div className="line-clamp-2 text-[12px] font-medium leading-4">{caption ?? description}</div>
           <div className={cn("h-1.5 overflow-hidden rounded-full", tone.track)}>
             <div
               className={cn("h-full rounded-full transition-[width] duration-300", tone.fill)}
@@ -224,7 +224,7 @@ export function MetaSyncProgress({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold">{title}</p>
-            <p className={cn("mt-1 line-clamp-2 text-[11px] leading-4", tone.subtext)}>{caption ?? description}</p>
+            <p className={cn("mt-1 line-clamp-2 text-[12px] leading-4", tone.subtext)}>{caption ?? description}</p>
           </div>
           <p className="shrink-0 text-xs font-semibold tabular-nums">{progress}%</p>
         </div>

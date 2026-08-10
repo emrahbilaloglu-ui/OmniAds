@@ -114,7 +114,7 @@ export function BriefingTile({
           }
         >
           {selected ? (
-            <span aria-hidden="true" className="text-[11px] font-bold leading-none">
+            <span aria-hidden="true" className="text-[12px] font-bold leading-none">
               ✓
             </span>
           ) : null}

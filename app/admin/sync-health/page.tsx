@@ -602,7 +602,7 @@ function GoogleAdsFreshnessBadge({
         ? "border border-red-200 bg-red-50 text-red-700"
         : "border border-amber-200 bg-amber-50 text-amber-800";
   return (
-    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${className}`}>
       {label} {freshness ? `${freshness.percent}%` : ""}
     </span>
   );
@@ -1109,10 +1109,10 @@ export default function AdminSyncHealthPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-700">
                 Workflow {globalRebuildReview.workflow.adminSurface}
               </span>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-700">
                 Review {globalRebuildReview.workflow.executionReviewCommand}
               </span>
             </div>
@@ -1268,7 +1268,7 @@ export default function AdminSyncHealthPage() {
                       Current rebuild evidence for whether Google and Meta are actually catching up, stalled, or still too sparse to trust.
                     </p>
                   </div>
-                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-700">
                     Review {syncEffectivenessReview.workflow.reviewCommand}
                   </span>
                 </div>
@@ -1455,7 +1455,7 @@ export default function AdminSyncHealthPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+              className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${
                 summary.workerOnline
                   ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border border-amber-200 bg-amber-50 text-amber-800"
@@ -1464,7 +1464,7 @@ export default function AdminSyncHealthPage() {
               {summary.workerOnline ? "Worker online" : "Worker offline"}
             </span>
             <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+              className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${
                 summary.googleAdsSafeModeActive
                   ? "border border-amber-200 bg-amber-50 text-amber-800"
                   : "border border-gray-200 bg-gray-50 text-gray-600"
@@ -1583,7 +1583,7 @@ export default function AdminSyncHealthPage() {
                           {getGoogleAdsBusinessSignals(business).map((signal) => (
                             <span
                               key={signal}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800"
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[12px] font-medium text-amber-800"
                             >
                               {signal}
                             </span>
@@ -1753,7 +1753,7 @@ export default function AdminSyncHealthPage() {
                           {getMetaBusinessSignals(business).map((signal) => (
                             <span
                               key={signal}
-                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800"
+                              className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[12px] font-medium text-amber-800"
                             >
                               {signal}
                             </span>
@@ -1886,7 +1886,7 @@ export default function AdminSyncHealthPage() {
                     <div className="mt-2 flex flex-wrap gap-2">
                       {issue.severity ? <IssueSeverityBadge severity={issue.severity} /> : null}
                       {issue.runbookKey ? (
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[12px] font-medium text-slate-700">
                           {getSyncRunbook(issue.runbookKey)?.title ?? issue.runbookKey}
                         </span>
                       ) : null}
@@ -1921,7 +1921,7 @@ function IssueSeverityBadge({
 
   return (
     <span
-      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${className}`}
+      className={`rounded-full border px-2 py-0.5 text-[12px] font-medium uppercase tracking-wide ${className}`}
     >
       {severity}
     </span>
@@ -1936,7 +1936,7 @@ function MetricPill({
   value: number | string;
 }) {
   return (
-    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-700">
       {label} {value}
     </span>
   );
@@ -1984,7 +1984,7 @@ function StateBadge({ state }: { state: string }) {
           : "border border-slate-200 bg-slate-50 text-slate-700";
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${className}`}>
       {state}
     </span>
   );

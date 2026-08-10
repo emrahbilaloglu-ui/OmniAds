@@ -764,7 +764,7 @@ export function LaunchpadCreativeSelection({
                       ) : null}
                     </div>
                     <p
-                      className="truncate text-[11px] text-[var(--muted)]"
+                      className="truncate text-[12px] text-[var(--muted)]"
                       title={placementTooltip}
                     >
                       {row.campaignName ?? row.campaignId ?? "No campaign"} ·{" "}
@@ -776,7 +776,7 @@ export function LaunchpadCreativeSelection({
                           <span
                             key={note.text}
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-[11px]",
+                              "inline-flex items-center gap-1 rounded-[6px] border px-2 py-1 text-[12px]",
                               noteClass(note.tone),
                             )}
                           >
@@ -876,7 +876,7 @@ export function LaunchpadCreativeSelection({
                         {selected ? <Check className="h-3.5 w-3.5" /> : null}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-[11px] text-[var(--muted)]">
+                    <p className="mt-1 truncate text-[12px] text-[var(--muted)]">
                       {row.campaignName ?? row.campaignId ?? "No campaign"}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -894,7 +894,7 @@ export function LaunchpadCreativeSelection({
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-[11px]">
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[var(--border)] pt-3 text-[12px]">
                   <Metric
                     label="Spend"
                     value={
@@ -980,7 +980,7 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-[6px] border px-2.5 py-1 text-[11.5px] capitalize transition-colors",
+        "rounded-[6px] border px-2.5 py-1 text-[12px] capitalize transition-colors",
         mono ? "mono" : null,
         className ??
           (active
@@ -1012,7 +1012,7 @@ function LaunchpadUploadContractNotice() {
               NEEDS-SERVER-CONTRACT · media pipeline
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+          <p className="mt-0.5 text-[12px] text-[var(--muted)]">
             video 9:16 / 4:5 / 1:1, ≤4GB · image ≤30MB. Upload is not enabled
             until staged media metadata and provider upload writes exist.
           </p>
@@ -1026,7 +1026,7 @@ function LaunchpadUploadContractNotice() {
           Choose files
         </button>
       </div>
-      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[11.5px] text-[var(--warn)]">
+      <div className="mt-2 flex items-center gap-2 rounded-[8px] border border-[var(--warn-bd)] bg-[var(--warn-bg)] px-3 py-2 text-[12px] text-[var(--warn)]">
         <span className="mono text-[12px] text-[var(--muted)]">upload</span>
         <span className="flex-1">
           No file is staged or transmitted from this surface. This is a visible

@@ -1151,7 +1151,7 @@ export function ReportBuilder({
                     key={w.type}
                     type="button"
                     onClick={() => addWidget(w.type, selectedSlot ?? 0)}
-                    className="rounded-xl border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[11px] font-medium text-neutral-600 hover:border-neutral-300 hover:bg-white transition"
+                    className="rounded-xl border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[12px] font-medium text-neutral-600 hover:border-neutral-300 hover:bg-white transition"
                   >
                     + {w.label}
                   </button>
@@ -1430,7 +1430,7 @@ export function ReportBuilder({
                       {/* Dimension picker */}
                       {dimensionOptions.length > 0 && (
                         <div>
-                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Dimension", "Boyut")}</p>
+                          <p className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Dimension", "Boyut")}</p>
                           <select
                             value={tableDimension}
                             onChange={(e) => updateWidget(selectedWidget.id, { tableDimension: e.target.value, columns: [] })}
@@ -1456,7 +1456,7 @@ export function ReportBuilder({
                       {/* Metrics section */}
                       <div>
                         <div className="mb-2 flex items-center justify-between">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Metrics", "Metrikler")}</p>
+                          <p className="text-[12px] font-semibold uppercase tracking-wide text-neutral-400">{tr("Metrics", "Metrikler")}</p>
                           <select
                             value={selectedWidget.limit ?? 8}
                             onChange={(e) => updateWidget(selectedWidget.id, { limit: Number(e.target.value) })}
@@ -1478,7 +1478,7 @@ export function ReportBuilder({
                               return (
                                 <span
                                   key={col}
-                                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                                  className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-medium text-blue-700"
                                 >
                                   {label}
                                   <button
@@ -1642,7 +1642,7 @@ export function ReportBuilder({
                 {/* Body (text / section) */}
                 {(selectedWidget.type === "text" || selectedWidget.type === "section") ? (
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Body", "İçerik")}</p>
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Body", "İçerik")}</p>
                     <textarea
                       value={selectedWidget.text ?? ""}
                       onChange={(e) => updateWidget(selectedWidget.id, { text: e.target.value })}
@@ -1654,7 +1654,7 @@ export function ReportBuilder({
 
                 {/* Copy */}
                 <div className="px-4 py-3 space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Copy", "Metin")}</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-neutral-400">{tr("Copy", "Metin")}</p>
                   <input
                     value={selectedWidget.title}
                     onChange={(e) => updateWidget(selectedWidget.id, { title: e.target.value })}

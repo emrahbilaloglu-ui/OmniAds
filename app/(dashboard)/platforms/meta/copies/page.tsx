@@ -494,10 +494,10 @@ export default function CopiesPage() {
               </select>
             </label>
             <div style={{ textAlign: "right", lineHeight: 1.5 }}>
-              <div className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>
                 window {drStart} → {drEnd}
               </div>
-              <div className="mono" style={{ fontSize: 11, color: "var(--muted-2)" }}>
+              <div className="mono" style={{ fontSize: 12, color: "var(--muted-2)" }}>
                 {generatedAtLabel ? `data as of ${generatedAtLabel}` : "as-of —"}
               </div>
             </div>
@@ -543,7 +543,7 @@ export default function CopiesPage() {
               <span
                 className="tabular-nums"
                 style={{
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 600,
                   minWidth: 18,
                   padding: "1px 6px",
@@ -577,7 +577,7 @@ export default function CopiesPage() {
             <div style={{ flex: 1 }} />
             {unresolvedFilteredCount > 0 ? (
               <span
-                style={{ fontSize: 11, color: "var(--warn)" }}
+                style={{ fontSize: 12, color: "var(--warn)" }}
                 data-testid="copies-data-meta"
               >
                 {unresolvedFilteredCount} ad{unresolvedFilteredCount === 1 ? "" : "s"} hidden (copy
@@ -735,7 +735,7 @@ function HeatLegendFooter({
         gap: 12,
         flexWrap: "wrap",
         marginTop: 10,
-        fontSize: 11,
+        fontSize: 12,
         color: "var(--muted)",
       }}
     >
@@ -766,7 +766,7 @@ function DrawerField({ label, children }: { label: string; children: React.React
     <div>
       <div
         className="mono"
-        style={{ fontSize: 11, color: "var(--muted)", marginBottom: 4, letterSpacing: "0.03em" }}
+        style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4, letterSpacing: "0.03em" }}
       >
         {label}
       </div>
@@ -871,7 +871,7 @@ function CopyDetailDrawer({
             <span className="tabular-nums">
               {dash(row.campaignName)} · {dash(row.adSetName)}
             </span>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
               {row.copyVariants?.length ?? 0} copy variant
               {(row.copyVariants?.length ?? 0) === 1 ? "" : "s"} · {row.headlineVariants?.length ?? 0}{" "}
               headline · {row.descriptionVariants?.length ?? 0} description
@@ -890,7 +890,7 @@ function CopyDetailDrawer({
                 {Number.isFinite(row.clickToPurchase) ? `${row.clickToPurchase.toFixed(2)}%` : "—"}
               </span>
             </div>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
               per-context (prospecting / retargeting) breakdown ships when the copies payload carries
               it — never faked.
             </div>
@@ -1059,7 +1059,7 @@ function CopyCompareOverlay({
             <span style={{ fontSize: 15, fontWeight: 600 }}>
               Compare · {rows.length} {rows.length === 1 ? "copy" : "copies"}
             </span>{" "}
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>
               · review-only — deltas vs the first column · account currency per column
             </span>
           </div>
@@ -1126,7 +1126,7 @@ function CopyCompareOverlay({
           ))}
         </div>
 
-        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
           Deltas vs the first column (baseline). Ranking omitted — not server-supplied for this set.
         </div>
       </div>

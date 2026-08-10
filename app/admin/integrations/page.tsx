@@ -351,10 +351,10 @@ export default function AdminIntegrationsPage() {
                                 <div className="flex items-center gap-2">
                                   <ChevronDown className="w-4 h-4 text-gray-400" />
                                   <p className="text-sm font-medium text-gray-900">{workspace.businessName}</p>
-                                  <span className="text-[11px] font-medium rounded-full bg-gray-100 text-gray-700 px-2 py-0.5">
+                                  <span className="text-[12px] font-medium rounded-full bg-gray-100 text-gray-700 px-2 py-0.5">
                                     {workspace.providerCount} provider
                                   </span>
-                                  <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${criticalityStyles(criticalityForIssue(workspace.worstStatus))}`}>
+                                  <span className={`text-[12px] font-medium rounded-full px-2 py-0.5 ${criticalityStyles(criticalityForIssue(workspace.worstStatus))}`}>
                                     {workspace.worstStatus}
                                   </span>
                                 </div>
@@ -381,7 +381,7 @@ export default function AdminIntegrationsPage() {
                                       <p className="text-sm font-medium text-gray-900">
                                         {providerLabel(detail.provider)}
                                       </p>
-                                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${criticalityStyles(criticalityForIssue(detail.issueType))}`}>
+                                      <span className={`text-[12px] font-medium rounded-full px-2 py-0.5 ${criticalityStyles(criticalityForIssue(detail.issueType))}`}>
                                         {detail.issueType}
                                       </span>
                                     </div>
@@ -390,7 +390,7 @@ export default function AdminIntegrationsPage() {
                                     </p>
                                   </div>
                                   {detail.refreshInProgress ? (
-                                    <span className="text-[11px] font-medium rounded-full bg-blue-100 text-blue-700 px-2 py-1">
+                                    <span className="text-[12px] font-medium rounded-full bg-blue-100 text-blue-700 px-2 py-1">
                                       Refreshing
                                     </span>
                                   ) : null}
@@ -421,7 +421,7 @@ function Metric({ value, label }: { value: number; label: string }) {
     <div className="min-w-[52px]">
       <p className="text-sm font-semibold text-gray-900">{value}</p>
       <div className="mt-1 flex items-center justify-center gap-1">
-        <p className="text-[11px] text-gray-500">{label}</p>
+        <p className="text-[12px] text-gray-500">{label}</p>
         {INTEGRATION_HELP[label] ? <InlineHelp text={INTEGRATION_HELP[label]} /> : null}
       </div>
     </div>

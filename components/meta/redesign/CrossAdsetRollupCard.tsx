@@ -32,7 +32,7 @@ export function CrossAdsetRollupCard({ campaignName, recs, onOpenRec }: CrossAds
         </div>
         <div>
           <div className="text-[13px] font-semibold text-slate-900">{campaignName}</div>
-          <div className="text-[11.5px] text-slate-500">Cross-adset rollup · mixed decisions</div>
+          <div className="text-[12px] text-slate-500">Cross-adset rollup · mixed decisions</div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wider text-slate-600">

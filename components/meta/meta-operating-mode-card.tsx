@@ -125,13 +125,13 @@ export function MetaOperatingModeCard({
         <div className="flex flex-wrap gap-2">
           <span
             className={cn(
-              "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+              "rounded-full px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide",
               tone.badge,
             )}
           >
             Current Mode: {query.data.currentMode}
           </span>
-          <span className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+          <span className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold uppercase tracking-wide text-slate-700">
             Recommended Mode: {query.data.recommendedMode}
           </span>
         </div>

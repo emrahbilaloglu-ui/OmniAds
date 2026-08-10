@@ -175,7 +175,7 @@ export function CrossPlacementCard({
                   {card.brand || "Brand"}
                 </span>
               </div>
-              <div className="text-[11.5px] text-neutral-500 truncate mt-0.5">
+              <div className="text-[12px] text-neutral-500 truncate mt-0.5">
                 In {placementList.length} placements · best in{" "}
                 <span className="font-medium text-neutral-700">{bestPlacement}</span>
               </div>
@@ -207,7 +207,7 @@ export function CrossPlacementCard({
             {card.reason || "No engine reason supplied."}
           </div>
           {card.predictive ? (
-            <div className="text-[11.5px] text-neutral-500 italic flex items-center gap-1 mt-0.5">
+            <div className="text-[12px] text-neutral-500 italic flex items-center gap-1 mt-0.5">
               <Sparkles className="inline-block shrink-0 text-neutral-400" size={11} aria-hidden="true" />
               <span>{card.predictive}</span>
             </div>
@@ -227,14 +227,14 @@ export function CrossPlacementCard({
                 width={60}
                 height={18}
               />
-              <span className="font-mono tabular-nums text-[11px] font-medium text-neutral-900">
+              <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
                 {formatOptionalRoas(card.roas)}
               </span>
             </div>
             <MetricDivider />
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
-            <span className="font-mono tabular-nums text-[11px] text-neutral-500">
+            <span className="font-mono tabular-nums text-[12px] text-neutral-500">
               {formatOptionalCurrency(card.spend)} spend · {formatOptionalInteger(card.purchases)} purch.
             </span>
           </div>
@@ -268,7 +268,7 @@ export function CrossPlacementCard({
         </DeferTooltip>
         <button
           type="button"
-          className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-neutral-500 hover:text-neutral-900"
+          className="ml-auto inline-flex items-center gap-1 text-[12px] text-neutral-500 hover:text-neutral-900"
           data-action="evidence"
           data-id={actionCardId}
           aria-haspopup="dialog"
@@ -314,7 +314,7 @@ function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
           return (
             <div
               key={key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white cursor-pointer text-[11.5px]"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white cursor-pointer text-[12px]"
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${

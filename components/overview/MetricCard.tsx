@@ -72,7 +72,7 @@ export function MetricCard({
     <article className="rounded-xl border border-neutral-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-neutral-500">
+          <p className="text-[12px] font-medium uppercase tracking-[0.07em] text-neutral-500">
             {title}
           </p>
           <p className="mt-2 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-neutral-900 md:text-[32px]">
@@ -80,7 +80,7 @@ export function MetricCard({
           </p>
           <div className="mt-2.5">
             <span
-              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${delta.className}`}
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-semibold tabular-nums ${delta.className}`}
               title={delta.title}
               aria-label={delta.srLabel}
             >
@@ -88,7 +88,7 @@ export function MetricCard({
               {delta.label}
             </span>
             {delta.title ? (
-              <span className="ml-1.5 text-[11px] text-neutral-500">{delta.title}</span>
+              <span className="ml-1.5 text-[12px] text-neutral-500">{delta.title}</span>
             ) : null}
           </div>
         </div>
@@ -142,7 +142,7 @@ export function MetricCard({
         <MiniTrendAreaChart
           data={trendData}
           comparisonData={comparisonTrendData}
-          tone={delta.direction === "up" ? "up" : delta.direction === "down" ? "down" : "neutral"}
+          label={title}
           unit={unit}
           valueFormatter={(nextValue) => formatValue(nextValue, unit, currencySymbol)}
           loading={trendLoading}

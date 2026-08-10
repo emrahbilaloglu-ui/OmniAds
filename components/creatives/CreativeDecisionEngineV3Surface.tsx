@@ -255,7 +255,7 @@ function PresetOverrideControl({
       {hasOverride && (
         <button
           type="button"
-          className="mt-1 text-[11px] font-medium text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline disabled:cursor-not-allowed disabled:text-neutral-400"
+          className="mt-1 text-[12px] font-medium text-neutral-600 underline-offset-2 hover:text-neutral-900 hover:underline disabled:cursor-not-allowed disabled:text-neutral-400"
           disabled={mutation.isPending || !businessId}
           onClick={() => mutation.mutate(null)}
         >
@@ -263,10 +263,10 @@ function PresetOverrideControl({
         </button>
       )}
       {mutation.isPending && (
-        <span className="mt-1 text-[11px] text-neutral-500">Saving...</span>
+        <span className="mt-1 text-[12px] text-neutral-500">Saving...</span>
       )}
       {errorVisible && (
-        <span className="mt-1 text-[11px] font-medium text-rose-600">
+        <span className="mt-1 text-[12px] font-medium text-rose-600">
           Failed to update preset
         </span>
       )}
@@ -290,7 +290,7 @@ function ScopeProfileDisclosure({
         Scope profile ({profile.scope.type})
       </summary>
       {profile.scope.fallbackReason && (
-        <p className="mt-2 text-[11px] font-medium text-amber-700">
+        <p className="mt-2 text-[12px] font-medium text-amber-700">
           Falling back to account scope: {formatScopeFallbackReason(profile.scope.fallbackReason)}
         </p>
       )}
@@ -357,7 +357,7 @@ function ScopeProfileDisclosure({
         <div className="md:col-span-2 xl:col-span-3">
           <div className="rounded border border-neutral-200 bg-white px-2.5 py-2">
             <span className="font-medium text-neutral-500">Multipliers</span>
-            <span className="ml-2 font-mono text-[11px] text-neutral-800">
+            <span className="ml-2 font-mono text-[12px] text-neutral-800">
               {formatMultipliers(profile.multipliers)}
             </span>
           </div>
@@ -384,7 +384,7 @@ function ProfileRow({
       <div className={cn("mt-0.5 break-words text-neutral-900", mono && "font-mono")}>
         {value}
       </div>
-      {detail && <div className="mt-0.5 text-[11px] text-neutral-500">{detail}</div>}
+      {detail && <div className="mt-0.5 text-[12px] text-neutral-500">{detail}</div>}
     </div>
   );
 }

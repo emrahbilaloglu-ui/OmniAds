@@ -103,14 +103,14 @@ export function BulkCutConfirmModal({
                     <div className="text-[12.5px] font-medium text-neutral-900 truncate">
                       {name}
                     </div>
-                    <div className="text-[11px] text-neutral-500 truncate">
+                    <div className="text-[12px] text-neutral-500 truncate">
                       {card.campaign || card.campaignName || "Campaign"}
                     </div>
                   </div>
-                  <span className="font-mono tabular-nums text-[11.5px] text-neutral-600">
+                  <span className="font-mono tabular-nums text-[12px] text-neutral-600">
                     {formatOptionalCurrency(card.spend)}
                   </span>
-                  <span className="font-mono tabular-nums text-[11.5px] font-medium text-neutral-900">
+                  <span className="font-mono tabular-nums text-[12px] font-medium text-neutral-900">
                     {formatOptionalRoas(card.roas)}
                   </span>
                 </div>
@@ -119,13 +119,13 @@ export function BulkCutConfirmModal({
           </div>
 
           <div className="px-5 py-3 border-t border-neutral-200 bg-neutral-50 flex items-center gap-4">
-            <div className="text-[11.5px] text-neutral-500">
+            <div className="text-[12px] text-neutral-500">
               Total spend{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
                 {formatOptionalCurrency(totals.spend)}
               </span>
             </div>
-            <div className="text-[11.5px] text-neutral-500">
+            <div className="text-[12px] text-neutral-500">
               Avg ROAS{" "}
               <span className="font-mono tabular-nums font-semibold text-neutral-900">
                 {formatOptionalRoas(totals.avgRoas)}

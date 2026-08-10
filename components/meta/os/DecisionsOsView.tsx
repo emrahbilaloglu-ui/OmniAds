@@ -1003,7 +1003,14 @@ export function DecisionsOsView({
           <DateRangePicker
             value={dateWindowToRangeValue(selectedDateRange)}
             onChange={chooseDateRange}
-            label="Decision date range"
+            // The canonical read model types this scope as
+            // `metricsRangeAffectsDecisionSnapshot: false`: the range selects
+            // which metrics and evidence are shown and does not move the
+            // verdict, the snapshot, or any authority derived from it. Calling
+            // it a "Decision date range" said the opposite, and invited an
+            // operator to distrust a verdict that correctly did not change.
+            label="Metrics window"
+            hint="Sets the metrics and evidence shown. It does not change the current verdict or its authority."
             testId="meta-decisions-date-range-picker"
             showComparisonTrigger={false}
             rangePresets={[

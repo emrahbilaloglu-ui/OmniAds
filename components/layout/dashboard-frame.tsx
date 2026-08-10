@@ -1,6 +1,7 @@
 "use client";
 
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { shouldClaimMobileReadOnly } from "@/lib/mobile-write-capability";
 import { TierZeroFreshnessBar } from "@/components/states/TierZeroFreshnessBar";
 import { Bell, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -105,8 +106,17 @@ function ConsoleTopbar({ userName }: { userName: string }) {
         The active surface's data age, in one place with one wording. A surface
         that has reported nothing renders as unknown rather than silently, since
         silence reads as "current".
+
+        Wrapped so the stylesheet can move it to its own row below 720px. It
+        used to share the single 50px bar with brand, platform, notifications
+        and the account menu, and at 320px they physically overlapped -- two
+        separate hit targets sharing pixels, so a tap near the seam landed on
+        whichever was painted last. Hiding the freshness would have solved the
+        geometry by removing the honesty, so it gets a row instead.
       */}
-      <TierZeroFreshnessBar />
+      <div className="ad-console-freshness">
+        <TierZeroFreshnessBar />
+      </div>
       <div className="ad-console-brand flex min-w-0 items-center gap-2">
         <BrandLogo
           className="gap-2"
@@ -189,6 +199,7 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
   const [sidebarPreferenceReady, setSidebarPreferenceReady] = useState(false);
   const mobileSurface = mobileSurfaceForPath(pathname);
   const mobileReadonlyMessage = mobileReadonlyMessageForPath(pathname);
+  const claimsMobileReadOnly = shouldClaimMobileReadOnly(pathname);
   const routeOwnsMobileSurface = hasRouteOwnedMetaSurface(pathname);
   const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
   const businesses = useAppStore((state) => state.businesses);
@@ -251,7 +262,19 @@ export function DashboardFrame({ userName, children }: DashboardFrameProps) {
           className="min-w-0 flex-1 overflow-y-auto bg-[var(--adc-s1)]"
           data-mobile-surface={mobileSurface ?? "none"}
         >
-          {!routeOwnsMobileSurface ? (
+          {/*
+            The claim is made only where it is true.
+            
+            This used to render whenever a route did not own its own mobile
+            surface, which included Settings and Integrations -- both of which
+            render working write controls at the same width. The banner told an
+            operator their changes would not be saved, directly above the
+            controls that save them, and the safe reading of that is to stop
+            trying. D5 gates provider mutation to desktop; it never covered
+            account or workspace settings, and that is the distinction the old
+            condition flattened.
+          */}
+          {claimsMobileReadOnly && !routeOwnsMobileSurface ? (
             <div className="ad-console-mobile-readonly" role="note">
               <span data-mono>Adsecute · mobile read-only</span>
               <span>{mobileReadonlyMessage}</span>

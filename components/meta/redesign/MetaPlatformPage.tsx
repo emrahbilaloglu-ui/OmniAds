@@ -4483,7 +4483,7 @@ export function MetaPlatformPage({
                 >
                   <div
                     style={{
-                      fontSize: 11,
+                      fontSize: 12,
                       color: "var(--muted)",
                       textTransform: "uppercase",
                       letterSpacing: 0.4,
@@ -4502,7 +4502,7 @@ export function MetaPlatformPage({
                 >
                   <div
                     style={{
-                      fontSize: 11,
+                      fontSize: 12,
                       color: "var(--muted)",
                       textTransform: "uppercase",
                       letterSpacing: 0.4,

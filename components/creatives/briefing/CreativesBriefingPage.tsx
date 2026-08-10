@@ -566,10 +566,10 @@ function CreativeEngineProfileStrip({
           </span>
         ) : null}
         {asOf ? (
-          <span className="text-[11px] text-neutral-400">as of {asOf}</span>
+          <span className="text-[12px] text-neutral-400">as of {asOf}</span>
         ) : null}
       </div>
-      <div className="mt-2 grid gap-2 text-[11.5px] text-neutral-600 md:grid-cols-5">
+      <div className="mt-2 grid gap-2 text-[12px] text-neutral-600 md:grid-cols-5">
         <div>
           <span className="text-neutral-400">Hard actions</span>
           <div className="font-medium text-neutral-900">{hardActions}</div>
@@ -600,7 +600,7 @@ function CreativeEngineProfileStrip({
         </div>
       </div>
       {profile.scope.fallbackReason ? (
-        <div className="mt-2 text-[11.5px] text-amber-700">
+        <div className="mt-2 text-[12px] text-amber-700">
           Scope fallback: {profile.scope.fallbackReason.replace(/_/g, " ")}
         </div>
       ) : null}
@@ -1159,7 +1159,7 @@ function LaneSummaryHeader({
   const watching = summary.watching;
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-500"
+      className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-neutral-500"
       data-creative-lane-summary
     >
       <span className="font-semibold text-neutral-700">

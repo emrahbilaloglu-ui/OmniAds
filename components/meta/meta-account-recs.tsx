@@ -157,7 +157,7 @@ function RecCard({
                 </svg>
               )}
             </button>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[12px] text-slate-500">
               {checked ? "Marked complete" : "Mark as complete"}
             </span>
           </div>
@@ -198,7 +198,7 @@ export function MetaAccountRecs({
   return (
     <div className="space-y-4" data-testid="meta-recommendations-panel">
       <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Destekleyici Bağlam" : "Supporting Context"}
         </p>
         <p className="text-xs text-slate-500">

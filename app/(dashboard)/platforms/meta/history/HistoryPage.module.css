@@ -6,7 +6,14 @@
   --history-line-strong: #bcc5c5;
   --history-ink: #171b1b;
   --history-ink-2: #485252;
-  --history-ink-3: #6c7777;
+  /*
+   * Raised from #6c7777, which measured 4.31:1 against the page and 4.11:1
+   * against the muted surface -- both under the 4.5:1 floor, and this token
+   * carries the History column headers: Kind, Entity, Label, Source,
+   * Persisted ID, Account scope. Those are how a reader knows what each
+   * column is, not decoration.
+   */
+  --history-ink-3: #5a6666;
   --history-focus: #176b68;
   --history-focus-bg: #e4f2f0;
   --history-focus-line: #a9cfca;
@@ -127,7 +134,7 @@
   border-radius: 6px;
   color: var(--history-focus);
   background: var(--history-focus-bg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-transform: uppercase;
 }
@@ -381,14 +388,14 @@
 
 .replayCopy span {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .replayCopy small {
   margin-top: 2px;
   color: var(--history-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .readOnlySeal {
@@ -459,7 +466,7 @@
 
 .limitations p {
   margin: 4px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .journalSection {
@@ -495,7 +502,7 @@
   flex: none;
   color: var(--history-ink-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -641,7 +648,7 @@
 .entryMain p {
   margin: 2px 0 0;
   color: var(--history-ink-2);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .entryMain small {
@@ -842,7 +849,7 @@
 .errorState p,
 .emptyState p {
   margin: 3px 0 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .emptyState {

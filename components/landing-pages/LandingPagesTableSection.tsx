@@ -117,10 +117,10 @@ export function LandingPagesTableSection({
                       <p className="font-semibold text-[var(--adc-ink,#1a1c1f)]">{row.title}</p>
                       <p className="font-mono text-xs text-[var(--adc-ink3,#7d838c)]">{row.path}</p>
                       <div className="flex flex-wrap gap-2 pt-1">
-                        <span className="rounded-full bg-[var(--adc-s3,#ededea)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-ink2,#4a4f56)]">
+                        <span className="rounded-full bg-[var(--adc-s3,#ededea)] px-2.5 py-1 text-[12px] font-medium text-[var(--adc-ink2,#4a4f56)]">
                           Session CVR {formatPercent(row.sessionToPurchaseRate)}
                         </span>
-                        <span className="rounded-full bg-[var(--adc-caution-bg,#faf2df)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-caution-fg,#86590a)]">
+                        <span className="rounded-full bg-[var(--adc-caution-bg,#faf2df)] px-2.5 py-1 text-[12px] font-medium text-[var(--adc-caution-fg,#86590a)]">
                           {language === "tr" ? "Kacak" : "Leak"} {getDropOffLabel(row.largestDropOffStep, language)}
                         </span>
                       </div>

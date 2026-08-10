@@ -45,7 +45,7 @@ export function PulseStrip({
         </div>
       ) : null}
       {jumpNav ? (
-        <div className="max-w-[1440px] mx-auto px-6 py-1.5 border-t border-neutral-100 flex items-center gap-1 text-[11px] overflow-x-auto">
+        <div className="max-w-[1440px] mx-auto px-6 py-1.5 border-t border-neutral-100 flex items-center gap-1 text-[12px] overflow-x-auto">
           {jumpNav}
         </div>
       ) : null}

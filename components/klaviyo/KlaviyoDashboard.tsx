@@ -339,7 +339,7 @@ export function KlaviyoDashboard({ businessId }: { businessId: string }) {
                 <FlowStat label="Open rate" value={flow.openRate.formatted} delta={flow.openRate.deltaLabel} />
                 <FlowStat label="Click rate" value={flow.clickRate.formatted} delta={flow.clickRate.deltaLabel} />
                 <div className="space-y-1">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                     Benchmark
                   </p>
                   <BenchmarkBadge status={flow.benchmark.status}>
@@ -682,7 +682,7 @@ function FlowStat({
 }) {
   return (
     <div className="space-y-1">
-      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </p>
       <p className="text-sm font-medium text-foreground">{value}</p>
@@ -694,7 +694,7 @@ function FlowStat({
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-muted/25 px-3 py-2">
-      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
         {label}
       </p>
       <p className="mt-1 text-sm font-medium">{value}</p>
@@ -778,7 +778,7 @@ function RecommendationCard({
               key={item.label}
               className="rounded-xl border border-border/70 bg-background/70 p-3"
             >
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 {item.label}
               </p>
               <p className="mt-1 text-sm font-medium">{item.value}</p>

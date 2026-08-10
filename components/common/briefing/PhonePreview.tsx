@@ -42,7 +42,7 @@ export function PhonePreview({
       className="flex flex-col items-center gap-3"
       data-testid={testId}
     >
-      <div className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+      <div className="flex items-center gap-1.5 text-[12px] text-neutral-500">
         {(Object.keys(PLACEMENT_LABELS) as PhonePreviewPlacement[]).map((key) => (
           <span
             key={key}

@@ -148,7 +148,7 @@ export function IntegrationsCard({
           </div>
         </div>
         {comingSoon ? (
-          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+          <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[12px] font-medium text-neutral-500">
             Coming soon
           </span>
         ) : (
@@ -164,7 +164,7 @@ export function IntegrationsCard({
       </div>
 
       {view.notice ? (
-        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[12px] leading-4 text-blue-800">
           {view.notice}
         </p>
       ) : null}
@@ -192,32 +192,32 @@ export function IntegrationsCard({
       ) : null}
 
       {syncNotice ? (
-        <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[11px] leading-4", syncNoticeClasses)}>
+        <p className={cn("mt-2 rounded-lg px-2.5 py-2 text-[12px] leading-4", syncNoticeClasses)}>
           {syncNotice}
         </p>
       ) : null}
 
       {isNeedsAssignment ? (
-        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[11px] leading-4 text-blue-800">
+        <p className="mt-2 rounded-lg border border-blue-300/30 bg-blue-50 px-2.5 py-2 text-[12px] leading-4 text-blue-800">
           {view.assignedSummary}
         </p>
       ) : null}
 
       {syncActionRequired && view.status !== "action_required" ? (
-        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800">
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[12px] leading-4 text-amber-800">
           {providerLabel} sync needs attention while the account connection remains active.
         </p>
       ) : null}
 
       {isActionRequired && view.errorMessage ? (
-        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[11px] leading-4 text-amber-800">
+        <p className="mt-2 rounded-lg border border-amber-300/40 bg-amber-50 px-2.5 py-2 text-[12px] leading-4 text-amber-800">
           {view.errorMessage}
         </p>
       ) : null}
 
       <div className="mt-3 border-t border-border/70 pt-3">
         {comingSoon ? (
-          <p className="text-[11.5px] leading-4 text-muted-foreground">
+          <p className="text-[12px] leading-4 text-muted-foreground">
             {providerLabel} isn&apos;t connectable yet — no live authorization or data sync
             exists for it. This card is a visible roadmap placeholder, not a working connector.
           </p>
@@ -417,7 +417,7 @@ function ShopifyIntegrationStatus({
   const orderCount = status.warehouse?.orderRowCount ?? null;
 
   return (
-    <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[11px] leading-4 dark:bg-muted/30">
+    <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[12px] leading-4 dark:bg-muted/30">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="tracking-[0.18em] text-[12px] font-semibold uppercase text-muted-foreground">

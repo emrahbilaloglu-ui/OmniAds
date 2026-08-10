@@ -162,7 +162,7 @@ export function MetaHealthyRow({
       <MetaScopeChip level={row.level} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12.5px] font-medium text-slate-900">{row.name}</div>
-        {!hideCampaignName && row.campaignName ? <div className="truncate text-[11px] text-slate-500">{row.campaignName}</div> : null}
+        {!hideCampaignName && row.campaignName ? <div className="truncate text-[12px] text-slate-500">{row.campaignName}</div> : null}
       </div>
       <div className="hidden min-w-0 max-w-[58%] shrink-0 items-center justify-end gap-1.5 xl:flex" data-healthy-config={row.id}>
         {hideOptimization ? null : (
@@ -178,8 +178,8 @@ export function MetaHealthyRow({
           />
         ) : null}
       </div>
-      <div className="font-mono tabular-nums text-[11.5px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
-      <div className="font-mono tabular-nums text-[11.5px] text-emerald-700">{formatRoas(row.roas)}</div>
+      <div className="font-mono tabular-nums text-[12px] text-slate-600">{formatMoney(row.spend, moneyCurrency)}</div>
+      <div className="font-mono tabular-nums text-[12px] text-emerald-700">{formatRoas(row.roas)}</div>
     </div>
   );
 }

@@ -294,7 +294,7 @@ export function MetaCampaignLabelsSection({
               )
             ) : null}
             {notice ? (
-              <span className="text-[11.5px] text-emerald-700">{notice}</span>
+              <span className="text-[12px] text-emerald-700">{notice}</span>
             ) : null}
             {!loading && !error ? (
               <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[12px] font-medium text-slate-600">
@@ -351,7 +351,7 @@ export function MetaCampaignLabelsSection({
                     <div className="truncate font-medium text-slate-900">
                       {campaign.name}
                     </div>
-                    <div className="truncate text-[11px] text-slate-500">
+                    <div className="truncate text-[12px] text-slate-500">
                       {campaign.accountId}
                     </div>
                   </div>
@@ -417,7 +417,7 @@ export function MetaCampaignLabelsSection({
             })}
           </div>
           {labelableCampaigns.length > 12 ? (
-            <div className="border-t border-slate-100 px-3 py-2 text-[11.5px] text-slate-500">
+            <div className="border-t border-slate-100 px-3 py-2 text-[12px] text-slate-500">
               Showing 12 of {labelableCampaigns.length} {campaignScopeLabel}{" "}
               campaigns.
             </div>

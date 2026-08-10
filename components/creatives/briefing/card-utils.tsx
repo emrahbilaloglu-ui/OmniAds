@@ -601,11 +601,11 @@ function BlockersBody({ card }: { card: BriefingCreativeCard }) {
           className="grid grid-cols-[1.35fr_1fr_1fr_0.8fr] gap-2 border-b border-neutral-100 px-2 py-1.5 text-[12px] last:border-b-0"
         >
           <div>
-            <div className="font-mono text-[11.5px] text-neutral-900">
+            <div className="font-mono text-[12px] text-neutral-900">
               {blocker.predicate}
             </div>
             {blocker.reason ? (
-              <div className="mt-0.5 text-[11px] leading-snug text-neutral-500">
+              <div className="mt-0.5 text-[12px] leading-snug text-neutral-500">
                 {blocker.reason}
               </div>
             ) : null}
@@ -640,7 +640,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
   return (
     <div className="space-y-3">
       {thresholdProvenance ? (
-        <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-neutral-600">
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-neutral-600">
           <span className="inline-flex items-center rounded border border-neutral-200 bg-white px-2 py-1 font-medium">
             Calibration{" "}
             {thresholdProvenance.calibrationComputedAt
@@ -731,7 +731,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
             <span className="text-neutral-400">·</span>
             <span>{priority.reason}</span>
           </div>
-          <div className="mt-1 text-[11px] text-neutral-500">
+          <div className="mt-1 text-[12px] text-neutral-500">
             spend at risk {formatCurrency(priority.inputs.spendAtRisk)} ·
             opportunity {formatCurrency(priority.inputs.opportunityValue)} ·
             confidence factor {priority.inputs.confidenceFactor.toFixed(2)}
@@ -751,7 +751,7 @@ function ExplainabilityBody({ card }: { card: BriefingCreativeCard }) {
         </div>
       ) : null}
       {missingEvidence.length > 0 ? (
-        <div className="text-[11.5px] text-neutral-500">
+        <div className="text-[12px] text-neutral-500">
           Missing proof: {missingEvidence.join(", ").replace(/_/g, " ")}
         </div>
       ) : null}
@@ -776,7 +776,7 @@ function TrailItem({
       <div className="flex items-center gap-2 text-neutral-900 font-medium text-[12px]">
         {label}
       </div>
-      <div className="text-[11px] text-neutral-500 flex items-center gap-2">
+      <div className="text-[12px] text-neutral-500 flex items-center gap-2">
         <span className="font-mono tabular-nums">{date}</span>
         <span className="text-neutral-300">·</span>
         <span>{version}</span>

@@ -333,10 +333,10 @@ function PlacementCard({
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-            <span className="font-mono text-[11px] text-neutral-600">{copyValue}</span>
+            <span className="font-mono text-[12px] text-neutral-600">{copyValue}</span>
             <button
               type="button"
-              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
+              className="inline-flex min-w-[4.5rem] items-center justify-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
               onClick={(event) => {
                 event.stopPropagation();
                 onCopy(copyValue);
@@ -350,7 +350,7 @@ function PlacementCard({
                 href={metaUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[11px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
+                className="inline-flex items-center gap-1 rounded-md border border-neutral-200 px-1.5 py-0.5 text-[12px] font-medium text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
                 onClick={(event) => event.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
@@ -358,7 +358,7 @@ function PlacementCard({
               </a>
             ) : null}
             {daysActive !== null ? (
-              <span className="ml-auto font-mono text-[11px] text-neutral-500">
+              <span className="ml-auto font-mono text-[12px] text-neutral-500">
                 {daysActive}d active
               </span>
             ) : null}

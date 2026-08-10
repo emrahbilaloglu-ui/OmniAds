@@ -176,14 +176,14 @@ function CreativeCard({
               {row.campaignName}
             </p>
           ) : null}
-          <div className="mt-2 flex items-center gap-4 text-[11px]">
+          <div className="mt-2 flex items-center gap-4 text-[12px]">
             <MetricMini label="Spend" value={METRIC_CONFIG.spend.format(row.spend)} />
             <MetricMini label="ROAS" value={METRIC_CONFIG.roas.format(row.roas)} />
           </div>
         </div>
       </button>
 
-      <label className="flex items-center justify-between border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+      <label className="flex items-center justify-between border-t px-3 py-1.5 text-[12px] text-muted-foreground">
         <span>Selected</span>
         <input
           type="checkbox"

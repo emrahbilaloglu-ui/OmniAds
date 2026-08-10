@@ -54,7 +54,7 @@ export function KpiSummaryTiles({
             ) : null}
           </div>
           {tile.micro ? (
-            <div className="mt-1 text-[11px] text-neutral-500">{tile.micro}</div>
+            <div className="mt-1 text-[12px] text-neutral-500">{tile.micro}</div>
           ) : null}
         </div>
       ))}

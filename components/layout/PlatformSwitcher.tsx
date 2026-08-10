@@ -113,7 +113,11 @@ export function PlatformSwitcher() {
             <span className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold">
               Switch platform
             </span>
-            <span className="text-[12px] text-neutral-400 font-mono">⌘K</span>
+            {/*
+              A search-shortcut hint used to sit here with no handler behind
+              it, and in the wrong menu besides: the shortcut belongs to
+              search. It now lives on the search control, where it works.
+            */}
           </div>
           <div className="py-1">
             {platformOrder.map((platformId) => {
@@ -147,17 +151,14 @@ export function PlatformSwitcher() {
                     {platform.name}
                   </span>
                   <StatusBadge status={platform.status} />
-                  {platform.status === "soon" ? (
-                    <span
-                      className="ml-2 text-[12px] text-blue-600 hover:underline cursor-pointer"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        console.info(`[PlatformSwitcher] Notify me requested for ${platform.id}`);
-                      }}
-                    >
-                      Notify me
-                    </span>
-                  ) : null}
+                  {/*
+                    A notify-when-it-ships link used to sit here and write one
+                    line to the browser console. Someone who clicked it
+                    believed they had registered interest and would hear when
+                    the platform shipped; nothing recorded it anywhere.
+                    Removed rather than backed by an invented store -- the
+                    status badge beside the name already says the honest thing.
+                  */}
                 </button>
               );
             })}

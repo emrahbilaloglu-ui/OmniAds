@@ -124,7 +124,7 @@ export function PresetBar({
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[11.5px] text-neutral-500">
+                  <div className="mt-0.5 text-[12px] text-neutral-500">
                     {preset.description}
                   </div>
                   {preset.metricChips.length > 0 ? (
@@ -168,7 +168,7 @@ export function PresetBar({
       <div className="ml-1 flex items-center gap-1.5">{labelFilter}</div>
 
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[11.5px] text-neutral-500">
+        <span className="font-mono text-[12px] text-neutral-500">
           {countLabel}
           {selectedCount > 0 ? ` · ${selectedCount} sel` : null}
         </span>

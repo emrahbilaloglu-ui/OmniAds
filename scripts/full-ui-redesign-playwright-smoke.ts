@@ -234,7 +234,15 @@ async function main() {
     );
     await runChild(
       "npx",
-      ["playwright", "test", "-c", "playwright.full-ui-redesign.config.ts"],
+      [
+        "playwright",
+        "test",
+        "-c",
+        "playwright.full-ui-redesign.config.ts",
+        // Iterating on one width should not cost a full six-width run. Empty
+        // by default, so the gate behaves exactly as before unless asked.
+        ...(process.env.FULL_UI_SMOKE_PW_ARGS ?? "").split(/\s+/).filter(Boolean),
+      ],
       "running full UI redesign Playwright route and visual smoke",
       env,
       worktreeDir,

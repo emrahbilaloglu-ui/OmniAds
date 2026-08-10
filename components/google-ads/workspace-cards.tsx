@@ -28,7 +28,7 @@ export function WorkspaceTaskCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             AI task
           </p>
           <h4 className="mt-2 text-sm font-semibold tracking-tight">{title}</h4>

@@ -75,10 +75,10 @@ export function CreativeCommercialContextCard({
         {query.data.why[0] ??
           "Decisions use live windows. Selected period affects analysis only."}
       </p>
-      <p className="mt-2 text-[11px] text-neutral-500">
+      <p className="mt-2 text-[12px] text-neutral-500">
         Decisions use live windows. Selected period affects analysis only.
       </p>
-      <p className="mt-2 text-[11px] text-neutral-500">
+      <p className="mt-2 text-[12px] text-neutral-500">
         Decision as of {query.data.decisionAsOf} · primary window {query.data.decisionWindows.primary30d.startDate} to {query.data.decisionWindows.primary30d.endDate}
       </p>
       {query.data.degradedMode.active ? (

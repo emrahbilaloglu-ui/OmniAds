@@ -22,7 +22,7 @@ export function DeferTooltip({ children }: DeferTooltipProps) {
         className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-[310px] -translate-x-1/2 rounded-xl border border-neutral-200 bg-neutral-950 px-3 py-2 text-left text-white opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       >
         <span className="block text-[12px] font-semibold leading-snug">{DEFER_TOOLTIP_TITLE}</span>
-        <span className="mt-1 block text-[11.5px] leading-snug text-neutral-200">{DEFER_TOOLTIP_BODY}</span>
+        <span className="mt-1 block text-[12px] leading-snug text-neutral-200">{DEFER_TOOLTIP_BODY}</span>
         <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-neutral-200 bg-neutral-950" />
       </span>
     </span>

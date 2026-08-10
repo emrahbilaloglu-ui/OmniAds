@@ -707,7 +707,7 @@ export default function IntegrationsPage() {
         </div>
       }
     >
-      <div className="inline-flex w-fit items-center gap-2 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-2.5 py-1 text-[11px] font-medium text-[var(--adc-ink3)]">
+      <div className="inline-flex w-fit items-center gap-2 rounded-[6px] border border-[var(--adc-b1)] bg-[var(--adc-s2)] px-2.5 py-1 text-[12px] font-medium text-[var(--adc-ink3)]">
               <Sparkles className="h-3.5 w-3.5" />
               Active business
               <span className="text-[var(--adc-ink)]">{activeBusiness?.name ?? "Unknown"}</span>
@@ -1033,7 +1033,7 @@ function SummaryTile({
         </span>
         <ArrowRight className="mb-0.5 h-3.5 w-3.5 text-current opacity-60" />
       </div>
-      <p className="mt-1 text-[11.5px] leading-5 text-current">{note}</p>
+      <p className="mt-1 text-[12px] leading-5 text-current">{note}</p>
     </div>
   );
 }

@@ -639,6 +639,114 @@ campaign label guard implements the review-only policy, and the briefing action 
 candidate-id matching with exact-identity authority — stricter than what they removed, with
 `hasNativeDecisionOriginLineage` still exported and used.
 
+### Released to production
+
+Deploy identity: `72b3897cfeb57eb17e86d8d20dfb28a8d6bdd1ca` — the merge commit for PR #205, which
+differs from the local candidate `6b815b72297533dcb8e1dbdeb1fb8cc2d902ada8`.
+
+| Step | Evidence |
+| --- | --- |
+| PR #205 CI | typecheck, test, database-seams, build — 4/4 pass; merge state CLEAN |
+| Images | `omniads-web` `sha256:9809139b320d…`, `omniads-worker` `sha256:8cb5347734f1…`, both tagged with the exact SHA |
+| `deploy/CUTOVER_REQUIRED` | absent on main |
+| Deploy run 31347693416 | success — cutover gate, registry verification, migrations, recreate, local readiness, public build propagation, ingress smoke, all green |
+| Public build readback | `https://adsecute.com/api/build-info` and `https://www.adsecute.com/api/build-info` both return the exact SHA; `/api/healthz` `ok: true` |
+| Post-deploy verification 31347866497 | success; artifact records `deployGate: pass` and `releaseGate: pass` for the exact SHA |
+
+Read-only production acceptance, signed in, no writes of any kind:
+
+- **Agency Today / Overview** — 12 clients ranked, "1 of 12 clients need you first". A disconnected
+  provider reads "Needs you first / Provider disconnected" with `—` rather than a fabricated zero,
+  which is the health join. "No portfolio total — clients use different currencies" is the
+  mixed-currency withholding, over live TRY/USD/GBP. Compare=None renders `— —` and "No comparison
+  selected for this period", not a 0%.
+- **Meta Decisions** — caught mid-load showing "Loading — no figures yet", then settled at "as of
+  21h ago" with 64 structures and 21 ads. Two fail-closed disclosures render and name their source:
+  "Native Ad decisions are degraded… Source: native_latest_job_engine_mismatch", and a commercial
+  target review notice that states explicitly it does not suppress Scale/Cut authority.
+- **Creative Studio** — 22 creatives, `Meta-attr.` qualifiers intact on Revenue and ROAS. The mobile
+  fix is live and measured in the deployed DOM: 180 `td[data-label]` cells carrying `Creative`,
+  `Spend`, `Purchases`, `Meta-attr. Revenue`, `CPA`, `Meta-attr. ROAS`, `Link CTR`,
+  `CVR LPV to purchase`, and the deployed stylesheet carries
+  `@media (max-width: 767px) .studio-table-scroll tbody td::before { content: attr(data-label) }`.
+- **Reports** — "as of just now", from the route `generatedAt` added this session rather than the
+  newest report's edit time. An empty list reads as genuinely empty.
+- **Integrations** — "as of 1m ago" from each provider's own last completed sync. Meta Connected,
+  Google Action required with a named queue-recovery reason, TikTok labelled "a visible roadmap
+  placeholder, not a working connector".
+- **Settings** — "as of just now" while "Member since 3/8/2026" appears only as account content.
+  Before this session's fix the bar would have reported the signup date as the data's age.
+
+**Not verified in production, and why.** The 320/390 Creative Studio *screenshot* was not retaken
+against production: the available browser could not be resized below 1281px. Both halves of the fix
+were measured in the deployed build instead — the labelled cells and the media rule above — and the
+visual confirmation at 320 and 390 is the committed local evidence for the identical code.
+
+### Post-release defects found in signed-in production, and closed
+
+The release at `72b3897cf` was green on every gate and still shipped seven defects that only a
+signed-in production pass could surface. Each is recorded here with the evidence that found it,
+because "all gates green" was true at the time and was not enough.
+
+| # | Defect | How it was found | Fix |
+| --- | --- | --- | --- |
+| 1 | Overview printed `0.0%` under Compare=None | Observed on live `/overview`: Pins said "No comparison selected" while Store Metrics, Meta, Google and Expenses cards showed `0.0%` for the same period | `resolveDelta` did `changePct ?? 0`. A missing comparison now renders `—` with the reason, no arrow and no colour; a genuine zero keeps its `0.0%`, because flat is a real result |
+| 2 | Decisions called its range a "Decision date range" | The canonical read model types the scope `metricsRangeAffectsDecisionSnapshot: false` | Renamed to "Metrics window" with a line stating it does not change the current verdict or its authority. No resolver, threshold, confidence or snapshot semantics touched |
+| 3 | 320px topbar controls physically overlapped | Measured in production: Refresh over Meta `3×16px`, Meta over Notifications `28×28px` | The bar was one fixed 50px row with `overflow: hidden`, so the controls stacked rather than clipped and nothing reported it. Freshness now takes its own row below 720px; nothing is hidden |
+| 4 | Two dead affordances | "Notify me" wrote one line to the console; a `⌘K` hint sat in the platform menu with no handler | The notify link is removed rather than backed by an invented store. The shortcut is real, lives on the search control, and yields to inputs, textareas, contenteditable and IME composition |
+| 5 | Studio essential text below the contrast and size floor | Token audit: Studio scopes its own palette, so the console-wide pass never reached it — `--ink3` 3.82:1, `--ink4` 2.31:1, and 81 sub-12px sizes | Tokens raised to clear 4.5:1 in both palettes, `--ink-decorative` added so the decorative case is declared rather than implied, and every sub-12px size raised |
+| 6 | The sparkline implied a verdict | It accepted `tone` and dropped it (`tone: _tone`), painting every metric blue-to-emerald; the SVG was `aria-hidden` and the readout pointer-only | One neutral line for every metric, because there is no trustworthy per-metric direction here to colour from. Accessible name and summary, keyboard focus, Arrow/Home/End navigation, live region, dashed comparison |
+| 7 | A false mobile read-only claim | The banner rendered on every route without its own mobile surface, including Settings and Integrations, which render working write controls at that width | Gated on a route/capability matrix. D5 gates provider mutation to desktop; it never covered account or workspace settings, and that is the distinction the old condition flattened |
+
+An eighth was found by the matrix itself while proving the seventh, and is recorded here because
+it was not on the list and would otherwise go unmentioned:
+
+| # | Defect | How it was found | Fix |
+| --- | --- | --- | --- |
+| 8 | Console text painted in a border colour | The six-width run measured `data as of 8/10/2026` on `/platforms/meta/copies` at 1.60:1, at both 320 and 390 | `.ad-final` aliased `--muted-2` to `--adc-b2`, a hairline shade the next line also publishes as `--border-3`. Twenty-five text sites drew through it. `--muted-2` now resolves to `--adc-ink3`; the two genuine hairline users moved to `--border-3` and render identically |
+
+Defect 8 is the same shape as defect 5 seen from the other side. Defect 5 was Studio scoping its
+own palette so the console-wide pass never reached it; defect 8 was the console-wide layer itself
+being wrong in a way no name revealed — `--muted-2` sits in the ink family and reads like "slightly
+quieter than `--muted`". Only resolving the alias to a literal colour shows it, which is why
+`lib/console-ink-token-contrast.test.ts` measures rather than lints the name.
+
+Every one has a behaviour test proven to fail on the pre-fix code first, and the six-width matrix
+now asserts each in a real browser: topbar rectangle intersections, fabricated comparison
+percentages, computed contrast, computed type size, the Cmd/Ctrl+K and Escape path on the real
+search field, and Arrow-key movement of the trend chart's reading.
+
+Two things about that sentence were untrue before this branch, and both were found by making the
+run count what it actually exercised rather than trusting that green meant covered.
+
+**The checks ran at two widths, not six.** Every assertion listed above sat inside a
+`width <= 480` guard. A six-width green run proved them at 320 and 390 and silently skipped 768,
+1280, 1440 and 1728. The contract names 1280 for computed contrast specifically, so this was not a
+technicality. Only the 24px touch-target minimum is genuinely phone-only and stays guarded; a
+fabricated percentage, an overlapping control and unreadable text are defects at any width.
+
+**The landing surface was never geometry-checked.** The app ships two frames. `/overview*` renders
+`LegacyDashboardFrame`, whose bar is a plain `<header>` with no `.ad-console-topbar` class. The
+geometry check queried that one class, got `null`, and `if (topbar)` skipped without reporting
+anything — so the claim "topbar hitbox intersections equal zero" was made on evidence that
+excluded Overview at every width. The check now follows whichever header the product rendered.
+
+Measured after both corrections: at 1440 the search field is found and fully exercised on 11
+surfaces and is absent on `/login` and `/overview`, which use the legacy frame; at 320 it is absent
+everywhere and correctly claims nothing, because the bar is hidden below `md`. The geometry check
+covers 12 of 13 surfaces at both widths — everything but `/login` — and Overview's legacy bar
+passes it. Those counts are asserted and printed, so a future skip fails the run instead of
+quietly shrinking what "six widths green" means.
+
+Two of those assertions had to be corrected rather than satisfied, and both corrections preserved a
+finding instead of erasing one. The contrast probe first reported 1.23:1 for black text on a pale
+green cell — impossible, and caused by parsing `color-mix(in oklab, ...)` with an rgb-shaped
+regex; it now normalises through canvas and composites alpha up the tree, and skips any colour it
+cannot resolve rather than guessing. The token test first reported `--muted` failing at 1.17:1,
+which was a file-wide search finding one of the five `--muted` declarations in `globals.css` — the
+shadcn one, which nothing paints text with. Scoped to the declaring block, only the real defect
+failed, at 1.5966:1 against the browser's independently measured 1.60.
+
 ### Remaining work, classified honestly
 
 Two categories. Conflating them was a real defect in earlier revisions of this ledger.

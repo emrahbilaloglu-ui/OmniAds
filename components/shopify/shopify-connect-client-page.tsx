@@ -280,7 +280,7 @@ export function ShopifyConnectClientPage() {
         <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-3xl items-center">
         <div className="w-full space-y-5">
           <div className="border-b border-neutral-200 pb-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
               Shopify Connect
             </p>
             <h1 className="mt-1 text-[24px] font-semibold tracking-tight">

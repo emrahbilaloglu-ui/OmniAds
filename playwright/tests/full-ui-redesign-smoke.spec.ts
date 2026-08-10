@@ -172,6 +172,29 @@ const TIER_ZERO_FRESHNESS_SURFACES = new Set<string>([
 /** Written next to the screenshots so the matrix is readable, not just visual. */
 const freshnessEvidence: Array<Record<string, unknown>> = [];
 
+/**
+ * How often the two keyboard checks actually ran.
+ *
+ * Both are guarded -- the search bar is `hidden md:block`, and a chart with no
+ * points renders a "No trend data" note instead of a figure -- so a green run
+ * is not by itself evidence that either was exercised. A guard that never
+ * opens is indistinguishable from a passing assertion unless the count is
+ * asserted too, and "all six widths green" would then be quietly overstating
+ * what was proven. These counts are asserted after the loop and attached to
+ * the report so a zero is visible rather than silent.
+ */
+const keyboardCoverage = {
+  searchFieldsSeen: 0,
+  searchExercised: 0,
+  chartsSeen: 0,
+  chartsExercised: 0,
+  searchAbsence: null as Record<string, unknown> | null,
+  searchSurfaces: [] as string[],
+  topbarsSeen: 0,
+  topbarsMissingOn: [] as string[],
+  searchMissingOn: [] as string[],
+};
+
 const ACTIVE_SCREENSHOT_ROUTES =
   SELECTED_SCREENSHOT_NAMES.size === 0
     ? SCREENSHOT_ROUTES
@@ -1198,6 +1221,399 @@ test.describe("full UI redesign route and visual smoke", () => {
           ).toEqual([]);
         }
 
+        // The global topbar's controls must not physically overlap.
+        //
+        // At 320px the bar packed brand, platform, freshness, notifications and
+        // the account menu into one 50px row with overflow hidden. Measured in
+        // signed-in production, Refresh overlapped Meta by 3x16px and Meta
+        // overlapped Notifications by 28x28px: two separate hit targets sharing
+        // pixels, so a tap near the seam went to whichever happened to be on
+        // top. Nothing was reported as clipped because nothing was clipped --
+        // it was stacked.
+        // These checks were all sitting behind a `<= 480` guard, so a green
+        // six-width run proved them at two widths and silently skipped four.
+        // The contract asks for computed contrast at 1280 as well, and a
+        // fabricated comparison or an overlapping control is a defect at any
+        // width. Only the touch-target minimum is genuinely phone-only.
+        const shotWidth = shotPage.viewportSize()?.width ?? 1440;
+        const isPhone = shotWidth <= 480;
+        {
+          const topbar = await shotPage.evaluate(() => {
+            // Two frames ship two headers. `/overview*` renders
+            // `LegacyDashboardFrame`, whose bar is a plain `<header>` with no
+            // `.ad-console-topbar` class, so keying this check to that one
+            // class quietly exempted the landing surface at every width --
+            // `if (topbar)` saw null and skipped without a word. The check
+            // follows whichever header the product actually rendered.
+            const bar =
+              document.querySelector<HTMLElement>(".ad-console-topbar") ??
+              document.querySelector<HTMLElement>("header");
+            if (!bar) return null;
+
+            // Independent interactive targets only: a control nested inside
+            // another legitimately shares its box.
+            // Interactive controls only. The freshness readout occupies space
+            // and must not be overlapped, but it is a status line rather than
+            // a touch target -- including it in this set both imposed a 24px
+            // minimum on a text row and, because it contains the Refresh
+            // button, hid that button from the size check entirely.
+            const visible = Array.from(
+              bar.querySelectorAll<HTMLElement>(
+                'button, a[href], input, [role="button"]',
+              ),
+            ).filter((el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            });
+            const candidates = visible.filter(
+              (el) => !visible.some((other) => other !== el && other.contains(el)),
+            );
+
+            const overlaps: string[] = [];
+            for (let i = 0; i < candidates.length; i += 1) {
+              for (let j = i + 1; j < candidates.length; j += 1) {
+                const a = candidates[i].getBoundingClientRect();
+                const b = candidates[j].getBoundingClientRect();
+                const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                if (w > 1 && h > 1) {
+                  const name = (el: HTMLElement) =>
+                    el.getAttribute("aria-label") ||
+                    el.getAttribute("data-testid") ||
+                    (el.textContent ?? "").trim().slice(0, 18) ||
+                    el.tagName;
+                  overlaps.push(
+                    `${name(candidates[i])} x ${name(candidates[j])} = ${Math.round(w)}x${Math.round(h)}px`,
+                  );
+                }
+              }
+            }
+
+            const freshness = document.querySelector<HTMLElement>(
+              '[data-testid="tier-zero-freshness"]',
+            );
+            const freshnessRect = freshness?.getBoundingClientRect();
+            return {
+              overlaps: overlaps.slice(0, 6),
+              freshnessVisible: Boolean(
+                freshnessRect && freshnessRect.width > 0 && freshnessRect.height > 0,
+              ),
+              smallTargets: candidates
+                .filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return r.height < 24 || r.width < 24;
+                })
+                .map((el) => {
+                  const r = el.getBoundingClientRect();
+                  return `${el.getAttribute("aria-label") || el.tagName}: ${Math.round(r.width)}x${Math.round(r.height)}`;
+                })
+                .slice(0, 6),
+            };
+          });
+
+
+        // No card may print a percentage for a comparison that was never made.
+        //
+        // Under Compare=None `changePct` is null, and the summary cards
+        // rendered `0.0%` for it while the Pins strip on the same screen said
+        // "No comparison selected". Zero percent is a measurement; "not
+        // compared" is not, and the two were indistinguishable.
+        {
+          const fabricated = await shotPage.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>('[data-delta-state="unavailable"]'),
+            )
+              .map((el) => (el.textContent ?? "").trim())
+              .filter((text) => /\d/.test(text))
+              .slice(0, 5),
+          );
+          expect(
+            fabricated,
+            `${shot.path} prints a percentage for a comparison that does not exist`,
+          ).toEqual([]);
+        }
+
+        // Essential text has to be readable: at least 12px and at least 4.5:1.
+        {
+          const unreadable = await shotPage.evaluate(() => {
+            // Colours reach here in whatever form the engine serialises, and
+            // this surface uses `color-mix(in oklab, ...)` for its cell tints.
+            // Parsing those with an rgb-shaped regex pulled the percentage out
+            // of the function text and reported 1.23:1 for black-on-pale-green
+            // -- a fabricated finding that would have been "fixed" by changing
+            // a colour that was fine. Canvas normalises any colour the engine
+            // understands; anything it cannot resolve is skipped rather than
+            // guessed at.
+            const probe = document.createElement("canvas").getContext("2d");
+            const toRgb = (value: string): [number, number, number, number] | null => {
+              const direct = /rgba?\(([^)]+)\)/.exec(value);
+              if (direct) {
+                const parts = direct[1]
+                  .split(/[,/\s]+/)
+                  .filter(Boolean)
+                  .map(Number);
+                if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
+                  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+                }
+              }
+              if (!probe) return null;
+              try {
+                probe.fillStyle = "#000000";
+                probe.fillStyle = value;
+                const normalised = probe.fillStyle as string;
+                if (normalised.startsWith("#") && normalised.length === 7) {
+                  return [
+                    parseInt(normalised.slice(1, 3), 16),
+                    parseInt(normalised.slice(3, 5), 16),
+                    parseInt(normalised.slice(5, 7), 16),
+                    1,
+                  ];
+                }
+                const again = /rgba?\(([^)]+)\)/.exec(normalised);
+                if (again) {
+                  const parts = again[1].split(/[,/\s]+/).filter(Boolean).map(Number);
+                  return [parts[0], parts[1], parts[2], parts[3] ?? 1];
+                }
+              } catch {
+                return null;
+              }
+              return null;
+            };
+
+            const luminance = (rgb: [number, number, number]) => {
+              const [r, g, b] = rgb.map((v) => v / 255);
+              const ch = (c: number) =>
+                c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+              return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+            };
+            // Composite up the tree so a translucent tint is measured against
+            // what is actually behind it, not as if it were opaque.
+            const backdrop = (el: HTMLElement): [number, number, number] => {
+              const layers: Array<[number, number, number, number]> = [];
+              let node: HTMLElement | null = el.parentElement;
+              while (node) {
+                const parsed = toRgb(getComputedStyle(node).backgroundColor);
+                if (parsed && parsed[3] > 0) {
+                  layers.push(parsed);
+                  if (parsed[3] >= 1) break;
+                }
+                node = node.parentElement;
+              }
+              let [r, g, b] = [255, 255, 255];
+              for (let i = layers.length - 1; i >= 0; i -= 1) {
+                const [lr, lg, lb, la] = layers[i];
+                r = lr * la + r * (1 - la);
+                g = lg * la + g * (1 - la);
+                b = lb * la + b * (1 - la);
+              }
+              return [r, g, b];
+            };
+            const offenders: string[] = [];
+            const main = document.querySelector("#main-content") ?? document.body;
+            for (const el of Array.from(main.querySelectorAll<HTMLElement>("*"))) {
+              const text = Array.from(el.childNodes)
+                .filter((n) => n.nodeType === Node.TEXT_NODE)
+                .map((n) => (n.textContent ?? "").trim())
+                .join("");
+              if (text.length < 3) continue;
+              const style = getComputedStyle(el);
+              if (style.visibility === "hidden" || style.display === "none") continue;
+              // Decorative and disabled content is exempt by declaration, not
+              // by being quietly hard to read.
+              if (el.getAttribute("aria-hidden") === "true") continue;
+              if (el.closest("[data-decorative='true']")) continue;
+
+              // Visually-hidden text has no rendered contrast to measure. The
+              // skip link is the case that matters: it sits at left:-9999px
+              // until focused, and must stay in the accessibility tree, so it
+              // cannot be excluded with aria-hidden. Measuring it reported
+              // 1.00:1 for something no sighted user ever sees, which would
+              // have made the real 11.5px findings look like noise. Both the
+              // off-screen and the clip technique count as hidden.
+              const rect = el.getBoundingClientRect();
+              const offScreen =
+                rect.right <= 0 ||
+                rect.bottom <= 0 ||
+                rect.left >= window.innerWidth;
+              const clipped =
+                style.clip === "rect(0px, 0px, 0px, 0px)" ||
+                style.clipPath === "inset(50%)" ||
+                rect.width <= 1 ||
+                rect.height <= 1;
+              if (offScreen || clipped) continue;
+
+              const size = Number.parseFloat(style.fontSize);
+              if (size > 0 && size < 12) {
+                offenders.push(`${size}px: "${text.slice(0, 22)}"`);
+                continue;
+              }
+              const colour = toRgb(style.color);
+              // Own background first, composited over what is behind it.
+              const own = toRgb(style.backgroundColor);
+              const behind = backdrop(el);
+              let surface = behind;
+              if (own && own[3] > 0) {
+                surface = [
+                  own[0] * own[3] + behind[0] * (1 - own[3]),
+                  own[1] * own[3] + behind[1] * (1 - own[3]),
+                  own[2] * own[3] + behind[2] * (1 - own[3]),
+                ];
+              }
+              // A colour the engine will not resolve is skipped, not guessed.
+              if (!colour) continue;
+              const fg = luminance([colour[0], colour[1], colour[2]]);
+              const bg = luminance(surface);
+              const [hi, lo] = fg > bg ? [fg, bg] : [bg, fg];
+              const ratio = (hi + 0.05) / (lo + 0.05);
+              if (ratio < 4.5) {
+                offenders.push(`${ratio.toFixed(2)}:1 "${text.slice(0, 22)}"`);
+              }
+            }
+            return offenders.slice(0, 8);
+          });
+          expect(
+            unreadable,
+            `${shot.path} has essential text below 12px or 4.5:1`,
+          ).toEqual([]);
+        }
+
+        // The keyboard affordances have to be real, not printed.
+        //
+        // The old `⌘K` hint sat in `PlatformSwitcher` next to a `Notify me`
+        // that only called `console.info`. Nothing listened for the shortcut.
+        // A rendered hint is a promise, so this presses the real keys through
+        // the browser rather than asserting the markup that advertises them.
+        {
+          const field = shotPage.locator("#global-search");
+          // The search bar is `hidden md:block`, so below 768px there is no
+          // shortcut to honour and nothing is claimed. Counting nodes would
+          // not catch that -- a display:none element is still in the DOM --
+          // so this asks whether it is actually on screen.
+          if (!(await field.isVisible().catch(() => false))) {
+            // Record why, once. "Zero search fields found" is a true report
+            // and a useless one -- it cannot distinguish a missing mount from
+            // a drifted selector from a breakpoint that never fired.
+            keyboardCoverage.searchMissingOn.push(shot.path);
+            if (!keyboardCoverage.searchAbsence) {
+              keyboardCoverage.searchAbsence = await shotPage.evaluate(() => {
+                const input = document.querySelector<HTMLElement>("#global-search");
+                const bar = document.querySelector(".ad-console-topbar");
+                if (!input) {
+                  return {
+                    reason: "no #global-search in the DOM",
+                    topbarPresent: Boolean(bar),
+                    topbarChildren: bar
+                      ? Array.from(bar.children).map((c) => c.className.toString().slice(0, 40))
+                      : [],
+                    mdMatches: window.matchMedia("(min-width: 768px)").matches,
+                  };
+                }
+                const box = input.closest("div");
+                return {
+                  reason: "present but not visible",
+                  inputDisplay: getComputedStyle(input).display,
+                  containerClass: box?.className ?? "",
+                  containerDisplay: box ? getComputedStyle(box).display : "",
+                  mdMatches: window.matchMedia("(min-width: 768px)").matches,
+                };
+              });
+            }
+          } else {
+            keyboardCoverage.searchFieldsSeen += 1;
+            keyboardCoverage.searchSurfaces.push(shot.path);
+            await shotPage.locator("body").click({ position: { x: 2, y: 2 } });
+
+            await shotPage.keyboard.press("ControlOrMeta+k");
+            // Focus is the whole promise. The results panel only appears once
+            // something is typed, so asserting a panel here would be testing
+            // a behaviour the design never offered; landing the caret in the
+            // field is what the printed hint actually claims.
+            await expect(
+              field,
+              `${shot.path} advertises a search shortcut that does not reach the field`,
+            ).toBeFocused({ timeout: 4_000 });
+            expect(
+              await field.getAttribute("aria-expanded"),
+              `${shot.path} focused search without announcing it opened`,
+            ).toBe("true");
+
+            await shotPage.keyboard.press("Escape");
+            expect(
+              await field.getAttribute("aria-expanded"),
+              `${shot.path} search cannot be dismissed with Escape`,
+            ).toBe("false");
+            keyboardCoverage.searchExercised += 1;
+          }
+        }
+
+        // A chart that only answers to a pointer is unreadable to anyone not
+        // using one. The trend sparkline was `aria-hidden` with a hover-only
+        // tooltip, so its figures existed on screen and nowhere else.
+        {
+          const charts = shotPage.locator('[data-mini-trend-chart="true"]');
+          const count = await charts.count();
+          if (count > 0) {
+            keyboardCoverage.chartsSeen += 1;
+            const chart = charts.first();
+            expect(
+              (await chart.getAttribute("aria-label"))?.trim() || "",
+              `${shot.path} trend chart has no accessible name`,
+            ).not.toBe("");
+
+            await chart.focus();
+            expect(
+              await shotPage.evaluate(
+                () =>
+                  document.activeElement?.getAttribute("data-mini-trend-chart") ===
+                  "true",
+              ),
+              `${shot.path} trend chart cannot take keyboard focus`,
+            ).toBe(true);
+
+            // Arrowing must actually move a reading, not just accept the key.
+            const readingFor = async () =>
+              (await chart.getAttribute("data-active-point")) ?? "";
+            const first = await readingFor();
+            await shotPage.keyboard.press("ArrowRight");
+            const second = await readingFor();
+            expect(
+              second,
+              `${shot.path} trend chart does not respond to Arrow keys`,
+            ).not.toBe(first);
+
+            // And the reading has to be announced, not merely stored.
+            expect(
+              (await chart.locator("[aria-live]").first().textContent())?.trim() || "",
+              `${shot.path} trend chart moves without announcing the value`,
+            ).not.toBe("");
+            keyboardCoverage.chartsExercised += 1;
+          }
+        }
+
+          if (topbar) keyboardCoverage.topbarsSeen += 1;
+          else keyboardCoverage.topbarsMissingOn.push(shot.path);
+
+          if (topbar) {
+            expect(
+              topbar.overlaps,
+              `${shot.path} topbar controls physically overlap at ${shotPage.viewportSize()?.width}px`,
+            ).toEqual([]);
+            expect(
+              topbar.freshnessVisible,
+              `${shot.path} lost the freshness reading while fixing the topbar`,
+            ).toBe(true);
+            // The 24px minimum is about fingers, so it is asserted where the
+            // input is a finger. Overlap and a visible freshness reading are
+            // asserted at every width, because neither is a phone concern.
+            if (isPhone) {
+              expect(
+                topbar.smallTargets,
+                `${shot.path} topbar has touch targets below 24px`,
+              ).toEqual([]);
+            }
+          }
+        }
+
         // Live accessibility checks. These need a real browser: focus
         // visibility, Escape behaviour and zoom cannot be read off markup.
         {
@@ -1660,6 +2076,44 @@ test.describe("full UI redesign route and visual smoke", () => {
       } finally {
         await shotPage.close();
       }
+    }
+
+    // What the two guarded keyboard checks actually did.
+    {
+      await testInfo.attach("keyboard-coverage.json", {
+        body: JSON.stringify(keyboardCoverage, null, 2),
+        contentType: "application/json",
+      });
+      // Also on stdout. An attachment buried in the HTML report is evidence
+      // nobody reads, and the point of counting was to make the numbers
+      // impossible to miss.
+      console.log(
+        `[keyboard-coverage] ${testInfo.project.name} ${JSON.stringify(keyboardCoverage)}`,
+      );
+
+      const width = page.viewportSize()?.width ?? 1440;
+
+      // The search bar lives in the shell, so above the `md` breakpoint every
+      // surface has one. Seeing none there means the shell did not render, the
+      // selector drifted, or the run never reached a signed-in page -- all of
+      // which would have let the shortcut check pass by never running.
+      if (width >= 768) {
+        expect(
+          keyboardCoverage.searchFieldsSeen,
+          `no search field was found at ${width}px, so the Cmd/Ctrl+K check never ran: ${JSON.stringify(keyboardCoverage.searchAbsence)}`,
+        ).toBeGreaterThan(0);
+      }
+
+      // Below `md` there is deliberately no search bar and nothing is claimed.
+      // What must hold at every width is that anything found was exercised.
+      expect(
+        keyboardCoverage.searchExercised,
+        `search fields were found at ${width}px but none completed the shortcut path`,
+      ).toBe(keyboardCoverage.searchFieldsSeen);
+      expect(
+        keyboardCoverage.chartsExercised,
+        `trend charts were found at ${width}px but none completed the Arrow-key path`,
+      ).toBe(keyboardCoverage.chartsSeen);
     }
 
     // The matrix as text, next to the pixels. A reviewer can read what each

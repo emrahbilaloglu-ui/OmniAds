@@ -55,7 +55,7 @@ export function FreshnessChip({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] ${tone} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[12px] ${tone} ${className}`}
       title={reading.description}
     >
       <span className="tabular-nums">
@@ -66,7 +66,11 @@ export function FreshnessChip({
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60"
+          // A bare text link measured 43x17 on a phone. Underlined text is the
+          // right visual weight here -- it should not become a button -- so the
+          // target is grown with padding and a min-height rather than by making
+          // the label bigger, which would shout over the reading it sits beside.
+          className="inline-flex min-h-[24px] items-center px-1 font-semibold underline underline-offset-2 disabled:no-underline disabled:opacity-60"
         >
           {refreshing ? "Refreshing" : "Refresh"}
         </button>

@@ -332,10 +332,10 @@ export default function TeamPage() {
                 <tr key={member.membership_id} className="border-t border-[var(--adc-b1)]">
                   <td className="px-4 py-3">
                     <p className="font-medium text-[var(--adc-ink)]">{member.name}</p>
-                    <p className="text-[11px] text-[var(--adc-ink3)]">{member.email}</p>
+                    <p className="text-[12px] text-[var(--adc-ink3)]">{member.email}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 text-[11px] text-[var(--adc-ink2)]">
+                    <span className="rounded-[5px] border border-[var(--adc-b1)] bg-[var(--adc-s1)] px-2 py-0.5 text-[12px] text-[var(--adc-ink2)]">
                       {ROLE_META[member.role].label}
                     </span>
                   </td>
@@ -343,7 +343,7 @@ export default function TeamPage() {
                     <button
                       type="button"
                       onClick={() => openWsModal(member)}
-                      className="inline-flex items-center gap-1 text-[11.5px] text-[var(--adc-ink3)] hover:text-[var(--adc-ink)]"
+                      className="inline-flex items-center gap-1 text-[12px] text-[var(--adc-ink3)] hover:text-[var(--adc-ink)]"
                     >
                       <Settings className="h-3 w-3" />
                       Manage workspaces

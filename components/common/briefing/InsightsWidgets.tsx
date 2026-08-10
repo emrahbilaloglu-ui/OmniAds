@@ -72,7 +72,7 @@ export function buildLabelsCoverageWidget(
             />
           ) : null}
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-3 text-[11px] text-neutral-500">
+        <div className="mt-2.5 flex flex-wrap gap-3 text-[12px] text-neutral-500">
           {hasBreakdown ? (
             <>
               <LegendDot color="bg-neutral-900" label={`Main ${main}`} />
@@ -94,7 +94,7 @@ export function buildLabelsCoverageWidget(
           {input.labeledCampaigns}/{input.activeCampaigns} active campaigns labeled
         </div>
         {input.scopeNote ? (
-          <div className="mt-1 text-[11px] text-neutral-500">{input.scopeNote}</div>
+          <div className="mt-1 text-[12px] text-neutral-500">{input.scopeNote}</div>
         ) : null}
         {needsAttention ? (
           <div className="mt-3">
@@ -222,7 +222,7 @@ export function buildEngineStatusWidget(
           </div>
         ) : null}
         {needsAttention && input.snapshotStatus ? (
-          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+          <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[12px] font-semibold text-amber-800">
             snapshot · {input.snapshotStatus.replace(/_/g, " ")}
           </div>
         ) : null}

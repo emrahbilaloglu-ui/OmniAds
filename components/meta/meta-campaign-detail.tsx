@@ -68,7 +68,7 @@ function DecisionBadge({ state }: { state: MetaRecommendation["decisionState"] }
   const labels: Record<typeof state, string> = { act: "ACT", test: "TEST", watch: "WATCH" };
 
   return (
-    <span className={`inline-block rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${cls}`}>
+    <span className={`inline-block rounded-full px-2.5 py-1 text-[12px] font-bold uppercase tracking-wide ${cls}`}>
       {labels[state]}
     </span>
   );
@@ -137,7 +137,7 @@ function CampaignOperatorHeadline({
             Context
           </span>
         )}
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[12px] text-slate-500">
           {fallbackRecommendation
             ? "Snapshot recommendation context"
             : recommendation.title}
@@ -316,19 +316,19 @@ function AdSetList({
               <div className="flex shrink-0 items-center gap-3">
                 <div className="text-right">
                   <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">Spend</p>
-                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
+                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{fmtK(adset.spend, sym)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">ROAS</p>
-                  <p className={cn("font-mono text-[11px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
+                  <p className={cn("font-mono text-[12px] font-bold tabular-nums", roasColor(roas))}>{roas.toFixed(2)}×</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">CPA</p>
-                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
+                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{fmt$(adset.cpa, sym)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[12px] font-semibold uppercase tracking-wide text-slate-400">CTR</p>
-                  <p className="font-mono text-[11px] font-bold tabular-nums text-slate-700">{ctrStr}</p>
+                  <p className="font-mono text-[12px] font-bold tabular-nums text-slate-700">{ctrStr}</p>
                 </div>
               </div>
             </div>
@@ -364,7 +364,7 @@ function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           Account Drilldown
         </p>
         <p className="mt-1 text-sm font-semibold text-slate-950">
@@ -515,7 +515,7 @@ export function MetaCampaignDetail({
       {/* Back breadcrumb */}
       <button
         onClick={onClearSelection}
-        className="flex items-center gap-1 text-[11px] text-slate-400 transition-colors hover:text-slate-600"
+        className="flex items-center gap-1 text-[12px] text-slate-400 transition-colors hover:text-slate-600"
       >
         ← {language === "tr" ? "Hesap Geneli" : "Account Overview"}
       </button>
@@ -524,7 +524,7 @@ export function MetaCampaignDetail({
       <div>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
               {campaign.objective ?? "—"}
             </p>
             <h2 className="mt-0.5 text-lg font-bold leading-tight text-slate-950">
@@ -573,7 +573,7 @@ export function MetaCampaignDetail({
 
       {/* Ad sets */}
       <div className="space-y-2" data-testid="meta-adsets-section">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Ad Set'ler" : "Ad Sets"}
         </p>
         <AdSetList

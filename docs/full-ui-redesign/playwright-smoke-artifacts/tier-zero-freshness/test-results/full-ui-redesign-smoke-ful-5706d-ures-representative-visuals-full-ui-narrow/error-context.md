@@ -12,44 +12,22 @@
 # Error details
 
 ```
-Error: /platforms/meta has essential text below 12px or 4.5:1
+Error: /platforms/meta topbar has touch targets below 24px
 
 expect(received).toEqual(expected) // deep equality
 
-- Expected  -  1
-+ Received  + 10
+- Expected  - 1
++ Received  + 3
 
 - Array []
 + Array [
-+   "11px: \"act_210009998877·USD\"",
-+   "11px: \"Business STOP\"",
-+   "11px: \"Native Ad decisions ar\"",
-+   "11px: \"The native Ad decision\"",
-+   "11px: \"Commercial targets are\"",
-+   "11px: \"Set at least one valid\"",
-+   "11px: \"All\"",
-+   "11px: \"Act Now\"",
++   "DIV: 300x23",
 + ]
 ```
 
 # Test source
 
 ```ts
-  1265 |                   return `${el.getAttribute("aria-label") || el.tagName}: ${Math.round(r.width)}x${Math.round(r.height)}`;
-  1266 |                 })
-  1267 |                 .slice(0, 6),
-  1268 |             };
-  1269 |           });
-  1270 | 
-  1271 | 
-  1272 |         // No card may print a percentage for a comparison that was never made.
-  1273 |         //
-  1274 |         // Under Compare=None `changePct` is null, and the summary cards
-  1275 |         // rendered `0.0%` for it while the Pins strip on the same screen said
-  1276 |         // "No comparison selected". Zero percent is a measurement; "not
-  1277 |         // compared" is not, and the two were indistinguishable.
-  1278 |         {
-  1279 |           const fabricated = await shotPage.evaluate(() =>
   1280 |             Array.from(
   1281 |               document.querySelectorAll<HTMLElement>('[data-delta-state="unavailable"]'),
   1282 |             )
@@ -135,8 +113,7 @@ expect(received).toEqual(expected) // deep equality
   1362 |           expect(
   1363 |             unreadable,
   1364 |             `${shot.path} has essential text below 12px or 4.5:1`,
-> 1365 |           ).toEqual([]);
-       |             ^ Error: /platforms/meta has essential text below 12px or 4.5:1
+  1365 |           ).toEqual([]);
   1366 |         }
   1367 | 
   1368 |           if (topbar) {
@@ -151,7 +128,8 @@ expect(received).toEqual(expected) // deep equality
   1377 |             expect(
   1378 |               topbar.smallTargets,
   1379 |               `${shot.path} topbar has touch targets below 24px`,
-  1380 |             ).toEqual([]);
+> 1380 |             ).toEqual([]);
+       |               ^ Error: /platforms/meta topbar has touch targets below 24px
   1381 |           }
   1382 |         }
   1383 | 
@@ -237,4 +215,19 @@ expect(received).toEqual(expected) // deep equality
   1463 |           ).toBe(0);
   1464 |         }
   1465 | 
+  1466 |         // The typography floor, checked on what the browser actually computed
+  1467 |         // rather than on the stylesheet: a cascade or an inline style can
+  1468 |         // still land under it.
+  1469 |         const tinyText = await shotPage.evaluate(() => {
+  1470 |           const offenders: string[] = [];
+  1471 |           for (const element of Array.from(document.body.querySelectorAll("*"))) {
+  1472 |             const text = (element.textContent ?? "").trim();
+  1473 |             if (!text || element.children.length > 0) continue;
+  1474 |             const size = Number.parseFloat(
+  1475 |               window.getComputedStyle(element).fontSize,
+  1476 |             );
+  1477 |             if (Number.isFinite(size) && size < 11) {
+  1478 |               const cls =
+  1479 |                 typeof element.className === "string"
+  1480 |                   ? element.className.slice(0, 60)
 ```

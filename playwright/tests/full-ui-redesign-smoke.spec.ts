@@ -1214,9 +1214,14 @@ test.describe("full UI redesign route and visual smoke", () => {
 
             // Independent interactive targets only: a control nested inside
             // another legitimately shares its box.
+            // Interactive controls only. The freshness readout occupies space
+            // and must not be overlapped, but it is a status line rather than
+            // a touch target -- including it in this set both imposed a 24px
+            // minimum on a text row and, because it contains the Refresh
+            // button, hid that button from the size check entirely.
             const visible = Array.from(
               bar.querySelectorAll<HTMLElement>(
-                'button, a[href], input, [role="button"], [data-testid="tier-zero-freshness"]',
+                'button, a[href], input, [role="button"]',
               ),
             ).filter((el) => {
               const r = el.getBoundingClientRect();

@@ -188,6 +188,11 @@ const keyboardCoverage = {
   searchExercised: 0,
   chartsSeen: 0,
   chartsExercised: 0,
+  searchAbsence: null as Record<string, unknown> | null,
+  searchSurfaces: [] as string[],
+  topbarsSeen: 0,
+  topbarsMissingOn: [] as string[],
+  searchMissingOn: [] as string[],
 };
 
 const ACTIVE_SCREENSHOT_ROUTES =
@@ -1225,9 +1230,24 @@ test.describe("full UI redesign route and visual smoke", () => {
         // pixels, so a tap near the seam went to whichever happened to be on
         // top. Nothing was reported as clipped because nothing was clipped --
         // it was stacked.
-        if ((shotPage.viewportSize()?.width ?? 1440) <= 480) {
+        // These checks were all sitting behind a `<= 480` guard, so a green
+        // six-width run proved them at two widths and silently skipped four.
+        // The contract asks for computed contrast at 1280 as well, and a
+        // fabricated comparison or an overlapping control is a defect at any
+        // width. Only the touch-target minimum is genuinely phone-only.
+        const shotWidth = shotPage.viewportSize()?.width ?? 1440;
+        const isPhone = shotWidth <= 480;
+        {
           const topbar = await shotPage.evaluate(() => {
-            const bar = document.querySelector<HTMLElement>(".ad-console-topbar");
+            // Two frames ship two headers. `/overview*` renders
+            // `LegacyDashboardFrame`, whose bar is a plain `<header>` with no
+            // `.ad-console-topbar` class, so keying this check to that one
+            // class quietly exempted the landing surface at every width --
+            // `if (topbar)` saw null and skipped without a word. The check
+            // follows whichever header the product actually rendered.
+            const bar =
+              document.querySelector<HTMLElement>(".ad-console-topbar") ??
+              document.querySelector<HTMLElement>("header");
             if (!bar) return null;
 
             // Independent interactive targets only: a control nested inside
@@ -1469,8 +1489,38 @@ test.describe("full UI redesign route and visual smoke", () => {
           // shortcut to honour and nothing is claimed. Counting nodes would
           // not catch that -- a display:none element is still in the DOM --
           // so this asks whether it is actually on screen.
-          if (await field.isVisible().catch(() => false)) {
+          if (!(await field.isVisible().catch(() => false))) {
+            // Record why, once. "Zero search fields found" is a true report
+            // and a useless one -- it cannot distinguish a missing mount from
+            // a drifted selector from a breakpoint that never fired.
+            keyboardCoverage.searchMissingOn.push(shot.path);
+            if (!keyboardCoverage.searchAbsence) {
+              keyboardCoverage.searchAbsence = await shotPage.evaluate(() => {
+                const input = document.querySelector<HTMLElement>("#global-search");
+                const bar = document.querySelector(".ad-console-topbar");
+                if (!input) {
+                  return {
+                    reason: "no #global-search in the DOM",
+                    topbarPresent: Boolean(bar),
+                    topbarChildren: bar
+                      ? Array.from(bar.children).map((c) => c.className.toString().slice(0, 40))
+                      : [],
+                    mdMatches: window.matchMedia("(min-width: 768px)").matches,
+                  };
+                }
+                const box = input.closest("div");
+                return {
+                  reason: "present but not visible",
+                  inputDisplay: getComputedStyle(input).display,
+                  containerClass: box?.className ?? "",
+                  containerDisplay: box ? getComputedStyle(box).display : "",
+                  mdMatches: window.matchMedia("(min-width: 768px)").matches,
+                };
+              });
+            }
+          } else {
             keyboardCoverage.searchFieldsSeen += 1;
+            keyboardCoverage.searchSurfaces.push(shot.path);
             await shotPage.locator("body").click({ position: { x: 2, y: 2 } });
 
             await shotPage.keyboard.press("ControlOrMeta+k");
@@ -1540,6 +1590,9 @@ test.describe("full UI redesign route and visual smoke", () => {
           }
         }
 
+          if (topbar) keyboardCoverage.topbarsSeen += 1;
+          else keyboardCoverage.topbarsMissingOn.push(shot.path);
+
           if (topbar) {
             expect(
               topbar.overlaps,
@@ -1549,10 +1602,15 @@ test.describe("full UI redesign route and visual smoke", () => {
               topbar.freshnessVisible,
               `${shot.path} lost the freshness reading while fixing the topbar`,
             ).toBe(true);
-            expect(
-              topbar.smallTargets,
-              `${shot.path} topbar has touch targets below 24px`,
-            ).toEqual([]);
+            // The 24px minimum is about fingers, so it is asserted where the
+            // input is a finger. Overlap and a visible freshness reading are
+            // asserted at every width, because neither is a phone concern.
+            if (isPhone) {
+              expect(
+                topbar.smallTargets,
+                `${shot.path} topbar has touch targets below 24px`,
+              ).toEqual([]);
+            }
           }
         }
 
@@ -2026,6 +2084,12 @@ test.describe("full UI redesign route and visual smoke", () => {
         body: JSON.stringify(keyboardCoverage, null, 2),
         contentType: "application/json",
       });
+      // Also on stdout. An attachment buried in the HTML report is evidence
+      // nobody reads, and the point of counting was to make the numbers
+      // impossible to miss.
+      console.log(
+        `[keyboard-coverage] ${testInfo.project.name} ${JSON.stringify(keyboardCoverage)}`,
+      );
 
       const width = page.viewportSize()?.width ?? 1440;
 
@@ -2036,7 +2100,7 @@ test.describe("full UI redesign route and visual smoke", () => {
       if (width >= 768) {
         expect(
           keyboardCoverage.searchFieldsSeen,
-          `no search field was found at ${width}px, so the Cmd/Ctrl+K check never ran`,
+          `no search field was found at ${width}px, so the Cmd/Ctrl+K check never ran: ${JSON.stringify(keyboardCoverage.searchAbsence)}`,
         ).toBeGreaterThan(0);
       }
 

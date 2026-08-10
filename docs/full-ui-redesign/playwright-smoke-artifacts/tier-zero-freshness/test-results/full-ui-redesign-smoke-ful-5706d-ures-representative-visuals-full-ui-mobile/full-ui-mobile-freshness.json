@@ -6,7 +6,7 @@
     "path": "/platforms/meta",
     "state": "ready",
     "errorCode": null,
-    "text": "as of 1m agoRefresh",
+    "text": "as of just nowRefresh",
     "hasRetry": true
   },
   {
@@ -44,10 +44,10 @@
     "project": "full-ui-mobile",
     "surface": "automation",
     "path": "/platforms/meta/automation",
-    "state": "ready",
+    "state": "loading",
     "errorCode": null,
-    "text": "age unknownRefresh",
-    "hasRetry": true
+    "text": "Loading — no figures yet",
+    "hasRetry": false
   },
   {
     "width": 390,

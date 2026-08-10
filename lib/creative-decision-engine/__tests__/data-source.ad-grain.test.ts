@@ -823,12 +823,12 @@ describe("native ad hydration SQL contract", () => {
     );
   });
 
-  it("prefers cutoff-safe fact timezone and currency over current provider dimensions for hydration", () => {
+  it("prefers canonical provider identity only for current hydration", () => {
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "account_identity.account_timezone,\n    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END",
+      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.timezone), '') END,\n    account_identity.account_timezone",
     );
     expect(HYDRATE_AD_DECISION_INPUTS_QUERY).toContain(
-      "account_identity.account_currency,\n    CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END",
+      "CASE WHEN $12::boolean THEN NULLIF(BTRIM(provider_account.currency), '') END,\n    account_identity.account_currency",
     );
   });
 
@@ -907,6 +907,18 @@ describe("native ad hydration SQL contract", () => {
     );
     expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
       "source_expected_row_count",
+    );
+  });
+
+  it("skips compacted positive-row runs while preserving legitimate empty runs", () => {
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "run.row_count = 0",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "retained_state.run_id = run.id",
+    );
+    expect(READ_AD_HYDRATION_COMPLETENESS_RECEIPTS_QUERY).toContain(
+      "OR EXISTS (",
     );
   });
 

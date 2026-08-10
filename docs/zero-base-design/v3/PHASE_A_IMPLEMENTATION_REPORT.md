@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-11
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · branch `codex/adsecute-zero-base-implementation`
-**Result:** **WP-00/G0 and WP-00.5 are COMPLETE and committed with all gates green.** WP-01, WP-02, WP-03 and WP-03A were not started — I reached the end of my working context. Phase A acceptance is therefore not fully proven.
+**Result:** **Phase A is COMPLETE.** WP-00, WP-00.5, WP-01, WP-02, WP-03 and WP-03A are all committed with their named gates green. No WP-04 work was started; no push, PR, deploy, production migration, remote database, provider call or live mutation occurred.
 
 ---
 
@@ -49,16 +49,21 @@ My initial one-sided-union heuristic treated "branch side empty" as "main added"
 
 `app/api/creatives/briefing/route.ts` (branch −1044 lines), `components/meta/redesign/MetaPlatformPage.tsx` (−566) and `components/creatives/CreativeEngineV3EvidenceSection.tsx` (−303) were rebased onto the branch refactor with main's small additions re-applied via `git apply -3`, and the branch's deletions accepted. This removed **62 of 87** type errors. The other main-only unions were re-audited and stand (both sides grew from base there).
 
-## 4 · Gates — all green at G0
+## 4 · Gates
 
-| Gate | Result |
-|---|---|
-| `npm run typecheck` | **PASS — 0** |
-| `npm run lint` | **PASS — 0** |
-| `npm run test` (`--maxWorkers=2`) | **PASS — 7,608 passed · 0 failed · 739 files · 4 skipped** |
-| `npm run test:migrations-from-zero` | **PASS — exit 0** |
-| `npm run creative:v2:safety` | **PASS — exit 0** |
-| `npm run creative:decision:native-ad-frozen-acceptance` | **PASS — 22/22** |
+| Gate | At G0 (WP-00) | Final (through WP-03A) |
+|---|---|---|
+| `npm run typecheck` | **PASS — 0** | **PASS — 0** |
+| `npm run lint` | **PASS — 0** | **PASS — 0** |
+| `npm run test` | **PASS — 7,608 passed · 0 failed · 739 files** | **PASS — 7,714 passed · 0 failed · 750 files · 4 skipped** |
+| `npm run test:migrations-from-zero` | **PASS — exit 0** | **PASS — exit 0** |
+| `npm run creative:v2:safety` | **PASS — exit 0** | **PASS — exit 0** |
+| `npm run creative:decision:native-ad-frozen-acceptance` | **PASS — 22/22** | **PASS — 22/22** |
+| `npm run zero-base:contract:verify` | — | **PASS — 23/23 checks** |
+| `npm run zero-base:contracts:check` | — | **PASS — generated file current** |
+| `npm run test:zero-base:contract` | — | **PASS — 17/17** |
+
+The +106 tests between G0 and the final run are exactly the ones added by WP-02, WP-03 and WP-03A; no pre-existing test changed status.
 
 **Required in this shell:** `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`. Without it `initdb` fails with "invalid locale settings" and every ephemeral-PostgreSQL seam reports a false `pg_ctl` failure. That was the sole cause of the earlier pg failures.
 
@@ -80,15 +85,44 @@ Copied from the proven pattern in `scripts/ephemeral-postgres-manual-ad-status-r
 |---|---|---|
 | **WP-00** | `b082885be` | 54 hunks resolved; G0 ancestry verified — `origin/main`, `31950b1a9`, `1517674c7`, `e41691f33`, `c46d91c2a` all ancestors of HEAD; all six gates green |
 | **WP-00.5** | `59fd7118b` | `WP00_5_BASELINE_INVENTORY.md` — all five design-named APIs and both notification routes PRESENT at G0; workflow and instrumentation tables PRESENT; dispositions recorded as ADOPT+ADAPT / +EXTEND / +HARDEN / RETAIN-NO-UI; `/api/db-test` absent so WP-06's step is a no-op |
+| **WP-01** | `b36079f65` | 15 contract/spec files vendored under `docs/zero-base-design/v3/` with a SHA-256 manifest in `SOURCE.md`; `scripts/zero-base/verify-design-contract.ts` passes 23 checks, each an independent master-plan literal rather than a value read back from the file it checks |
+| **WP-02** | `29715accb` | `lib/zero-base/generated-contracts.ts` generated from the vendored JSON; three registries; 17 contract tests |
+| **WP-03** | `e2c2d0885` | Shared authorizer, page resolver, workspace scope/switch/return, rollout foundation; 91 new tests including full `requireBusinessAccess` parity |
+| **WP-03A** | *this commit* | Report-share fail-closed branch, default off; both branches proven locally |
 
-## 7 · Not started
+### WP-01 — residuals recorded, not laundered
 
-**WP-01, WP-02, WP-03, WP-03A.** No design contract was vendored, no generated registry exists, no shared authorization primitive was extracted, and `ZERO_BASE_REPORT_SHARE_FAIL_CLOSED` was not introduced. I stopped rather than produce unverified work in the shared authorization path.
+The design package's own audit says **NOT READY**: REQ-27, REQ-28 (mutation `M11` undetected) and REQ-41 fail, and `ACCEPTED_RESIDUALS.md` records all three with their root cause. The verifier asserts `audit.verdict === "NOT READY"` and fails if that ever silently flips, so no application signal can present the package as ready. The archive SHA-256 (`0695ae45…`) and the active-manifest fingerprint (`f27bf51b…`) are distinct values and are labelled distinctly everywhere.
+
+One correction to the earlier plan reading: **`spec/matrices.js` does not exist.** `MATRICES` is exported from `flows.js`, so the vendored spec set is 5 files, not 6.
+
+### WP-02 — the gates were proven to fail, not assumed to work
+
+The test is not self-referential. Every set is compared against the vendored JSON read fresh from disk, and that JSON must first hash to the digest recorded independently in `SOURCE.md`; the scalar counts are master-plan literals. Both failure modes were exercised:
+
+| Tamper | Result |
+|---|---|
+| Rename one leaf ID in the generated file | `zero-base:contracts:check` reports stale · 3 contract tests fail |
+| Flip `audit.json` from `NOT READY` to `READY` | hash-drift guard fires · verdict assertion fails · verifier exits 1 |
+
+Reconciliation holds in code: 67 legacy records = 20 alias + 47 changed over **46** unique changed paths, because `/settings` is the only old path that splits (`L-ME-ACCOUNT` and `L-C-M-BIZ`). 66 mapped + 9 retired + 1 dev-excluded = 76 legacy pages. 11 `new-surface` leaves, 10 with no legacy record, `L-ME-ACCOUNT` the eleventh. The single range alias `gated:META-WF-02..08 menu` expands to exactly 7 workflow capabilities and any other `..` token is rejected.
+
+### WP-03 — one authority, unchanged contract
+
+`evaluateBusinessAuthorization` is pure, so schema-unavailable is now distinguishable from no-membership for diagnostics while both still return byte-identical responses. `requireBusinessAccess` keeps its signature, status codes and message strings; the parity test pins all seven denial branches and asserts **no membership read** happens for a caller who has not proven identity. Membership reads moved to `lib/access-membership.ts` purely to avoid an import cycle — `lib/access.ts` re-exports them, so no caller changed, and the pre-existing migration guard in `lib/access.test.ts` still passes untouched.
+
+Rollout grants nothing: nothing reads `NEXT_PUBLIC_*`, and a test asserts the config exposes no value that could be mistaken for an authorization decision. API access is not gated on rollout or plan.
+
+### WP-03A — built and tested, never enabled
+
+`ZERO_BASE_REPORT_SHARE_FAIL_CLOSED` defaults to **false** and is set in no environment file; it exists only in code and in tests that set it per-case and restore it. Flag-off behaviour is unchanged. Flag-on refuses before anything is read: the mint endpoint performs no report lookup, render, snapshot write or instrumentation event, and returns an identical body for an existing and a non-existent report. The public page's guard runs **before the token promise is awaited** — resolving the token and discarding it would still leave a timing oracle — and a test asserts the promise is never awaited and that two different tokens produce identical markup. No stored snapshot is read, written or deleted in either branch.
+
+**Operator boundary observed:** deploying flag-on requires written authority and a decision on already-issued tokens, recorded in Appendix C. That authority does not exist, so the flag was never enabled outside per-test environment variables.
 
 ## 8 · State and rollback
 
-- Branch `codex/adsecute-zero-base-implementation` at `59fd7118b`, **2 commits** ahead of `origin/main`; worktree clean apart from this report, the ledger and `WP00_MERGE_RESOLUTION.patch`.
-- `package-lock.json` unmodified. No push, PR, deploy, production migration, provider call, campaign mutation, or live-state change. Only ephemeral local PostgreSQL clusters, all removed.
+- Branch `codex/adsecute-zero-base-implementation`, **12 commits** ahead of `origin/main` (4 safety commits brought in by the WP-00 merge + WP-00, WP-00.5, docs, WP-01, WP-02, ledger stamp, WP-03, WP-03A); worktree clean.
+- `package-lock.json` unmodified. No push, PR, deploy, production migration, remote or production database, provider call, campaign mutation, or live-state change. Only ephemeral local PostgreSQL clusters, all removed. No `.env` file was read into the repo, created or committed, and no secret was printed.
 - `/Users/harmelek/Adsecute` untouched at `c46d91c2a` with 346 dirty files.
 
 **Rollback (non-destructive).** This branch is isolated, so prefer reverts or removal over history rewriting:
@@ -101,4 +135,9 @@ Do not use `git reset --hard`; it discards committed evidence this ledger refere
 
 ## 9 · Next allowed package
 
-**WP-01** — vendor the hash-verified design contract into `docs/zero-base-design/v3/`. Its precondition (a clean, green G0) is now satisfied.
+**WP-04** — scoped Ledger tokens, fonts and no-flash theme. It was explicitly out of scope for this phase and was not started. It needs vendored `.woff2` files plus their verified license files, which are not in this repository, so it requires its own authorization.
+
+Two things carry forward into it:
+
+1. The design package is still **NOT READY**. Re-vendoring after the design owner ships an export regenerated at a single fingerprint with 23/23 mutations detected would clear REQ-27, REQ-28 and REQ-41.
+2. `lib/access/require-business-page-context.ts` and the workspace modules are deliberately **unused** until the canonical shell lands in WP-06. That is the intended rollback position: nothing renders differently today.

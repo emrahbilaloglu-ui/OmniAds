@@ -44,10 +44,10 @@
     "project": "full-ui-mobile",
     "surface": "automation",
     "path": "/platforms/meta/automation",
-    "state": "ready",
+    "state": "loading",
     "errorCode": null,
-    "text": "age unknownRefresh",
-    "hasRetry": true
+    "text": "Loading — no figures yet",
+    "hasRetry": false
   },
   {
     "width": 390,

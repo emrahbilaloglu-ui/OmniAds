@@ -394,7 +394,7 @@ for their root-cause value are labelled **superseded** at the statement itself.
 The exact tip SHA is stated in the deploy approval request, since a commit cannot record its own
 hash.
 
-**Scope vs `origin/main`:** 612 files changed, +63289 / −4488, across 116 commits
+**Scope vs `origin/main`:** 609 files changed, +63317 / −4365, across 120 commits
 (`git diff --shortstat origin/main HEAD`, `git log --oneline origin/main..HEAD | wc -l`).
 
 Recomputed against the commit that contains this line. The commit holding this paragraph changes
@@ -490,7 +490,7 @@ visibility only". That is contradicted by the shipped, mounted ownership write a
 
 | Gate | Exact command | Result |
 | --- | --- | --- |
-| Full suite | `LC_ALL=C npx vitest run` | **7,139 pass**, 0 fail, 61 skipped, 63 todo (720 files) |
+| Full suite | `LC_ALL=C npx vitest run` | **7,140 pass**, 0 fail, 61 skipped, 63 todo (720 files) |
 | Focused D061–D069 | `npx vitest run lib/launchpad/meta-manual-authority.test.ts lib/meta/decision-origin-action-preflight.test.ts lib/meta/ads-action-log.test.ts lib/creative-decision-engine/__tests__/execution-safety.test.ts lib/creative-decision-engine/__tests__/golden-cases.test.ts lib/meta/ad-daily-write-ownership.test.ts` | **235 pass**, 43 todo (6 files) |
 | Section 9 vocabulary + emitters | `npx vitest run lib/product-instrumentation.test.ts lib/product-instrumentation-emitters.test.ts` | 30 pass |
 | Tier-0 freshness | `npx vitest run lib/tier-zero-freshness-coverage.test.ts lib/tier-zero-as-of.test.ts lib/tier-zero-idle-tab-revalidation.test.ts components/states/tier-zero-freshness.test.tsx app/api/reports/tier-zero-freshness.route.test.ts` | 85 pass |
@@ -606,6 +606,38 @@ What it fixes matters for this release: the health gate asked whether each provi
 heartbeated inside a five-minute window, and a business cycle only heartbeats at its boundaries, so
 a long Google cycle looked dead while it was working. Fifty autoheal restarts across the acceptance
 window were retiring a worker that was never unwell.
+
+### Regression found by `verify:pre-push`, and what it says about ports
+
+Stage 05 of the database seams failed on this branch and passed on clean `origin/main`. Not a
+flake and not pre-existing: a regression this branch introduced, found only because the release
+gate runs the seams.
+
+Slice 5 (`e650163e8`) ported the native-authority branch's
+`lib/creative-decision-engine/data-source.ts` wholesale. That file had forked before three main
+fixes landed, so the port reverted all three while contributing nothing — the entire diff against
+main was 4 insertions and 31 deletions, and those 4 were one reordering. It reverted **main's tests
+for them in the same commit**, which is why the suite stayed green over a weaker contract.
+
+| Lost | Guarded by | Actually caught by |
+| --- | --- | --- |
+| `AND binding.is_selected`, in both the hydration and completeness CTEs. Main's own comment: "a deselected account must not receive decisions" | nothing | nothing — restored by inspection |
+| The compaction-aware retained-state clause on the receipts query | a unit test the port deleted | seam stage 05, forty minutes in |
+| The COALESCE precedence from `6c24cede6` ("bind calibration reuse to full account identity") | a unit test the port inverted | nothing — restored by inspection |
+
+Two of the three would have shipped silently. The selection one is the serious one: the engine
+would hydrate and decide for accounts the operator had deselected.
+
+The precedence looked like two competing intents and is not. Main's ordering is gated on
+`$12::boolean`, so on a point-in-time replay that flag is false and the historical
+`account_identity` wins regardless. Main's version is both the newer decision and the cutoff-safe
+one; the inversion bought nothing.
+
+Every other file where this branch net-removes main content was audited and is a genuine D061–D069
+replacement: the zero-conversion burner resolves through `commercialStopLossThresholds`, the
+campaign label guard implements the review-only policy, and the briefing action handlers replaced
+candidate-id matching with exact-identity authority — stricter than what they removed, with
+`hasNativeDecisionOriginLineage` still exported and used.
 
 ### Remaining work, classified honestly
 

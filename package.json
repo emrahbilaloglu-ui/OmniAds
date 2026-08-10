@@ -159,7 +159,10 @@
     "test:cutover-self-cleanup": "bash scripts/cutover-self-cleanup-check.sh",
     "test:cutover-migration-capacity-sample": "bash scripts/cutover-migration-capacity-sample-check.sh",
     "test:cutover-supersede-guard": "bash scripts/cutover-supersede-guard-check.sh",
-    "zero-base:contract:verify": "node --import tsx scripts/zero-base/verify-design-contract.ts"
+    "zero-base:contract:verify": "node --import tsx scripts/zero-base/verify-design-contract.ts",
+    "zero-base:contracts:generate": "node --import tsx scripts/zero-base/generate-contracts.ts",
+    "zero-base:contracts:check": "node --import tsx scripts/zero-base/verify-contracts.ts",
+    "test:zero-base:contract": "vitest run lib/zero-base/contract.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

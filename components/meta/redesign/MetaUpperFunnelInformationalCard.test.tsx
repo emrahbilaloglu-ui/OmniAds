@@ -27,7 +27,11 @@ function upperRec(overrides = {}) {
 describe("MetaUpperFunnelInformationalCard", () => {
   it("renders the upper-funnel card with all brand KPI tiles populated", () => {
     const html = renderToStaticMarkup(
-      <MetaUpperFunnelInformationalCard rec={upperRec()} onOpenDrill={vi.fn()} />,
+      <MetaUpperFunnelInformationalCard
+        rec={upperRec()}
+        moneyCurrency="USD"
+        onOpenDrill={vi.fn()}
+      />,
     );
 
     expect(html).toContain('data-card="meta-upper-funnel-informational"');
@@ -69,12 +73,32 @@ describe("MetaUpperFunnelInformationalCard", () => {
 
   it("renders cohort p50 when available and omits it when absent", () => {
     const withP50 = renderToStaticMarkup(
-      <MetaUpperFunnelInformationalCard rec={upperRec({ costPerThruplayP50: 1.5 })} />,
+      <MetaUpperFunnelInformationalCard
+        rec={upperRec({ costPerThruplayP50: 1.5 })}
+        moneyCurrency="USD"
+      />,
     );
     const withoutP50 = renderToStaticMarkup(<MetaUpperFunnelInformationalCard rec={upperRec()} />);
 
     expect(withP50).toContain("vs cohort p50 $1.50");
     expect(withoutP50).not.toContain("vs cohort p50");
+  });
+
+  it("uses the account currency and fails explicitly when it is unavailable", () => {
+    const gbp = renderToStaticMarkup(
+      <MetaUpperFunnelInformationalCard
+        rec={upperRec()}
+        moneyCurrency="GBP"
+      />,
+    );
+    const unknown = renderToStaticMarkup(
+      <MetaUpperFunnelInformationalCard rec={upperRec()} />,
+    );
+
+    expect(gbp).toContain("£2.00");
+    expect(gbp).not.toContain("$2.00");
+    expect(unknown).toContain("Currency unavailable");
+    expect(unknown).not.toContain("$2.00");
   });
 
   it("does not render decision drilldown copy or action controls", () => {

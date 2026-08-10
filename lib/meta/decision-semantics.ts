@@ -53,6 +53,26 @@ function resolutionForAuthorityBlocker(
         "Complete the action-specific target, threshold, or exact-cell calibration evidence reported missing by the engine. The held verdict remains visible, but no provider action is authorized.",
     };
   }
+  if (authorityBlocker === "recent_recovery_unverifiable") {
+    if (codes.has("missing_recent_data")) {
+      return {
+        code: "refresh_decision_data",
+        category: "data",
+        owner: "integration",
+        label: "Refresh Decision Data",
+        nextStep:
+          "Restore the missing recent ROAS/spend evidence before applying the held Cut verdict.",
+      };
+    }
+    return {
+      code: "await_recent_evidence",
+      category: "system",
+      owner: "system",
+      label: "Await Recent Economic Evidence",
+      nextStep:
+        "Wait for a sufficiently sampled recent window to confirm that ROAS remains below break-even. The held Cut is not authorized while recovery cannot be ruled out.",
+    };
+  }
   if (
     authorityBlocker === "source_freshness" ||
     authorityBlocker === "native_metrics_unavailable"
@@ -189,6 +209,16 @@ function resolutionFor(codes: ReadonlySet<string>): MetaDecisionResolution {
       label: "Hard Action Pending Confirmation",
       nextStep:
         "Wait for the required consecutive engine confirmation. The held Scale/Cut/Refresh verdict is visible, but no provider action is authorized yet.",
+    };
+  }
+  if (codes.has("recent_recovery_unverifiable")) {
+    return {
+      code: "await_recent_evidence",
+      category: "system",
+      owner: "system",
+      label: "Await Recent Economic Evidence",
+      nextStep:
+        "Wait for a sufficiently sampled recent window to confirm that ROAS remains below break-even. No Cut is authorized while recovery cannot be ruled out.",
     };
   }
   if (codes.has("profile_hard_action_ineligible")) {

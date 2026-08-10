@@ -22,7 +22,9 @@ const context: MetaCalibrationContext = {
   cohort: "traffic",
 };
 
-function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+function adset(
+  overrides: Partial<MetaAdSetData> & { currency?: string | null } = {},
+): MetaAdSetData {
   return {
     id: "adset_1",
     accountId: "act_1",
@@ -101,6 +103,22 @@ describe("emitTrafficAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("traffic");
+  });
+
+  it.each([
+    ["GBP", "£0.10"],
+    [null, "0.1 (Currency unavailable)"],
+  ] as const)("formats traffic cost with provider currency %s", (currency, expected) => {
+    const rec = emitTrafficAdsetScenario({
+      adset: adset({ spend: 20, linkClicks: 200, ctr: 6, currency }),
+      context,
+      cohort: "traffic",
+      signals: signal(20),
+    });
+
+    const cost = rec?.evidence.find((item) => item.label === "Cost / link click")?.value;
+    expect(cost).toBe(expected);
+    if (currency === null) expect(cost).not.toContain("$");
   });
 
   it("keeps an efficient one-event traffic row on watch", () => {

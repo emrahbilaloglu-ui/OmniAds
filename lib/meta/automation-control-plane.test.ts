@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -234,6 +235,60 @@ describe("meta automation control plane", () => {
       blocked: true,
       reason: "business_kill_switch",
       message: "Owner paused automation.",
+    });
+  });
+
+  it("blocks every Meta write for a demo business before provider execution", async () => {
+    vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+    const sql = vi.fn().mockResolvedValueOnce([
+      {
+        business_id: null,
+        is_demo_business: true,
+        kill_switch_engaged: null,
+        kill_switch_reason: null,
+        auto_execution_enabled: null,
+        readiness_tier: null,
+        guardrails_json: null,
+        updated_at: null,
+        updated_by: null,
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const block = await getMetaWriteBlockState({ businessId: BUSINESS_ID });
+
+    expect(block).toEqual({
+      blocked: true,
+      reason: "demo_business_read_only",
+      message: "Meta writes are disabled for synthetic demo businesses.",
+    });
+  });
+
+  it("blocks the immutable demo business id without depending on DB state or the test bypass", async () => {
+    const block = await getMetaWriteBlockState({
+      businessId: ` ${DEMO_BUSINESS_ID} `,
+    });
+
+    expect(block).toEqual({
+      blocked: true,
+      reason: "demo_business_read_only",
+      message: "Meta writes are disabled for synthetic demo businesses.",
+    });
+    expect(db.getDb).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the business row is missing", async () => {
+    vi.stubEnv("META_AUTOMATION_WRITE_GUARD_TEST_READS", "1");
+    const sql = vi.fn().mockResolvedValueOnce([]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const block = await getMetaWriteBlockState({ businessId: BUSINESS_ID });
+
+    expect(block).toEqual({
+      blocked: true,
+      reason: "control_state_unavailable",
+      message:
+        "Meta writes are temporarily blocked because automation control state could not be verified.",
     });
   });
 

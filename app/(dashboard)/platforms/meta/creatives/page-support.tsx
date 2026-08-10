@@ -4,7 +4,7 @@ import {
   type MetaAiTags,
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import type { DecisionEngineV3Response } from "@/lib/creative-decision-engine";
+import type { DecisionEngineV3ServingResponse } from "@/app/api/creatives/decision-engine-v3/route";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -913,12 +913,21 @@ export function CreativesTableShell() {
 
 export async function fetchCreativeDecisionEngineV3(params: {
   businessId: string;
+  providerAccountId: string;
   asOf?: string;
   creativeIds?: string[];
   campaignId?: string | null;
-}): Promise<DecisionEngineV3Response> {
+}): Promise<DecisionEngineV3ServingResponse> {
+  const businessId = params.businessId.trim();
+  const providerAccountId = params.providerAccountId.trim();
+  if (!businessId || !providerAccountId) {
+    throw new Error(
+      "decision engine v3 requires one exact business and provider account",
+    );
+  }
   const url = new URL("/api/creatives/decision-engine-v3", window.location.origin);
-  url.searchParams.set("businessId", params.businessId);
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("providerAccountId", providerAccountId);
   if (params.asOf) url.searchParams.set("asOf", params.asOf);
   if (params.campaignId) url.searchParams.set("campaignId", params.campaignId);
   if (params.creativeIds && params.creativeIds.length > 0) {
@@ -933,4 +942,4 @@ export async function fetchCreativeDecisionEngineV3(params: {
 
   return (await response.json()) as DecisionEngineV3Response;
 }
-export type { DecisionEngineV3Response };
+export type DecisionEngineV3Response = DecisionEngineV3ServingResponse;

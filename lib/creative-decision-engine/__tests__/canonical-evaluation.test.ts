@@ -192,6 +192,33 @@ describe("buildCanonicalEvaluationProvenance", () => {
     expect(changed.decisionHash).not.toBe(baseline.decisionHash);
   });
 
+  it("binds expanded economic Cut authority into the canonical profile hash", () => {
+    const baselineInput = makeEvaluation();
+    const profile = {
+      ...(baselineInput.accountProfile as ReturnType<
+        typeof makeAccountDecisionProfile
+      >),
+      expandedEconomicCutAuthority: {
+        eligible: false,
+        authorityBasis: null,
+        reason: "economic_spend_unit_authority_missing",
+      } as const,
+    };
+    const baseline = buildCanonicalEvaluationProvenance(baselineInput);
+    const changed = buildCanonicalEvaluationProvenance(
+      makeEvaluation({ accountProfile: profile }),
+    );
+
+    expect(changed.contextHash).not.toBe(baseline.contextHash);
+    expect(changed.contextPayload.accountProfile).toMatchObject({
+      expandedEconomicCutAuthority: {
+        eligible: false,
+        authorityBasis: null,
+        reason: "economic_spend_unit_authority_missing",
+      },
+    });
+  });
+
   it("treats ordered evidence as decision evidence", () => {
     const baseline = buildCanonicalEvaluationProvenance(makeEvaluation());
     const reversedDecision = makeDecision({

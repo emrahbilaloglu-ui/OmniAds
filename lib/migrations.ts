@@ -95,9 +95,7 @@ BEGIN
       ALTER TABLE ${table}
         ADD CONSTRAINT ${constraintPrefix}_authority_blocker_check
         CHECK (authority_blocker IS NULL OR authority_blocker IN (
-          'profile_hard_action_ineligible', 'source_freshness',
-          'campaign_context', 'native_metrics_unavailable',
-          'native_profile_unavailable'
+          ${AUTHORITY_BLOCKER_CHECK_VALUES_SQL}
         ));
     END IF;
   END IF;
@@ -1583,68 +1581,12 @@ FOR EACH ROW
 EXECUTE FUNCTION validate_manual_meta_ads_action_terminalization();
 `;
 
-type NativeSchemaCapability = {
-  ready: boolean;
-  missing?: readonly string[];
-  mismatched?: readonly string[];
-  issues?: readonly string[];
-};
-
-function nativeSchemaIssues(capability: NativeSchemaCapability) {
-  return [
-    ...(capability.missing ?? []),
-    ...(capability.mismatched ?? []),
-    ...(capability.issues ?? []),
-  ];
-}
-
-function assertNativeSchemaCapability(
-  name: string,
-  capability: NativeSchemaCapability,
-) {
-  if (capability.ready) return;
-  throw new Error(
-    `Native ad schema contract is not ready after ${name}: ${nativeSchemaIssues(capability).join(", ")}`,
-  );
-}
-
-async function hasPartialNonIdempotentNativeSchema(
-  db: DbClient,
-  input: {
-    tables: readonly string[];
-    columns?: readonly { table: string; column: string }[];
-  },
-) {
-  const [row] = await db.query<{
-    table_count: number | string;
-    column_count: number | string;
-  }>(
-    `
-    SELECT
-      COUNT(DISTINCT table_name)::integer AS table_count,
-      COUNT(*) FILTER (WHERE column_name IS NOT NULL)::integer AS column_count
-    FROM (
-      SELECT table_name, NULL::text AS column_name
-      FROM information_schema.tables
-      WHERE table_schema = current_schema()
-        AND table_name = ANY($1::text[])
-      UNION ALL
-      SELECT table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND (table_name, column_name) IN (
-          SELECT item->>'table', item->>'column'
-          FROM jsonb_array_elements($2::jsonb) item
-        )
-    ) capability
-    `,
-    [input.tables, JSON.stringify(input.columns ?? [])],
-  );
-  return (
-    Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0
-  );
-}
-
+/**
+ * D063 widens an enum-like CHECK without removing the old protection during
+ * table validation. No row is rewritten. The temporary NOT VALID constraint
+ * checks new writes immediately, is validated against existing rows, and is
+ * then swapped to the stable capability-contract name in the same transaction.
+ */
 export const D063_AUTHORITY_BLOCKER_CONSTRAINT_UPGRADE_SQL = `
 DO $d063_authority_blocker$
 DECLARE
@@ -1721,6 +1663,69 @@ BEGIN
 END
 $d063_authority_blocker$;
 `;
+
+type NativeSchemaCapability = {
+  ready: boolean;
+  missing?: readonly string[];
+  mismatched?: readonly string[];
+  issues?: readonly string[];
+};
+
+function nativeSchemaIssues(capability: NativeSchemaCapability) {
+  return [
+    ...(capability.missing ?? []),
+    ...(capability.mismatched ?? []),
+    ...(capability.issues ?? []),
+  ];
+}
+
+function assertNativeSchemaCapability(
+  name: string,
+  capability: NativeSchemaCapability,
+) {
+  if (capability.ready) return;
+  throw new Error(
+    `Native ad schema contract is not ready after ${name}: ${nativeSchemaIssues(capability).join(", ")}`,
+  );
+}
+
+async function hasPartialNonIdempotentNativeSchema(
+  db: DbClient,
+  input: {
+    tables: readonly string[];
+    columns?: readonly { table: string; column: string }[];
+  },
+) {
+  const [row] = await db.query<{
+    table_count: number | string;
+    column_count: number | string;
+  }>(
+    `
+    SELECT
+      COUNT(DISTINCT table_name)::integer AS table_count,
+      COUNT(*) FILTER (WHERE column_name IS NOT NULL)::integer AS column_count
+    FROM (
+      SELECT table_name, NULL::text AS column_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])
+      UNION ALL
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND (table_name, column_name) IN (
+          SELECT item->>'table', item->>'column'
+          FROM jsonb_array_elements($2::jsonb) item
+        )
+    ) capability
+    `,
+    [input.tables, JSON.stringify(input.columns ?? [])],
+  );
+  return (
+    Number(row?.table_count ?? 0) > 0 || Number(row?.column_count ?? 0) > 0
+  );
+}
+
 
 async function runNativeAdSchemaMigrations(
   timeoutMs: number,

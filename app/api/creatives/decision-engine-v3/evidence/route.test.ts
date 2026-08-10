@@ -1,187 +1,100 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { readMetaCampaignLabels } from "@/lib/meta/campaign-labels";
 import {
-  decideCreative,
-  resolveAccountDecisionProfile,
-  type AccountDecisionProfile,
-  type CreativeInput,
-  type DataHealth,
-  type DecisionOutput,
+  resolveEngineV3Flags,
   type EngineV3Flags,
-  type FunnelDiagnosis,
-  type OperatorResponseResult,
-} from "@/lib/creative-decision-engine";
-import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { resolveDataSource } from "../data-source";
+} from "@/lib/creative-decision-engine/feature-flags";
+import { canonicalSha256 } from "@/lib/creative-decision-engine/canonical-evaluation";
+import { getDb } from "@/lib/db";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
+import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
 import { GET } from "./route";
 
-vi.mock("@/lib/access", () => ({
-  requireBusinessAccess: vi.fn(),
-}));
-
+vi.mock("@/lib/access", () => ({ requireBusinessAccess: vi.fn() }));
 vi.mock("@/lib/creative-decision-engine/feature-flags", () => ({
   resolveEngineV3Flags: vi.fn(),
 }));
-
-vi.mock("@/lib/meta/campaign-labels", () => ({
-  readMetaCampaignLabels: vi.fn(),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn() }));
+vi.mock("@/lib/meta/decisions-workspace-read-model", () => ({
+  readMetaNativeCanonicalDecisionInventory: vi.fn(),
 }));
 
-vi.mock("@/lib/creative-decision-engine", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/lib/creative-decision-engine")>();
-  return {
-    ...actual,
-    decideCreative: vi.fn(),
-    resolveAccountDecisionProfile: vi.fn(),
-  };
+const BUSINESS_ID = "00000000-0000-4000-8000-000000000001";
+const PROVIDER_REF_ID = "00000000-0000-4000-8000-000000000002";
+const JOB_RUN_ID = "00000000-0000-4000-8000-000000000003";
+const SNAPSHOT_ID = "00000000-0000-4000-8000-000000000004";
+const EVALUATION_ID = "00000000-0000-4000-8000-000000000005";
+const CONTEXT_ID = "00000000-0000-4000-8000-000000000006";
+const EVALUATION_CONTRACT_VERSION =
+  "engine-v3-native-ad-evaluation.v1";
+const ENGINE_VERSION = "native-current";
+const SCOPE_JSON = { type: "account", id: "act_1" };
+const ACCOUNT_PROFILE_JSON = { scope: SCOPE_JSON };
+const DATA_HEALTH_JSON = { worstTier: "none" };
+const FLAGS_JSON = { shadowOnly: true };
+const CONTEXT_JSON = {
+  contractVersion: EVALUATION_CONTRACT_VERSION,
+  envelopeType: "context",
+  engineVersion: ENGINE_VERSION,
+  scope: SCOPE_JSON,
+  accountProfile: ACCOUNT_PROFILE_JSON,
+  dataHealth: DATA_HEALTH_JSON,
+  flags: FLAGS_JSON,
+};
+const CONTEXT_HASH = canonicalSha256(CONTEXT_JSON);
+const CREATIVE_INPUT_JSON = {
+  creativeId: "creative-1",
+  decisionEntityType: "ad",
+  decisionEntityId: "ad-1",
+  adId: "ad-1",
+  providerAccountId: "act_1",
+  businessId: BUSINESS_ID,
+  spend: 500,
+};
+const CAMPAIGN_CONTEXT_JSON = { kind: "main" };
+const PRIOR_HYSTERESIS_JSON = { prior: null };
+const DECISION_OUTPUT_JSON = {
+  creativeId: "creative-1",
+  decisionEntityType: "ad",
+  decisionEntityId: "ad-1",
+  adId: "ad-1",
+  providerAccountId: "act_1",
+  label: "keep",
+  blockedActionType: "cut",
+};
+const INPUT_HASH = canonicalSha256({
+  contractVersion: EVALUATION_CONTRACT_VERSION,
+  envelopeType: "input",
+  engineVersion: ENGINE_VERSION,
+  contextHash: CONTEXT_HASH,
+  creativeInput: CREATIVE_INPUT_JSON,
+  campaignContext: CAMPAIGN_CONTEXT_JSON,
+  priorHysteresis: PRIOR_HYSTERESIS_JSON,
+  decisionIdentity: {
+    decisionEntityType: "ad",
+    decisionEntityId: "ad-1",
+    adId: "ad-1",
+    providerAccountId: "act_1",
+    providerAccountRefId: PROVIDER_REF_ID,
+    creativeGroupingId: "creative-1",
+  },
+});
+const DECISION_HASH = canonicalSha256({
+  contractVersion: EVALUATION_CONTRACT_VERSION,
+  envelopeType: "decision",
+  engineVersion: ENGINE_VERSION,
+  inputHash: INPUT_HASH,
+  decision: DECISION_OUTPUT_JSON,
+  rawLabel: "cut",
+  publishedLabel: "keep",
+  hysteresisSuppressed: false,
 });
 
-vi.mock("../data-source", () => ({
-  resolveDataSource: vi.fn(),
-}));
-
-const dataSource = {
-  listCreativeInputs: vi.fn(),
-  getDataHealth: vi.fn(),
-  getLatestFunnelDiagnosis: vi.fn(),
-  getLatestOperatorResponse: vi.fn(),
-};
-
-const previousCampaignContextMode = process.env.CAMPAIGN_CONTEXT_MODE;
-
-const input: CreativeInput = {
-  creativeId: "creative-1",
-  creativeName: "Creative One",
-  businessId: "biz-1",
-  campaignId: "campaign-1",
-  objective: "OUTCOME_SALES",
-  spend: 500,
-  purchases: 8,
-  purchaseValue: 1500,
-  impressions: 50000,
-  linkClicks: 600,
-  roas: 3,
-  cpa: 62.5,
-  ctr: 1.2,
-  frequency: 1.4,
-  recent7dSpend: 120,
-  recent7dPurchases: 2,
-  recent7dRoas: 2.8,
-  recent7dImpressions: 12000,
-  effectiveStatus: "ACTIVE",
-  ageDays: 21,
-  lastSpendAt: "2026-05-04",
-  policyReason: null,
-  dataFreshnessHours: 6,
-  fatigueStatus: "none",
-  targetRoas: 2.2,
-  breakevenRoas: 1.71,
-  lifecyclePosition: "plateau",
-  daysSincePeak: 5,
-  peakRoas30d: 3.4,
-  peakConfidence: 0.7,
-  spendTrajectory30d: "flat",
-  spendSlope7d: 0.5,
-  spendSlope30d: 0.2,
-  roasSlope7d: -0.05,
-  roasSlope30d: 0,
-  cpm: 10,
-  outboundClicks: 520,
-  landingPageViews: 480,
-  addToCart: 80,
-  initiateCheckout: 40,
-  thumbstop: 25,
-  video25Rate: 18,
-  video50Rate: 10,
-  video75Rate: 6,
-  video100Rate: 3,
-  qualityRanking: "average",
-  engagementRateRanking: "average",
-  conversionRateRanking: "average",
-  creativeFormat: "video",
-};
-
-const dataHealth: DataHealth = {
-  calibration: makeLayer(),
-  lifecycle: makeLayer(),
-  decisions: makeLayer(),
-  worstTier: "none",
-  degraded: false,
-};
-
-const decision: DecisionOutput = {
-  creativeId: "creative-1",
-  creativeName: "Creative One",
-  label: "scale",
-  preAuthorityLabel: "scale",
-  authorityBlocker: null,
-  reason: "Strong winner against target.",
-  confidence: 82,
-  truthSource: "commercial_truth",
-  effectiveTargetRoas: 2.2,
-  ratioToTarget: 1.36,
-  badges: [],
-  metrics: {
-    spend: 500,
-    purchases: 8,
-    roas: 3,
-    recent7dRoas: 2.8,
-  },
-  engineVersion: "v3-test",
-  generatedAt: "2026-05-04T12:00:00.000Z",
-};
-
-const funnelDiagnosis: FunnelDiagnosis = {
-  primaryWeakStage: "none",
-  creativeResponsible: false,
-  confidence: 1,
-  evidence: ["funnel rates are not below account weak thresholds"],
-  rates: {
-    ctr: 1.2,
-    outboundClickRate: 1.04,
-    linkToLpvRate: 80,
-    linkToAtcRate: 13.33,
-    lpvToAtcRate: 16.67,
-    atcToIcRate: 50,
-    icToPurchaseRate: 20,
-    atcToPurchaseRate: 10,
-    clickToPurchaseRate: 1.33,
-  },
-};
-
-const operatorResponse: OperatorResponseResult = {
-  responseType: "ignored",
-  decisionRecommendedAt: "2026-05-01",
-  operatorResponseDetectedAt: "2026-05-04T00:00:00.000Z",
-  confidence: 0.72,
-  evidence: ["recommendation was not acted on"],
-  signals: {
-    spendSlope7d: 0,
-    budgetChangeAmount: null,
-    actionJournalReceiptCount: 0,
-    statusChanged: false,
-    roasDecayPct: null,
-    frequencyRosePct: null,
-  },
-};
-
-function makeLayer(): DataHealth["calibration"] {
+function flags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
   return {
-    asOfDate: "2026-05-04",
-    computedAt: "2026-05-04T12:00:00.000Z",
-    sourceFreshnessHours: 0,
-    staleTier: "none",
-    fallbackMode: "runtime_sql",
-    note: null,
-  };
-}
-
-function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
-  return {
-    businessId: "biz-1",
+    businessId: BUSINESS_ID,
     enabled: true,
     surfaceVisible: true,
     shadowOnly: true,
@@ -194,339 +107,432 @@ function makeFlags(overrides: Partial<EngineV3Flags> = {}): EngineV3Flags {
     },
     envDefaults: {
       enabled: true,
-      surfaceVisible: false,
+      surfaceVisible: true,
       shadowOnly: true,
     },
     ...overrides,
   };
 }
 
-function makeAccountProfile(): AccountDecisionProfile {
+function canonicalDecision(
+  overrides: Partial<MetaCanonicalDecision> = {},
+): MetaCanonicalDecision {
   return {
-    businessId: "biz-1",
-    asOfDate: "2026-05-04",
-    channel: "meta",
-    objectiveFamily: "sales",
-    preset: "balanced",
-    presetSource: "default",
-    spendUnit: 50,
-    spendUnitSource: "meta_derived_aov",
-    spendUnitConfidence: "high",
-    spendUnitEvidence: {
-      targetCpa: null,
-      operatorAovAssumption: 55,
-      metaAttributedAovMean90d: 50,
-      metaAttributedAovPurchaseCount90d: 42,
-      metaAttributedRevenue90d: 2100,
-      targetRoas: 2.2,
-      breakEvenRoas: 1.71,
-      accountCpaP50: 58,
-      accountCpaSampleCount: 24,
-      warnings: [],
+    decisionId: "decision-ad-1",
+    episodeId: "episode-ad-1",
+    episodeStartedAt: "2026-07-16",
+    providerAccountId: "act_1",
+    identityGrain: "ad",
+    sourceSnapshotId: SNAPSHOT_ID,
+    sourceAuthority: {
+      status: "native_exact",
+      actionEligible: false,
+      reviewOnlyReason: "pending_transition",
+      snapshotId: SNAPSHOT_ID,
+      evaluationId: EVALUATION_ID,
+      inputHash: INPUT_HASH,
+      decisionHash: DECISION_HASH,
+      providerAccountRefId: PROVIDER_REF_ID,
+      engineVersion: "native-current",
+      realAdId: "ad-1",
+      authorizedAction: null,
+      jobRunId: JOB_RUN_ID,
     },
-    multipliers: {
-      zeroConvBurner: 1.5,
-      cutCandidate: 2,
-      sustainedLoser: 3,
-      lossBudget: 2,
-      hardCut: 4,
-      scalePurchase: 1,
-      winnerMemory: 0.8,
-      recentSample: 0.5,
-      weakFunnelRate: 0.8,
+    sourceDecision: {
+      label: "keep",
+      preAuthorityLabel: "cut",
+      authorityBlocker: "pending_transition",
+      rawLabel: "cut",
+      reason: "Persisted Cut is held for epoch confirmation.",
+      confidence: 91,
+      confidenceBand: "high",
+      truthSource: "commercial_truth",
+      engineVersion: "native-current",
+      snapshotAsOf: "2026-07-16",
+      computedAt: "2026-07-16T03:05:00.000Z",
+      badges: ["pending_transition"],
+      provenance: {} as never,
     },
-    thresholds: {
-      zeroConvBurnerSpend: 75,
-      cutCandidateSpend: 100,
-      sustainedLoserSpend: 150,
-      commercialMaturitySpend: 100,
-      hardCutSpend: 200,
-      recentSampleMinSpend: 50,
-      winnerMemoryMinSpend: 80,
-      scaleMinPurchases: 3,
-      winnerMemoryMinPurchases: 2,
-      bottomQuartileRatio: 0.6,
-      severeLoserRatio: 0.4,
+    parentChain: {
+      account: { id: "act_1", name: null },
+      campaign: { id: "campaign-1", name: "Campaign" },
+      adset: { id: "adset-1", name: "Ad set" },
+      ad: { id: "ad-1", name: "Ad one" },
+      creative: { id: "creative-1", name: "Creative one" },
+      provenance: {} as never,
     },
-    accountBaselines: {
-      businessId: "biz-1",
-      computedAt: "2026-05-04T12:00:00.000Z",
-      matureCreativeCount: 35,
-      roasP75: 2.4,
-      roasP60: 1.9,
-      refreshRatioP10: 0.82,
-      lowCtrP10: 0.7,
-      accountCpaP50: 58,
-      accountCpaSampleCount: 24,
-      metaAttributedAovMean90d: 50,
-      metaAttributedAovPurchaseCount90d: 42,
-      metaAttributedRevenue90d: 2100,
-      matureSpendP50: 300,
-      matureSpendP75: 450,
-      winnerSpendP25: 250,
-      winnerSpendP50: 500,
-      winnerPurchaseP50: 5,
-      roasRatioP10: 0.4,
-      roasRatioP25: 0.6,
-      roasRatioP50: 1,
-      roasRatioP75: 1.35,
-      metaAovQuality: "ready",
+    identityResolution: {
+      basis: "native_ad_exact",
+      candidateAdCount: 1,
+      metricsEquivalent: true,
+      adActionEligible: true,
     },
-    funnelCalibration: { byFormat: {} },
-    scope: { type: "account", id: "*" },
-    hardActionEligibility: {
-      scale: true,
-      cut: true,
-      refresh: true,
-      reason: null,
+    classification: {
+      overlayVersion: "meta-decisions-classification-overlay.v1",
+      queueSection: "creative_rotation",
+      lifecycleRole: { value: "main" } as never,
+      assessment: {} as never,
+      decisionState: "blocked",
+      heldAction: "cut",
+      legacyBuyerAction: "cut",
+      buyerAction: null,
+      buyerLabel: "Cut · Held",
+      executionAction: null,
+      resolution: null,
+      blockers: [],
+      provenance: {} as never,
     },
-    quality: {
-      commercialTruthReady: true,
-      calibrationReady: true,
-      metaAovQuality: "ready",
-      thresholdQuality: "ready",
+    history: {
+      events: { status: "available", reason: null, preCapCount: 0, items: [] },
+      outcomes: { status: "unavailable", reason: "not_accrued", items: [] },
+      responses: {
+        status: "available",
+        reason: null,
+        items: [
+          {
+            id: "response-1",
+            observationStatus: "observed_no_response",
+            responseType: "ignored",
+            detectedAt: "2026-07-16T10:00:00.000Z",
+            responseCutoff: "2026-07-16T09:00:00.000Z",
+          },
+        ],
+      },
+      providerWrites: { status: "unavailable", reason: "not_observed" },
     },
+    metrics: {
+      spend: 500,
+      purchases: 2,
+      roas: 0.8,
+      recent7dRoas: 0.7,
+      effectiveTargetRoas: 2.2,
+      ratioToTarget: 0.36,
+      currency: "USD",
+      attribution: "meta_attributed",
+      provenance: {} as never,
+    },
+    ...overrides,
+  } as unknown as MetaCanonicalDecision;
+}
+
+function generation(items = [canonicalDecision()]) {
+  return {
+    status: "available" as const,
+    generation: {
+      jobRunId: JOB_RUN_ID,
+      asOfDate: "2026-07-16",
+      providerAccountRefId: PROVIDER_REF_ID,
+      manifestHash: "a".repeat(64),
+      expectedAdCount: items.length,
+    },
+    items,
+    unavailableReason: null,
   };
 }
 
-function mockBusinessAccess(businessId = "biz-1") {
+function evidenceRow(overrides: Record<string, unknown> = {}) {
+  return {
+    snapshot_id: SNAPSHOT_ID,
+    evaluation_id: EVALUATION_ID,
+    context_id: CONTEXT_ID,
+    job_run_id: JOB_RUN_ID,
+    provider_account_ref_id: PROVIDER_REF_ID,
+    provider_account_id: "act_1",
+    ad_id: "ad-1",
+    snapshot_decision_entity_type: "ad",
+    snapshot_decision_entity_id: "ad-1",
+    evaluation_decision_entity_type: "ad",
+    evaluation_decision_entity_id: "ad-1",
+    snapshot_creative_id: "creative-1",
+    evaluation_creative_id: "creative-1",
+    snapshot_raw_label: "cut",
+    snapshot_published_label: "keep",
+    evaluation_raw_label: "cut",
+    evaluation_hysteresis_suppressed: false,
+    as_of_date: "2026-07-16",
+    engine_version: ENGINE_VERSION,
+    scope_type: "account",
+    scope_id: "act_1",
+    snapshot_input_hash: INPUT_HASH,
+    snapshot_decision_hash: DECISION_HASH,
+    evaluation_input_hash: INPUT_HASH,
+    evaluation_decision_hash: DECISION_HASH,
+    evaluation_contract_version: EVALUATION_CONTRACT_VERSION,
+    evaluation_evaluated_at: "2026-07-16T03:04:00.000Z",
+    context_contract_version: EVALUATION_CONTRACT_VERSION,
+    context_hash: CONTEXT_HASH,
+    context_evaluated_at: "2026-07-16T03:03:00.000Z",
+    creative_input_json: CREATIVE_INPUT_JSON,
+    campaign_context_json: CAMPAIGN_CONTEXT_JSON,
+    prior_hysteresis_json: PRIOR_HYSTERESIS_JSON,
+    decision_output_json: DECISION_OUTPUT_JSON,
+    context_json: CONTEXT_JSON,
+    account_profile_json: ACCOUNT_PROFILE_JSON,
+    data_health_json: DATA_HEALTH_JSON,
+    flags_json: FLAGS_JSON,
+    ...overrides,
+  };
+}
+
+function mockAccess() {
   vi.mocked(requireBusinessAccess).mockResolvedValue({
-    session: {
-      user: { id: "user-1", email: "operator@adsecute.com" },
-    } as never,
+    session: { user: { id: "user-1" } } as never,
     membership: {
       id: "membership-1",
       userId: "user-1",
-      businessId,
+      businessId: BUSINESS_ID,
       role: "guest",
       status: "active",
-      joinedAt: "2026-05-04T00:00:00.000Z",
+      joinedAt: "2026-07-01T00:00:00.000Z",
     },
   });
 }
 
-function mockAccessError(status: 401 | 403) {
-  vi.mocked(requireBusinessAccess).mockResolvedValue({
-    error: NextResponse.json({ error: "auth_error" }, { status }),
-  });
-}
+const query = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.CAMPAIGN_CONTEXT_MODE = "legacy_labels";
-  mockBusinessAccess();
-  vi.mocked(resolveEngineV3Flags).mockResolvedValue(makeFlags());
-  vi.mocked(resolveDataSource).mockReturnValue({
-    instance: dataSource as never,
-    label: "warehouse",
-  });
-  vi.mocked(readMetaCampaignLabels).mockResolvedValue([
-    {
-      businessId: "biz-1",
-      campaignId: "campaign-1",
-      kind: "main",
-      testDimension: null,
-      source: "user",
-      providerAccountId: null,
-      campaignName: null,
-      labeledBy: "user-1",
-      labeledAt: "2026-05-04T00:00:00.000Z",
-      updatedAt: "2026-05-04T00:00:00.000Z",
-    },
-  ]);
-  dataSource.listCreativeInputs.mockResolvedValue([input]);
-  dataSource.getDataHealth.mockResolvedValue(dataHealth);
-  dataSource.getLatestFunnelDiagnosis.mockResolvedValue(funnelDiagnosis);
-  dataSource.getLatestOperatorResponse.mockResolvedValue(operatorResponse);
-  vi.mocked(resolveAccountDecisionProfile).mockResolvedValue(makeAccountProfile());
-  vi.mocked(decideCreative).mockReturnValue(decision);
-});
-
-afterEach(() => {
-  if (previousCampaignContextMode === undefined) {
-    delete process.env.CAMPAIGN_CONTEXT_MODE;
-  } else {
-    process.env.CAMPAIGN_CONTEXT_MODE = previousCampaignContextMode;
-  }
+  mockAccess();
+  vi.mocked(resolveEngineV3Flags).mockResolvedValue(flags());
+  vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+    generation(),
+  );
+  query.mockResolvedValue([evidenceRow()]);
+  vi.mocked(getDb).mockReturnValue({ query } as never);
 });
 
 describe("GET /api/creatives/decision-engine-v3/evidence", () => {
-  it("returns 401 when auth fails", async () => {
-    mockAccessError(401);
-
-    const response = await GET(
+  it("requires business, provider account, and exact Ad identity", async () => {
+    const missingBusiness = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1",
+        "http://localhost/api/creatives/decision-engine-v3/evidence?providerAccountId=act_1&adId=ad-1",
+      ),
+    );
+    const missingAccount = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&adId=ad-1`,
+      ),
+    );
+    const missingAd = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1`,
       ),
     );
 
-    expect(response.status).toBe(401);
+    expect(missingBusiness.status).toBe(400);
+    expect(missingAccount.status).toBe(400);
+    expect(missingAd.status).toBe(400);
+    expect(await missingAd.json()).toEqual({ error: "adId required" });
   });
 
-  it("returns 400 when businessId is missing", async () => {
+  it("serves persisted snapshot/evaluation/context lineage without recomputation", async () => {
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?creativeId=creative-1",
-      ),
-    );
-    const payload = (await response.json()) as { error?: string };
-
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe("businessId required");
-    expect(requireBusinessAccess).not.toHaveBeenCalled();
-  });
-
-  it("returns 400 when creativeId is missing", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1",
-      ),
-    );
-    const payload = (await response.json()) as { error?: string };
-
-    expect(response.status).toBe(400);
-    expect(payload.error).toBe("creativeId required");
-  });
-
-  it("returns 404 when no CreativeInput is found", async () => {
-    dataSource.listCreativeInputs.mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1",
-      ),
-    );
-    const payload = (await response.json()) as { error?: string };
-
-    expect(response.status).toBe(404);
-    expect(payload.error).toBe("creative input not found");
-  });
-
-  it("returns a disabled response when flags.enabled is false", async () => {
-    vi.mocked(resolveEngineV3Flags).mockResolvedValue(
-      makeFlags({ enabled: false }),
-    );
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1",
-      ),
-    );
-    const payload = (await response.json()) as { status?: string; reason?: string };
-
-    expect(response.status).toBe(200);
-    expect(payload).toMatchObject({
-      status: "disabled",
-      reason: "engine_v3_disabled_for_business",
-    });
-    expect(resolveDataSource).not.toHaveBeenCalled();
-  });
-
-  it("returns the full evidence shape for an enabled business", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1&asOf=2026-05-04",
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1&asOf=2026-07-16`,
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      businessId: "biz-1",
+      status: "available",
+      contractVersion: "decision-engine-v3-native-ad-evidence.v1",
+      providerAccountId: "act_1",
+      adId: "ad-1",
       creativeId: "creative-1",
-      asOf: "2026-05-04",
-      engineVersion: "v3-test",
-      dataHealth,
-      scope: { type: "account", id: "*" },
-      accountProfile: { businessId: "biz-1", preset: "balanced" },
-      decision: {
-        creativeId: "creative-1",
-        label: "scale",
-        campaignLabelStatus: "labeled",
-        campaignKind: "main",
+      lineage: {
+        status: "verified",
+        jobRunId: JOB_RUN_ID,
+        snapshot: {
+          id: SNAPSHOT_ID,
+          inputHash: INPUT_HASH,
+          decisionHash: DECISION_HASH,
+        },
+        evaluation: { id: EVALUATION_ID, contextId: CONTEXT_ID },
+        context: { id: CONTEXT_ID, contextHash: CONTEXT_HASH },
       },
-      input: { creativeId: "creative-1", campaignKind: "main" },
-      funnelDiagnosis: { primaryWeakStage: "none" },
-      operatorResponse: { responseType: "ignored" },
+      persistedEvidence: {
+        creativeInput: { creativeId: "creative-1", spend: 500 },
+        decisionOutput: { label: "keep", blockedActionType: "cut" },
+      },
     });
-    expect(decideCreative).toHaveBeenCalledWith(
-      expect.objectContaining({
-        creativeId: "creative-1",
-        campaignKind: "main",
-      }),
-      expect.any(Object),
-      dataHealth,
+    expect(payload.decision.classification).toMatchObject({
+      decisionState: "blocked",
+      heldAction: "cut",
+      buyerAction: null,
+      buyerLabel: "Cut · Held",
+    });
+    expect(readMetaNativeCanonicalDecisionInventory).toHaveBeenCalledWith({
+      businessId: BUSINESS_ID,
+      providerAccountId: "act_1",
+      asOfDate: "2026-07-16",
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("engine_v3_ad_decision_evaluation_contexts"),
+      [
+        BUSINESS_ID,
+        "act_1",
+        PROVIDER_REF_ID,
+        "ad-1",
+        SNAPSHOT_ID,
+        EVALUATION_ID,
+        JOB_RUN_ID,
+        "2026-07-16",
+        "native-current",
+        INPUT_HASH,
+        DECISION_HASH,
+      ],
     );
-    expect(dataSource.listCreativeInputs).toHaveBeenCalledWith({
-      businessId: "biz-1",
-      asOf: "2026-05-04",
-      creativeIds: ["creative-1"],
-    });
-    expect(resolveAccountDecisionProfile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        businessId: "biz-1",
-        asOf: "2026-05-04",
-        campaignId: undefined,
-      }),
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "evaluation.creative_id IS NOT DISTINCT FROM snapshot.creative_id",
     );
   });
 
-  it("passes campaignId to the evidence profile resolver", async () => {
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1&campaignId=campaign-1",
-      ),
-    );
-
-    expect(response.status).toBe(200);
-    expect(resolveAccountDecisionProfile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        campaignId: "campaign-1",
-      }),
-    );
-  });
-
-  it("guards hard evidence decisions when campaign label is missing", async () => {
-    vi.mocked(readMetaCampaignLabels).mockResolvedValue([]);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1&campaignId=campaign-1",
-      ),
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.decision).toMatchObject({
-      label: "diagnose",
-      confidence: 50,
-      campaignLabelStatus: "unlabeled",
-      campaignKind: null,
-      blockedActionType: "scale",
+  it("fails closed on unavailable generation and never queries legacy evidence", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue({
+      status: "unavailable",
+      generation: null,
+      items: [],
+      unavailableReason: "native_account_receipt_cardinality_invalid",
     });
-    expect(payload.decision.badges.map((badge: { type: string }) => badge.type)).toContain(
-      "unlabeled_campaign_context",
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
     );
-    expect(decideCreative).toHaveBeenCalledWith(
-      expect.objectContaining({ campaignKind: null }),
-      expect.any(Object),
-      dataHealth,
-    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "native_account_receipt_cardinality_invalid",
+    });
+    expect(query).not.toHaveBeenCalled();
   });
 
-  it("handles missing funnel and operator response evidence", async () => {
-    dataSource.getLatestFunnelDiagnosis.mockResolvedValue(null);
-    dataSource.getLatestOperatorResponse.mockResolvedValue(null);
+  it("fails closed on cross-account canonical identity", async () => {
+    vi.mocked(readMetaNativeCanonicalDecisionInventory).mockResolvedValue(
+      generation([canonicalDecision({ providerAccountId: "act_2" })]),
+    );
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "native_exact_ad_identity_or_lineage_invalid",
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate or contradictory persisted lineage rows", async () => {
+    query.mockResolvedValue([evidenceRow(), evidenceRow()]);
+    const duplicate = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toMatchObject({
+      reason: "native_persisted_evidence_cardinality_invalid",
+    });
+
+    query.mockResolvedValue([evidenceRow({ context_hash: "invalid" })]);
+    const invalid = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+    expect(invalid.status).toBe(409);
+    expect(await invalid.json()).toMatchObject({
+      reason: "native_persisted_evidence_lineage_invalid",
+    });
+  });
+
+  it("rejects a tampered canonical creative-input envelope", async () => {
+    query.mockResolvedValue([
+      evidenceRow({
+        creative_input_json: { ...CREATIVE_INPUT_JSON, spend: 501 },
+      }),
+    ]);
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-engine-v3/evidence?businessId=biz-1&creativeId=creative-1",
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
       ),
     );
-    const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload.funnelDiagnosis).toBeNull();
-    expect(payload.operatorResponse).toBeNull();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "native_persisted_evidence_lineage_invalid",
+    });
+  });
+
+  it("rejects a tampered canonical decision envelope", async () => {
+    query.mockResolvedValue([
+      evidenceRow({
+        decision_output_json: { ...DECISION_OUTPUT_JSON, reason: "tampered" },
+      }),
+    ]);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "native_persisted_evidence_lineage_invalid",
+    });
+  });
+
+  it("rejects mismatched nullable creative grouping lineage", async () => {
+    query.mockResolvedValue([
+      evidenceRow({ evaluation_creative_id: "creative-other" }),
+    ]);
+
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      reason: "native_persisted_evidence_lineage_invalid",
+    });
+  });
+
+  it("preserves access and disabled gates", async () => {
+    vi.mocked(requireBusinessAccess).mockResolvedValue({
+      error: NextResponse.json({ error: "auth_error" }, { status: 401 }),
+    });
+    const denied = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+    expect(denied.status).toBe(401);
+
+    mockAccess();
+    vi.mocked(resolveEngineV3Flags).mockResolvedValue(flags({ enabled: false }));
+    const disabled = await GET(
+      new NextRequest(
+        `http://localhost/api/creatives/decision-engine-v3/evidence?businessId=${BUSINESS_ID}&providerAccountId=act_1&adId=ad-1`,
+      ),
+    );
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toMatchObject({ status: "disabled" });
+  });
+
+  it("contains no request-time decision or profile calculator", () => {
+    const source = readFileSync(
+      "app/api/creatives/decision-engine-v3/evidence/route.ts",
+      "utf8",
+    );
+    expect(source).not.toMatch(/\bdecideCreative\b/);
+    expect(source).not.toMatch(/\bresolveAccountDecisionProfile\b/);
+    expect(source).not.toMatch(/\bresolveDataSource\b/);
   });
 });

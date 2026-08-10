@@ -1,30 +1,17 @@
 import { createHash } from "node:crypto";
+import { latestCanonicalComputedAt } from "@/lib/creatives/briefing-observed-at";
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDb } from "@/lib/db";
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getDemoMetaCreatives, getDemoProviderAccounts } from "@/lib/demo-business";
 import {
-  decideCreative,
-  ENGINE_VERSION,
-  readCreativeDecisionBacktestSummary,
-  resolveAccountDecisionProfile,
+  getDemoMetaCreatives,
+  getDemoProviderAccounts,
+} from "@/lib/demo-business";
+import {
+  NATIVE_AD_ENGINE_VERSION,
   type CreativeInput,
-  type DecisionLabel,
-  type DecisionOutput,
 } from "@/lib/creative-decision-engine";
-import {
-  applyCreativeCampaignLabelGuard,
-  buildCreativeCampaignLabelMap,
-  withCreativeCampaignLabelContext,
-} from "@/lib/creative-decision-engine/campaign-label-guard";
 import { resolveEngineV3Flags } from "@/lib/creative-decision-engine/feature-flags";
-import { resolveDataSource } from "@/app/api/creatives/decision-engine-v3/data-source";
-import { readCampaignContextLabelMap } from "@/lib/creative-decision-engine/campaign-context/source";
-import {
-  readPreviousPublishedLabels,
-  stabilizeDecisionLabel,
-} from "@/lib/creative-decision-engine/decision-stability";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import {
@@ -37,33 +24,23 @@ import {
 } from "@/lib/meta/briefing-filter";
 import { toISODate } from "@/lib/meta/creatives-row-mappers";
 import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
+import { readMetaNativeCanonicalDecisionInventory } from "@/lib/meta/decisions-workspace-read-model";
+import { readDemoNativeCanonicalDecisionInventory } from "@/lib/meta/demo-native-canonical-fixture";
+import type { MetaCanonicalDecision } from "@/lib/meta/decisions-workspace-contract";
 import { readTriageState } from "@/lib/triage-events";
+import { CREATIVE_DECISION_ENGINE_CONFIG_VERSION } from "@/lib/creative-decision-engine/config-values";
+import { safeNumber } from "./card-serialization";
 import {
-  AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
-  CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
-  UNUSED_APPROVED_LOOKBACK_DAYS,
-  WINNER_GAP_FRESHNESS_MAX_DAYS,
-  WINNER_GAP_LOOKBACK_DAYS,
-  WINNER_GAP_MIN_DEPTH_DAYS,
-  WINNER_GAP_MIN_SAMPLED_DAYS,
-} from "@/lib/creative-decision-engine/config-values";
+  BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+  projectCanonicalNativeAdDecisionToBriefing,
+} from "./canonical-projection";
 import {
-  cardForDecision,
-  safeNumber,
-} from "./card-serialization";
-import {
-  adaptCreativeDecisionsToRows,
   assembleDecisionCenterSnapshot,
   auditDecisionCenterSnapshotInvariants,
   buildDecisionCenterObservabilityEvents,
   buildDecisionCenterAggregateDecisions,
-  buildUnusedApprovedCreativesAggregateCandidate,
-  buildWinnerGapAggregateCandidate,
-  REQUIRED_AGGREGATE_DATA,
   CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
-  CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION,
   DECISION_CENTER_OBSERVABILITY_LOG_MARKER,
-  bridgeV3DecisionToAdapterInput,
   validateDecisionCenterSnapshot,
   type CreativeDecisionCenterAggregateDecision,
   type CreativeDecisionCenterAggregateCandidate,
@@ -73,6 +50,7 @@ import {
 } from "@/lib/creative-decision-center";
 import type {
   BriefingCreativeCard,
+  BriefingCanonicalInventorySource,
   BriefingLaneSummary,
   CreativesBriefingMeasurementReconciliation,
   CreativesBriefingResponse,
@@ -81,14 +59,6 @@ import type {
 export const dynamic = "force-dynamic";
 
 type BriefingLane = "action" | "watching" | "healthy";
-
-type BriefSourceSnapshotRow = {
-  id: string;
-  creative_id: string;
-  engine_version: string;
-  as_of_date: string;
-  label: string;
-};
 
 const DECISION_CENTER_OBSERVABILITY_ROUTE = "GET /api/creatives/briefing";
 const LOCAL_DECISION_CENTER_OBSERVABILITY_SALT =
@@ -129,12 +99,10 @@ function isDecisionCenterExplicitlyRequested(
 }
 
 function isDecisionCenterDefaultDisabled(): boolean {
-  const normalized = process.env.DECISION_CENTER_DEFAULT_DISABLED?.trim()
-    .toLowerCase();
+  const normalized =
+    process.env.DECISION_CENTER_DEFAULT_DISABLED?.trim().toLowerCase();
   return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "enabled"
+    normalized === "1" || normalized === "true" || normalized === "enabled"
   );
 }
 
@@ -155,9 +123,7 @@ function isDecisionCenterObservabilityEnabled(): boolean {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
   return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "enabled"
+    normalized === "1" || normalized === "true" || normalized === "enabled"
   );
 }
 
@@ -183,7 +149,10 @@ function emitDecisionCenterObservability(input: {
   businessId: string;
   creativeRows: MetaCreativeApiRow[];
 }) {
-  if (!input.decisionCenterRequested || !isDecisionCenterObservabilityEnabled()) {
+  if (
+    !input.decisionCenterRequested ||
+    !isDecisionCenterObservabilityEnabled()
+  ) {
     return;
   }
   if (!input.snapshot) return;
@@ -263,7 +232,8 @@ function buildDecisionCenterSnapshot(input: {
         : "fresh";
   const { snapshot } = assembleDecisionCenterSnapshot({
     engineVersion: input.engineVersion,
-    adapterVersion: input.adapterVersion ?? CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
+    adapterVersion:
+      input.adapterVersion ?? CREATIVE_DECISION_CENTER_ADAPTER_VERSION,
     configVersion: CREATIVE_DECISION_ENGINE_CONFIG_VERSION,
     generatedAt,
     dataFreshness: {
@@ -281,39 +251,6 @@ function buildDecisionCenterSnapshot(input: {
   return snapshot;
 }
 
-const DECISION_CENTER_BRIDGED_ADAPTER_VERSION =
-  `${CREATIVE_DECISION_CENTER_V3_BRIDGE_VERSION}+${CREATIVE_DECISION_CENTER_ADAPTER_VERSION}`;
-
-type WinnerGapSnapshotSummaryRow = Record<string, unknown> & {
-  window_start_date: unknown;
-  window_end_date: unknown;
-  last_winner_date: unknown;
-  sampled_days: unknown;
-};
-
-type UnusedApprovedCreativesSummaryRow = Record<string, unknown> & {
-  approved_unused_ids: unknown;
-  approved_unused_count: unknown;
-  status_proof_count: unknown;
-  delivery_proof_count: unknown;
-};
-
-type MeasurementSnapshotSummaryRow = Record<string, unknown> & {
-  as_of_date: unknown;
-  engine_version: unknown;
-  row_count: unknown;
-  stale_rows: unknown;
-  conflicting_groups: unknown;
-  lifecycle_row_count: unknown;
-};
-
-type MeasurementOutcomeSummaryRow = Record<string, unknown> & {
-  window_7_count: unknown;
-  window_14_count: unknown;
-  first_7d_window_closes_at: unknown;
-  first_14d_window_closes_at: unknown;
-};
-
 function parseDateOnly(value: unknown): string | null {
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -322,7 +259,9 @@ function parseDateOnly(value: unknown): string | null {
   const text = value.trim();
   if (!text) return null;
   const date = new Date(`${text.slice(0, 10)}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
+  return Number.isFinite(date.getTime())
+    ? date.toISOString().slice(0, 10)
+    : null;
 }
 
 function subtractDaysDateOnly(value: string, days: number): string | null {
@@ -332,42 +271,16 @@ function subtractDaysDateOnly(value: string, days: number): string | null {
   return date.toISOString().slice(0, 10);
 }
 
-function parseTextArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => (typeof item === "string" ? item.trim() : ""))
-      .filter(Boolean);
-  }
-  if (typeof value !== "string") return [];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return trimmed
-      .slice(1, -1)
-      .split(",")
-      .map((item) => item.trim().replace(/^"|"$/g, ""))
-      .filter(Boolean);
-  }
-  return [trimmed];
-}
-
-function safeCount(value: unknown): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
-}
-
-function numericCount(value: unknown): number {
-  const numeric = Number(value ?? 0);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
-}
-
 function hoursBetweenUtcDates(startDateOnly: string, endIso: string) {
   const start = new Date(`${startDateOnly}T00:00:00.000Z`);
   const end = new Date(endIso);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
     return null;
   }
-  return Math.max(0, Number(((end.getTime() - start.getTime()) / 3_600_000).toFixed(2)));
+  return Math.max(
+    0,
+    Number(((end.getTime() - start.getTime()) / 3_600_000).toFixed(2)),
+  );
 }
 
 function coverage(present: number, total: number): number | null {
@@ -412,7 +325,9 @@ function buildDataCompletenessSummary(
     frequency: ["refresh", "diagnose_data"],
   };
   const entries = Object.entries(fields).map(([field, read]) => {
-    const present = inputs.filter((input) => hasPresentValue(read(input))).length;
+    const present = inputs.filter((input) =>
+      hasPresentValue(read(input)),
+    ).length;
     return [
       field,
       {
@@ -471,579 +386,6 @@ function buildLaneSummary(input: {
   };
 }
 
-async function readMeasurementSnapshotSummary(input: {
-  businessId: string;
-  asOf: string;
-  engineVersion: string;
-}): Promise<CreativesBriefingMeasurementReconciliation["snapshotLatest"]> {
-  const [row] = await getDb().query<MeasurementSnapshotSummaryRow>(
-    `
-    WITH latest_day AS (
-      SELECT MAX(as_of_date) AS as_of_date
-      FROM engine_v3_decision_snapshots_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND as_of_date <= $2::date
-        AND engine_version = $3
-    ),
-    latest_snapshots AS (
-      SELECT *
-      FROM engine_v3_decision_snapshots_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND as_of_date = (SELECT as_of_date FROM latest_day)
-        AND engine_version = $3
-        AND scope_type = 'account'
-        AND scope_id = '*'
-    ),
-    conflicts AS (
-      SELECT creative_id, as_of_date, engine_version, scope_type, scope_id
-      FROM engine_v3_decision_snapshots_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND as_of_date = (SELECT as_of_date FROM latest_day)
-        AND engine_version = $3
-      GROUP BY creative_id, as_of_date, engine_version, scope_type, scope_id
-      HAVING COUNT(DISTINCT label) > 1
-    ),
-    latest_lifecycle AS (
-      SELECT COUNT(DISTINCT creative_id) AS lifecycle_row_count
-      FROM engine_v3_creative_lifecycle_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND as_of_date = (SELECT as_of_date FROM latest_day)
-    )
-    SELECT
-      (SELECT as_of_date FROM latest_day) AS as_of_date,
-      -- When these rows were actually computed, not the day they describe.
-      -- as_of_date is a calendar label: it parses as UTC midnight, so the same
-      -- snapshot reads as a different age depending on the hour and the
-      -- account offset. A surface can only state an honest age from a real
-      -- instant, and this is the one the warehouse already records.
-      MAX(latest_snapshots.computed_at) AS observed_at,
-      $3::text AS engine_version,
-      COUNT(DISTINCT latest_snapshots.creative_id) AS row_count,
-      COUNT(*) FILTER (
-        WHERE latest_snapshots.computed_at < (now() - INTERVAL '24 hours')
-           OR latest_snapshots.as_of_date < ($2::date - INTERVAL '1 day')
-      ) AS stale_rows,
-      (SELECT COUNT(*) FROM conflicts) AS conflicting_groups,
-      (SELECT lifecycle_row_count FROM latest_lifecycle) AS lifecycle_row_count
-    FROM latest_snapshots
-    `,
-    [input.businessId, input.asOf, input.engineVersion],
-  );
-  const asOfDate = parseDateOnly(row?.as_of_date);
-  if (!asOfDate) return null;
-  return {
-    asOfDate,
-    observedAt:
-      row?.observed_at instanceof Date
-        ? row.observed_at.toISOString()
-        : typeof row?.observed_at === "string"
-          ? new Date(row.observed_at).toISOString()
-          : null,
-    engineVersion:
-      typeof row?.engine_version === "string" ? row.engine_version : input.engineVersion,
-    rowCount: numericCount(row?.row_count),
-    conflictingGroups: numericCount(row?.conflicting_groups),
-    staleRows: numericCount(row?.stale_rows),
-    lifecycleRowCount: numericCount(row?.lifecycle_row_count),
-  };
-}
-
-async function readMeasurementOutcomeSummary(input: {
-  businessId: string;
-  asOf: string;
-  engineVersion: string;
-}): Promise<CreativesBriefingMeasurementReconciliation["outcome"]> {
-  const [row] = await getDb().query<MeasurementOutcomeSummaryRow>(
-    `
-    WITH current_outcomes AS (
-      SELECT outcome_window_days
-      FROM engine_v3_decision_outcomes_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND engine_version = $3
-        AND evaluation_date <= $2::date
-    ),
-    earliest_snapshot AS (
-      SELECT MIN(as_of_date) AS first_as_of_date
-      FROM engine_v3_decision_snapshots_daily
-      WHERE (business_ref_id::text = $1 OR business_id = $1)
-        AND engine_version = $3
-        AND scope_type = 'account'
-        AND scope_id = '*'
-    )
-    SELECT
-      COUNT(*) FILTER (WHERE outcome_window_days = 7) AS window_7_count,
-      COUNT(*) FILTER (WHERE outcome_window_days = 14) AS window_14_count,
-      ((SELECT first_as_of_date FROM earliest_snapshot) + INTERVAL '7 day')::date
-        AS first_7d_window_closes_at,
-      ((SELECT first_as_of_date FROM earliest_snapshot) + INTERVAL '14 day')::date
-        AS first_14d_window_closes_at
-    FROM current_outcomes
-    `,
-    [input.businessId, input.asOf, input.engineVersion],
-  );
-  return {
-    currentVersionRows7d: numericCount(row?.window_7_count),
-    currentVersionRows14d: numericCount(row?.window_14_count),
-    first7dWindowClosesAt: parseDateOnly(row?.first_7d_window_closes_at),
-    first14dWindowClosesAt: parseDateOnly(row?.first_14d_window_closes_at),
-  };
-}
-
-async function buildMeasurementReconciliation(input: {
-  businessId: string;
-  asOf: string;
-  engineVersion: string;
-  lanes: Record<BriefingLane, BriefingCreativeCard[]>;
-  decisionCenterRowCount: number | null;
-  inputs: readonly CreativeInput[];
-}): Promise<CreativesBriefingMeasurementReconciliation> {
-  const startedAt = Date.now();
-  const notes: string[] = [];
-  const measurementQueries = {
-    snapshotLatest: readMeasurementSnapshotSummary(input).catch((error) => {
-      console.error("[creative-decision-center] measurement snapshot summary failed", error);
-      notes.push("snapshot_summary_unavailable");
-      return null;
-    }),
-    outcome: readMeasurementOutcomeSummary(input).catch((error) => {
-      console.error("[creative-decision-center] measurement outcome summary failed", error);
-      notes.push("outcome_summary_unavailable");
-      return null;
-    }),
-  };
-  const [snapshotLatest, outcome] = await Promise.all([
-    measurementQueries.snapshotLatest,
-    measurementQueries.outcome,
-  ]);
-  const actionNow = input.lanes.action.length;
-  const watching = input.lanes.watching.length;
-  const healthy = input.lanes.healthy.length;
-  const total = actionNow + watching + healthy;
-
-  if (!snapshotLatest && total > 0) {
-    notes.push("snapshot_count_differs_from_live_briefing_count");
-    notes.push("snapshot_missing_for_live_briefing_count");
-  }
-  if (snapshotLatest && snapshotLatest.rowCount === 0 && total > 0) {
-    notes.push("snapshot_count_differs_from_live_briefing_count");
-    notes.push("snapshot_missing_account_scope_rows_for_live_briefing_count");
-  }
-  if (
-    snapshotLatest &&
-    snapshotLatest.rowCount > 0 &&
-    total > 0 &&
-    Math.abs(snapshotLatest.rowCount - total) > 2
-  ) {
-    notes.push("snapshot_count_differs_from_live_briefing_count");
-    // Direction disambiguation: the two universes differ by design classes.
-    // live > snapshot: runtime fallback sees creatives the lifecycle 72h
-    // hydration guard scoped out (known safe-direction class, e.g. Tiles
-    // 208 vs 143). snapshot > live: snapshot universe retains rows the live
-    // path no longer produces - the prune/self-heal watch class.
-    notes.push(
-      total > snapshotLatest.rowCount
-        ? "live_universe_larger_than_snapshot_universe_hydration_guard_class"
-        : "snapshot_universe_larger_than_live_universe_prune_watch_class",
-    );
-  }
-  if (
-    input.decisionCenterRowCount !== null &&
-    Math.abs(input.decisionCenterRowCount - total) > 2
-  ) {
-    notes.push("decision_center_row_count_differs_from_live_briefing_count");
-  }
-  if (outcome && outcome.currentVersionRows7d === 0) {
-    notes.push("current_version_7d_outcomes_not_yet_available_or_empty");
-  }
-  if (outcome && outcome.currentVersionRows14d === 0) {
-    notes.push("current_version_14d_outcomes_not_yet_available_or_empty");
-  }
-  const dataCompleteness = buildDataCompletenessSummary(input.inputs);
-
-  return {
-    durationMs: Date.now() - startedAt,
-    queryCount: Object.keys(measurementQueries).length,
-    briefingCounts: { actionNow, watching, healthy, total },
-    decisionCenterRowCount: input.decisionCenterRowCount,
-    snapshotLatest,
-    outcome,
-    dataCompleteness,
-    notes,
-  };
-}
-
-function daysBetweenDateOnly(start: string | null, end: string): number | null {
-  if (!start) return null;
-  const startDate = new Date(`${start}T00:00:00.000Z`);
-  const endDate = new Date(`${end}T00:00:00.000Z`);
-  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
-    return null;
-  }
-  return Math.floor((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-}
-
-function aggregateAffectedCreativeIds(decisions: readonly DecisionOutput[]) {
-  return Array.from(
-    new Set(
-      [...decisions]
-        .sort(
-          (left, right) =>
-            safeNumber(right.metrics.spend) - safeNumber(left.metrics.spend) ||
-            left.creativeId.localeCompare(right.creativeId),
-        )
-        .map((decision) => decision.creativeId)
-        .filter(Boolean),
-    ),
-  ).slice(0, AGGREGATE_AFFECTED_CREATIVE_ID_CAP);
-}
-
-async function buildWinnerGapCandidateFromSnapshots(input: {
-  businessId: string;
-  asOf: string;
-  engineVersion: string;
-  decisions: readonly DecisionOutput[];
-}): Promise<CreativeDecisionCenterAggregateCandidate | null> {
-  const affectedCreativeIds = aggregateAffectedCreativeIds(input.decisions);
-  if (affectedCreativeIds.length === 0) return null;
-
-  const [row] = await getDb().query<WinnerGapSnapshotSummaryRow>(
-    `
-    WITH scoped AS (
-      SELECT creative_id, as_of_date, label
-      FROM engine_v3_decision_snapshots_daily
-      WHERE (business_ref_id::text = $1 OR business_id::text = $1)
-        AND engine_version = $2
-        AND scope_type = 'account'
-        AND scope_id = '*'
-        AND as_of_date BETWEEN ($3::date - (($4::integer - 1) * INTERVAL '1 day')) AND $3::date
-    )
-    SELECT
-      MIN(as_of_date) AS window_start_date,
-      MAX(as_of_date) AS window_end_date,
-      MAX(as_of_date) FILTER (WHERE label = 'scale') AS last_winner_date,
-      COUNT(DISTINCT as_of_date) AS sampled_days
-    FROM scoped
-    `,
-    [input.businessId, input.engineVersion, input.asOf, WINNER_GAP_LOOKBACK_DAYS],
-  );
-
-  const windowStartDate = parseDateOnly(row?.window_start_date);
-  const windowEndDate = parseDateOnly(row?.window_end_date);
-  const lastWinnerDate = parseDateOnly(row?.last_winner_date);
-  const sampledDays = Number(row?.sampled_days ?? 0);
-  const freshnessDays = daysBetweenDateOnly(windowEndDate, input.asOf);
-  const depthDays = daysBetweenDateOnly(windowStartDate, input.asOf);
-  const hasUsableHistoricalWindow =
-    windowStartDate !== null &&
-    windowEndDate !== null &&
-    freshnessDays !== null &&
-    depthDays !== null &&
-    freshnessDays <= WINNER_GAP_FRESHNESS_MAX_DAYS &&
-    depthDays >= WINNER_GAP_MIN_DEPTH_DAYS &&
-    sampledDays >= WINNER_GAP_MIN_SAMPLED_DAYS;
-
-  return buildWinnerGapAggregateCandidate({
-    lastWinnerDate,
-    windowStartDate,
-    windowEndDate: windowEndDate ?? input.asOf,
-    affectedCreativeIds,
-    availableData: hasUsableHistoricalWindow
-      ? [...REQUIRED_AGGREGATE_DATA.winner_gap]
-      : [],
-  });
-}
-
-async function buildUnusedApprovedCreativesCandidateFromWarehouse(input: {
-  businessId: string;
-  asOf: string;
-}): Promise<CreativeDecisionCenterAggregateCandidate | null> {
-  const [row] = await getDb().query<UnusedApprovedCreativesSummaryRow>(
-    `
-    WITH latest_meta AS (
-      SELECT DISTINCT ON (d.creative_id)
-        d.creative_id,
-        COALESCE(
-          NULLIF(d.payload_json->>'review_status', ''),
-          NULLIF(d.payload_json->>'ad_review_status', ''),
-          NULLIF(d.payload_json->>'approval_status', '')
-        ) AS review_status,
-        COALESCE(
-          NULLIF(d.payload_json->>'policy_reason', ''),
-          NULLIF(d.payload_json->>'ad_review_feedback', ''),
-          NULLIF(d.payload_json->>'review_feedback', ''),
-          NULLIF(d.payload_json->>'disapproval_reason', ''),
-          NULLIF(d.payload_json->>'limited_reason', ''),
-          NULLIF(d.payload_json->>'delivery_status_reason', '')
-        ) AS policy_reason
-      FROM meta_creative_daily d
-      WHERE (d.business_ref_id::text = $1 OR d.business_id::text = $1)
-        AND d.date <= $2::date
-        AND d.date >= ($2::date - (($3::integer - 1) * INTERVAL '1 day'))
-        AND d.creative_id IS NOT NULL
-      ORDER BY d.creative_id, d.date DESC, d.updated_at DESC
-    ),
-    lifetime_delivery AS (
-      SELECT
-        d.creative_id,
-        SUM(COALESCE(d.spend, 0)) AS lifetime_spend,
-        SUM(COALESCE(d.impressions, 0)) AS lifetime_impressions,
-        COUNT(*) AS sampled_rows
-      FROM meta_creative_daily d
-      WHERE (d.business_ref_id::text = $1 OR d.business_id::text = $1)
-        AND d.date <= $2::date
-        AND d.creative_id IS NOT NULL
-      GROUP BY d.creative_id
-    ),
-    candidates AS (
-      SELECT
-        latest_meta.creative_id,
-        UPPER(REPLACE(COALESCE(review_status, ''), ' ', '_')) IN (
-          'APPROVED',
-          'AD_APPROVED',
-          'APPROVED_LIMITED',
-          'APPROVED_WITH_LIMITED'
-        ) AS approved_like,
-        COALESCE(policy_reason, '') = '' AS policy_clear,
-        COALESCE(lifetime_spend, 0) <= 0
-          AND COALESCE(lifetime_impressions, 0) <= 0 AS no_delivery,
-        review_status IS NOT NULL AS has_status_proof,
-        sampled_rows > 0 AS has_delivery_proof
-      FROM latest_meta
-      INNER JOIN lifetime_delivery
-        ON lifetime_delivery.creative_id = latest_meta.creative_id
-    )
-    SELECT
-      ARRAY_AGG(creative_id ORDER BY creative_id)
-        FILTER (WHERE approved_like AND policy_clear AND no_delivery)
-        AS approved_unused_ids,
-      COUNT(*) FILTER (WHERE approved_like AND policy_clear AND no_delivery)
-        AS approved_unused_count,
-      COUNT(*) FILTER (
-        WHERE approved_like AND policy_clear AND no_delivery AND has_status_proof
-      ) AS status_proof_count,
-      COUNT(*) FILTER (
-        WHERE approved_like AND policy_clear AND no_delivery AND has_delivery_proof
-      ) AS delivery_proof_count
-    FROM candidates
-    `,
-    [input.businessId, input.asOf, UNUSED_APPROVED_LOOKBACK_DAYS],
-  );
-
-  const approvedUnusedIds = parseTextArray(row?.approved_unused_ids).slice(
-    0,
-    AGGREGATE_AFFECTED_CREATIVE_ID_CAP,
-  );
-  const approvedUnusedCount = safeCount(row?.approved_unused_count);
-  if (approvedUnusedIds.length === 0) return null;
-  const statusProofCount = safeCount(row?.status_proof_count);
-  const deliveryProofCount = safeCount(row?.delivery_proof_count);
-  const availableData = [
-    ...(statusProofCount >= approvedUnusedCount
-      ? ["creative_review_status"]
-      : []),
-    ...(deliveryProofCount >= approvedUnusedCount
-      ? ["delivery_proof", "lifetime_delivery"]
-      : []),
-  ];
-
-  return buildUnusedApprovedCreativesAggregateCandidate({
-    approvedUnusedCreativeIds: approvedUnusedIds,
-    approvedUnusedCount,
-    availableData,
-  });
-}
-
-async function buildDecisionCenterAggregateCandidates(input: {
-  businessId: string;
-  asOf: string;
-  engineVersion: string;
-  decisions: readonly DecisionOutput[];
-}): Promise<CreativeDecisionCenterAggregateCandidate[]> {
-  const aggregateCandidates: CreativeDecisionCenterAggregateCandidate[] = [];
-
-  try {
-    const winnerGap = await buildWinnerGapCandidateFromSnapshots(input);
-    if (winnerGap) aggregateCandidates.push(winnerGap);
-  } catch (error) {
-    // Aggregate decisions are helpful, but missing/stale persisted history must
-    // not break the row-level briefing or invent a page-level recommendation.
-    console.error(
-      "[creative-decision-center] winner_gap candidate query failed",
-      error,
-    );
-  }
-
-  try {
-    const unusedApproved =
-      await buildUnusedApprovedCreativesCandidateFromWarehouse(input);
-    if (unusedApproved) aggregateCandidates.push(unusedApproved);
-  } catch (error) {
-    console.error(
-      "[creative-decision-center] unused_approved_creatives candidate query failed",
-      error,
-    );
-  }
-
-  return aggregateCandidates;
-}
-
-function decisionLane(
-  decision: DecisionOutput,
-  deferred: boolean,
-): BriefingLane {
-  if (deferred) return "watching";
-  if (
-    decision.label === "diagnose" &&
-    decision.blockedActionType === "cut" &&
-    (decision.campaignLabelStatus === "unlabeled" ||
-      decision.campaignLabelStatus === "no_campaign")
-  ) {
-    return "action";
-  }
-  if (
-    decision.label === "keep" &&
-    decision.badges.some((badge) => badge.type === "scale_readiness_blocked")
-  ) {
-    return "watching";
-  }
-  if (decision.badges.some((badge) => badge.type === "pending_transition")) {
-    return "watching";
-  }
-  if (decision.label === "keep") return "healthy";
-  if (
-    decision.label === "cut" &&
-    decision.badges.some((badge) => badge.type === "stale_evidence")
-  ) {
-    return "watching";
-  }
-  if (
-    decision.confidence >= 70 &&
-    (decision.label === "scale" ||
-      decision.label === "cut" ||
-      decision.label === "refresh")
-  ) {
-    return "action";
-  }
-  return "watching";
-}
-
-function rowForDecision(
-  decision: DecisionOutput,
-  input: CreativeInput | undefined,
-  creativeRowsById: Map<string, MetaCreativeApiRow>,
-): MetaCreativeApiRow | null {
-  return (
-    creativeRowsById.get(decision.creativeId) ??
-    (input?.creativeId ? creativeRowsById.get(input.creativeId) : undefined) ??
-    null
-  );
-}
-
-interface DecisionCenterRowMaps {
-  byRowId: Map<string, CreativeDecisionCenterRowDecision>;
-  byCreativeId: Map<string, CreativeDecisionCenterRowDecision>;
-}
-
-function normalizedDecisionCenterKey(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function buildDecisionCenterRowMaps(
-  rows: readonly CreativeDecisionCenterRowDecision[],
-): DecisionCenterRowMaps {
-  const byRowId = new Map<string, CreativeDecisionCenterRowDecision>();
-  const byCreativeId = new Map<string, CreativeDecisionCenterRowDecision>();
-  for (const row of rows) {
-    const rowId = normalizedDecisionCenterKey(row.rowId);
-    const creativeId = normalizedDecisionCenterKey(row.creativeId);
-    if (rowId && !byRowId.has(rowId)) byRowId.set(rowId, row);
-    if (creativeId && !byCreativeId.has(creativeId)) {
-      byCreativeId.set(creativeId, row);
-    }
-  }
-  return { byRowId, byCreativeId };
-}
-
-function decisionCenterRowForDecision(input: {
-  decision: DecisionOutput;
-  row: MetaCreativeApiRow | null;
-  maps: DecisionCenterRowMaps;
-}): CreativeDecisionCenterRowDecision | null {
-  const rowId = normalizedDecisionCenterKey(input.row?.id);
-  const creativeId = normalizedDecisionCenterKey(input.decision.creativeId);
-  return (
-    (rowId ? input.maps.byRowId.get(rowId) : undefined) ??
-    (creativeId ? input.maps.byCreativeId.get(creativeId) : undefined) ??
-    null
-  );
-}
-
-function buildDecisionCenterRows(input: {
-  decisions: DecisionOutput[];
-  inputsByCreativeId: Map<string, CreativeInput>;
-  creativeRowsById: Map<string, MetaCreativeApiRow>;
-  dataHealthDegraded: boolean;
-}): CreativeDecisionCenterRowDecision[] {
-  const adapterInputs = input.decisions.flatMap((decision) => {
-    const creativeInput = input.inputsByCreativeId.get(decision.creativeId);
-    const row = rowForDecision(
-      decision,
-      creativeInput,
-      input.creativeRowsById,
-    );
-    const adapterInput = bridgeV3DecisionToAdapterInput({
-      decision,
-      context: {
-        creativeId: decision.creativeId,
-        rowId: row?.id,
-        identityGrain: "creative",
-        familyId: null,
-        campaignKind: decision.campaignKind ?? creativeInput?.campaignKind ?? null,
-        dataHealthDegraded: input.dataHealthDegraded,
-      },
-    });
-    return adapterInput ? [adapterInput] : [];
-  });
-
-  return adaptCreativeDecisionsToRows(adapterInputs).map((result) => result.row);
-}
-
-function buildBridgedDecisionCenterSnapshot(input: {
-  asOf: string;
-  engineVersion: string;
-  decisions: DecisionOutput[];
-  inputsByCreativeId: Map<string, CreativeInput>;
-  creativeRowsById: Map<string, MetaCreativeApiRow>;
-  dataHealthDegraded: boolean;
-  snapshotLatest?: CreativesBriefingMeasurementReconciliation["snapshotLatest"];
-  rowDecisions?: readonly CreativeDecisionCenterRowDecision[];
-  aggregateDecisions: readonly CreativeDecisionCenterAggregateDecision[];
-}): DecisionCenterSnapshot | null {
-  try {
-    const rowDecisions =
-      input.rowDecisions === undefined
-        ? buildDecisionCenterRows({
-            decisions: input.decisions,
-            inputsByCreativeId: input.inputsByCreativeId,
-            creativeRowsById: input.creativeRowsById,
-            dataHealthDegraded: input.dataHealthDegraded,
-          })
-        : [...input.rowDecisions];
-    return buildDecisionCenterSnapshot({
-      asOf: input.asOf,
-      engineVersion: input.engineVersion,
-      adapterVersion: DECISION_CENTER_BRIDGED_ADAPTER_VERSION,
-      dataHealthDegraded: input.dataHealthDegraded,
-      snapshotLatest: input.snapshotLatest,
-      rowDecisions,
-      aggregateDecisions: [...input.aggregateDecisions],
-    });
-  } catch {
-    return null;
-  }
-}
-
 async function readCreativeRows(input: {
   request: NextRequest;
   businessId: string;
@@ -1084,28 +426,19 @@ async function readCreativeRows(input: {
   } as const;
   const payload = await getMetaCreativesApiPayload({
     ...basePayloadInput,
-    groupBy: "creative",
-  });
-  const rows = payload.rows ?? [];
-
-  if (!rows.some((row) => !usableMetaAdId(row.real_ad_id))) {
-    return rows;
-  }
-
-  const adPayload = await getMetaCreativesApiPayload({
-    ...basePayloadInput,
-    requestStartedAt: Date.now(),
     groupBy: "ad",
-  }).catch(() => null);
-
-  return hydrateCreativeRowsWithRealAdIds(rows, adPayload?.rows ?? []);
+  });
+  return payload.rows ?? [];
 }
 
-function buildRowMap(rows: MetaCreativeApiRow[]) {
+function buildExactAdRowMap(rows: MetaCreativeApiRow[]) {
   const map = new Map<string, MetaCreativeApiRow>();
   for (const row of rows) {
-    map.set(row.id, row);
-    map.set(row.creative_id, row);
+    // `readCreativeRows` explicitly requests ad grain, whose mapper persists
+    // `real_ad_id`. Do not infer provider identity from a generic row id at a
+    // serving boundary; an absent exact Ad id simply withholds enrichment.
+    const adId = usableMetaAdId(row.real_ad_id);
+    if (adId) map.set(adId, row);
   }
   return map;
 }
@@ -1117,68 +450,14 @@ function usableMetaAdId(value: string | null | undefined) {
   return text;
 }
 
-async function readBriefSourceSnapshots(input: {
-  businessId: string;
-  providerAccountId: string;
-  asOf: string;
-  creativeIds: string[];
-}) {
-  if (input.creativeIds.length === 0) return new Map<string, BriefSourceSnapshotRow>();
-  const rows = await getDb().query<BriefSourceSnapshotRow>(
-    `
-      WITH account_creatives AS (
-        SELECT creative_id
-        FROM meta_creative_dimensions
-        WHERE business_id = $1
-          AND provider_account_id = $2
-        UNION
-        SELECT creative_id
-        FROM meta_creative_daily
-        WHERE business_id = $1
-          AND provider_account_id = $2
-      )
-      SELECT DISTINCT ON (snapshot.creative_id)
-        snapshot.id::text AS id,
-        snapshot.creative_id,
-        snapshot.engine_version,
-        snapshot.as_of_date::text AS as_of_date,
-        snapshot.label
-      FROM engine_v3_decision_snapshots_daily snapshot
-      WHERE (snapshot.business_id = $1 OR snapshot.business_ref_id::text = $1)
-        AND snapshot.creative_id = ANY($3::text[])
-        AND snapshot.as_of_date <= $4::date
-        AND EXISTS (
-          SELECT 1
-          FROM account_creatives account_creative
-          WHERE account_creative.creative_id = snapshot.creative_id
-        )
-      ORDER BY snapshot.creative_id, snapshot.as_of_date DESC, snapshot.computed_at DESC, snapshot.id DESC
-    `,
-    [input.businessId, input.providerAccountId, input.creativeIds, input.asOf],
-  );
-  return new Map(rows.map((row) => [row.creative_id, row]));
-}
-
-function hydrateCreativeRowsWithRealAdIds(
-  creativeRows: MetaCreativeApiRow[],
-  adRows: MetaCreativeApiRow[],
+function canonicalNativeDecisionCreativeScopeId(
+  decision: MetaCanonicalDecision,
 ) {
-  if (adRows.length === 0) return creativeRows;
-  const adIdByCreativeId = new Map<string, string>();
-  for (const row of adRows) {
-    const creativeId = row.creative_id?.trim();
-    const realAdId = usableMetaAdId(row.real_ad_id) ?? usableMetaAdId(row.id);
-    if (creativeId && realAdId && !adIdByCreativeId.has(creativeId)) {
-      adIdByCreativeId.set(creativeId, realAdId);
-    }
-  }
-  if (adIdByCreativeId.size === 0) return creativeRows;
-
-  return creativeRows.map((row) => {
-    if (usableMetaAdId(row.real_ad_id)) return row;
-    const realAdId = adIdByCreativeId.get(row.creative_id);
-    return realAdId ? { ...row, real_ad_id: realAdId } : row;
-  });
+  return (
+    decision.parentChain.creative?.id?.trim() ||
+    decision.parentChain.ad?.id?.trim() ||
+    null
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -1195,8 +474,8 @@ export async function GET(request: NextRequest) {
   const start =
     requestedStart && (!parsedAsOf || requestedStart <= parsedAsOf)
       ? requestedStart
-      : (parsedAsOf ? subtractDaysDateOnly(parsedAsOf, 29) : null) ??
-        toISODate(currentFallbackStart);
+      : ((parsedAsOf ? subtractDaysDateOnly(parsedAsOf, 29) : null) ??
+        toISODate(currentFallbackStart));
   const campaignId =
     request.nextUrl.searchParams.get("campaignId")?.trim() || undefined;
   const requestedProviderAccountId =
@@ -1260,7 +539,8 @@ export async function GET(request: NextRequest) {
     );
   }
   const providerAccountId = accountScope.providerAccountId;
-  const accountScopeMetadata = buildMetaCreativesAccountScopeMetadata(accountScope);
+  const accountScopeMetadata =
+    buildMetaCreativesAccountScopeMetadata(accountScope);
   const flags = await resolveEngineV3Flags(resolvedBusinessId);
   if (!flags.enabled) {
     const disabledBody: CreativesBriefingResponse & {
@@ -1291,16 +571,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...disabledBody, ...accountScopeMetadata });
   }
 
-  const { instance: dataSource, label: dataSourceLabel } = resolveDataSource();
-  const [profile, dataHealth, creativeRows, triageState] = await Promise.all([
-    resolveAccountDecisionProfile({
-      businessId: resolvedBusinessId,
-      asOf,
-      dataSource,
-      flags,
-      campaignId,
-    }),
-    dataSource.getDataHealth({ businessId: resolvedBusinessId, asOf }),
+  const liveCanonicalInventoryPromise = demoBusiness
+    ? null
+    : readMetaNativeCanonicalDecisionInventory({
+        businessId: resolvedBusinessId,
+        providerAccountId,
+        asOfDate: parsedAsOf ?? undefined,
+      });
+  const [creativeRows, triageState] = await Promise.all([
     readCreativeRows({
       request,
       businessId: resolvedBusinessId,
@@ -1313,47 +591,97 @@ export async function GET(request: NextRequest) {
       scopeType: "creative",
     }).catch(() => ({ rows: [], deferredCount: 0 })),
   ]);
-  const creativeIds = creativeRows
-    .map((row) => row.creative_id)
-    .filter(Boolean);
-  const inputs = await dataSource.listCreativeInputs({
-    businessId: resolvedBusinessId,
-    asOf,
-    creativeIds: creativeIds.length > 0 ? creativeIds : undefined,
-  });
-  const campaignScopedInputs = campaignId
-    ? inputs.filter((input) => input.campaignId === campaignId)
-    : inputs;
-  const allCreativeRowsById = buildRowMap(creativeRows);
-  const scopedInputs = campaignScopedInputs.filter((input) => {
-    const row = allCreativeRowsById.get(input.creativeId);
-    const status = input.effectiveStatus ?? row?.effective_status ?? null;
-    return isInBriefing(
+  const canonicalInventory = demoBusiness
+    ? readDemoNativeCanonicalDecisionInventory({
+      businessId: resolvedBusinessId,
+      providerAccountId,
+      rows: creativeRows,
+    })
+    : await liveCanonicalInventoryPromise!;
+
+  const unavailableResponse = (reason: string) => {
+    const canonicalDecisionInventory: BriefingCanonicalInventorySource = {
+      contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+      status: "unavailable",
+      unavailableReason: reason,
+      generation: null,
+      itemCount: 0,
+    };
+    const emptyLanes: Record<BriefingLane, BriefingCreativeCard[]> = {
+      action: [],
+      watching: [],
+      healthy: [],
+    };
+    const measurementReconciliation: CreativesBriefingMeasurementReconciliation =
       {
-        status,
-        effective_status: row?.effective_status ?? null,
-        effectiveStatus: status,
-      },
+        durationMs: 0,
+        queryCount: 0,
+        briefingCounts: { actionNow: 0, watching: 0, healthy: 0, total: 0 },
+        decisionCenterRowCount: includeDecisionCenter ? 0 : null,
+        snapshotLatest: null,
+        outcome: null,
+        dataCompleteness: buildDataCompletenessSummary([]),
+        notes: ["native_ad_generation_unavailable", reason],
+      };
+    const decisionCenterSnapshot = includeDecisionCenter
+      ? buildDecisionCenterSnapshot({
+          asOf,
+          engineVersion: "native_unavailable",
+          adapterVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+          dataHealthDegraded: true,
+          rowDecisions: [],
+          aggregateDecisions: [],
+        })
+      : undefined;
+    const body: CreativesBriefingResponse & {
+      statusFilter: typeof statusFilter;
+    } = {
+      ...accountScopeMetadata,
+      actionNow: emptyLanes.action,
+      watching: emptyLanes.watching,
+      healthy: emptyLanes.healthy,
       statusFilter,
-    );
-  });
-  const scopedInputByCreativeId = new Map(
-    scopedInputs.map((input) => [input.creativeId, input]),
-  );
-  const creativeRowsById = buildRowMap(
-    creativeRows.filter((row) => {
-      const input = scopedInputByCreativeId.get(row.creative_id);
-      const status = input?.effectiveStatus ?? row.effective_status ?? null;
-      return isInBriefing(
-        {
-          status,
-          effective_status: row.effective_status ?? null,
-          effectiveStatus: status,
-        },
-        statusFilter,
-      );
-    }),
-  );
+      deferredCount: 0,
+      pulse: {
+        matureCount: 0,
+        engineVersion: "native_unavailable",
+        calibratedAgo: null,
+        trackingAnomalyActive: false,
+        trackingDetail: `Canonical ad decision bundle unavailable: ${reason}.`,
+      },
+      trackingAnomalyActive: false,
+      trackingBlocked: true,
+      trackingDetail: `Canonical ad decision bundle unavailable: ${reason}.`,
+      source: {
+        dataSource: "native_ad_generation",
+        asOf,
+        dataHealth: null,
+        accountProfile: null,
+        measurementReconciliation,
+        laneSummary: buildLaneSummary({ lanes: emptyLanes, deferredCount: 0 }),
+        aggregateSuppressionTrace: null,
+        canonicalDecisionInventory,
+      },
+    };
+    if (includeDecisionCenter) {
+      body.decisionCenter = decisionCenterSnapshot ?? null;
+      emitDecisionCenterObservability({
+        decisionCenterRequested: decisionCenterExplicitlyRequested,
+        snapshot: decisionCenterSnapshot ?? null,
+        businessId: resolvedBusinessId,
+        creativeRows,
+      });
+    }
+    return NextResponse.json(body, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  };
+
+  if (canonicalInventory.status === "unavailable") {
+    return unavailableResponse(canonicalInventory.unavailableReason);
+  }
+
+  const creativeRowsByAdId = buildExactAdRowMap(creativeRows);
   const deferredIds = new Set(
     triageState.rows
       .filter(
@@ -1361,256 +689,142 @@ export async function GET(request: NextRequest) {
       )
       .map((row) => row.scopeId),
   );
-  const campaignIds = Array.from(
-    new Set(
-      scopedInputs
-        .map((input) => input.campaignId?.trim() || "")
-        .filter(Boolean),
-    ),
-  );
-  const campaignLabelsById =
-    campaignIds.length > 0
-      ? await readCampaignContextLabelMap({
-          businessId: resolvedBusinessId,
-          campaignIds,
-          asOf,
-        })
-      : buildCreativeCampaignLabelMap([]);
 
   const lanes: Record<BriefingLane, BriefingCreativeCard[]> = {
     action: [],
     watching: [],
     healthy: [],
   };
-  const enrichedInputs = scopedInputs.map((creativeInput) =>
-    withCreativeCampaignLabelContext(creativeInput, campaignLabelsById),
-  );
-  const inputByCreativeId = new Map(
-    enrichedInputs.map((input) => [input.creativeId, input]),
-  );
-  // Same hard-label hysteresis as the persisted decisions job so the live
-  // briefing never diverges from the snapshot record on pending transitions.
-  const previousPublishedLabels = await readPreviousPublishedLabels({
-    businessId: resolvedBusinessId,
-    asOf,
-    creativeIds: enrichedInputs.map((input) => input.creativeId),
-    scopeType: profile.scope.type,
-    scopeId: profile.scope.id,
-  }).catch((error) => {
-    // Degrading to raw labels silently would recreate the live-vs-snapshot
-    // divergence this wiring exists to prevent; keep serving but make the
-    // degradation observable.
-    console.error(
-      "[creative-decision-center] hysteresis baseline read failed; hard entries remain pending this request",
-      error,
-    );
-    return new Map();
-  });
-  // Per-creative decision history (server-supplied; last 30 days of label
-  // changes with the 7d realized outcome where the window closed). One
-  // account-level query; failures degrade to no history, never to an error.
-  const decisionHistoryByCreative = await getDb()
-    .query<Record<string, unknown>>(
-      `
-      SELECT e.creative_id,
-        e.event_date::text AS event_date,
-        e.previous_label,
-        e.current_label,
-        o.realized_outcome
-      FROM engine_v3_decision_events e
-      LEFT JOIN engine_v3_decision_outcomes_daily o
-        ON o.business_ref_id = e.business_ref_id
-       AND o.creative_id = e.creative_id
-       AND o.decision_as_of_date = e.event_date
-       AND o.outcome_window_days = 7
-      WHERE e.business_ref_id::text = $1
-        AND e.event_type = 'decision_changed'
-        AND e.event_date >= ($2::date - INTERVAL '30 days')
-      ORDER BY e.creative_id, e.event_date DESC
-      `,
-      [resolvedBusinessId, asOf],
-    )
-    .then((rows) => {
-      const map = new Map<
-        string,
-        NonNullable<BriefingCreativeCard["decisionHistory"]>
-      >();
-      for (const row of rows) {
-        const creativeId = typeof row.creative_id === "string" ? row.creative_id : null;
-        const currentLabel = typeof row.current_label === "string" ? row.current_label : null;
-        const date = typeof row.event_date === "string" ? row.event_date : null;
-        if (!creativeId || !currentLabel || !date) continue;
-        const list = map.get(creativeId) ?? [];
-        if (list.length >= 10) continue;
-        list.push({
-          date,
-          previousLabel:
-            typeof row.previous_label === "string" ? row.previous_label : null,
-          currentLabel,
-          realizedOutcome7d:
-            typeof row.realized_outcome === "string" ? row.realized_outcome : null,
-        });
-        map.set(creativeId, list);
-      }
-      return map;
-    })
-    .catch((error) => {
-      console.error(
-        "[creative-decision-center] decision history read failed; cards render without history",
-        error,
-      );
-      return new Map<
-        string,
-        NonNullable<BriefingCreativeCard["decisionHistory"]>
-      >();
-    });
-  // Ad-account currency from the warehouse (newest non-null value); null =
-  // unknown. Carried per card so cross-business surfaces (creative inbox)
-  // render each business's money in its own currency instead of implicit $.
-  const accountCurrency = await getDb()
-    .query<{ account_currency: string | null }>(
-      `SELECT account_currency
-       FROM meta_creative_daily
-       WHERE (business_ref_id::text = $1 OR business_id = $1)
-         AND provider_account_id = $2
-         AND account_currency IS NOT NULL
-       ORDER BY date DESC
-       LIMIT 1`,
-      [resolvedBusinessId, providerAccountId],
-    )
-    .then((rows) => rows[0]?.account_currency ?? null)
-    .catch(() => null);
-  const hysteresisByCreative = new Map<
-    string,
-    { rawLabel: DecisionLabel; suppressed: boolean }
-  >();
-  const decisions = enrichedInputs.map((creativeInput) => {
-    const guarded = applyCreativeCampaignLabelGuard({
-      decision: decideCreative(creativeInput, profile, dataHealth),
-      input: creativeInput,
-      campaignLabelsById,
-    });
-    const stabilized = stabilizeDecisionLabel(
-      guarded,
-      previousPublishedLabels.get(creativeInput.creativeId) ?? null,
-    );
-    hysteresisByCreative.set(creativeInput.creativeId, {
-      rawLabel: stabilized.rawLabel,
-      suppressed: stabilized.suppressed,
-    });
-    return stabilized.decision;
-  });
-  const briefSourceSnapshots = await readBriefSourceSnapshots({
-    businessId: resolvedBusinessId,
-    providerAccountId,
-    asOf,
-    creativeIds: decisions.map((decision) => decision.creativeId),
-  }).catch(() => new Map<string, BriefSourceSnapshotRow>());
-  const backtestSummary = await readCreativeDecisionBacktestSummary({
-    businessId: resolvedBusinessId,
-    asOf,
-    activeCreativeCount: enrichedInputs.length,
-  }).catch(() => null);
-  const decisionCenterRows = includeDecisionCenter
-    ? buildDecisionCenterRows({
-        decisions,
-        inputsByCreativeId: inputByCreativeId,
-        creativeRowsById,
-        dataHealthDegraded: Boolean(dataHealth.degraded),
-      })
-    : [];
-  const decisionCenterRowMaps = buildDecisionCenterRowMaps(decisionCenterRows);
-
-  for (const decision of decisions) {
-    const creativeInput = inputByCreativeId.get(decision.creativeId);
-    const row = rowForDecision(decision, creativeInput, creativeRowsById);
-    const decisionCenterRow = includeDecisionCenter
-      ? decisionCenterRowForDecision({
-          decision,
-          row,
-          maps: decisionCenterRowMaps,
-        })
-      : null;
-    const cardBase = cardForDecision({
+  const projectedInventory = canonicalInventory.items.map((decision) => {
+    const adId = usableMetaAdId(decision.parentChain.ad?.id);
+    const creativeScopeId = canonicalNativeDecisionCreativeScopeId(decision);
+    const projection = projectCanonicalNativeAdDecisionToBriefing({
       decision,
-      creativeInput,
-      row,
-      sourceAsOf: asOf,
-      sourceDataSource: dataSourceLabel,
-      profileScope: `${profile.scope.type}:${profile.scope.id}`,
-      accountProfile: profile,
-      backtestSummary,
-      decisionCenterRow,
-      hysteresis: hysteresisByCreative.get(decision.creativeId) ?? null,
-      decisionHistory: decisionHistoryByCreative.get(decision.creativeId) ?? null,
-      currency: accountCurrency,
+      row: adId ? creativeRowsByAdId.get(adId) : null,
+      deferred: creativeScopeId ? deferredIds.has(creativeScopeId) : false,
     });
-    const sourceSnapshot = briefSourceSnapshots.get(decision.creativeId) ?? null;
-    const sourceSnapshotMatch = !sourceSnapshot
-      ? "unavailable"
-      : sourceSnapshot.engine_version === decision.engineVersion &&
-          sourceSnapshot.label === decision.label
-        ? "matched"
-        : "mismatch";
-    const card: BriefingCreativeCard = {
-      ...cardBase,
-      sourceDecisionSnapshotId:
-        sourceSnapshotMatch === "matched" ? sourceSnapshot?.id ?? null : null,
-      sourceDecisionSnapshotAsOf: sourceSnapshot?.as_of_date ?? null,
-      sourceDecisionSnapshotEngineVersion: sourceSnapshot?.engine_version ?? null,
-      sourceDecisionSnapshotMatch: sourceSnapshotMatch,
-    };
-    const deferred =
-      deferredIds.has(decision.creativeId) ||
-      deferredIds.has(card.id) ||
-      (row?.id ? deferredIds.has(row.id) : false);
-    lanes[decisionLane(decision, deferred)].push(card);
+    return { decision, projection, creativeScopeId };
+  });
+  if (projectedInventory.some(({ projection }) => projection === null)) {
+    return unavailableResponse(
+      "native_canonical_briefing_projection_incomplete",
+    );
+  }
+
+  const scopedProjectedInventory = projectedInventory
+    .map(({ decision, projection, creativeScopeId }) => ({
+      decision,
+      projection: projection!,
+      creativeScopeId,
+    }))
+    .filter(({ decision }) => {
+      if (campaignId && decision.parentChain.campaign?.id !== campaignId) {
+        return false;
+      }
+      return isInBriefing(
+        { status: decision.deliveryScope?.adStatus ?? null },
+        statusFilter,
+      );
+    });
+  for (const { projection } of scopedProjectedInventory) {
+    const card = includeDecisionCenter
+      ? projection.card
+      : { ...projection.card, decisionCenterRow: null };
+    lanes[projection.lane].push(card);
   }
 
   const sortCards = (left: BriefingCreativeCard, right: BriefingCreativeCard) =>
-    safeNumber(right.priorityScore?.score) - safeNumber(left.priorityScore?.score) ||
+    safeNumber(right.priorityScore?.score) -
+      safeNumber(left.priorityScore?.score) ||
     safeNumber(right.confidence) - safeNumber(left.confidence) ||
     safeNumber(right.spend) - safeNumber(left.spend);
   lanes.action.sort(sortCards);
   lanes.watching.sort(sortCards);
   lanes.healthy.sort(sortCards);
 
-  const trackingAnomalyActive = decisions.some((decision) =>
-    decision.badges.some((badge) => badge.type === "tracking_anomaly"),
+  const trackingAnomalyActive = scopedProjectedInventory.some(
+    ({ projection }) =>
+      projection.presentationDecision.badges.some(
+        (badge) => badge.type === "tracking_anomaly",
+      ),
   );
-
-  const responseEngineVersion = decisions[0]?.engineVersion ?? ENGINE_VERSION;
-  const aggregateCandidates = await buildDecisionCenterAggregateCandidates({
-    businessId: resolvedBusinessId,
-    asOf,
-    engineVersion: responseEngineVersion,
-    decisions,
-  });
+  const responseEngineVersion =
+    canonicalInventory.items[0]?.sourceDecision.engineVersion ??
+    NATIVE_AD_ENGINE_VERSION;
+  const canonicalTargetRoasValues = Array.from(
+    new Set(
+      canonicalInventory.items.flatMap((decision) => {
+        const value = decision.metrics.effectiveTargetRoas;
+        return typeof value === "number" && Number.isFinite(value)
+          ? [value]
+          : [];
+      }),
+    ),
+  );
+  // Tier-0 as-of: latest canonical computation timestamp, never the calendar
+  // label. See lib/creatives/briefing-observed-at.ts.
+  const canonicalComputedAt = latestCanonicalComputedAt(
+    canonicalInventory.items,
+  );
   const aggregateBuild = buildDecisionCenterAggregateDecisions({
-    candidates: aggregateCandidates,
+    candidates: [],
   });
+  const scopedDeferredCount = scopedProjectedInventory.filter(
+    ({ creativeScopeId }) =>
+      creativeScopeId ? deferredIds.has(creativeScopeId) : false,
+  ).length;
   const laneSummary = buildLaneSummary({
     lanes,
-    deferredCount: triageState.deferredCount,
+    deferredCount: scopedDeferredCount,
   });
-  const measurementReconciliation = await buildMeasurementReconciliation({
-    businessId: resolvedBusinessId,
-    asOf,
+  const snapshotLatest: NonNullable<
+    CreativesBriefingMeasurementReconciliation["snapshotLatest"]
+  > = {
+    asOfDate: canonicalInventory.generation.asOfDate,
+    observedAt: canonicalComputedAt,
     engineVersion: responseEngineVersion,
-    lanes,
-    decisionCenterRowCount: null,
-    inputs: enrichedInputs,
-  });
+    rowCount: canonicalInventory.items.length,
+    conflictingGroups: 0,
+    staleRows: 0,
+    lifecycleRowCount: null,
+  };
+  const decisionCenterRows = includeDecisionCenter
+    ? scopedProjectedInventory.flatMap(({ projection }) =>
+        projection.decisionCenterRow ? [projection.decisionCenterRow] : [],
+      )
+    : [];
+  const measurementReconciliation: CreativesBriefingMeasurementReconciliation =
+    {
+      durationMs: 0,
+      queryCount: 0,
+      briefingCounts: {
+        actionNow: lanes.action.length,
+        watching: lanes.watching.length,
+        healthy: lanes.healthy.length,
+        total:
+          lanes.action.length + lanes.watching.length + lanes.healthy.length,
+      },
+      decisionCenterRowCount: includeDecisionCenter
+        ? decisionCenterRows.length
+        : null,
+      snapshotLatest,
+      outcome: null,
+      dataCompleteness: buildDataCompletenessSummary([]),
+      notes: [
+        demoBusiness
+          ? "demo_synthetic_review_only_authority"
+          : "native_ad_generation_authority",
+        "request_time_profile_and_data_health_not_serving_authority",
+      ],
+    };
   let decisionCenterSnapshot: DecisionCenterSnapshot | null | undefined;
   if (includeDecisionCenter) {
-    decisionCenterSnapshot = buildBridgedDecisionCenterSnapshot({
-      asOf,
+    decisionCenterSnapshot = buildDecisionCenterSnapshot({
+      asOf: canonicalInventory.generation.asOfDate,
       engineVersion: responseEngineVersion,
-      decisions,
-      inputsByCreativeId: inputByCreativeId,
-      creativeRowsById,
-      dataHealthDegraded: Boolean(dataHealth.degraded),
-      snapshotLatest: measurementReconciliation.snapshotLatest,
+      adapterVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+      dataHealthDegraded: false,
+      snapshotLatest,
       rowDecisions: decisionCenterRows,
       aggregateDecisions: aggregateBuild.aggregateDecisions,
     });
@@ -1618,7 +832,7 @@ export async function GET(request: NextRequest) {
   measurementReconciliation.decisionCenterRowCount =
     decisionCenterSnapshot === undefined
       ? null
-      : decisionCenterSnapshot?.rowDecisions.length ?? null;
+      : (decisionCenterSnapshot?.rowDecisions.length ?? null);
 
   const responseBody: CreativesBriefingResponse & {
     statusFilter: typeof statusFilter;
@@ -1628,34 +842,52 @@ export async function GET(request: NextRequest) {
     watching: lanes.watching,
     healthy: lanes.healthy,
     statusFilter,
-    deferredCount: triageState.deferredCount,
+    deferredCount: scopedDeferredCount,
     pulse: {
       matureCount: lanes.healthy.length + lanes.action.length,
       spendTarget: null,
       spendHistory: null,
-      rolling7dRoasTarget: profile.spendUnitEvidence.targetRoas,
+      rolling7dRoasTarget:
+        canonicalTargetRoasValues.length === 1
+          ? canonicalTargetRoasValues[0]
+          : null,
       engineVersion: responseEngineVersion,
-      calibratedAgo: dataHealth.calibration.computedAt ?? null,
+      calibratedAgo: canonicalComputedAt,
       trackingAnomalyActive,
       trackingDetail: trackingAnomalyActive
-        ? "Engine v3 flagged a tracking anomaly in the decision set."
-        : dataHealth.degraded
-          ? "Engine v3 is running with degraded data health."
-          : null,
+        ? "The persisted native decision set flagged a tracking anomaly."
+        : null,
     },
     trackingAnomalyActive,
     trackingBlocked: trackingAnomalyActive,
     trackingDetail: trackingAnomalyActive
-      ? "Engine v3 flagged a tracking anomaly in the decision set."
+      ? "The persisted native decision set flagged a tracking anomaly."
       : null,
     source: {
-      dataSource: dataSourceLabel,
-      asOf,
-      dataHealth,
-      accountProfile: profile,
+      dataSource: "native_ad_generation",
+      asOf: canonicalInventory.generation.asOfDate,
+      dataHealth: null,
+      accountProfile: null,
       measurementReconciliation,
       laneSummary,
       aggregateSuppressionTrace: aggregateBuild.trace,
+      canonicalDecisionInventory: {
+        contractVersion: BRIEFING_CANONICAL_NATIVE_AD_CONTRACT_VERSION,
+        status: "available",
+        unavailableReason: null,
+        generation: {
+          jobRunId: canonicalInventory.generation.jobRunId,
+          asOfDate: canonicalInventory.generation.asOfDate,
+          providerAccountRefId:
+            canonicalInventory.generation.providerAccountRefId,
+          manifestHash: canonicalInventory.generation.manifestHash,
+          expectedAdCount: canonicalInventory.generation.expectedAdCount,
+          authorityStatus: demoBusiness
+            ? "demo_synthetic_review_only"
+            : "native_exact",
+        },
+        itemCount: canonicalInventory.items.length,
+      },
     },
   };
 

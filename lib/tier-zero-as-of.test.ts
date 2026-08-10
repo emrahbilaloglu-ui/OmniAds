@@ -221,9 +221,21 @@ describe("no Tier-0 surface settles for \"age unknown\" by default", () => {
   it("the routes publish the timestamps those surfaces read", () => {
     // The surface and the route have to agree, or the surface silently falls
     // back to "age unknown" and looks like a deliberate choice again.
-    expect(
-      readFileSync("app/api/creatives/briefing/route.ts", "utf8"),
-    ).toContain("MAX(latest_snapshots.computed_at) AS observed_at");
+    // The canonical briefing no longer runs the legacy snapshot SQL. Its
+    // Tier-0 as-of now comes from the served canonical inventory: collect
+    // sourceDecision.computedAt, take the latest, publish it as observedAt.
+    const briefing = readFileSync(
+      "app/api/creatives/briefing/route.ts",
+      "utf8",
+    );
+    expect(briefing).toContain("latestCanonicalComputedAt(");
+    expect(briefing).toContain("observedAt: canonicalComputedAt");
+    const helper = readFileSync(
+      "lib/creatives/briefing-observed-at.ts",
+      "utf8",
+    );
+    expect(helper).toContain("sourceDecision.computedAt");
+    expect(helper).toContain(".sort()");
     expect(readFileSync("app/api/meta/copies/route.ts", "utf8")).toContain(
       "MAX(updated_at) AS observed_at",
     );

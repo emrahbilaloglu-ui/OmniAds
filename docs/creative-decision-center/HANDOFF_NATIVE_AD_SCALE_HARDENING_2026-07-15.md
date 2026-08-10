@@ -177,7 +177,27 @@ P1/P2 and any correctness-relevant P3, rerun review, and proceed only on
    `/api/build-info`; verify web/worker health and the workflow's environment
    pin assertion.
 10. Wait for the natural scheduler wave. Do not manually POST `/api/sync/cron`.
-11. Through the live tunnel, use SELECT-only checks to prove:
+11. Through the live tunnel, run the generic current-epoch SELECT-only
+    operational verifier with the exact deploy anchor, scheduler date, expected
+    business/account counts, and Enise UUID negative control. Its deterministic
+    JSON/checksum must remain under `/tmp`:
+
+    ```bash
+    npm run creative:decision:native-ad-natural-wave-verify -- \
+      --as-of=<successful-post-deploy-scheduler-date> \
+      --deploy-anchor=<exact-final-deploy-timestamp> \
+      --expected-business-count=12 \
+      --expected-provider-account-count=13 \
+      --expected-unbound=64df05ed-fd04-4274-968b-5bf122235e89 \
+      --env-default-enabled=<exact-deployed-DECISION_ENGINE_V3_ENABLED>
+    ```
+
+    Derive `--env-default-enabled` from the final deployed release
+    environment. The production code default is `true` only when
+    `DECISION_ENGINE_V3_ENABLED` is absent; use `true` for an absent variable
+    only after that absence is proved from the standard release authority.
+
+    The passing proof must show:
     - Bilsem's latest current-version native calibration, decisions, and
       operator jobs succeed without statement timeout and cover the complete
       current manifest.

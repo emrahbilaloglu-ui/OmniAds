@@ -324,6 +324,80 @@ describe("native ad shadow scheduled chain", () => {
     expect(order).toEqual(["calibration", "decisions", "operator_response"]);
   });
 
+  it("continues decisions after an atomic calibration success that contains a currency-blocked account batch", async () => {
+    const hash = "a".repeat(64);
+    const runDecisions = vi.fn(async () => decisionsResult());
+    const runOperatorResponse = vi.fn(async () => operatorResult());
+    const result = await runNativeAdShadowChainForActiveBusinessesIfDue(
+      NOW,
+      [BUSINESSES[0]],
+      options({
+        runCalibration: async () =>
+          ({
+            ...calibrationResult(),
+            batches: [
+              {
+                providerAccountRefId:
+                  "00000000-0000-4000-8000-000000000111",
+                providerAccountId: "act-currency-blocked",
+                batchId: "00000000-0000-4000-8000-000000000112",
+                rowsWritten: 0,
+                expectedCellCount: 0,
+                idempotentReplay: false,
+                generationContentHash: hash,
+                inputManifestHash: hash,
+                sourceManifestHash: hash,
+                cellSetHash: hash,
+                currencyAdmission: {
+                  contractVersion:
+                    "engine-v3-native-ad-currency-admission.v1",
+                  status: "blocked",
+                  keyBasis: "bound_provider_fallback",
+                  accountCurrency: "USD",
+                  reason: "source_currency_missing",
+                  candidateRowCount: 1,
+                  admittedRowCount: 0,
+                  anomalyRowCount: 1,
+                  sourceCurrencyMissingRowCount: 1,
+                  resolvedCurrencyMissingRowCount: 0,
+                  resolvedSourceMismatchRowCount: 0,
+                  distinctSourceCurrencyCount: 0,
+                  distinctResolvedCurrencyCount: 1,
+                  manifestHash: hash,
+                },
+                timezoneAdmission: {
+                  contractVersion:
+                    "engine-v3-native-ad-timezone-admission.v1",
+                  status: "ready",
+                  keyBasis: "immutable_latest_source_date",
+                  accountTimezone: "UTC",
+                  reason: null,
+                  candidateRowCount: 1,
+                  latestSourceDate: "2026-07-12",
+                  latestSourceRowCount: 1,
+                  admittedRowCount: 1,
+                  anomalyRowCount: 0,
+                  sourceTimezoneMissingRowCount: 0,
+                  distinctSourceTimezoneCount: 1,
+                  manifestHash: hash,
+                },
+              },
+            ],
+          }) satisfies AdCalibrationJobResult,
+        runDecisions,
+        runOperatorResponse,
+      }),
+    );
+
+    expect(result.results?.[0]).toMatchObject({
+      calibration: { status: "success" },
+      decisions: { status: "success" },
+      operatorResponse: { status: "success" },
+    });
+    expect(runDecisions).toHaveBeenCalledOnce();
+    expect(runOperatorResponse).toHaveBeenCalledOnce();
+  });
+
   it("isolates a failed business and continues the next business", async () => {
     const runDecisions = vi.fn(async (input) =>
       input.businessId === BUSINESSES[0].id
@@ -541,8 +615,11 @@ describe("native ad shadow scheduled chain", () => {
       AD_CALIBRATION_JOB_NAME,
     ]);
     const historyQuery = db.query.mock.calls[0]?.[0] as string;
+    const historyParams = db.query.mock.calls[0]?.[1] as unknown[];
     expect(historyQuery).not.toContain("AND status = 'success'");
+    expect(historyQuery).toContain("AND engine_version = $3");
     expect(historyQuery).toContain("started_at <= $5::timestamptz");
+    expect(historyParams[2]).toBe(NATIVE_AD_ENGINE_VERSION);
   });
 
   it("ignores advisory-lock skips that overlap a completed native chain", async () => {

@@ -235,7 +235,7 @@ export function CrossPlacementCard({
             <FatigueDot active={card.fatigue} />
             <MetricDivider />
             <span className="font-mono tabular-nums text-[12px] text-neutral-500">
-              {formatOptionalCurrency(card.spend)} spend · {formatOptionalInteger(card.purchases)} purch.
+              {formatOptionalCurrency(card.spend, card.currency)} spend · {formatOptionalInteger(card.purchases)} purch.
             </span>
           </div>
         </div>
@@ -280,7 +280,9 @@ export function CrossPlacementCard({
         </button>
       </div>
 
-      {placementsExpanded ? <PlacementStrip placements={placementList} /> : null}
+      {placementsExpanded ? (
+        <PlacementStrip placements={placementList} currency={card.currency} />
+      ) : null}
 
       {deferred ? <DeferChip id={scopeId} onUndo={onUndefer} /> : null}
 
@@ -298,7 +300,13 @@ export function CrossPlacementCard({
   );
 }
 
-function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
+function PlacementStrip({
+  placements,
+  currency,
+}: {
+  placements: BriefingPlacement[];
+  currency: string | null | undefined;
+}) {
   return (
     <div className="mt-3 pl-[44px]">
       <div className="text-[12px] uppercase tracking-wider text-neutral-400 font-semibold mb-1 flex items-center gap-1">
@@ -328,7 +336,7 @@ function PlacementStrip({ placements }: { placements: BriefingPlacement[] }) {
                 {placement.campaign || placement.campaignName || "Campaign"}
               </span>
               <span className="font-mono tabular-nums text-neutral-500">
-                {formatOptionalCurrency(placement.spend)}
+                {formatOptionalCurrency(placement.spend, currency)}
               </span>
               <span
                 className={`font-mono tabular-nums font-medium ${

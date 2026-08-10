@@ -177,7 +177,10 @@ function CreativeCard({
             </p>
           ) : null}
           <div className="mt-2 flex items-center gap-4 text-[12px]">
-            <MetricMini label="Spend" value={METRIC_CONFIG.spend.format(row.spend)} />
+            <MetricMini
+              label="Spend"
+              value={METRIC_CONFIG.spend.format(row.spend, row.currency)}
+            />
             <MetricMini label="ROAS" value={METRIC_CONFIG.roas.format(row.roas)} />
           </div>
         </div>

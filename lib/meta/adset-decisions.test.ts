@@ -16,7 +16,9 @@ const commercialTargets = {
   updatedAt: "2026-05-14T00:00:00.000Z",
 };
 
-function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+function adset(
+  overrides: Partial<MetaAdSetData> & { currency?: string | null } = {},
+): MetaAdSetData {
   return {
     id: "adset-1",
     accountId: "act-1",
@@ -441,6 +443,32 @@ describe("buildMetaAdsetRecommendations funnel cohort gating", () => {
       },
     });
     expect(cut?.signalQuality?.hard_action_blocker).toBeUndefined();
+  });
+
+  it.each([
+    ["GBP", "£1,000.00"],
+    [null, "1,000 (Currency unavailable)"],
+  ] as const)("formats fallback ad-set cut money with provider currency %s", (currency, expected) => {
+    const recs = buildMetaAdsetRecommendations({
+      adsets: [
+        adset({
+          currency,
+          spend: 1000,
+          purchases: 1,
+          revenue: 500,
+          roas: 0.5,
+          cpa: 1000,
+        }),
+      ],
+      commercialTargets,
+      calibrationContext: purchaseContext,
+      entitySignalsByAdsetId: { "adset-1": readySignal() },
+    });
+
+    const cut = recs.find((rec) => rec.type === "adset_cut_spend");
+    const spend = cut?.evidence.find((item) => item.label === "Ad set spend")?.value;
+    expect(spend).toBe(expected);
+    if (currency === null) expect(spend).not.toContain("$");
   });
 
   it("blocks hard purchase adset actions when signal diagnostics show click-to-LPV tracking risk", () => {

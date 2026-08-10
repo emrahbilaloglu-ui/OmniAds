@@ -96,14 +96,16 @@ function insufficientKindFunnel(
   };
 }
 
-function makeProfileWithKind(input: {
-  kind?: Exclude<CalibrationCampaignKind, "all">;
-  calibration?: Partial<AccountCalibration>;
-  thresholds?: Partial<EngineThresholdSet>;
-  spendUnit?: SpendUnitProfile | null;
-  funnel?: AccountFunnelCalibration | null;
-  hardActions?: HardActionEligibility | null;
-} = {}): AccountDecisionProfile {
+function makeProfileWithKind(
+  input: {
+    kind?: Exclude<CalibrationCampaignKind, "all">;
+    calibration?: Partial<AccountCalibration>;
+    thresholds?: Partial<EngineThresholdSet>;
+    spendUnit?: SpendUnitProfile | null;
+    funnel?: AccountFunnelCalibration | null;
+    hardActions?: HardActionEligibility | null;
+  } = {},
+): AccountDecisionProfile {
   const kind = input.kind ?? "main";
   const base = makeAccountDecisionProfile();
   const calibration = makeAccountCalibration({
@@ -127,15 +129,14 @@ function makeProfileWithKind(input: {
     bottomQuartileRatio: 0.55,
     ...input.thresholds,
   };
-  const resolvedSpendUnit = input.spendUnit === undefined
-    ? spendUnitProfile()
-    : input.spendUnit;
-  const funnel = input.funnel === undefined
-    ? readyKindFunnel(kind)
-    : input.funnel;
-  const hardActions = input.hardActions === undefined
-    ? hardActionEligibility()
-    : input.hardActions;
+  const resolvedSpendUnit =
+    input.spendUnit === undefined ? spendUnitProfile() : input.spendUnit;
+  const funnel =
+    input.funnel === undefined ? readyKindFunnel(kind) : input.funnel;
+  const hardActions =
+    input.hardActions === undefined
+      ? hardActionEligibility()
+      : input.hardActions;
 
   return {
     ...base,
@@ -163,6 +164,78 @@ describe("selectKindAwareDecisionProfile", () => {
     expect(selection.decisionKindSource).toBe("kind_mixed");
     expect(selection.profile.thresholds.commercialMaturitySpend).toBe(180);
     expect(selection.profile.funnelCalibration.campaignKind).toBe("mixed");
+  });
+
+  it("preserves account-wide commercial stop-loss Cut authority in a kind profile", () => {
+    const profile = makeProfileWithKind({
+      kind: "main",
+      hardActions: hardActionEligibility({
+        scale: false,
+        cut: false,
+        refresh: true,
+        reason: "kind scale and cut blocked",
+        reasons: {
+          scale: "kind scale blocked",
+          cut: "kind cut blocked",
+          refresh: null,
+        },
+      }),
+    });
+    profile.commercialStopLossSpendUnit = spendUnitProfile({
+      spendUnit: 47.5,
+      spendUnitSource: "meta_derived_aov",
+    });
+    profile.commercialStopLossThresholds = {
+      ...profile.thresholds,
+      commercialMaturitySpend: 38,
+    };
+    profile.commercialStopLossCanonicalHardActionEligibility =
+      hardActionEligibility({
+        scale: false,
+        cut: false,
+        refresh: false,
+        reason: "account cut blocked",
+        reasons: {
+          scale: "account scale blocked",
+          cut: "account cut blocked",
+          refresh: "account refresh blocked",
+        },
+      });
+    profile.hardActionEligibility = hardActionEligibility({
+      scale: false,
+      cut: true,
+      refresh: false,
+      reason: "account scale and refresh blocked",
+      reasons: {
+        scale: "account scale blocked",
+        cut: null,
+        refresh: "account refresh blocked",
+      },
+    });
+
+    const selection = selectKindAwareDecisionProfile(
+      makeCreativeInput({ campaignKind: "main" }),
+      profile,
+    );
+
+    expect(selection.decisionKindSource).toBe("kind_main");
+    expect(selection.profile.hardActionEligibility).toEqual({
+      scale: false,
+      cut: true,
+      refresh: true,
+      reason: "kind scale blocked",
+      reasons: {
+        scale: "kind scale blocked",
+        cut: null,
+        refresh: null,
+      },
+    });
+    expect(selection.profile.commercialStopLossThresholds).toBe(
+      profile.commercialStopLossThresholds,
+    );
+    expect(
+      selection.profile.commercialStopLossCanonicalHardActionEligibility,
+    ).toBe(profile.hardActionEligibilityByKind?.main);
   });
 
   it("falls back without inspecting byKind data when campaignKind is null", () => {
@@ -303,6 +376,8 @@ describe("selectKindAwareDecisionProfile", () => {
 
     expect(selection.decisionKindSource).toBe("kind_main");
     expect(selection.profile.funnelCalibration.byFormat.video).toBeUndefined();
-    expect(selection.profile.funnelCalibration.byFormat.overall?.ctrP50).toBe(4);
+    expect(selection.profile.funnelCalibration.byFormat.overall?.ctrP50).toBe(
+      4,
+    );
   });
 });

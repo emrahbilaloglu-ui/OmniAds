@@ -62,7 +62,7 @@ const EMPTY_STATE: LaunchpadAddToExistingState = {
   targetAdset: null,
   targetCampaigns: [],
   targetAdsetsByCampaignId: {},
-  copyMode: "rebuild_creative",
+  copyMode: "reuse_creative",
   nameOverrides: {},
 };
 
@@ -171,7 +171,7 @@ function buildTargetState(input: {
     targetAdset: firstCampaign ? input.adsetsByCampaignId[firstCampaign.id] ?? null : null,
     targetCampaigns: input.campaigns,
     targetAdsetsByCampaignId: input.adsetsByCampaignId,
-    copyMode: input.copyMode ?? "rebuild_creative",
+    copyMode: input.copyMode ?? "reuse_creative",
     nameOverrides: input.nameOverrides,
   };
 }
@@ -212,7 +212,7 @@ export function LaunchpadAddToExistingTarget({
     () => selectedCampaigns.map((campaign) => campaign.id),
     [selectedCampaigns],
   );
-  const activeCopyMode = value.copyMode ?? "rebuild_creative";
+  const activeCopyMode = value.copyMode ?? "reuse_creative";
 
   useEffect(() => {
     if (campaignOptions) setCampaigns(campaignOptions);
@@ -572,16 +572,23 @@ export function LaunchpadAddToExistingTarget({
           </button>
           <button
             type="button"
-            onClick={() => setCopyMode("rebuild_creative")}
+            disabled
+            aria-describedby="launchpad-rebuild-creative-review-only"
             className={`rounded-[8px] border px-3 py-3 text-left text-[13px] transition ${
               activeCopyMode === "rebuild_creative"
                 ? "border-[var(--ink)] bg-[var(--surface-3)] text-[var(--ink)]"
-                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)] hover:bg-[var(--hover)]"
+                : "border-[var(--border-2)] bg-[var(--surface)] text-[var(--ink-3)]"
             }`}
           >
-            <span className="block font-medium">Recreate exact ad</span>
-            <span className="mt-1 block text-[12px] text-[var(--muted)]">
-              Create a new target-account creative from the same assets and copy.
+            <span className="block font-medium">
+              Recreate exact ad · review-only
+            </span>
+            <span
+              id="launchpad-rebuild-creative-review-only"
+              className="mt-1 block text-[12px] text-[var(--muted)]"
+            >
+              Unavailable until image, creative, and ad writes each have a
+              durable step receipt.
             </span>
           </button>
         </div>

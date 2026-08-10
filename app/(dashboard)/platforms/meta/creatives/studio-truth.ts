@@ -119,8 +119,18 @@ function safeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function canonicalAdKey(card: BriefingCreativeCard): string {
+  if (card.canonicalDecision?.identityGrain !== "ad") return "";
+  return (
+    safeText(card.realAdId) ||
+    safeText(card.canonicalDecision.adId) ||
+    safeText(card.adId) ||
+    safeText(card.id)
+  );
+}
+
 function cardKey(card: BriefingCreativeCard): string {
-  return safeText(card.creativeId) || safeText(card.id);
+  return canonicalAdKey(card) || safeText(card.creativeId) || safeText(card.id);
 }
 
 function isBriefingRollup(item: BriefingActionItem): item is Extract<BriefingActionItem, { primaryRec: unknown }> {
@@ -169,10 +179,10 @@ export function indexCreativeStudioBriefingCards(
   cards: BriefingCreativeCard[],
 ): Map<string, BriefingCreativeCard> {
   const index = new Map<string, BriefingCreativeCard>();
+  const ambiguousCreativeIds = new Set<string>();
   for (const card of cards) {
     const keys = [
       card.id,
-      card.creativeId,
       card.adId,
       card.realAdId,
       card.metaAdId,
@@ -182,6 +192,15 @@ export function indexCreativeStudioBriefingCards(
       const normalized = safeText(key);
       if (normalized && !index.has(normalized)) index.set(normalized, card);
     }
+    const creativeId = safeText(card.creativeId);
+    if (!creativeId || ambiguousCreativeIds.has(creativeId)) continue;
+    const existing = index.get(creativeId);
+    if (!existing) {
+      index.set(creativeId, card);
+    } else if (cardKey(existing) !== cardKey(card)) {
+      index.delete(creativeId);
+      ambiguousCreativeIds.add(creativeId);
+    }
   }
   return index;
 }
@@ -190,21 +209,18 @@ export function findCreativeStudioCard(
   row: Pick<MetaCreativeRow, "id" | "creativeId">,
   index: Map<string, BriefingCreativeCard>,
 ): BriefingCreativeCard | null {
-  const creativeId = safeText(row.creativeId);
-  const exact = creativeId ? index.get(creativeId) : null;
-  if (exact) return exact;
-
   const rowId = safeText(row.id);
-  const fallback = rowId ? index.get(rowId) : null;
-  if (!fallback) return null;
+  const exact = rowId ? index.get(rowId) : null;
+  const creativeId = safeText(row.creativeId);
+  if (!exact) return creativeId ? index.get(creativeId) ?? null : null;
 
   // Grouped row ids can be reused when Meta replaces a creative under the
   // same ad/name. Never attach an older creative's decision to the new asset.
-  const fallbackCreativeId = safeText(fallback.creativeId);
-  if (creativeId && fallbackCreativeId && creativeId !== fallbackCreativeId) {
+  const exactCreativeId = safeText(exact.creativeId);
+  if (creativeId && exactCreativeId && creativeId !== exactCreativeId) {
     return null;
   }
-  return fallback;
+  return exact;
 }
 
 export function resolveServerDecisionBadge(
@@ -278,7 +294,25 @@ export function qualifyCurrentWinner(
       explanation: "Winner language is withheld because the truth source is unavailable.",
     };
   }
-  if (card.thresholdQuality !== "ready") {
+  const canonicalExactAdAuthority =
+    card.canonicalDecision?.identityGrain === "ad"
+      ? card.canonicalDecision.sourceAuthority
+      : null;
+  if (
+    canonicalExactAdAuthority !== null &&
+    (!canonicalExactAdAuthority.actionEligible ||
+      canonicalExactAdAuthority.authorizedAction !==
+        card.decisionCenterRow.buyerAction)
+  ) {
+    return {
+      candidate: true,
+      qualified: false,
+      reason: "threshold_not_ready",
+      explanation:
+        "Winner language is withheld because the persisted exact-Ad authority did not authorize the served action.",
+    };
+  }
+  if (canonicalExactAdAuthority === null && card.thresholdQuality !== "ready") {
     return {
       candidate: true,
       qualified: false,

@@ -384,8 +384,44 @@ describe("Engine v3 precomputed table migrations", () => {
       "campaign_context",
       "native_metrics_unavailable",
       "native_profile_unavailable",
+      "recent_recovery_unverifiable",
     ])
       expect(joined).toContain(blocker);
+  });
+
+  it("upgrades all four authority-blocker constraints without rewriting rows", async () => {
+    const queries = await collectMigrationQueries();
+    const upgrade = queries.find((query) =>
+      query.includes("$d063_authority_blocker$"),
+    );
+
+    expect(upgrade).toBeDefined();
+    for (const [table, constraint] of [
+      [
+        "engine_v3_decision_snapshots_daily",
+        "engine_v3_decision_snapshots_authority_blocker_check",
+      ],
+      [
+        "engine_v3_decision_outcomes_daily",
+        "engine_v3_decision_outcomes_authority_blocker_check",
+      ],
+      [
+        "engine_v3_ad_decision_snapshots_daily",
+        "engine_v3_ad_snapshots_authority_blocker_check",
+      ],
+      [
+        "engine_v3_ad_decision_outcomes_daily",
+        "engine_v3_ad_outcomes_authority_blocker_check",
+      ],
+    ] as const) {
+      expect(upgrade).toContain(table);
+      expect(upgrade).toContain(constraint);
+    }
+    expect(upgrade).toContain("recent_recovery_unverifiable");
+    expect(upgrade).toContain("NOT VALID");
+    expect(upgrade).toContain("VALIDATE CONSTRAINT");
+    expect(upgrade).toContain("RENAME CONSTRAINT");
+    expect(upgrade).not.toMatch(/\b(UPDATE|INSERT INTO|DELETE FROM|TRUNCATE)\b/i);
   });
 
   it("extends partial native tables before capability inspection", () => {

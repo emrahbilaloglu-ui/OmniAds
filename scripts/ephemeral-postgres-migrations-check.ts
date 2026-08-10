@@ -2656,6 +2656,26 @@ async function main() {
       "notification lifecycle DB seam check",
     );
 
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-native-ad-fact-ownership-seam-child.ts",
+      ),
+      "native-ad decision-fact ownership DB seam check",
+    );
+
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join(
+        "scripts",
+        "ephemeral-postgres-duplicate-ad-reconciliation-seam-child.ts",
+      ),
+      "duplicate-ad reconciliation DB seam check",
+    );
+
     // Production-seam checks against the freshly migrated schema: real
     // write query -> real reader, the class of defect in-memory tests miss.
     await runChildScript(

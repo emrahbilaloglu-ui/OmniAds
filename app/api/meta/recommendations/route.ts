@@ -13,8 +13,6 @@ import {
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
-import { buildMetaCreativeIntelligence } from "@/lib/meta/creative-intelligence";
-import { getCreativeScoreSnapshot } from "@/lib/meta/creative-score-service";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { resolveRequestLanguage } from "@/lib/request-language";
@@ -182,7 +180,6 @@ export async function GET(request: NextRequest) {
     last90Campaigns,
     allHistoryCampaigns,
     breakdowns,
-    creativeScoreSnapshot,
     commercialTargets,
   ] = await Promise.all([
     getMetaCampaignsForRange({
@@ -235,20 +232,8 @@ export async function GET(request: NextRequest) {
       endDate,
     }),
     getMetaBreakdownsForRange({ businessId, startDate, endDate }),
-    getCreativeScoreSnapshot({
-      request,
-      businessId,
-      selectedStartDate: startDate,
-      selectedEndDate: endDate,
-    }),
     readMetaCommercialTargets(businessId).catch(() => null),
   ]);
-
-  const creativeIntelligence = buildMetaCreativeIntelligence({
-    rows: creativeScoreSnapshot.selectedRows,
-    historyById: creativeScoreSnapshot.historyById,
-    campaigns: selectedCampaigns.rows ?? [],
-  });
 
   const payload = attachAnalysisSource(
     buildMetaRecommendations({
@@ -263,7 +248,6 @@ export async function GET(request: NextRequest) {
         allHistory: allHistoryCampaigns.rows ?? [],
       },
       breakdowns,
-      creativeIntelligence,
       historicalBidRegimes: Object.fromEntries(
         (
           await readMetaBidRegimeHistorySummaries({

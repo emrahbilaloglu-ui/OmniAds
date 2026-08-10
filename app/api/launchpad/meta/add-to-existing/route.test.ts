@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeMetaAddToExistingPayload } from "@/lib/launchpad/meta";
+import { META_LAUNCHPAD_EXECUTION_LIMITS } from "@/lib/launchpad/meta-execution-bounds";
+import { META_LAUNCHPAD_MANUAL_AUTHORITY } from "@/lib/launchpad/meta-manual-authority";
 
 vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock("@/lib/launchpad/meta-validation", () => ({
   ),
   resolveAssignedMetaLaunchAccount: vi.fn(),
   resolveMetaLaunchWriteContext: vi.fn(),
+  validateMetaAddToExistingLiveProviderPreflight: vi.fn(),
   validateMetaAddToExistingRequest: vi.fn(),
 }));
 
@@ -68,6 +71,7 @@ function request(body: unknown) {
 
 function body() {
   return {
+    ...META_LAUNCHPAD_MANUAL_AUTHORITY,
     businessId: BUSINESS_ID,
     providerAccountId: "act_123",
     targetCampaignId: "cmp_1",
@@ -82,6 +86,7 @@ function body() {
       creative_1: "Creative 1 added",
       creative_2: "Creative 2 added",
     },
+    copyMode: "reuse_creative" as const,
     idempotencyKey: "idem_1",
   };
 }
@@ -103,6 +108,7 @@ function mockValid() {
         creative_1: "Creative 1 added",
         creative_2: "Creative 2 added",
       },
+      copyMode: "reuse_creative",
     }),
     blockers: [],
     warnings: [],
@@ -158,7 +164,11 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     vi.mocked(intentService.prepareMetaLaunchIntentForExecution).mockResolvedValue({
       ok: true,
       created: true,
-      intent: { id: "intent_1", status: "prepared" },
+      intent: {
+        id: "intent_1",
+        status: "prepared",
+        requestFingerprint: "fingerprint_1",
+      },
     } as never);
     vi.mocked(intentStore.recordMetaLaunchIntentValidation).mockResolvedValue({
       id: "intent_1",
@@ -187,11 +197,28 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
         accessToken: "secret-token",
       },
     } as never);
+    vi.mocked(
+      validation.validateMetaAddToExistingLiveProviderPreflight,
+    ).mockResolvedValue({
+      ok: true,
+      blockers: [],
+      checks: [
+        { kind: "source_ad", requestedAdId: "source_ad_1" },
+        { kind: "target_adset", requestedAdsetId: "adset_1" },
+      ],
+    });
     mockValid();
     vi.mocked(adsWrite.duplicateAd)
+      .mockReset()
       .mockResolvedValueOnce({
         ok: true,
         newAdId: "ad_1",
+        sourceIdentity: {
+          adId: "source_ad_1",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+          observedAt: "2026-07-18T10:00:00.000Z",
+        },
         verifiedStatus: "PAUSED",
         responsePayload: { id: "ad_1" },
         verificationPayload: { id: "ad_1", status: "PAUSED" },
@@ -199,6 +226,12 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       .mockResolvedValueOnce({
         ok: true,
         newAdId: "ad_2",
+        sourceIdentity: {
+          adId: "source_ad_2",
+          providerAccountId: "act_123",
+          creativeId: "creative_2",
+          observedAt: "2026-07-18T10:00:01.000Z",
+        },
         verifiedStatus: "PAUSED",
         responsePayload: { id: "ad_2" },
         verificationPayload: { id: "ad_2", status: "PAUSED" },
@@ -229,22 +262,34 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       expect.objectContaining({
         adId: "source_ad_1",
         targetAdsetId: "adset_1",
+        expectedSourceCreativeId: "creative_1",
       }),
     );
     const duplicateInput = vi.mocked(adsWrite.duplicateAd).mock.calls[0]?.[1];
     expect(duplicateInput).not.toHaveProperty("activateAfterCreate");
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "launch_ad", adId: "source_ad_1", creativeId: "creative_1" }),
+      expect.objectContaining({
+        action: "launch_ad",
+        source: "launchpad_manual",
+        adId: "source_ad_1",
+        creativeId: "creative_1",
+      }),
     );
     expect(actionLog.createMetaAdsActionLog).toHaveBeenCalledWith(
       expect.objectContaining({
         payloadRequest: expect.objectContaining({
+          action_origin: "launchpad_manual_v1",
+          manual_confirmation: "explicit_operator_confirmation",
+          launch_intent_request_fingerprint: "fingerprint_1",
           launch_intent_id: "intent_1",
+          provider_preflight: expect.arrayContaining([
+            expect.objectContaining({ kind: "source_ad" }),
+          ]),
           target_campaign_name: "Campaign",
           target_adset_name: "Ad set",
           source_name: "Creative 1",
           body: expect.objectContaining({
-            copy_mode: "rebuild_creative",
+            copy_mode: "reuse_creative",
             source_name: "Creative 1",
             status_option: "PAUSED",
             name: "Creative 1 added",
@@ -258,17 +303,308 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
         providerAccountId: "act_123",
       }),
     );
+    expect(
+      intentService.prepareMetaLaunchIntentForExecution,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestPayload: expect.objectContaining({
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+        }),
+      }),
+    );
+    expect(
+      validation.validateMetaAddToExistingLiveProviderPreflight,
+    ).toHaveBeenCalledWith({
+      ctx: expect.objectContaining({ providerAccountId: "act_123" }),
+      payload: expect.objectContaining({ mode: "add_to_existing" }),
+    });
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resultReceipt: expect.objectContaining({
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+          requestFingerprint: "fingerprint_1",
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              sourceIdentity: expect.objectContaining({
+                adId: "source_ad_1",
+                creativeId: "creative_1",
+              }),
+            }),
+          ]),
+        }),
+      }),
+    );
+    expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payloadResponse: expect.objectContaining({
+          source_identity: expect.objectContaining({
+            adId: "source_ad_1",
+            creativeId: "creative_1",
+          }),
+        }),
+        verificationPayload: expect.objectContaining({
+          source_identity: expect.objectContaining({
+            adId: "source_ad_1",
+            creativeId: "creative_1",
+          }),
+        }),
+      }),
+    );
     expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: "launch_campaign" }),
     );
   });
 
-  it("continues after a failed creative and returns ok false with partial results", async () => {
+  it.each([
+    [
+      {
+        actionOrigin: undefined,
+        manualConfirmation: undefined,
+      },
+      "action_origin_required",
+    ],
+    [
+      {
+        actionOrigin: "manual_operator_v1",
+        manualConfirmation: "explicit_operator_confirmation",
+      },
+      "action_origin_required",
+    ],
+    [
+      {
+        actionOrigin: "launchpad_manual_v1",
+        manualConfirmation: undefined,
+      },
+      "manual_confirmation_required",
+    ],
+    [
+      {
+        ...META_LAUNCHPAD_MANUAL_AUTHORITY,
+        sourceDecisionId: null,
+      },
+      "mixed_action_origin_contract",
+    ],
+  ])(
+    "rejects invalid or mixed authority before intent and provider work",
+    async (authority, code) => {
+      const response = await POST(request({ ...body(), ...authority }));
+      const payload = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(payload.error.code).toBe(code);
+      expect(
+        intentService.prepareMetaLaunchIntentForExecution,
+      ).not.toHaveBeenCalled();
+      expect(
+        validation.validateMetaAddToExistingLiveProviderPreflight,
+      ).not.toHaveBeenCalled();
+      expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+      expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps rebuild_creative review-only before intent or provider work", async () => {
+    const response = await POST(
+      request({
+        ...body(),
+        copyMode: "rebuild_creative",
+        idempotencyKey: "idem_rebuild_review",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe(
+      "rebuild_creative_receipt_contract_required",
+    );
+    expect(
+      intentService.prepareMetaLaunchIntentForExecution,
+    ).not.toHaveBeenCalled();
+    expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects over-limit fan-out before account, intent, validation, or provider work", async () => {
+    const creatives = Array.from(
+      { length: META_LAUNCHPAD_EXECUTION_LIMITS.maxCreatives + 1 },
+      (_, index) => ({
+        creativeId: `creative_${index + 1}`,
+        sourceAdId: `source_ad_${index + 1}`,
+      }),
+    );
+    const response = await POST(
+      request({
+        ...body(),
+        creativeIds: creatives.map((creative) => creative.creativeId),
+        creatives,
+        idempotencyKey: "idem_over_limit",
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(payload.error.code).toBe("launchpad_creative_limit_exceeded");
+    expect(payload.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "launchpad_creative_limit_exceeded",
+        }),
+      ]),
+    );
+    expect(validation.resolveAssignedMetaLaunchAccount).not.toHaveBeenCalled();
+    expect(
+      intentService.prepareMetaLaunchIntentForExecution,
+    ).not.toHaveBeenCalled();
+    expect(validation.validateMetaAddToExistingRequest).not.toHaveBeenCalled();
+    expect(
+      validation.validateMetaAddToExistingLiveProviderPreflight,
+    ).not.toHaveBeenCalled();
+    expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+  });
+
+  it("records the observed source identity when it drifts between preflight and write", async () => {
+    const observedIdentity = {
+      adId: "source_ad_1",
+      providerAccountId: "act_123",
+      creativeId: "creative_drifted",
+      observedAt: "2026-07-18T10:01:00.000Z",
+    };
+    vi.mocked(adsWrite.duplicateAd)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: false,
+        httpStatus: 409,
+        error: {
+          code: "creative_identity_mismatch",
+          message: "Meta source ad no longer references the expected creative.",
+        },
+        sourceIdentity: observedIdentity,
+        responsePayload: { id: "source_ad_1" },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        newAdId: "ad_2",
+        sourceIdentity: {
+          adId: "source_ad_2",
+          providerAccountId: "act_123",
+          creativeId: "creative_2",
+          observedAt: "2026-07-18T10:01:01.000Z",
+        },
+        verifiedStatus: "PAUSED",
+      } as never);
+
+    const response = await POST(
+      request({ ...body(), idempotencyKey: "idem_source_drift" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.ok).toBe(false);
+    expect(payload.results[0]).toMatchObject({
+      ok: false,
+      sourceIdentity: observedIdentity,
+      error: { code: "creative_identity_mismatch" },
+    });
+    expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        adId: "source_ad_1",
+        expectedSourceCreativeId: "creative_1",
+      }),
+    );
+    expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payloadResponse: expect.objectContaining({
+          source_identity: observedIdentity,
+        }),
+      }),
+    );
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorReceipt: expect.objectContaining({
+          partialResult: expect.objectContaining({
+            steps: expect.arrayContaining([
+              expect.objectContaining({
+                creativeId: "creative_1",
+                sourceIdentity: observedIdentity,
+                error: expect.objectContaining({
+                  code: "creative_identity_mismatch",
+                }),
+              }),
+            ]),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("blocks on fresh provider source or hierarchy proof before any mutation", async () => {
+    vi.mocked(
+      validation.validateMetaAddToExistingLiveProviderPreflight,
+    ).mockResolvedValue({
+      ok: false,
+      blockers: [
+        {
+          code: "target_campaign_not_active",
+          message: "Target campaign must be fully ACTIVE.",
+        },
+      ],
+      checks: [
+        {
+          kind: "target_campaign",
+          configuredStatus: "PAUSED",
+          effectiveStatus: "PAUSED",
+        },
+      ],
+    });
+
+    const response = await POST(
+      request({ ...body(), idempotencyKey: "idem_provider_drift" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("provider_preflight_blocked");
+    expect(payload.blockers).toEqual([
+      expect.objectContaining({ code: "target_campaign_not_active" }),
+    ]);
+    expect(adsWrite.duplicateAd).not.toHaveBeenCalled();
+    expect(actionLog.createMetaAdsActionLog).not.toHaveBeenCalled();
+    expect(intentStore.recordMetaLaunchIntentValidation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        receipt: expect.objectContaining({
+          ok: false,
+          checks: expect.arrayContaining([
+            expect.objectContaining({ kind: "target_campaign" }),
+          ]),
+          executionAuthority: META_LAUNCHPAD_MANUAL_AUTHORITY,
+          requestFingerprint: "fingerprint_1",
+        }),
+      }),
+    );
+  });
+
+  it("halts after the first definite provider failure and omits later creates", async () => {
+    const mutationAttempt = {
+      attemptCount: 1 as const,
+      method: "POST" as const,
+      path: "act_123/ads",
+      attemptedAt: "2026-07-18T15:00:00.000Z",
+      completedAt: "2026-07-18T15:00:01.000Z",
+      providerResponseReceived: true,
+      httpStatus: 400,
+      outcome: "provider_response_received" as const,
+      automaticRetryAttempted: false as const,
+      transportError: null,
+    };
     vi.mocked(adsWrite.duplicateAd)
       .mockReset()
       .mockResolvedValueOnce({
         ok: false,
         httpStatus: 400,
+        providerOutcome: "definite_failure",
+        mutationAttempt,
         error: { code: "100", message: "Invalid creative." },
         responsePayload: { error: { code: 100 } },
         resultingAdId: "ad_partial_1",
@@ -284,24 +620,25 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     const response = await POST(request({ ...body(), idempotencyKey: "idem_2" }));
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(502);
     expect(payload.ok).toBe(false);
     expect(payload.failedCount).toBe(1);
-    expect(payload.successCount).toBe(1);
+    expect(payload.successCount).toBe(0);
+    expect(payload.halted).toBe(true);
+    expect(payload.haltedReason).toEqual({
+      code: "100",
+      message: "Invalid creative.",
+    });
+    expect(payload.omittedCount).toBe(1);
     expect(payload.results).toEqual([
       {
         creativeId: "creative_1",
         targetCampaignId: "cmp_1",
         targetAdsetId: "adset_1",
         ok: false,
+        providerOutcome: "definite_failure",
+        mutationAttempt,
         error: { code: "100", message: "Invalid creative." },
-      },
-      {
-        creativeId: "creative_2",
-        targetCampaignId: "cmp_1",
-        targetAdsetId: "adset_1",
-        ok: true,
-        adId: "ad_2",
       },
     ]);
     expect(payload.steps[0]).toMatchObject({
@@ -310,7 +647,128 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
       adsManagerUrl:
         "https://adsmanager.facebook.com/adsmanager/manage/ads/edit?act=123&selected_ad_ids=ad_partial_1",
     });
-    expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(2);
+    expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(1);
+  });
+
+  it("halts on an ambiguous ad POST and preserves the LaunchIntent attempt receipt", async () => {
+    const mutationAttempt = {
+      attemptCount: 1 as const,
+      method: "POST" as const,
+      path: "act_123/ads",
+      attemptedAt: "2026-07-18T15:00:00.000Z",
+      completedAt: "2026-07-18T15:00:01.000Z",
+      providerResponseReceived: false,
+      httpStatus: null,
+      outcome: "outcome_ambiguous" as const,
+      automaticRetryAttempted: false as const,
+      transportError: {
+        code: "network_error",
+        message: "connection closed after request upload",
+      },
+    };
+    vi.mocked(adsWrite.duplicateAd)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: false,
+        httpStatus: 502,
+        providerOutcome: "outcome_ambiguous",
+        error: {
+          code: "provider_outcome_ambiguous",
+          message:
+            "The provider outcome is unknown; reconcile before another write.",
+        },
+        mutationAttempt,
+        sourceIdentity: {
+          adId: "source_ad_1",
+          providerAccountId: "act_123",
+          creativeId: "creative_1",
+          observedAt: "2026-07-18T15:00:00.000Z",
+        },
+        responsePayload: {
+          provider_outcome: "outcome_ambiguous",
+          mutation_attempt: mutationAttempt,
+          reconciliation_required: true,
+          retry_disposition:
+            "do_not_retry_before_exact_provider_reconciliation",
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        newAdId: "must_not_be_created",
+        sourceIdentity: {
+          adId: "source_ad_2",
+          providerAccountId: "act_123",
+          creativeId: "creative_2",
+          observedAt: "2026-07-18T15:00:00.000Z",
+        },
+        verifiedStatus: "PAUSED",
+      } as never);
+
+    const response = await POST(
+      request({ ...body(), idempotencyKey: "idem_ambiguous" }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(payload).toMatchObject({
+      ok: false,
+      halted: true,
+      omittedCount: 1,
+      launchIntentStatus: "silent_failure",
+      haltedReason: { code: "provider_outcome_ambiguous" },
+      results: [
+        {
+          creativeId: "creative_1",
+          ok: false,
+          providerOutcome: "outcome_ambiguous",
+          mutationAttempt,
+          retryAllowed: false,
+          error: { code: "provider_outcome_ambiguous" },
+        },
+      ],
+      steps: [
+        {
+          kind: "ad",
+          status: "silent_failure",
+          providerOutcome: "outcome_ambiguous",
+          mutationAttempt,
+          retryAllowed: false,
+        },
+      ],
+    });
+    expect(actionLog.completeMetaAdsActionLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "silent_failure",
+        errorCode: "provider_outcome_ambiguous",
+        payloadResponse: expect.objectContaining({
+          provider_payload: expect.objectContaining({
+            provider_outcome: "outcome_ambiguous",
+          }),
+        }),
+      }),
+    );
+    expect(intentStore.recordMetaLaunchIntentOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "silent_failure",
+        errorReceipt: expect.objectContaining({
+          code: "provider_outcome_ambiguous",
+          recovery: {
+            rollbackSupported: false,
+            retrySupported: false,
+          },
+          partialResult: expect.objectContaining({
+            steps: [
+              expect.objectContaining({
+                providerOutcome: "outcome_ambiguous",
+                mutationAttempt,
+                retryAllowed: false,
+              }),
+            ],
+          }),
+        }),
+      }),
+    );
+    expect(adsWrite.duplicateAd).toHaveBeenCalledTimes(1);
   });
 
   it("passes duplicate copy mode through to Meta write helper", async () => {
@@ -424,12 +882,12 @@ describe("POST /api/launchpad/meta/add-to-existing", () => {
     expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
       1,
         expect.objectContaining({ providerAccountId: "act_123" }),
-      expect.objectContaining({ targetAdsetId: "adset_1", copyMode: "rebuild_creative" }),
+      expect.objectContaining({ targetAdsetId: "adset_1", copyMode: "reuse_creative" }),
     );
     expect(adsWrite.duplicateAd).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ providerAccountId: "act_123" }),
-      expect.objectContaining({ targetAdsetId: "adset_2", copyMode: "rebuild_creative" }),
+      expect.objectContaining({ targetAdsetId: "adset_2", copyMode: "reuse_creative" }),
     );
   });
 

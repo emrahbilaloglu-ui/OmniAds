@@ -13,7 +13,8 @@ This runbook uses only deploy machinery already present in the repo:
 - `docker-compose.yml`
   - `web`, `worker`, and `migrate` production services
 - `.github/workflows/ci.yml`
-  - builds/tests the repo on `main`
+  - runs `typecheck`, `test`, and `database-seams` on pull requests and `main`
+  - runs the application `build` job on pull requests
   - publishes `ghcr.io/emrahbilaloglu-ui/omniads-web:<sha>` and `ghcr.io/emrahbilaloglu-ui/omniads-worker:<sha>` when runtime-affecting files changed
   - dispatches `.github/workflows/deploy-hetzner.yml` after image publish succeeds
 - `.github/workflows/deploy-hetzner.yml`
@@ -23,7 +24,7 @@ This runbook uses only deploy machinery already present in the repo:
   - force-recreates `web` and `worker`
   - verifies container images, `/api/build-info`, optional container health, public ingress build-id match, and ingress smoke
 - `.github/workflows/post-deploy-verify.yml`
-  - records report-only post-deploy release authority and Meta watch-window observation for the exact deployed SHA
+  - uploads the report-only post-deploy release-authority artifact for the exact deployed SHA
 - `deploy/nginx/adsecute.conf`
   - public reverse-proxy shape for the Hetzner host
 - `scripts/verify-serving-direct-release.ts`
@@ -153,7 +154,8 @@ What the deploy workflow already does on the server:
 - checks optional container health
 - verifies `https://adsecute.com/api/build-info` and `https://www.adsecute.com/api/build-info`
 - runs public ingress smoke on `https://adsecute.com/about` and `https://www.adsecute.com/about`
-- dispatches `.github/workflows/post-deploy-verify.yml` for report-only post-deploy observation
+- dispatches `.github/workflows/post-deploy-verify.yml` for the report-only
+  post-deploy release-authority artifact
 
 If an operator needs a direct manual deploy of an already-published SHA, use the existing GitHub Actions workflow dispatch:
 
@@ -167,6 +169,14 @@ If an operator needs a direct manual deploy of an already-published SHA, use the
 Do not use branch names, short SHAs, `main`, or `latest` in place of the full SHA.
 
 ## Post-Deploy Verification
+
+The post-deploy workflow uploads an artifact named
+`post-deploy-verify-<sha>` containing
+`post-deploy-release-authority.json`. Its verification step is report-only and
+may continue after a failed authority check, so a green workflow conclusion
+alone is insufficient. Inspect the artifact and require the exact
+deployed/main/live SHA, `summary.result: "pass"`, and an empty
+`summary.blockers` list.
 
 After the deploy workflow finishes, run:
 
@@ -223,6 +233,68 @@ Post-deploy acceptable findings:
 - intentional `manual_boundary`
 - intentional `manual_missing`
 - `unknown` where the repo-supported checks cannot prove applicability
+
+The natural Meta scheduler verification is a separate operational gate; the
+post-deploy workflow does not observe a Meta watch window. After the first
+natural 03:00 UTC scheduler wave following the deploy has completed, verify
+current-epoch calibration, decisions, operator jobs, chain ordering, counts,
+receipts, and lineage with SELECT-only queries in an explicit repeatable-read,
+read-only transaction. Do not trigger cron manually, write the live database,
+or call a provider to manufacture this proof.
+
+Use the repository-owned operational verifier after that natural wave:
+
+```bash
+npm run creative:decision:native-ad-natural-wave-verify -- \
+  --as-of=<successful-post-deploy-scheduler-date> \
+  --deploy-anchor=<exact-final-deploy-timestamp> \
+  --expected-business-count=<expected-active-enabled-meta-businesses> \
+  --expected-provider-account-count=<expected-meta-bindings> \
+  --expected-unbound=<exact-negative-control-business-uuid> \
+  --env-default-enabled=<exact-deployed-DECISION_ENGINE_V3_ENABLED>
+```
+
+The command accepts only the existing `127.0.0.1:15432` tunnel, requires
+`PGAPPNAME` plus `PGOPTIONS` with `default_transaction_read_only=on`, always
+rolls back, and writes its deterministic JSON/checksum only under `/tmp`.
+Take the explicit environment default from the final deployed release
+authority. Runtime defaults to `true` only when
+`DECISION_ENGINE_V3_ENABLED` is absent; absence must be proved rather than
+assumed.
+
+## Unresolved Manual Duplicate Recovery
+
+A live manual Meta duplicate may have an unknown result after its one allowed
+create POST. The API response is not permission to retry: network exceptions,
+HTTP 408/425/429, 5xx, transient/retryable Meta errors, empty or malformed 2xx
+responses, and provider-success responses whose exact Ad cannot be verified all
+retain a retry-blocking durable claim.
+
+Recovery is owned by the natural scheduler's bounded GET-only reconciliation
+sweep. It uses the immutable duplicate-attempt journal and either:
+
+- an exact point GET when the provider Ad id is known; or
+- a token-free, append-only cursor traversal of the physical account Ads edge
+  when the id was lost.
+
+Only one exact cumulative marker/name/account/ad-set/creative/status match
+across a complete scan cycle, followed by an exact point GET, may reconcile the
+claim as provider success. A complete scan with no match does not prove that
+the provider never committed the create. Zero, multiple, incomplete, cyclic,
+drifted, credential-blocked, or persistence-uncertain observations therefore
+remain quarantined and continue under bounded backoff. There is no manual SQL
+recipe, timeout deletion, provider re-POST, or business-specific override for
+clearing these claims.
+
+To disable the automatic reads during rollback, deploy the previous known-good
+application SHA through the normal workflow. Do not remove the append-only
+journal tables or mutate unresolved action rows. The migrated schema retains a
+compatibility guard that rejects every pre-contract live manual duplicate
+insert before provider work; a rolled-back application therefore has live
+manual duplicate execution fail-closed until a journal-compatible SHA is
+restored. Only the current canonical non-mutating dry-run envelope is exempt;
+an older pre-contract dry-run shape may also fail closed. Do not bypass that
+guard to restore the old write surface.
 
 ## Rollback
 

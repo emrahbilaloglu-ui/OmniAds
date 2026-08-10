@@ -1,8 +1,10 @@
 import {
   getMetaAdsWriteBlockFailure,
+  META_PROVIDER_OUTCOME_AMBIGUOUS_CODE,
   type MetaAdsWriteContext,
   type MetaAdsWriteError,
   type MetaAdsWriteFailure,
+  type MetaProviderMutationAttemptReceipt,
 } from "@/lib/meta/ads-write";
 
 type MetaFetchMethod = "GET" | "POST";
@@ -96,6 +98,24 @@ export type MetaLaunchAdSuccess = {
   verificationPayload?: Record<string, unknown> | null;
 };
 
+export interface MetaLaunchCreativePreflightCheck {
+  kind: "creative_identity";
+  requestedCreativeId: string;
+  requestedProviderAccountId: string;
+  returnedCreativeId: string | null;
+  returnedProviderAccountId: string | null;
+  ok: boolean;
+  checkedAt: string;
+  error: MetaAdsWriteError | null;
+}
+
+export interface MetaLaunchCreativePreflightResult {
+  ok: boolean;
+  providerAccountId: string;
+  checkedAt: string;
+  checks: MetaLaunchCreativePreflightCheck[];
+}
+
 function buildGraphUrl(path: string, accessToken: string) {
   const url = new URL(`https://graph.facebook.com/${GRAPH_API_VERSION}/${path}`);
   url.searchParams.set("access_token", accessToken);
@@ -175,6 +195,17 @@ function getAccountNumericId(providerAccountId: string) {
   return providerAccountId.trim().replace(/^act_/, "");
 }
 
+function canonicalProviderAccountId(providerAccountId: string) {
+  const numericId = getAccountNumericId(providerAccountId);
+  return numericId ? `act_${numericId}` : "";
+}
+
+function sameProviderAccountId(left: string, right: string) {
+  const leftId = getAccountNumericId(left);
+  const rightId = getAccountNumericId(right);
+  return Boolean(leftId && rightId && leftId === rightId);
+}
+
 function setOptionalNumber(
   body: URLSearchParams,
   key: string,
@@ -227,13 +258,44 @@ async function metaFetchWithRateLimitRetry(input: {
   method: MetaFetchMethod;
   body?: URLSearchParams;
   fields?: string;
-}) {
+}): Promise<{
+  response: Response | null;
+  payload: Record<string, unknown> | null;
+  error: MetaAdsWriteError | null;
+  mutationAttempt: MetaProviderMutationAttemptReceipt | null;
+}> {
   const initialBlock = await getMetaAdsWriteBlockFailure(input.ctx);
   if (initialBlock) {
     return {
       response: null,
       payload: null,
       error: initialBlock.error,
+      mutationAttempt: null,
+    };
+  }
+  if (input.method === "POST") {
+    // One provider mutation attempt only. A thrown transport result can hide a
+    // committed create, while an HTTP response proves that Meta replied.
+    const attemptedAt = new Date().toISOString();
+    const result = await metaFetch(input);
+    const completedAt = new Date().toISOString();
+    const providerResponseReceived = result.response != null;
+    return {
+      ...result,
+      mutationAttempt: {
+        attemptCount: 1,
+        method: "POST",
+        path: input.path,
+        attemptedAt,
+        completedAt,
+        providerResponseReceived,
+        httpStatus: result.response?.status ?? null,
+        outcome: providerResponseReceived
+          ? "provider_response_received"
+          : "outcome_ambiguous",
+        automaticRetryAttempted: false,
+        transportError: providerResponseReceived ? null : result.error,
+      },
     };
   }
   const first = await metaFetch(input);
@@ -249,11 +311,86 @@ async function metaFetchWithRateLimitRetry(input: {
         response: null,
         payload: null,
         error: retryBlock.error,
+        mutationAttempt: null,
       };
     }
-    return metaFetch(input);
+    return { ...(await metaFetch(input)), mutationAttempt: null };
   }
-  return first;
+  return { ...first, mutationAttempt: null };
+}
+
+export async function preflightMetaLaunchCreatives(
+  ctx: MetaAdsWriteContext,
+  creativeIds: string[],
+): Promise<MetaLaunchCreativePreflightResult> {
+  const checkedAt = new Date().toISOString();
+  const providerAccountId = canonicalProviderAccountId(ctx.providerAccountId);
+  const exactCreativeIds = Array.from(
+    new Set(creativeIds.map((value) => value.trim()).filter(Boolean)),
+  );
+  const checks = await Promise.all(
+    exactCreativeIds.map(async (creativeId): Promise<MetaLaunchCreativePreflightCheck> => {
+      const read = await metaFetchWithRateLimitRetry({
+        ctx,
+        path: creativeId,
+        method: "GET",
+        fields: "id,account_id",
+      });
+      const returnedCreativeId = readStringField(read.payload, "id") || null;
+      const rawReturnedProviderAccountId =
+        readStringField(read.payload, "account_id") || null;
+      const returnedProviderAccountId = rawReturnedProviderAccountId
+        ? canonicalProviderAccountId(rawReturnedProviderAccountId)
+        : null;
+      let error: MetaAdsWriteError | null = null;
+
+      if (
+        read.error ||
+        !read.response?.ok ||
+        isFailureBody(read.payload)
+      ) {
+        error =
+          read.error ??
+          getMetaError(read.payload, {
+            code: "creative_preflight_failed",
+            message: "The selected Meta creative could not be read.",
+          });
+      } else if (returnedCreativeId !== creativeId) {
+        error = {
+          code: "creative_id_mismatch",
+          message:
+            "The selected Meta creative read did not return the exact requested id.",
+        };
+      } else if (
+        !returnedProviderAccountId ||
+        !sameProviderAccountId(returnedProviderAccountId, providerAccountId)
+      ) {
+        error = {
+          code: "creative_account_mismatch",
+          message:
+            "The selected Meta creative is not proven to belong to the resolved ad account.",
+        };
+      }
+
+      return {
+        kind: "creative_identity",
+        requestedCreativeId: creativeId,
+        requestedProviderAccountId: providerAccountId,
+        returnedCreativeId,
+        returnedProviderAccountId,
+        ok: error == null,
+        checkedAt,
+        error,
+      };
+    }),
+  );
+
+  return {
+    ok: checks.length === exactCreativeIds.length && checks.every((check) => check.ok),
+    providerAccountId,
+    checkedAt,
+    checks,
+  };
 }
 
 function buildWriteFailure(input: {
@@ -261,12 +398,17 @@ function buildWriteFailure(input: {
   httpStatus: number;
   fallbackCode: string;
   fallbackMessage: string;
+  mutationAttempt?: MetaProviderMutationAttemptReceipt | null;
   verificationPayload?: Record<string, unknown> | null;
   resultingAdId?: string | null;
 }): MetaAdsWriteFailure {
   return {
     ok: false,
     httpStatus: input.httpStatus,
+    providerOutcome: input.mutationAttempt
+      ? "definite_failure"
+      : undefined,
+    mutationAttempt: input.mutationAttempt ?? undefined,
     error: getMetaError(input.payload, {
       code: input.fallbackCode,
       message: input.fallbackMessage,
@@ -274,6 +416,43 @@ function buildWriteFailure(input: {
     responsePayload: input.payload,
     verificationPayload: input.verificationPayload ?? null,
     resultingAdId: input.resultingAdId ?? null,
+  };
+}
+
+function buildWriteTransportFailure(input: {
+  error: MetaAdsWriteError;
+  payload: Record<string, unknown> | null;
+  mutationAttempt: MetaProviderMutationAttemptReceipt | null;
+}): MetaAdsWriteFailure {
+  if (input.mutationAttempt?.outcome === "outcome_ambiguous") {
+    const message =
+      "Meta POST transport failed after the single mutation attempt began. " +
+      "The provider outcome is unknown; do not issue another write until the exact provider state is reconciled.";
+    return {
+      ok: false,
+      httpStatus: 502,
+      providerOutcome: "outcome_ambiguous",
+      mutationAttempt: input.mutationAttempt,
+      error: {
+        code: META_PROVIDER_OUTCOME_AMBIGUOUS_CODE,
+        message,
+      },
+      responsePayload: {
+        provider_outcome: "outcome_ambiguous",
+        mutation_attempt: input.mutationAttempt,
+        transport_error: input.error,
+        reconciliation_required: true,
+        retry_disposition:
+          "do_not_retry_before_exact_provider_reconciliation",
+      },
+      verificationPayload: null,
+    };
+  }
+  return {
+    ok: false,
+    httpStatus: input.error.code === "kill_switch_engaged" ? 503 : 502,
+    error: input.error,
+    responsePayload: input.payload,
   };
 }
 
@@ -378,12 +557,11 @@ export async function createCampaign(
     body: campaignBody(input),
   });
   if (write.error) {
-    return {
-      ok: false,
-      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
+    return buildWriteTransportFailure({
       error: write.error,
-      responsePayload: write.payload,
-    };
+      payload: write.payload,
+      mutationAttempt: write.mutationAttempt,
+    });
   }
   const httpStatus = write.response?.status ?? 502;
   if (!write.response?.ok || isFailureBody(write.payload)) {
@@ -392,6 +570,7 @@ export async function createCampaign(
       httpStatus,
       fallbackCode: "meta_campaign_create_failed",
       fallbackMessage: "Meta failed to create the campaign.",
+      mutationAttempt: write.mutationAttempt,
     });
   }
   const campaignId = readStringField(write.payload, "id");
@@ -408,7 +587,7 @@ export async function createCampaign(
     ctx,
     path: campaignId,
     method: "GET",
-    fields: "id,status,objective",
+    fields: "id,account_id,status,objective",
   });
   if (
     verification.error ||
@@ -427,15 +606,25 @@ export async function createCampaign(
       resultingAdId: campaignId,
     };
   }
+  const verifiedId = readStringField(verification.payload, "id");
+  const verifiedAccountId = readStringField(
+    verification.payload,
+    "account_id",
+  );
   const verifiedStatus = readStringField(verification.payload, "status");
   const verifiedObjective = readStringField(verification.payload, "objective");
-  if (verifiedStatus !== input.status || verifiedObjective !== input.objective) {
+  if (
+    verifiedId !== campaignId ||
+    !sameProviderAccountId(verifiedAccountId, ctx.providerAccountId) ||
+    verifiedStatus !== input.status ||
+    verifiedObjective !== input.objective
+  ) {
     return {
       ok: false,
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta created the campaign but verification did not match the requested status or objective.",
+        message: "Meta created the campaign but verification did not match the exact id, account, status, or objective.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,
@@ -463,12 +652,11 @@ export async function createAdSet(
     body: adSetBody(input),
   });
   if (write.error) {
-    return {
-      ok: false,
-      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
+    return buildWriteTransportFailure({
       error: write.error,
-      responsePayload: write.payload,
-    };
+      payload: write.payload,
+      mutationAttempt: write.mutationAttempt,
+    });
   }
   const httpStatus = write.response?.status ?? 502;
   if (!write.response?.ok || isFailureBody(write.payload)) {
@@ -477,6 +665,7 @@ export async function createAdSet(
       httpStatus,
       fallbackCode: "meta_adset_create_failed",
       fallbackMessage: "Meta failed to create the ad set.",
+      mutationAttempt: write.mutationAttempt,
     });
   }
   const adsetId = readStringField(write.payload, "id");
@@ -493,7 +682,7 @@ export async function createAdSet(
     ctx,
     path: adsetId,
     method: "GET",
-    fields: "id,status,optimization_goal,promoted_object",
+    fields: "id,account_id,campaign_id,status,optimization_goal,promoted_object",
   });
   if (
     verification.error ||
@@ -512,6 +701,15 @@ export async function createAdSet(
       resultingAdId: adsetId,
     };
   }
+  const verifiedId = readStringField(verification.payload, "id");
+  const verifiedAccountId = readStringField(
+    verification.payload,
+    "account_id",
+  );
+  const verifiedCampaignId = readStringField(
+    verification.payload,
+    "campaign_id",
+  );
   const verifiedStatus = readStringField(verification.payload, "status");
   const verifiedOptimizationGoal = readStringField(
     verification.payload,
@@ -532,6 +730,9 @@ export async function createAdSet(
     "customEventType",
   );
   if (
+    verifiedId !== adsetId ||
+    !sameProviderAccountId(verifiedAccountId, ctx.providerAccountId) ||
+    verifiedCampaignId !== input.campaignId ||
     verifiedStatus !== input.status ||
     verifiedOptimizationGoal !== input.optimizationGoal ||
     verifiedPixelId !== input.promotedObject.pixelId ||
@@ -542,7 +743,7 @@ export async function createAdSet(
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta created the ad set but verification did not match the requested status, optimization goal, or promoted object.",
+        message: "Meta created the ad set but verification did not match the exact id, account, campaign, status, optimization goal, or promoted object.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,
@@ -570,12 +771,11 @@ export async function createAd(
     body: adBody(input),
   });
   if (write.error) {
-    return {
-      ok: false,
-      httpStatus: write.error.code === "kill_switch_engaged" ? 503 : 502,
+    return buildWriteTransportFailure({
       error: write.error,
-      responsePayload: write.payload,
-    };
+      payload: write.payload,
+      mutationAttempt: write.mutationAttempt,
+    });
   }
   const httpStatus = write.response?.status ?? 502;
   if (!write.response?.ok || isFailureBody(write.payload)) {
@@ -584,6 +784,7 @@ export async function createAd(
       httpStatus,
       fallbackCode: "meta_ad_create_failed",
       fallbackMessage: "Meta failed to create the ad.",
+      mutationAttempt: write.mutationAttempt,
     });
   }
   const adId = readStringField(write.payload, "id");
@@ -600,7 +801,7 @@ export async function createAd(
     ctx,
     path: adId,
     method: "GET",
-    fields: "id,status,adset_id,creative{id}",
+    fields: "id,account_id,status,adset_id,creative{id}",
   });
   if (
     verification.error ||
@@ -619,12 +820,19 @@ export async function createAd(
       resultingAdId: adId,
     };
   }
+  const verifiedId = readStringField(verification.payload, "id");
+  const verifiedAccountId = readStringField(
+    verification.payload,
+    "account_id",
+  );
   const verifiedStatus = readStringField(verification.payload, "status");
   const verifiedAdsetId = readStringField(verification.payload, "adset_id");
   const creative = getNestedRecord(verification.payload, "creative");
   const verifiedCreativeId =
     readStringField(creative, "id") || readStringField(creative, "creative_id");
   if (
+    verifiedId !== adId ||
+    !sameProviderAccountId(verifiedAccountId, ctx.providerAccountId) ||
     verifiedStatus !== input.status ||
     verifiedAdsetId !== input.adsetId ||
     verifiedCreativeId !== input.creativeId
@@ -634,7 +842,7 @@ export async function createAd(
       httpStatus: 502,
       error: {
         code: "silent_failure",
-        message: "Meta created the ad but verification did not match the requested status, ad set, or creative.",
+        message: "Meta created the ad but verification did not match the exact id, account, status, ad set, or creative.",
       },
       responsePayload: write.payload,
       verificationPayload: verification.payload,

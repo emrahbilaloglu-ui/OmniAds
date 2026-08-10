@@ -176,7 +176,7 @@ export function CreativesTableLegacy({
                         className="px-4 font-medium"
                         style={{ backgroundColor: withIntensity(heat, heatmapIntensity) }}
                       >
-                        {METRIC_CONFIG[metric].format(value)}
+                        {METRIC_CONFIG[metric].format(value, row.currency)}
                       </td>
                     );
                   })}

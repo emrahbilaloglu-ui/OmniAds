@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import {
   metaLaunchIntentRequestFingerprint,
   type MetaLaunchIntent,
@@ -38,6 +38,26 @@ export class MetaLaunchIntentTransitionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "MetaLaunchIntentTransitionError";
+  }
+}
+
+export class MetaLaunchIntentSemanticGuardError extends Error {
+  readonly code:
+    | "launch_intent_provider_outcome_ambiguous"
+    | "launch_intent_semantic_execution_in_flight";
+  readonly intent: MetaLaunchIntent;
+
+  constructor(input: {
+    code:
+      | "launch_intent_provider_outcome_ambiguous"
+      | "launch_intent_semantic_execution_in_flight";
+    message: string;
+    intent: MetaLaunchIntent;
+  }) {
+    super(input.message);
+    this.name = "MetaLaunchIntentSemanticGuardError";
+    this.code = input.code;
+    this.intent = input.intent;
   }
 }
 
@@ -81,56 +101,116 @@ export async function createMetaLaunchIntent(input: {
   sourceDraftId?: string | null;
   createdBy?: string | null;
 }): Promise<{ created: boolean; intent: MetaLaunchIntent }> {
-  const sql = getDb();
   const lineage = await verifyMetaLaunchIntentLineage(input);
   const requestFingerprint = metaLaunchIntentRequestFingerprint(input);
-  const rows = (await sql`
-    INSERT INTO meta_launch_intents (
-      business_id,
-      provider_account_id,
-      operation,
-      idempotency_key,
-      requested_status,
-      source_decision_id,
-      source_decision_snapshot_id,
-      creative_brief_id,
-      source_draft_id,
-      request_payload_json,
-      request_fingerprint,
-      status,
-      created_by
-    ) VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${input.operation},
-      ${input.idempotencyKey},
-      'PAUSED',
-      ${lineage.sourceDecisionId},
-      ${lineage.sourceDecisionSnapshotId},
-      ${lineage.creativeBriefId},
-      ${lineage.sourceDraftId},
-      ${JSON.stringify(input.requestPayload)}::jsonb,
-      ${requestFingerprint},
-      'prepared',
-      ${input.createdBy ?? null}
-    )
-    ON CONFLICT (business_id, provider_account_id, operation, idempotency_key)
-    DO NOTHING
-    RETURNING *
-  `) as MetaLaunchIntentDbRow[];
-  const created = rows[0];
-  if (created) return { created: true, intent: mapMetaLaunchIntent(created) };
+  const semanticLockKey = [
+    "meta-launch-intent-semantic",
+    input.businessId,
+    input.providerAccountId,
+    input.operation,
+    requestFingerprint,
+  ].join(":");
 
-  const existing = await getMetaLaunchIntentByIdempotencyKey({
-    businessId: input.businessId,
-    providerAccountId: input.providerAccountId,
-    operation: input.operation,
-    idempotencyKey: input.idempotencyKey,
+  return runDbTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${semanticLockKey}, 0)
+      )
+    `;
+    const semanticBlockers = (await sql`
+      SELECT *
+      FROM meta_launch_intents
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND operation = ${input.operation}
+        AND request_fingerprint = ${requestFingerprint}
+        AND (
+          (
+            status = 'silent_failure'
+            AND error_receipt_json->>'code' = 'provider_outcome_ambiguous'
+          )
+          OR (
+            idempotency_key <> ${input.idempotencyKey}
+            AND status IN ('prepared', 'ready', 'executing')
+          )
+        )
+      ORDER BY
+        CASE
+          WHEN error_receipt_json->>'code' = 'provider_outcome_ambiguous'
+          THEN 0
+          ELSE 1
+        END,
+        created_at DESC,
+        id DESC
+      LIMIT 1
+    `) as MetaLaunchIntentDbRow[];
+    const semanticBlocker = semanticBlockers[0];
+    if (semanticBlocker) {
+      const intent = mapMetaLaunchIntent(semanticBlocker);
+      const ambiguous =
+        semanticBlocker.status === "silent_failure" &&
+        semanticBlocker.error_receipt_json?.code ===
+          "provider_outcome_ambiguous";
+      throw new MetaLaunchIntentSemanticGuardError({
+        code: ambiguous
+          ? "launch_intent_provider_outcome_ambiguous"
+          : "launch_intent_semantic_execution_in_flight",
+        message: ambiguous
+          ? "An unresolved provider-write outcome already exists for this exact account, operation, and semantic request. Reconcile the exact Meta state and Audit Trail first; changing the idempotency key cannot authorize another intent or provider mutation."
+          : "An equivalent semantic LaunchIntent is already prepared or executing for this account. Reuse that exact intent; changing the idempotency key cannot create a parallel provider mutation.",
+        intent,
+      });
+    }
+
+    const rows = (await sql`
+      INSERT INTO meta_launch_intents (
+        business_id,
+        provider_account_id,
+        operation,
+        idempotency_key,
+        requested_status,
+        source_decision_id,
+        source_decision_snapshot_id,
+        creative_brief_id,
+        source_draft_id,
+        request_payload_json,
+        request_fingerprint,
+        status,
+        created_by
+      ) VALUES (
+        ${input.businessId},
+        ${input.providerAccountId},
+        ${input.operation},
+        ${input.idempotencyKey},
+        'PAUSED',
+        ${lineage.sourceDecisionId},
+        ${lineage.sourceDecisionSnapshotId},
+        ${lineage.creativeBriefId},
+        ${lineage.sourceDraftId},
+        ${JSON.stringify(input.requestPayload)}::jsonb,
+        ${requestFingerprint},
+        'prepared',
+        ${input.createdBy ?? null}
+      )
+      ON CONFLICT (business_id, provider_account_id, operation, idempotency_key)
+      DO NOTHING
+      RETURNING *
+    `) as MetaLaunchIntentDbRow[];
+    const created = rows[0];
+    if (created) return { created: true, intent: mapMetaLaunchIntent(created) };
+
+    const existing = await getMetaLaunchIntentByIdempotencyKey({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (!existing) {
+      throw new Error("Failed to persist or recover the Meta launch intent.");
+    }
+    return { created: false, intent: existing };
   });
-  if (!existing) {
-    throw new Error("Failed to persist or recover the Meta launch intent.");
-  }
-  return { created: false, intent: existing };
 }
 
 export async function getMetaLaunchIntent(input: {
@@ -198,6 +278,7 @@ export async function recordMetaLaunchIntentValidation(input: {
   businessId: string;
   id: string;
   receipt: MetaLaunchIntentValidationReceipt;
+  errorReceipt?: MetaLaunchIntentErrorReceipt | null;
 }): Promise<MetaLaunchIntent> {
   const sql = getDb();
   const nextStatus: MetaLaunchIntentStatus = input.receipt.ok
@@ -208,6 +289,9 @@ export async function recordMetaLaunchIntentValidation(input: {
     SET
       status = ${nextStatus},
       validation_receipt_json = ${JSON.stringify(input.receipt)}::jsonb,
+      error_receipt_json = ${
+        input.errorReceipt ? JSON.stringify(input.errorReceipt) : null
+      }::jsonb,
       completed_at = CASE WHEN ${input.receipt.ok} THEN NULL ELSE NOW() END,
       updated_at = NOW()
     WHERE business_id = ${input.businessId}

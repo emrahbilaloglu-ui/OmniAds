@@ -32,6 +32,7 @@ const {
 function makeRow(overrides: Partial<MetaCreativeRow> = {}): MetaCreativeRow {
   return {
     id: "ad_1",
+    realAdId: "ad_1",
     creativeId: "creative_1",
     name: "Creative One",
     associatedAdsCount: 1,
@@ -226,14 +227,22 @@ describe("CreativeAdActionsSection", () => {
   it("builds a duplicate mutation payload without ACTIVE-create options", () => {
     const payload = buildDuplicateActionBody({
       businessId: "biz_1",
+      providerAccountId: "act_1",
+      adId: "ad_1",
+      creativeId: "creative_1",
       targetAdsetId: "adset_2",
       nameOverride: "  Source copy  ",
     });
 
     expect(payload).toEqual({
       businessId: "biz_1",
+      providerAccountId: "act_1",
+      adId: "ad_1",
+      creativeId: "creative_1",
       targetAdsetId: "adset_2",
       name: "Source copy",
+      actionOrigin: "manual_operator_v1",
+      manualConfirmation: "explicit_operator_confirmation",
     });
     expect(payload).not.toHaveProperty("activateAfterCreate");
     expect(payload).not.toHaveProperty("dailyBudgetMinor");
@@ -245,52 +254,35 @@ describe("CreativeAdActionsSection", () => {
     expect(resolveManualAdActionId(row)).toBe("120000000001");
     expect(resolveManualAdActionCandidateIds(row)).toEqual([
       "120000000001",
-      "creative_1",
-      "creative_synthetic",
     ]);
   });
 
-  it("falls back through creative id before row id when no real Meta ad id is present", () => {
+  it("keeps discovery-only rows review-only when no exact Meta ad id is present", () => {
     const row = makeRow({ id: "ad_1", realAdId: null, creativeId: "creative_1" });
 
-    expect(resolveManualAdActionId(row)).toBe("creative_1");
-    expect(resolveManualAdActionCandidateIds(row)).toEqual(["creative_1", "ad_1"]);
+    expect(resolveManualAdActionId(row)).toBe("");
+    expect(resolveManualAdActionCandidateIds(row)).toEqual([]);
   });
 
-  it("retries manual Meta actions with the next candidate id when the first id is stale", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => ({
-          ok: false,
-          error: { code: "ad_not_found", message: "Ad not found." },
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: true, status: "PAUSED" }),
-      }) as unknown as typeof fetch;
+  it("refuses synthetic fallback candidates before issuing a write request", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
 
     const result = await postManualAdAction({
       candidateAdIds: ["stale_ad", "creative_1"],
       action: "pause",
-      body: { businessId: "biz_1" },
+      body: {
+        businessId: "biz_1",
+        providerAccountId: "act_1",
+        adId: "stale_ad",
+        creativeId: "creative_1",
+      },
       fetchImpl,
     });
 
-    expect(result.ok).toBe(true);
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      "/api/meta/ads/stale_ad/pause",
-      expect.any(Object),
-    );
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      2,
-      "/api/meta/ads/creative_1/pause",
-      expect.any(Object),
-    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "exact_ad_authority_required" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

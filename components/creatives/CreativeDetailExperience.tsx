@@ -196,7 +196,6 @@ function buildLivePreviewSrcDoc(html: string | null): string | null {
 export function CreativeDetailExperience({
   businessId,
   row,
-  campaignScopeId,
   open,
   notes,
   dateRange,
@@ -524,11 +523,12 @@ export function CreativeDetailExperience({
                 />
               </section>
 
-              {row.creativeId && businessId ? (
+              {businessId ? (
                 <CreativeEngineV3EvidenceSection
                   businessId={businessId}
-                  creativeId={row.creativeId}
-                  campaignId={campaignScopeId ?? null}
+                  providerAccountId={row.accountId}
+                  adId={row.realAdId?.trim() || null}
+                  creativeId={row.creativeId || null}
                   open={open}
                 />
               ) : null}

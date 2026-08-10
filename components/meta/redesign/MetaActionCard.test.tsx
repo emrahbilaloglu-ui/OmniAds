@@ -161,7 +161,7 @@ describe("MetaActionCard lean decision row", () => {
     expect(html).toContain("Paused");
   });
 
-  it("offers resume for a paused ad set response when a resume handler is available", () => {
+  it("does not turn an acted recommendation into a provider resume control", () => {
     const html = renderToStaticMarkup(
       <MetaActionCard
         rec={metaRec({
@@ -172,11 +172,11 @@ describe("MetaActionCard lean decision row", () => {
           operatorResponseSubtype: "pause",
         })}
         responseState="acted"
-        onResume={() => undefined}
       />,
     );
-    expect(html).toContain("Resume adset");
-    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain("Resume adset");
+    expect(html).toContain("Paused");
+    expect(html).toContain('disabled=""');
   });
 
   it("renders action feedback next to the primary controls", () => {

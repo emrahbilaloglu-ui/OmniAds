@@ -6,59 +6,68 @@ import {
   EvidenceAccordion as SharedEvidenceAccordion,
   type EvidenceAccordionSection,
 } from "@/components/common/briefing/EvidenceAccordion";
-import { DecisionLabelChip } from "@/components/common/briefing/DecisionLabelChip";
 import type {
-  AccountDecisionProfile,
-  CreativeInput,
-  DecisionEvidenceResponse,
-  EngineV3Flags,
-  FunnelDiagnosis,
-  OperatorResponseResult,
-} from "@/lib/creative-decision-engine";
-import { cn } from "@/lib/utils";
-import {
-  LABEL_DISPLAY,
-  TONE_CLASS,
-} from "@/components/creatives/decision-label-display";
+  DecisionEngineV3EvidenceResponse,
+  NativeAdDecisionEvidenceResponse,
+} from "@/app/api/creatives/decision-engine-v3/evidence/route";
 
 interface CreativeEngineV3EvidenceSectionProps {
   businessId: string;
-  creativeId: string;
-  campaignId?: string | null;
+  providerAccountId: string | null;
+  adId: string | null;
+  creativeId?: string | null;
   open: boolean;
 }
 
-type EvidenceDisabledResponse = {
-  status: "disabled";
-  reason: "engine_v3_disabled_for_business";
-  flags: EngineV3Flags;
-};
-
-type EvidenceResponse = DecisionEvidenceResponse | EvidenceDisabledResponse;
-
 export function CreativeEngineV3EvidenceSection({
   businessId,
+  providerAccountId,
+  adId,
   creativeId,
-  campaignId,
   open,
 }: CreativeEngineV3EvidenceSectionProps) {
-  const enabled = open && Boolean(businessId) && Boolean(creativeId);
+  const exactIdentityReady = Boolean(
+    businessId.trim() && providerAccountId?.trim() && adId?.trim(),
+  );
   const evidenceQuery = useQuery({
-    queryKey: ["engine-v3-evidence", businessId, creativeId, campaignId ?? null],
-    enabled,
+    queryKey: [
+      "engine-v3-native-ad-evidence",
+      businessId,
+      providerAccountId,
+      adId,
+    ],
+    enabled: open && exactIdentityReady,
     staleTime: 60_000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: 1,
-    queryFn: () => fetchEngineV3Evidence({ businessId, creativeId, campaignId }),
+    queryFn: () =>
+      fetchEngineV3Evidence({
+        businessId,
+        providerAccountId: providerAccountId!,
+        adId: adId!,
+      }),
   });
 
   if (!open) return null;
 
+  if (!exactIdentityReady) {
+    return (
+      <EvidenceShell>
+        <p className="text-sm text-rose-600">
+          Exact Ad evidence unavailable: provider account or real Ad identity
+          is missing.
+        </p>
+      </EvidenceShell>
+    );
+  }
+
   if (evidenceQuery.isLoading || evidenceQuery.isFetching) {
     return (
       <EvidenceShell>
-        <p className="text-sm text-neutral-500">Loading Engine v3 evidence...</p>
+        <p className="text-sm text-neutral-500">
+          Loading persisted exact-Ad evidence...
+        </p>
       </EvidenceShell>
     );
   }
@@ -67,7 +76,8 @@ export function CreativeEngineV3EvidenceSection({
     return (
       <EvidenceShell>
         <p className="text-sm text-rose-600">
-          Engine v3 evidence unavailable.
+          Persisted exact-Ad evidence is unavailable or failed lineage
+          validation.
         </p>
       </EvidenceShell>
     );
@@ -76,7 +86,7 @@ export function CreativeEngineV3EvidenceSection({
   const payload = evidenceQuery.data;
   if (!payload) return null;
 
-  if (isDisabledEvidence(payload)) {
+  if (payload.status === "disabled") {
     return (
       <EvidenceShell>
         <p className="text-sm text-neutral-500">
@@ -94,28 +104,35 @@ export function CreativeEngineV3EvidenceSection({
     },
     {
       key: "inputs",
-      title: "Inputs",
-      content: <InputEvidence input={payload.input} />,
+      title: "Persisted input",
+      content: <JsonEvidence value={payload.persistedEvidence.creativeInput} />,
     },
     {
-      key: "funnel",
-      title: "Funnel",
-      content: <FunnelEvidence diagnosis={payload.funnelDiagnosis} />,
+      key: "context",
+      title: "Campaign and evaluation context",
+      content: (
+        <div className="space-y-3">
+          <JsonEvidence value={payload.persistedEvidence.campaignContext} />
+          <JsonEvidence value={payload.persistedEvidence.evaluationContext} />
+        </div>
+      ),
     },
     {
       key: "engine",
-      title: "Engine trail",
-      content: <EngineTrailEvidence accountProfile={payload.accountProfile} payload={payload} />,
+      title: "Persisted engine trail",
+      content: <EngineTrailEvidence payload={payload} />,
     },
     {
       key: "operator",
       title: "Operator response",
-      content: <OperatorResponseEvidence operatorResponse={payload.operatorResponse} />,
+      content: <OperatorResponseEvidence payload={payload} />,
     },
     {
       key: "provenance",
       title: "Provenance",
-      content: <ProvenanceEvidence payload={payload} />,
+      content: (
+        <ProvenanceEvidence payload={payload} requestedCreativeId={creativeId} />
+      ),
     },
   ];
 
@@ -126,29 +143,27 @@ export function CreativeEngineV3EvidenceSection({
   );
 }
 
-function isDisabledEvidence(payload: EvidenceResponse): payload is EvidenceDisabledResponse {
-  return "status" in payload && payload.status === "disabled";
-}
-
 async function fetchEngineV3Evidence(input: {
   businessId: string;
-  creativeId: string;
-  campaignId?: string | null;
-}): Promise<EvidenceResponse> {
+  providerAccountId: string;
+  adId: string;
+}): Promise<DecisionEngineV3EvidenceResponse> {
   const url = new URL(
     "/api/creatives/decision-engine-v3/evidence",
     window.location.origin,
   );
   url.searchParams.set("businessId", input.businessId);
-  url.searchParams.set("creativeId", input.creativeId);
-  if (input.campaignId) url.searchParams.set("campaignId", input.campaignId);
+  url.searchParams.set("providerAccountId", input.providerAccountId);
+  url.searchParams.set("adId", input.adId);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`engine v3 evidence fetch failed: ${response.status} ${text}`);
+    throw new Error(
+      `engine v3 native evidence fetch failed: ${response.status} ${text}`,
+    );
   }
-  return (await response.json()) as EvidenceResponse;
+  return (await response.json()) as DecisionEngineV3EvidenceResponse;
 }
 
 function EvidenceShell({ children }: { children: ReactNode }) {
@@ -157,299 +172,151 @@ function EvidenceShell({ children }: { children: ReactNode }) {
       className="rounded-xl border border-neutral-200 bg-white p-4"
       data-testid="engine-v3-evidence"
     >
-      <h4 className="text-sm font-semibold text-neutral-900">Engine v3 evidence</h4>
+      <h4 className="text-sm font-semibold text-neutral-900">
+        Engine v3 exact-Ad evidence
+      </h4>
       <div className="mt-3 space-y-2">{children}</div>
     </section>
   );
 }
 
-function DecisionEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
-  const display = LABEL_DISPLAY[payload.decision.label];
-
+function DecisionEvidence({
+  payload,
+}: {
+  payload: NativeAdDecisionEvidenceResponse;
+}) {
+  const decision = payload.decision;
+  const authority = decision.sourceAuthority!;
   return (
     <div className="space-y-3 text-sm text-neutral-700">
       <div className="flex flex-wrap items-center gap-2">
-        <DecisionLabelChip
-          label={payload.decision.label}
-          appearance="unstyled"
-          className={cn(
-            "rounded border px-2 py-0.5 text-xs font-semibold",
-            TONE_CLASS[display.tone],
-          )}
-        >
-          {display.label}
-        </DecisionLabelChip>
+        <MetricPill label="persisted label" value={decision.sourceDecision.label} />
+        <MetricPill
+          label="served action"
+          value={decision.classification.buyerLabel}
+        />
         <MetricPill
           label="confidence"
-          value={`${formatConfidence(payload.decision.confidence)}%`}
+          value={`${formatConfidence(decision.sourceDecision.confidence)}%`}
         />
-        <MetricPill label="truth" value={payload.decision.truthSource} />
       </div>
-      <p className="leading-relaxed text-neutral-800">{payload.decision.reason}</p>
-      <KeyValueGrid
-        rows={[
-          ["effectiveTargetRoas", payload.decision.effectiveTargetRoas],
-          ["ratioToTarget", payload.decision.ratioToTarget],
-          ["campaignLabelStatus", payload.decision.campaignLabelStatus],
-          ["campaignKind", payload.decision.campaignKind],
-          ["campaignTestDimension", payload.decision.campaignTestDimension],
-          ["blockedActionType", payload.decision.blockedActionType],
-        ]}
-      />
-    </div>
-  );
-}
-
-function InputEvidence({ input }: { input: CreativeInput }) {
-  const groups: Array<{ title: string; rows: Array<[string, unknown]> }> = [
-    {
-      title: "Identity / scope",
-      rows: [
-        ["creativeId", input.creativeId],
-        ["creativeName", input.creativeName],
-        ["businessId", input.businessId],
-        ["campaignId", input.campaignId],
-        ["objective", input.objective],
-      ],
-    },
-    {
-      title: "Performance",
-      rows: [
-        ["spend", input.spend],
-        ["purchases", input.purchases],
-        ["purchaseValue", input.purchaseValue],
-        ["impressions", input.impressions],
-        ["linkClicks", input.linkClicks],
-        ["roas", input.roas],
-        ["cpa", input.cpa],
-        ["ctr", input.ctr],
-        ["frequency", input.frequency],
-        ["recent7dSpend", input.recent7dSpend],
-        ["recent7dPurchases", input.recent7dPurchases],
-        ["recent7dRoas", input.recent7dRoas],
-        ["recent7dImpressions", input.recent7dImpressions],
-      ],
-    },
-    {
-      title: "Creative health",
-      rows: [
-        ["effectiveStatus", input.effectiveStatus],
-        ["ageDays", input.ageDays],
-        ["lastSpendAt", input.lastSpendAt],
-        ["policyReason", input.policyReason],
-        ["dataFreshnessHours", input.dataFreshnessHours],
-        ["fatigueStatus", input.fatigueStatus],
-        ["targetRoas", input.targetRoas],
-        ["breakevenRoas", input.breakevenRoas],
-      ],
-    },
-    {
-      title: "Lifecycle",
-      rows: [
-        ["lifecyclePosition", input.lifecyclePosition],
-        ["daysSincePeak", input.daysSincePeak],
-        ["peakRoas30d", input.peakRoas30d],
-        ["peakConfidence", input.peakConfidence],
-        ["spendTrajectory30d", input.spendTrajectory30d],
-        ["spendSlope7d", input.spendSlope7d],
-        ["spendSlope30d", input.spendSlope30d],
-        ["roasSlope7d", input.roasSlope7d],
-        ["roasSlope30d", input.roasSlope30d],
-      ],
-    },
-    {
-      title: "Funnel signals",
-      rows: [
-        ["cpm", input.cpm],
-        ["outboundClicks", input.outboundClicks],
-        ["landingPageViews", input.landingPageViews],
-        ["addToCart", input.addToCart],
-        ["initiateCheckout", input.initiateCheckout],
-        ["thumbstop", input.thumbstop],
-        ["video25Rate", input.video25Rate],
-        ["video50Rate", input.video50Rate],
-        ["video75Rate", input.video75Rate],
-        ["video100Rate", input.video100Rate],
-        ["qualityRanking", input.qualityRanking],
-        ["engagementRateRanking", input.engagementRateRanking],
-        ["conversionRateRanking", input.conversionRateRanking],
-        ["creativeFormat", input.creativeFormat],
-      ],
-    },
-  ];
-
-  return (
-    <div className="space-y-3">
-      {groups.map((group) => (
-        <div key={group.title}>
-          <p className="mb-1 text-xs font-semibold text-neutral-500">
-            {group.title}
-          </p>
-          <KeyValueGrid rows={group.rows} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function FunnelEvidence({
-  diagnosis,
-}: {
-  diagnosis: FunnelDiagnosis | null;
-}) {
-  if (!diagnosis) {
-    return (
-      <p className="text-sm text-neutral-500">
-        Funnel diagnosis not available for this creative.
+      <p className="leading-relaxed text-neutral-800">
+        {decision.sourceDecision.reason}
       </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
-          ["primaryWeakStage", diagnosis.primaryWeakStage],
-          ["creativeResponsible", diagnosis.creativeResponsible],
-          ["confidence", `${formatConfidence(diagnosis.confidence)}%`],
+          ["adId", payload.adId],
+          ["creativeId (grouping only)", payload.creativeId],
+          ["decisionState", decision.classification.decisionState],
+          ["heldAction", decision.classification.heldAction],
+          ["authorizedAction", authority.authorizedAction],
+          ["actionEligible", authority.actionEligible],
+          ["reviewOnlyReason", authority.reviewOnlyReason],
+          ["truthSource", decision.sourceDecision.truthSource],
+          ["effectiveTargetRoas", decision.metrics.effectiveTargetRoas],
+          ["ratioToTarget", decision.metrics.ratioToTarget],
         ]}
       />
-      <table className="w-full border-collapse text-xs">
-        <tbody>
-          {Object.entries(diagnosis.rates).map(([key, value]) => (
-            <tr key={key} className="border-b border-neutral-100 last:border-b-0">
-              <td className="py-1 pr-2 text-neutral-500">{key}</td>
-              <td className="py-1 text-right font-mono text-neutral-900">
-                {formatValue(value)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <EvidenceList items={diagnosis.evidence} emptyText="No funnel evidence." />
     </div>
   );
 }
 
 function EngineTrailEvidence({
-  accountProfile,
   payload,
 }: {
-  accountProfile: AccountDecisionProfile;
-  payload: DecisionEvidenceResponse;
+  payload: NativeAdDecisionEvidenceResponse;
 }) {
+  const decision = payload.decision;
   return (
     <div className="space-y-3 text-sm text-neutral-700">
-      {payload.decision.badges.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {payload.decision.badges.map((badge) => (
-            <span
-              key={`${badge.type}-${badge.label}`}
-              className={cn(
-                "rounded px-1.5 py-0.5 text-[12px] font-medium",
-                badge.severity === "warning"
-                  ? "bg-amber-500/15 text-amber-800"
-                  : "bg-neutral-100 text-neutral-600",
-              )}
-            >
-              {badge.type} / {badge.label} / {badge.severity}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="text-neutral-500">No badges.</p>
-      )}
       <KeyValueGrid
         rows={[
-          ["scope", `${accountProfile.scope.type}:${accountProfile.scope.id}`],
-          ["scopeFallbackReason", accountProfile.scope.fallbackReason],
-          ["commercialTruthReady", accountProfile.quality.commercialTruthReady],
-          ["calibrationReady", accountProfile.quality.calibrationReady],
-          ["metaAovQuality", accountProfile.quality.metaAovQuality],
-          ["thresholdQuality", accountProfile.quality.thresholdQuality],
-          ["hardActionScale", accountProfile.hardActionEligibility.scale],
-          ["hardActionCut", accountProfile.hardActionEligibility.cut],
-          ["hardActionRefresh", accountProfile.hardActionEligibility.refresh],
-          ["hardActionReason", accountProfile.hardActionEligibility.reason],
+          ["engineVersion", payload.engineVersion],
+          ["generation.jobRunId", payload.generation.jobRunId],
+          ["generation.manifestHash", payload.generation.manifestHash],
+          ["generation.expectedAdCount", payload.generation.expectedAdCount],
+          ["rawLabel", decision.sourceDecision.rawLabel],
+          ["preAuthorityLabel", decision.sourceDecision.preAuthorityLabel],
+          ["authorityBlocker", decision.sourceDecision.authorityBlocker],
+          ["badges", decision.sourceDecision.badges.join(", ")],
         ]}
+      />
+      <p className="text-xs font-semibold text-neutral-500">
+        Persisted decision output
+      </p>
+      <JsonEvidence value={payload.persistedEvidence.decisionOutput} />
+      <p className="text-xs font-semibold text-neutral-500">
+        Persisted account profile and data health
+      </p>
+      <JsonEvidence
+        value={{
+          accountProfile: payload.persistedEvidence.accountProfile,
+          dataHealth: payload.persistedEvidence.dataHealth,
+          flags: payload.persistedEvidence.flags,
+          priorHysteresis: payload.persistedEvidence.priorHysteresis,
+        }}
       />
     </div>
   );
 }
 
 function OperatorResponseEvidence({
-  operatorResponse,
+  payload,
 }: {
-  operatorResponse: OperatorResponseResult | null;
+  payload: NativeAdDecisionEvidenceResponse;
 }) {
-  if (!operatorResponse) {
-    return (
-      <p className="text-sm text-neutral-500">
-        No operator response detected in the recent window.
-      </p>
-    );
-  }
-
+  const responses = payload.decision.history.responses;
+  const providerWrites = payload.decision.history.providerWrites;
   return (
     <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
-          ["responseType", operatorResponse.responseType],
-          ["confidence", `${formatConfidence(operatorResponse.confidence)}%`],
-          ["decisionRecommendedAt", operatorResponse.decisionRecommendedAt],
-          [
-            "operatorResponseDetectedAt",
-            operatorResponse.operatorResponseDetectedAt,
-          ],
-          ["promoteLifecyclePosition", operatorResponse.promoteLifecyclePosition],
+          ["responseStatus", responses.status],
+          ["responseReason", responses.reason],
+          ["providerWriteStatus", providerWrites.status],
+          ["providerWriteReason", providerWrites.reason],
         ]}
       />
-      <div>
-        <p className="mb-1 text-xs font-semibold text-neutral-500">
-          Trigger signals
-        </p>
-        <KeyValueGrid
-          rows={[
-            ["spendSlope7d", operatorResponse.signals.spendSlope7d],
-            ["budgetChangeAmount", operatorResponse.signals.budgetChangeAmount],
-            [
-              "actionJournalReceiptCount",
-              operatorResponse.signals.actionJournalReceiptCount,
-            ],
-            ["statusChanged", operatorResponse.signals.statusChanged],
-            ["roasDecayPct", operatorResponse.signals.roasDecayPct],
-            ["frequencyRosePct", operatorResponse.signals.frequencyRosePct],
-          ]}
-        />
-      </div>
-      <EvidenceList items={operatorResponse.evidence} emptyText="No evidence." />
+      <JsonEvidence value={responses.items ?? []} />
     </div>
   );
 }
 
-function ProvenanceEvidence({ payload }: { payload: DecisionEvidenceResponse }) {
-  const health = payload.dataHealth;
+function ProvenanceEvidence({
+  payload,
+  requestedCreativeId,
+}: {
+  payload: NativeAdDecisionEvidenceResponse;
+  requestedCreativeId?: string | null;
+}) {
   return (
     <div className="space-y-3 text-sm text-neutral-700">
       <KeyValueGrid
         rows={[
-          ["engineVersion", payload.engineVersion],
-          ["scope", `${payload.scope.type}:${payload.scope.id}`],
-          ["scopeFallbackReason", payload.scope.fallbackReason],
-          ["decision.generatedAt", payload.decision.generatedAt],
+          ["lineageStatus", payload.lineage.status],
+          ["businessId", payload.businessId],
+          ["providerAccountId", payload.providerAccountId],
+          ["providerAccountRefId", payload.lineage.providerAccountRefId],
+          ["requestedCreativeId (grouping only)", requestedCreativeId],
+          ["snapshotId", payload.lineage.snapshot.id],
+          ["evaluationId", payload.lineage.evaluation.id],
+          ["contextId", payload.lineage.context.id],
+          ["inputHash", payload.lineage.snapshot.inputHash],
+          ["decisionHash", payload.lineage.snapshot.decisionHash],
+          ["contextHash", payload.lineage.context.contextHash],
+          ["scope", `${payload.lineage.scope.type}:${payload.lineage.scope.id}`],
           ["asOf", payload.asOf],
-          ["worstTier", health.worstTier],
-          ["degraded", health.degraded],
-        ]}
-      />
-      <KeyValueGrid
-        rows={[
-          ["calibration.staleTier", health.calibration.staleTier],
-          ["lifecycle.staleTier", health.lifecycle.staleTier],
-          ["decisions.staleTier", health.decisions.staleTier],
         ]}
       />
     </div>
+  );
+}
+
+function JsonEvidence({ value }: { value: unknown }) {
+  return (
+    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-[11px] leading-relaxed text-neutral-800">
+      {JSON.stringify(value, null, 2)}
+    </pre>
   );
 }
 
@@ -476,23 +343,6 @@ function KeyValueGrid({ rows }: { rows: Array<[string, unknown]> }) {
         </div>
       ))}
     </div>
-  );
-}
-
-function EvidenceList({
-  items,
-  emptyText,
-}: {
-  items: string[];
-  emptyText: string;
-}) {
-  if (items.length === 0) return <p className="text-sm text-neutral-500">{emptyText}</p>;
-  return (
-    <ul className="list-disc space-y-1 pl-4 text-sm text-neutral-700">
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
-    </ul>
   );
 }
 

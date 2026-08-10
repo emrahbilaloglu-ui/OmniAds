@@ -41,11 +41,14 @@ import {
   getCreativeScopeId,
   isCutPrimaryAction,
 } from "@/components/creatives/briefing/action-handlers";
+import {
+  hasBriefingCanonicalDecision,
+  hasBriefingCanonicalNativeActionAuthority,
+} from "@/components/creatives/briefing/action-authority";
 import { getCreativeFormatPresentation } from "@/components/creatives/briefing/creative-format";
 import {
   executionActionDisplay,
   mapBriefingPrimaryToLaunchpadMode,
-  mapExecutionActionToLaunchpadMode,
   type LaunchpadOpenPayload,
 } from "@/components/creatives/briefing/launchpad-bridge";
 import type {
@@ -117,18 +120,41 @@ export function ActionNowCard({
   const actionCardId = cardId(card);
   const scopeId = getCreativeScopeId(card);
   const cutAction = isCutPrimaryAction(card);
+  const canExecuteCut = hasBriefingCanonicalNativeActionAuthority(card, "cut");
+  const launchpadMode = mapBriefingPrimaryToLaunchpadMode(card);
+  const hasCanonicalDecision = hasBriefingCanonicalDecision(card);
   // Server-supplied execution CTA wins over the legacy primary label; cut
   // stays cut (the execution CTA never overrides a cut decision).
-  const executionAction = cutAction
+  const executionAction = cutAction || hasCanonicalDecision
     ? null
     : (card.decisionCenterRow?.executionAction ?? null);
   const executionLabel = executionActionDisplay(executionAction);
-  const primaryKind = cutAction ? card.primary?.kind || "cut" : card.primary?.kind;
-  const primaryLabel = cutAction
-    ? card.primary?.label || "Cut"
-    : (executionLabel ?? card.primary?.label);
+  const canonicalReviewLabel =
+    card.primary?.kind === "review" && card.primary.label
+      ? card.primary.label
+      : "Open canonical evidence";
+  const primaryKind = canExecuteCut
+    ? "cut"
+    : hasCanonicalDecision
+      ? "review"
+      : launchpadMode ?? card.primary?.kind;
+  const primaryLabel = canExecuteCut
+    ? card.canonicalDecision?.classification.buyerLabel || "Cut"
+    : hasCanonicalDecision
+      ? canonicalReviewLabel
+      : launchpadMode
+        ? card.primary?.label || executionLabel
+        : executionLabel ?? card.primary?.label;
+  const primaryExecutable =
+    canExecuteCut || (!hasCanonicalDecision && launchpadMode !== null);
   const isEvidenceOpen = evidenceOpen ?? localEvidenceOpen;
   const kindLabel = campaignKindLabel(card);
+  const heldBuyerLabel =
+    card.canonicalDecision?.classification.heldAction &&
+    card.canonicalDecision.classification.buyerLabel.trim()
+      ? card.canonicalDecision.classification.buyerLabel
+      : null;
+  const chipLabel = heldBuyerLabel ?? creativeChipLabel(label);
   const preview = briefingPreviewPayload(card);
   const format = getCreativeFormatPresentation({ ...card, preview });
   const mediaFallbacks = briefingMediaFallbacks(card);
@@ -188,7 +214,7 @@ export function ActionNowCard({
       </div>
       <div className="tile-body">
         <div className="tile-chips">
-          <span className={`chip ${creativeChipClass(label)}`}><span className="dot" />{creativeChipLabel(label)}</span>
+          <span className={`chip ${creativeChipClass(label)}`}><span className="dot" />{chipLabel}</span>
           {kindLabel ? <span className={`chip ${campaignKindClass(kindLabel)}`}><span className="dot" />{kindLabel}</span> : null}
           {card.fatigue ? <span className="chip chip--warn"><span className="dot" />Fatigue {formatOptionalFixed(card.frequency, 1)}</span> : null}
           {badges.slice(0, 1).map((badge) => (
@@ -212,28 +238,28 @@ export function ActionNowCard({
         </div>
         <div className="tile-metrics">
           <div className="m"><span className="k">ROAS</span><span className={`v ${hasMetricValue(card.roas) && numberOrZero(card.roas) < 1 ? "warn" : hasMetricValue(card.roas) && numberOrZero(card.roas) >= 2 ? "good" : ""}`}>{formatOptionalRoas(card.roas)}</span></div>
-          <div className="m"><span className="k">Spend</span><span className="v">{formatOptionalCurrency(card.spend)}</span></div>
+          <div className="m"><span className="k">Spend</span><span className="v">{formatOptionalCurrency(card.spend, card.currency)}</span></div>
           <div className="m"><span className="k">{card.fatigue ? "Freq" : "Purch"}</span><span className={`v ${card.fatigue ? "warn" : ""}`}>{card.fatigue ? formatOptionalFixed(card.frequency, 1) : formatOptionalInteger(card.purchases)}</span></div>
         </div>
         <div className="tile-foot">
           <button
             type="button"
-            className={`btn ${cutAction ? "btn--danger" : conf.primaryStyle === "filled" ? "btn--primary" : ""}`}
+            className={`btn ${canExecuteCut ? "btn--danger" : conf.primaryStyle === "filled" ? "btn--primary" : ""}`}
             data-kind={primaryKind}
+            data-executable={primaryExecutable ? "true" : "false"}
             disabled={cutPending}
             onClick={() => {
-              if (cutAction) {
+              if (canExecuteCut) {
                 onCut?.(card);
                 return;
               }
-              const mode = executionAction
-                ? mapExecutionActionToLaunchpadMode(executionAction)
-                : mapBriefingPrimaryToLaunchpadMode(card);
-              if (mode) onLaunchpadOpen?.({ card, mode });
+              if (launchpadMode) {
+                onLaunchpadOpen?.({ card, mode: launchpadMode });
+              }
               else openEvidence();
             }}
           >
-            {primaryLabel || "Open detail"}{cutAction ? "" : " ↗"}
+            {primaryLabel || "Open detail"}{canExecuteCut ? "" : " ↗"}
           </button>
           <div className="actions">
             <DeferTooltip>

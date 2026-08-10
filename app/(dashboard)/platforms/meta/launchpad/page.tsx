@@ -93,6 +93,7 @@ import type {
   MetaLaunchIntentCapability,
 } from "@/lib/launchpad/meta-launch-intent";
 import type { MetaLaunchStoreCapability } from "@/lib/launchpad/meta-store-capability";
+import type { MetaLaunchpadManualAuthority } from "@/lib/launchpad/meta-manual-authority";
 import { LaunchIntentReceiptRows } from "./LaunchIntentReceiptRows";
 import { launchpadLibraryCount } from "./launchpad-library-count";
 import styles from "./page.module.css";
@@ -766,6 +767,7 @@ export default function MetaLaunchpadPage() {
     let cancelled = false;
     fetchCreativeDecisionEngineV3({
       businessId,
+      providerAccountId,
       creativeIds: Array.from(
         new Set(creatives.map((creative) => creative.creativeId)),
       ),
@@ -953,7 +955,7 @@ export default function MetaLaunchpadPage() {
   );
   const addToExistingPayload = useMemo(() => {
     const firstTarget = selectedExistingTargets[0] ?? null;
-    const copyMode = addToExistingTarget.copyMode ?? "rebuild_creative";
+    const copyMode = addToExistingTarget.copyMode ?? "reuse_creative";
     return {
       mode: "add_to_existing" as const,
       targetCampaignId: firstTarget?.campaign.id ?? "",
@@ -1363,7 +1365,7 @@ export default function MetaLaunchpadPage() {
     if (response.ok) await refreshLibrary();
   }
 
-  async function launchPaused() {
+  async function launchPaused(authority: MetaLaunchpadManualAuthority) {
     if (!launchIntentCapability?.canWrite) {
       setStep("progress");
       setLaunchResult({
@@ -1423,23 +1425,17 @@ export default function MetaLaunchpadPage() {
                 creativeIds: addToExistingPayload.creativeIds,
                 creatives: addToExistingPayload.creatives,
                 names: addToExistingPayload.names,
+                ...authority,
                 idempotencyKey,
                 sourceDraftId,
-                sourceDecisionId: activeLegacyHandoff?.sourceDecisionId ?? null,
-                sourceDecisionSnapshotId:
-                  activeLegacyHandoff?.sourceDecisionSnapshotId ?? null,
-                creativeBriefId: activeLegacyHandoff?.creativeBriefId ?? null,
               }
             : {
                 businessId,
                 providerAccountId,
                 payload,
+                ...authority,
                 idempotencyKey,
                 sourceDraftId,
-                sourceDecisionId: activeLegacyHandoff?.sourceDecisionId ?? null,
-                sourceDecisionSnapshotId:
-                  activeLegacyHandoff?.sourceDecisionSnapshotId ?? null,
-                creativeBriefId: activeLegacyHandoff?.creativeBriefId ?? null,
               },
         ),
       });
@@ -1468,6 +1464,26 @@ export default function MetaLaunchpadPage() {
   }
 
   async function runBulkStatusAction(action: "pause", rows: MetaCreativeRow[]) {
+    if (
+      rows.some(
+        (row) =>
+          !row.realAdId?.trim() ||
+          !row.creativeId?.trim() ||
+          row.accountId?.replace(/^act_/, "") !==
+            providerAccountId.replace(/^act_/, ""),
+      )
+    ) {
+      setStep("progress");
+      setLaunchResult({
+        ok: false,
+        error: {
+          code: "exact_ad_authority_required",
+          message:
+            "Every manual target needs one server-presented Meta ad, creative, and account identity. Discovery-only rows were not changed.",
+        },
+      });
+      return;
+    }
     setStep("progress");
     setLaunchLoading(true);
     setLaunchResult(null);
@@ -1482,9 +1498,12 @@ export default function MetaLaunchpadPage() {
         body: JSON.stringify({
           businessId,
           providerAccountId,
+          actionOrigin: "manual_operator_v1",
+          manualConfirmation: "explicit_operator_confirmation",
           action,
           ads: rows.map((row) => ({
-            adId: resolveLaunchpadAdActionId(row),
+            adId: row.realAdId!.trim(),
+            providerAccountId,
             creativeId: row.creativeId,
             name: row.name,
           })),
@@ -1871,6 +1890,7 @@ export default function MetaLaunchpadPage() {
                   <LaunchpadReview
                     mode={mode}
                     businessId={businessId}
+                    providerAccountId={providerAccountId}
                     payload={
                       mode === "add_to_existing"
                         ? addToExistingPayload
@@ -1934,11 +1954,14 @@ export default function MetaLaunchpadPage() {
                     onSaveDraft={draftCapability?.canWrite ? saveDraft : undefined}
                     onLaunch={launchPaused}
                     executionBlockedReason={
-                      launchIntentCapability?.canWrite
-                        ? null
-                        : launchIntentCapability?.status === "migration_required"
-                          ? "LaunchIntent storage migration is required before PAUSED creation can run."
-                          : "LaunchIntent storage capability is still being verified."
+                      mode === "add_to_existing" &&
+                      addToExistingPayload.copyMode === "rebuild_creative"
+                        ? "Recreate exact ad is review-only until durable receipts cover every provider image, creative, and ad write."
+                        : launchIntentCapability?.canWrite
+                          ? null
+                          : launchIntentCapability?.status === "migration_required"
+                            ? "LaunchIntent storage migration is required before PAUSED creation can run."
+                            : "LaunchIntent storage capability is still being verified."
                     }
                   />
                 ) : null}

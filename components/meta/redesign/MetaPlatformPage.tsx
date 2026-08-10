@@ -54,7 +54,6 @@ import {
   decisionLabelForRec,
   launchModeForRec,
   proposedBidDisplayValue,
-  proposedBidMinorForExecute,
   scopeIdForRec,
   scopeNameForRec,
   structuredMetricsForRec,
@@ -97,6 +96,17 @@ interface OverlayState {
 
 const EMPTY_OVERLAY: OverlayState = { open: false, mode: "rebuild", rec: null };
 export const META_MONITOR_PAGE_SIZE = 48;
+
+export function resolveMetaDecisionMoneyCurrency(
+  decisionCurrency: string | null | undefined,
+  providerCurrency: string | null | undefined,
+): string | null {
+  const normalizedDecisionCurrency = decisionCurrency?.trim();
+  if (normalizedDecisionCurrency) return normalizedDecisionCurrency;
+
+  const normalizedProviderCurrency = providerCurrency?.trim();
+  return normalizedProviderCurrency || null;
+}
 
 export function paginateMetaMonitorRows<T>(rows: T[], page: number): T[] {
   const safePage = Math.max(1, Math.trunc(page) || 1);
@@ -381,16 +391,10 @@ export function metaActionFailureMessage(
   return fallbackMessage;
 }
 
-async function assertActionResponse(
-  response: Response,
-  fallbackMessage: string,
+export function metaBidApplyNotice(
+  payload: unknown,
+  currency?: string | null,
 ) {
-  const payload = await response.json().catch(() => null);
-  if (response.ok && payload?.ok !== false) return payload;
-  throw new Error(metaActionFailureMessage(payload, fallbackMessage));
-}
-
-export function metaBidApplyNotice(payload: unknown) {
   const record = actionPayloadRecord(payload);
   const dryRun = record?.dryRun === true;
   const bidAmountMinor =
@@ -402,7 +406,10 @@ export function metaBidApplyNotice(payload: unknown) {
     return {
       tone: "info" as const,
       title: bidAmountMinor
-        ? `Dry run: bid cap would apply at ${formatCurrency(bidAmountMinor / 100)}.`
+        ? `Dry run: bid cap would apply at ${formatCurrency(
+            bidAmountMinor / 100,
+            currency,
+          )}.`
         : "Dry run completed.",
       detail: "No Meta write was performed; Meta verification completed.",
     };
@@ -410,25 +417,13 @@ export function metaBidApplyNotice(payload: unknown) {
   return {
     tone: "success" as const,
     title: bidAmountMinor
-      ? `Bid cap applied at ${formatCurrency(bidAmountMinor / 100)}.`
+      ? `Bid cap applied at ${formatCurrency(
+          bidAmountMinor / 100,
+          currency,
+        )}.`
       : "Bid cap applied.",
     detail: "Meta verified the ad set bid.",
   };
-}
-
-function metaEntityResumeNotice(
-  level: "campaign" | "adset" | "ad",
-  status: unknown,
-  dryRun = false,
-) {
-  const normalized =
-    typeof status === "string" ? status.trim().toUpperCase() : "";
-  const label =
-    level === "campaign" ? "Campaign" : level === "adset" ? "Ad set" : "Ad";
-  if (dryRun) return `Dry run: ${label.toLowerCase()} would resume.`;
-  if (!normalized || normalized === "ACTIVE")
-    return `${label} resumed in Meta.`;
-  return `${label} resume verified with status ${normalized}.`;
 }
 
 function launchpadHrefForRec(rec: MetaRecommendation, mode: MetaLaunchMode) {
@@ -579,13 +574,6 @@ function shortRelativeTime(value: string | null | undefined) {
   const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 48) return `${diffHours}h ago`;
   return `${Math.round(diffHours / 24)}d ago`;
-}
-
-function formatCompactCurrency(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "—";
-  if (Math.abs(value) >= 1000)
-    return `$${(value / 1000).toFixed(value >= 10_000 ? 1 : 2).replace(/\.0$/, "")}k`;
-  return formatCurrency(value);
 }
 
 function formatSignedPercent(value: number | null | undefined) {
@@ -2334,8 +2322,6 @@ export function MetaPlatformPage({
   const [compareOpen, setCompareOpen] = useState(false);
   const [pendingPrimaryRec, setPendingPrimaryRec] =
     useState<MetaRecommendation | null>(null);
-  const [pendingResumeIntent, setPendingResumeIntent] =
-    useState<MetaRecommendation | null>(null);
   const [localDeferredIds, setLocalDeferredIds] = useState<Set<string>>(
     new Set(),
   );
@@ -2346,9 +2332,6 @@ export function MetaPlatformPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [primaryActionFeedback, setPrimaryActionFeedback] =
     useState<PrimaryActionFeedback | null>(null);
-  const [pendingActionRecId, setPendingActionRecId] = useState<string | null>(
-    null,
-  );
   const [refreshingSnapshot, setRefreshingSnapshot] = useState(false);
   const [activeLane, setActiveLane] = useState<MetaLaneView>(initialLane);
   const [levelFilter, setLevelFilter] = useState<MetaLevelFilter>("campaign");
@@ -2362,9 +2345,6 @@ export function MetaPlatformPage({
   const [monitorPage, setMonitorPage] = useState(1);
   const [creativeDrill, setCreativeDrill] =
     useState<MetaCanonicalDecision | null>(null);
-  const [pendingPauseRec, setPendingPauseRec] =
-    useState<MetaRecommendation | null>(null);
-  const [bulkPauseOpen, setBulkPauseOpen] = useState(false);
   const [scopeRailOpen, setScopeRailOpen] = useState(false);
   const pushInspector = useMinWidth(1440);
   const latestSearchParamsRef = useRef(searchParams.toString());
@@ -2456,8 +2436,10 @@ export function MetaPlatformPage({
     isLoading: workspaceQuery.isLoading,
     error: workspaceQuery.error,
   };
-  const moneyCurrency =
-    selectedProviderAccount?.currency ?? pulseQuery.data?.currency ?? null;
+  const moneyCurrency = resolveMetaDecisionMoneyCurrency(
+    pulseQuery.data?.currency,
+    selectedProviderAccount?.currency,
+  );
   const targetRoas = pulseQuery.data?.roas.target ?? null;
   const entityParam = searchParams.get("entity");
 
@@ -2875,20 +2857,6 @@ export function MetaPlatformPage({
     ]);
   };
 
-  const refreshDecisionDataInBackground = (recId?: string) => {
-    void refreshDecisionData().catch((error) => {
-      const message = error instanceof Error ? error.message : "unknown error";
-      if (recId) {
-        setPrimaryActionFeedback({
-          recId,
-          tone: "success",
-          title: "Meta action succeeded.",
-          detail: `Decision data refresh failed: ${message}`,
-        });
-      }
-    });
-  };
-
   const refreshSnapshotNow = async () => {
     if (!businessId || refreshingSnapshot) return;
     if (isViewerReadOnly) {
@@ -3027,17 +2995,15 @@ export function MetaPlatformPage({
   };
 
   const openOverlayForRec = (rec: MetaRecommendation, mode: MetaLaunchMode) => {
-    if (
-      mode === "apply_bid" &&
-      proposedBidMinorForExecute(rec, moneyCurrency) == null
-    ) {
+    if (mode === "apply_bid") {
       setPrimaryActionFeedback({
         recId: rec.id,
-        tone: "error",
-        title: "Bid cap is not executable.",
+        tone: "info",
+        title: "Recommendation is review-only.",
         detail:
-          "This recommendation has no typed bidAmountMinor value. Open evidence instead.",
+          "Campaign and ad-set bid recommendations cannot write to Meta until a canonical execution-authority contract is available.",
       });
+      openDrillForRec(rec);
       return;
     }
     setOverlay({ open: true, mode, rec });
@@ -3093,11 +3059,7 @@ export function MetaPlatformPage({
   }, [entityParam, laneQuery.data]);
 
   const isTrackingSensitiveRec = (rec: MetaRecommendation) => {
-    return (
-      rec.actionKind === "execute_pause" ||
-      rec.actionKind === "execute_bid" ||
-      rec.actionKind === "route_launchpad_rebuild"
-    );
+    return rec.actionKind === "route_launchpad_rebuild";
   };
 
   const performPrimary = async (rec: MetaRecommendation) => {
@@ -3112,165 +3074,29 @@ export function MetaPlatformPage({
       return;
     }
     setPrimaryActionFeedback(null);
-    // Routing follows the server-owned actionKind; the UI never infers what
-    // a primary control does from the rec type or its display text.
-    if (rec.actionKind === "execute_pause" && rec.adsetId) {
-      setPendingActionRecId(rec.id);
-      try {
-        const response = await fetch(
-          `/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/pause`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({ businessId, recId: rec.id }),
-          },
-        );
-        const payload = await assertActionResponse(
-          response,
-          "Ad set pause failed.",
-        );
-        const isDryRun = payload?.dryRun === true;
-        setPendingActionRecId(null);
-        if (!isDryRun) {
-          void markActed(rec, "paused");
-        }
-        setPrimaryActionFeedback({
-          recId: rec.id,
-          tone: isDryRun ? "info" : "success",
-          title: metaAdsetPauseNotice(payload?.status, isDryRun),
-          detail: isDryRun
-            ? "No Meta write was performed; Meta verification completed."
-            : "Meta verified the ad set status.",
-        });
-        if (!isDryRun) {
-          refreshDecisionDataInBackground(rec.id);
-        }
-      } catch (error) {
-        setPrimaryActionFeedback({
-          recId: rec.id,
-          tone: "error",
-          title: "Meta action failed.",
-          detail:
-            error instanceof Error ? error.message : "Ad set pause failed.",
-        });
-      } finally {
-        setPendingActionRecId(null);
-      }
-      return;
-    }
-    if (rec.actionKind === "execute_resume") {
-      await resumeRecommendation(rec);
-      return;
-    }
+    // Campaign/ad-set recommendation cards are advisory until they carry a
+    // canonical decision-origin execution contract. launchModeForRec fails
+    // closed for stale/injected execute_* values, so this path has no provider
+    // mutation endpoint.
     const mode = launchModeForRec(rec);
     if (mode) {
       openOverlayForRec(rec, mode);
       return;
     }
-    openDrillForRec(rec);
-  };
-
-  const resumeEndpointForEntity = (
-    level: "campaign" | "adset" | "ad",
-    entityId: string,
-  ) => {
-    if (level === "campaign")
-      return `/api/meta/campaigns/${encodeURIComponent(entityId)}/resume`;
-    if (level === "adset")
-      return `/api/meta/adsets/${encodeURIComponent(entityId)}/resume`;
-    return `/api/meta/ads/${encodeURIComponent(entityId)}/resume`;
-  };
-
-  const resumeRecommendation = async (rec: MetaRecommendation) => {
-    if (isViewerReadOnly) {
+    if (
+      rec.actionKind === "execute_pause" ||
+      rec.actionKind === "execute_resume" ||
+      rec.actionKind === "execute_bid"
+    ) {
       setPrimaryActionFeedback({
         recId: rec.id,
         tone: "info",
-        title: "Read-only access.",
-        detail: viewerReadOnlyReason,
-      });
-      openDrillForRec(rec);
-      return;
-    }
-    const entityId =
-      rec.level === "campaign"
-        ? rec.campaignId
-        : rec.level === "adset"
-          ? rec.adsetId
-          : null;
-    if (!entityId || (rec.level !== "campaign" && rec.level !== "adset"))
-      return;
-    setPrimaryActionFeedback(null);
-    setPendingActionRecId(rec.id);
-    try {
-      const response = await fetch(
-        resumeEndpointForEntity(rec.level, entityId),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          cache: "no-store",
-          body: JSON.stringify({ businessId }),
-        },
-      );
-      const payload = await assertActionResponse(
-        response,
-        `${rec.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`,
-      );
-      const isDryRun = payload?.dryRun === true;
-      if (!isDryRun) {
-        setLocalResponseStates((current) => {
-          const next = { ...current };
-          delete next[rec.id];
-          return next;
-        });
-      }
-      setPrimaryActionFeedback({
-        recId: rec.id,
-        tone: isDryRun ? "info" : "success",
-        title: metaEntityResumeNotice(rec.level, payload?.status, isDryRun),
-        detail: isDryRun
-          ? "No Meta write was performed; Meta verification completed."
-          : `Meta verified the ${rec.level === "campaign" ? "campaign" : "ad set"} status.`,
-      });
-      if (!isDryRun) {
-        refreshDecisionDataInBackground(rec.id);
-      }
-    } catch (error) {
-      setPrimaryActionFeedback({
-        recId: rec.id,
-        tone: "error",
-        title: "Meta action failed.",
+        title: "Recommendation is review-only.",
         detail:
-          error instanceof Error
-            ? error.message
-            : `${rec.level === "campaign" ? "Campaign" : "Ad set"} resume failed.`,
+          "This legacy execution hint is not a canonical provider-write authority.",
       });
-    } finally {
-      setPendingActionRecId(null);
     }
-  };
-
-  const requestResumeRecommendation = (rec: MetaRecommendation) => {
-    if (
-      trackingBlocked &&
-      (rec.level === "campaign" || rec.level === "adset")
-    ) {
-      setPendingResumeIntent(rec);
-      return;
-    }
-    void resumeRecommendation(rec);
-  };
-
-  const confirmResumeIntent = () => {
-    const rec = pendingResumeIntent;
-    setPendingResumeIntent(null);
-    if (rec) void resumeRecommendation(rec);
+    openDrillForRec(rec);
   };
 
   const handlePrimary = async (rec: MetaRecommendation) => {
@@ -3278,44 +3104,11 @@ export function MetaPlatformPage({
       openDrillForRec(rec);
       return;
     }
-    // A pause is a delivery-stopping write: always show the Current -> Proposed
-    // delta first. This modal subsumes the tracking-anomaly confirm for pauses,
-    // so the trackingBlocked branch is chained into the delta Confirm rather
-    // than shown as a second dialog.
-    if (rec.actionKind === "execute_pause") {
-      setPendingPauseRec(rec);
-      return;
-    }
     if (trackingBlocked && isTrackingSensitiveRec(rec)) {
       setPendingPrimaryRec(rec);
       return;
     }
     await performPrimary(rec);
-  };
-
-  const confirmPendingPause = () => {
-    const rec = pendingPauseRec;
-    setPendingPauseRec(null);
-    if (rec) void performPrimary(rec);
-  };
-
-  // Bulk pause: pauses each selected entity through the exact single-row pause
-  // path (performPrimary -> /api/meta/adsets/{id}/pause). Only adset-level
-  // execute_pause rows are pausable, so non-pausable selections are left
-  // untouched rather than silently "handled".
-  const bulkPausableRecs = useMemo(
-    () =>
-      selectedRecs.filter(
-        (rec) => rec.actionKind === "execute_pause" && Boolean(rec.adsetId),
-      ),
-    [selectedRecs],
-  );
-
-  const confirmBulkPause = async () => {
-    setBulkPauseOpen(false);
-    for (const rec of bulkPausableRecs) {
-      await performPrimary(rec);
-    }
   };
 
   const deferSelectedRecs = async () => {
@@ -3339,63 +3132,16 @@ export function MetaPlatformPage({
       return;
     }
     setPrimaryActionFeedback(null);
-    if (overlay.mode === "apply_bid" && rec.adsetId) {
-      const bidAmountMinor = proposedBidMinorForExecute(rec, moneyCurrency);
-      if (!bidAmountMinor) {
-        setPrimaryActionFeedback({
-          recId: rec.id,
-          tone: "error",
-          title: "Bid cap is not executable.",
-          detail:
-            "This recommendation has no typed bidAmountMinor value. Open evidence instead.",
-        });
-        setOverlay(EMPTY_OVERLAY);
-        return;
-      }
-      setPendingActionRecId(rec.id);
-      try {
-        const response = await fetch(
-          `/api/meta/adsets/${encodeURIComponent(rec.adsetId)}/apply-bid`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({ businessId, bidAmountMinor, recId: rec.id }),
-          },
-        );
-        const payload = await assertActionResponse(
-          response,
-          "Bid cap apply failed.",
-        );
-        const isDryRun = payload?.dryRun === true;
-        setPendingActionRecId(null);
-        if (!isDryRun) {
-          void markActed(rec, "bid_applied");
-        }
-        const notice = metaBidApplyNotice(payload);
-        setPrimaryActionFeedback({
-          recId: rec.id,
-          tone: notice.tone,
-          title: notice.title,
-          detail: notice.detail,
-        });
-        setOverlay(EMPTY_OVERLAY);
-        if (!isDryRun) {
-          refreshDecisionDataInBackground(rec.id);
-        }
-      } catch (error) {
-        setPrimaryActionFeedback({
-          recId: rec.id,
-          tone: "error",
-          title: "Meta action failed.",
-          detail:
-            error instanceof Error ? error.message : "Bid cap apply failed.",
-        });
-      } finally {
-        setPendingActionRecId(null);
-      }
+    if (overlay.mode === "apply_bid") {
+      setPrimaryActionFeedback({
+        recId: rec.id,
+        tone: "info",
+        title: "Recommendation is review-only.",
+        detail:
+          "Campaign and ad-set bid recommendations cannot write to Meta without canonical execution authority.",
+      });
+      setOverlay(EMPTY_OVERLAY);
+      openDrillForRec(rec);
       return;
     }
     const href = launchpadHrefForRec(rec, overlay.mode);
@@ -3423,7 +3169,6 @@ export function MetaPlatformPage({
     }
     if (action === "rebuild") openOverlayForRec(first, "rebuild");
     if (action === "duplicate") openOverlayForRec(first, "duplicate");
-    if (action === "apply_bid") openOverlayForRec(first, "apply_bid");
   };
 
   const selectedRecByRoas = (direction: "weakest" | "strongest") => {
@@ -3956,7 +3701,6 @@ export function MetaPlatformPage({
                             selected={selectedIds.has(rec.id)}
                             deferred={isDeferred(rec)}
                             responseState={responseStateForRec(rec)}
-                            primaryPending={pendingActionRecId === rec.id}
                             actionFeedback={
                               primaryActionFeedback?.recId === rec.id
                                 ? primaryActionFeedback
@@ -3966,7 +3710,6 @@ export function MetaPlatformPage({
                             evidenceWindow={selectedWindow}
                             onSelect={selectRec}
                             onPrimary={handlePrimary}
-                            onResume={requestResumeRecommendation}
                             onOpenDrill={(item) =>
                               openDrillForRec(item as MetaRecommendation)
                             }
@@ -4093,9 +3836,6 @@ export function MetaPlatformPage({
                                     selected={selectedIds.has(rec.id)}
                                     deferred={isDeferred(rec)}
                                     responseState={responseStateForRec(rec)}
-                                    primaryPending={
-                                      pendingActionRecId === rec.id
-                                    }
                                     actionFeedback={
                                       primaryActionFeedback?.recId === rec.id
                                         ? primaryActionFeedback
@@ -4105,7 +3845,6 @@ export function MetaPlatformPage({
                                     evidenceWindow={selectedWindow}
                                     onSelect={selectRec}
                                     onPrimary={handlePrimary}
-                                    onResume={requestResumeRecommendation}
                                     onOpenDrill={(item) =>
                                       openDrillForRec(
                                         item as MetaRecommendation,
@@ -4165,6 +3904,7 @@ export function MetaPlatformPage({
                               <MetaUpperFunnelInformationalCard
                                 key={rec.id}
                                 rec={rec}
+                                moneyCurrency={moneyCurrency}
                                 onOpenDrill={(item) =>
                                   setDrillItem({
                                     mode: "informational",
@@ -4180,7 +3920,6 @@ export function MetaPlatformPage({
                                 targetRoas={targetRoas}
                                 rec={rec}
                                 responseState={responseStateForRec(rec)}
-                                primaryPending={pendingActionRecId === rec.id}
                                 actionFeedback={
                                   primaryActionFeedback?.recId === rec.id
                                     ? primaryActionFeedback
@@ -4188,7 +3927,6 @@ export function MetaPlatformPage({
                                 }
                                 readOnlyReason={viewerReadOnlyReason}
                                 onPrimary={handlePrimary}
-                                onResume={requestResumeRecommendation}
                                 onOpenDrill={(item) =>
                                   openDrillForRec(item as MetaRecommendation)
                                 }
@@ -4260,17 +3998,6 @@ export function MetaPlatformPage({
                     {selectedRecs.slice(0, 2).map(scopeNameForRec).join(", ")}
                   </span>
                   <div className="acts">
-                    <button
-                      type="button"
-                      className="btn btn--danger"
-                      data-testid="meta-bulk-pause"
-                      disabled={
-                        isViewerReadOnly || bulkPausableRecs.length === 0
-                      }
-                      onClick={() => setBulkPauseOpen(true)}
-                    >
-                      Pause selected
-                    </button>
                     <button
                       type="button"
                       className="btn"
@@ -4434,235 +4161,6 @@ export function MetaPlatformPage({
         </div>
       ) : null}
 
-      {pendingPauseRec ? (
-        <div
-          className="modal-backdrop meta-label-modal-backdrop"
-          data-testid="meta-pause-delta-modal"
-          onMouseDown={() => setPendingPauseRec(null)}
-        >
-          <div
-            className="meta-label-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="meta-pause-delta-title"
-            style={{ maxWidth: 440 }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="meta-label-modal-head">
-              <div>
-                <h2 id="meta-pause-delta-title">
-                  Pause {scopeNameForRec(pendingPauseRec)}?
-                </h2>
-                <p>Review the status change before this write reaches Meta.</p>
-              </div>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                aria-label="Cancel pause"
-                onClick={() => setPendingPauseRec(null)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="meta-label-modal-body">
-              <div
-                data-testid="meta-pause-delta-grid"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                  marginBottom: 12,
-                }}
-              >
-                <div
-                  style={{
-                    border: "1px solid var(--border-2)",
-                    borderRadius: "var(--r-sm)",
-                    padding: "8px 10px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
-                    }}
-                  >
-                    Current
-                  </div>
-                  <div style={{ fontSize: 13 }}>Status ACTIVE</div>
-                </div>
-                <div
-                  style={{
-                    border: "1px solid var(--border-2)",
-                    borderRadius: "var(--r-sm)",
-                    padding: "8px 10px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--muted)",
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
-                    }}
-                  >
-                    Proposed
-                  </div>
-                  <div style={{ fontSize: 13 }}>Status PAUSED</div>
-                </div>
-              </div>
-              <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
-                Confirming stops the ad set from delivering. It stays paused
-                until a resume, which is a separate activation write.
-              </p>
-              {trackingBlocked ? (
-                <p
-                  style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}
-                >
-                  Tracking is currently flagged; purchase signal may be
-                  incomplete. This confirmation is the tracking gate — proceed
-                  only if the pause is warranted.
-                </p>
-              ) : null}
-            </div>
-            <div
-              className="meta-label-modal-foot"
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 8,
-                padding: "12px 16px",
-              }}
-            >
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setPendingPauseRec(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--danger"
-                data-testid="meta-pause-delta-confirm"
-                onClick={confirmPendingPause}
-              >
-                Confirm pause
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {bulkPauseOpen ? (
-        <div
-          className="modal-backdrop meta-label-modal-backdrop"
-          data-testid="meta-bulk-pause-modal"
-          onMouseDown={() => setBulkPauseOpen(false)}
-        >
-          <div
-            className="meta-label-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="meta-bulk-pause-title"
-            style={{ maxWidth: 480 }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="meta-label-modal-head">
-              <div>
-                <h2 id="meta-bulk-pause-title">
-                  Pause {bulkPausableRecs.length} ad{" "}
-                  {bulkPausableRecs.length === 1 ? "set" : "sets"}?
-                </h2>
-                <p>
-                  Each row is paused individually through the verified Meta
-                  pause path.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                aria-label="Cancel bulk pause"
-                onClick={() => setBulkPauseOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="meta-label-modal-body">
-              <ul
-                style={{
-                  listStyle: "none",
-                  margin: 0,
-                  padding: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                }}
-              >
-                {bulkPausableRecs.map((rec) => (
-                  <li
-                    key={rec.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      fontSize: 12.5,
-                      borderBottom: "1px solid var(--border-2)",
-                      paddingBottom: 6,
-                    }}
-                  >
-                    <span>{scopeNameForRec(rec)}</span>
-                    <span
-                      style={{
-                        fontVariantNumeric: "tabular-nums",
-                        color: "var(--muted)",
-                      }}
-                    >
-                      {formatMoney(rec.metrics?.spend, moneyCurrency)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p
-                style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10 }}
-              >
-                Money shown is each entity&rsquo;s own window spend. Totals are
-                not summed — mixed-currency accounts cannot be added together.
-              </p>
-            </div>
-            <div
-              className="meta-label-modal-foot"
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 8,
-                padding: "12px 16px",
-              }}
-            >
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => setBulkPauseOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--danger"
-                data-testid="meta-bulk-pause-confirm"
-                disabled={bulkPausableRecs.length === 0}
-                onClick={() => void confirmBulkPause()}
-              >
-                Pause {bulkPausableRecs.length} ad{" "}
-                {bulkPausableRecs.length === 1 ? "set" : "sets"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {pushInspector ? null : (
         <MetaDrillDrawer
           moneyCurrency={moneyCurrency}
@@ -4725,7 +4223,7 @@ export function MetaPlatformPage({
                 size={13}
                 aria-hidden="true"
               />{" "}
-              Pause weakest
+              Review weakest
             </button>
             <button
               type="button"
@@ -4743,7 +4241,7 @@ export function MetaPlatformPage({
                 size={13}
                 aria-hidden="true"
               />{" "}
-              Scale strongest
+              Review strongest
             </button>
             <button
               type="button"
@@ -4776,13 +4274,6 @@ export function MetaPlatformPage({
           setPendingPrimaryRec(null);
           if (rec) void performPrimary(rec);
         }}
-      />
-      <TrackingConfirmModal
-        open={pendingResumeIntent != null}
-        primaryLabel="Resume anyway"
-        description="Resuming during a tracking anomaly may reopen spend with incomplete attribution. Continue anyway, or resolve tracking first?"
-        onClose={() => setPendingResumeIntent(null)}
-        onConfirm={confirmResumeIntent}
       />
     </div>
   );

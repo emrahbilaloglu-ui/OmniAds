@@ -69,6 +69,28 @@ function card(overrides: Partial<BriefingCreativeCard> = {}): BriefingCreativeCa
   };
 }
 
+function exactAdCard(adId: string): BriefingCreativeCard {
+  return card({
+    id: adId,
+    adId,
+    realAdId: adId,
+    creativeId: "creative_shared",
+    decisionCenterRow: decisionRow({
+      rowId: adId,
+      creativeId: "creative_shared",
+      identityGrain: "ad",
+    }),
+    canonicalDecision: {
+      identityGrain: "ad",
+      adId,
+      sourceAuthority: {
+        actionEligible: true,
+        authorizedAction: "scale",
+      },
+    } as never,
+  });
+}
+
 describe("Creative Studio truth projection", () => {
   it("uses action-lane cards first and de-duplicates briefing rows", () => {
     const actionCard = card({ creativeName: "Action version" });
@@ -87,6 +109,37 @@ describe("Creative Studio truth projection", () => {
 
     expect(cards).toHaveLength(1);
     expect(cards[0]?.creativeName).toBe("Action version");
+  });
+
+  it("preserves exact native ads that share one creative across Studio and Inbox", () => {
+    const first = exactAdCard("ad_1");
+    const second = exactAdCard("ad_2");
+    const cards = flattenCreativeStudioBriefingCards({
+      actionNow: [first, second],
+      watching: [],
+      healthy: [],
+    });
+    const index = indexCreativeStudioBriefingCards(cards);
+
+    expect(cards.map((item) => item.id)).toEqual(["ad_1", "ad_2"]);
+    expect(
+      findCreativeStudioCard(
+        { id: "ad_1", creativeId: "creative_shared" },
+        index,
+      )?.realAdId,
+    ).toBe("ad_1");
+    expect(
+      findCreativeStudioCard(
+        { id: "ad_2", creativeId: "creative_shared" },
+        index,
+      )?.realAdId,
+    ).toBe("ad_2");
+    expect(
+      findCreativeStudioCard(
+        { id: "creative_shared", creativeId: "creative_shared" },
+        index,
+      ),
+    ).toBeNull();
   });
 
   it("renders decision badges only from the server decision row", () => {
@@ -142,6 +195,24 @@ describe("Creative Studio truth projection", () => {
         card({ id: "row_2", creativeId: "creative_2", truthSource: "global_default" }),
       ]),
     ).toMatchObject({ qualified: [{ creativeId: "creative_1" }], withheld: [{ card: { creativeId: "creative_2" } }] });
+  });
+
+  it("uses persisted exact-Ad action authority instead of a removed legacy threshold field", () => {
+    const exact = exactAdCard("ad_1");
+    exact.thresholdQuality = undefined;
+
+    expect(qualifyCurrentWinner(exact)).toMatchObject({
+      candidate: true,
+      qualified: true,
+      reason: "qualified",
+    });
+
+    exact.canonicalDecision!.sourceAuthority.actionEligible = false;
+    expect(qualifyCurrentWinner(exact)).toMatchObject({
+      candidate: true,
+      qualified: false,
+      reason: "threshold_not_ready",
+    });
   });
 
   it("does not call historical scale events winners without per-event era provenance", () => {

@@ -21,7 +21,9 @@ const context: MetaCalibrationContext = {
   cohort: "engagement",
 };
 
-function adset(overrides: Partial<MetaAdSetData> = {}): MetaAdSetData {
+function adset(
+  overrides: Partial<MetaAdSetData> & { currency?: string | null } = {},
+): MetaAdSetData {
   return {
     id: "adset_1",
     accountId: "act_1",
@@ -101,6 +103,27 @@ describe("emitEngagementAdsetScenario", () => {
     expect(rec?.decisionLabel).toBe("scale");
     expect(rec?.confidence).toBe("high");
     expect(rec?.cohort).toBe("engagement");
+  });
+
+  it.each([
+    ["GBP", "£0.10"],
+    [null, "0.1 (Currency unavailable)"],
+  ] as const)("formats engagement cost with provider currency %s", (currency, expected) => {
+    const rec = emitEngagementAdsetScenario({
+      adset: adset({
+        spend: 20,
+        postEngagement: 200,
+        impressions: 3000,
+        currency,
+      }),
+      context,
+      cohort: "engagement",
+      signals: signal(20),
+    });
+
+    const cost = rec?.evidence.find((item) => item.label === "Cost / engagement")?.value;
+    expect(cost).toBe(expected);
+    if (currency === null) expect(cost).not.toContain("$");
   });
 
   it("keeps an efficient one-event engagement row on watch", () => {

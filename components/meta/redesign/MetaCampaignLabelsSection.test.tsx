@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
       status: "ACTIVE",
       spend: 1200,
       roas: 3.1,
+      currency: "TRY",
     },
     {
       id: "cmp_test",
@@ -21,6 +22,7 @@ const state = vi.hoisted(() => ({
       status: "ACTIVE",
       spend: 240,
       roas: 1.4,
+      currency: "EUR",
     },
     {
       id: "cmp_paused",
@@ -29,6 +31,7 @@ const state = vi.hoisted(() => ({
       status: "PAUSED",
       spend: 100,
       roas: 1,
+      currency: "USD",
     },
   ],
   labels: [
@@ -80,6 +83,7 @@ describe("MetaCampaignLabelsSection", () => {
         status: "ACTIVE",
         spend: 1200,
         roas: 3.1,
+        currency: "TRY",
       },
       {
         id: "cmp_test",
@@ -88,6 +92,7 @@ describe("MetaCampaignLabelsSection", () => {
         status: "ACTIVE",
         spend: 240,
         roas: 1.4,
+        currency: "EUR",
       },
       {
         id: "cmp_paused",
@@ -96,6 +101,7 @@ describe("MetaCampaignLabelsSection", () => {
         status: "PAUSED",
         spend: 100,
         roas: 1,
+        currency: "USD",
       },
     ];
   });
@@ -111,6 +117,8 @@ describe("MetaCampaignLabelsSection", () => {
     expect(html).not.toContain("Paused Campaign");
     expect(html).toContain("Context corrections");
     expect(html).toContain("1 automatic");
+    expect(html).toContain("₺1.200,00");
+    expect(html).toMatch(/240,00(?:\u00a0|&nbsp;)€/);
     expect(html).toContain('data-campaign-kind="main"');
     expect(html).toContain('data-campaign-kind="automatic"');
     expect(state.queryKeys).toContainEqual([
@@ -128,6 +136,7 @@ describe("MetaCampaignLabelsSection", () => {
         status: "PAUSED",
         spend: 100,
         roas: 1,
+        currency: "USD",
       },
     ];
 

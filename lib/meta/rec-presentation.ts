@@ -14,9 +14,6 @@ import type { MetaLaunchMode } from "@/components/meta/redesign/types";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 
 export type MetaRecActionKind =
-  | "execute_pause"
-  | "execute_bid"
-  | "execute_resume"
   | "route_launchpad_rebuild"
   | "route_launchpad_duplicate"
   | "review_drill";
@@ -170,14 +167,13 @@ export function serverActionKindForRec(
 ): MetaRecActionKind {
   if (rec.kind === "anomaly" || rec.kind === "state") return "review_drill";
   if (rec.decisionState !== "act") return "review_drill";
-  if (rec.proposedAction?.kind === "pause") return "execute_pause";
-  if (rec.proposedAction?.kind === "resume") return "execute_resume";
-  if (rec.proposedAction?.kind === "apply_bid") return "execute_bid";
-  if (rec.type === "adset_cut_spend") return "execute_pause";
+  // Campaign/ad-set recommendations do not yet carry the same immutable,
+  // decision-origin execution authority contract as canonical Ad decisions.
+  // proposedAction is advice, not authority: old persisted pause/resume/bid
+  // suggestions must remain review-only until that contract exists.
   const mode = serverLaunchModeForRec(rec);
   if (mode === "rebuild") return "route_launchpad_rebuild";
   if (mode === "duplicate") return "route_launchpad_duplicate";
-  if (mode === "apply_bid") return "execute_bid";
   return "review_drill";
 }
 
@@ -202,9 +198,6 @@ export function serverPrimaryActionLabelForRec(
 ): string {
   const actionKind = serverActionKindForRec(rec);
   if (rec.kind === "anomaly") return "Open diagnostics";
-  if (actionKind === "execute_pause") return "Pause adset";
-  if (actionKind === "execute_resume") return "Resume";
-  if (actionKind === "execute_bid") return "Apply bid cap";
   if (actionKind === "route_launchpad_rebuild") {
     if (rec.type === "creative_test_structure") return "Demote in Launchpad";
     if (rec.type === "scaling_structure_fit") return "Rebuild lanes";

@@ -1,3 +1,4 @@
+import { formatMoney } from "@/components/creatives/money";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import {
   LEGACY_META_CALIBRATION_THRESHOLDS,
@@ -21,20 +22,6 @@ import {
 
 function r2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function currencySymbol(currency: string | null | undefined) {
-  if (currency === "TRY") return "TRY ";
-  if (currency === "EUR") return "EUR ";
-  return "$";
-}
-
-function fmtCurrency(value: number | null, currency: string | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "No leads";
-  return `${currencySymbol(currency)}${value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 function fmtPercent(value: number) {
@@ -190,7 +177,7 @@ export function emitLeadAdsetScenario(input: AdsetScenarioInput): MetaRecommenda
   });
   const evidence: MetaRecommendation["evidence"] = [
     { label: "Lead score", value: fmtScore(score), tone: score >= 0.7 ? "positive" : score < 0.3 ? "warning" : "neutral" },
-    { label: "Cost / lead", value: fmtCurrency(Number.isFinite(costPerLead) ? costPerLead : null, currency), tone: baseRank >= 0.7 ? "positive" : baseRank <= 0.3 ? "warning" : "neutral" },
+    { label: "Cost / lead", value: Number.isFinite(costPerLead) ? formatMoney(costPerLead, currency, null) : "No leads", tone: baseRank >= 0.7 ? "positive" : baseRank <= 0.3 ? "warning" : "neutral" },
     { label: "Leads", value: String(leads), tone: leads > 0 ? "positive" : "warning" },
     ...(hasPixelPurchaseBonus && leadToPurchaseRank != null
       ? [

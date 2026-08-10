@@ -38,7 +38,7 @@ const action = {
 const priority = {
   band: "high",
   rank: 330,
-  version: "meta-os-decisions.presentation.v4",
+  version: "meta-os-decisions.presentation.v5",
 };
 
 const urgency = {
@@ -74,7 +74,7 @@ const workspace = {
   viewer: { readOnly: false, readOnlyReason: null },
   banners: [] as MetaOsWorkspaceBanner[],
   os: {
-    contractVersion: "meta-os-decisions.presentation.v4",
+    contractVersion: "meta-os-decisions.presentation.v5",
     generatedAt: "2026-07-10T04:00:00.000Z",
     source: {
       snapshotAsOf: "2026-07-10",

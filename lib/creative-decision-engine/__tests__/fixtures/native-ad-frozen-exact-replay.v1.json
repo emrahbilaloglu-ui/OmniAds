@@ -1,0 +1,161 @@
+{
+  "contractVersion": "native-ad-frozen-exact-replay.v1",
+  "sourceMode": "anonymized_frozen_acceptance_fixture",
+  "sourceProvenance": {
+    "mode": "synthetic_anonymized_production_contract_fixture",
+    "productionFunctions": [
+      "computeNativeAdCalibrationBatch",
+      "resolveNativeAdDecisionProfileGroups",
+      "buildNativeAdDataHealth",
+      "computeNativeAdDecisions",
+      "toNativeSnapshotPayload"
+    ],
+    "containsLiveIdentifiers": false,
+    "containsLiveMetrics": false
+  },
+  "businessId": "00000000-0000-4000-8000-000000000861",
+  "providerAccountRefId": "00000000-0000-4000-8000-000000000862",
+  "providerAccountId": "act-anonymous-frozen",
+  "accountTimezone": "Europe/Istanbul",
+  "accountCurrency": "USD",
+  "objective": "OUTCOME_SALES",
+  "optimizationGoal": "PURCHASE",
+  "customEventType": "PURCHASE",
+  "firstAsOfDate": "2026-07-15",
+  "confirmationAsOfDate": "2026-07-16",
+  "sourceFactDate": "2026-07-14",
+  "sourceFactFinalizedAt": "2026-07-15T01:00:00.000Z",
+  "sourceFactCreatedAt": "2026-07-15T01:00:00.000Z",
+  "sourceFactUpdatedAt": "2026-07-15T02:00:00.000Z",
+  "targetAuthority": {
+    "sourceRowId": "00000000-0000-4000-8000-000000000863",
+    "operation": "upsert",
+    "targetCpa": null,
+    "targetRoas": 2,
+    "breakEvenCpa": null,
+    "breakEvenRoas": 1.5,
+    "operatorAovAssumption": null,
+    "defaultRiskPosture": "balanced",
+    "effectiveAt": "2026-06-01T00:00:00.000Z",
+    "recordedAt": "2026-06-01T00:00:01.000Z"
+  },
+  "calibrationEvidence": {
+    "exactContextPurchaseFacts": 5,
+    "accountOnlyPurchaseFacts": 15,
+    "exactContextRevenuePerPurchase": 80,
+    "accountOnlyRevenuePerPurchase": 100,
+    "expectedExactAov": 80,
+    "expectedAccountPurchaseCount": 20,
+    "expectedAccountRevenue": 1900,
+    "expectedAccountAov": 95
+  },
+  "archetypes": {
+    "belowBreakEvenLoss": {
+      "adId": "ad-anonymous-below-break-even",
+      "campaignId": "campaign-anonymous-loss",
+      "metrics": {
+        "spend": 300,
+        "purchases": 3,
+        "purchaseValue": 180,
+        "roas": 0.6,
+        "cpa": 100,
+        "recent7dSpend": 80,
+        "recent7dPurchases": 1,
+        "recent7dRoas": 0.55
+      },
+      "expected": {
+        "rawLabel": "cut",
+        "firstPublishedLabel": "keep",
+        "sameDayRetryPublishedLabel": "keep",
+        "confirmationPublishedLabel": "cut",
+        "pendingBlockedActionType": "cut",
+        "firstAuthorizedAction": null,
+        "confirmationAuthorizedAction": "cut"
+      }
+    },
+    "aboveBreakEven": {
+      "adId": "ad-anonymous-above-break-even",
+      "campaignId": "campaign-anonymous-working",
+      "metrics": {
+        "spend": 300,
+        "purchases": 3,
+        "purchaseValue": 540,
+        "roas": 1.8,
+        "cpa": 100,
+        "recent7dSpend": 80,
+        "recent7dPurchases": 1,
+        "recent7dRoas": 1.8
+      },
+      "expected": {
+        "rawLabel": "keep",
+        "publishedLabel": "keep",
+        "blockedActionType": null
+      }
+    },
+    "recoveryHold": {
+      "adId": "ad-anonymous-recovery-hold",
+      "campaignId": "campaign-anonymous-recovery",
+      "metrics": {
+        "spend": 300,
+        "purchases": 3,
+        "purchaseValue": 180,
+        "roas": 0.6,
+        "cpa": 100,
+        "recent7dSpend": 80,
+        "recent7dPurchases": 2,
+        "recent7dRoas": 2.4
+      },
+      "expected": {
+        "rawLabel": "keep",
+        "publishedLabel": "keep",
+        "blockedActionType": null,
+        "reasonFragment": "[recovery hold]"
+      }
+    },
+    "scaleRefreshIsolation": {
+      "nativeScaleCandidate": {
+        "adId": "ad-anonymous-scale-candidate",
+        "campaignId": "campaign-anonymous-scale",
+        "metrics": {
+          "spend": 600,
+          "purchases": 15,
+          "purchaseValue": 2100,
+          "roas": 3.5,
+          "cpa": 40,
+          "recent7dSpend": 120,
+          "recent7dPurchases": 4,
+          "recent7dRoas": 3
+        },
+        "expected": {
+          "publishedLabel": "keep",
+          "blockedActionType": null,
+          "reasonFragment": "[near scale]"
+        }
+      },
+      "nativeRefreshCandidate": {
+        "adId": "ad-anonymous-refresh-candidate",
+        "campaignId": "campaign-anonymous-refresh",
+        "metrics": {
+          "spend": 300,
+          "purchases": 4,
+          "purchaseValue": 720,
+          "roas": 2.4,
+          "cpa": 75,
+          "recent7dSpend": 80,
+          "recent7dPurchases": 1,
+          "recent7dRoas": 1
+        },
+        "expected": {
+          "preAuthorityLabel": "keep",
+          "publishedLabel": "keep",
+          "blockedActionType": null
+        }
+      },
+      "expectedEligibility": {
+        "scale": false,
+        "cut": true,
+        "refresh": false
+      }
+    }
+  }
+}

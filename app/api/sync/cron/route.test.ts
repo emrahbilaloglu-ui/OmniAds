@@ -30,6 +30,10 @@ vi.mock("@/lib/meta/outcome-accrual", () => ({
   runMetaOutcomeAccrualIfDue: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/duplicate-ad-reconciliation", () => ({
+  runMetaAdDuplicateReconciliationSweep: vi.fn(),
+}));
+
 vi.mock("@/lib/creative-decision-engine", () => ({
   runAdDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
   runDecisionOutcomesJobForActiveBusinessesIfDue: vi.fn(),
@@ -89,6 +93,9 @@ vi.mock("@/lib/sync/db-growth-fence", async (importOriginal) => {
   return { ...actual, assertSyncGrowthBoundary: vi.fn() };
 });
 
+const duplicateReconciliation = await import(
+  "@/lib/meta/duplicate-ad-reconciliation"
+);
 const creativeDecisionEngine = await import("@/lib/creative-decision-engine");
 const ga4Sync = await import("@/lib/sync/ga4-sync");
 const searchConsoleSync = await import("@/lib/sync/search-console-sync");
@@ -195,6 +202,23 @@ function buildCronUnavailableSnapshot(businessId: string, reason: string) {
     overall: verdict,
   };
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const emptyDuplicateSweepResult = {
+  scanned: 0,
+  attempted: 0,
+  reconciled: 0,
+  deadlineExhausted: false,
+  results: [],
+};
 
 describe("POST /api/sync/cron", () => {
   const savedCronEnv = { ...process.env };
@@ -215,6 +239,9 @@ describe("POST /api/sync/cron", () => {
       ok: true,
       businesses: [{ id: "biz_1", name: "Biz 1" }],
     } as never);
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockResolvedValue(emptyDuplicateSweepResult as never);
     vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 1 } as never);
     vi.mocked(metaScheduled.runMetaSnapshotJobIfDue).mockResolvedValue({
@@ -232,6 +259,9 @@ describe("POST /api/sync/cron", () => {
       reason: "not_due",
       runDate: "2026-04-15",
     });
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockResolvedValue(emptyDuplicateSweepResult);
     vi.mocked(
       creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
     ).mockResolvedValue({
@@ -420,6 +450,15 @@ describe("POST /api/sync/cron", () => {
     expect(payload.soakGate).toBeUndefined();
     expect(payload.gateVerdicts).toBeDefined();
     expect(payload.repairPlan).toBeDefined();
+    expect(payload.duplicateAdReconciliation).toEqual(
+      emptyDuplicateSweepResult,
+    );
+    expect(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).toHaveBeenCalledWith({ limit: 3 });
     expect(soakGate.runSyncSoakGate).not.toHaveBeenCalled();
     expect(payload.results[0].shopify).toEqual({ skipped: true, reason: "disabled" });
     expect(payload.metaSnapshotJob).toEqual({
@@ -486,6 +525,159 @@ describe("POST /api/sync/cron", () => {
         creativeDecisionEngine.runDecisionOutcomesJobForActiveBusinessesIfDue,
       ).mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
+  });
+
+  it("starts the bounded duplicate sweep alongside scheduler work but awaits it before responding", async () => {
+    const sweep = deferred<typeof emptyDuplicateSweepResult>();
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockReturnValueOnce(sweep.promise);
+
+    let responseSettled = false;
+    const responsePromise = POST(
+      new NextRequest("http://localhost/api/sync/cron", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      }),
+    ).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+      ).toHaveBeenCalledWith({ limit: 3 });
+      expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz_1");
+    });
+    expect(responseSettled).toBe(false);
+
+    sweep.resolve(emptyDuplicateSweepResult);
+    const response = await responsePromise;
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.duplicateAdReconciliation).toEqual(
+      emptyDuplicateSweepResult,
+    );
+  });
+
+  it("isolates duplicate sweep rejection and still returns the other cron results", async () => {
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockRejectedValueOnce(new Error("duplicate sweep failed"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/sync/cron", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.duplicateAdReconciliation).toEqual({
+      scanned: 0,
+      reconciled: 0,
+      results: [],
+      error: "duplicate sweep failed",
+    });
+    expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz_1");
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] duplicate_ad_reconciliation_failed",
+      expect.any(Error),
+    );
+    spy.mockRestore();
+  });
+
+  it("awaits duplicate reconciliation before the no-active-business response", async () => {
+    vi.mocked(activeBusinesses.readActiveBusinesses).mockResolvedValueOnce({
+      ok: true,
+      businesses: [],
+    } as never);
+    const sweep = deferred<typeof emptyDuplicateSweepResult>();
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockReturnValueOnce(sweep.promise);
+
+    let responseSettled = false;
+    const responsePromise = POST(
+      new NextRequest("http://localhost/api/sync/cron", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      }),
+    ).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+      ).toHaveBeenCalledWith({ limit: 3 });
+    });
+    expect(responseSettled).toBe(false);
+
+    sweep.resolve(emptyDuplicateSweepResult);
+    const response = await responsePromise;
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      synced: 0,
+      message: "No active businesses.",
+      duplicateAdReconciliation: emptyDuplicateSweepResult,
+    });
+    expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+  });
+
+  it("awaits duplicate reconciliation before a soak-gate execution-error response", async () => {
+    process.env.SYNC_CRON_ENFORCE_SOAK_GATE = "true";
+    vi.mocked(soakGate.runSyncSoakGate).mockRejectedValueOnce(
+      new Error("soak execution failed"),
+    );
+    const sweep = deferred<typeof emptyDuplicateSweepResult>();
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockReturnValueOnce(sweep.promise);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    let responseSettled = false;
+    const responsePromise = POST(
+      new NextRequest("http://localhost/api/sync/cron", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      }),
+    ).then((response) => {
+      responseSettled = true;
+      return response;
+    });
+
+    await vi.waitFor(() => {
+      expect(soakGate.runSyncSoakGate).toHaveBeenCalledTimes(1);
+    });
+    expect(responseSettled).toBe(false);
+
+    sweep.resolve(emptyDuplicateSweepResult);
+    const response = await responsePromise;
+    const payload = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(payload).toMatchObject({
+      ok: false,
+      soakGate: {
+        outcome: "fail",
+        releaseReadiness: "blocked",
+        summary: "Sync soak gate execution failed.",
+      },
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "[sync-cron] soak_gate_error",
+      expect.any(Error),
+    );
+    spy.mockRestore();
   });
 
   it("does not fail cron when the Meta snapshot job fails", async () => {
@@ -685,6 +877,9 @@ describe("POST /api/sync/cron", () => {
     expect(payload.providerScope).toBe("meta");
     expect(activeBusinesses.readActiveBusinesses).not.toHaveBeenCalled();
     expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+    expect(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).not.toHaveBeenCalled();
     expect(releaseGates.evaluateAndPersistSyncGates).toHaveBeenCalledWith({
       buildId: "build-123",
       breakGlass: false,
@@ -818,6 +1013,9 @@ describe("sync cron admission happens BEFORE any work", () => {
       ok: true,
       businesses: [{ id: "biz_1", name: "Biz 1" }],
     } as never);
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockResolvedValue(emptyDuplicateSweepResult as never);
   });
 
   afterEach(() => {
@@ -901,6 +1099,9 @@ describe("POST /api/sync/cron Google Ads freshness receipt", () => {
       ok: true,
       businesses: [{ id: "biz_1", name: "Biz 1" }],
     } as never);
+    vi.mocked(
+      duplicateReconciliation.runMetaAdDuplicateReconciliationSweep,
+    ).mockResolvedValue(emptyDuplicateSweepResult as never);
     vi.mocked(googleSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({ queued: 0 } as never);
     vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: 0 } as never);
     vi.mocked(ga4Sync.syncGA4Reports).mockResolvedValue({ synced: true } as never);

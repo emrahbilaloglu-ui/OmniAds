@@ -1,4 +1,5 @@
 import React from "react";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -6,6 +7,7 @@ import type { DecisionOutput } from "@/lib/creative-decision-engine";
 import { normalizeMetaLaunchPayload } from "@/lib/launchpad/meta";
 import {
   LaunchpadReview,
+  buildLaunchpadValidationRequest,
   buildLaunchpadBudgetReview,
   buildEngineAggregate,
 } from "@/components/launchpad/LaunchpadReview";
@@ -128,6 +130,31 @@ const payload = normalizeMetaLaunchPayload({
 });
 
 describe("LaunchpadReview", () => {
+  it("invalidates manual confirmation whenever the reviewed payload changes", () => {
+    const source = readFileSync(
+      "components/launchpad/LaunchpadReview.tsx",
+      "utf8",
+    );
+    expect(source).toContain("setAck(false);");
+    expect(source).toContain(
+      "[businessId, mode, payload, providerAccountId]",
+    );
+  });
+
+  it("binds validation to the exact provider account under review", () => {
+    expect(
+      buildLaunchpadValidationRequest({
+        businessId: "biz",
+        providerAccountId: "act_123",
+        payload,
+      }),
+    ).toEqual({
+      businessId: "biz",
+      providerAccountId: "act_123",
+      payload,
+    });
+  });
+
   it("normalizes launch payload currency codes without accepting non-ISO names", () => {
     expect(
       normalizeMetaLaunchPayload({
@@ -189,6 +216,7 @@ describe("LaunchpadReview", () => {
     const html = renderToStaticMarkup(
       <LaunchpadReview
         businessId="biz"
+        providerAccountId="act_1"
         payload={payload}
         currencyCode="USD"
         selectedCreatives={[makeCreative("creative_1", 100, 3)]}
@@ -214,6 +242,7 @@ describe("LaunchpadReview", () => {
     const html = renderToStaticMarkup(
       <LaunchpadReview
         businessId="biz"
+        providerAccountId="act_1"
         payload={payload}
         currencyCode={null}
         selectedCreatives={[makeCreative("creative_1", 100, 3)]}
@@ -252,6 +281,7 @@ describe("LaunchpadReview", () => {
       <LaunchpadReview
         mode="add_to_existing"
         businessId="biz"
+        providerAccountId="act_1"
         payload={modeBPayload}
         currencyCode="USD"
         selectedCreatives={[makeCreative("creative_1", 100, 3)]}

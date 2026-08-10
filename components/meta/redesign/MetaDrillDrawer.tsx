@@ -317,8 +317,10 @@ function GradientSpark({ values, target, gradientId }: { values: number[]; targe
           <stop offset="100%" stopColor="var(--ok)" />
         </linearGradient>
       </defs>
+      {/* A dashed guide rule, not text -- --border-3 is the colour this line
+          already resolved to, kept under the name that says what it is. */}
       {targetY != null ? (
-        <line x1="0" y1={targetY} x2={W} y2={targetY} stroke="var(--muted-2)" strokeWidth="1" strokeDasharray="3 3" />
+        <line x1="0" y1={targetY} x2={W} y2={targetY} stroke="var(--border-3)" strokeWidth="1" strokeDasharray="3 3" />
       ) : null}
       <polyline points={points} fill="none" stroke={`url(#${gradientId})`} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

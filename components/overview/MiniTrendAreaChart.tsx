@@ -255,6 +255,12 @@ export function MiniTrendAreaChart({
       role="group"
       tabIndex={0}
       aria-label={accessibleSummary}
+      data-mini-trend-chart="true"
+      // Which point is being read, exposed so a browser test can prove an
+      // Arrow key moved the reading rather than merely being accepted. The
+      // sr-only live region carries the same fact for a screen reader; this
+      // is the machine-checkable form of it.
+      data-active-point={hoverIndex === null ? "none" : String(hoverIndex)}
       onKeyDown={handleKeyDown}
       onBlur={() => setHoverIndex(null)}
     >

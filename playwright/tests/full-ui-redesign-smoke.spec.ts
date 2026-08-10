@@ -1439,6 +1439,85 @@ test.describe("full UI redesign route and visual smoke", () => {
           ).toEqual([]);
         }
 
+        // The keyboard affordances have to be real, not printed.
+        //
+        // The old `⌘K` hint sat in `PlatformSwitcher` next to a `Notify me`
+        // that only called `console.info`. Nothing listened for the shortcut.
+        // A rendered hint is a promise, so this presses the real keys through
+        // the browser rather than asserting the markup that advertises them.
+        {
+          const field = shotPage.locator("#global-search");
+          // The search bar is `hidden md:block`, so below 768px there is no
+          // shortcut to honour and nothing is claimed. Counting nodes would
+          // not catch that -- a display:none element is still in the DOM --
+          // so this asks whether it is actually on screen.
+          if (await field.isVisible().catch(() => false)) {
+            await shotPage.locator("body").click({ position: { x: 2, y: 2 } });
+
+            await shotPage.keyboard.press("ControlOrMeta+k");
+            // Focus is the whole promise. The results panel only appears once
+            // something is typed, so asserting a panel here would be testing
+            // a behaviour the design never offered; landing the caret in the
+            // field is what the printed hint actually claims.
+            await expect(
+              field,
+              `${shot.path} advertises a search shortcut that does not reach the field`,
+            ).toBeFocused({ timeout: 4_000 });
+            expect(
+              await field.getAttribute("aria-expanded"),
+              `${shot.path} focused search without announcing it opened`,
+            ).toBe("true");
+
+            await shotPage.keyboard.press("Escape");
+            expect(
+              await field.getAttribute("aria-expanded"),
+              `${shot.path} search cannot be dismissed with Escape`,
+            ).toBe("false");
+          }
+        }
+
+        // A chart that only answers to a pointer is unreadable to anyone not
+        // using one. The trend sparkline was `aria-hidden` with a hover-only
+        // tooltip, so its figures existed on screen and nowhere else.
+        {
+          const charts = shotPage.locator('[data-mini-trend-chart="true"]');
+          const count = await charts.count();
+          if (count > 0) {
+            const chart = charts.first();
+            expect(
+              (await chart.getAttribute("aria-label"))?.trim() || "",
+              `${shot.path} trend chart has no accessible name`,
+            ).not.toBe("");
+
+            await chart.focus();
+            expect(
+              await shotPage.evaluate(
+                () =>
+                  document.activeElement?.getAttribute("data-mini-trend-chart") ===
+                  "true",
+              ),
+              `${shot.path} trend chart cannot take keyboard focus`,
+            ).toBe(true);
+
+            // Arrowing must actually move a reading, not just accept the key.
+            const readingFor = async () =>
+              (await chart.getAttribute("data-active-point")) ?? "";
+            const first = await readingFor();
+            await shotPage.keyboard.press("ArrowRight");
+            const second = await readingFor();
+            expect(
+              second,
+              `${shot.path} trend chart does not respond to Arrow keys`,
+            ).not.toBe(first);
+
+            // And the reading has to be announced, not merely stored.
+            expect(
+              (await chart.locator("[aria-live]").first().textContent())?.trim() || "",
+              `${shot.path} trend chart moves without announcing the value`,
+            ).not.toBe("");
+          }
+        }
+
           if (topbar) {
             expect(
               topbar.overlaps,

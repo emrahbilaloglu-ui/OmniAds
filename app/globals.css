@@ -2612,7 +2612,13 @@
     --ink-2: var(--adc-ink2);
     --ink-3: var(--adc-ink3);
     --muted: var(--adc-ink3);
-    --muted-2: var(--adc-b2);
+    /* Was var(--adc-b2) -- a hairline colour, aliased one line below as
+       --border-3. Twenty-five text sites painted words with it, including the
+       Copies "data as of ..." stamp at 1.60:1. There is no legible tier below
+       --muted, so this resolves to the same ink rather than inventing a
+       dimmer one that would fail the floor on tinted rows. Hairline users
+       moved to --border-3 and are unchanged. */
+    --muted-2: var(--adc-ink3);
     --border: var(--adc-b1);
     --border-2: var(--adc-b1);
     --border-3: var(--adc-b2);
@@ -2793,7 +2799,9 @@
     height: 6px;
     flex-shrink: 0;
     border-radius: 50%;
-    background: var(--muted-2);
+    /* A neutral status dot, not text. --border-3 is the same colour --muted-2
+       used to resolve to, so this renders identically. */
+    background: var(--border-3);
   }
 
   .ad-final .chip--action {

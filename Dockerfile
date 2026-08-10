@@ -10,7 +10,10 @@ FROM deps AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DISABLE_WEBPACK_CACHE=1
 # The default heap is not enough for this tree; the build OOMs without it.
-ENV NODE_OPTIONS=--max-old-space-size=4096
+# Matched to the CI build job. The branch grew the TypeScript program enough
+# that `next build` -- webpack graph plus type-check in one process -- exceeded
+# 2GB on CI; 4096 left little margin for the image build that actually ships.
+ENV NODE_OPTIONS=--max-old-space-size=6144
 COPY . .
 RUN npm run build
 

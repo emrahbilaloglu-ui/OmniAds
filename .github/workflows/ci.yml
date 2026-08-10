@@ -119,6 +119,17 @@ jobs:
         run: npm ci
 
       - name: Build
+        # `next build` holds the webpack graph and runs TypeScript in the same
+        # process, and together they exceed the runner's default ~2GB heap:
+        # the compile succeeds and the type-check phase then dies with
+        # "Ineffective mark-compacts near heap limit". The standalone typecheck
+        # job passes at the default, which is why this surfaced here first.
+        #
+        # Matched to the Dockerfile's allocation on purpose. A gate that passes
+        # with more headroom than the image it is meant to vouch for is not a
+        # gate -- CI would go green while the deploy build OOMs.
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           npm run build
 

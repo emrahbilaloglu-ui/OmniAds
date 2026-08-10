@@ -1085,19 +1085,31 @@ ad, account or report write was made, and no protected flag was touched.
 | 3 — 320px topbar | deployed stylesheet | ships `@media (max-width:720px){.ad-console-shell .ad-console-topbar{flex-wrap:wrap;gap:8px;height:auto;min-height:50px;padding:6px 10px;overflow:visible}}` with freshness on its own row |
 | 8 — border colour as text | deployed stylesheet | `--muted-2:var(--adc-ink3)`; the `var(--adc-b2)` form is absent |
 
-### What this pass could not do
+### 320 and 390, rendered on production
 
-Defects 3 and 8 are recorded above from the deployed stylesheet, not from rendered geometry in the
-production browser, and that distinction is the point of separating the rows.
+The signed-in Chrome tab will not change viewport. `resize_window` reports success for 320, 390 and
+even 800 while `innerWidth`, `clientWidth`, `visualViewport.width` and `matchMedia` all stay at
+1281 and `outerWidth` reads `0` — five independent signals, so this is a dead route, not a slow
+one. I first recorded defects 3 and 8 from the deployed stylesheet and wrote the mobile widths off
+as unreachable. That was wrong, and wrong in the way this whole ledger is about: one blocked route
+is not the same as an impossible measurement.
 
-The signed-in Chrome tab would not change viewport. `resize_window` reported success for both 320
-and 390 while `window.innerWidth` stayed at 1281 and `window.outerWidth` read `0` — the tab is not
-in a resizable window. The in-app browser resizes but is not signed in, and signing it in would
-mean entering credentials, which is out of bounds. So no rendered 320/390 production geometry was
-captured.
+A same-origin iframe sized to 320px inside the signed-in page gives the framed document a genuine
+320px viewport. Media queries evaluate against it, layout is real, `getBoundingClientRect` returns
+real geometry, and the session applies because it is the same browser and the same origin. No
+credentials were involved, and the iframe was removed afterwards.
 
-What stands in its place is narrower and should be read as such: the six-width matrix measured
-rendered geometry at 320 and 390 on this exact commit locally — zero topbar rectangle
-intersections across 12 of 13 surfaces, freshness visible, no horizontal overflow — and the
-stylesheet that produced it is byte-for-byte the one now served. That is good evidence about the
-same code. It is not the same thing as having measured the live page at 320.
+Measured that way against live `adsecute.com`, `innerWidth` exactly 320 and 390 with
+`(max-width:720px)` matching:
+
+| Surface | 320 | 390 |
+| --- | --- | --- |
+| `/platforms/meta` topbar | 5 independent controls, **0 rectangle intersections**, freshness visible, 0 targets under 24px, `scrollWidth` 320 with no horizontal overflow | same, at 390 |
+| `/overview` | geometry clean | 24 delta nodes with **0 carrying a digit**, 26 charts, geometry clean |
+| `/platforms/meta/creatives` | 312 rendered text nodes, **0 below 12px, 0 below 4.5:1**, no overflow | — |
+| `/platforms/google` | read-only banner present and `display: flex` — visible where the claim is true | — |
+| `/settings` | no banner, 13 write controls | — |
+| `/integrations` | — | no banner, geometry clean |
+
+Production previously measured `Refresh ↔ Meta` at 3×16px and `Meta ↔ Notifications` at 28×28px on
+this bar. Both are now zero, on the deployed build, at the width where they were found.

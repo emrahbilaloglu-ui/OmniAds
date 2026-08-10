@@ -13,13 +13,15 @@ Source of truth for the template: `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION
 | Worktree HEAD | `23e9fc86e` (clean) |
 | Safety branch | `codex/native-ad-bounded-stop-loss-authority` @ `c46d91c2a` |
 | Safety commits in `origin/main` | `31950b1a9` NO · `1517674c7` NO · `e41691f33` NO · `c46d91c2a` NO |
-| Node/npm versions | `npm ci` run under operator authority; 705 packages; `package-lock.json` unmodified |
+| Node / npm | **node v24.4.1 · npm 11.4.2** (`npm ci`, 705 packages; `package-lock.json` unmodified) |
+| Post-G0 HEAD | `7d8bd86c1` · 7 commits ahead of `origin/main` (4 safety commits brought in by the merge + WP-00, WP-00.5, docs) |
+| Locale required for PostgreSQL gates | `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` |
 
 ## Ledger
 
 | WP | Status | Commit | Files/PR | Tests | Visual/AT evidence | Rollback verified | Exceptions |
 |---|---|---|---|---|---|---|---|
-| 00 | **complete** | `b082885be` | 54 hunks / 29 files | typecheck 0 · lint 0 · vitest 7608/0 · migrations-from-zero PASS · creative:v2:safety PASS · frozen 22/22 | — | `git reset --hard 23e9fc86e` | G0 ancestry verified for origin/main + all four safety commits |
+| 00 | **complete** | `b082885be` | 54 hunks / 29 files | typecheck 0 · lint 0 · vitest 7608/0 · migrations-from-zero PASS · creative:v2:safety PASS · frozen 22/22 | — | `git revert -m 1 b082885be` | G0 ancestry verified for origin/main + all four safety commits |
 | 00.5 | **complete** | `59fd7118b` | WP00_5_BASELINE_INVENTORY.md | read-only inventory at G0 | — | revert doc commit | all 5 APIs + notifications PRESENT; workflow/instrumentation tables PRESENT; /api/db-test absent |
 | 01 | not started | — | — | — | — | — | G0 now clean; not reached this session |
 | 02 | not started | — | — | — | — | — | G0 now clean; not reached this session |
@@ -53,6 +55,6 @@ Source of truth for the template: `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION
 
 ## Notes
 
-- No commit was created in this session. No application, test, dependency, schema, provider or production state changed.
+- WP-00 (`b082885be`) and WP-00.5 (`59fd7118b`) are committed; see the rows above for evidence. No dependency, provider, deployment or production state changed; `package-lock.json` is unmodified.
 - The planning worktree `/Users/harmelek/Adsecute` (`c46d91c2a`, 346 dirty files) was read only and remains untouched.
 - Full stop evidence: `PHASE_A_IMPLEMENTATION_REPORT.md` in this directory.

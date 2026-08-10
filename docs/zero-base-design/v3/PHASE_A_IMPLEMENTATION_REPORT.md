@@ -1,4 +1,4 @@
-# Phase A Implementation Report — WP-00 merge resolved, BLOCKED on 13 residual type errors
+# Phase A Implementation Report
 
 **Date:** 2026-08-11
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · branch `codex/adsecute-zero-base-implementation`
@@ -91,7 +91,13 @@ Copied from the proven pattern in `scripts/ephemeral-postgres-manual-ad-status-r
 - `package-lock.json` unmodified. No push, PR, deploy, production migration, provider call, campaign mutation, or live-state change. Only ephemeral local PostgreSQL clusters, all removed.
 - `/Users/harmelek/Adsecute` untouched at `c46d91c2a` with 346 dirty files.
 
-**Rollback:** `git reset --hard 23e9fc86e` returns the branch to the pristine `origin/main` baseline (WP-00 and WP-00.5 are the only commits); `WP00_MERGE_RESOLUTION.patch` replays the merge work. Or remove the scaffold entirely with `git worktree remove` + `git branch -D`.
+**Rollback (non-destructive).** This branch is isolated, so prefer reverts or removal over history rewriting:
+
+- Undo a single package: `git revert --no-edit <commit>` (use `git revert -m 1 b082885be` for the WP-00 merge).
+- Discard the whole attempt: `git worktree remove /Users/harmelek/Adsecute-zero-base` then `git branch -D codex/adsecute-zero-base-implementation`.
+- `WP00_MERGE_RESOLUTION.patch` replays the merge resolution if the branch is rebuilt.
+
+Do not use `git reset --hard`; it discards committed evidence this ledger references.
 
 ## 9 · Next allowed package
 

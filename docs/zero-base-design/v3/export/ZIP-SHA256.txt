@@ -1,0 +1,4 @@
+Adsecute-Zero-Base-Design-V3.zip
+SHA-256: a36a9682074a2a192e3b1098e51e0f84a87206c83bdaa15d4fd8ae6de9337f2b
+Active-manifest fingerprint (audit.json packageHash): f27bf51b31ddffe20b5c6404f5b7c1758ba5087342cd84941bf6c2d937befe4a
+Note: the ZIP hash covers the archive bytes (including export/ and archives); the fingerprint covers the active package files and is what audit.json binds to. Different values by design — never present one as the other.

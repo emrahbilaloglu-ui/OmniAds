@@ -1,0 +1,72 @@
+{
+ "numbered": [
+  "00 Package Index.dc.html",
+  "01 Evidence and Dispositions.dc.html",
+  "02 Sitemap and Navigation.dc.html",
+  "03 Flows A-M.dc.html",
+  "04 State Matrices.dc.html",
+  "05 Wireframes 1 - Access Agency Home.dc.html",
+  "06 Wireframes 2 - Meta.dc.html",
+  "07 Wireframes 3 - Creative Google Analytics.dc.html",
+  "08 Wireframes 4 - Reports Manage Admin Public.dc.html",
+  "09 Design System.dc.html",
+  "10 Hi-Fi 1 - Shell Agency Home.dc.html",
+  "11 Hi-Fi 2 - Meta Decisions and Writes.dc.html",
+  "12 Hi-Fi 3 - Creative and Launchpad.dc.html",
+  "13 Hi-Fi 4 - Google Analytics Reports.dc.html",
+  "14 Hi-Fi 5 - Manage Admin Public Mobile.dc.html",
+  "15 Responsive and Accessibility.dc.html",
+  "16 Ledgers and Gates.dc.html",
+  "17 Handoff Glossary Instrumentation.dc.html",
+  "18 Critical Flows at 1280 and 768.dc.html",
+  "19 Implementation Proofs.dc.html",
+  "20 Mutation and Retest Suite.dc.html"
+ ],
+ "shells": [
+  "Rail.dc.html",
+  "TopBar.dc.html",
+  "CtxBar.dc.html"
+ ],
+ "dataModules": [
+  "data/capabilities.js",
+  "data/invariants.js",
+  "data/routes.js",
+  "data/interactions.js",
+  "data/instrumentation.js",
+  "data/sitemap.js",
+  "data/report-sources.js",
+  "data/evidence.js",
+  "data/semantics.js",
+  "data/collections.js",
+  "data/flows.js",
+  "data/requirements.js",
+  "data/gates.js",
+  "data/lint.js",
+  "data/audit.js",
+  "data/mutations.js"
+ ],
+ "vendored": [
+  "vendor/resources.js",
+  "vendor/probe.js",
+  "vendor/react.production.min.js",
+  "vendor/react-dom.production.min.js",
+  "vendor/babel.min.js",
+  "vendor/fonts.css"
+ ],
+ "activeExports": [
+  "export/v3/audit.json",
+  "export/v3/interaction-manifest.json",
+  "export/v3/sitemap.json",
+  "export/v3/instrumentation-ledger.json",
+  "export/v3/report-catalog.json",
+  "export/v3/reconciliation.json",
+  "export/v3/artifact-index.json",
+  "export/v3/CHANGELOG.md",
+  "export/v3/ACCEPTANCE.md"
+ ],
+ "archives": [
+  "v1/ — V1 package (history; not authoritative)",
+  "export/v2/ — V2 exports + check screenshots (history; not authoritative)",
+  "v1/notes/ — superseded working notes (history; not authoritative)"
+ ]
+}

@@ -158,7 +158,8 @@
     "test:operator-hardening": "bash scripts/operator-hardening-check.sh",
     "test:cutover-self-cleanup": "bash scripts/cutover-self-cleanup-check.sh",
     "test:cutover-migration-capacity-sample": "bash scripts/cutover-migration-capacity-sample-check.sh",
-    "test:cutover-supersede-guard": "bash scripts/cutover-supersede-guard-check.sh"
+    "test:cutover-supersede-guard": "bash scripts/cutover-supersede-guard-check.sh",
+    "zero-base:contract:verify": "node --import tsx scripts/zero-base/verify-design-contract.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

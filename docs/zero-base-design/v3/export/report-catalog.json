@@ -1,0 +1,105 @@
+[
+ {
+  "id": "overview_summary",
+  "label": "Overview — summary",
+  "kind": "renderable",
+  "branch": "renderOverviewSummary",
+  "widget": "metric cards",
+  "empty": "No summary rows served for this window — widget renders the empty grammar, never zeros.",
+  "error": "Summary source failed — per-widget error + retry; the page never blanks.",
+  "ev": "builder_source_toggled",
+  "ctl": "live:REPORT-05 source-toggle"
+ },
+ {
+  "id": "overview_trend",
+  "label": "Overview — trend",
+  "kind": "renderable",
+  "branch": "renderOverviewTrend",
+  "widget": "trend line/bars",
+  "empty": "No trend points served — axis renders with 'no data in window' note.",
+  "error": "Trend source failed — error + retry inside the widget frame.",
+  "ev": "builder_source_toggled",
+  "ctl": "live:REPORT-05 source-toggle"
+ },
+ {
+  "id": "channel_attribution",
+  "label": "Channel attribution",
+  "kind": "renderable",
+  "branch": "renderChannelAttribution",
+  "widget": "attribution table",
+  "empty": "No attributed channels in this window — table renders header + empty grammar.",
+  "error": "Attribution source failed — error + retry; other widgets unaffected.",
+  "ev": "builder_source_toggled",
+  "ctl": "live:REPORT-05 source-toggle"
+ },
+ {
+  "id": "meta_campaigns",
+  "label": "Meta campaigns",
+  "kind": "renderable",
+  "branch": "renderMetaCampaigns",
+  "widget": "campaign table (CSV-eligible)",
+  "empty": "No Meta campaigns served for the selected account/window.",
+  "error": "Meta campaign source failed — error + retry per widget.",
+  "ev": "builder_source_toggled",
+  "ctl": "live:REPORT-05 source-toggle"
+ },
+ {
+  "id": "google_campaigns",
+  "label": "Google campaigns",
+  "kind": "renderable",
+  "branch": "renderGoogleCampaigns",
+  "widget": "campaign table (CSV-eligible)",
+  "empty": "No Google campaigns served — requires a connected, assigned Google Ads account.",
+  "error": "Google campaign source failed — error + retry per widget.",
+  "ev": "builder_source_toggled",
+  "ctl": "live:REPORT-05 source-toggle"
+ },
+ {
+  "id": "shopify_data",
+  "label": "Shopify",
+  "kind": "coming_soon",
+  "branch": "comingSoonSources",
+  "widget": "—",
+  "empty": "—",
+  "error": "—",
+  "reason": "“Coming soon” — exact server copy; catalog presence is not render support (REPORT-05/06).",
+  "ev": "none",
+  "ctl": "disabled:REPORT-06 source-unavailable"
+ },
+ {
+  "id": "ga4_data",
+  "label": "GA4",
+  "kind": "coming_soon",
+  "branch": "comingSoonSources",
+  "widget": "—",
+  "empty": "—",
+  "error": "—",
+  "reason": "“Coming soon” — exact server copy; selecting is disabled, never hidden.",
+  "ev": "none",
+  "ctl": "disabled:REPORT-06 source-unavailable"
+ },
+ {
+  "id": "search_console_data",
+  "label": "Search Console",
+  "kind": "coming_soon",
+  "branch": "comingSoonSources",
+  "widget": "—",
+  "empty": "—",
+  "error": "—",
+  "reason": "“Coming soon” — separate catalog row (never merged with Klaviyo).",
+  "ev": "none",
+  "ctl": "disabled:REPORT-06 source-unavailable"
+ },
+ {
+  "id": "klaviyo_data",
+  "label": "Klaviyo",
+  "kind": "coming_soon",
+  "branch": "comingSoonSources",
+  "widget": "—",
+  "empty": "—",
+  "error": "—",
+  "reason": "“Coming soon” — separate catalog row (never merged with Search Console).",
+  "ev": "none",
+  "ctl": "disabled:REPORT-06 source-unavailable"
+ }
+]

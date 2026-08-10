@@ -1,0 +1,1222 @@
+[
+ {
+  "leaf": "L-PUB-ROOT",
+  "label": "Marketing home",
+  "url": "/",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_home",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/",
+    "mode": "alias"
+   }
+  ],
+  "note": "Authenticated users are forwarded to their last workspace or /a/desk"
+ },
+ {
+  "leaf": "L-PUB-ABOUT",
+  "label": "About",
+  "url": "/about",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_about",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/about",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-PUB-PRODUCT",
+  "label": "Product",
+  "url": "/product",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_product",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/product",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-PUB-PRICING",
+  "label": "Pricing",
+  "url": "/pricing",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_pricing",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/pricing",
+    "mode": "alias"
+   }
+  ],
+  "note": "Plan availability = commercial presentation, never authorization"
+ },
+ {
+  "leaf": "L-PUB-CONTACT",
+  "label": "Contact",
+  "url": "/contact",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_contact",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/contact",
+    "mode": "alias"
+   }
+  ],
+  "note": "The single consistent help channel (3.2.6)"
+ },
+ {
+  "leaf": "L-PUB-PRIVACY",
+  "label": "Privacy",
+  "url": "/privacy",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_privacy",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/privacy",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-PUB-TERMS",
+  "label": "Terms",
+  "url": "/terms",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_terms",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/terms",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-PUB-SECURITY",
+  "label": "Security",
+  "url": "/security",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_security",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/security",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-PUB-AITRANS",
+  "label": "AI transparency",
+  "url": "/ai-transparency",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "pub_ai_transparency",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/ai-transparency",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-LOGIN",
+  "label": "Login",
+  "url": "/login",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_login",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/login",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-SIGNUP",
+  "label": "Signup",
+  "url": "/signup",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_signup",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/signup",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-FORGOT",
+  "label": "Password reset request",
+  "url": "/forgot-password",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_forgot_password",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/forgot-password",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-RESET",
+  "label": "Password reset confirm",
+  "url": "/reset-password",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_reset_password",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reset-password",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-DEMO",
+  "label": "Demo entry",
+  "url": "/demo",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_demo",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/demo",
+    "mode": "alias"
+   }
+  ],
+  "note": "Lands in demo-labelled workspace"
+ },
+ {
+  "leaf": "L-AUTH-INVITE",
+  "label": "Invite acceptance",
+  "url": "/invite/[token]",
+  "ctx": "Public",
+  "role": "Public",
+  "availability": "live",
+  "surface": "auth_invite",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/invite/[token]",
+    "mode": "alias"
+   }
+  ],
+  "note": "token_hash only — never the raw token"
+ },
+ {
+  "leaf": "L-AUTH-SELBIZ",
+  "label": "Business selection",
+  "url": "/select-business",
+  "ctx": "Auth",
+  "role": "Any authenticated",
+  "availability": "live",
+  "surface": "auth_select_business",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/select-business",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-AUTH-NEWBIZ",
+  "label": "First/new business creation",
+  "url": "/businesses/new",
+  "ctx": "Auth",
+  "role": "Any authenticated",
+  "availability": "live",
+  "surface": "auth_business_new",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/businesses/new",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-ME-ACCOUNT",
+  "label": "Account & Security",
+  "url": "/me/account-security",
+  "ctx": "Auth",
+  "role": "Any authenticated",
+  "availability": "new-surface",
+  "surface": "me_account_security",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/settings",
+    "mode": "split"
+   }
+  ],
+  "note": "Profile, password, sessions (revoke-all warns about the current session) — user-scoped, split out of the legacy business /settings page"
+ },
+ {
+  "leaf": "L-ME-LANG",
+  "label": "Language",
+  "url": "/me/language",
+  "ctx": "Auth",
+  "role": "Any authenticated",
+  "availability": "live",
+  "surface": "me_language",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/select-language",
+    "mode": "redirect"
+   }
+  ],
+  "note": "EN/TR; non-translatable terms stay verbatim"
+ },
+ {
+  "leaf": "L-AUTH-SHOPIFY",
+  "label": "Shopify embedded install",
+  "url": "/shopify/connect",
+  "ctx": "Auth",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "auth_shopify_connect",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/shopify/connect",
+    "mode": "alias"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-A-DESK",
+  "label": "Agency Desk — Today",
+  "url": "/a/desk",
+  "ctx": "Agency",
+  "role": "Agency member",
+  "availability": "new-surface",
+  "surface": "agency_desk_today",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Allowed fields only: name/id, membership, configured currency (labelled), Meta connection, selected-account count, source-activity freshness. Alphabetical. Zero money/severity/ranking"
+ },
+ {
+  "leaf": "L-A-CLIENTS",
+  "label": "Agency Desk — Clients",
+  "url": "/a/desk/clients",
+  "ctx": "Agency",
+  "role": "Agency member",
+  "availability": "new-surface",
+  "surface": "agency_desk_clients",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Paged client cards; deep link = business context only"
+ },
+ {
+  "leaf": "L-A-WITHHELD",
+  "label": "Agency Desk — withheld explainer",
+  "url": "/a/desk/withheld",
+  "ctx": "Agency",
+  "role": "Agency member",
+  "availability": "new-surface",
+  "surface": "agency_desk_withheld",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Why cross-client money & work queues are withheld (currency proof, safety)"
+ },
+ {
+  "leaf": "L-C-HOME",
+  "label": "Client Home",
+  "url": "/c/[businessId]/home",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "client_home",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/overview",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-META-DEC",
+  "label": "Meta — Decisions",
+  "url": "/c/[businessId]/meta/decisions",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "meta_decisions",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Primary Meta surface; lanes + inspector; URL carries account/lane/level/window (INV-18)"
+ },
+ {
+  "leaf": "L-C-META-INTEL",
+  "label": "Meta — Account Intelligence",
+  "url": "/c/[businessId]/meta/intelligence",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "meta_intelligence",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/audiences",
+    "mode": "merged"
+   }
+  ],
+  "note": "Pulse, trends, breakdowns, inventory, labels, structure, recommendations"
+ },
+ {
+  "leaf": "L-C-META-LAUNCH",
+  "label": "Meta — Launchpad",
+  "url": "/c/[businessId]/meta/launchpad",
+  "ctx": "Client",
+  "role": "Business member (collab+ to edit)",
+  "availability": "live",
+  "surface": "meta_launchpad",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/launchpad",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Draft/validate live; execution disabled behind LAUNCH-06/07"
+ },
+ {
+  "leaf": "L-C-META-AUTO",
+  "label": "Meta — Automation & Meta Stop",
+  "url": "/c/[businessId]/meta/automation",
+  "ctx": "Client",
+  "role": "Business member (admin to engage)",
+  "availability": "live",
+  "surface": "meta_automation",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/automation",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Business-scoped Meta stop; separate Google posture row always shown"
+ },
+ {
+  "leaf": "L-C-META-HIST",
+  "label": "Meta — History",
+  "url": "/c/[businessId]/meta/history",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "meta_history",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/history",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Replay ≠ live; V1/V2 snapshot badges"
+ },
+ {
+  "leaf": "L-C-CR-PERF",
+  "label": "Creative — Performance",
+  "url": "/c/[businessId]/creative/performance",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "creative_performance",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/creatives",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Meta-scoped (badge)"
+ },
+ {
+  "leaf": "L-C-CR-DETAIL",
+  "label": "Creative — Detail & History",
+  "url": "/c/[businessId]/creative/[creativeId]",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "new-surface",
+  "surface": "creative_detail",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Detail/lineage existed only as API reads; needs its own routed surface"
+ },
+ {
+  "leaf": "L-C-CR-BRIEFS",
+  "label": "Creative — Briefs",
+  "url": "/c/[businessId]/creative/briefs",
+  "ctx": "Client",
+  "role": "Business member (collab+ to create)",
+  "availability": "new-surface",
+  "surface": "creative_briefs",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Brief list + form; lineage from engine decisions only"
+ },
+ {
+  "leaf": "L-C-CR-INBOX",
+  "label": "Creative — Inbox",
+  "url": "/c/[businessId]/creative/inbox",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "creative_inbox",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/creative-inbox",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-CR-COPIES",
+  "label": "Creative — Copies",
+  "url": "/c/[businessId]/creative/copies",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "creative_copies",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/copies",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Dead subfeatures absent"
+ },
+ {
+  "leaf": "L-C-CR-LP",
+  "label": "Creative — Landing Pages",
+  "url": "/c/[businessId]/creative/landing-pages",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "creative_landing_pages",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/meta/landing-pages",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-CR-SHARES",
+  "label": "Creative — Shares",
+  "url": "/c/[businessId]/creative/shares",
+  "ctx": "Client",
+  "role": "Business member (collab+ to mint)",
+  "availability": "new-surface",
+  "surface": "creative_shares",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Full lifecycle: list, mint (tier gate), revoke, rotate (INV-16)"
+ },
+ {
+  "leaf": "L-C-G-OVER",
+  "label": "Google — Overview",
+  "url": "/c/[businessId]/google/overview",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "google_overview",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/google",
+    "mode": "redirect"
+   },
+   {
+    "route": "/platforms/google/pulse",
+    "mode": "merged"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-G-ADV",
+  "label": "Google — Advisor",
+  "url": "/c/[businessId]/google/advisor",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "google_advisor",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/google/ads",
+    "mode": "merged"
+   }
+  ],
+  "note": "Recommendation-bound; writeback default-off, unverified"
+ },
+ {
+  "leaf": "L-C-G-SEARCH",
+  "label": "Google — Search",
+  "url": "/c/[businessId]/google/search",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "google_search",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/google/keywords",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Search terms + negatives (manual path primary)"
+ },
+ {
+  "leaf": "L-C-G-PROD",
+  "label": "Google — Products",
+  "url": "/c/[businessId]/google/products",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "new-surface",
+  "surface": "google_products",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Merchant feed diagnostics; read-only"
+ },
+ {
+  "leaf": "L-C-G-ASSETS",
+  "label": "Google — Assets & Audiences",
+  "url": "/c/[businessId]/google/assets-audiences",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "google_assets_audiences",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/platforms/google/audiences",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-G-PLAN",
+  "label": "Google — Manual Plan & Activity",
+  "url": "/c/[businessId]/google/plan",
+  "ctx": "Client",
+  "role": "Business member (collab+ to edit)",
+  "availability": "new-surface",
+  "surface": "google_plan",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Copy/CSV/deep-link worklist + readable journal part; no Google reconciliation exists"
+ },
+ {
+  "leaf": "L-C-AN-GA",
+  "label": "Analytics — GA4 & Shopify",
+  "url": "/c/[businessId]/analytics/ga4-shopify",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "analytics_ga4_shopify",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/insights",
+    "mode": "merged"
+   },
+   {
+    "route": "/insights/analytics",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-AN-LP",
+  "label": "Analytics — Landing Pages & Products",
+  "url": "/c/[businessId]/analytics/landing-pages",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "new-surface",
+  "surface": "analytics_landing_pages",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "LP/product analytics views split from legacy insights"
+ },
+ {
+  "leaf": "L-C-AN-SEO",
+  "label": "Analytics — SEO & Search Console",
+  "url": "/c/[businessId]/analytics/seo",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "analytics_seo",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/insights/seo",
+    "mode": "redirect"
+   }
+  ],
+  "note": "SEO-04 generation gated (auth/skipped/failed)"
+ },
+ {
+  "leaf": "L-C-AN-GEO",
+  "label": "Analytics — GEO / AI Visibility",
+  "url": "/c/[businessId]/analytics/geo",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "analytics_geo",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/insights/ai-visibility",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Dual-source, collab-only, aiPageCount proxy cap 50 disclosed"
+ },
+ {
+  "leaf": "L-C-REP",
+  "label": "Reports — library",
+  "url": "/c/[businessId]/reports",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "reports_library",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reports",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-REP-NEW",
+  "label": "Reports — new from template",
+  "url": "/c/[businessId]/reports/new",
+  "ctx": "Client",
+  "role": "Business member (collab+)",
+  "availability": "live",
+  "surface": "reports_new",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reports/new",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-REP-VIEW",
+  "label": "Reports — render",
+  "url": "/c/[businessId]/reports/[reportId]",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "reports_view",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reports/[reportId]",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Per-widget states independent"
+ },
+ {
+  "leaf": "L-C-REP-EDIT",
+  "label": "Reports — builder",
+  "url": "/c/[businessId]/reports/[reportId]/edit",
+  "ctx": "Client",
+  "role": "Business member (collab+)",
+  "availability": "live",
+  "surface": "reports_edit",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reports/[reportId]/edit",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Source catalog 5 renderable + 4 coming-soon (data/report-sources.js)"
+ },
+ {
+  "leaf": "L-C-REP-PRINT",
+  "label": "Reports — print/PDF",
+  "url": "/c/[businessId]/reports/[reportId]/print",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "reports_print",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/reports/[reportId]/print",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-M-INT",
+  "label": "Manage — Integrations & Data",
+  "url": "/c/[businessId]/manage/integrations",
+  "ctx": "Client",
+  "role": "Business member (admin to disconnect)",
+  "availability": "live",
+  "surface": "manage_integrations",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/integrations",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-M-CB",
+  "label": "Manage — OAuth callback",
+  "url": "/c/[businessId]/manage/integrations/callback/[provider]",
+  "ctx": "Client",
+  "role": "Business member",
+  "availability": "live",
+  "surface": "manage_integrations_callback",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/integrations/callback/[provider]",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Progress / denied / error states"
+ },
+ {
+  "leaf": "L-C-M-TEAM",
+  "label": "Manage — Team & Access",
+  "url": "/c/[businessId]/manage/team",
+  "ctx": "Client",
+  "role": "Business admin (members read)",
+  "availability": "live",
+  "surface": "manage_team",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/team",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-C-M-BIZ",
+  "label": "Manage — Business Settings",
+  "url": "/c/[businessId]/manage/business",
+  "ctx": "Client",
+  "role": "Business admin",
+  "availability": "live",
+  "surface": "manage_business",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/settings",
+    "mode": "split"
+   },
+   {
+    "route": "/commercial-truth",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Includes Commercial Truth + cost model with ECON-04 divergence panel; delete warns no read-back"
+ },
+ {
+  "leaf": "L-C-M-PLAN",
+  "label": "Manage — Plan & Billing",
+  "url": "/c/[businessId]/manage/plan",
+  "ctx": "Client",
+  "role": "Business admin",
+  "availability": "new-surface",
+  "surface": "manage_plan",
+  "event": "screen_view",
+  "legacy": [],
+  "note": "Static plan copy only; /api/billing never called (SEC-02); remediation-gated"
+ },
+ {
+  "leaf": "L-OPS-OVER",
+  "label": "Ops — Overview",
+  "url": "/ops",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_overview",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-ACT",
+  "label": "Ops — Activity",
+  "url": "/ops/activity",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_activity",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/activity",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-AUTH",
+  "label": "Ops — Auth health",
+  "url": "/ops/auth-health",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_auth_health",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/auth-health",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-BIZ",
+  "label": "Ops — Businesses",
+  "url": "/ops/businesses",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_businesses",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/businesses",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-BIZ-D",
+  "label": "Ops — Business detail",
+  "url": "/ops/businesses/[businessId]",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_business_detail",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/businesses/[businessId]",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Admin-gated irreversible delete; no read-back warning"
+ },
+ {
+  "leaf": "L-OPS-DISC",
+  "label": "Ops — Discounts",
+  "url": "/ops/discounts",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_discounts",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/discounts",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-DISC-N",
+  "label": "Ops — New discount",
+  "url": "/ops/discounts/new",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_discount_new",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/discounts/new",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-DISC-D",
+  "label": "Ops — Discount detail",
+  "url": "/ops/discounts/[codeId]",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_discount_detail",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/discounts/[codeId]",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-INT",
+  "label": "Ops — Integration health",
+  "url": "/ops/integrations",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_integrations",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/integrations",
+    "mode": "redirect"
+   }
+  ],
+  "note": "Admin-only sync repair handoff (Flow H)"
+ },
+ {
+  "leaf": "L-OPS-REL",
+  "label": "Ops — Release authority",
+  "url": "/ops/release-authority",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_release_authority",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/release-authority",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-REV",
+  "label": "Ops — Revenue risk",
+  "url": "/ops/revenue-risk",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_revenue_risk",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/revenue-risk",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-SUBS",
+  "label": "Ops — Subscriptions",
+  "url": "/ops/subscriptions",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_subscriptions",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/subscriptions",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-SYNC",
+  "label": "Ops — Sync health",
+  "url": "/ops/sync-health",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_sync_health",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/sync-health",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-CAP",
+  "label": "Ops — System capacity",
+  "url": "/ops/system-capacity",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_system_capacity",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/system-capacity",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-USERS",
+  "label": "Ops — Users",
+  "url": "/ops/users",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_users",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/users",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-OPS-USER-D",
+  "label": "Ops — User detail",
+  "url": "/ops/users/[userId]",
+  "ctx": "Ops",
+  "role": "Platform admin",
+  "availability": "live",
+  "surface": "ops_user_detail",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/admin/users/[userId]",
+    "mode": "redirect"
+   }
+  ],
+  "note": ""
+ },
+ {
+  "leaf": "L-SH-CREATIVE",
+  "label": "Public creative share",
+  "url": "/share/creative/[token]",
+  "ctx": "Share",
+  "role": "Unauthenticated token recipient",
+  "availability": "live",
+  "surface": "share_creative",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/share/creative/[token]",
+    "mode": "alias"
+   }
+  ],
+  "note": "Tier-scoped; expiry/as-of footer; revoked leaks nothing"
+ },
+ {
+  "leaf": "L-SH-REPORT",
+  "label": "Public report share",
+  "url": "/share/report/[token]",
+  "ctx": "Share",
+  "role": "Unauthenticated token recipient",
+  "availability": "live",
+  "surface": "share_report",
+  "event": "screen_view",
+  "legacy": [
+   {
+    "route": "/share/report/[token]",
+    "mode": "alias"
+   }
+  ],
+  "note": "Renders only the disabled statement — never report data (REPORT-11/12)"
+ }
+]

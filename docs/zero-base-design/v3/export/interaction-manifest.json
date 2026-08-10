@@ -1,0 +1,1138 @@
+[
+ {
+  "k": "live:AUTH-01",
+  "ev": "signup_opened",
+  "t": "click/Enter",
+  "o": "→ /signup; email prefilled from invite when present (3.3.7)",
+  "f": "focus → email field",
+  "x": "duplicate email → inline error under field, field keeps value"
+ },
+ {
+  "k": "live:AUTH-02 email",
+  "ev": "login_field_input",
+  "t": "type/paste (paste never blocked)",
+  "o": "value buffered client-side only",
+  "f": "label-bound input; Enter moves to password",
+  "x": "validation on blur: format error inline + aria-describedby"
+ },
+ {
+  "k": "live:AUTH-02 password",
+  "ev": "login_field_input",
+  "t": "type/paste",
+  "o": "value buffered; managers supported (3.3.8)",
+  "f": "Enter submits form",
+  "x": "caps-lock hint; no cognitive puzzle"
+ },
+ {
+  "k": "live:AUTH-02 submit",
+  "ev": "login_submit",
+  "t": "click/Enter",
+  "o": "POST /api/auth/login → session → last workspace or Agency Desk",
+  "f": "focus → progress status (role=status), then page h1",
+  "x": "invalid: verbatim server error above form; rate-limited: retry-after shown; offline: banner, button re-enabled"
+ },
+ {
+  "k": "live:AUTH-03 google",
+  "ev": "oauth_google_start",
+  "t": "click/Enter",
+  "o": "OAuth redirect; callback shows pending → session",
+  "f": "focus preserved to button on return-error",
+  "x": "denied/error: callback state page with verbatim reason + retry"
+ },
+ {
+  "k": "live:AUTH-04 facebook",
+  "ev": "oauth_facebook_start",
+  "t": "click/Enter",
+  "o": "OAuth redirect (same contract as Google)",
+  "f": "as Google",
+  "x": "as Google"
+ },
+ {
+  "k": "live:AUTH-05 forgot",
+  "ev": "password_reset_requested",
+  "t": "click/Enter",
+  "o": "→ reset-request form; always claims sent (PARTIAL: delivery unverified — copy discloses)",
+  "f": "focus → email field",
+  "x": "unknown email indistinguishable by design; rate-limited shown"
+ },
+ {
+  "k": "live:AUTH-06 demo",
+  "ev": "demo_entered",
+  "t": "click/Enter",
+  "o": "→ demo workspace, demo banner pinned; synthetic fixtures",
+  "f": "focus → workspace h1",
+  "x": "demo refusals per feature: 'Not available in demo'"
+ },
+ {
+  "k": "live:AUTH-07 user-menu",
+  "ev": "user_menu_opened",
+  "t": "click/Enter/Space",
+  "o": "menu: profile, language, theme, logout",
+  "f": "roving focus; Esc closes, returns to trigger",
+  "x": "—"
+ },
+ {
+  "k": "live:AUTH-10 scope-switch",
+  "ev": "scope_switched",
+  "t": "click/Enter on segment",
+  "o": "Agency ↔ Client scope; URL updates; rail regroups",
+  "f": "radiogroup arrows; announced",
+  "x": "no agency membership → segment absent (never disabled-teaser)"
+ },
+ {
+  "k": "live:AUTH-10 business-switcher",
+  "ev": "business_switch_opened",
+  "t": "click/Enter",
+  "o": "searchable combobox (recent, then alphabetical) → switch keeps surface, resets non-transferable context with explicit message (H07)",
+  "f": "combobox APG: type-ahead, ↑↓, Enter, Esc",
+  "x": "invalid account context → reset toast + assign panel"
+ },
+ {
+  "k": "live:AUTH-11 name",
+  "ev": "profile_edited",
+  "t": "edit + blur",
+  "o": "PATCH profile; read-back re-renders",
+  "f": "inline validation on blur",
+  "x": "server error verbatim beside field; value kept"
+ },
+ {
+  "k": "live:AUTH-11 email",
+  "ev": "profile_edited",
+  "t": "edit + blur",
+  "o": "PATCH + re-verification email flow",
+  "f": "as name",
+  "x": "conflict → inline error"
+ },
+ {
+  "k": "live:AUTH-12 current",
+  "ev": "password_change_input",
+  "t": "type",
+  "o": "buffered",
+  "f": "standard",
+  "x": "wrong current → inline error on submit"
+ },
+ {
+  "k": "live:AUTH-12 new",
+  "ev": "password_change_input",
+  "t": "type",
+  "o": "buffered; strength hint text",
+  "f": "standard",
+  "x": "policy fail → inline list of unmet rules"
+ },
+ {
+  "k": "live:AUTH-12 save",
+  "ev": "password_changed",
+  "t": "click/Enter",
+  "o": "POST change → success status line; sessions kept",
+  "f": "focus → status (role=status)",
+  "x": "failure verbatim; fields kept except passwords cleared"
+ },
+ {
+  "k": "live:AUTH-13 revoke",
+  "ev": "sessions_revoke_opened",
+  "t": "click/Enter",
+  "o": "opens typed-confirm dialog restating 'signs you out here, too' → POST revoke-all → hard logout to /login with notice",
+  "f": "dialog traps focus; initial focus on Cancel; Esc cancels",
+  "x": "failure: dialog error verbatim, nothing revoked; offline: blocked with banner"
+ },
+ {
+  "k": "live:cancel",
+  "ev": "dialog_cancelled",
+  "t": "click/Esc",
+  "o": "closes dialog/sheet; no mutation",
+  "f": "focus returns to trigger",
+  "x": "—"
+ },
+ {
+  "k": "live:close",
+  "ev": "overlay_closed",
+  "t": "click/Esc",
+  "o": "closes inspector/drawer; selection state kept in URL",
+  "f": "focus returns to originating row",
+  "x": "—"
+ },
+ {
+  "k": "live:done",
+  "ev": "dialog_done",
+  "t": "click/Enter",
+  "o": "closes outcome dialog; underlying list re-renders from authoritative read",
+  "f": "focus returns to row; outcome announced",
+  "x": "—"
+ },
+ {
+  "k": "live:tab",
+  "ev": "tab_selected",
+  "t": "click/Enter; ←→ within tablist",
+  "o": "switches tab panel; tab state in URL query (INV-18)",
+  "f": "role=tablist roving focus; Home/End",
+  "x": "unavailable tab content renders its truth-state panel, tab never hidden"
+ },
+ {
+  "k": "live:lane",
+  "ev": "lane_selected",
+  "t": "click/Enter",
+  "o": "filters decision list to lane; count chips are server-served",
+  "f": "radiogroup arrows",
+  "x": "empty lane → empty state 'no rows served in this lane'"
+ },
+ {
+  "k": "live:nav",
+  "ev": "nav_item_selected",
+  "t": "click/Enter",
+  "o": "routes to surface; active item = tint + edge",
+  "f": "nav landmark; ↑↓ move, Enter opens; skip-link precedes",
+  "x": "unavailable module never appears (absence over theatre)"
+ },
+ {
+  "k": "live:nav-drawer",
+  "ev": "nav_drawer_opened",
+  "t": "click/Enter on hamburger (≥44px)",
+  "o": "opens rail as drawer over scrim; body scroll locked",
+  "f": "focus trapped in drawer; first item focused; Esc closes → focus returns to hamburger",
+  "x": "—"
+ },
+ {
+  "k": "live:nav-drawer close",
+  "ev": "nav_drawer_closed",
+  "t": "click ✕ / Esc / scrim tap",
+  "o": "drawer closes",
+  "f": "focus returns to hamburger",
+  "x": "—"
+ },
+ {
+  "k": "live:chart-table-toggle",
+  "ev": "chart_table_toggled",
+  "t": "click/Enter",
+  "o": "swaps chart ⇄ real <table> markup in place; preference persisted per surface",
+  "f": "button; announced 'table view'",
+  "x": "—"
+ },
+ {
+  "k": "live:SCOPE-03 account-picker",
+  "ev": "account_picker_opened",
+  "t": "click/Enter",
+  "o": "account combobox; selection re-scopes surface + URL",
+  "f": "combobox APG",
+  "x": "no accounts → assign panel (H07/H42)"
+ },
+ {
+  "k": "live:SCOPE-03 assign",
+  "ev": "account_assign_opened",
+  "t": "click/Enter",
+  "o": "opens assignment sheet (H42)",
+  "f": "sheet traps focus",
+  "x": "—"
+ },
+ {
+  "k": "live:SCOPE-05",
+  "ev": "ga4_property_reassign",
+  "t": "click/Enter",
+  "o": "property picker; save reads back authoritative assignment",
+  "f": "combobox",
+  "x": "dual-writer risk disclosed; read-back mandatory"
+ },
+ {
+  "k": "live:SCOPE-06",
+  "ev": "sc_site_selected",
+  "t": "click/Enter",
+  "o": "site picker; save + read-back",
+  "f": "combobox",
+  "x": "no site → SEO/GEO show source-missing states"
+ },
+ {
+  "k": "live:SCOPE-10 window-picker",
+  "ev": "window_changed",
+  "t": "click/Enter",
+  "o": "evidence-window menu; all metrics re-fetch; window echoed in every evidence panel",
+  "f": "menu roving focus",
+  "x": "unsupported window → option absent"
+ },
+ {
+  "k": "live:SCOPE-11 search",
+  "ev": "search_focused",
+  "t": "click or / key",
+  "o": "opens global search overlay (H06), scope-labelled",
+  "f": "input focused; Esc closes; listbox roving",
+  "x": "—"
+ },
+ {
+  "k": "live:SCOPE-11 client-search",
+  "ev": "client_search_input",
+  "t": "type",
+  "o": "filters client cards by name (client-side on served page)",
+  "f": "results count announced",
+  "x": "no matches → empty state with clear-search"
+ },
+ {
+  "k": "live:SCOPE-12 result",
+  "ev": "search_result_opened",
+  "t": "click/Enter",
+  "o": "routes to result's surface in its business context only — never claims causality",
+  "f": "listbox Enter; Cmd/Ctrl-Enter keeps overlay",
+  "x": "permission-empty note when items are hidden by access"
+ },
+ {
+  "k": "live:AGENCY-02 withheld-explainer",
+  "ev": "agency_withheld_opened",
+  "t": "click/Enter",
+  "o": "→ withheld explainer panel (H02)",
+  "f": "anchor navigation; target h2 focused",
+  "x": "—"
+ },
+ {
+  "k": "live:AGENCY-04 open-client",
+  "ev": "agency_client_opened",
+  "t": "click/Enter (row or Open)",
+  "o": "enters client business context → client Home; deep link = business context only",
+  "f": "row is single button; Enter opens",
+  "x": "membership revoked mid-session → permission page with request-access"
+ },
+ {
+  "k": "live:AGENCY-04 load-more",
+  "ev": "agency_clients_paged",
+  "t": "click/Enter",
+  "o": "appends next server page; footer restates 'showing X of Y'",
+  "f": "focus stays on control; new count announced",
+  "x": "end of list → control replaced by 'all Y shown'"
+ },
+ {
+  "k": "live:HEALTH-01",
+  "ev": "integration_detail_opened",
+  "t": "click/Enter",
+  "o": "→ Integrations & Data row detail (H41)",
+  "f": "standard link",
+  "x": "—"
+ },
+ {
+  "k": "live:INTEGRATION-02",
+  "ev": "reconnect_started",
+  "t": "click/Enter",
+  "o": "provider OAuth reconnect; on return, status re-read from server",
+  "f": "focus to status on return",
+  "x": "denied/error: verbatim reason on provider row; stays 'auth expired'"
+ },
+ {
+  "k": "live:INTEGRATION-03",
+  "ev": "connect_started",
+  "t": "click/Enter",
+  "o": "GA4 connect flow → property assignment",
+  "f": "standard",
+  "x": "cancel returns unchanged"
+ },
+ {
+  "k": "live:INTEGRATION-03 connect",
+  "ev": "connect_started",
+  "t": "click/Enter",
+  "o": "same as INTEGRATION-03 from Home unavailable-tile",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:INTEGRATION-07",
+  "ev": "account_assign_opened",
+  "t": "click/Enter",
+  "o": "opens Meta account assignment sheet (H42)",
+  "f": "sheet focus trap",
+  "x": "—"
+ },
+ {
+  "k": "live:INTEGRATION-07 assign",
+  "ev": "account_checkbox_toggled",
+  "t": "click/Space on ≥24px checkbox row",
+  "o": "toggles pending assignment (explicit choice; discovered-but-unchecked stays unchecked)",
+  "f": "label = full-row target; state announced",
+  "x": "—"
+ },
+ {
+  "k": "live:INTEGRATION-07 save",
+  "ev": "assignment_saved",
+  "t": "click/Enter",
+  "o": "POST assignment → authoritative read-back re-renders list + context bar",
+  "f": "progress → status announced",
+  "x": "failure verbatim; nothing partially claimed"
+ },
+ {
+  "k": "live:SHOPIFY-01",
+  "ev": "integration_detail_opened",
+  "t": "click/Enter",
+  "o": "Shopify store detail (read-only facts)",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:ECON-01 edit",
+  "ev": "target_pack_edited",
+  "t": "edit + blur",
+  "o": "stages target-pack change; save re-derives break-even server-side; consumer chip shows META DECISIONS impact",
+  "f": "numeric input, right-aligned; step arrows",
+  "x": "invalid % → inline error; divergence panel updates only after server read-back"
+ },
+ {
+  "k": "live:ECON-03 edit",
+  "ev": "cost_model_edited",
+  "t": "edit + blur",
+  "o": "stages cost-model change; consumers OVERVIEW + GOOGLE named; does NOT touch Meta decisions",
+  "f": "as ECON-01",
+  "x": "as ECON-01"
+ },
+ {
+  "k": "live:ECON-04 divergence-link",
+  "ev": "econ_divergence_opened",
+  "t": "click/Enter",
+  "o": "→ Business Settings economics panel (H45) with both sources + consumers",
+  "f": "standard link",
+  "x": "—"
+ },
+ {
+  "k": "live:I18N-02 lang",
+  "ev": "language_changed",
+  "t": "click/Enter",
+  "o": "writes preference; server copy re-resolves EN/TR; non-translatable terms stay verbatim",
+  "f": "radiogroup; change announced",
+  "x": "public-site selector limitation disclosed inline"
+ },
+ {
+  "k": "live:PUBLIC-03",
+  "ev": "public_nav_opened",
+  "t": "click/Enter",
+  "o": "→ public marketing page (Product/Pricing)",
+  "f": "standard link",
+  "x": "—"
+ },
+ {
+  "k": "live:PUBLIC-05",
+  "ev": "public_contact_opened",
+  "t": "click/Enter",
+  "o": "→ Contact (the single consistent help channel, 3.2.6)",
+  "f": "standard link",
+  "x": "—"
+ },
+ {
+  "k": "live:META-DEC-01 lane",
+  "ev": "lane_selected",
+  "t": "click/Enter",
+  "o": "filters to lane; lane counts are served values",
+  "f": "radiogroup arrows",
+  "x": "—"
+ },
+ {
+  "k": "live:META-DEC-02 level",
+  "ev": "level_changed",
+  "t": "click/Enter",
+  "o": "campaign/ad set/ad level switch; URL param (INV-18)",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:META-DEC-05 open-inspector",
+  "ev": "decision_inspector_opened",
+  "t": "click/Enter on row (row = one button)",
+  "o": "opens 480px inspector (H10); row id in URL",
+  "f": "focus → inspector title; Esc returns to row",
+  "x": "row gone on refresh → 'row no longer served' note in inspector"
+ },
+ {
+  "k": "live:META-DEC-05 load-more",
+  "ev": "decision_list_paged",
+  "t": "click/Enter",
+  "o": "appends next served page; 'showing X of Y' restated",
+  "f": "count announced",
+  "x": "cap reached → 'all Y served rows shown'"
+ },
+ {
+  "k": "live:META-DEC-13 open",
+  "ev": "inactive_assets_opened",
+  "t": "click/Enter",
+  "o": "opens advisory inactive-assets strip detail (read-only)",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:META-DEC-17 search",
+  "ev": "entity_search_focused",
+  "t": "click or / key",
+  "o": "global entity search pre-scoped to this account",
+  "f": "as SCOPE-11",
+  "x": "—"
+ },
+ {
+  "k": "live:INV-18 share-view",
+  "ev": "view_link_copied",
+  "t": "click/Enter",
+  "o": "copies URL carrying account/lane/level/window params; recipient with permission reproduces view",
+  "f": "'copied' announced (role=status)",
+  "x": "clipboard denied → manual-copy popover with selected text"
+ },
+ {
+  "k": "gated:META-WF-02..08 menu",
+  "ev": "triage_event",
+  "t": "click/Enter on ⋯ (collaborator+)",
+  "o": "workflow menu: acknowledge/investigate/resolve…; optimistic chip + POST with expectedVersion",
+  "f": "menu roving focus; Esc closes",
+  "x": "version conflict → conflict dialog (H12): keep-mine / take-server; guest/reviewer: menu absent/disabled with reason"
+ },
+ {
+  "k": "live:META-WF-11 keep",
+  "ev": "conflict_kept_mine",
+  "t": "click/Enter",
+  "o": "re-submits transition with fresh expectedVersion",
+  "f": "dialog focus rules",
+  "x": "second conflict → same dialog, never silent overwrite"
+ },
+ {
+  "k": "live:META-WF-11 reapply",
+  "ev": "conflict_took_server",
+  "t": "click/Enter",
+  "o": "discards local transition; row re-renders server state",
+  "f": "focus returns to row",
+  "x": "—"
+ },
+ {
+  "k": "gated:META-WRITE-01",
+  "ev": "write_sheet_opened",
+  "t": "click/Enter (collaborator+, non-reviewer)",
+  "o": "opens manual action sheet routed by server availability",
+  "f": "sheet traps focus",
+  "x": "reviewer/guest: disabled with reason; availability=none: no CTA exists"
+ },
+ {
+  "k": "gated:META-WRITE-01 open-manual",
+  "ev": "write_sheet_opened",
+  "t": "click/Enter",
+  "o": "same contract as META-WRITE-01 from inspector",
+  "f": "as above",
+  "x": "as above"
+ },
+ {
+  "k": "live:META-WRITE-06 rerun",
+  "ev": "write_preflight_rerun",
+  "t": "click/Enter",
+  "o": "re-reads persisted state; age line updates via live region; 'Meta was not contacted' copy fixed",
+  "f": "button; announced",
+  "x": "target vanished → hard stop 'target not found', continue disabled"
+ },
+ {
+  "k": "gated:META-WRITE-02 continue",
+  "ev": "write_confirm_opened",
+  "t": "click/Enter",
+  "o": "→ confirmation restating scope + before→after + preflight age",
+  "f": "initial focus on Cancel",
+  "x": "aged preflight (>15m) forces re-run before continue"
+ },
+ {
+  "k": "gated:META-WRITE-02 submit",
+  "ev": "write_submitted",
+  "t": "click/Enter (typed-confirm complete where destructive)",
+  "o": "POST write → progress → outcome: verified receipt (H15) / failed verbatim / reconciliation (H16); never auto-retried",
+  "f": "progress role=status; outcome focus → receipt title",
+  "x": "ambiguous → reconciliation state, no retry control; silent failure modeled in M7"
+ },
+ {
+  "k": "live:META-WRITE-08 copy-receipt",
+  "ev": "receipt_copied",
+  "t": "click/Enter",
+  "o": "copies mono receipt block",
+  "f": "'copied' announced",
+  "x": "no durable receipt → button absent, gap stated (META-DEC-20)"
+ },
+ {
+  "k": "gated:META-INTEL-09 run-snapshot",
+  "ev": "snapshot_run_now",
+  "t": "click/Enter (collaborator+)",
+  "o": "queues snapshot run; progress fact appears in recent-facts",
+  "f": "status announced",
+  "x": "rate-limited: retry-after; failure verbatim"
+ },
+ {
+  "k": "live:META-INTEL-07 respond",
+  "ev": "intel_prompt_answered",
+  "t": "click/Enter",
+  "o": "records structured response; read-back renders it",
+  "f": "radiogroup",
+  "x": "—"
+ },
+ {
+  "k": "live:META-HIST-05 filter",
+  "ev": "history_filtered",
+  "t": "click/Enter",
+  "o": "filter menu; params in URL (INV-18)",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:META-HIST-05 search",
+  "ev": "history_searched",
+  "t": "type",
+  "o": "server-side search of history projection",
+  "f": "results count announced",
+  "x": "projection gaps disclosed ('actor not recorded')"
+ },
+ {
+  "k": "live:META-HIST-05 cursor",
+  "ev": "history_paged",
+  "t": "click/Enter",
+  "o": "cursor pagination; 'showing X of Y loaded' restated",
+  "f": "count announced",
+  "x": "end → control disabled with 'end of projection'"
+ },
+ {
+  "k": "live:META-HIST-06 replay",
+  "ev": "history_replayed",
+  "t": "click/Enter",
+  "o": "opens replay of stored snapshot with permanent 'not live state' banner + version badge",
+  "f": "sheet focus trap",
+  "x": "missing snapshot → 'snapshot not retained' state, never reconstructed"
+ },
+ {
+  "k": "gated:AUTO-01A engage",
+  "ev": "meta_stop_engage",
+  "t": "click/Enter (admin) → typed confirm",
+  "o": "business-scoped Meta write stop engages; posture row flips; Google posture row unchanged and restated",
+  "f": "dialog trap; typed confirm gates Enter",
+  "x": "non-admin: disabled with role reason; result read back before banner"
+ },
+ {
+  "k": "gated:AUTO-02 release",
+  "ev": "meta_stop_release",
+  "t": "click/Enter (admin) → preflight + confirm",
+  "o": "release walks same ceremony incl. preflight age",
+  "f": "as engage",
+  "x": "as engage"
+ },
+ {
+  "k": "gated:AUTO-03 mode",
+  "ev": "automation_mode_changed",
+  "t": "click/Enter (admin)",
+  "o": "switches automation mode among served modes only",
+  "f": "radiogroup",
+  "x": "guardrails AUTO-05..10 remain read-only rows"
+ },
+ {
+  "k": "live:CREATIVE-02 open",
+  "ev": "creative_opened",
+  "t": "click/Enter on row",
+  "o": "→ creative detail (H22/H23)",
+  "f": "row = one button",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-02 back",
+  "ev": "creative_back_to_decision",
+  "t": "click/Enter",
+  "o": "→ originating decision row; lineage chip highlighted",
+  "f": "focus → decision row",
+  "x": "decision no longer served → decisions list with notice"
+ },
+ {
+  "k": "live:CREATIVE-02 carousel-dot",
+  "ev": "carousel_card_selected",
+  "t": "click/Enter; ←→ when focused",
+  "o": "shows card N of M; position text updates",
+  "f": "dots ≥24px; position announced",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-07 brief",
+  "ev": "brief_created",
+  "t": "click/Enter",
+  "o": "creates brief prefilled with served identifiers only (decision, account, evidence); gaps labelled",
+  "f": "→ brief form, focus title",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-07 status",
+  "ev": "brief_status_changed",
+  "t": "click/Enter",
+  "o": "lifecycle transition (delivered/archived); no delete exists",
+  "f": "button",
+  "x": "conflict → re-read state"
+ },
+ {
+  "k": "live:CREATIVE-10 share",
+  "ev": "share_dialog_opened",
+  "t": "click/Enter",
+  "o": "opens mint dialog (H27)",
+  "f": "dialog trap; initial focus tier group",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-10 expiry",
+  "ev": "share_expiry_changed",
+  "t": "click/Enter",
+  "o": "expiry menu; server ceilings shown when enforced",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-11 tier",
+  "ev": "share_tier_selected",
+  "t": "click/Enter",
+  "o": "selects client/buyer tier; buyer tier reveals mandatory acknowledgement",
+  "f": "radiogroup",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-11 ack",
+  "ev": "share_buyer_ack",
+  "t": "click/Space (≥24px target)",
+  "o": "acknowledges no-stripping warning; enables Create link for buyer tier",
+  "f": "checkbox in label row; state announced",
+  "x": "unchecking re-disables mint"
+ },
+ {
+  "k": "live:CREATIVE-10 mint",
+  "ev": "share_minted",
+  "t": "click/Enter (enabled state)",
+  "o": "POST mint → link row appears with tier + expiry; buyer-tier rows marked 'unstripped'",
+  "f": "focus → new row; 'link created' announced",
+  "x": "failure verbatim; nothing copied silently"
+ },
+ {
+  "k": "disabled:CREATIVE-10 mint",
+  "ev": "none",
+  "t": "non-interactive",
+  "o": "Create link disabled while buyer tier selected without acknowledgement — reason rendered inline",
+  "f": "aria-disabled with description",
+  "x": "unlocks when live:CREATIVE-11 ack checked"
+ },
+ {
+  "k": "live:CREATIVE-10 revoke",
+  "ev": "share_revoked",
+  "t": "click/Enter → confirm dialog",
+  "o": "revokes link immediately; row flips to 'revoked' with timestamp; public page renders nothing afterward",
+  "f": "dialog trap; typed confirm not required (reversible by rotate? no — re-mint)",
+  "x": "failure verbatim; row unchanged"
+ },
+ {
+  "k": "live:CREATIVE-10 rotate",
+  "ev": "share_rotated",
+  "t": "click/Enter → confirm dialog",
+  "o": "mints replacement token + revokes old atomically; new link shown for copy",
+  "f": "focus → new link; announced",
+  "x": "partial failure impossible server-side; error verbatim otherwise"
+ },
+ {
+  "k": "live:CREATIVE-12 preset",
+  "ev": "creative_preset_changed",
+  "t": "click/Enter",
+  "o": "preset menu; URL param",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-12 sort",
+  "ev": "creative_sorted",
+  "t": "click/Enter",
+  "o": "sort menu; aria-sort updates",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:CREATIVE-13 filter",
+  "ev": "creative_filtered",
+  "t": "click/Enter",
+  "o": "action-state filter incl. legacy null state",
+  "f": "menu",
+  "x": "—"
+ },
+ {
+  "k": "live:LAUNCH-01 fix",
+  "ev": "launch_blocker_opened",
+  "t": "click/Enter",
+  "o": "→ pixel selector for draft",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:LAUNCH-02 fix",
+  "ev": "launch_blocker_opened",
+  "t": "click/Enter",
+  "o": "→ ad editor at failing field",
+  "f": "field focused",
+  "x": "—"
+ },
+ {
+  "k": "live:LAUNCH-03 duplicate",
+  "ev": "template_duplicated",
+  "t": "click/Enter",
+  "o": "duplicates template into editable draft (templates have no update route)",
+  "f": "focus → new draft title",
+  "x": "—"
+ },
+ {
+  "k": "gated:LAUNCH-03 delete",
+  "ev": "template_deleted",
+  "t": "click/Enter (owner/admin) → confirm",
+  "o": "destructive ceremony: impact copy → confirm → authoritative list refresh",
+  "f": "dialog trap",
+  "x": "failure verbatim"
+ },
+ {
+  "k": "live:LAUNCH-05 validate",
+  "ev": "draft_validated",
+  "t": "click/Enter",
+  "o": "POST validate → server blocker list re-renders exactly as served",
+  "f": "result announced; first blocker focused",
+  "x": "validation service error verbatim + retry"
+ },
+ {
+  "k": "disabled:LAUNCH-06 launch",
+  "ev": "none",
+  "t": "non-interactive",
+  "o": "execution disabled pending origin+confirmation enforcement (LAUNCH-06); reason inline",
+  "f": "aria-disabled + described-by reason",
+  "x": "unlocks only when prerequisite lands and is reverified"
+ },
+ {
+  "k": "disabled:LAUNCH-07 add",
+  "ev": "none",
+  "t": "non-interactive",
+  "o": "add-to-existing disabled (LAUNCH-07); same reason pattern",
+  "f": "as LAUNCH-06",
+  "x": "as LAUNCH-06"
+ },
+ {
+  "k": "live:GOOGLE-13 bucket",
+  "ev": "advisor_bucket_selected",
+  "t": "click/Enter",
+  "o": "filters advisor cards to bucket (do now/next/later)",
+  "f": "radiogroup arrows",
+  "x": "—"
+ },
+ {
+  "k": "live:GOOGLE-16 open-card",
+  "ev": "change_card_opened",
+  "t": "click/Enter",
+  "o": "opens change card drawer (H31)",
+  "f": "drawer trap; Esc returns",
+  "x": "—"
+ },
+ {
+  "k": "live:GOOGLE-26 dismiss",
+  "ev": "advisor_dismissed",
+  "t": "click/Enter",
+  "o": "non-write workflow state; card moves to dismissed filter; reversible",
+  "f": "announced; undo offered 10s",
+  "x": "—"
+ },
+ {
+  "k": "live:GOOGLE-28 mark-applied",
+  "ev": "plan_marked_applied",
+  "t": "click/Space (≥24px target)",
+  "o": "records manual confirmation to activity journal (actor + timestamp); row shows 'applied (manual)'; reversible by unchecking until CSV export of the batch",
+  "f": "checkbox in label; state announced",
+  "x": "journal write fails → checkbox reverts + error verbatim; Adsecute never claims Google-side verification"
+ },
+ {
+  "k": "live:GOOGLE-30 deeplink",
+  "ev": "google_deeplink_opened",
+  "t": "click/Enter",
+  "o": "same contract as GOOGLE-30",
+  "f": "as above",
+  "x": "as above"
+ },
+ {
+  "k": "live:GOOGLE-32 portfolio",
+  "ev": "portfolio_mode_opened",
+  "t": "click/Enter",
+  "o": "labelled portfolio mode; currency proof + timezone drift disclosed; mixed currency withholds totals",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:GOOGLE-ESC-01 copy",
+  "ev": "google_escape_copy",
+  "t": "click/Enter",
+  "o": "copies single change text + journal entry",
+  "f": "announced",
+  "x": "as ESC-01"
+ },
+ {
+  "k": "live:GOOGLE-ESC-01 copy-all",
+  "ev": "google_escape_copy",
+  "t": "click/Enter",
+  "o": "copies all queued changes + journal entry",
+  "f": "announced",
+  "x": "as ESC-01"
+ },
+ {
+  "k": "live:GOOGLE-ESC-01 csv",
+  "ev": "google_escape_csv",
+  "t": "click/Enter",
+  "o": "downloads CSV of change; journal entry",
+  "f": "download announced",
+  "x": "generation failure verbatim"
+ },
+ {
+  "k": "live:GOOGLE-ESC-01 csv-all",
+  "ev": "google_escape_csv",
+  "t": "click/Enter",
+  "o": "downloads CSV of all queued changes",
+  "f": "announced",
+  "x": "as csv"
+ },
+ {
+  "k": "gated:SEO-04 run",
+  "ev": "seo_ai_run",
+  "t": "click/Enter (authorized role)",
+  "o": "POST generation → running state → findings re-read",
+  "f": "progress role=status",
+  "x": "409 skipped: 'already running' · 500 failed: verbatim + retry · unauthorized: role vocabulary state"
+ },
+ {
+  "k": "live:REPORT-05 source-toggle",
+  "ev": "builder_source_toggled",
+  "t": "click/Space on ≥24px checkbox row (≥44px in the 768 sheet)",
+  "o": "toggles the source for this report; widgets bound to a deselected source render 'source removed' until reassigned; selection persists on save; applies to each of the 5 renderable catalog sources (documented many-to-one)",
+  "f": "↑↓ move between rows; Space toggles; state announced ('Meta campaigns — selected')",
+  "x": "save failure reverts the toggle + verbatim server error; catalog rows never disappear"
+ },
+ {
+  "k": "disabled:REPORT-06 source-unavailable",
+  "ev": "none",
+  "t": "non-interactive",
+  "o": "coming-soon catalog row rendered with the exact server copy; never selectable, never hidden",
+  "f": "focusable for discovery; aria-disabled + describedby reason",
+  "x": "unlocks only when the renderer ships a branch for the source"
+ },
+ {
+  "k": "live:REPORT-13 new",
+  "ev": "report_created_from_template",
+  "t": "click/Enter",
+  "o": "template picker → new report in builder",
+  "f": "picker trap",
+  "x": "—"
+ },
+ {
+  "k": "live:REPORT-08 open",
+  "ev": "report_opened",
+  "t": "click/Enter",
+  "o": "renders report; per-widget states independent",
+  "f": "standard",
+  "x": "widget failure → per-widget error+retry, page never blanks"
+ },
+ {
+  "k": "live:REPORT-08 retry",
+  "ev": "widget_retried",
+  "t": "click/Enter",
+  "o": "re-fetches one widget only",
+  "f": "widget status announced",
+  "x": "repeat failure keeps error + verbatim reason"
+ },
+ {
+  "k": "live:REPORT-02 edit",
+  "ev": "report_edit_opened",
+  "t": "click/Enter",
+  "o": "→ builder (H38)",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:REPORT-01 duplicate",
+  "ev": "report_duplicated",
+  "t": "click/Enter",
+  "o": "duplicates; focus → new row",
+  "f": "announced",
+  "x": "—"
+ },
+ {
+  "k": "gated:REPORT-01 delete",
+  "ev": "report_deleted",
+  "t": "click/Enter (owner/admin) → destructive ceremony",
+  "o": "impact copy → typed confirm → authoritative list refresh",
+  "f": "dialog trap; Enter gated on typed confirm",
+  "x": "failure verbatim; row kept"
+ },
+ {
+  "k": "live:REPORT-03 keyboard-mode",
+  "ev": "builder_keyboard_mode",
+  "t": "click/Enter",
+  "o": "enters keyboard move/resize mode on selected widget; exits on Esc/Done",
+  "f": "arrows move 1 col/row; Shift+arrows resize; position announced each step",
+  "x": "bound hit → move blocked + announced; Esc cancels & reverts; Ctrl/Cmd+Z undo (50 steps)"
+ },
+ {
+  "k": "live:REPORT-03 widget-select",
+  "ev": "builder_widget_selected",
+  "t": "click/Enter on widget",
+  "o": "selects widget; caption + nudge toolbar attach below (never overlapping content)",
+  "f": "focus ring 2px; roving between widgets with Tab",
+  "x": "—"
+ },
+ {
+  "k": "live:REPORT-03 nudge-move",
+  "ev": "builder_widget_nudged",
+  "t": "click/Enter on ◀▲▼▶ (24px each)",
+  "o": "moves selected widget 1 grid cell per activation (single-pointer alternative, 2.5.7)",
+  "f": "position announced: 'Spend — row 1, col 2 of 3'",
+  "x": "at bound → button aria-disabled + 'edge reached' announced"
+ },
+ {
+  "k": "live:REPORT-03 nudge-resize",
+  "ev": "builder_widget_resized",
+  "t": "click/Enter on −/+ width/height (24px each)",
+  "o": "resizes by 1 grid cell; min 1×1, max grid width",
+  "f": "size announced: 'width 2 of 3 columns'",
+  "x": "at min/max → disabled + announced"
+ },
+ {
+  "k": "live:REPORT-03 undo",
+  "ev": "builder_undo",
+  "t": "click/Enter or Ctrl/Cmd+Z",
+  "o": "reverts last move/resize (stack 50)",
+  "f": "announced with restored position",
+  "x": "empty stack → disabled"
+ },
+ {
+  "k": "live:REPORT-03 exit",
+  "ev": "builder_mode_exited",
+  "t": "click Done / Esc",
+  "o": "commits layout; Esc instead cancels uncommitted changes after confirm",
+  "f": "focus returns to widget",
+  "x": "—"
+ },
+ {
+  "k": "live:REPORT-04 csv",
+  "ev": "csv_export",
+  "t": "click/Enter (table widgets only)",
+  "o": "downloads CSV of that table widget (the only CSV-eligible widget type)",
+  "f": "announced",
+  "x": "non-table widgets never render this control"
+ },
+ {
+  "k": "live:REPORT-07 breakdown",
+  "ev": "breakdown_toggled",
+  "t": "click/Enter",
+  "o": "toggles one of the 7 verified breakdown values",
+  "f": "pressed-state announced",
+  "x": "unsafe aggregates stay disabled with reason (REPORT-07)"
+ },
+ {
+  "k": "live:MOBILE-01",
+  "ev": "meta_tier0_triage_start",
+  "t": "tap (≥44px)",
+  "o": "opens mobile Decisions in Tier-0 triage order",
+  "f": "standard",
+  "x": "—"
+ },
+ {
+  "k": "live:MOBILE-02 scope-sheet",
+  "ev": "stale_freshness_disclosed",
+  "t": "tap header scope line (≥44px)",
+  "o": "opens scope sheet: business · account · window · currency · timezone · freshness — full values, one tap from any screen",
+  "f": "sheet trap; Esc/swipe closes",
+  "x": "—"
+ },
+ {
+  "k": "gated:SCOPE-01 delete",
+  "ev": "business_delete_started",
+  "t": "click/Enter (admin) → ceremony",
+  "o": "impact copy → business name typed exactly → POST delete; NO read-back exists, so the final screen is the warning itself — never a success claim",
+  "f": "dialog trap; Enter gated on exact typed name; initial focus Cancel",
+  "x": "failure verbatim; nothing deleted silently; success is never claimed"
+ },
+ {
+  "k": "gated:TEAM-02 role",
+  "ev": "member_role_changed",
+  "t": "click/Enter (admin)",
+  "o": "role menu → change with read-back",
+  "f": "menu",
+  "x": "last-admin protection: change blocked with reason"
+ },
+ {
+  "k": "gated:TEAM-03",
+  "ev": "member_removed",
+  "t": "click/Enter (admin) → destructive ceremony",
+  "o": "impact copy → confirm → authoritative member list refresh",
+  "f": "dialog trap",
+  "x": "failure verbatim"
+ },
+ {
+  "k": "gated:TEAM-04",
+  "ev": "invite_action",
+  "t": "click/Enter (admin)",
+  "o": "re-send / withdraw invite; state chip updates from read-back",
+  "f": "buttons",
+  "x": "expired → re-send available; mismatch state designed"
+ },
+ {
+  "k": "gated:TEAM-04 invite",
+  "ev": "invite_sent",
+  "t": "click/Enter (admin)",
+  "o": "invite dialog: email + role → sent state",
+  "f": "dialog trap",
+  "x": "duplicate/mismatch designed states"
+ },
+ {
+  "k": "gated:TEAM-05 approve",
+  "ev": "access_request_approved",
+  "t": "click/Enter (admin)",
+  "o": "grants requested role; member appears via read-back",
+  "f": "announced",
+  "x": "failure verbatim"
+ },
+ {
+  "k": "gated:TEAM-05 deny",
+  "ev": "access_request_denied",
+  "t": "click/Enter (admin)",
+  "o": "denies request; requester notified by email only (no in-app bell exists)",
+  "f": "announced",
+  "x": "—"
+ },
+ {
+  "k": "gated:INTEGRATION-09",
+  "ev": "disconnect_started",
+  "t": "click/Enter (admin) → typed confirm",
+  "o": "disconnect ceremony; where provider lacks authoritative read-back the result says 'verify by status'",
+  "f": "dialog trap",
+  "x": "failure verbatim; never claims success without read-back"
+ },
+ {
+  "k": "gated:ADMIN-12 repair",
+  "ev": "ops_repair_started",
+  "t": "click/Enter (platform admin)",
+  "o": "queues provider resync; running state with progress; receipt coverage gap disclosed (ADMIN-17)",
+  "f": "status announced",
+  "x": "failure verbatim; result must be verified on health board"
+ },
+ {
+  "k": "disabled:INV-24 reviewer-block",
+  "ev": "none",
+  "t": "non-interactive",
+  "o": "every write disabled under reviewer read-only authority, regardless of role; reason inline",
+  "f": "aria-disabled + description",
+  "x": "lifts only when reviewer flag removed server-side"
+ },
+ {
+  "k": "live:SEO-01 load-more",
+  "ev": "seo_findings_paged",
+  "t": "click/Enter",
+  "o": "appends next server page of findings; 'showing X of Y' restated",
+  "f": "new count announced",
+  "x": "end of list → 'all Y shown'"
+ },
+ {
+  "k": "live:REPORT-01 load-more",
+  "ev": "report_list_paged",
+  "t": "click/Enter",
+  "o": "appends next page of reports; 'showing X of Y' restated",
+  "f": "new count announced",
+  "x": "end of list → 'all Y shown'"
+ },
+ {
+  "k": "live:media-play",
+  "ev": "share_media_played",
+  "t": "click/Enter (≥44px)",
+  "o": "plays video with poster + captions track; pause toggles",
+  "f": "button toggles play/pause; state announced",
+  "x": "stream error → poster + verbatim error + retry"
+ },
+ {
+  "k": "live:media-retry",
+  "ev": "media_retried",
+  "t": "click/Enter",
+  "o": "re-requests failed media asset",
+  "f": "announced",
+  "x": "repeat failure keeps error state + alt text"
+ }
+]

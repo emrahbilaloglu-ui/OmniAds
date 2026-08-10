@@ -88,7 +88,7 @@ Copied from the proven pattern in `scripts/ephemeral-postgres-manual-ad-status-r
 | **WP-01** | `b36079f65` | 15 contract/spec files vendored under `docs/zero-base-design/v3/` with a SHA-256 manifest in `SOURCE.md`; `scripts/zero-base/verify-design-contract.ts` passes 23 checks, each an independent master-plan literal rather than a value read back from the file it checks |
 | **WP-02** | `29715accb` | `lib/zero-base/generated-contracts.ts` generated from the vendored JSON; three registries; 17 contract tests |
 | **WP-03** | `e2c2d0885` | Shared authorizer, page resolver, workspace scope/switch/return, rollout foundation; 91 new tests including full `requireBusinessAccess` parity |
-| **WP-03A** | *this commit* | Report-share fail-closed branch, default off; both branches proven locally |
+| **WP-03A** | `9a98dc176` | Report-share fail-closed branch, default off; both branches proven locally |
 
 ### WP-01 — residuals recorded, not laundered
 

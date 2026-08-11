@@ -25,12 +25,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DESIGN_ZIP, DESIGN_ZIP_SHA256 } from "@/lib/zero-base/design-package";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** The archive, and the digest `SOURCE.md` binds it to. */
-export const DESIGN_ZIP = "/Users/harmelek/Downloads/Adsecute Zero-Base Design.zip";
-export const DESIGN_ZIP_SHA256 =
-  "0695ae452469ba3efe2615efe3ffd30fcdb88f5847db53d569042fb864c09b9d";
+export { DESIGN_ZIP, DESIGN_ZIP_SHA256 } from "@/lib/zero-base/design-package";
 
 export const REFERENCE_MANIFEST = path.join(
   "docs",

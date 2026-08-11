@@ -19,7 +19,7 @@ import { test, expect } from "@playwright/test";
 
 import { FRAMES, frameFileName } from "../../scripts/zero-base/frame-registry";
 import { renderFingerprint } from "../../lib/zero-base/render-provenance";
-import { DESIGN_ZIP_SHA256 } from "../../scripts/zero-base/extract-design-reference";
+import { DESIGN_ZIP_SHA256 } from "../../lib/zero-base/design-package";
 import {
   artifactSetPath,
   buildManifest,

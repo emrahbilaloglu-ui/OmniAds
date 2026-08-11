@@ -87,6 +87,7 @@ export function DecisionsView({
   workflow,
   mutation,
   stickyBar,
+  shareViewHref = null,
 }: {
   model: DecisionsViewModel;
   state: DecisionsUrlState;
@@ -105,6 +106,8 @@ export function DecisionsView({
    * rail already carries it.
    */
   stickyBar?: { metaStopHref: string; onOpenManual?: () => void };
+  /** URL that reproduces this lane, filter and search exactly. */
+  shareViewHref?: string | null;
 }) {
   const copy = useCopy();
   const [search, setSearch] = useState(state.search);
@@ -220,6 +223,7 @@ export function DecisionsView({
         </fieldset>
       </div>
 
+      <div data-lane-region="" data-ctl="live:lane">
       <ZeroBaseTabs
         label={copy.decisionLanes}
         tabCtl="live:META-DEC-01 lane"
@@ -298,7 +302,11 @@ export function DecisionsView({
                         header: "Verdict",
                         // Printed exactly as served. No formatting, no mapping.
                         render: (row) => (
-                          <span data-verdict={row.id} data-el="verdict-chip">
+                          <span
+                            data-verdict={row.id}
+                            data-el="verdict-chip"
+                            data-stale={row.confidence === "low" ? "" : undefined}
+                          >
                             {row.decision}
                           </span>
                         ),
@@ -309,6 +317,16 @@ export function DecisionsView({
                         render: (row) => (
                           <span data-confidence={row.id}>
                             {row.confidence}
+                            {/* A low-confidence row is demoted, not dropped:
+                                it is still a served fact, just a weaker one. */}
+                            {row.confidence === "low" ? (
+                              <span
+                                data-el="stale-demoted"
+                                style={{ display: "block", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
+                              >
+                                {copy.demotedLowConfidence}
+                              </span>
+                            ) : null}
                             {row.confidenceReason ? (
                               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                                 {row.confidenceReason}
@@ -358,6 +376,17 @@ export function DecisionsView({
             ) : null,
         }))}
       />
+      </div>
+
+      {shareViewHref ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12.5 }}>
+          {/* The exact view, not "Decisions": a shared link that lands on a
+              different filter is a different set of decisions. */}
+          <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.shareThisView}
+          </Link>
+        </p>
+      ) : null}
 
       {stickyBar && selectedRow ? (
         <div

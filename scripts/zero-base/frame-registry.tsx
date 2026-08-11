@@ -315,7 +315,12 @@ const DECISION_VIEWER = {
 /** The Decisions workspace, optionally with its inspector open. */
 const decisions = (selected: string | null = null, rows = 3, sticky = false) => {
   const items = Array.from({ length: rows }, (_, index) =>
-    metaRecommendation({ id: `d${index + 1}`, title: `Prospecting — Broad US ${index + 1}` }),
+    metaRecommendation({
+      id: `d${index + 1}`,
+      title: `Prospecting — Broad US ${index + 1}`,
+      confidence: index === 2 ? "low" : "high",
+      confidenceReason: index === 2 ? "Four days of data in a seven-day window." : null,
+    }),
   );
   const state = { ...DECISION_STATE, selected };
   return (
@@ -330,6 +335,7 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false) => 
       demo={false}
       onStateChange={() => {}}
       adsManagerHref="https://adsmanager.facebook.com/"
+      shareViewHref="/c/biz/meta/decisions?lane=act&levels=campaign"
       mutation={ceremonySeed()}
       workflow={{
         records: new Map(

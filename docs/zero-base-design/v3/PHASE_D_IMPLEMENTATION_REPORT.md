@@ -1,7 +1,7 @@
 # Phase D Implementation Report — WP-16 … WP-20
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase C accepted head:** `a09e6addb` · **Phase D head:** `23128cb62`
+**Phase C accepted head:** `a09e6addb` · **Phase D head:** `8f19290b0` · **Status: NOT ACCEPTED — see §0**
 **Authoritative plan:** `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
 (SHA-256 verified `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`)
 
@@ -9,6 +9,24 @@
 migrated in production; no provider was contacted; no mutation flag was
 enabled; no live data changed; no prior commit was rewritten. WP-21 was not
 started.
+
+## 0 · Acceptance review rejected Phase D — three of four blockers corrected
+
+**The `PHASE_D_COMPLETE` claim at `23128cb62` was wrong.** A code-level review
+found production reachability and route-schema defects that my own tests could
+not catch, because they instantiated invented view types instead of comparing a
+request body or a response shape to a real route. That is the same testing
+mistake that failed WP-14 in Phase C, repeated across a whole phase.
+
+| Blocker | What was actually shipped | Status |
+|---|---|---|
+| 1 — public share not mounted | `share-media.tsx` was imported only by tests; `app/share/creative/[token]/page.tsx` still mounts `PublicCreativeSharePage`, whose `CreativeRenderSurface mode="asset"` takes the image-only branch. The video, captions, error and retry behaviour is **unreachable in production**. | **NOT CORRECTED** |
+| 2 — creation flows unreachable | `CreativeBriefsClient` always passed `creativeId: null` and no `onCreate`, so brief creation was permanently blocked; `CreativeSharesClient` had no create flow or acknowledgement UI at all. | Corrected — `8f19290b0` |
+| 3 — Launchpad claimed absent workflows and sent invalid bodies | The client only listed/deleted templates while the UI claimed drafts, template creation and validation. `{businessId, duplicateOf}` and `{businessId, adIds}` are not the route contracts. | Corrected — `81a8526bf` |
+| 4 — Google client types did not match real payloads | `/overview` serves `{kpis, kpiDeltas, topCampaigns, insights, summary, meta}`, read as `{accounts, rows}`; the advisor cast produced `step.accountId.replace()` on `undefined` — a real runtime crash. | Corrected — `81a8526bf` |
+
+**Phase D therefore remains BLOCKED on Blocker 1.** Section 10 states exactly
+what is and is not done.
 
 ## Commits
 
@@ -19,6 +37,8 @@ started.
 | 18 | `50c27518b` | Meta Launchpad preparation |
 | 19 | `87be1e605` | Five Google read leaves |
 | 20 | `23128cb62` | Google manual plan + reference write posture |
+| B3+B4 correction | `81a8526bf` | Real route contracts for Launchpad and Google |
+| B2 correction | `8f19290b0` | Reachable brief and share creation |
 
 ## 1 · WP-16 — Creative performance and detail/history · `10b1d35d3`
 
@@ -243,3 +263,109 @@ any existing share, since it gates creation only.
 
 Clean and fully committed at `23128cb62` on
 `codex/adsecute-zero-base-implementation`. Nothing was pushed.
+
+
+---
+
+## 10 · Correction detail and remaining blocker
+
+### 10.1 · Blocker 4 — Google payload adapters (`81a8526bf`)
+
+`lib/zero-base/google/payload-adapters.ts` validates what was actually
+received and returns an explicit refusal when the required fields are absent.
+**A 200 is not a shape**: a body with the wrong fields now degrades visibly
+instead of rendering an empty surface labelled "serving".
+
+Real fields are mapped explicitly — `doBucket` (not a re-derived urgency word),
+`rankScore` as the ordering semantic, `summary`/`why`, `executionTargetType`,
+`executionTargetId`, `deepLinkUrl`. `googleDeepLink` now returns the URL Google
+served, validated as an https `google.com` URL, and **null** otherwise, so the
+surface withholds the link. The previous version assembled one from an
+`accountId` the recommendation never carries, which crashed.
+
+Account scope moved to a server-owned reader, `/api/zero-base/google/scope`,
+composing the existing assignment authority with the persisted
+`provider_accounts` profile. It performs **no provider call** —
+`fetchGoogleAdsAccounts` would have contacted Google — and currency/timezone
+stay nullable so unserved reaches the surface as unserved.
+
+17 adapter tests use the real payload key sets as fixtures, including one that
+asserts the old `{accounts, rows}` assumption is now refused.
+
+### 10.2 · Blocker 3 — Launchpad real contracts (`81a8526bf`)
+
+Drafts list and create through `/api/launchpad/meta/drafts` with the
+`name`+`payload` the route requires. Duplicate-to-change reads the immutable
+served template and POSTs `{businessId, providerAccountId, name, payload}` —
+`duplicateOf` alone was never the contract. Validation runs the real
+`/validate` endpoint with error focus.
+
+**Bulk ad status is withheld** with an explicit reason even when the mutation
+flag is on. The real handler requires per-item exact ad and creative identity
+plus a canonical action origin; this page holds none of it, and assembling that
+in the browser would invent exactly the authority the write contract exists to
+refuse. `BULK_WITHHELD_REASON` states this on the surface, and it is listed
+among the things that do not work. Every untrue "What works today" line was
+rewritten to match a mounted, tested call.
+
+### 10.3 · Blocker 2 — reachable creation (`8f19290b0`)
+
+Reading the brief route showed the block was also mis-stated: its lineage is a
+**decision snapshot**, not a creative id. `parseCreateMetaCreativeBriefRequest`
+requires an immutable `sourceDecision` with a UUID `snapshotId` and a `trigger`.
+`canCreateBrief` now checks that lineage and blocks **before any POST**, naming
+which piece is missing. Lineage comes from the URL; on success the list is
+re-read.
+
+Share creation exists with explicit audience selection. A buyer share cannot be
+submitted until the operator ticks an acknowledgement that **displays the actual
+warning text** they are attesting to, and the POST carries the exact value, so
+the server's 400 stays a real gate the UI can satisfy.
+
+### 10.4 · Blocker 1 — NOT CORRECTED
+
+The production public share page still mounts `PublicCreativeSharePage`. The
+canonical `ShareMedia` component is not reachable from it, so the video,
+captions, error and retry behaviour asserted in Phase D's component tests is
+**not what a public visitor gets**. Also outstanding from this blocker:
+
+- payload sanitization so no workspace identity, internal actor identity or
+  workspace-only contact detail reaches the public page;
+- route-level rendered-DOM proof at desktop/390/320 rather than `ShareMedia` in
+  isolation;
+- proof that rotation invalidates the old token against the real store/route,
+  and that expired / revoked / rotated-old / never-existed remain externally
+  indistinguishable in status and copy.
+
+I stopped rather than rushing a composition I could not prove at the route
+level. Shipping another unproven claim is the specific failure that got Phase D
+rejected, and repeating it would be worse than reporting the gap.
+
+### 10.5 · Boundaries re-audited
+
+| Boundary | Verdict |
+|---|---|
+| `/api/meta/creatives` (performance, detail) | rows/`totalCreativeCount` read defensively; absent fields render as unavailable |
+| `/api/creatives/decision-engine-v3` | `status` + `flags` only; a failed read is `unavailable`, not `disabled` |
+| `/api/meta/creative-briefs` GET/POST | POST body corrected to the real `sourceDecision`/`content`/`idempotencyKey` contract |
+| `/api/creatives/inbox`, `/api/meta/copies` | list reads; unsourced rows disclosed |
+| `/api/analytics/landing-pages` | caps passed through; absent stays `Backend cap not supplied` |
+| `/api/creatives/share` GET/POST | create now sends the acknowledgement; 400 gate proven against the real route |
+| `/api/creatives/share/[token]` DELETE/POST | revoke and rotate; **rotation-invalidates-old not yet proven** (Blocker 1) |
+| `/api/launchpad/meta/{drafts,templates,templates/[id],validate}` | corrected to the exact route bodies |
+| `/api/launchpad/meta/bulk-ad-status` | **withheld**; the exact per-item contract cannot be built here |
+| `/api/launchpad/meta/{launch,add-to-existing}` | zero call sites, scan-proven |
+| `/api/google-ads/{overview,advisor,search-intelligence,products,assets}` | adapted to real payloads; malformed refuses visibly |
+| `/api/zero-base/google/scope` | new server-owned reader; DB reads only, no provider call |
+| `/share/creative/[token]` | **NOT corrected — Blocker 1** |
+
+### 10.6 · Gates after the corrections
+
+typecheck 0 · lint 0 · **Vitest 8596 passed / 0 failed** (794 files) ·
+migrations-from-zero PASS · selection-race seam PASS · creative:v2:safety 0 ·
+frozen acceptance 22/22 · contract verify / freshness / fonts 0 ·
+responsive 60/60 · build clean (21 canonical routes) · credential-free smoke
+**71 passed / 3 failed** — the same three pre-existing failures as the accepted
+Phase C baseline.
+
+`git diff a09e6addb..HEAD` still touches no resolver or decision-output file.

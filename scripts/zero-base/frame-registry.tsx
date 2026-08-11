@@ -65,6 +65,7 @@ import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { LoginView } from "@/components/zero-base/auth/login-view";
+import { ThemeAcceptanceBoard } from "@/components/zero-base/states/theme-acceptance-board";
 import { ContextResetNotice, ScopeSwitchPanel } from "@/components/zero-base/shell/switch-states";
 import { SearchOverlay } from "@/components/zero-base/search/search-overlay";
 import { AccountSecurityView } from "@/components/zero-base/account/account-security-view";
@@ -1166,7 +1167,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P05", leaf: "L-C-CR-PERF", state: "media-states-board", width: 1440, theme: "light", render: () => mediaBoard() },
   { id: "P06", leaf: "L-C-M-TEAM", state: "turkish", width: 1440, theme: "light", render: () => tr(team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED })) },
   { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 390, theme: "light", render: () => tr(integrations()) },
-  { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
+  { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ThemeAcceptanceBoard /> },
 
   /* ---- M01–M09: mobile proof states ---- */
   { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(true, true) },

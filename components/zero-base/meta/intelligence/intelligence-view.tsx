@@ -11,6 +11,7 @@
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface IntelligenceSource {
   key: string;
@@ -42,11 +43,12 @@ export function IntelligenceView({
   /** The one window every windowed source was scoped to. */
   window?: { startDate: string; endDate: string };
 }) {
+  const copy = useCopy();
   if (unavailableReason) {
     return (
       <div data-intelligence-surface="">
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-          Account Intelligence
+          {copy.accountIntelligence}
         </h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -58,7 +60,7 @@ export function IntelligenceView({
   return (
     <div data-intelligence-surface="">
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-        Account Intelligence
+        {copy.accountIntelligence}
       </h1>
       {window ? (
         <p data-intelligence-window="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -67,7 +69,7 @@ export function IntelligenceView({
       ) : null}
       <div style={{ marginTop: 16 }}>
         <DataTable
-          caption="Intelligence sources"
+          caption={copy.intelligenceSources}
           rows={[...sources]}
           rowKey={(row) => row.key}
           columns={[
@@ -103,7 +105,7 @@ export function IntelligenceView({
                   // No served facts is stated as such. A zero here would be a
                   // measurement nobody took.
                   <span data-source-facts-none={row.key} style={{ color: "var(--ledger-ink-tertiary)" }}>
-                    Nothing served
+                    {copy.nothingServed}
                   </span>
                 ),
             },
@@ -112,7 +114,7 @@ export function IntelligenceView({
               header: "Observed",
               render: (row) =>
                 row.observedAt ?? (
-                  <span style={{ color: "var(--ledger-ink-tertiary)" }}>Not recorded</span>
+                  <span style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.notRecorded}</span>
                 ),
             },
           ]}

@@ -42,6 +42,7 @@ import {
   type AgencyClientRow,
 } from "@/lib/zero-base/agency-projection";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface AgencyDirectoryPageData {
   items: AgencyClientRow[];
@@ -88,6 +89,7 @@ export function ClientDirectory({
   pageSize,
   fetchPage = fetchNextPage,
 }: ClientDirectoryProps) {
+  const copy = useCopy();
   const [query, setQuery] = useState(initialQuery);
   // Served pages in arrival order. Each keeps the cursor that produced it, so
   // a row's return state is fixed the moment it is served.
@@ -172,11 +174,11 @@ export function ClientDirectory({
     <section>
       <div style={{ maxWidth: 320, marginBottom: 16 }}>
         <TextInput
-          label="Find a client"
+          label={copy.findAClient}
           value={query}
           placeholder="Name"
           onChange={(event) => setQuery(event.target.value)}
-          hint="Filters the clients already loaded on this page."
+          hint={copy.filtersLoadedClients}
         />
       </div>
 
@@ -205,7 +207,7 @@ export function ClientDirectory({
         loadingMore={loading}
       >
         <DataTable
-          caption="Clients, listed alphabetically"
+          caption={copy.clientsAlphabetical}
           rows={visible}
           rowKey={(row) => row.businessId}
           columns={[
@@ -243,7 +245,7 @@ export function ClientDirectory({
                   // Not a dash: a dash reads like zero, and "we have never
                   // recorded one" is a different fact.
                   <span data-source-activity="none" style={{ color: "var(--ledger-ink-tertiary)" }}>
-                    Not recorded
+                    {copy.notRecorded}
                   </span>
                 ),
             },

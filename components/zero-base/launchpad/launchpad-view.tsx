@@ -58,7 +58,7 @@ export function LaunchpadView({
   return (
     <div data-launchpad-surface="" style={{ display: "grid", gap: 24 }}>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-        Meta Launchpad
+        {copy.metaLaunchpad}
       </h1>
 
       {error ? (

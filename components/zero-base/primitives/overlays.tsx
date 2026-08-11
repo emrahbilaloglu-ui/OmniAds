@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { useZeroBasePortalContainer } from "@/components/zero-base/portal/portal-host";
 import { Button } from "@/components/zero-base/primitives/button";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const overlaySurface: React.CSSProperties = {
   background: "var(--ledger-bg-surface)",
@@ -98,6 +99,7 @@ export function ZeroBaseDialog({
   error,
   submitting,
 }: ZeroBaseDialogProps) {
+  const copy = useCopy();
   const container = useZeroBasePortalContainer();
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const onCloseAutoFocus = useFocusReturn(open);
@@ -151,7 +153,7 @@ export function ZeroBaseDialog({
           {children}
           {confirmPhrase ? (
             <label style={{ display: "block", marginTop: 12, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-              Type <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{confirmPhrase}</code> to confirm
+              {copy.type} <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{confirmPhrase}</code> to confirm
               <input
                 value={typed}
                 onChange={(event) => setTyped(event.target.value)}

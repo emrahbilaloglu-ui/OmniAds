@@ -15,6 +15,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { IconButton } from "@/components/zero-base/primitives/button";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface WidgetPlacement {
   id: string;
@@ -40,6 +41,7 @@ function describe(widget: WidgetPlacement): string {
 }
 
 export function WidgetGrid({ widgets, columns, rows, onChange }: WidgetGridProps) {
+  const copy = useCopy();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const history = useRef<WidgetPlacement[][]>([]);
@@ -134,7 +136,7 @@ export function WidgetGrid({ widgets, columns, rows, onChange }: WidgetGridProps
     <div>
       <div
         role="application"
-        aria-label="Report layout"
+        aria-label={copy.reportLayout}
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,

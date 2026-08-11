@@ -237,6 +237,71 @@ export const ZERO_BASE_COPY = {
     providerPosture: "Provider posture",
     metaStop: "Meta stop",
     automationGuardrails: "Automation guardrails",
+
+    /* --------------------------------------- shell, home, agency, share */
+    whereNumbersFrom: "Where these numbers come from",
+    eachSourceState: "Each source, its state and when it last updated.",
+    source: "Source",
+    state: "State",
+    lastUpdated: "Last updated",
+    sourceHealth: "Source health",
+    home: "Home",
+    refresh: "Refresh",
+    keyMetrics: "Key metrics",
+    date: "Date",
+    value: "Value",
+    skipToMain: "Skip to main content",
+    account: "Account",
+    language: "Language",
+    logOut: "Log out",
+    menu: "Menu",
+    openNavigation: "Open navigation",
+    navigation: "Navigation",
+    primary: "Primary",
+    agency: "Agency",
+    nothingInHorizon: "Nothing in this horizon.",
+    googleOverview: "Google overview",
+    googleOverviewByAccount: "Google overview by account",
+    googleAdvisor: "Google advisor",
+    reference: "Reference",
+    backToClients: "Back to clients",
+    clients: "Clients",
+    returnToFirstPage: "Return to first page",
+    notRecorded: "Not recorded",
+    findAClient: "Find a client",
+    filtersLoadedClients: "Filters the clients already loaded on this page.",
+    clientsAlphabetical: "Clients, listed alphabetically",
+    today: "Today",
+    type: "Type",
+    clearSearch: "Clear search",
+    metaLaunchpad: "Meta Launchpad",
+    withheldSafety: "Withheld — safety",
+    failed: "Failed",
+    nothingToShow: "Nothing to show",
+    shopifyWebhookRepair: "Shopify webhook repair",
+    workspace: "Workspace",
+    noBlockersReported: "This read reported no blockers.",
+    noMediaInShare: "No media was included in this share.",
+    mediaCouldNotLoad: "This media could not be loaded.",
+    tryAgain: "Try again",
+    linkNotAvailable: "This link is not available",
+    shareHasNoCreatives: "This share contains no creatives.",
+    creatives: "Creatives",
+    creativePerformance: "Creative performance",
+    creativeInbox: "Creative inbox",
+    creativeCopies: "Creative copies",
+    noPreview: "No preview",
+    signedInAsSession: "Signed in on this device as session",
+    reportLayout: "Report layout",
+    loadMore: "Load more",
+    accountIntelligence: "Account Intelligence",
+    nothingServed: "Nothing served",
+    intelligenceSources: "Intelligence sources",
+    manualWrite: "Manual write",
+    checkOlderThan15: "That check is older than 15 minutes. Run it again before acting.",
+    reCheck: "Re-check",
+    metaHistory: "Meta History",
+    metaActionHistory: "Meta action history",
   },
 
   tr: {
@@ -442,6 +507,70 @@ export const ZERO_BASE_COPY = {
     providerPosture: "Sağlayıcı duruşu",
     metaStop: "Meta durdurma",
     automationGuardrails: "Otomasyon koruma kuralları",
+
+    whereNumbersFrom: "Bu sayılar nereden geliyor",
+    eachSourceState: "Her kaynak, durumu ve en son ne zaman güncellendiği.",
+    source: "Kaynak",
+    state: "Durum",
+    lastUpdated: "Son güncelleme",
+    sourceHealth: "Kaynak sağlığı",
+    home: "Ana sayfa",
+    refresh: "Yenile",
+    keyMetrics: "Temel metrikler",
+    date: "Tarih",
+    value: "Değer",
+    skipToMain: "Ana içeriğe geç",
+    account: "Hesap",
+    language: "Dil",
+    logOut: "Çıkış yap",
+    menu: "Menü",
+    openNavigation: "Gezinmeyi aç",
+    navigation: "Gezinme",
+    primary: "Birincil",
+    agency: "Ajans",
+    nothingInHorizon: "Bu ufukta hiçbir şey yok.",
+    googleOverview: "Google genel bakış",
+    googleOverviewByAccount: "Hesaba göre Google genel bakış",
+    googleAdvisor: "Google danışmanı",
+    reference: "Referans",
+    backToClients: "Müşterilere dön",
+    clients: "Müşteriler",
+    returnToFirstPage: "İlk sayfaya dön",
+    notRecorded: "Kaydedilmedi",
+    findAClient: "Müşteri ara",
+    filtersLoadedClients: "Bu sayfada zaten yüklenmiş müşterileri filtreler.",
+    clientsAlphabetical: "Müşteriler, alfabetik sırayla",
+    today: "Bugün",
+    type: "Tür",
+    clearSearch: "Aramayı temizle",
+    metaLaunchpad: "Meta Launchpad'i",
+    withheldSafety: "Esirgendi — güvenlik",
+    failed: "Başarısız",
+    nothingToShow: "Gösterilecek bir şey yok",
+    shopifyWebhookRepair: "Shopify webhook onarımı",
+    workspace: "Çalışma alanı",
+    noBlockersReported: "Bu okuma hiçbir engel bildirmedi.",
+    noMediaInShare: "Bu paylaşıma hiçbir medya dahil edilmedi.",
+    mediaCouldNotLoad: "Bu medya yüklenemedi.",
+    tryAgain: "Tekrar deneyin",
+    linkNotAvailable: "Bu bağlantı kullanılamıyor",
+    shareHasNoCreatives: "Bu paylaşım hiçbir kreatif içermiyor.",
+    creatives: "Kreatifler",
+    creativePerformance: "Kreatif performansı",
+    creativeInbox: "Kreatif gelen kutusu",
+    creativeCopies: "Kreatif metinleri",
+    noPreview: "Önizleme yok",
+    signedInAsSession: "Bu cihazda şu oturumla oturum açıldı",
+    reportLayout: "Rapor düzeni",
+    loadMore: "Daha fazla yükle",
+    accountIntelligence: "Hesap zekâsı",
+    nothingServed: "Hiçbir şey sunulmadı",
+    intelligenceSources: "Zekâ kaynakları",
+    manualWrite: "Manuel yazma",
+    checkOlderThan15: "Bu kontrol 15 dakikadan eski. Harekete geçmeden önce yeniden çalıştırın.",
+    reCheck: "Yeniden denetle",
+    metaHistory: "Meta Geçmişi",
+    metaActionHistory: "Meta işlem geçmişi",
   },
 } as const;
 
@@ -468,13 +597,25 @@ export { NON_TRANSLATABLE_TERMS };
  * Used by the glossary test. A Turkish string that renders "ROAS" as "YG" has
  * silently broken the join with every other system the operator reads.
  */
+/**
+ * Terms that are also ordinary English words.
+ *
+ * "Search", "Shopping" and "Display" are Google Ads campaign types **when
+ * capitalised**. Lowercase they are common nouns: "Clear search" is a button,
+ * not a reference to the campaign type, and forcing it to survive translation
+ * would produce nonsense Turkish. These are matched case-sensitively; every
+ * other term stays case-insensitive.
+ */
+const CASE_SENSITIVE_TERMS = new Set(["Search", "Shopping", "Display"]);
+
 export function preservesGlossary(english: string, translated: string): string[] {
   const missing: string[] = [];
   for (const term of NON_TRANSLATABLE_TERMS) {
-    const inEnglish = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(english);
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const flags = CASE_SENSITIVE_TERMS.has(term) ? "" : "i";
+    const inEnglish = new RegExp(`\\b${escaped}\\b`, flags).test(english);
     if (!inEnglish) continue;
-    const inTranslated = translated.includes(term);
-    if (!inTranslated) missing.push(term);
+    if (!translated.includes(term)) missing.push(term);
   }
   return missing;
 }

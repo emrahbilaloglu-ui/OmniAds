@@ -27,6 +27,7 @@ import {
 } from "@/lib/zero-base/creative/studio-adapters";
 import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 interface ScopeProps {
   businessId: string;
@@ -166,6 +167,7 @@ export function CreativeBriefsClient(
 /* ----------------------------------------------------------------- inbox */
 
 export function CreativeInboxClient(props: ScopeProps) {
+  const copy = useCopy();
   const { data, surface } = useJson<{ items?: SourcedRow[] }>(
     scoped("/api/creatives/inbox", props),
     "Creative inbox",
@@ -173,7 +175,7 @@ export function CreativeInboxClient(props: ScopeProps) {
   return (
     <SurfaceStateBoundary state={surface}>
       <SourcedListView
-        title="Creative inbox"
+        title={copy.creativeInbox}
         rows={data?.items ?? []}
         emptyReason="Nothing is waiting in the inbox for this window."
       />
@@ -184,6 +186,7 @@ export function CreativeInboxClient(props: ScopeProps) {
 /* ---------------------------------------------------------------- copies */
 
 export function CreativeCopiesClient(props: ScopeProps) {
+  const copy = useCopy();
   const { data, surface } = useJson<{ copies?: SourcedRow[] }>(
     scoped("/api/meta/copies", props),
     "Creative copies",
@@ -191,7 +194,7 @@ export function CreativeCopiesClient(props: ScopeProps) {
   return (
     <SurfaceStateBoundary state={surface}>
       <SourcedListView
-        title="Creative copies"
+        title={copy.creativeCopies}
         rows={data?.copies ?? []}
         emptyReason="No copy was served for this window."
       />

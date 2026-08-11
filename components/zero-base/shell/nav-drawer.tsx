@@ -16,6 +16,7 @@ import Link from "next/link";
 import { Button } from "@/components/zero-base/primitives/button";
 import { ZeroBaseSheet } from "@/components/zero-base/primitives/overlays";
 import { navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function NavDrawer({
   groups,
@@ -28,6 +29,7 @@ export function NavDrawer({
   pathname: string;
   footer: React.ReactNode;
 }) {
+  const copy = useCopy();
   const [open, setOpen] = useState(false);
 
   return (
@@ -36,14 +38,14 @@ export function NavDrawer({
         variant="secondary"
         primaryTarget
         aria-expanded={open}
-        aria-label="Open navigation"
+        aria-label={copy.openNavigation}
         onClick={() => setOpen(true)}
         data-nav-drawer-trigger=""
       >
-        Menu
+        {copy.menu}
       </Button>
-      <ZeroBaseSheet open={open} onOpenChange={setOpen} title="Navigation" side="bottom">
-        <nav aria-label="Primary" data-nav-drawer="">
+      <ZeroBaseSheet open={open} onOpenChange={setOpen} title={copy.navigation} side="bottom">
+        <nav aria-label={copy.primary} data-nav-drawer="">
           {groups.map((group) => (
             <div key={group.id} style={{ marginTop: 12 }}>
               <p

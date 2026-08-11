@@ -11,6 +11,7 @@
 import Link from "next/link";
 
 import { WithheldState } from "@/components/zero-base/states/surface-state";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const WITHHELD_REASONS = [
   {
@@ -40,6 +41,7 @@ export const WITHHELD_REASONS = [
 ] as const;
 
 export function WithheldExplainer() {
+  const copy = useCopy();
   return (
     <section>
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>
@@ -60,7 +62,7 @@ export function WithheldExplainer() {
 
       <p style={{ fontSize: 13, lineHeight: "19px", marginTop: 16 }}>
         <Link href="/a/desk/clients" style={{ color: "var(--ledger-accent-action)" }}>
-          Back to clients
+          {copy.backToClients}
         </Link>
       </p>
     </section>

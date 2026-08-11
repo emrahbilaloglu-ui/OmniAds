@@ -20,6 +20,7 @@ import {
   type ReferenceCard,
   type ServedAdvisorItem,
 } from "@/lib/zero-base/google/google-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function GoogleScopeHeader({ title, scope }: { title: string; scope: GoogleScope }) {
   return (
@@ -96,9 +97,10 @@ export function GoogleOverviewView({
   rows: readonly { id: string; account: string; spend: GoogleValue; conversions: GoogleValue; pulse: string }[];
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   return (
     <div data-google-surface="overview">
-      <GoogleScopeHeader title="Google overview" scope={scope} />
+      <GoogleScopeHeader title={copy.googleOverview} scope={scope} />
       <GoogleSourceBadge state={source} />
       {unavailableReason ? (
         <div style={{ marginTop: 12 }}>
@@ -107,7 +109,7 @@ export function GoogleOverviewView({
       ) : (
         <div style={{ marginTop: 16 }}>
           <DataTable
-            caption="Google overview by account"
+            caption={copy.googleOverviewByAccount}
             rows={[...rows]}
             rowKey={(row) => row.id}
             columns={[
@@ -141,10 +143,11 @@ export function GoogleAdvisorView({
   items: readonly ServedAdvisorItem[];
   referenceCards: readonly ReferenceCard[];
 }) {
+  const copy = useCopy();
   const groups = groupAdvisor(items);
   return (
     <div data-google-surface="advisor">
-      <GoogleScopeHeader title="Google advisor" scope={scope} />
+      <GoogleScopeHeader title={copy.googleAdvisor} scope={scope} />
       <GoogleSourceBadge state={source} />
 
       {groups.map((group) => (
@@ -154,7 +157,7 @@ export function GoogleAdvisorView({
           </h2>
           {group.items.length === 0 ? (
             <p data-advisor-empty={group.horizon} style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-              Nothing in this horizon.
+              {copy.nothingInHorizon}
             </p>
           ) : (
             <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
@@ -171,7 +174,7 @@ export function GoogleAdvisorView({
         </section>
       ))}
 
-      <section aria-label="Reference" style={{ marginTop: 24 }}>
+      <section aria-label={copy.reference} style={{ marginTop: 24 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Reference — not enabled</h2>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           These are proposals this product will not perform. They are shown so the reasoning is

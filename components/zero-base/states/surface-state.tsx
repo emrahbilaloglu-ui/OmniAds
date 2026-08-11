@@ -107,8 +107,9 @@ export function WithheldState({
   unlock?: string;
   code?: string;
 }) {
+  const copy = useCopy();
   return (
-    <Panel tone="withheld" title="Withheld — safety" code={code} testId="state-withheld">
+    <Panel tone="withheld" title={copy.withheldSafety} code={code} testId="state-withheld">
       {reason}
       {unlock ? <p style={{ margin: "4px 0 0" }}>Unlocks when {unlock}</p> : null}
     </Panel>
@@ -128,7 +129,7 @@ export function ErrorState({
 }) {
   const copy = useCopy();
   return (
-    <Panel tone="error" title="Failed" code={code} testId="state-error">
+    <Panel tone="error" title={copy.failed} code={code} testId="state-error">
       {reason}
       {verbatim ? (
         <p
@@ -167,8 +168,9 @@ export function ErrorState({
 }
 
 export function EmptyState({ reason, code }: { reason: string; code?: string }) {
+  const copy = useCopy();
   return (
-    <Panel tone="empty" title="Nothing to show" code={code} testId="state-empty">
+    <Panel tone="empty" title={copy.nothingToShow} code={code} testId="state-empty">
       {reason}
     </Panel>
   );

@@ -43,6 +43,7 @@ import {
   type OperatorValues,
 } from "@/lib/zero-base/meta/dispatch-contract";
 import type { DecisionRow } from "@/lib/zero-base/meta/decisions-presentation";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /** Everything the ceremony needs, all of it from the authorized server route. */
 export interface MutationCeremonySeed {
@@ -131,6 +132,7 @@ export function MutationCeremonyPanel({
   row: DecisionRow;
   seed: MutationCeremonySeed;
 }) {
+  const t = useCopy();
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [announcement, setAnnouncement] = useState("");
   const [copied, setCopied] = useState(false);
@@ -271,7 +273,7 @@ export function MutationCeremonyPanel({
   return (
     <section
       data-mutation-ceremony={row.id}
-      aria-label="Manual write"
+      aria-label={t.manualWrite}
       style={{
         display: "grid",
         gap: 8,
@@ -280,7 +282,7 @@ export function MutationCeremonyPanel({
         border: "1px solid var(--ledger-border-control)",
       }}
     >
-      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Manual write</h3>
+      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{t.manualWrite}</h3>
 
       <p
         role="status"
@@ -388,10 +390,10 @@ export function MutationCeremonyPanel({
       {step.kind === "stale" ? (
         <div data-mutation-step="stale" style={{ fontSize: 12.5 }}>
           <p style={{ margin: 0, color: "var(--ledger-semantic-warn)" }}>
-            That check is older than 15 minutes. Run it again before acting.
+            {t.checkOlderThan15}
           </p>
           <Button variant="secondary" data-mutation-recheck="" onClick={() => void startPreflight(step.action)}>
-            Re-check
+            {t.reCheck}
           </Button>
         </div>
       ) : null}

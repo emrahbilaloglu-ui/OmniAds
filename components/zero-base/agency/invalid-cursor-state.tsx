@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /**
  * A directory link whose cursor cannot be read.
@@ -22,10 +23,11 @@ export function InvalidCursorState({
 }: {
   returnPath: "/a/desk" | "/a/desk/clients";
 }) {
+  const copy = useCopy();
   return (
     <section data-invalid-cursor="">
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
-        Clients
+        {copy.clients}
       </h2>
       <div
         style={{
@@ -54,7 +56,7 @@ export function InvalidCursorState({
             color: "var(--ledger-accent-action)",
           }}
         >
-          Return to first page
+          {copy.returnToFirstPage}
         </Link>
       </div>
     </section>

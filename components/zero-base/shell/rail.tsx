@@ -14,6 +14,7 @@
 import Link from "next/link";
 
 import { navHref, railLabel, type NavGroup } from "@/lib/zero-base/navigation";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const RAIL_WIDTH = 232;
 
@@ -26,9 +27,10 @@ export interface RailProps {
 }
 
 export function Rail({ groups, businessId, pathname, footer }: RailProps) {
+  const copy = useCopy();
   return (
     <nav
-      aria-label="Primary"
+      aria-label={copy.primary}
       data-rail=""
       style={{
         width: RAIL_WIDTH,

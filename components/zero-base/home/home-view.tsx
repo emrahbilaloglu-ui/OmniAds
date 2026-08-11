@@ -17,6 +17,7 @@ import { MetricCard } from "@/components/zero-base/home/metric-card";
 import { BannerStack, SourceHealthPanel } from "@/components/zero-base/home/source-health";
 import { Button } from "@/components/zero-base/primitives/button";
 import { buildBannerStack, type HomeContract } from "@/lib/zero-base/home/metric-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export type HomeRefreshState = "idle" | "refreshing" | "failed";
 
@@ -32,12 +33,13 @@ export function HomeView({
   refreshState?: HomeRefreshState;
   onRefresh?: () => void;
 }) {
+  const copy = useCopy();
   const [banners] = useState(() => buildBannerStack(contract.sources));
 
   return (
     <div data-home-surface="" data-refresh-state={refreshState}>
       <header style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Home</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.home}</h1>
         <p data-scope-line="" style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
           {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
         </p>
@@ -69,7 +71,7 @@ export function HomeView({
       ) : null}
 
       <section
-        aria-label="Key metrics"
+        aria-label={copy.keyMetrics}
         data-metric-grid=""
         style={{
           display: "grid",
@@ -92,7 +94,7 @@ export function HomeView({
           state={refreshState === "refreshing" ? { kind: "busy", label: "Refreshing…" } : { kind: "enabled" }}
           style={{ marginTop: 16 }}
         >
-          Refresh
+          {copy.refresh}
         </Button>
       ) : null}
     </div>

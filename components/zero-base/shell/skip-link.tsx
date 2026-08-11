@@ -1,5 +1,7 @@
 "use client";
 
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
+
 /**
  * Skip link.
  *
@@ -22,6 +24,7 @@ export const MAIN_CONTENT_ID = "zero-base-main";
 export const MAIN_CONTENT_TABINDEX = 0;
 
 export function SkipLink() {
+  const copy = useCopy();
   return (
     <a
       href={`#${MAIN_CONTENT_ID}`}
@@ -48,7 +51,7 @@ export function SkipLink() {
         event.currentTarget.style.top = "-48px";
       }}
     >
-      Skip to main content
+      {copy.skipToMain}
     </a>
   );
 }

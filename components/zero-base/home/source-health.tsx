@@ -11,6 +11,7 @@
  * one renders "unknown", not "fresh".
  */
 import type { HomeBanner, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const FRESHNESS_WORD = {
   fresh: "fresh",
@@ -56,10 +57,11 @@ export function BannerStack({ banners }: { banners: readonly HomeBanner[] }) {
 }
 
 export function SourceHealthPanel({ sources }: { sources: readonly HomeSourceState[] }) {
+  const copy = useCopy();
   return (
     <section
       data-source-health=""
-      aria-label="Source health"
+      aria-label={copy.sourceHealth}
       style={{
         borderRadius: "var(--ledger-radius-card)",
         border: "1px solid var(--ledger-border-subtle)",
@@ -68,22 +70,22 @@ export function SourceHealthPanel({ sources }: { sources: readonly HomeSourceSta
       }}
     >
       <h2 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
-        Where these numbers come from
+        {copy.whereNumbersFrom}
       </h2>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <caption style={{ textAlign: "left", fontSize: 12, color: "var(--ledger-ink-tertiary)", paddingBottom: 6 }}>
-          Each source, its state and when it last updated.
+          {copy.eachSourceState}
         </caption>
         <thead>
           <tr>
             <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-              Source
+              {copy.source}
             </th>
             <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-              State
+              {copy.state}
             </th>
             <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-              Last updated
+              {copy.lastUpdated}
             </th>
           </tr>
         </thead>

@@ -6,6 +6,7 @@ import { WorkspaceContextProvider } from "@/components/workspace/workspace-conte
 import { AppShell } from "@/components/zero-base/shell/app-shell";
 import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /**
  * Account chrome. No context bar and no client nav: these leaves belong to the
@@ -21,6 +22,7 @@ export function AccountShell({
   businessCount: number;
   children: React.ReactNode;
 }) {
+  const copy = useCopy();
   const pathname = usePathname() ?? "";
   const groups = [
     {
@@ -49,7 +51,7 @@ export function AccountShell({
         groups={groups}
         businessId={null}
         pathname={pathname}
-        title="Account"
+        title={copy.account}
         scope={null}
         railFooter={
           <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>

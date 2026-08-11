@@ -26,6 +26,7 @@ import {
   type PlanStep,
 } from "@/lib/zero-base/google/manual-plan";
 import type { GoogleScope, GoogleSourceState } from "@/lib/zero-base/google/google-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function GooglePlanView({
   scope,
@@ -39,6 +40,7 @@ export function GooglePlanView({
   /** Statuses the response contract actually carries. */
   servedStatuses: readonly string[];
 }) {
+  const t = useCopy();
   const [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -60,26 +62,26 @@ export function GooglePlanView({
 
   return (
     <div data-google-surface="plan" style={{ display: "grid", gap: 20 }}>
-      <GoogleScopeHeader title="Google plan" scope={scope} />
+      <GoogleScopeHeader title={t.googlePlan} scope={scope} />
       <GoogleSourceBadge state={source} />
 
       {/* ------------------------------------------- manual path, first */}
-      <section aria-label="Manual plan">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Your plan</h2>
+      <section aria-label={t.manualPlan}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.yourPlan}</h2>
         <p data-manual-primary="" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
-          Carry these out in Google Ads yourself. Nothing on this page changes anything in Google.
+          {t.carryOutInGoogle}
         </p>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
           <Button variant="secondary" data-plan-copy="" onClick={copy}>
             {copied ? "Plan copied" : "Copy plan"}
           </Button>
           <Button variant="secondary" data-plan-csv="" onClick={download}>
-            Download CSV
+            {t.downloadCsv}
           </Button>
         </div>
 
         <DataTable
-          caption="Google manual plan"
+          caption={t.googleManualPlan}
           rows={[...steps]}
           rowKey={(row) => row.id}
           columns={[
@@ -122,7 +124,7 @@ export function GooglePlanView({
                     data-plan-link={row.id}
                     style={{ color: "var(--ledger-accent-action)" }}
                   >
-                    Open
+                    {t.open}
                   </a>
                 ) : (
                   <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
@@ -153,8 +155,8 @@ export function GooglePlanView({
       </section>
 
       {/* ---------------------------------------------- activity / pending */}
-      <section aria-label="Activity">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Activity</h2>
+      <section aria-label={t.activity}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.activity}</h2>
         <p data-google-pending="" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
           {GOOGLE_PENDING_COPY}
         </p>
@@ -170,8 +172,8 @@ export function GooglePlanView({
       </section>
 
       {/* ------------------------------------------------- reference states */}
-      <section aria-label="Reference write states">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Reference — not enabled</h2>
+      <section aria-label={t.referenceWriteStates}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.referenceNotEnabled}</h2>
         {REFERENCE_WRITE_STATES.map((state) => (
           <p
             key={state.mode}
@@ -194,7 +196,7 @@ export function GooglePlanView({
             setBatchError(gate.ok ? null : gate.reason);
           }}
         >
-          Check this selection
+          {t.checkThisSelection}
         </Button>
         {batchError ? (
           <p role="status" data-batch-error="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>

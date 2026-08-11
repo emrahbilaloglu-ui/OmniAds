@@ -9,7 +9,17 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, configure, render, waitFor } from "@testing-library/react";
+
+/**
+ * These flows are two round trips deep — a write, then an independent re-read —
+ * behind stubbed promises. Under a parallel batch the default 1s `waitFor`
+ * budget occasionally expired before the second setState landed, which showed up
+ * as an intermittent failure in an otherwise deterministic test. The product
+ * path is unchanged; the harness just needed a budget that matches the number of
+ * awaits it is actually waiting on.
+ */
+configure({ asyncUtilTimeout: 5000 });
 
 import {
   BusinessClient,

@@ -14,6 +14,7 @@
 import { useId, useState } from "react";
 
 import type { OverviewMetricUnit } from "@/src/types/models";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface SparklinePoint {
   date: string;
@@ -29,6 +30,7 @@ export function Sparkline({
   points: ReadonlyArray<SparklinePoint>;
   unit: OverviewMetricUnit;
 }) {
+  const copy = useCopy();
   const [showTable, setShowTable] = useState(false);
   const tableId = useId();
 
@@ -119,10 +121,10 @@ export function Sparkline({
             <thead>
               <tr>
                 <th scope="col" style={{ textAlign: "left", padding: "2px 6px" }}>
-                  Date
+                  {copy.date}
                 </th>
                 <th scope="col" style={{ textAlign: "right", padding: "2px 6px" }}>
-                  Value
+                  {copy.value}
                 </th>
               </tr>
             </thead>

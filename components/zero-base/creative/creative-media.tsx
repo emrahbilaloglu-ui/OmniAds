@@ -9,10 +9,12 @@
  * travels with it.
  */
 import type { MediaState } from "@/lib/zero-base/creative/performance-adapter";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const BOX = 44;
 
 export function CreativeMedia({ state, label }: { state: MediaState; label: string }) {
+  const copy = useCopy();
   if (state.kind === "missing") {
     return (
       <span
@@ -34,7 +36,7 @@ export function CreativeMedia({ state, label }: { state: MediaState; label: stri
           padding: 2,
         }}
       >
-        No preview
+        {copy.noPreview}
       </span>
     );
   }

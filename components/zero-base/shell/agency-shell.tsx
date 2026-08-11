@@ -7,6 +7,7 @@ import { AppShell } from "@/components/zero-base/shell/app-shell";
 import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import type { WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /**
  * Agency chrome. No context bar: Agency spans clients, so there is no single
@@ -20,6 +21,7 @@ export function AgencyShell({
   envelope: WorkspaceContextEnvelope;
   children: React.ReactNode;
 }) {
+  const copy = useCopy();
   const pathname = usePathname() ?? "";
   return (
     <WorkspaceContextProvider value={envelope}>
@@ -27,7 +29,7 @@ export function AgencyShell({
         groups={navGroupsFor("Agency")}
         businessId={null}
         pathname={pathname}
-        title="Agency"
+        title={copy.agency}
         scope={null}
         railFooter={
           <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>

@@ -10,6 +10,7 @@
  * load rather than only re-rendering the message.
  */
 import { useCallback, useRef, useState } from "react";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface ShareMediaSource {
   kind: "image" | "video";
@@ -21,6 +22,7 @@ export interface ShareMediaSource {
 }
 
 export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
+  const copy = useCopy();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -36,7 +38,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
   if (!source) {
     return (
       <p data-share-media="missing" style={{ margin: 0, fontSize: 13, color: "var(--ledger-ink-tertiary)" }}>
-        No media was included in this share.
+        {copy.noMediaInShare}
       </p>
     );
   }
@@ -44,7 +46,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
   if (failed) {
     return (
       <div data-share-media="error" style={{ display: "grid", gap: 8, justifyItems: "start" }}>
-        <p style={{ margin: 0, fontSize: 13 }}>This media could not be loaded.</p>
+        <p style={{ margin: 0, fontSize: 13 }}>{copy.mediaCouldNotLoad}</p>
         <button
           type="button"
           data-share-media-retry=""
@@ -59,7 +61,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
             cursor: "pointer",
           }}
         >
-          Try again
+          {copy.tryAgain}
         </button>
       </div>
     );

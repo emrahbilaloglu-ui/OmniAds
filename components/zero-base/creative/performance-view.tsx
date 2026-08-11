@@ -21,6 +21,7 @@ import {
   type PerformanceViewModel,
 } from "@/lib/zero-base/creative/performance-adapter";
 import { CreativeMedia } from "@/components/zero-base/creative/creative-media";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 function Metric({ value, name }: { value: MetricValue; name: string }) {
   if (!value.available) {
@@ -48,13 +49,14 @@ export function CreativePerformanceView({
   businessId: string;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   const posture = postureView(model.posture);
 
   if (unavailableReason) {
     return (
       <div data-creative-performance="">
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-          Creative performance
+          {copy.creativePerformance}
         </h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -66,7 +68,7 @@ export function CreativePerformanceView({
   return (
     <div data-creative-performance="">
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-        Creative performance
+        {copy.creativePerformance}
       </h1>
 
       {/* The posture is stated on the surface, not implied by what is absent. */}
@@ -86,7 +88,7 @@ export function CreativePerformanceView({
 
       <div style={{ marginTop: 16 }}>
         <DataTable
-          caption="Creative performance"
+          caption={copy.creativePerformance}
           rows={model.rows}
           rowKey={(row) => row.id}
           columns={[

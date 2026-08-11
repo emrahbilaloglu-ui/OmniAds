@@ -19,6 +19,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CriticalIncidentPath, OpsRepairPanel } from "@/components/zero-base/ops/repair-panel";
 import { REPAIR_ENDPOINTS } from "@/lib/zero-base/ops/repair-ceremony";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 interface AdminBusiness {
   id: string;
@@ -190,6 +191,7 @@ type RecheckState =
   | { kind: "failed"; detail: string };
 
 export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
+  const copy = useCopy();
   const contract = REPAIR_ENDPOINTS.shopify_integration;
   const [businesses, setBusinesses] = useState<AdminBusiness[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -283,7 +285,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
     <section data-ops-incident-surface="" style={{ display: "grid", gap: 20, marginTop: 24 }}>
       <CriticalIncidentPath />
       <div>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Shopify webhook repair</h2>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.shopifyWebhookRepair}</h2>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {/* Named so an operator knows which endpoint and which semantics. */}
           {contract.method} {contract.path} — this endpoint performs no read-back.
@@ -293,7 +295,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
           htmlFor="ops-repair-workspace"
           style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}
         >
-          Workspace
+          {copy.workspace}
         </label>
         <select
           id="ops-repair-workspace"
@@ -387,7 +389,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
               </ul>
             ) : (
               <p data-ops-health-clear="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                This read reported no blockers.
+                {copy.noBlockersReported}
               </p>
             )}
           </div>

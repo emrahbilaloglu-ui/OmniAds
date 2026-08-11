@@ -8,6 +8,7 @@ import {
 } from "@/components/zero-base/agency/client-directory";
 import { AGENCY_MEMBERSHIP_REVOKED } from "@/lib/zero-base/agency-projection";
 import { useSearchParams } from "next/navigation";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /**
  * Agency Desk — Today.
@@ -17,6 +18,7 @@ import { useSearchParams } from "next/navigation";
  * instead of leaving them to notice a row has vanished.
  */
 export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPageData }) {
+  const copy = useCopy();
   const searchParams = useSearchParams();
   const revoked = searchParams?.get("revoked") ?? null;
   // Checked against the served page: a revoked client is absent from the
@@ -26,7 +28,7 @@ export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPa
   return (
     <>
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
-        Today
+        {copy.today}
       </h2>
       {revoked && !stillListed ? (
         <p

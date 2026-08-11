@@ -16,6 +16,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useZeroBasePortalContainer } from "@/components/zero-base/portal/portal-host";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface ComboboxOption {
   value: string;
@@ -42,6 +43,7 @@ export function Combobox({
   status = "idle",
   placeholder = "Search…",
 }: ComboboxProps) {
+  const copy = useCopy();
   const inputId = useId();
   const listboxId = `${inputId}-listbox`;
   const [open, setOpen] = useState(false);
@@ -163,7 +165,7 @@ export function Combobox({
               textDecoration: "underline",
             }}
           >
-            Clear search
+            {copy.clearSearch}
           </button>
         </li>
       ) : (

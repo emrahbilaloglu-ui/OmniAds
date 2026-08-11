@@ -55,6 +55,13 @@ describe("the glossary survives translation", () => {
     }
   });
 
+  it("treats ambiguous terms as identifiers only when capitalised", () => {
+    // "Search" capitalised is the Google Ads campaign type and must survive.
+    expect(preservesGlossary("Search campaigns", "Kampanyalar")).toEqual(["Search"]);
+    // Lowercase it is an ordinary noun; forcing it through would be nonsense.
+    expect(preservesGlossary("Clear search", "Aramayı temizle")).toEqual([]);
+  });
+
   it("detects a dropped term rather than passing everything", () => {
     // Negative control: the checker must actually fail when a term is lost.
     expect(preservesGlossary("Target ROAS for Meta", "Meta için hedef YG")).toEqual(["ROAS"]);

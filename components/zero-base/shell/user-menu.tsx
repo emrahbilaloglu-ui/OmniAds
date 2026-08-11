@@ -12,13 +12,15 @@ import Link from "next/link";
 import { ThemeControl } from "@/components/theme/theme-control";
 import { Button } from "@/components/zero-base/primitives/button";
 import { ZeroBasePopover } from "@/components/zero-base/primitives/overlays";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const USER_MENU_ITEMS = ["profile", "language", "theme", "logout"] as const;
 
 export function UserMenu({ name, onLogout }: { name: string; onLogout: () => void }) {
+  const copy = useCopy();
   return (
     <ZeroBasePopover
-      label="Account"
+      label={copy.account}
       trigger={
         <Button variant="secondary" aria-label={`Account — ${name}`} data-user-menu-trigger="">
           {name}
@@ -38,14 +40,14 @@ export function UserMenu({ name, onLogout }: { name: string; onLogout: () => voi
           data-user-menu-item="language"
           style={{ fontSize: 13, color: "var(--ledger-accent-action)", minHeight: 24 }}
         >
-          Language
+          {copy.language}
         </Link>
         <div data-user-menu-item="theme">
           <p style={{ margin: "0 0 4px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Theme</p>
           <ThemeControl />
         </div>
         <Button variant="secondary" onClick={onLogout} data-user-menu-item="logout">
-          Log out
+          {copy.logOut}
         </Button>
       </div>
     </ZeroBasePopover>

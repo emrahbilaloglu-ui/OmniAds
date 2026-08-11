@@ -16,6 +16,7 @@ import { DataTable } from "@/components/zero-base/collections/data-table";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
 import type { HistoryRow } from "@/lib/zero-base/meta/history-adapter";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export type { HistoryRow };
 
@@ -33,12 +34,13 @@ export function HistoryView({
   accountLabel?: string | null;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   const anyReplayed = rows.some((row) => row.replayed);
 
   if (unavailableReason) {
     return (
       <div data-history-surface="">
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Meta History</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>
@@ -48,7 +50,7 @@ export function HistoryView({
 
   return (
     <div data-history-surface="">
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Meta History</h1>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
       {accountLabel ? (
         <p data-history-account="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Account {accountLabel}
@@ -92,7 +94,7 @@ export function HistoryView({
 
       <div style={{ marginTop: 16 }}>
         <DataTable
-          caption="Meta action history"
+          caption={copy.metaActionHistory}
           rows={[...rows]}
           rowKey={(row) => row.id}
           columns={[

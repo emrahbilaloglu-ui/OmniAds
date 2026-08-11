@@ -62,7 +62,7 @@ export function AccountSecurityView({
       <div>
         <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.sessions}</h3>
         <p style={{ fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-ink-secondary)", marginTop: 4 }}>
-          Signed in on this device as session <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{currentSessionId.slice(0, 8)}</code>.
+          {copy.signedInAsSession} <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{currentSessionId.slice(0, 8)}</code>.
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <Button variant="secondary" onClick={() => setConfirmRevokeAll(true)}>

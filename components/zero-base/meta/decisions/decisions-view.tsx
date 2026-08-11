@@ -93,6 +93,8 @@ export function DecisionsView({
   shareViewHref = null,
   inspectorEvidence = null,
   briefHref = null,
+  onLoadMore,
+  collection = "decisions",
 }: {
   model: DecisionsViewModel;
   state: DecisionsUrlState;
@@ -115,6 +117,10 @@ export function DecisionsView({
   shareViewHref?: string | null;
   inspectorEvidence?: { windowLabel: string; snapshotAt: string; gaps: readonly string[] } | null;
   briefHref?: string | null;
+  /** Absent at the end of the lane. */
+  onLoadMore?: () => void;
+  /** What this lane's rows are, named by the caller that knows the surface. */
+  collection?: string;
 }) {
   const copy = useCopy();
   const [search, setSearch] = useState(state.search);
@@ -260,6 +266,8 @@ export function DecisionsView({
                     truncated: model.truncated,
                     disclosure: model.disclosure,
                   }}
+                  onLoadMore={onLoadMore}
+                  loadMoreCtl="live:META-DEC-05 load-more"
                   state={
                     model.rows.length === 0
                       ? {
@@ -270,7 +278,7 @@ export function DecisionsView({
                   }
                 >
                   <DataTable
-                    collection="decisions"
+                    collection={collection}
                     caption={`${LANE_LABEL[lane]} decisions`}
                     rows={model.rows}
                     rowKey={(row) => row.id}

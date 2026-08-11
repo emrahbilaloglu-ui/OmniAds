@@ -315,7 +315,7 @@ const DECISION_VIEWER = {
 };
 
 /** The Decisions workspace, optionally with its inspector open. */
-const decisions = (selected: string | null = null, rows = 3, sticky = false, conflict = false) => {
+const decisions = (selected: string | null = null, rows = 3, sticky = false, conflict = false, paging = false) => {
   const items = Array.from({ length: rows }, (_, index) =>
     metaRecommendation({
       id: `d${index + 1}`,
@@ -338,6 +338,8 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false, con
       onStateChange={() => {}}
       adsManagerHref="https://adsmanager.facebook.com/"
       shareViewHref="/c/biz/meta/decisions?lane=act&levels=campaign"
+      onLoadMore={paging ? () => {} : undefined}
+      collection={paging ? "needsres" : "decisions"}
       briefHref="/c/biz/creative/c1/brief"
       inspectorEvidence={{
         windowLabel: "Jul 13 – Aug 9",
@@ -523,7 +525,7 @@ const googleJournal = (hasGap: boolean) => ({
     : null,
 });
 
-const googlePlan = (withLink = true, gap = true) => (
+const googlePlan = (withLink = true, gap = true, batch = false) => (
   <GooglePlanView
     scope={GOOGLE_SCOPE}
     source={GOOGLE_SERVING}
@@ -534,6 +536,7 @@ const googlePlan = (withLink = true, gap = true) => (
     onCopyStep={() => {}}
     onCsvStep={() => {}}
     onDismiss={() => {}}
+    batchPartial={batch}
   />
 );
 
@@ -1097,7 +1100,7 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H09–H16: decisions, workflow, mutation ceremony ---- */
   { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => decisions() },
   { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => decisions("d1") },
-  { id: "H11", leaf: "L-C-META-DEC", state: "needs-resolution", width: 1440, theme: "light", render: () => decisions("d1", 3) },
+  { id: "H11", leaf: "L-C-META-DEC", state: "needs-resolution", width: 1440, theme: "light", render: () => decisions("d1", 3, false, false, true) },
   { id: "H12", leaf: "L-C-META-DEC", state: "workflow-conflict", width: 1440, theme: "light", render: () => decisions("d1", 3, false, true) },
   { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => ceremony(CEREMONY_COLLECT) },
   { id: "H14", leaf: "L-C-META-WRITE", state: "ceremony-confirm", width: 1440, theme: "light", render: () => ceremony(CEREMONY_CONFIRM) },
@@ -1126,7 +1129,6 @@ export const FRAMES: readonly FrameSpec[] = [
       initialAudience="buyer"
       initialTitle="September review"
       initialExpiresAt="2026-10-01"
-      initialAcknowledged
     />
   ) },
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => landingPages() },
@@ -1141,7 +1143,7 @@ export const FRAMES: readonly FrameSpec[] = [
     </div>
   ) },
   { id: "H32", leaf: "L-C-G-PLAN", state: "google-plan", width: 1440, theme: "light", render: () => googlePlan() },
-  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-partial", width: 1440, theme: "light", render: () => googlePlan(true, false) },
+  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-partial", width: 1440, theme: "light", render: () => googlePlan(true, true, true) },
 
   /* ---- H34–H36: analytics ---- */
   { id: "H34", leaf: "L-C-AN-GA", state: "analytics-ga4", width: 1440, theme: "light", render: () => analyticsOverview() },
@@ -1247,8 +1249,12 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P03", leaf: "L-C-REP-VIEW", state: "table-dense", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ rows: [{ name: "Brand", spend: 12 }, { name: "Prospecting", spend: 44 }], columns: ["name", "spend"] })} sourceId="meta_campaigns" /> },
   { id: "P04", leaf: "L-C-REP-VIEW", state: "sparkline-table-toggle", width: 1440, theme: "light", render: () => trendBoard("Report trend", "report") },
   { id: "P05", leaf: "L-C-CR-PERF", state: "media-states-board", width: 1440, theme: "light", render: () => mediaBoard() },
-  { id: "P06", leaf: "L-C-M-TEAM", state: "turkish", width: 1440, theme: "light", render: () => tr(team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED })) },
-  { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 390, theme: "light", render: () => tr(integrations()) },
+  { id: "P06", leaf: "L-C-META-DEC", state: "turkish-desktop", width: 1440, theme: "light", render: () => tr(
+    <div data-el="turkish-strings">{decisions("d1", 3)}</div>
+  ) },
+  { id: "P07", leaf: "L-C-META-DEC", state: "turkish-mobile", width: 390, theme: "light", render: () => tr(
+    <div data-el="turkish-strings">{decisions("d1", 3, true)}</div>
+  ) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ThemeAcceptanceBoard /> },
 
   /* ---- M01–M09: mobile proof states ---- */

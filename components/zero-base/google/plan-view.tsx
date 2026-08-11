@@ -46,6 +46,7 @@ export function GooglePlanView({
   onCsvStep,
   onDismiss,
   markError,
+  batchPartial = false,
 }: {
   scope: GoogleScope;
   source: GoogleSourceState;
@@ -61,6 +62,8 @@ export function GooglePlanView({
   onDismiss?: (stepId: string) => void;
   /** Verbatim journal-write failure. The checkbox reverts; nothing is claimed. */
   markError?: string | null;
+  /** Some of the batch landed and some did not; neither word covers it. */
+  batchPartial?: boolean;
 }) {
   const t = useCopy();
   const [copied, setCopied] = useState(false);
@@ -289,6 +292,23 @@ export function GooglePlanView({
         <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           A batch would be one execution target type, up to {MAX_BATCH_ITEMS} items.
         </p>
+        {batchPartial ? (
+          <p
+            data-el="batch-partial"
+            style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+          >
+            {/* Neither "applied" nor "failed" describes a batch where some
+                steps landed. Saying either would be wrong about the rest. */}
+            {t.batchPartiallyApplied}
+          </p>
+        ) : null}
+        <ul data-collection="batch" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+          {steps.map((step) => (
+            <li key={step.id} style={{ fontSize: 12.5 }}>
+              {step.title}
+            </li>
+          ))}
+        </ul>
         <Button
           variant="secondary"
           data-batch-validate=""

@@ -174,6 +174,8 @@ export interface AssignmentPanelProps {
   permission: { ok: boolean; reason?: string };
   onProviderChange?: (provider: string) => void;
   onSave?: (accountIds: string[]) => void;
+  /** Discards the draft without touching what is assigned. */
+  onCancel?: () => void;
 }
 
 export function IntegrationsView({
@@ -354,6 +356,7 @@ function AssignmentPanel({
   permission,
   onProviderChange,
   onSave,
+  onCancel,
 }: AssignmentPanelProps) {
   const copy = useCopy();
   const served = accounts.filter((account) => account.assigned).map((account) => account.id);
@@ -364,7 +367,7 @@ function AssignmentPanel({
   }, [servedKey]);
 
   return (
-    <section data-assignment-panel={provider} aria-label={copy.accountAssignment} style={{ marginTop: 24 }}>
+    <section data-assignment-panel={provider} data-el="assignment-sheet" aria-label={copy.accountAssignment} style={{ marginTop: 24 }}>
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.assignedAccounts}</h2>
 
       <label htmlFor="assignment-provider" style={{ display: "block", fontSize: 12, fontWeight: 600, margin: "8px 0 4px" }}>
@@ -397,13 +400,14 @@ function AssignmentPanel({
         </p>
       ) : (
         <>
-          <ul data-assignment-accounts="" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+          <ul data-assignment-accounts="" data-collection="accounts" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
             {accounts.map((account) => (
               <li key={account.id} style={{ fontSize: 12.5 }}>
                 <label style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}>
                   <input
                     type="checkbox"
                     data-assignment-account={account.id}
+                    data-ctl="live:INTEGRATION-07 assign"
                     checked={draft.includes(account.id)}
                     onChange={(event) =>
                       setDraft((current) =>
@@ -435,11 +439,23 @@ function AssignmentPanel({
             <Button
               variant="secondary"
               data-assignment-save=""
+              data-ctl="live:INTEGRATION-07 save"
               state={state.pending ? { kind: "busy", label: "Saving\u2026" } : { kind: "enabled" }}
               onClick={() => onSave?.(draft)}
             >
               {copy.saveAssignment}
             </Button>
+            {onCancel ? (
+              <Button
+                variant="quiet"
+                data-assignment-cancel=""
+                data-ctl="live:cancel"
+                onClick={onCancel}
+                style={{ marginLeft: 6 }}
+              >
+                {copy.cancel}
+              </Button>
+            ) : null}
           </div>
         </>
       )}

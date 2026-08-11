@@ -608,6 +608,7 @@ export function TeamView({
                     <Button
                       variant="quiet"
                       data-member-remove={row.membershipId}
+                      data-ctl="gated:TEAM-03"
                       state={write.pending === row.membershipId ? { kind: "busy", label: "Removing\u2026" } : { kind: "enabled" }}
                       onClick={() => onRemove?.(row.membershipId)}
                     >
@@ -679,6 +680,7 @@ export function TeamView({
                     <Button
                       variant="quiet"
                       data-invite-revoke={row.id}
+                      data-ctl="gated:TEAM-04"
                       state={write.pending === row.id ? { kind: "busy", label: "Revoking\u2026" } : { kind: "enabled" }}
                       onClick={() => onRevokeInvite?.(row.id)}
                     >

@@ -409,40 +409,6 @@ export function DecisionsView({
         </p>
       ) : null}
 
-      {stickyBar && selectedRow ? (
-        <div
-          data-decision-sticky-bar=""
-          style={{
-            position: "sticky",
-            bottom: 0,
-            display: "flex",
-            gap: 8,
-            padding: "8px 0",
-            background: "var(--ledger-bg-surface)",
-            borderTop: "1px solid var(--ledger-border-subtle)",
-          }}
-        >
-          <Button
-            variant="secondary"
-            data-ctl="gated:META-WRITE-01"
-            onClick={stickyBar.onOpenManual}
-          >
-            {copy.openManualAction}
-          </Button>
-          <Link
-            href={stickyBar.metaStopHref}
-            data-ctl="live:nav"
-            style={{
-              alignSelf: "center",
-              color: "var(--ledger-accent-action)",
-              fontSize: 13,
-              textDecoration: "none",
-            }}
-          >
-            {copy.metaStop}
-          </Link>
-        </div>
-      ) : null}
 
       <ZeroBaseSheet
         open={selectedRow !== null}
@@ -464,6 +430,7 @@ export function DecisionsView({
             demo={demo}
             evidence={inspectorEvidence}
             briefHref={briefHref}
+            stickyBar={stickyBar}
             adsManagerHref={adsManagerHref}
             workflow={workflow}
             mutation={mutation}
@@ -483,6 +450,7 @@ function DecisionInspector({
   mutation,
   evidence,
   briefHref,
+  stickyBar,
 }: {
   row: DecisionRow;
   model: DecisionsViewModel;
@@ -493,6 +461,8 @@ function DecisionInspector({
   /** What the verdict was measured over, and what was missing from it. */
   evidence?: { windowLabel: string; snapshotAt: string; gaps: readonly string[] } | null;
   briefHref?: string | null;
+  /** The narrow terminus bar; part of the detail, not the surface behind it. */
+  stickyBar?: { metaStopHref: string; onOpenManual?: () => void };
 }) {
   const copy = useCopy();
   const actions = actionCountFor({ row, viewer: model.viewer, demo });
@@ -557,6 +527,41 @@ function DecisionInspector({
           </>
         ) : null}
       </dl>
+
+      {stickyBar ? (
+        <div
+          data-decision-sticky-bar=""
+          style={{
+            position: "sticky",
+            bottom: 0,
+            display: "flex",
+            gap: 8,
+            padding: "8px 0",
+            background: "var(--ledger-bg-surface)",
+            borderTop: "1px solid var(--ledger-border-subtle)",
+          }}
+        >
+          <Button
+            variant="secondary"
+            data-ctl="gated:META-WRITE-01"
+            onClick={stickyBar.onOpenManual}
+          >
+            {copy.openManualAction}
+          </Button>
+          <Link
+            href={stickyBar.metaStopHref}
+            data-ctl="live:nav"
+            style={{
+              alignSelf: "center",
+              color: "var(--ledger-accent-action)",
+              fontSize: 13,
+              textDecoration: "none",
+            }}
+          >
+            {copy.metaStop}
+          </Link>
+        </div>
+      ) : null}
 
       {briefHref ? (
         <p data-el="row-action" style={{ margin: 0, fontSize: 12.5 }}>

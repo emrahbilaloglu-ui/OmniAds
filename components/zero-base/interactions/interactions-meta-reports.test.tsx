@@ -286,6 +286,27 @@ describe("G7 — Meta decisions", () => {
     expect(ctl("live:lane"), "the lane region is present").not.toBeNull();
   });
 
+  interactionCase("gated:META-WRITE-01", async () => {
+    const user = userEvent.setup();
+    const onOpenManual = vi.fn();
+    renderDecisions({
+      state: { selected: "d1" },
+      props: { stickyBar: { metaStopHref: "/c/biz/meta/automation", onOpenManual } },
+    });
+    // At narrow widths the decision detail is the end of Flow A, so the write
+    // sheet and the Meta-stop path both stay one tap away (INV-17).
+    await user.click(expectOperable(ctl("gated:META-WRITE-01"), "open write sheet"));
+    expect(onOpenManual).toHaveBeenCalledTimes(1);
+    expectNavigates(ctl("live:nav"), /\/meta\/automation$/, "meta stop");
+  });
+
+  it("the terminus bar exists only where the rail does not", () => {
+    renderDecisions({ state: { selected: "d1" } });
+    // No sticky bar at desktop widths: the rail already carries the path, and
+    // a duplicate would be a second, competing way to the same surface.
+    expect(document.querySelector("[data-decision-sticky-bar]")).toBeNull();
+  });
+
   interactionCase("gated:META-WF-02..08 menu", async () => {
     const user = userEvent.setup();
     renderDecisions({ state: { selected: "d1" } });
@@ -805,7 +826,7 @@ describe("G7 — launchpad, team and SEO", () => {
               status: "active",
             },
           ] as never}
-          invites={[]}
+          invites={(props.invites ?? []) as never}
           accessRequests={
             [
               { membershipId: "m9", name: "Rae", email: "rae@x.test", role: "collaborator", status: "pending" },
@@ -844,6 +865,30 @@ describe("G7 — launchpad, team and SEO", () => {
     team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }, { onAccessRequest });
     await user.click(expectOperable(ctl("gated:TEAM-05 deny"), "deny"));
     expect(onAccessRequest).toHaveBeenCalledWith("m9", "reject");
+  });
+
+  interactionCase("gated:TEAM-03", async () => {
+    const user = userEvent.setup();
+    const onRemove = vi.fn();
+    team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }, { onRemove });
+    await user.click(expectOperable(ctl("gated:TEAM-03"), "remove member"));
+    expect(onRemove).toHaveBeenCalledWith("m1");
+  });
+
+  interactionCase("gated:TEAM-04", async () => {
+    const user = userEvent.setup();
+    const onRevokeInvite = vi.fn();
+    team(
+      { membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED },
+      {
+        onRevokeInvite,
+        invites: [
+          { id: "i1", email: "new@x.test", role: "collaborator", status: "pending", expiresAt: "2026-09-01" },
+        ],
+      },
+    );
+    await user.click(expectOperable(ctl("gated:TEAM-04"), "revoke invite"));
+    expect(onRevokeInvite).toHaveBeenCalledWith("i1");
   });
 
   interactionCase("gated:TEAM-04 invite", async () => {

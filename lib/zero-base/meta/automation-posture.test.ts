@@ -52,12 +52,13 @@ describe("the stop is Meta-only and business-scoped", () => {
 
 describe("Google posture is always present and never stoppable", () => {
   it("draws both providers even when Meta is healthy", () => {
-    const rows = buildProviderPostures({ meta: { state: "serving", reason: null } });
+    const rows = buildProviderPostures({ google: { read: true, connected: true }, meta: { state: "serving", reason: null } });
     expect(rows.map((row) => row.provider)).toEqual(["meta", "google"]);
   });
 
   it("keeps Google present when Meta is degraded", () => {
     const rows = buildProviderPostures({
+      google: { read: true, connected: true },
       meta: { state: "degraded", reason: "Token refresh failing." },
     });
     // Omitting the row when something is wrong is exactly when an operator
@@ -67,14 +68,14 @@ describe("Google posture is always present and never stoppable", () => {
   });
 
   it("marks only Meta as stoppable", () => {
-    const rows = buildProviderPostures({ meta: { state: "serving", reason: null } });
+    const rows = buildProviderPostures({ google: { read: true, connected: true }, meta: { state: "serving", reason: null } });
     expect(rows.find((row) => row.provider === "meta")?.stoppable).toBe(true);
     expect(rows.find((row) => row.provider === "google")?.stoppable).toBe(false);
   });
 
   it("carries every provider source state through unchanged", () => {
     for (const state of ["serving", "partial", "degraded", "unavailable"] as const) {
-      const rows = buildProviderPostures({ meta: { state, reason: "because" } });
+      const rows = buildProviderPostures({ google: { read: true, connected: true }, meta: { state, reason: "because" } });
       expect(rows[0].state).toBe(state);
     }
   });

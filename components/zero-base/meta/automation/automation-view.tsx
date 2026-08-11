@@ -33,6 +33,9 @@ const STATE_WORD: Record<ProviderPosture["state"], string> = {
   partial: "Partial",
   degraded: "Degraded",
   unavailable: "Unavailable",
+  // A posture that could not be read. Distinct from healthy and from empty,
+  // and never rendered as either.
+  unknown: "Unknown",
 };
 
 export function AutomationView({

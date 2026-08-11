@@ -10,7 +10,7 @@
  */
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
@@ -21,8 +21,12 @@ import {
   FORBIDDEN_STOP_PHRASES,
   READ_ONLY_GUARDRAIL_IDS,
   buildProviderPostures,
+  googlePosture,
+  resolveStopCeremony,
+  type GoogleConnectionRead,
   type StopCeremonyInput,
 } from "@/lib/zero-base/meta/automation-posture";
+import { AutomationClient } from "@/components/zero-base/meta/automation/automation-client";
 
 afterEach(cleanup);
 
@@ -48,7 +52,7 @@ function renderAutomation(overrides: Partial<StopCeremonyInput> = {}, onEngage?:
   return render(
     <ZeroBasePortalHost>
       <AutomationView
-        postures={buildProviderPostures({ meta: { state: "degraded", reason: "Token refresh failing." } })}
+        postures={buildProviderPostures({ google: { read: true, connected: true }, meta: { state: "degraded", reason: "Token refresh failing." } })}
         guardrails={GUARDRAILS}
         ceremony={ceremony(overrides)}
         onEngage={onEngage}
@@ -250,7 +254,7 @@ describe("guardrails render with zero edit affordances", () => {
     render(
       <ZeroBasePortalHost>
         <AutomationView
-          postures={buildProviderPostures({ meta: { state: "serving", reason: null } })}
+          postures={buildProviderPostures({ google: { read: true, connected: true }, meta: { state: "serving", reason: null } })}
           guardrails={{}}
           ceremony={ceremony()}
         />
@@ -259,5 +263,243 @@ describe("guardrails render with zero edit affordances", () => {
     expect(document.querySelector('[data-guardrail-value="AUTO-07"]')!.textContent).toBe(
       "Not configured",
     );
+  });
+});
+
+
+/* ------------------------------------------- Google posture is read, not assumed */
+
+describe("Google posture comes from an actual read", () => {
+  it("reports a connected provider as serving", () => {
+    expect(googlePosture({ read: true, connected: true }).state).toBe("serving");
+  });
+
+  it("reports a disconnected provider as unavailable, not healthy", () => {
+    const posture = googlePosture({ read: true, connected: false });
+    expect(posture.state).toBe("unavailable");
+    expect(posture.reason).toMatch(/not connected/);
+  });
+
+  it("reports an unreadable provider as unknown, never as serving", () => {
+    // A hard-coded "Serving" here is a health claim about a provider nobody
+    // queried — the exact fabrication the separate-systems rule forbids.
+    const posture = googlePosture({ read: false, reason: "integration status is unavailable" });
+    expect(posture.state).toBe("unknown");
+    expect(posture.state).not.toBe("serving");
+    expect(posture.reason).toMatch(/integration status is unavailable/);
+  });
+
+  it("says Google is unaffected in every one of those cases", () => {
+    const reads: GoogleConnectionRead[] = [
+      { read: true, connected: true },
+      { read: true, connected: false },
+      { read: false, reason: "down" },
+    ];
+    for (const read of reads) {
+      expect(googlePosture(read).reason).toMatch(/unaffected/);
+    }
+  });
+
+  it("marks Google's row as a connection claim, never a control-plane one", () => {
+    const rows = buildProviderPostures({
+      meta: { state: "serving", reason: null },
+      google: { read: true, connected: true },
+    });
+    expect(rows.find((row) => row.provider === "google")?.basis).toBe("connection_only");
+    expect(rows.find((row) => row.provider === "meta")?.basis).toBe("automation_control_plane");
+  });
+
+  it("keeps the row present and unstoppable when Meta is healthy and Google is unavailable", () => {
+    const rows = buildProviderPostures({
+      meta: { state: "serving", reason: null },
+      google: { read: true, connected: false },
+    });
+    const google = rows.find((row) => row.provider === "google")!;
+    expect(google.state).toBe("unavailable");
+    expect(google.stoppable).toBe(false);
+  });
+});
+
+describe("the view prints Unknown rather than a health word", () => {
+  it("renders the unknown state for an unreadable Google", () => {
+    render(
+      <ZeroBasePortalHost>
+        <AutomationView
+          postures={buildProviderPostures({
+            meta: { state: "serving", reason: null },
+            google: { read: false, reason: "integration status is unavailable" },
+          })}
+          guardrails={GUARDRAILS}
+          ceremony={ceremony()}
+        />
+      </ZeroBasePortalHost>,
+    );
+    const google = document.querySelector('[data-provider-state="google"]')!;
+    expect(google.textContent).toMatch(/Unknown/);
+    expect(google.textContent).not.toMatch(/Serving/);
+  });
+});
+
+/* ------------------------------------------- an unreadable read-back is unknown */
+
+describe("read-back that could not be performed", () => {
+  it("claims neither outcome", () => {
+    const state = resolveStopCeremony(
+      ceremony({ readBack: { engaged: null, readAt: "t", error: "HTTP 503" } }),
+    );
+    expect(state.showStatusBanner).toBe(false);
+    expect(state.statusMessage).toMatch(/could not be read back/);
+    expect(state.statusMessage).toMatch(/HTTP 503/);
+    expect(state.statusMessage).toMatch(/unknown/);
+  });
+});
+
+/* ------------------------------------------------- engage and release for real */
+
+describe("the stop actually calls the authority and reads it back", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function client(intent: "engage" | "release" = "engage") {
+    render(
+      <ZeroBasePortalHost>
+        <AutomationClient
+          businessId="biz-1"
+          providerAccountId="act_1"
+          postures={buildProviderPostures({
+            meta: { state: "serving", reason: null },
+            google: { read: true, connected: true },
+          })}
+          guardrails={GUARDRAILS}
+          ceremony={ceremony({ intent, currentlyEngaged: intent === "release" })}
+        />
+      </ZeroBasePortalHost>,
+    );
+  }
+
+  async function confirm(user: ReturnType<typeof userEvent.setup>, phrase: string, label: string) {
+    await user.click(document.querySelector("[data-stop-trigger]") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox"), phrase);
+    await user.click(within(dialog).getByRole("button", { name: label }));
+  }
+
+  it("posts the engage action, then reads the state back in a SEPARATE request", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? "GET" });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ automation: { businessControl: { killSwitchEngaged: true } } }),
+      } as Response;
+    }) as typeof fetch;
+
+    client();
+    await confirm(userEvent.setup(), "STOP META", "Stop Meta automation");
+
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url).toContain("/api/meta/automation");
+    // The POST returns a control plane of its own; using it to confirm itself
+    // is not an observation of state.
+    expect(calls[1].method).toBe("GET");
+    await waitFor(() =>
+      expect(document.querySelector("[data-stop-status]")!.textContent).toMatch(
+        /Confirmed by read-back/,
+      ),
+    );
+  });
+
+  it("sends the release action when the stop is already engaged", async () => {
+    const bodies: string[] = [];
+    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") bodies.push(String(init.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ automation: { businessControl: { killSwitchEngaged: false } } }),
+      } as Response;
+    }) as typeof fetch;
+
+    client("release");
+    await confirm(userEvent.setup(), "RESUME META", "Resume");
+
+    await waitFor(() => expect(bodies.length).toBe(1));
+    expect(bodies[0]).toContain("release_kill_switch");
+    await waitFor(() =>
+      expect(document.querySelector("[data-stop-status]")!.textContent).toMatch(/running again/),
+    );
+  });
+
+  it("claims nothing when the read-back disagrees with the intent", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      // The write was accepted, but the state did not move.
+      json: async () => ({ automation: { businessControl: { killSwitchEngaged: false } } }),
+    })) as unknown as typeof fetch;
+
+    client();
+    await confirm(userEvent.setup(), "STOP META", "Stop Meta automation");
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-stop-unconfirmed]")!.textContent).toMatch(/unknown/),
+    );
+    expect(document.querySelector("[data-stop-status]")).toBeNull();
+  });
+
+  it("says unknown when the confirming read itself fails", async () => {
+    let first = true;
+    globalThis.fetch = vi.fn(async () => {
+      if (first) {
+        first = false;
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 503, json: async () => ({}) } as Response;
+    }) as unknown as typeof fetch;
+
+    client();
+    await confirm(userEvent.setup(), "STOP META", "Stop Meta automation");
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-stop-unconfirmed]")!.textContent).toMatch(
+        /could not be read back/,
+      ),
+    );
+    expect(document.querySelector("[data-stop-status]")).toBeNull();
+  });
+
+  it("reports a refused write as a failure that changed nothing", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: { message: "Business STOP release was withheld." } }),
+    })) as unknown as typeof fetch;
+
+    client();
+    await confirm(userEvent.setup(), "STOP META", "Stop Meta automation");
+
+    await waitFor(() =>
+      expect(document.querySelector("[data-stop-failed]")!.textContent).toMatch(
+        /withheld[\s\S]*Nothing was changed/,
+      ),
+    );
+    expect(document.querySelector("[data-stop-status]")).toBeNull();
+  });
+
+  it("makes no request at all until the typed confirmation is complete", async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    client();
+    const user = userEvent.setup();
+    await user.click(document.querySelector("[data-stop-trigger]") as HTMLElement);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Stop Meta automation" }));
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

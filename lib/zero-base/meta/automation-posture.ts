@@ -16,7 +16,13 @@
  * for an authority we do not own is worse than having none.
  */
 
-export type ProviderSourceState = "serving" | "partial" | "degraded" | "unavailable";
+export type ProviderSourceState =
+  | "serving"
+  | "partial"
+  | "degraded"
+  | "unavailable"
+  /** The source could not be read. Distinct from "nothing to serve". */
+  | "unknown";
 
 export interface ProviderPosture {
   provider: "meta" | "google";
@@ -26,6 +32,15 @@ export interface ProviderPosture {
   reason: string | null;
   /** True only for the provider this surface can actually stop. */
   stoppable: boolean;
+  /**
+   * What the state is a claim about.
+   *
+   * Google's row reports a **connection**, read from its own separate
+   * authority. It is never a health claim: Google readiness is a different
+   * system with a different surface, and asserting health from a connection
+   * boolean would be a fact nobody measured.
+   */
+  basis: "automation_control_plane" | "connection_only";
 }
 
 /** Words that would over-claim the stop's reach. */
@@ -55,9 +70,15 @@ export function overclaimsStopReach(text: string): boolean {
  *
  * Google is present even when it is perfectly healthy, because its absence is
  * what makes a Meta-only control look global.
+ *
+ * Google's state comes from an actual read of its own connection authority. A
+ * hard-coded "serving" would have been a fabricated health claim about a
+ * provider this surface never queried — the exact failure the separate-systems
+ * rule exists to prevent.
  */
 export function buildProviderPostures(input: {
   meta: { state: ProviderSourceState; reason: string | null };
+  google: GoogleConnectionRead;
 }): ProviderPosture[] {
   return [
     {
@@ -66,17 +87,48 @@ export function buildProviderPostures(input: {
       state: input.meta.state,
       reason: input.meta.reason,
       stoppable: true,
+      basis: "automation_control_plane",
     },
     {
       provider: "google",
       label: "Google Ads",
-      // Not a claim about Google's health — a statement that this control does
-      // not reach it. Google's own readiness lives on its own surface.
-      state: "serving",
-      reason: GOOGLE_UNAFFECTED_ROW,
+      ...googlePosture(input.google),
       stoppable: false,
+      basis: "connection_only",
     },
   ];
+}
+
+/** Result of reading Google's own connection authority. */
+export type GoogleConnectionRead =
+  | { read: true; connected: boolean }
+  | { read: false; reason: string };
+
+/**
+ * Google's row, from what was actually read.
+ *
+ * When the read failed the state is `unknown` with the reason — never
+ * `serving`. Reporting health we did not measure is worse than reporting that
+ * we could not measure it.
+ */
+export function googlePosture(read: GoogleConnectionRead): {
+  state: ProviderSourceState;
+  reason: string;
+} {
+  if (!read.read) {
+    return {
+      state: "unknown",
+      reason: `Google posture could not be read: ${read.reason} ${GOOGLE_UNAFFECTED_ROW}`,
+    };
+  }
+  if (!read.connected) {
+    return {
+      state: "unavailable",
+      reason: `Google Ads is not connected for this business. ${GOOGLE_UNAFFECTED_ROW}`,
+    };
+  }
+  // Connected is a connection fact, stated as one.
+  return { state: "serving", reason: GOOGLE_UNAFFECTED_ROW };
 }
 
 /* ------------------------------------------------------------- stop ceremony */
@@ -97,8 +149,14 @@ export interface StopCeremonyInput {
   viewer: { role: "admin" | "collaborator" | "guest" | null; isReviewer: boolean; demo: boolean };
   /** Null when the control-plane state could not be read. */
   currentlyEngaged: boolean | null;
-  /** Server re-read after the write. Null until it has happened. */
-  readBack: { engaged: boolean; readAt: string } | null;
+  /**
+   * Independent server re-read after the write. Null until it has happened.
+   *
+   * `engaged: null` means the re-read itself failed — which is neither success
+   * nor failure, and must be reported as unknown rather than resolved either
+   * way.
+   */
+  readBack: { engaged: boolean | null; readAt: string; error?: string | null } | null;
 }
 
 export interface StopCeremonyState {
@@ -158,6 +216,19 @@ export function resolveStopCeremony(input: StopCeremonyInput): StopCeremonyState
 
   // The read-back is the only thing that may produce a status claim.
   const expected = input.intent === "engage";
+  if (input.readBack.engaged === null) {
+    // The write was submitted and the confirming read failed. Claiming either
+    // outcome here would be a guess about whether spend is still running.
+    return {
+      step: "awaiting_read_back",
+      blocker: null,
+      showStatusBanner: false,
+      statusMessage:
+        "The change was submitted but the state could not be read back" +
+        (input.readBack.error ? ` (${input.readBack.error})` : "") +
+        ". Treat automation state as unknown until it can be confirmed.",
+    };
+  }
   if (input.readBack.engaged !== expected) {
     return {
       step: "awaiting_read_back",

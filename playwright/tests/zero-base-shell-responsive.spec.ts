@@ -393,3 +393,133 @@ for (const width of [1440, 390, 320]) {
     });
   }
 }
+
+/**
+ * WP-15 correction · the remaining Flow I surfaces at 1440/390/320.
+ *
+ * The mirror case (Meta healthy, Google unreadable) matters as much as the
+ * original: covering only one direction would let a provider's row be quietly
+ * conditional on the other's health.
+ *
+ * Network interactions — engage, release, read-back agreement, disagreement
+ * and failure — are driven with real user events in
+ * `components/zero-base/meta/flow-i.test.tsx`. These pages are static, and
+ * nothing here is claimed as proof that a request was made.
+ */
+for (const width of [1440, 390, 320]) {
+  for (const theme of THEMES) {
+    async function open(browser: import("@playwright/test").Browser, name: string) {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `${name}-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+      return { context, page };
+    }
+
+    async function expectNoOverflow(page: import("@playwright/test").Page, label: string) {
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth, `${label} scrolls horizontally at ${width}px`).toBeLessThanOrEqual(
+        overflow.clientWidth,
+      );
+    }
+
+    test(`meta automation mirror — Meta healthy, Google unreadable — ${width}px ${theme}`, async ({
+      browser,
+    }) => {
+      const { context, page } = await open(browser, "automation-mirror");
+      await expectNoOverflow(page, "automation mirror");
+
+      // Google is drawn even though Meta is the healthy one here.
+      const google = page.locator('[data-provider-state="google"]');
+      await expect(google).toBeVisible();
+      // Unknown, never a health word we did not measure.
+      await expect(google).toContainText("Unknown");
+      await expect(google).not.toContainText("Serving");
+      await expect(page.locator("[data-google-unaffected]")).toContainText("unaffected");
+      await expect(page.locator('[data-not-stoppable="google"]')).toBeVisible();
+      expect(await page.locator("[data-stoppable]").count()).toBe(1);
+
+      // Releasing is still scoped and still un-banner-ed before a read-back.
+      await expect(page.locator("[data-stop-scope]")).toContainText("this business only");
+      expect(await page.locator("[data-stop-status]").count()).toBe(0);
+
+      const body = (await page.locator("body").innerText()).toLowerCase();
+      for (const phrase of ["global", "stop all", "all providers", "all platforms"]) {
+        expect(body, phrase).not.toContain(phrase);
+      }
+
+      // All six guardrails, zero edit controls.
+      expect(await page.locator("[data-guardrail-value]").count()).toBe(6);
+      const guardrails = page.locator("section", { hasText: "Guardrails" }).last();
+      expect(await guardrails.locator("input, select, textarea").count()).toBe(0);
+
+      // The stop trigger is reachable from the keyboard.
+      const trigger = page.locator("[data-stop-trigger]");
+      await trigger.focus();
+      expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(true);
+
+      await context.close();
+    });
+
+    test(`meta history — real actor and replay rows — ${width}px ${theme}`, async ({ browser }) => {
+      const { context, page } = await open(browser, "history");
+      await expectNoOverflow(page, "history");
+
+      // A replayed window is marked, and the caveat has no dismiss control.
+      const banner = page.locator("[data-replay-banner]");
+      await expect(banner).toBeVisible();
+      expect(await banner.locator("button").count()).toBe(0);
+
+      // Recorded actor passes through; the unrecorded one says so.
+      await expect(page.locator('[data-actor="h1"]')).toContainText("ada@example.com");
+      const unknown = page.locator('[data-actor="h2"]');
+      await expect(unknown).toContainText("Actor not recorded");
+      await expect(unknown).not.toContainText("System");
+      await expect(page.locator('[data-replayed="h2"]')).toBeVisible();
+      await expect(page.locator('[data-recorded="h1"]')).toBeVisible();
+
+      // The page cap is disclosed rather than implying this is everything.
+      await expect(page.locator("[data-history-disclosure]")).toContainText("More exist");
+      await expect(page.locator("[data-history-limitations]")).toBeVisible();
+      await expect(page.locator("[data-history-account]")).toContainText("Main account");
+
+      await context.close();
+    });
+
+    test(`meta intelligence — partial and degraded sources — ${width}px ${theme}`, async ({
+      browser,
+    }) => {
+      const { context, page } = await open(browser, "intelligence");
+      await expectNoOverflow(page, "intelligence");
+
+      // Each impaired source keeps its own state word and its own reason.
+      await expect(page.locator('[data-source-state="summary"]')).toContainText("Partial");
+      await expect(page.locator('[data-source-state="summary"]')).toContainText(
+        "still being prepared",
+      );
+      await expect(page.locator('[data-source-state="breakdowns"]')).toContainText("Degraded");
+      await expect(page.locator('[data-source-state="structure"]')).toContainText("Unavailable");
+
+      // A source with nothing served says so instead of showing a zero.
+      await expect(page.locator('[data-source-facts-none="breakdowns"]')).toContainText(
+        "Nothing served",
+      );
+      const text = await page.locator("body").innerText();
+      expect(text).not.toMatch(/some data missing/i);
+
+      // Every windowed source is stated to cover the same window.
+      await expect(page.locator("[data-intelligence-window]")).toContainText("2026-07-15");
+
+      await context.close();
+    });
+  }
+}

@@ -28,6 +28,8 @@ import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presenta
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
 import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { HistoryView } from "@/components/zero-base/meta/history/history-view";
+import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { buildProviderPostures } from "@/lib/zero-base/meta/automation-posture";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import { THEME_ATTRIBUTE } from "@/lib/theme";
@@ -128,14 +130,143 @@ export function automationHarnessFileName(width: number, theme: string): string 
   return `automation-${width}-${theme}.html`;
 }
 
-function automationMarkup(width: number): string {
-  const narrow = width < DRAWER_BREAKPOINT;
+/**
+ * The mirror case: Meta healthy, Google unreadable.
+ *
+ * Together with the degraded-Meta fixture this covers both directions, so
+ * neither provider's row can be quietly conditional on the other's health.
+ */
+export function automationMirrorHarnessFileName(width: number, theme: string): string {
+  return `automation-mirror-${width}-${theme}.html`;
+}
 
+export function historyHarnessFileName(width: number, theme: string): string {
+  return `history-${width}-${theme}.html`;
+}
+
+export function intelligenceHarnessFileName(width: number, theme: string): string {
+  return `intelligence-${width}-${theme}.html`;
+}
+
+function frame(width: number, body: string): string {
+  const narrow = width < DRAWER_BREAKPOINT;
+  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+</div>`;
+}
+
+function automationMirrorMarkup(width: number): string {
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <AutomationView
+        postures={buildProviderPostures({
+          meta: { state: "serving", reason: null },
+          // The read failed. This must print Unknown, never Serving.
+          google: { read: false, reason: "integration status is unavailable" },
+        })}
+        guardrails={{
+          dailyAutoActionCap: 3,
+          perActionSpendCeilingMinor: 5000,
+          minimumConfidence: "high",
+          cooldownMinutes: 60,
+          maxEvidenceAgeHours: 24,
+        }}
+        ceremony={{
+          intent: "release",
+          viewer: { role: "admin", isReviewer: false, demo: false },
+          currentlyEngaged: true,
+          readBack: null,
+        }}
+      />,
+    ),
+  );
+}
+
+function historyMarkup(width: number): string {
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <HistoryView
+        accountLabel="Main account"
+        disclosure="Showing the 40 most recent entries. More exist beyond this page."
+        limitations={["Rows without an account scope were omitted."]}
+        rows={[
+          {
+            id: "h1",
+            occurredAt: "2026-08-11T08:00:00Z",
+            action: "Pause ad",
+            outcome: "verified",
+            actor: "ada@example.com",
+            replayed: false,
+          },
+          {
+            id: "h2",
+            occurredAt: "2026-08-11T09:00:00Z",
+            action: "Resume ad set",
+            outcome: "silent_failure",
+            // No recorded actor: the row must say so rather than say "System".
+            actor: null,
+            replayed: true,
+          },
+        ]}
+      />,
+    ),
+  );
+}
+
+function intelligenceMarkup(width: number): string {
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <IntelligenceView
+        window={{ startDate: "2026-07-15", endDate: "2026-08-11" }}
+        sources={[
+          {
+            key: "status",
+            label: "Connection & account",
+            state: "serving",
+            reason: null,
+            observedAt: "2026-08-11T12:00:00Z",
+            facts: [{ label: "Selected account", value: "act_1" }],
+          },
+          {
+            key: "summary",
+            label: "Summary",
+            state: "partial",
+            reason: "Current-day live Meta totals are still being prepared.",
+            observedAt: "2026-08-11T12:00:00Z",
+            facts: [{ label: "Read source", value: "current_day_live" }],
+          },
+          {
+            key: "breakdowns",
+            label: "Breakdowns",
+            state: "degraded",
+            reason: "The breakdown source could not be read.",
+            observedAt: null,
+            facts: [],
+          },
+          {
+            key: "structure",
+            label: "Structure & recommendations",
+            state: "unavailable",
+            reason: "This source is not configured for this business.",
+            observedAt: null,
+            facts: [],
+          },
+        ]}
+      />,
+    ),
+  );
+}
+
+function automationMarkup(width: number): string {
   const body = renderToStaticMarkup(
     <AutomationView
       // Meta degraded, Google healthy: the case where a missing Google row
       // would teach an operator that one switch covers both providers.
       postures={buildProviderPostures({
+        google: { read: true, connected: true },
         meta: { state: "degraded", reason: "Token refresh is failing for one account." },
       })}
       guardrails={{ dailyAutoActionCap: 3, perActionSpendCeilingMinor: 5000 }}
@@ -149,9 +280,7 @@ function automationMarkup(width: number): string {
     />,
   );
 
-  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
-</div>`;
+  return frame(width, body);
 }
 
 function decisionsMarkup(width: number): string {
@@ -423,6 +552,29 @@ function main() {
 </html>`;
       writeFileSync(path.join(OUT_DIR, automationHarnessFileName(width, theme)), html);
       count += 1;
+    }
+  }
+
+  // The remaining Flow I surfaces and the mirror provider case.
+  for (const [name, markup] of [
+    ["automation-mirror", automationMirrorMarkup],
+    ["history", historyMarkup],
+    ["intelligence", intelligenceMarkup],
+  ] as const) {
+    for (const width of AUTOMATION_HARNESS_WIDTHS) {
+      const body = markup(width);
+      for (const theme of HARNESS_THEMES) {
+        const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>${name} harness ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+        writeFileSync(path.join(OUT_DIR, `${name}-${width}-${theme}.html`), html);
+        count += 1;
+      }
     }
   }
 

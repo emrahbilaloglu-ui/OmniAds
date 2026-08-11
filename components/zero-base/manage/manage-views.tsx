@@ -240,6 +240,21 @@ export function IntegrationsView({
                     const needsAction =
                       row.state.kind === "needs_reconnect" || row.state.kind === "not_connected";
 
+                    // Role first, for every provider.
+                    //
+                    // Shopify's own start route is session-authenticated, but
+                    // its callback and finalize handlers both require
+                    // collaborator — so a guest sent into the install would be
+                    // refused at the end of a long external round trip. The
+                    // refusal belongs here, before anything leaves the product.
+                    if (needsAction && authorizePermission && !authorizePermission.ok) {
+                      return (
+                        <span data-authorize-blocked={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                          {authorizePermission.reason}
+                        </span>
+                      );
+                    }
+
                     // Shopify is entered through Shopify, not through a generic
                     // OAuth start this product can begin.
                     if (row.provider === "shopify" && shopifyEntry && needsAction) {
@@ -257,16 +272,6 @@ export function IntegrationsView({
                               {shopifyEntry.note}
                             </span>
                           ) : null}
-                        </span>
-                      );
-                    }
-
-                    // The start routes require collaborator; a guest who clicks
-                    // is answered with a JSON 403, which is not a surface.
-                    if (needsAction && authorizePermission && !authorizePermission.ok) {
-                      return (
-                        <span data-authorize-blocked={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
-                          {authorizePermission.reason}
                         </span>
                       );
                     }

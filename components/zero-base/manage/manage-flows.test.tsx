@@ -845,3 +845,84 @@ describe("WP-23 Shopify is entered the way Shopify actually allows", () => {
     );
   });
 });
+
+describe("WP-23 Shopify follows the same role posture as every other provider", () => {
+  function stubShopifyFor(integration: unknown) {
+    stub((call) => {
+      if (call.url.startsWith("/api/integrations/status")) {
+        return { body: { meta: false, google: false, shopify: false, ga4: false, search_console: false } };
+      }
+      if (call.url.includes("provider=shopify")) return { body: { integration } };
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+  }
+
+  it("REGRESSION: a guest gets no actionable Shopify link with no known domain", async () => {
+    stubShopifyFor(null);
+    render(<IntegrationsClient businessId={BIZ} role="guest" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-authorize-blocked="shopify"]')).not.toBeNull();
+    });
+    // The Shopify branch used to run before the role check.
+    expect(document.querySelector("[data-shopify-action]")).toBeNull();
+    expect(document.querySelector('[data-shopify-entry="external_install"]')).toBeNull();
+    expect(document.querySelector('[data-authorize-blocked="shopify"]')!.textContent).toMatch(
+      /collaborator role/,
+    );
+  });
+
+  it("REGRESSION: a guest gets no actionable Shopify link even with a verified domain", async () => {
+    stubShopifyFor({ provider_account_id: "grandmix.myshopify.com" });
+    render(<IntegrationsClient businessId={BIZ} role="guest" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-authorize-blocked="shopify"]')).not.toBeNull();
+    });
+    expect(document.querySelector("[data-shopify-action]")).toBeNull();
+    expect(document.querySelector('[data-shopify-entry="reauthorize"]')).toBeNull();
+  });
+
+  it("no navigation can start for a guest in either Shopify state", async () => {
+    for (const integration of [null, { provider_account_id: "grandmix.myshopify.com" }]) {
+      cleanup();
+      stubShopifyFor(integration);
+      render(<IntegrationsClient businessId={BIZ} role="guest" />);
+      await waitFor(() =>
+        expect(document.querySelector('[data-authorize-blocked="shopify"]')).not.toBeNull(),
+      );
+      // There is no anchor at all, so there is no href to follow.
+      const anchors = Array.from(document.querySelectorAll("a[href]")).map((a) =>
+        a.getAttribute("href"),
+      );
+      expect(anchors.some((href) => href?.includes("shopify"))).toBe(false);
+    }
+  });
+
+  it("a collaborator still gets the honest external-install action", async () => {
+    stubShopifyFor(null);
+    render(<IntegrationsClient businessId={BIZ} role="collaborator" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-shopify-entry="external_install"]')).not.toBeNull(),
+    );
+    expect((document.querySelector("[data-shopify-action]") as HTMLAnchorElement).getAttribute("href")).toBe(
+      "/shopify/connect",
+    );
+    expect(document.querySelector("[data-shopify-note]")!.textContent).toMatch(/starts in Shopify/i);
+    expect(document.querySelector('[data-authorize-blocked="shopify"]')).toBeNull();
+  });
+
+  it("an admin still gets verified-domain reauthorization", async () => {
+    stubShopifyFor({ provider_account_id: "grandmix.myshopify.com" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-shopify-entry="reauthorize"]')).not.toBeNull(),
+    );
+    const url = new URL(
+      (document.querySelector("[data-shopify-action]") as HTMLAnchorElement).getAttribute("href")!,
+      "https://example.test",
+    );
+    expect(url.searchParams.get("shop")).toBe("grandmix.myshopify.com");
+  });
+});

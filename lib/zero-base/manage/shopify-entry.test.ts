@@ -104,3 +104,28 @@ describe("shopifyEntry models those two outcomes", () => {
     }
   });
 });
+
+describe("the Shopify round trip is gated on collaborator at its own handlers", () => {
+  const ROOT = process.cwd();
+
+  it("REGRESSION: callback and finalize both require collaborator", async () => {
+    const { readFileSync } = await import("node:fs");
+    const path = await import("node:path");
+    for (const file of [
+      "app/api/oauth/shopify/callback/route.ts",
+      "app/api/oauth/shopify/finalize/route.ts",
+    ]) {
+      const text = readFileSync(path.join(ROOT, file), "utf8");
+      // A guest who completes the external install is refused at the end of it,
+      // which is why the UI must refuse before anything leaves the product.
+      expect(text, file).toContain('minRole: "collaborator"');
+    }
+  });
+
+  it("the handlers exist and expose the verbs the flow depends on", async () => {
+    const callback = await import("@/app/api/oauth/shopify/callback/route");
+    const finalize = await import("@/app/api/oauth/shopify/finalize/route");
+    expect(typeof callback.GET).toBe("function");
+    expect(typeof finalize.POST === "function" || typeof finalize.GET === "function").toBe(true);
+  });
+});

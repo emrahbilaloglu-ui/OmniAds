@@ -7826,6 +7826,28 @@
   letter-spacing: inherit;
 }
 
+/* Anything carrying a control contract is a target.
+ *
+ * A bare inline link is 16px tall and a native checkbox is 13×13 — below the
+ * 24px minimum (WCAG 2.5.8), and below what the design draws. Rather than
+ * padding each site by hand and missing some, the rule is stated once against
+ * the attribute that declares the element a control. */
+[data-adc-ui="zero-base"] a[data-ctl],
+[data-adc-ui="zero-base"] button[data-ctl],
+[data-adc-ui="zero-base"] label[data-ctl],
+[data-adc-ui="zero-base"] select[data-ctl] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+[data-adc-ui="zero-base"] input[type="checkbox"],
+[data-adc-ui="zero-base"] input[type="radio"] {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--ledger-accent-action);
+}
+
 /* …nor colour. A native select paints the UA's own white, which is not a
  * Ledger surface and is plainly wrong in dark theme. */
 [data-adc-ui="zero-base"] select,

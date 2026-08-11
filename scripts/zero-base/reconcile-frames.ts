@@ -1,0 +1,164 @@
+/**
+ * WP-26 step 3 / gate G10 — H/B/P/M reconciliation.
+ *
+ * The denominators are not invented here. They are read from the vendored design
+ * package's own audit (`docs/zero-base-design/v3/export/audit.json`), which
+ * states `frames: { H: 66, B: 9, P: 8, M: 9 }` — 92 reference frames in total,
+ * exactly the sets §13.4 of the plan enumerates.
+ *
+ * The numerator is the canonical screenshot manifest produced by WP-26 step 4.
+ * Each captured frame declares the LeafId and state it stands for; the crosswalk
+ * below maps design frame ids onto those pairs.
+ *
+ * This script exists to report a gap accurately, not to make one disappear. An
+ * unmapped frame is printed with its id, and the coverage figure is the honest
+ * ratio. Nothing here marks G10 green.
+ */
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const ARTIFACTS = path.join(ROOT, "playwright", "artifacts", "zero-base");
+
+/** Frame denominators, read from the design package rather than hardcoded. */
+export function frameDenominators(): Record<"H" | "B" | "P" | "M", number> {
+  const audit = JSON.parse(
+    readFileSync(path.join(ROOT, "docs", "zero-base-design", "v3", "export", "audit.json"), "utf8"),
+  ) as { counts?: { frames?: Record<string, number> } };
+  const frames = audit.counts?.frames;
+  if (!frames) throw new Error("audit.json carries no frame counts");
+  return { H: frames.H, B: frames.B, P: frames.P, M: frames.M } as Record<"H" | "B" | "P" | "M", number>;
+}
+
+export function allFrameIds(): string[] {
+  const counts = frameDenominators();
+  const ids: string[] = [];
+  for (const [prefix, total] of Object.entries(counts)) {
+    for (let index = 1; index <= total; index += 1) {
+      ids.push(`${prefix}${String(index).padStart(2, "0")}`);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Design frame → the captured (leaf, state) that evidences it.
+ *
+ * Taken from §13.4's own crosswalk. Only frames whose surface this programme has
+ * actually built and captured appear; everything else is deliberately absent so
+ * it shows up as a gap rather than as a fabricated mapping.
+ */
+export const FRAME_CROSSWALK: Record<string, { leaf: string; state: string }> = {
+  H01: { leaf: "L-AG-TODAY", state: "directory" },
+  H02: { leaf: "L-AG-TODAY", state: "directory" },
+  H03: { leaf: "L-C-HOME", state: "normal" },
+  H08: { leaf: "L-C-HOME", state: "normal" },
+  H09: { leaf: "L-C-META-DEC", state: "lanes" },
+  H17: { leaf: "L-C-META-INTEL", state: "normal" },
+  H18: { leaf: "L-C-META-HIST", state: "normal" },
+  H19: { leaf: "L-C-META-AUTO", state: "normal" },
+  H20: { leaf: "L-C-META-AUTO", state: "mirror" },
+  H48: { leaf: "L-OPS-INTEGRATIONS", state: "incident-path" },
+  H49: { leaf: "L-SH-CREATIVE", state: "normal" },
+  H54: { leaf: "L-SH-CREATIVE", state: "normal" },
+  H59: { leaf: "L-SH-CREATIVE", state: "gone" },
+};
+
+interface ManifestEntry {
+  leaf: string;
+  state: string;
+  width: number;
+  theme: string;
+  file: string;
+  sha256: string;
+}
+
+/** The most recent captured artifact set, with its path. */
+export function latestManifest(): { dir: string; entries: ManifestEntry[] } | null {
+  if (!existsSync(ARTIFACTS)) return null;
+  const candidates: string[] = [];
+  for (const commit of readdirSync(ARTIFACTS)) {
+    const commitDir = path.join(ARTIFACTS, commit);
+    for (const set of readdirSync(commitDir)) {
+      const manifest = path.join(commitDir, set, "manifest.json");
+      if (existsSync(manifest)) candidates.push(manifest);
+    }
+  }
+  if (candidates.length === 0) return null;
+  const chosen = candidates.sort().at(-1)!;
+  const parsed = JSON.parse(readFileSync(chosen, "utf8")) as { entries: ManifestEntry[] };
+  return { dir: path.relative(ROOT, path.dirname(chosen)), entries: parsed.entries };
+}
+
+export interface Reconciliation {
+  totals: Record<string, number>;
+  mapped: string[];
+  unmapped: string[];
+  /** Mapped but with no matching capture in the manifest. */
+  missingEvidence: string[];
+  evidenceDir: string | null;
+}
+
+export function reconcile(): Reconciliation {
+  const manifest = latestManifest();
+  const captured = new Set((manifest?.entries ?? []).map((entry) => `${entry.leaf}__${entry.state}`));
+
+  const mapped: string[] = [];
+  const unmapped: string[] = [];
+  const missingEvidence: string[] = [];
+
+  for (const frame of allFrameIds()) {
+    const mapping = FRAME_CROSSWALK[frame];
+    if (!mapping) {
+      unmapped.push(frame);
+      continue;
+    }
+    if (captured.has(`${mapping.leaf}__${mapping.state}`)) mapped.push(frame);
+    else missingEvidence.push(frame);
+  }
+
+  const counts = frameDenominators();
+  return {
+    totals: { ...counts, all: allFrameIds().length },
+    mapped,
+    unmapped,
+    missingEvidence,
+    evidenceDir: manifest?.dir ?? null,
+  };
+}
+
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMain) {
+  const result = reconcile();
+
+  console.log("zero-base H/B/P/M reconciliation (WP-26 step 3 / G10)\n");
+  console.log(
+    `  denominators (from the design package's own audit): H ${result.totals.H} · B ${result.totals.B} · ` +
+      `P ${result.totals.P} · M ${result.totals.M}  =  ${result.totals.all}`,
+  );
+  console.log(`  evidence set: ${result.evidenceDir ?? "(none captured)"}\n`);
+
+  console.log(`  frames with a crosswalk AND a captured frame   ${result.mapped.length}`);
+  console.log(`  frames with a crosswalk but no capture          ${result.missingEvidence.length}`);
+  console.log(`  frames with no crosswalk at all                 ${result.unmapped.length}\n`);
+
+  if (result.mapped.length > 0) {
+    console.log(`  evidenced: ${result.mapped.join(", ")}\n`);
+  }
+  if (result.missingEvidence.length > 0) {
+    console.log(`  mapped but unevidenced: ${result.missingEvidence.join(", ")}\n`);
+  }
+
+  const coverage = (result.mapped.length / result.totals.all) * 100;
+  console.log(`  RECONCILED: ${result.mapped.length}/${result.totals.all} (${coverage.toFixed(1)}%)`);
+  console.log(
+    "\nThis is a measurement, not a gate verdict. G10 is not green until every\n" +
+      "frame in the crosswalk resolves to a captured artifact. Unmapped frames are\n" +
+      "surfaces this programme has not built or not captured; they are listed rather\n" +
+      "than excluded from the denominator.",
+  );
+  if (result.unmapped.length > 0) {
+    console.log(`\n  unmapped (${result.unmapped.length}): ${result.unmapped.join(", ")}`);
+  }
+}

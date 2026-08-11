@@ -198,23 +198,13 @@ export function AppShell({
                   groups={groups}
                   businessId={businessId}
                   pathname={pathname}
-                  footer={
+                  scopeControls={
                     <>
                       {/* The drawer is the mobile rail, so it carries the same
                           scope affordances rather than sending the operator to
                           a second surface to change business or scope. */}
                       {scopePickers?.onSwitchScope || scopePickers?.onSwitchBusiness ? (
                         <div style={{ display: "grid", gap: 4, marginBottom: 8 }}>
-                          {scopePickers.onSwitchScope ? (
-                            <button
-                              type="button"
-                              data-ctl="live:AUTH-10 scope-switch"
-                              onClick={scopePickers.onSwitchScope}
-                              style={drawerScopeButton}
-                            >
-                              {copy.switchScope}
-                            </button>
-                          ) : null}
                           {scopePickers.onSwitchBusiness ? (
                             <button
                               type="button"
@@ -225,12 +215,22 @@ export function AppShell({
                               {copy.switchBusiness}
                             </button>
                           ) : null}
+                          {scopePickers.onSwitchScope ? (
+                            <button
+                              type="button"
+                              data-ctl="live:AUTH-10 scope-switch"
+                              onClick={scopePickers.onSwitchScope}
+                              style={drawerScopeButton}
+                            >
+                              {copy.switchScope}
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                       {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
-                      {railFooter}
                     </>
                   }
+                  footer={<>{railFooter}</>}
                   initialOpen={initialDrawerOpen}
                 />
               ) : null}

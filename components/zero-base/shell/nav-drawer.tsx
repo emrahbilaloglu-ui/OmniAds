@@ -23,12 +23,21 @@ export function NavDrawer({
   businessId,
   pathname,
   footer,
+  scopeControls,
   initialOpen = false,
 }: {
   groups: readonly NavGroup[];
   businessId: string | null;
   pathname: string;
   footer: React.ReactNode;
+  /**
+   * Scope affordances, above the navigation.
+   *
+   * Where the operator is takes precedence over where they could go: changing
+   * business changes what every link below leads to, so the design places these
+   * first rather than at the end of a list that has to be scrolled past.
+   */
+  scopeControls?: React.ReactNode;
   /** Drawer-open is a real, addressable state, not only a click outcome. */
   initialOpen?: boolean;
 }) {
@@ -73,6 +82,7 @@ export function NavDrawer({
             }}
           />
         </label>
+        {scopeControls}
         <nav aria-label={copy.primary} data-nav-drawer="">
           {groups.map((group) => (
             <div key={group.id} style={{ marginTop: 12 }}>

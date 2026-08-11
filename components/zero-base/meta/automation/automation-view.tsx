@@ -66,56 +66,33 @@ export function AutomationView({
         Automation &amp; Meta Stop
       </h1>
 
-      <section aria-label={copy.providerPosture} style={{ marginTop: 16 }}>
+      <section aria-label={copy.guardrails} style={{ marginTop: 24 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
+          {copy.guardrails}
+        </h2>
+        <div data-el="guardrails-readonly">
+        <p
+          style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}
+        >
+          Enforced by the engine. Shown here for reference; they are not editable from this surface.
+        </p>
         <DataTable
-          caption={copy.providerPosture}
-          rows={[...postures]}
-          rowKey={(row) => row.provider}
+          collection="guardrails"
+          caption={copy.automationGuardrails}
+          rows={rows}
+          rowKey={(row) => row.id}
           columns={[
+            { id: "id", header: "Rule", render: (row) => row.id },
+            { id: "label", header: "Guardrail", render: (row) => row.label },
             {
-              id: "provider",
-              header: "Provider",
-              render: (row) => (
-                // Google's row is a connection claim, not a health claim, and
-                // is named so the difference is inspectable.
-                <span data-el={row.provider === "google" ? "google-posture-row" : undefined}>
-                  {row.label}
-                </span>
-              ),
-            },
-            {
-              id: "state",
-              header: "State",
-              render: (row) => (
-                <span data-provider-state={row.provider}>
-                  {STATE_WORD[row.state]}
-                  {row.reason ? (
-                    <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                      {row.reason}
-                    </span>
-                  ) : null}
-                </span>
-              ),
-            },
-            {
-              id: "control",
-              header: "Automation control",
-              render: (row) =>
-                row.stoppable ? (
-                  <span data-stoppable={row.provider}>{copy.controlledHere}</span>
-                ) : (
-                  // No Google stop exists, and inventing one for an authority
-                  // we do not own would be worse than having none.
-                  <span data-not-stoppable={row.provider} style={{ color: "var(--ledger-ink-tertiary)" }}>
-                    {copy.notControlledHere}
-                  </span>
-                ),
+              id: "value",
+              header: "Value",
+              numeric: true,
+              render: (row) => <span data-guardrail-value={row.id}>{row.value}</span>,
             },
           ]}
         />
-        <p data-google-unaffected="" style={{ fontSize: 12, marginTop: 8, color: "var(--ledger-ink-tertiary)" }}>
-          {GOOGLE_UNAFFECTED_ROW}
-        </p>
+        </div>
       </section>
 
       <section aria-label={copy.metaStop} style={{ marginTop: 24 }}>
@@ -189,10 +166,61 @@ export function AutomationView({
         ) : null}
       </section>
 
-      <section aria-label={copy.guardrails} style={{ marginTop: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
-          {copy.guardrails}
-        </h2>
+      <section aria-label={copy.providerPosture} style={{ marginTop: 16 }}>
+        <DataTable
+          caption={copy.providerPosture}
+          rows={[...postures]}
+          rowKey={(row) => row.provider}
+          columns={[
+            {
+              id: "provider",
+              header: "Provider",
+              render: (row) => (
+                // Google's row is a connection claim, not a health claim, and
+                // is named so the difference is inspectable.
+                <span data-el={row.provider === "google" ? "google-posture-row" : undefined}>
+                  {row.label}
+                </span>
+              ),
+            },
+            {
+              id: "state",
+              header: "State",
+              render: (row) => (
+                <span data-provider-state={row.provider}>
+                  {STATE_WORD[row.state]}
+                  {row.reason ? (
+                    <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                      {row.reason}
+                    </span>
+                  ) : null}
+                </span>
+              ),
+            },
+            {
+              id: "control",
+              header: "Automation control",
+              render: (row) =>
+                row.stoppable ? (
+                  <span data-stoppable={row.provider}>{copy.controlledHere}</span>
+                ) : (
+                  // No Google stop exists, and inventing one for an authority
+                  // we do not own would be worse than having none.
+                  <span data-not-stoppable={row.provider} style={{ color: "var(--ledger-ink-tertiary)" }}>
+                    {copy.notControlledHere}
+                  </span>
+                ),
+            },
+          ]}
+        />
+        <p data-google-unaffected="" style={{ fontSize: 12, marginTop: 8, color: "var(--ledger-ink-tertiary)" }}>
+          {GOOGLE_UNAFFECTED_ROW}
+        </p>
+      </section>
+
+      {/* Last, deliberately: the mode is chosen after reading what the
+          engine is allowed to do and what is currently engaged, not before. */}
+      <section aria-label={copy.automationMode} style={{ marginTop: 24 }}>
         {onModeChange ? (
           <label style={{ fontSize: 12, display: "grid", gap: 4, marginBottom: 8 }}>
             {copy.automationMode}
@@ -210,29 +238,6 @@ export function AutomationView({
             </select>
           </label>
         ) : null}
-        <div data-el="guardrails-readonly">
-        <p
-          style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}
-        >
-          Enforced by the engine. Shown here for reference; they are not editable from this surface.
-        </p>
-        <DataTable
-          collection="guardrails"
-          caption={copy.automationGuardrails}
-          rows={rows}
-          rowKey={(row) => row.id}
-          columns={[
-            { id: "id", header: "Rule", render: (row) => row.id },
-            { id: "label", header: "Guardrail", render: (row) => row.label },
-            {
-              id: "value",
-              header: "Value",
-              numeric: true,
-              render: (row) => <span data-guardrail-value={row.id}>{row.value}</span>,
-            },
-          ]}
-        />
-        </div>
       </section>
 
       <ZeroBaseDialog

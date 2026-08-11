@@ -341,6 +341,17 @@ export function compareFrame(
       // one on the page below it measures the mock's document flow, not the
       // design's intent.
       if ((a.owner ?? null) !== (b.owner ?? null)) continue;
+      // Not between a region and something it contains.
+      //
+      // Where the reference leaves a control at the top level, the containment
+      // check deliberately allows the implementation to place it inside the
+      // region it belongs to. Once it is inside, its top edge is necessarily
+      // below that region's — so comparing the two would report every such
+      // nesting as an ordering defect, and the only way to satisfy it would be
+      // to pull the control back out of the region the design shows it serving.
+      // The mock draws its markers as a flat strip; that is how it was drawn,
+      // not an ordering it states.
+      if (ownerChain(ia).includes(b.key) || ownerChain(ib).includes(a.key)) continue;
       // Only pairs the reference separates clearly, so a 1px difference in a
       // shared row is not treated as an ordering fact.
       if (a.box.y + 0.02 < b.box.y && ia.box.y > ib.box.y + 0.02) {

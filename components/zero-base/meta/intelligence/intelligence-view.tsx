@@ -9,6 +9,7 @@
  * for, an account to reassign.
  */
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
@@ -37,11 +38,18 @@ export function IntelligenceView({
   sources,
   unavailableReason,
   window,
+  snapshot,
+  onRunSnapshot,
+  onRespond,
 }: {
   sources: readonly IntelligenceSource[];
   unavailableReason?: string | null;
   /** The one window every windowed source was scoped to. */
   window?: { startDate: string; endDate: string };
+  /** Absent when the actor cannot queue a run; the control states why. */
+  snapshot?: { canRun: boolean; reason: string | null; queued: boolean };
+  onRunSnapshot?: () => void;
+  onRespond?: (sourceKey: string, response: string) => void;
 }) {
   const copy = useCopy();
   if (unavailableReason) {
@@ -67,6 +75,32 @@ export function IntelligenceView({
           Every windowed source below covers {window.startDate} to {window.endDate}.
         </p>
       ) : null}
+      {snapshot ? (
+        <div data-el="intel-recs" style={{ marginTop: 12, display: "grid", gap: 6 }}>
+          <Button
+            variant="secondary"
+            data-ctl="gated:META-INTEL-09 run-snapshot"
+            state={
+              snapshot.queued
+                ? { kind: "busy", label: copy.queued }
+                : snapshot.canRun
+                  ? { kind: "enabled" }
+                  : { kind: "disabled", reason: snapshot.reason ?? "" }
+            }
+            onClick={onRunSnapshot}
+          >
+            {copy.runSnapshot}
+          </Button>
+          {/* Queued is not done: the run's own progress shows up as a fact in
+              the recent-facts list, not as a claim here. */}
+          {snapshot.queued ? (
+            <p role="status" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+              {copy.snapshotQueuedNote}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div style={{ marginTop: 16 }}>
         <DataTable
           collection="recs"
@@ -75,6 +109,33 @@ export function IntelligenceView({
           rowKey={(row) => row.key}
           columns={[
             { id: "label", header: "Source", render: (row) => row.label },
+            ...(onRespond
+              ? [
+                  {
+                    id: "respond",
+                    header: "Response",
+                    render: (row: IntelligenceSource) => (
+                      <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+                        <span style={{ color: "var(--ledger-ink-tertiary)" }}>{copy.recordResponse}</span>
+                        <select
+                          data-ctl="live:META-INTEL-07 respond"
+                          aria-label={`${copy.recordResponse} — ${row.label}`}
+                          defaultValue=""
+                          onChange={(event) => onRespond(row.key, event.target.value)}
+                          style={{ minHeight: 44, padding: "6px 8px" }}
+                        >
+                          <option value="">—</option>
+                          {["acknowledged", "acted", "dismissed"].map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ),
+                  },
+                ]
+              : []),
             {
               id: "state",
               header: "State",

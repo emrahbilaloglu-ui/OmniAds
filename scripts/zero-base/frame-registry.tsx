@@ -1016,7 +1016,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H16", leaf: "L-C-META-WRITE", state: "ceremony-reconciliation", width: 1440, theme: "light", render: () => ceremony(CEREMONY_RECONCILE) },
 
   /* ---- H17–H20: intelligence, history, automation ---- */
-  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} /> },
+  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} snapshot={{ canRun: true, reason: null, queued: false }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
   { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} /> },
   { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("engage")} onEngage={() => {}} /> },
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },

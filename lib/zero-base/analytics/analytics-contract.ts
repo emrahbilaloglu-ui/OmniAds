@@ -259,3 +259,192 @@ export function seoRoleState(role: string | null): SeoRoleState {
     reason: "Guests can read SEO findings but cannot change them.",
   };
 }
+
+/* ============================================================================
+ * Real payload adapters.
+ *
+ * Added after a transition audit found the first version calling
+ * `adaptTable(...["rows","sources","channels"])` on `/api/analytics/overview`
+ * and `["findings","rows","pages"]` on `/api/seo/overview`. Neither endpoint
+ * returns any of those keys, so both surfaces degraded on every successful
+ * read — a wrong-shape guess is indistinguishable from an outage to the person
+ * looking at it.
+ *
+ * These adapters are typed against the handlers' actual return types.
+ * ========================================================================== */
+
+/** `AnalyticsOverviewResponse` from `lib/analytics-overview.ts`. */
+export interface AdaptedAnalyticsOverview {
+  propertyName: string | null;
+  kpis: Array<{ key: string; value: AnalyticsValue }>;
+  /** New vs returning, kept as two labelled cohorts rather than summed. */
+  cohorts: Array<{ key: "new" | "returning"; sessions: AnalyticsValue; purchases: AnalyticsValue; purchaseCvr: AnalyticsValue }>;
+  insights: string[];
+}
+
+const KPI_LABEL: Record<string, string> = {
+  sessions: "Sessions",
+  engagedSessions: "Engaged sessions",
+  engagementRate: "Engagement rate",
+  purchases: "Purchases",
+  purchaseCvr: "Purchase CVR",
+  revenue: "Revenue",
+  avgSessionDuration: "Avg. session duration",
+  averageOrderValue: "Average order value",
+  totalUsers: "Total users",
+  newUsers: "New users",
+  totalPurchasers: "Total purchasers",
+  firstTimePurchasers: "First-time purchasers",
+};
+
+export function adaptAnalyticsOverview(raw: unknown): Adapted<AdaptedAnalyticsOverview> {
+  if (!isRecord(raw)) return { ok: false, reason: "The overview response was not an object." };
+  if (!isRecord(raw.kpis)) {
+    return {
+      ok: false,
+      reason: "The analytics overview response carried no kpis object, so nothing can be shown for it.",
+    };
+  }
+  const kpis = raw.kpis as Record<string, unknown>;
+  const cohortOf = (key: "new" | "returning") => {
+    const source = isRecord(raw.newVsReturning) ? (raw.newVsReturning as Record<string, unknown>)[key] : null;
+    const cohort = isRecord(source) ? source : {};
+    return {
+      key,
+      sessions: analyticsValue(cohort.sessions, (v) => String(Math.trunc(v))),
+      purchases: analyticsValue(cohort.purchases, (v) => String(Math.trunc(v))),
+      purchaseCvr: analyticsValue(cohort.purchaseCvr, (v) => `${(v * 100).toFixed(2)}%`),
+    };
+  };
+
+  return {
+    ok: true,
+    value: {
+      propertyName: str(raw.propertyName),
+      // Only the keys the handler actually serves; an absent KPI stays absent
+      // rather than being rendered as a zero row.
+      kpis: Object.keys(KPI_LABEL)
+        .filter((key) => key in kpis)
+        .map((key) => ({
+          key,
+          value: analyticsValue(
+            kpis[key],
+            key === "engagementRate" || key === "purchaseCvr"
+              ? (v) => `${(v * 100).toFixed(2)}%`
+              : key === "revenue" || key === "averageOrderValue"
+                ? (v) => v.toFixed(2)
+                : (v) => String(Math.trunc(v)),
+          ),
+        })),
+      // Two cohorts, never added together: "new + returning" is not a metric
+      // GA4 serves and summing them invents one.
+      cohorts: [cohortOf("new"), cohortOf("returning")],
+      insights: Array.isArray(raw.insights)
+        ? raw.insights
+            .map((item) => (isRecord(item) ? str(item.text) : str(item)))
+            .filter((text): text is string => Boolean(text))
+        : [],
+    },
+  };
+}
+
+/** `{ pages: [{ path, sessions, engagementRate, purchases, purchaseCvr }] }`. */
+export interface AdaptedLandingPage {
+  id: string;
+  path: string;
+  sessions: AnalyticsValue;
+  purchases: AnalyticsValue;
+  purchaseCvr: AnalyticsValue;
+}
+
+export function adaptLandingPages(raw: unknown): Adapted<{ rows: AdaptedLandingPage[]; capText: string }> {
+  if (!isRecord(raw)) return { ok: false, reason: "The landing-pages response was not an object." };
+  const list = Array.isArray(raw.pages) ? raw.pages : Array.isArray(raw.rows) ? raw.rows : null;
+  if (!list) {
+    return {
+      ok: false,
+      reason: "The landing-pages response carried neither a pages nor a rows collection.",
+    };
+  }
+  const rows = list.filter(isRecord).map((row, index) => ({
+    id: str(row.path) ?? String(index),
+    path: str(row.path) ?? "(path not served)",
+    sessions: analyticsValue(row.sessions, (v) => String(Math.trunc(v))),
+    // The handler serves purchases and purchaseCvr. There is no `conversions`
+    // field; asking for one produced "Not served" on every row.
+    purchases: analyticsValue(row.purchases, (v) => String(Math.trunc(v))),
+    purchaseCvr: analyticsValue(row.purchaseCvr, (v) => `${(v * 100).toFixed(2)}%`),
+  }));
+  const cap = num(raw.rowLimit) ?? num(raw.rowCap);
+  return {
+    ok: true,
+    value: {
+      rows,
+      capText:
+        cap === null
+          ? BACKEND_CAP_NOT_SUPPLIED
+          : `Showing ${rows.length} of up to ${cap} rows.`,
+    },
+  };
+}
+
+/** `SeoOverviewPayload` from `lib/seo/intelligence.ts`. */
+export interface AdaptedSeo {
+  siteUrl: string | null;
+  rowCount: number | null;
+  summary: Array<{ key: string; current: AnalyticsValue; deltaPercent: AnalyticsValue }>;
+  leaderQueries: Array<{ id: string; label: string }>;
+  decliningQueries: Array<{ id: string; label: string }>;
+  causes: Array<{ id: string; label: string }>;
+  recommendations: Array<{ id: string; label: string }>;
+  /** Read-only AI brief. This surface never generates one. */
+  aiBriefHeadline: string | null;
+}
+
+function entityLabel(item: unknown, index: number): { id: string; label: string } {
+  const record = isRecord(item) ? item : {};
+  const label =
+    str(record.query) ?? str(record.page) ?? str(record.title) ?? str(record.label) ?? str(record.id);
+  return { id: label ?? String(index), label: label ?? "(not served)" };
+}
+
+export function adaptSeoOverview(raw: unknown): Adapted<AdaptedSeo> {
+  if (!isRecord(raw) || !isRecord(raw.summary)) {
+    return {
+      ok: false,
+      reason: "The SEO response carried no summary object, so nothing can be shown for it.",
+    };
+  }
+  const summary = raw.summary as Record<string, unknown>;
+  const leaders = isRecord(raw.leaders) ? raw.leaders : {};
+  const movers = isRecord(raw.movers) ? raw.movers : {};
+  const meta = isRecord(raw.meta) ? raw.meta : {};
+  const aiBrief = isRecord(raw.aiBrief) ? raw.aiBrief : {};
+
+  return {
+    ok: true,
+    value: {
+      siteUrl: str(meta.siteUrl),
+      rowCount: num(meta.rowCount),
+      summary: ["clicks", "impressions", "ctr", "position"]
+        .filter((key) => isRecord(summary[key]))
+        .map((key) => {
+          const metric = summary[key] as Record<string, unknown>;
+          return {
+            key,
+            current: analyticsValue(metric.current, (v) =>
+              key === "ctr" ? `${(v * 100).toFixed(2)}%` : v.toFixed(key === "position" ? 1 : 0),
+            ),
+            // deltaPercent is nullable in the contract; null stays unavailable
+            // rather than becoming a 0% "no change" claim.
+            deltaPercent: analyticsValue(metric.deltaPercent, (v) => `${(v * 100).toFixed(1)}%`),
+          };
+        }),
+      leaderQueries: (Array.isArray(leaders.queries) ? leaders.queries : []).map(entityLabel),
+      decliningQueries: (Array.isArray(movers.decliningQueries) ? movers.decliningQueries : []).map(entityLabel),
+      causes: (Array.isArray(raw.causes) ? raw.causes : []).map(entityLabel),
+      recommendations: (Array.isArray(raw.recommendations) ? raw.recommendations : []).map(entityLabel),
+      aiBriefHeadline: str(aiBrief.headline) ?? str(aiBrief.summary),
+    },
+  };
+}

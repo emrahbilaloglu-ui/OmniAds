@@ -14,8 +14,10 @@ import {
   GEO_PROXY_DISCLOSURE,
   GEO_TOP_THREE_DISCLOSURE,
   dualSourceState,
+  type AdaptedAnalyticsOverview,
   type AdaptedGeo,
   type AdaptedInsight,
+  type AdaptedSeo,
   type AnalyticsValue,
   type SeoRoleState,
   type SourcePanel,
@@ -77,41 +79,67 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
 
 export function SourceOverviewView({
   panels,
-  rows,
-  capText,
+  overview,
   insight,
   unavailableReason,
 }: {
   panels: readonly SourcePanel[];
-  rows: readonly { id: string; label: string; sessions: AnalyticsValue; revenue: AnalyticsValue }[];
-  capText: string;
+  /** The adapted `AnalyticsOverviewResponse`. Null when the shape was wrong. */
+  overview: AdaptedAnalyticsOverview | null;
   insight: AdaptedInsight;
   unavailableReason?: string | null;
 }) {
   return (
     <Shell title="GA4 and Shopify">
       <SourcePanels panels={panels} />
-      {unavailableReason ? (
+      {unavailableReason || !overview ? (
         <div style={{ marginTop: 12 }}>
-          <UnavailableState reason={unavailableReason} />
+          <UnavailableState reason={unavailableReason ?? "The analytics overview could not be read."} />
         </div>
       ) : (
         <>
-          <p data-cap-text="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            {capText}
+          <p data-ga4-property="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+            {overview.propertyName ? `GA4 property: ${overview.propertyName}` : "GA4 property name not served."}
           </p>
+
           <div style={{ marginTop: 12 }}>
             <DataTable
-              caption="Sessions and revenue"
-              rows={[...rows]}
-              rowKey={(row) => row.id}
+              caption="GA4 KPIs"
+              rows={[...overview.kpis]}
+              rowKey={(row) => row.key}
               columns={[
-                { id: "label", header: "Source", render: (row) => row.label },
-                { id: "sessions", header: "Sessions", numeric: true, render: (row) => <Value value={row.sessions} name="sessions" /> },
-                { id: "revenue", header: "Revenue", numeric: true, render: (row) => <Value value={row.revenue} name="revenue" /> },
+                { id: "key", header: "Metric", render: (row) => row.key },
+                { id: "value", header: "Value", numeric: true, render: (row) => <Value value={row.value} name={row.key} /> },
               ]}
             />
           </div>
+
+          <section aria-label="New vs returning" style={{ marginTop: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>New vs returning</h2>
+            {/* Two cohorts, never added: GA4 serves no combined figure and
+                summing them would invent one. */}
+            <DataTable
+              caption="New vs returning"
+              rows={[...overview.cohorts]}
+              rowKey={(row) => row.key}
+              columns={[
+                { id: "key", header: "Cohort", render: (row) => row.key },
+                { id: "sessions", header: "Sessions", numeric: true, render: (row) => <Value value={row.sessions} name={`${row.key}-sessions`} /> },
+                { id: "purchases", header: "Purchases", numeric: true, render: (row) => <Value value={row.purchases} name={`${row.key}-purchases`} /> },
+                { id: "purchaseCvr", header: "Purchase CVR", numeric: true, render: (row) => <Value value={row.purchaseCvr} name={`${row.key}-cvr`} /> },
+              ]}
+            />
+          </section>
+
+          {overview.insights.length > 0 ? (
+            <ul data-ga4-insights="" style={{ margin: "12px 0 0", paddingLeft: 18 }}>
+              {overview.insights.map((text) => (
+                <li key={text} style={{ fontSize: 12.5 }}>
+                  {text}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </>
       )}
 
@@ -194,15 +222,38 @@ export function AnalyticsTableView({
 
 /* ------------------------------------------------------------------- SEO */
 
+function SeoList({ id, title, items }: { id: string; title: string; items: readonly { id: string; label: string }[] }) {
+  if (items.length === 0) {
+    return (
+      <p data-seo-empty={id} style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+        {title}: nothing was served for this window.
+      </p>
+    );
+  }
+  return (
+    <section aria-label={title} style={{ marginTop: 12 }}>
+      <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{title}</h2>
+      <ul data-seo-list={id} style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+        {items.map((item) => (
+          <li key={item.id} data-seo-item={id} style={{ fontSize: 12.5 }}>
+            {item.label}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function SeoView({
   panels,
   role,
-  findings,
+  seo,
   unavailableReason,
 }: {
   panels: readonly SourcePanel[];
   role: SeoRoleState;
-  findings: readonly { id: string; title: string; detail: string | null }[];
+  /** The adapted `SeoOverviewPayload`. Null when the shape was wrong. */
+  seo: AdaptedSeo | null;
   unavailableReason?: string | null;
 }) {
   return (
@@ -213,25 +264,49 @@ export function SeoView({
           {role.reason}
         </p>
       )}
-      {unavailableReason ? (
+      {unavailableReason || !seo ? (
         <div style={{ marginTop: 12 }}>
-          <UnavailableState reason={unavailableReason} />
+          <UnavailableState reason={unavailableReason ?? "The SEO overview could not be read."} />
         </div>
-      ) : findings.length === 0 ? (
-        <p data-seo-findings="empty" style={{ margin: "12px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-          No SEO findings were served for this window.
-        </p>
       ) : (
-        <ul data-seo-findings="ready" style={{ margin: "12px 0 0", paddingLeft: 18 }}>
-          {findings.map((finding) => (
-            <li key={finding.id} data-seo-finding={finding.id} style={{ fontSize: 12.5 }}>
-              {finding.title}
-              {finding.detail ? (
-                <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>{finding.detail}</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        <>
+          <p data-seo-meta="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+            {seo.siteUrl ?? "Site not served"}
+            {seo.rowCount === null ? "" : ` · ${seo.rowCount} rows in window`}
+          </p>
+
+          <DataTable
+            caption="Search performance"
+            rows={[...seo.summary]}
+            rowKey={(row) => row.key}
+            columns={[
+              { id: "key", header: "Metric", render: (row) => row.key },
+              { id: "current", header: "Current", numeric: true, render: (row) => <Value value={row.current} name={row.key} /> },
+              {
+                id: "delta",
+                header: "Change",
+                numeric: true,
+                // deltaPercent is nullable in the contract; null renders
+                // unavailable rather than a 0% "no change" claim.
+                render: (row) => <Value value={row.deltaPercent} name={`${row.key}-delta`} />,
+              },
+            ]}
+          />
+
+          <SeoList id="leaders" title="Leading queries" items={seo.leaderQueries} />
+          <SeoList id="declining" title="Declining queries" items={seo.decliningQueries} />
+          <SeoList id="causes" title="Likely causes" items={seo.causes} />
+          <SeoList id="recommendations" title="Recommendations" items={seo.recommendations} />
+
+          {seo.aiBriefHeadline ? (
+            <p data-seo-ai-brief="" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
+              {seo.aiBriefHeadline}
+              <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                Served brief, read only. This surface generates nothing.
+              </span>
+            </p>
+          ) : null}
+        </>
       )}
     </Shell>
   );

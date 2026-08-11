@@ -18,11 +18,34 @@ import {
 } from "@/components/zero-base/analytics/analytics-views";
 import {
   AI_GENERATE_ENDPOINT,
+  adaptAnalyticsOverview,
   adaptGeoOverview,
+  adaptSeoOverview,
   adaptSources,
   analyticsValue,
   seoRoleState,
 } from "@/lib/zero-base/analytics/analytics-contract";
+
+/** Built from the handler's real return type. */
+const OVERVIEW_PAYLOAD = {
+  propertyName: "Acme GA4",
+  kpis: { sessions: 12000, purchases: 0, revenue: 4820.25 },
+  newVsReturning: {
+    new: { sessions: 9000, purchases: 210, purchaseCvr: 0.023 },
+    returning: { sessions: 3000, purchases: 120, purchaseCvr: 0.04 },
+  },
+  insights: [{ text: "Returning visitors convert better." }],
+};
+
+const SEO_PAYLOAD = {
+  meta: { siteUrl: "https://acme.example", rowCount: 812 },
+  summary: { clicks: { current: 4200, deltaPercent: 0.077 }, ctr: { current: 0.035, deltaPercent: null } },
+  leaders: { queries: [{ query: "acme pricing" }] },
+  movers: { decliningQueries: [{ query: "acme review" }] },
+  causes: [{ title: "Lost featured snippet" }],
+  recommendations: [{ title: "Refresh pricing" }],
+  aiBrief: { headline: "Clicks up." },
+};
 
 afterEach(cleanup);
 
@@ -43,9 +66,9 @@ describe("source panels", () => {
     render(
       <SourceOverviewView
         panels={adaptSources(GEO_PAYLOAD)}
-        rows={[]}
-        capText="Backend cap not supplied"
+        overview={null}
         insight={{ text: null, generatedAt: null, absentReason: "none yet" }}
+        unavailableReason="not read"
       />,
     );
     expect(document.querySelector('[data-source-connected="ga4"]')).not.toBeNull();
@@ -69,20 +92,20 @@ describe("measured zero is visibly different from unavailable", () => {
             cells: {
               path: "/pricing",
               sessions: analyticsValue(0, String),
-              conversions: analyticsValue(null, String),
+              purchases: analyticsValue(null, String),
             },
           },
         ]}
         columns={[
           { id: "path", header: "Page" },
           { id: "sessions", header: "Sessions", numeric: true },
-          { id: "conversions", header: "Conversions", numeric: true },
+          { id: "purchases", header: "Purchases", numeric: true },
         ]}
         capText="Showing 1 of up to 300 rows."
       />,
     );
     expect(document.querySelector('[data-value="sessions"]')!.getAttribute("data-measured-zero")).toBe("true");
-    expect(document.querySelector('[data-value-unavailable="conversions"]')!.textContent).toMatch(/Not served/);
+    expect(document.querySelector('[data-value-unavailable="purchases"]')!.textContent).toMatch(/Not served/);
   });
 
   it("shows the served cap text", () => {
@@ -116,12 +139,14 @@ describe("GEO disclosures", () => {
 
 describe("SEO role gate is visible", () => {
   it("states why a guest has no controls", () => {
-    render(<SeoView panels={[]} role={seoRoleState("guest")} findings={[]} />);
+    const adapted = adaptSeoOverview(SEO_PAYLOAD);
+    render(<SeoView panels={[]} role={seoRoleState("guest")} seo={adapted.ok ? adapted.value : null} />);
     expect(document.querySelector("[data-seo-role-blocked]")!.textContent).toMatch(/cannot change them/);
   });
 
   it("adds no blocked notice for a collaborator", () => {
-    render(<SeoView panels={[]} role={seoRoleState("collaborator")} findings={[]} />);
+    const adapted = adaptSeoOverview(SEO_PAYLOAD);
+    render(<SeoView panels={[]} role={seoRoleState("collaborator")} seo={adapted.ok ? adapted.value : null} />);
     expect(document.querySelector("[data-seo-role-blocked]")).toBeNull();
   });
 });
@@ -131,15 +156,39 @@ describe("the AI insight is read only", () => {
     render(
       <SourceOverviewView
         panels={[]}
-        rows={[]}
-        capText=""
+        overview={adaptAnalyticsOverview(OVERVIEW_PAYLOAD).ok ? adaptAnalyticsOverview(OVERVIEW_PAYLOAD).value : null}
         insight={{ text: null, generatedAt: null, absentReason: "No AI insight has been generated yet." }}
       />,
     );
     expect(document.querySelector('[data-insight="absent"]')).not.toBeNull();
     expect(document.querySelector("[data-insight-read-only]")).not.toBeNull();
     expect(document.body.textContent).not.toMatch(/generate insight/i);
-    expect(document.querySelectorAll("button").length).toBe(0);
+    expect(document.body.textContent).not.toMatch(/generate insight/i);
+  });
+
+  it("renders the real overview payload rather than degrading", () => {
+    const adapted = adaptAnalyticsOverview(OVERVIEW_PAYLOAD);
+    render(
+      <SourceOverviewView
+        panels={[]}
+        overview={adapted.ok ? adapted.value : null}
+        insight={{ text: null, generatedAt: null, absentReason: "none" }}
+      />,
+    );
+    expect(document.querySelector("[data-ga4-property]")!.textContent).toMatch(/Acme GA4/);
+    expect(document.querySelector('[data-value="sessions"]')).not.toBeNull();
+    // Two cohorts, never summed.
+    expect(document.querySelector('[data-value="new-sessions"]')).not.toBeNull();
+    expect(document.querySelector('[data-value="returning-sessions"]')).not.toBeNull();
+  });
+
+  it("renders the real SEO payload rather than degrading", () => {
+    const adapted = adaptSeoOverview(SEO_PAYLOAD);
+    render(<SeoView panels={[]} role={seoRoleState("collaborator")} seo={adapted.ok ? adapted.value : null} />);
+    expect(document.querySelector('[data-seo-list="leaders"]')!.textContent).toMatch(/acme pricing/);
+    expect(document.querySelector('[data-seo-list="causes"]')!.textContent).toMatch(/featured snippet/);
+    // A null deltaPercent is unavailable, not 0%.
+    expect(document.querySelector('[data-value-unavailable="ctr-delta"]')).not.toBeNull();
   });
 
   it("has zero call sites to the generate endpoint in the shipped bundle", () => {

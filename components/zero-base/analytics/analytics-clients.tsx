@@ -20,14 +20,18 @@ import {
 } from "@/components/zero-base/analytics/analytics-views";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
 import {
+  adaptAnalyticsOverview,
   adaptGeoOverview,
+  adaptLandingPages,
   adaptLatestInsight,
+  adaptSeoOverview,
   adaptSources,
-  adaptTable,
   analyticsValue,
   seoRoleState,
+  type AdaptedAnalyticsOverview,
   type AdaptedGeo,
   type AdaptedInsight,
+  type AdaptedSeo,
   type SourcePanel,
 } from "@/lib/zero-base/analytics/analytics-contract";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
@@ -109,27 +113,18 @@ export function AnalyticsSourceClient({ businessId }: Props) {
     "/api/analytics/overview",
     businessId,
     "Analytics overview",
-    (body) => (adaptTable(body, ["rows", "sources", "channels"]).ok ? body : null),
+    (body) => (adaptAnalyticsOverview(body).ok ? body : null),
   );
   const insight = useInsight(businessId);
-  const table = adaptTable(raw, ["rows", "sources", "channels"]);
+  const adapted = adaptAnalyticsOverview(raw);
+  const overview: AdaptedAnalyticsOverview | null = adapted.ok ? adapted.value : null;
   const panels: SourcePanel[] = adaptSources(raw);
 
   return (
     <SurfaceStateBoundary state={surface}>
       <SourceOverviewView
         panels={panels}
-        rows={
-          table.ok
-            ? table.value.rows.map((row, index) => ({
-                id: String((row as { id?: unknown }).id ?? index),
-                label: String((row as { label?: unknown; source?: unknown }).label ?? (row as { source?: unknown }).source ?? "(not served)"),
-                sessions: analyticsValue((row as { sessions?: unknown }).sessions, (v) => String(Math.trunc(v))),
-                revenue: analyticsValue((row as { revenue?: unknown }).revenue, (v) => v.toFixed(2)),
-              }))
-            : []
-        }
-        capText={table.ok ? table.value.capText : ""}
+        overview={overview}
         insight={insight}
         unavailableReason={reason}
       />
@@ -137,76 +132,60 @@ export function AnalyticsSourceClient({ businessId }: Props) {
   );
 }
 
-function tableClient(path: string, title: string, rowKeys: string[], columns: { id: string; header: string; numeric?: boolean }[]) {
-  return function AnalyticsTableClient({ businessId }: Props) {
-    const { raw, reason, surface } = useEndpoint(path, businessId, title, (body) =>
-      adaptTable(body, rowKeys).ok ? body : null,
-    );
-    const table = adaptTable(raw, rowKeys);
-    return (
-      <SurfaceStateBoundary state={surface}>
-        <AnalyticsTableView
-          title={title}
-          panels={adaptSources(raw)}
-          rows={
-            table.ok
-              ? table.value.rows.map((row, index) => ({
-                  id: String((row as { id?: unknown }).id ?? index),
-                  cells: Object.fromEntries(
-                    columns.map((column) => {
-                      const cell = (row as Record<string, unknown>)[column.id];
-                      return [
-                        column.id,
-                        column.numeric
-                          ? analyticsValue(cell, (v) => v.toFixed(2))
-                          : typeof cell === "string" && cell.trim()
-                            ? cell
-                            : "Not served",
-                      ];
-                    }),
-                  ),
-                }))
-              : []
-          }
-          columns={columns}
-          capText={table.ok ? table.value.capText : ""}
-          unavailableReason={reason}
-        />
-      </SurfaceStateBoundary>
-    );
-  };
+export function AnalyticsLandingPagesClient({ businessId }: Props) {
+  const { raw, reason, surface } = useEndpoint(
+    "/api/analytics/landing-pages",
+    businessId,
+    "Landing pages",
+    (body) => (adaptLandingPages(body).ok ? body : null),
+  );
+  const adapted = adaptLandingPages(raw);
+  return (
+    <SurfaceStateBoundary state={surface}>
+      <AnalyticsTableView
+        title="Landing pages"
+        panels={adaptSources(raw)}
+        rows={
+          adapted.ok
+            ? adapted.value.rows.map((row) => ({
+                id: row.id,
+                cells: {
+                  path: row.path,
+                  sessions: row.sessions,
+                  // The handler serves purchases and purchaseCvr; there is no
+                  // `conversions` field, and asking for one showed "Not served"
+                  // on every row of a healthy read.
+                  purchases: row.purchases,
+                  purchaseCvr: row.purchaseCvr,
+                },
+              }))
+            : []
+        }
+        columns={[
+          { id: "path", header: "Page" },
+          { id: "sessions", header: "Sessions", numeric: true },
+          { id: "purchases", header: "Purchases", numeric: true },
+          { id: "purchaseCvr", header: "Purchase CVR", numeric: true },
+        ]}
+        capText={adapted.ok ? adapted.value.capText : ""}
+        unavailableReason={reason}
+      />
+    </SurfaceStateBoundary>
+  );
 }
-
-export const AnalyticsLandingPagesClient = tableClient(
-  "/api/analytics/landing-pages",
-  "Landing pages",
-  ["pages", "rows"],
-  [
-    { id: "path", header: "Page" },
-    { id: "sessions", header: "Sessions", numeric: true },
-    { id: "conversions", header: "Conversions", numeric: true },
-  ],
-);
 
 export function SeoClient({ businessId, role }: Props) {
   const { raw, reason, surface } = useEndpoint("/api/seo/overview", businessId, "SEO", (body) =>
-    adaptTable(body, ["findings", "rows", "pages"]).ok ? body : null,
+    adaptSeoOverview(body).ok ? body : null,
   );
-  const table = adaptTable(raw, ["findings", "rows", "pages"]);
+  const adapted = adaptSeoOverview(raw);
+  const seo: AdaptedSeo | null = adapted.ok ? adapted.value : null;
   return (
     <SurfaceStateBoundary state={surface}>
       <SeoView
         panels={adaptSources(raw)}
         role={seoRoleState(role ?? null)}
-        findings={
-          table.ok
-            ? table.value.rows.map((row, index) => ({
-                id: String((row as { id?: unknown }).id ?? index),
-                title: String((row as { title?: unknown }).title ?? "(finding not named)"),
-                detail: typeof (row as { detail?: unknown }).detail === "string" ? String((row as { detail?: unknown }).detail) : null,
-              }))
-            : []
-        }
+        seo={seo}
         unavailableReason={reason}
       />
     </SurfaceStateBoundary>

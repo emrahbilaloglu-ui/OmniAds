@@ -330,6 +330,27 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false) => 
       onStateChange={() => {}}
       adsManagerHref="https://adsmanager.facebook.com/"
       mutation={ceremonySeed()}
+      workflow={{
+        records: new Map(
+          Array.from({ length: rows }, (_, index) => [
+            `d${index + 1}`,
+            {
+              businessId: "biz",
+              decisionKey: `d${index + 1}`,
+              state: "open",
+              assigneeUserId: null,
+              dueAt: null,
+              snoozeUntil: null,
+              reasonCode: null,
+              stateVersion: 3,
+            },
+          ]),
+        ),
+        events: [],
+        loadState: { kind: "ready" },
+        onSubmit: async () => ({ ok: true }),
+        newMutationId: () => "wf_01J9F2K3",
+      } as never}
       stickyBar={
         sticky ? { metaStopHref: "/c/biz/meta/automation", onOpenManual: () => {} } : undefined
       }

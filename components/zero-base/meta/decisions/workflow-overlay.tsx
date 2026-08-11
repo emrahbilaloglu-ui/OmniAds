@@ -83,6 +83,7 @@ export function WorkflowChip({
   return (
     <span
       data-workflow-chip={state}
+      data-el="wf-chip"
       style={{ fontSize: 12, fontWeight: 600, color: STATE_TONE[state] ?? "var(--ledger-ink-secondary)" }}
     >
       {WORKFLOW_STATE_LABEL[state]}
@@ -280,7 +281,7 @@ export function WorkflowPanel({
           {refusal}
         </p>
       ) : loadState.kind === "ready" && record ? (
-        <div data-workflow-menu="" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div data-workflow-menu="" data-el="blocker-chip" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {transitions.length === 0 ? (
             <span data-workflow-menu-empty="" style={{ fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
               No workflow transition applies to a decision that is{" "}
@@ -292,6 +293,7 @@ export function WorkflowPanel({
                 key={action}
                 variant="secondary"
                 data-workflow-action={action}
+                data-ctl="gated:META-WF-02..08 menu"
                 ref={(node: HTMLButtonElement | null) => {
                   menuRef.current[action] = node;
                 }}
@@ -307,7 +309,14 @@ export function WorkflowPanel({
         </div>
       ) : null}
 
-      {conflict ? <ConflictPanel conflict={conflict} submitting={submitting} onReapply={send} /> : null}
+      {conflict ? (
+        <ConflictPanel
+          conflict={conflict}
+          submitting={submitting}
+          onReapply={send}
+          onKeep={() => setConflict(null)}
+        />
+      ) : null}
 
       <div>
         <h4 id={historyId} style={{ margin: "4px 0 4px", fontSize: 12, fontWeight: 600 }}>
@@ -412,15 +421,19 @@ function ConflictPanel({
   conflict,
   submitting,
   onReapply,
+  onKeep,
 }: {
   conflict: WorkflowConflict;
   submitting: boolean;
   onReapply: (action: CanonicalWorkflowAction, expectedVersion: number) => void;
+  /** Accepts the current state and abandons the attempt. */
+  onKeep?: () => void;
 }) {
   const plan = reapplyPlan(conflict);
   return (
     <div
       data-workflow-conflict=""
+      data-el="conflict-dialog"
       style={{
         display: "grid",
         gap: 6,
@@ -444,6 +457,7 @@ function ConflictPanel({
           <Button
             variant="secondary"
             data-workflow-reapply=""
+            data-ctl="live:META-WF-11 reapply"
             state={submitting ? { kind: "busy", label: "Applying…" } : { kind: "enabled" }}
             onClick={() => onReapply(plan.action, plan.expectedVersion)}
           >
@@ -453,6 +467,15 @@ function ConflictPanel({
       ) : (
         <span data-workflow-reapply-blocked="">{plan.reason}</span>
       )}
+      {onKeep ? (
+        <div>
+          {/* The other half of the resolution. Without it the only way out of a
+              conflict is to overwrite, which is not a choice. */}
+          <Button variant="quiet" data-workflow-keep="" data-ctl="live:META-WF-11 keep" onClick={onKeep}>
+            Keep the current state
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

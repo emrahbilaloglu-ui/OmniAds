@@ -34,6 +34,37 @@ const MEASURABLE = [
   { leaf: "L-AUTH-LOGIN", url: "/login" },
 ];
 
+/**
+ * Representative heavy authenticated leaves.
+ *
+ * These are the surfaces that actually assemble something: a directory, a
+ * decision queue with an inspector, creative rows with media, an analytics
+ * composition, the report viewer and builder, and an Ops health board. Measuring
+ * only the public marketing pages would have been measuring the cheapest thing
+ * in the product and calling it evidence.
+ */
+const HEAVY_AUTHENTICATED = [
+  { leaf: "L-AG-TODAY", path: "/a/desk" },
+  { leaf: "L-C-HOME", path: "/c/:biz/home" },
+  { leaf: "L-C-META-DEC", path: "/c/:biz/meta/decisions" },
+  { leaf: "L-C-CR-PERF", path: "/c/:biz/creative/performance" },
+  { leaf: "L-C-AN-GA", path: "/c/:biz/analytics/ga4-shopify" },
+  { leaf: "L-C-AN-GEO", path: "/c/:biz/analytics/geo" },
+  { leaf: "L-C-REP", path: "/c/:biz/reports" },
+  { leaf: "L-C-REP-NEW", path: "/c/:biz/reports/new" },
+];
+
+interface RoleSeed {
+  password: string;
+  primaryBusinessId: string;
+  users: Record<string, { email: string }>;
+}
+
+function roleSeed(): RoleSeed | null {
+  const raw = process.env.ZERO_BASE_ROLE_SEED?.trim();
+  return raw ? (JSON.parse(raw) as RoleSeed) : null;
+}
+
 interface Vitals {
   lcp: number;
   cls: number;
@@ -120,5 +151,60 @@ test.describe("G11 vitals on representative leaves", () => {
       console.log(`${target.leaf.padEnd(16)} ${apiCalls.length} API request(s) on first load`);
       expect(apiCalls.length, `${target.leaf} fans out to ${apiCalls.length} API calls`).toBeLessThanOrEqual(FIRST_LOAD_API_CALL_BUDGET);
     }
+  });
+});
+
+
+test.describe("G11 vitals on representative heavy authenticated leaves", () => {
+  const seed = roleSeed();
+
+  test("measures each heavy leaf, or states plainly that it could not", async ({ page, context }) => {
+    test.skip(!seed, "ZERO_BASE_ROLE_SEED must carry the seeded principals.");
+
+    // Sign in through the real endpoint so the session is the product's own.
+    const login = await context.request.post(`${BASE}/api/auth/login`, {
+      data: { email: seed!.users.admin.email, password: seed!.password },
+    });
+    expect(login.ok(), "admin sign-in failed; vitals would be measured on a login redirect").toBe(true);
+
+    const failures: string[] = [];
+    for (const target of HEAVY_AUTHENTICATED) {
+      const url = target.path.replace(":biz", seed!.primaryBusinessId);
+
+      const requests: string[] = [];
+      const listener = (request: import("@playwright/test").Request) => {
+        if (request.url().includes("/api/")) requests.push(request.url());
+      };
+      page.on("request", listener);
+
+      const vitals = await measure(page, url);
+      await page.waitForTimeout(1200);
+      page.off("request", listener);
+
+      // Duplicate identical API calls on one load are the N+1 signature.
+      const counts = new Map<string, number>();
+      for (const request of requests) counts.set(request, (counts.get(request) ?? 0) + 1);
+      const duplicated = [...counts.entries()].filter(([, count]) => count > 1);
+
+      console.log(
+        `${target.leaf.padEnd(16)} LCP ${vitals.lcp.toFixed(0)}ms  CLS ${vitals.cls.toFixed(3)}  ` +
+          `TBT ${vitals.tbt.toFixed(0)}ms  API ${requests.length}` +
+          `${duplicated.length > 0 ? `  DUPLICATED ${duplicated.length}` : ""}`,
+      );
+
+      if (vitals.lcp > LCP_BUDGET_MS) failures.push(`${target.leaf} LCP ${vitals.lcp.toFixed(0)}ms`);
+      if (vitals.cls > CLS_BUDGET) failures.push(`${target.leaf} CLS ${vitals.cls.toFixed(3)}`);
+      if (vitals.tbt > TBT_BUDGET_MS) failures.push(`${target.leaf} TBT ${vitals.tbt.toFixed(0)}ms`);
+      if (requests.length > FIRST_LOAD_API_CALL_BUDGET) {
+        failures.push(`${target.leaf} fans out to ${requests.length} API calls`);
+      }
+      // An unbounded N+1 is the plan's own wording; a repeated identical call
+      // on a single load is the cheapest way to detect one.
+      for (const [url_, count] of duplicated) {
+        failures.push(`${target.leaf} requests ${url_} ${count}× on one load`);
+      }
+    }
+
+    expect(failures, `heavy-leaf performance failures:\n${failures.join("\n")}`).toEqual([]);
   });
 });

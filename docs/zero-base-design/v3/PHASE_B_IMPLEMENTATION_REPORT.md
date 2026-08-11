@@ -22,6 +22,29 @@ The earlier stop was recorded because WP-09 and WP-10 were partial, with no tech
 | `/a/desk`, `/a/desk/clients`, `/a/desk/withheld` + view components | All three routes build and render | `45a9ff1ab` |
 | 50-client scan at 1440/390 | 4 Playwright checks over the real projection and table | `45a9ff1ab` |
 
+## 1b · Correction after acceptance review
+
+Acceptance review found one verified defect, and it was a real one: **`45a9ff1ab` was not server-paginated, and this report said it was.**
+
+`readAgencyDirectorySource` called `listUserBusinesses` and returned every active business; the pages handed that whole array to `ClientDirectory`, which paginated and searched it in a client `useMemo`. The browser therefore received every client's name regardless of what was drawn, and the read grew with the tenant rather than the page. The tests passed because none of them looked at what crossed the wire.
+
+`601094543` corrects it:
+
+| Concern | Before | After |
+|---|---|---|
+| Where paging happens | client `useMemo` over the full array | SQL keyset pagination, `LIMIT pageSize + 1` |
+| What the browser receives | every authorized client | one bounded page, then one page per request |
+| Order | JS `localeCompare`, re-sorted client-side | `lower(btrim(name))` then `id`, pinned to `C` collation; the client never re-sorts |
+| Cursor | array index | opaque validated `{sortKey, businessId}`, rejected when malformed |
+| Activity batch | every authorized id | served page ids only |
+| Boundary | none | `contract=zero-base.v1` on the adopted `/api/agency-today`, re-authorized and rollout-re-checked per page |
+
+The fixed collation is the load-bearing detail: if the query that produces a cursor and the query that consumes it can order differently, keyset pagination silently skips or repeats rows. The name-plus-id tie-break is what keeps identically-named clients distinguishable — an id-only cursor reorders them and a name-only cursor drops all but one.
+
+**Proof is against real PostgreSQL**, in `scripts/ephemeral-postgres-agency-directory-seam-child.ts`, wired into `migrations-from-zero`. A mocked database would have proved the mock. With 121 clients it asserts: one bounded first page; identical order across page sizes 7, 25 and 100; no gap, duplicate or reorder; three identically-named rows all served and id-ordered; invited/pending/other-tenant rows excluded; a cursor naming another tenant cannot surface it; reviewer scoping; malformed cursors failing closed; and the allowlisted key set.
+
+The superseded `agency-directory-server.ts` and its test are deleted rather than left beside the new path.
+
 ## 2 · Packages
 
 | WP | State | Commits |
@@ -32,7 +55,7 @@ The earlier stop was recorded because WP-09 and WP-10 were partial, with no tech
 | **07** Instrumentation v2 | **complete** | `6d6cba61e`, `cc5a29050` |
 | **08** Permission-aware search | **complete** | `d94e440dc` |
 | **09** Auth, onboarding, account | **complete** | `7865057c1` → `45276d383` |
-| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` |
+| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` → `601094543` |
 
 ## 3 · Gates
 
@@ -40,7 +63,7 @@ The earlier stop was recorded because WP-09 and WP-10 were partial, with no tech
 |---|---|
 | `npm run typecheck` | **PASS — 0** |
 | `npm run lint` | **PASS — 0** |
-| `npm test` | **PASS — 7,971 passed · 0 failed · 768 files** |
+| `npm test` | **PASS — 7,984 passed · 0 failed · 771 files** |
 | `npm run test:migrations-from-zero` | **PASS — exit 0** (incl. the instrumentation seam) |
 | `npm run zero-base:contract:verify` | **PASS — 23/23** |
 | `npm run zero-base:contracts:check` | **PASS — generated file current** |
@@ -48,7 +71,7 @@ The earlier stop was recorded because WP-09 and WP-10 were partial, with no tech
 | Playwright `zero-base-theme-chromium` | **PASS — 20/20** |
 | Production build | **PASS** |
 
-Phase A ended at 7,714 tests; Phase B added 257, and no pre-existing test changed status.
+Phase A ended at 7,714 tests; Phase B added 270, and no pre-existing test changed status.
 
 ## 4 · Responsive and theme evidence
 
@@ -75,14 +98,16 @@ Plus **B02**: at 1280×640 the rail footer's bottom edge is inside the artboard 
 
 ## 5 · What the tests caught that reasoning did not
 
-Six defects surfaced from measurement rather than review:
+Eight defects surfaced from measurement rather than review:
 
 1. **Rail was 233px, not 232.** Content-box sizing put the 1px border outside the declared width, shifting every column beside it.
 2. **Rail footer sat 732px below a 640px viewport.** `min-height: 100vh` left the flex parent without a definite height, so the rail grew with its own nav list and `min-height: 0` on the scroll area did nothing. That is B02, and only a real browser could show it.
 3. **Radix Popover stole focus from the combobox input**, making typing impossible. The listbox is now portalled by hand, following the APG pattern where focus stays in the input.
 4. **`account_id` was an unconstrained TEXT column.** The repo's own instrumentation seam refused it, correctly — free text is where a token or a query string eventually lands.
 5. **Agency's Load more disappeared at the end of the projection** instead of disabling with its reason. A control that vanishes reads as a broken page, not a finished list.
-6. **Banning the bare word `total` also banned `totalCount`**, an honest row count the collection envelope needs. Every monetary total is already caught by its own term, so the broad ban forbade correct pagination and caught nothing extra.
+6. **A cursor of `"zzzzzzzz"` was not past the end.** Under `C` collation a non-ASCII first byte sorts above `z`, so `"ácme"` follows it. Accent placement is now asserted explicitly rather than left implicit.
+7. **A search matching nothing among loaded rows rendered an empty table** with headers and no body, which says none of the three things it could mean — no clients, no matches, or keep paging. It now names which.
+8. **Banning the bare word `total` also banned `totalCount`**, an honest row count the collection envelope needs. Every monetary total is already caught by its own term, so the broad ban forbade correct pagination and caught nothing extra.
 
 ## 6 · Font licensing (WP-04)
 
@@ -119,7 +144,7 @@ Binaries came only from the hash-verified archive (`0695ae4524…`), and the pro
 Every package is one revert. Canonical routes do not exist with rollout off, so no rollback is needed to protect legacy:
 
 ```
-git revert 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
+git revert 601094543 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
 ```
 
 Reverting only the follow-up commits (`45a9ff1ab`, `45276d383`) returns Phase B to its `66dbfc3fb` state with WP-04–WP-08 intact.
@@ -133,6 +158,7 @@ Recorded because they are real, and none of them is a WP-09 or WP-10 acceptance 
 - **Turkish copy does not render.** `getLanguageFromCookieValue` is pinned to English app-wide, so a Turkish preference is stored but nothing reads it. Both the account leaf and the public route now say so rather than presenting a working selector.
 - **`sourceUpdatedAt` can be null.** It comes from `platform_overview_daily_summary`; a client with no rows in the last 30 days renders "Not recorded" rather than a fabricated timestamp.
 - **The responsive evidence measures layout, not a live page.** This worktree has no `.env.local` and reaches no database by design, so the harness renders the real components against the real stylesheet. Overflow and clipping are CSS outcomes, which is what it checks.
+- **Accented client names sort after ASCII ones** in the Agency directory. That is a consequence of pinning the order to the `C` collation, which is what makes the cursor safe across databases; a locale-aware collation would fold them together but could reorder between two queries and break paging. Asserted in the seam rather than left as a surprise.
 - **The design package remains NOT READY** (REQ-27, REQ-28/`M11`, REQ-41), unchanged from Phase A and still asserted by the verifier.
 
 ## 11 · Next

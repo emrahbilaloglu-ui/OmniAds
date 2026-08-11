@@ -116,6 +116,16 @@ test.describe("zero-base theme first paint", () => {
       await page.goto(`${ORIGIN}/`, { waitUntil: "load" });
 
       const expectedBackground = rgb(scenario.expected["bg/app"]);
+
+      // Wait for the first frame to have been *recorded*, not for it to be
+      // correct. `__firstFrame` is written exactly once, inside the first
+      // animation-frame callback, and never mutated afterwards — so this only
+      // removes a read-before-write race. Reading it eagerly returned
+      // undefined whenever `load` won the race against that callback, which is
+      // a flaky harness rather than a flaky product.
+      await page.waitForFunction(
+        () => (window as unknown as { __firstFrame?: string }).__firstFrame !== undefined,
+      );
       const firstFrame = await page.evaluate(
         () => (window as unknown as { __firstFrame?: string }).__firstFrame,
       );

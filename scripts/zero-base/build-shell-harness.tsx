@@ -18,6 +18,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ContextBar } from "@/components/zero-base/shell/context-bar";
+import { MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
 import { Rail } from "@/components/zero-base/shell/rail";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { buildAgencyDirectoryPage } from "@/lib/zero-base/agency-projection";
@@ -104,7 +105,7 @@ function shellMarkup(width: number): string {
         <h1 style="margin:0;font-size:16px;font-weight:600;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Grandmix</h1>
       </header>
       ${contextBar}
-      <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${wideTable}</main>
+      <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${wideTable}</main>
     </div>
   </div>
 </div>`;
@@ -157,7 +158,7 @@ export function intelligenceHarnessFileName(width: number, theme: string): strin
 function frame(width: number, body: string): string {
   const narrow = width < DRAWER_BREAKPOINT;
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+  <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
 </div>`;
 }
 
@@ -500,7 +501,7 @@ function decisionsMarkup(width: number): string {
   );
 
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+  <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
 </div>`;
 }
 
@@ -579,7 +580,7 @@ function homeMarkup(width: number): string {
   );
 
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+  <main id="zero-base-main" tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
 </div>`;
 }
 
@@ -632,7 +633,7 @@ function agencyMarkup(width: number): string {
   );
 
   return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
-  <main id="zero-base-main" data-agency-directory tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">
+  <main id="zero-base-main" data-agency-directory tabindex="${MAIN_CONTENT_TABINDEX}" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">
     <h2 style="font-size:20px;line-height:26px;margin:0 0 16px">Clients</h2>
     ${table}
     <p data-collection-count style="font-size:12px;margin-top:12px">Showing ${page.servedCount} of ${page.totalCount}.</p>

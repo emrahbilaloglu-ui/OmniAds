@@ -55,7 +55,7 @@ export function Value({ value, name }: { value: AnalyticsValue; name: string }) 
     return (
       <span data-value-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
         Not served
-        <span style={{ display: "block", fontSize: 11 }}>{value.reason}</span>
+        <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
   }
@@ -153,14 +153,14 @@ export function SourceOverviewView({
           <p data-insight="present" style={{ margin: "4px 0 0", fontSize: 13 }}>
             {insight.text}
             {insight.generatedAt ? (
-              <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 Generated {insight.generatedAt}
               </span>
             ) : null}
           </p>
         )}
         {/* Read only. There is no generate control here, and no code path to one. */}
-        <p data-insight-read-only="" style={{ margin: "6px 0 0", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-insight-read-only="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           This surface reads the latest insight. It does not generate one.
         </p>
       </section>
@@ -301,7 +301,7 @@ export function SeoView({
           {seo.aiBriefHeadline ? (
             <p data-seo-ai-brief="" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
               {seo.aiBriefHeadline}
-              <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 Served brief, read only. This surface generates nothing.
               </span>
             </p>
@@ -335,11 +335,11 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
         </p>
         {/* Always shown: the number is a capped proxy whether or not it is at
             the ceiling, and printing it bare reports a ceiling as a count. */}
-        <p data-geo-proxy-disclosure="" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-geo-proxy-disclosure="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {GEO_PROXY_DISCLOSURE}
         </p>
         {geo.atProxyCap ? (
-          <p data-geo-at-cap="" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--ledger-semantic-warn)" }}>
+          <p data-geo-at-cap="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             This value is at the cap.
           </p>
         ) : null}
@@ -357,7 +357,7 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
             </li>
           ))}
         </ol>
-        <p data-geo-top-three-disclosure="" style={{ margin: "6px 0 0", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-geo-top-three-disclosure="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {GEO_TOP_THREE_DISCLOSURE}
         </p>
       </section>

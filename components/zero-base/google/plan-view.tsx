@@ -91,7 +91,7 @@ export function GooglePlanView({
                 <span data-plan-step={row.id}>
                   {row.title}
                   {row.rationale ? (
-                    <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                       {row.rationale}
                     </span>
                   ) : null}
@@ -99,7 +99,7 @@ export function GooglePlanView({
                     <span
                       key={weakness}
                       data-plan-weakness={row.id}
-                      style={{ display: "block", fontSize: 11, color: "var(--ledger-semantic-warn)" }}
+                      style={{ display: "block", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
                     >
                       {weakness}
                     </span>
@@ -125,7 +125,7 @@ export function GooglePlanView({
                     Open
                   </a>
                 ) : (
-                  <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 11 }}>
+                  <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
                     {LINK_WITHHELD}
                   </span>
                 );

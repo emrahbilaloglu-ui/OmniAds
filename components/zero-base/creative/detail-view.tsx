@@ -105,7 +105,7 @@ export function CreativeDetailView({
                 <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{item.label}</dt>
                 <dd data-evidence-item={item.label} style={{ margin: 0, fontSize: 13 }}>
                   {item.value}
-                  <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                  <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {item.source}
                   </span>
                 </dd>

@@ -340,7 +340,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
 
         {recheck.kind === "confirmed" ? (
           <div role="status" data-ops-rechecked="" style={{ marginTop: 8 }}>
-            <p style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               Health re-read at {recheck.at} for {selectedName}.
             </p>
             {/* The state this GET actually returned. Pointing the operator at a
@@ -392,7 +392,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
             )}
           </div>
         ) : recheck.kind === "failed" ? (
-          <p role="status" data-ops-recheck-failed="" style={{ margin: "6px 0 0", fontSize: 11, color: "var(--ledger-semantic-warn)" }}>
+          <p role="status" data-ops-recheck-failed="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {recheck.detail}
           </p>
         ) : null}

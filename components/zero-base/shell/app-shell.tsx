@@ -19,7 +19,7 @@ import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { Rail } from "@/components/zero-base/shell/rail";
 import { NavDrawer } from "@/components/zero-base/shell/nav-drawer";
 import { ContextBar } from "@/components/zero-base/shell/context-bar";
-import { SkipLink, MAIN_CONTENT_ID } from "@/components/zero-base/shell/skip-link";
+import { SkipLink, MAIN_CONTENT_ID, MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
 import { ScopeSheet, type ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
 import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
 import type { NavGroup } from "@/lib/zero-base/navigation";
@@ -136,7 +136,19 @@ export function AppShell({
 
             <main
               id={MAIN_CONTENT_ID}
-              tabIndex={-1}
+              /**
+               * Zero, not -1.
+               *
+               * This element owns both scroll axes, and a scroll container that
+               * cannot be focused is unreachable by keyboard on any page whose
+               * content has no focusable element of its own — a read-only
+               * report, an unavailable state. `-1` kept the skip link working
+               * but left those pages unscrollable without a mouse. Zero keeps
+               * the skip target and adds the one tab stop that makes the region
+               * operable, which is the documented remedy for
+               * axe's scrollable-region-focusable.
+               */
+              tabIndex={MAIN_CONTENT_TABINDEX}
               style={{
                 flex: "1 1 auto",
                 minWidth: 0,

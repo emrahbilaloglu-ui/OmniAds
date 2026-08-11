@@ -125,7 +125,7 @@ export function OpsRepairPanel({
 
       {/* No receipt, ever: nothing here observed the resulting state. */}
       {repairReceiptAvailable() ? null : (
-        <p data-repair-no-receipt="" style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-repair-no-receipt="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {READ_BACK_GAP_NOTE}
         </p>
       )}

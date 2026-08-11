@@ -167,7 +167,10 @@
     "test:zero-base:theme": "PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-theme-chromium",
     "test:zero-base:design": "vitest run lib/design lib/theme.test.ts",
     "zero-base:shell:harness": "node --import tsx scripts/zero-base/build-shell-harness.tsx",
-    "test:zero-base:responsive": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-theme-chromium"
+    "test:zero-base:responsive": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-theme-chromium",
+    "zero-base:legibility": "node --import tsx scripts/zero-base/verify-legibility.ts",
+    "test:zero-base:routes": "node --import tsx scripts/zero-base/route-matrix-smoke.ts",
+    "test:zero-base:a11y": "npm run zero-base:shell:harness && npm run zero-base:legibility && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-a11y-chromium"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

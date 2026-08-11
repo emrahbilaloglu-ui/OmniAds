@@ -222,7 +222,7 @@ export function ReportBuilderView({
 
       <section aria-label="Canvas" style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Canvas</h2>
-        <p style={{ margin: "4px 0 8px", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Arrow keys move the selected widget; Shift with an arrow resizes it; Z undoes.
         </p>
         <div
@@ -335,7 +335,7 @@ export function RenderedWidgetCard({
     >
       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{widget.title}</h3>
       {widget.subtitle ? (
-        <p style={{ margin: 0, fontSize: 11.5, color: "var(--ledger-ink-tertiary)" }}>{widget.subtitle}</p>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{widget.subtitle}</p>
       ) : null}
 
       {/* A warning rides alongside the content rather than replacing it. */}
@@ -354,7 +354,7 @@ export function RenderedWidgetCard({
               Retry
             </Button>
           ) : (
-            <p data-widget-retry-blocked={widget.id} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+            <p data-widget-retry-blocked={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               The renderer did not mark this failure as retryable.
             </p>
           )}
@@ -438,13 +438,13 @@ export function RenderedWidgetCard({
             Export CSV
           </Button>
           {exportState?.error ? (
-            <p data-widget-csv-error={widget.id} style={{ margin: "4px 0 0", fontSize: 11, color: "var(--ledger-semantic-warn)" }}>
+            <p data-widget-csv-error={widget.id} style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
               {exportState.error}
             </p>
           ) : null}
         </div>
       ) : (
-        <p data-widget-csv-blocked={widget.id} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-widget-csv-blocked={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {csv.reason}
         </p>
       )}

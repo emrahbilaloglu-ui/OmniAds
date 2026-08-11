@@ -38,7 +38,7 @@ export function PublicSharePage({ share }: { share: PublicShare }) {
       <header>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{share.title}</h1>
         {share.dateRange ? (
-          <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#666" }}>{share.dateRange}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>{share.dateRange}</p>
         ) : null}
       </header>
 
@@ -73,7 +73,7 @@ export function PublicSharePage({ share }: { share: PublicShare }) {
                 <p
                   data-share-media="missing"
                   data-share-media-for={creative.key}
-                  style={{ margin: 0, fontSize: 13, color: "#666" }}
+                  style={{ margin: 0, fontSize: 13, color: "var(--ledger-ink-tertiary)" }}
                 >
                   {creative.mediaUnavailableReason}
                 </p>

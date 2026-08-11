@@ -268,7 +268,7 @@ export function IntegrationsView({
                             {shopifyEntry.label}
                           </a>
                           {shopifyEntry.note ? (
-                            <span data-shopify-note="" style={{ fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                            <span data-shopify-note="" style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                               {shopifyEntry.note}
                             </span>
                           ) : null}
@@ -824,7 +824,7 @@ export function BusinessView({
           {recommendedMode ?? "Not served"}
         </p>
         {/* Read only: displayed, never editable. */}
-        <p data-recommended-mode-note="" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-recommended-mode-note="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {RECOMMENDED_MODE_READ_ONLY}
         </p>
       </section>

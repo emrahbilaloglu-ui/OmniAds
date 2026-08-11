@@ -28,7 +28,7 @@ function Metric({ value, name }: { value: MetricValue; name: string }) {
     return (
       <span data-metric-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
         Not served
-        <span style={{ display: "block", fontSize: 11 }}>{value.reason}</span>
+        <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
   }
@@ -108,7 +108,7 @@ export function CreativePerformanceView({
                     >
                       {row.name}
                     </Link>
-                    <span style={{ display: "block", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                       {row.campaignName ?? "Campaign not served"}
                       {row.adsetName ? ` · ${row.adsetName}` : ""}
                     </span>

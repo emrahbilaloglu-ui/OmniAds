@@ -9,6 +9,7 @@
  * a shell that lies about what the user can do.
  */
 import React from "react";
+import { MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -237,7 +238,11 @@ describe("AppShell", () => {
     const main = screen.getByRole("main");
     expect(skip).toHaveAttribute("href", `#${main.id}`);
     // Focusable, so the jump moves focus and not just the scroll position.
-    expect(main).toHaveAttribute("tabindex", "-1");
+    // Zero rather than -1: main owns both scroll axes, and a scroll container
+    // that is not tab-reachable cannot be scrolled by keyboard on a page whose
+    // content carries no focusable element of its own.
+    expect(main).toHaveAttribute("tabindex", String(MAIN_CONTENT_TABINDEX));
+    expect(MAIN_CONTENT_TABINDEX).toBe(0);
   });
 
   it("prevents page-level horizontal overflow", () => {

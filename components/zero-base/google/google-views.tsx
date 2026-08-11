@@ -71,7 +71,7 @@ export function GoogleMetric({ value, name }: { value: GoogleValue; name: string
     return (
       <span data-google-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
         Not served
-        <span style={{ display: "block", fontSize: 11 }}>{value.reason}</span>
+        <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
   }

@@ -66,6 +66,18 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // WP-26: accessibility, zoom, reduced motion, keyboard and print run
+      // against the generated harness, so they need no server or database.
+      name: "zero-base-a11y-chromium",
+      testMatch: /zero-base-a11y\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "zero-base-visual-chromium",
+      testMatch: /zero-base-visual\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "commercial-smoke-chromium",
       testMatch: /commercial-truth-smoke\.spec\.ts/,
       use: {

@@ -10,6 +10,17 @@
  */
 export const MAIN_CONTENT_ID = "zero-base-main";
 
+/**
+ * The tabindex `<main>` carries.
+ *
+ * Zero, because main owns both scroll axes: a scroll container that cannot be
+ * focused is unreachable by keyboard on any page whose content has no focusable
+ * element of its own. Exported so the non-production harness renders the same
+ * value the shell does — it previously hand-wrote `-1` in a string template and
+ * silently drifted from the component it claims to represent.
+ */
+export const MAIN_CONTENT_TABINDEX = 0;
+
 export function SkipLink() {
   return (
     <a

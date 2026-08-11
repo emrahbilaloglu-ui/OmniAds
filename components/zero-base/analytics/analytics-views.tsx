@@ -22,17 +22,19 @@ import {
   type SeoRoleState,
   type SourcePanel,
 } from "@/lib/zero-base/analytics/analytics-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function SourcePanels({ panels }: { panels: readonly SourcePanel[] }) {
+  const copy = useCopy();
   const state = dualSourceState(panels);
   return (
-    <section aria-label="Sources" style={{ marginTop: 8 }}>
+    <section aria-label={copy.sources} style={{ marginTop: 8 }}>
       <ul data-source-panels={state.kind} style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
         {panels.map((panel) => (
           <li key={panel.kind} data-source-panel={panel.kind} style={{ fontSize: 12.5 }}>
             <strong style={{ fontWeight: 600 }}>{panel.label}:</strong>{" "}
             {panel.connected ? (
-              <span data-source-connected={panel.kind}>Connected</span>
+              <span data-source-connected={panel.kind}>{copy.connected}</span>
             ) : (
               <span data-source-down={panel.kind} style={{ color: "var(--ledger-semantic-warn)" }}>
                 {panel.error}
@@ -51,10 +53,11 @@ export function SourcePanels({ panels }: { panels: readonly SourcePanel[] }) {
 }
 
 export function Value({ value, name }: { value: AnalyticsValue; name: string }) {
+  const copy = useCopy();
   if (!value.available) {
     return (
       <span data-value-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
-        Not served
+        {copy.notServed}
         <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
@@ -89,6 +92,7 @@ export function SourceOverviewView({
   insight: AdaptedInsight;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   return (
     <Shell title="GA4 and Shopify">
       <SourcePanels panels={panels} />
@@ -104,7 +108,7 @@ export function SourceOverviewView({
 
           <div style={{ marginTop: 12 }}>
             <DataTable
-              caption="GA4 KPIs"
+              caption={copy.ga4Kpis}
               rows={[...overview.kpis]}
               rowKey={(row) => row.key}
               columns={[
@@ -114,12 +118,12 @@ export function SourceOverviewView({
             />
           </div>
 
-          <section aria-label="New vs returning" style={{ marginTop: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>New vs returning</h2>
+          <section aria-label={copy.newVsReturning} style={{ marginTop: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.newVsReturning}</h2>
             {/* Two cohorts, never added: GA4 serves no combined figure and
                 summing them would invent one. */}
             <DataTable
-              caption="New vs returning"
+              caption={copy.newVsReturning}
               rows={[...overview.cohorts]}
               rowKey={(row) => row.key}
               columns={[
@@ -143,8 +147,8 @@ export function SourceOverviewView({
         </>
       )}
 
-      <section aria-label="Latest AI insight" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Latest AI insight</h2>
+      <section aria-label={copy.latestAiInsight} style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.latestAiInsight}</h2>
         {insight.absentReason ? (
           <p data-insight="absent" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
             {insight.absentReason}
@@ -161,7 +165,7 @@ export function SourceOverviewView({
         )}
         {/* Read only. There is no generate control here, and no code path to one. */}
         <p data-insight-read-only="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          This surface reads the latest insight. It does not generate one.
+          {copy.readsLatestInsight}
         </p>
       </section>
     </Shell>
@@ -256,6 +260,7 @@ export function SeoView({
   seo: AdaptedSeo | null;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   return (
     <Shell title="SEO">
       <SourcePanels panels={panels} />
@@ -276,7 +281,7 @@ export function SeoView({
           </p>
 
           <DataTable
-            caption="Search performance"
+            caption={copy.searchPerformance}
             rows={[...seo.summary]}
             rowKey={(row) => row.key}
             columns={[
@@ -293,16 +298,16 @@ export function SeoView({
             ]}
           />
 
-          <SeoList id="leaders" title="Leading queries" items={seo.leaderQueries} />
-          <SeoList id="declining" title="Declining queries" items={seo.decliningQueries} />
-          <SeoList id="causes" title="Likely causes" items={seo.causes} />
-          <SeoList id="recommendations" title="Recommendations" items={seo.recommendations} />
+          <SeoList id="leaders" title={copy.leadingQueries} items={seo.leaderQueries} />
+          <SeoList id="declining" title={copy.decliningQueries} items={seo.decliningQueries} />
+          <SeoList id="causes" title={copy.likelyCauses} items={seo.causes} />
+          <SeoList id="recommendations" title={copy.recommendations} items={seo.recommendations} />
 
           {seo.aiBriefHeadline ? (
             <p data-seo-ai-brief="" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
               {seo.aiBriefHeadline}
               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-                Served brief, read only. This surface generates nothing.
+                {copy.servedBriefReadOnly}
               </span>
             </p>
           ) : null}
@@ -315,6 +320,7 @@ export function SeoView({
 /* ------------------------------------------------------------------- GEO */
 
 export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; unavailableReason?: string | null }) {
+  const copy = useCopy();
   if (!geo || unavailableReason) {
     return (
       <Shell title="GEO">
@@ -328,8 +334,8 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
     <Shell title="GEO">
       <SourcePanels panels={geo.sources} />
 
-      <section aria-label="AI page reach" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>AI-visited pages</h2>
+      <section aria-label={copy.aiPageReach} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.aiVisitedPages}</h2>
         <p style={{ margin: "4px 0 0", fontSize: 13 }}>
           <Value value={geo.aiPageCount} name="aiPageCount" />
         </p>
@@ -340,13 +346,13 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
         </p>
         {geo.atProxyCap ? (
           <p data-geo-at-cap="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
-            This value is at the cap.
+            {copy.valueAtCap}
           </p>
         ) : null}
       </section>
 
-      <section aria-label="Priorities" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Top priorities</h2>
+      <section aria-label={copy.priorities} style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.topPriorities}</h2>
         <ol data-geo-priorities="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {geo.priorities.map((item) => (
             <li key={item.title} data-geo-priority={item.priority} style={{ fontSize: 12.5 }}>

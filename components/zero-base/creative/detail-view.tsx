@@ -20,6 +20,7 @@ import {
   type HistoryEntryView,
 } from "@/lib/zero-base/creative/detail-adapter";
 import type { MediaState } from "@/lib/zero-base/creative/performance-adapter";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function CreativeDetailView({
   creativeId,
@@ -42,10 +43,11 @@ export function CreativeDetailView({
   anyReplayed: boolean;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   if (unavailableReason) {
     return (
       <div data-creative-detail="">
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Creative</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.creative}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>
@@ -65,8 +67,8 @@ export function CreativeDetailView({
         </div>
       </div>
 
-      <section aria-label="Decision">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Decision</h2>
+      <section aria-label={copy.decision}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.decision}</h2>
         {band.kind === "band" ? (
           <p data-decision-band={band.label} style={{ margin: "4px 0 0", fontSize: 13 }}>
             {band.label}
@@ -86,17 +88,17 @@ export function CreativeDetailView({
         {decisionsHref ? (
           <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
             <Link href={decisionsHref} data-detail-decision-link="" style={{ color: "var(--ledger-accent-action)" }}>
-              Open in Decisions
+              {copy.openInDecisions}
             </Link>
           </p>
         ) : null}
       </section>
 
-      <section aria-label="Evidence">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Evidence</h2>
+      <section aria-label={copy.evidence}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.evidence}</h2>
         {evidence.length === 0 ? (
           <p data-evidence="none" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-            No evidence fields were served for this creative.
+            {copy.noEvidenceServed}
           </p>
         ) : (
           <dl data-evidence="ready" style={{ display: "grid", gap: 6, margin: "8px 0 0" }}>
@@ -115,8 +117,8 @@ export function CreativeDetailView({
         )}
       </section>
 
-      <section aria-label="History">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>History</h2>
+      <section aria-label={copy.history}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.history}</h2>
         {anyReplayed ? (
           <p
             role="status"
@@ -136,11 +138,11 @@ export function CreativeDetailView({
         <div style={{ marginTop: 8 }}>
           {history.length === 0 ? (
             <p data-creative-history="empty" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-              Nothing has been recorded for this creative yet.
+              {copy.nothingRecordedCreative}
             </p>
           ) : (
             <DataTable
-              caption="Creative history"
+              caption={copy.creativeHistory}
               rows={[...history]}
               rowKey={(row) => row.id}
               columns={[
@@ -157,10 +159,10 @@ export function CreativeDetailView({
                   render: (row) =>
                     row.replayed ? (
                       <span data-history-replayed={row.id} style={{ color: "var(--ledger-semantic-warn)" }}>
-                        Replayed
+                        {copy.replayed}
                       </span>
                     ) : (
-                      <span data-history-recorded={row.id}>Recorded at the time</span>
+                      <span data-history-recorded={row.id}>{copy.recordedAtTheTime}</span>
                     ),
                 },
               ]}

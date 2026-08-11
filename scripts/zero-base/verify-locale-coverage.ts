@@ -23,7 +23,7 @@ const TARGET = path.join(ROOT, "components", "zero-base");
  * Lower this when strings are converted. Never raise it: a rise means new
  * hardcoded copy shipped, which is the defect this gate exists to stop.
  */
-export const INLINE_STRING_CEILING = 309;
+export const INLINE_STRING_CEILING = 116;
 
 /** Files that legitimately hold no operator-facing copy. */
 const EXEMPT = /\.test\.tsx?$/;

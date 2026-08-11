@@ -22,6 +22,7 @@ import {
   type EconomicsField,
   type ProviderHealth,
 } from "@/lib/zero-base/manage/manage-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -80,6 +81,7 @@ export function SelectionPanel({
   state,
   onSave,
 }: SelectionPanelProps & { kind: string; title: string }) {
+  const copy = useCopy();
   const [draft, setDraft] = useState(selected ?? "");
   useEffect(() => {
     setDraft(selected ?? "");
@@ -143,7 +145,7 @@ export function SelectionPanel({
               }
               onClick={() => onSave?.(draft)}
             >
-              Save selection
+              {copy.saveSelection}
             </Button>
           </div>
         </>
@@ -199,8 +201,9 @@ export function IntegrationsView({
   ga4Selection?: SelectionPanelProps;
   searchConsoleSelection?: SelectionPanelProps;
 }) {
+  const copy = useCopy();
   return (
-    <Shell title="Integrations">
+    <Shell title={copy.integrations}>
       {unavailableReason ? (
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -212,7 +215,7 @@ export function IntegrationsView({
           </p>
           <div style={{ marginTop: 12 }}>
             <DataTable
-              caption="Provider connections"
+              caption={copy.providerConnections}
               rows={[...providers]}
               rowKey={(row) => row.provider}
               columns={[
@@ -279,7 +282,7 @@ export function IntegrationsView({
                     if (row.state.kind === "needs_reconnect") {
                       return supported ? (
                         <Button variant="secondary" data-reconnect={row.provider} onClick={() => onReconnect?.(row.provider)}>
-                          Reconnect
+                          {copy.reconnect}
                         </Button>
                       ) : (
                         <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
@@ -293,7 +296,7 @@ export function IntegrationsView({
                     if (row.state.kind === "not_connected") {
                       return supported ? (
                         <Button variant="secondary" data-connect={row.provider} onClick={() => onConnect?.(row.provider)}>
-                          Connect
+                          {copy.connect}
                         </Button>
                       ) : (
                         <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
@@ -310,10 +313,10 @@ export function IntegrationsView({
           <CeremonyResult outcome={outcome} name="reconnect" />
           {assignment ? <AssignmentPanel {...assignment} /> : null}
           {ga4Selection ? (
-            <SelectionPanel kind="ga4_property" title="Google Analytics 4 property" {...ga4Selection} />
+            <SelectionPanel kind="ga4_property" title={copy.ga4Property} {...ga4Selection} />
           ) : null}
           {searchConsoleSelection ? (
-            <SelectionPanel kind="search_console_site" title="Search Console site" {...searchConsoleSelection} />
+            <SelectionPanel kind="search_console_site" title={copy.searchConsoleSite} {...searchConsoleSelection} />
           ) : null}
         </>
       )}
@@ -338,6 +341,7 @@ function AssignmentPanel({
   onProviderChange,
   onSave,
 }: AssignmentPanelProps) {
+  const copy = useCopy();
   const served = accounts.filter((account) => account.assigned).map((account) => account.id);
   const [draft, setDraft] = useState<string[]>(served);
   const servedKey = served.join(",");
@@ -346,11 +350,11 @@ function AssignmentPanel({
   }, [servedKey]);
 
   return (
-    <section data-assignment-panel={provider} aria-label="Account assignment" style={{ marginTop: 24 }}>
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Assigned accounts</h2>
+    <section data-assignment-panel={provider} aria-label={copy.accountAssignment} style={{ marginTop: 24 }}>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.assignedAccounts}</h2>
 
       <label htmlFor="assignment-provider" style={{ display: "block", fontSize: 12, fontWeight: 600, margin: "8px 0 4px" }}>
-        Provider
+        {copy.provider}
       </label>
       <select
         id="assignment-provider"
@@ -420,7 +424,7 @@ function AssignmentPanel({
               state={state.pending ? { kind: "busy", label: "Saving\u2026" } : { kind: "enabled" }}
               onClick={() => onSave?.(draft)}
             >
-              Save assignment
+              {copy.saveAssignment}
             </Button>
           </div>
         </>
@@ -472,12 +476,13 @@ export function TeamView({
   onAssignWorkspaces?: (memberUserId: string, workspaceIds: string[]) => void;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   const [emails, setEmails] = useState("");
   const [inviteRole, setInviteRole] = useState("collaborator");
 
   if (unavailableReason) {
     return (
-      <Shell title="Team">
+      <Shell title={copy.teamTitle}>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>
@@ -486,7 +491,7 @@ export function TeamView({
   }
 
   return (
-    <Shell title="Team">
+    <Shell title={copy.teamTitle}>
       {/* One live region for every write on this surface. */}
       <p role="status" aria-live="polite" data-team-progress={write.pending ?? ""} style={{ margin: "8px 0 0", fontSize: 12.5, minHeight: 16 }}>
         {write.pending ? "Working\u2026" : write.confirmed ? write.confirmed : ""}
@@ -503,11 +508,11 @@ export function TeamView({
         </p>
       )}
 
-      <section aria-label="Members" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Members</h2>
+      <section aria-label={copy.members} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
         <div style={{ marginTop: 8 }}>
           <DataTable
-            caption="Team members"
+            caption={copy.teamMembers}
             rows={[...members]}
             rowKey={(row) => row.membershipId}
             columns={[
@@ -572,7 +577,7 @@ export function TeamView({
                       state={write.pending === row.membershipId ? { kind: "busy", label: "Removing\u2026" } : { kind: "enabled" }}
                       onClick={() => onRemove?.(row.membershipId)}
                     >
-                      Remove
+                      {copy.remove}
                     </Button>
                   ) : (
                     <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
@@ -583,16 +588,16 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label="Invitations" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Invitations</h2>
+      <section aria-label={copy.invitations} style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
         {permissions.invitesWrite.ok ? (
           <div style={{ marginTop: 8, display: "grid", gap: 6, maxWidth: 420 }}>
             <TextInput
-              label="Email addresses"
+              label={copy.emailAddresses}
               data-invite-emails=""
               value={emails}
               onChange={(event) => setEmails(event.target.value)}
-              hint="Comma separated. The route refuses an empty list."
+              hint={copy.emailsHint}
             />
             <select
               data-invite-role=""
@@ -613,7 +618,7 @@ export function TeamView({
                 state={write.pending === "invite" ? { kind: "busy", label: "Sending\u2026" } : { kind: "enabled" }}
                 onClick={() => onInvite?.(emails, inviteRole)}
               >
-                Send invitations
+                {copy.sendInvitations}
               </Button>
             </div>
           </div>
@@ -624,7 +629,7 @@ export function TeamView({
         )}
         <div style={{ marginTop: 12 }}>
           <DataTable
-            caption="Pending invitations"
+            caption={copy.pendingInvitations}
             rows={[...invites]}
             rowKey={(row) => row.id}
             columns={[
@@ -642,7 +647,7 @@ export function TeamView({
                       state={write.pending === row.id ? { kind: "busy", label: "Revoking\u2026" } : { kind: "enabled" }}
                       onClick={() => onRevokeInvite?.(row.id)}
                     >
-                      Revoke
+                      {copy.revoke}
                     </Button>
                   ) : (
                     <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
@@ -653,12 +658,12 @@ export function TeamView({
         </div>
       </section>
 
-      <section aria-label="Access requests" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Access requests</h2>
+      <section aria-label={copy.accessRequests} style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.accessRequests}</h2>
         {permissions.accessRequests.ok ? (
           <div style={{ marginTop: 8 }}>
             <DataTable
-              caption="Access requests"
+              caption={copy.accessRequests}
               rows={[...accessRequests]}
               rowKey={(row) => row.membershipId}
               columns={[
@@ -674,14 +679,14 @@ export function TeamView({
                         data-access-approve={row.membershipId}
                         onClick={() => onAccessRequest?.(row.membershipId, "approve")}
                       >
-                        Approve
+                        {copy.approve}
                       </Button>
                       <Button
                         variant="quiet"
                         data-access-reject={row.membershipId}
                         onClick={() => onAccessRequest?.(row.membershipId, "reject")}
                       >
-                        Reject
+                        {copy.reject}
                       </Button>
                     </span>
                   ),
@@ -723,6 +728,7 @@ export function BusinessView({
   settingsState: { pending: boolean; error: string | null; confirmed: string | null };
   onSaveSettings?: (next: { name: string; currency: string }) => void;
 }) {
+  const copy = useCopy();
   const divergence = economicsDivergence(economics);
   const [name, setName] = useState(settings?.name ?? "");
   const [currency, setCurrency] = useState(settings?.currency ?? "");
@@ -734,28 +740,28 @@ export function BusinessView({
   }, [settings]);
 
   return (
-    <Shell title="Business">
-      <section aria-label="Workspace settings" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Workspace settings</h2>
+    <Shell title={copy.business}>
+      <section aria-label={copy.workspaceSettings} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.workspaceSettings}</h2>
         {settings === null ? (
           <p data-settings-unavailable="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
-            The current name and currency could not be read, so they are not shown.
+            {copy.settingsUnreadable}
           </p>
         ) : settingsPermission.ok ? (
           <div style={{ marginTop: 8, display: "grid", gap: 6, maxWidth: 360 }}>
             <TextInput
-              label="Workspace name"
+              label={copy.workspaceName}
               data-business-name=""
               value={name}
               onChange={(event) => setName(event.target.value)}
-              hint="At least two characters — the route refuses anything shorter."
+              hint={copy.workspaceNameHint}
             />
             <TextInput
-              label="Currency"
+              label={copy.currency}
               data-business-currency=""
               value={currency}
               onChange={(event) => setCurrency(event.target.value)}
-              hint="Required on every save; the route takes name and currency together."
+              hint={copy.currencyHint}
             />
             <p role="status" aria-live="polite" data-settings-progress="" style={{ margin: 0, fontSize: 12, minHeight: 16 }}>
               {settingsState.pending ? "Saving\u2026" : settingsState.confirmed ?? ""}
@@ -772,7 +778,7 @@ export function BusinessView({
                 state={settingsState.pending ? { kind: "busy", label: "Saving\u2026" } : { kind: "enabled" }}
                 onClick={() => onSaveSettings?.({ name, currency })}
               >
-                Save settings
+                {copy.saveSettings}
               </Button>
             </div>
           </div>
@@ -788,19 +794,19 @@ export function BusinessView({
         )}
       </section>
 
-      <section aria-label="Economics" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Economics</h2>
+      <section aria-label={copy.economics} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.economics}</h2>
         {divergence.diverged ? (
           <p data-economics-divergence="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
             {divergence.message}
           </p>
         ) : (
           <p data-economics-agree="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-            The economics sources in scope agree.
+            {copy.economicsAgree}
           </p>
         )}
         <DataTable
-          caption="Economics sources"
+          caption={copy.economicsSources}
           rows={[...economics]}
           rowKey={(row) => `${row.key}:${row.source}`}
           columns={[
@@ -818,8 +824,8 @@ export function BusinessView({
         />
       </section>
 
-      <section aria-label="Operating mode" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Recommended mode</h2>
+      <section aria-label={copy.operatingMode} style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.recommendedMode}</h2>
         <p data-recommended-mode="" style={{ margin: "4px 0 0", fontSize: 13 }}>
           {recommendedMode ?? "Not served"}
         </p>
@@ -829,8 +835,8 @@ export function BusinessView({
         </p>
       </section>
 
-      <section aria-label="Delete business" style={{ marginTop: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Delete this business</h2>
+      <section aria-label={copy.deleteBusiness} style={{ marginTop: 24 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.deleteThisBusiness}</h2>
         <p data-delete-note="" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
           {DELETE_CEREMONY_NOTE}
         </p>
@@ -840,7 +846,7 @@ export function BusinessView({
           state={canDelete ? { kind: "enabled" } : { kind: "disabled", reason: "Only a business admin can delete it." }}
           onClick={onDelete}
         >
-          Delete business
+          {copy.deleteBusiness}
         </Button>
         <CeremonyResult outcome={deleteOutcome} name="delete" />
       </section>
@@ -851,8 +857,9 @@ export function BusinessView({
 /* ------------------------------------------------------------------ plan */
 
 export function PlanView({ planName, features }: { planName: string | null; features: readonly string[] }) {
+  const copy = useCopy();
   return (
-    <Shell title="Plan">
+    <Shell title={copy.plan}>
       <p data-plan-name="" style={{ margin: "12px 0 0", fontSize: 13 }}>
         {planName ?? "Not served"}
       </p>

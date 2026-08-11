@@ -22,6 +22,7 @@ import {
   type BriefRow,
   type ShareRow,
 } from "@/lib/zero-base/creative/studio-adapters";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 function Surface({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -49,15 +50,16 @@ export function BriefsView({
   error?: string | null;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   if (unavailableReason) {
     return (
-      <Surface title="Creative briefs">
+      <Surface title={copy.creativeBriefs}>
         <UnavailableState reason={unavailableReason} />
       </Surface>
     );
   }
   return (
-    <Surface title="Creative briefs">
+    <Surface title={copy.creativeBriefs}>
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
         {error ? (
           <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
@@ -67,7 +69,7 @@ export function BriefsView({
         <div>
           {canCreate ? (
             <Button variant="secondary" data-brief-create="" onClick={onCreate}>
-              Create brief from this creative
+              {copy.createBriefFromCreative}
             </Button>
           ) : (
             <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
@@ -83,7 +85,7 @@ export function BriefsView({
         </p>
 
         <DataTable
-          caption="Creative briefs"
+          caption={copy.creativeBriefs}
           rows={[...rows]}
           rowKey={(row) => row.id}
           columns={[
@@ -184,16 +186,17 @@ export function LandingPagesView({
   served: { rowCap?: number | null; pageSize?: number | null };
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   const cap = landingPageCap(served);
   if (unavailableReason) {
     return (
-      <Surface title="Landing pages">
+      <Surface title={copy.landingPages}>
         <UnavailableState reason={unavailableReason} />
       </Surface>
     );
   }
   return (
-    <Surface title="Landing pages">
+    <Surface title={copy.landingPages}>
       <p
         data-landing-cap={cap.rowCap === null && cap.pageSize === null ? "not-supplied" : "served"}
         style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
@@ -204,7 +207,7 @@ export function LandingPagesView({
           : ""}
       </p>
       <DataTable
-        caption="Landing pages"
+        caption={copy.landingPages}
         rows={[...rows]}
         rowKey={(row) => row.id}
         columns={[
@@ -236,6 +239,7 @@ export function SharesView({
   error?: string | null;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   const [title, setTitle] = useState("");
   const [audience, setAudience] = useState<"buyer" | "creator">("creator");
   const [expiresAt, setExpiresAt] = useState("");
@@ -243,24 +247,24 @@ export function SharesView({
   const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
   if (unavailableReason) {
     return (
-      <Surface title="Shares">
+      <Surface title={copy.shares}>
         <UnavailableState reason={unavailableReason} />
       </Surface>
     );
   }
   return (
-    <Surface title="Shares">
+    <Surface title={copy.shares}>
       {error ? (
         <p role="status" data-share-error="" style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
           {error}
         </p>
       ) : null}
-      <section aria-label="Create a share" style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Create a share</h2>
-        <TextInput label="Title" data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextInput label="Expires at" data-share-expires="" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+      <section aria-label={copy.createAShare} style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
+        <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <TextInput label={copy.expiresAt} data-share-expires="" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
-          <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Audience</legend>
+          <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
           {(["creator", "buyer"] as const).map((option) => (
             <label key={option} style={{ fontSize: 12.5, display: "flex", gap: 6 }}>
               <input
@@ -302,13 +306,13 @@ export function SharesView({
             }
             onClick={() => onCreate?.({ title: title.trim(), audience, expiresAt: expiresAt.trim() })}
           >
-            Create share
+            {copy.createShare}
           </Button>
         </div>
       </section>
 
       <DataTable
-        caption="Share ledger"
+        caption={copy.shareLedger}
         rows={[...rows]}
         rowKey={(row) => row.token}
         columns={[
@@ -333,7 +337,7 @@ export function SharesView({
                     state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
                     onClick={() => onRotate?.(row.token)}
                   >
-                    Rotate link
+                    {copy.rotateLink}
                   </Button>
                   <Button
                     variant="danger"

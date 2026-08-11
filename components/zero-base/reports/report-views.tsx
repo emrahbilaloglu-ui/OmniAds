@@ -32,6 +32,7 @@ import {
   type GridState,
   type Widget,
 } from "@/lib/zero-base/reports/builder-model";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 /* --------------------------------------------------------------- library */
 
@@ -52,10 +53,11 @@ export function ReportLibraryView({
   onDuplicate?: (id: string) => void;
   unavailableReason?: string | null;
 }) {
+  const copy = useCopy();
   if (unavailableReason) {
     return (
       <div data-reports-surface="library">
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Reports</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{copy.reportsTitle}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>
@@ -64,20 +66,20 @@ export function ReportLibraryView({
   }
   return (
     <div data-reports-surface="library">
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Reports</h1>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
       <div style={{ marginTop: 12 }}>
         <Button variant="secondary" data-report-create="" onClick={onCreate}>
-          New report
+          {copy.newReport}
         </Button>
       </div>
       {reports.length === 0 ? (
         <p data-reports="empty" style={{ marginTop: 12, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-          No reports have been created for this business yet.
+          {copy.noReports}
         </p>
       ) : (
         <div style={{ marginTop: 16 }}>
           <DataTable
-            caption="Reports"
+            caption={copy.reportsTitle}
             rows={[...reports]}
             rowKey={(row) => row.id}
             columns={[
@@ -88,7 +90,7 @@ export function ReportLibraryView({
                 header: "Actions",
                 render: (row) => (
                   <Button variant="secondary" data-report-duplicate={row.id} onClick={() => onDuplicate?.(row.id)}>
-                    Duplicate
+                    {copy.duplicate}
                   </Button>
                 ),
               },
@@ -114,6 +116,7 @@ export function ReportBuilderView({
   onNameChange?: (name: string) => void;
   onSave?: (state: GridState) => void;
 }) {
+  const copy = useCopy();
   const [history, setHistory] = useState(() => newHistory(initial));
   const [selected, setSelected] = useState<string | null>(initial.widgets[0]?.id ?? null);
   const [message, setMessage] = useState("");
@@ -159,7 +162,7 @@ export function ReportBuilderView({
 
   return (
     <div data-reports-surface="builder">
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Report builder</h1>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportBuilder}</h1>
 
       <p role="status" aria-live="polite" data-builder-live="" style={{ margin: "6px 0 0", fontSize: 12, minHeight: 16 }}>
         {message}
@@ -167,16 +170,16 @@ export function ReportBuilderView({
 
       <section aria-label="Name" style={{ marginTop: 12, maxWidth: 360 }}>
         <TextInput
-          label="Report name"
+          label={copy.reportName}
           data-report-name=""
           value={name ?? ""}
           onChange={(event) => onNameChange?.(event.target.value)}
-          hint="Required — both save routes refuse a report without one."
+          hint={copy.reportNameHint}
         />
       </section>
 
-      <section aria-label="Sources" style={{ marginTop: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Sources</h2>
+      <section aria-label={copy.sources} style={{ marginTop: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
         <ul data-source-picker="" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
           {addable.map((source) => (
             <li key={source.id}>
@@ -220,15 +223,15 @@ export function ReportBuilderView({
         </ul>
       </section>
 
-      <section aria-label="Canvas" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Canvas</h2>
+      <section aria-label={copy.canvas} style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.canvas}</h2>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Arrow keys move the selected widget; Shift with an arrow resizes it; Z undoes.
         </p>
         <div
           data-builder-canvas=""
           role="application"
-          aria-label="Report canvas"
+          aria-label={copy.reportCanvas}
           tabIndex={0}
           onKeyDown={onKeyDown}
           style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 8 }}
@@ -263,7 +266,7 @@ export function ReportBuilderView({
             state={canUndo(history) ? { kind: "enabled" } : { kind: "disabled", reason: "Nothing to undo." }}
             onClick={() => setHistory((current) => undo(current))}
           >
-            Undo
+            {copy.undo}
           </Button>
           <Button
             variant="secondary"
@@ -275,7 +278,7 @@ export function ReportBuilderView({
             }
             onClick={() => onSave?.(history.present)}
           >
-            Save
+            {copy.save}
           </Button>
         </div>
       </section>
@@ -316,6 +319,7 @@ export function RenderedWidgetCard({
   onExportCsv?: () => void;
   exportState?: { pending: boolean; error: string | null };
 }) {
+  const copy = useCopy();
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? Object.keys(rows[0] ?? {});
   // Two independent guards: the catalog's per-source rule, and whether the
@@ -351,11 +355,11 @@ export function RenderedWidgetCard({
           <p style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>{widget.errorMessage}</p>
           {widget.retryable ? (
             <Button variant="secondary" data-widget-retry={widget.id} onClick={onRetry}>
-              Retry
+              {copy.retry}
             </Button>
           ) : (
             <p data-widget-retry-blocked={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-              The renderer did not mark this failure as retryable.
+              {copy.retryNotMarked}
             </p>
           )}
         </div>
@@ -435,7 +439,7 @@ export function RenderedWidgetCard({
             state={exportState?.pending ? { kind: "busy", label: "Preparing\u2026" } : { kind: "enabled" }}
             onClick={onExportCsv}
           >
-            Export CSV
+            {copy.exportCsv}
           </Button>
           {exportState?.error ? (
             <p data-widget-csv-error={widget.id} style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
@@ -460,11 +464,12 @@ export const SHARE_PREREQUISITES = [
 ] as const;
 
 export function ReportShareDisabled() {
+  const copy = useCopy();
   return (
-    <section data-report-share="disabled" aria-label="Sharing" style={{ marginTop: 20 }}>
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Sharing</h2>
+    <section data-report-share="disabled" aria-label={copy.sharing} style={{ marginTop: 20 }}>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sharing}</h2>
       <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
-        Report sharing is not available from this product. There is no control here to mint a link.
+        {copy.sharingUnavailable}
       </p>
       <ul data-share-prerequisites="" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
         {SHARE_PREREQUISITES.map((item) => (

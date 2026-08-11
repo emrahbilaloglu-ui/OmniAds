@@ -21,6 +21,7 @@ import {
   firstBlockingField,
   type ValidationFinding,
 } from "@/lib/zero-base/launchpad/launchpad-contract";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface LaunchpadTemplate {
   id: string;
@@ -47,6 +48,7 @@ export function LaunchpadView({
   onDuplicateTemplate?: (id: string, name: string) => void;
   onDeleteTemplate?: (id: string) => void;
 }) {
+  const copy = useCopy();
   const actions = disabledLaunchActions();
   const [draftName, setDraftName] = useState("");
   const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -66,8 +68,8 @@ export function LaunchpadView({
       ) : null}
 
       {/* -------------------------------------------------- what works today */}
-      <section aria-label="What works today">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>What works today</h2>
+      <section aria-label={copy.whatWorksToday}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.whatWorksToday}</h2>
         <ul data-what-works="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {WHAT_WORKS_TODAY.map((line) => (
             <li key={line} style={{ fontSize: 12.5, lineHeight: "18px" }}>
@@ -85,7 +87,7 @@ export function LaunchpadView({
       </section>
 
       {/* ------------------------------------------------ disabled execution */}
-      <section aria-label="Execution">
+      <section aria-label={copy.execution}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Launch</h2>
         {actions.map((action) => (
           <div key={action.id} data-launch-action={action.id} style={{ marginTop: 8 }}>
@@ -108,11 +110,11 @@ export function LaunchpadView({
       </section>
 
       {/* ---------------------------------------------------------- drafts */}
-      <section aria-label="Drafts">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Drafts</h2>
+      <section aria-label={copy.drafts}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.drafts}</h2>
         {drafts.length === 0 ? (
           <p data-drafts="empty" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-            No drafts have been saved for this account.
+            {copy.noDrafts}
           </p>
         ) : (
           <ul data-drafts="ready" style={{ margin: "6px 0 8px", paddingLeft: 18 }}>
@@ -125,7 +127,7 @@ export function LaunchpadView({
         )}
         <div style={{ maxWidth: 360 }}>
           <TextInput
-            label="New draft name"
+            label={copy.newDraftName}
             data-draft-field="draftName"
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
@@ -138,16 +140,16 @@ export function LaunchpadView({
           state={draftName.trim() ? { kind: "enabled" } : { kind: "disabled", reason: "A draft needs a name." }}
           onClick={() => onCreateDraft?.(draftName.trim(), { name: draftName.trim() })}
         >
-          Save draft
+          {copy.saveDraft}
         </Button>
       </section>
 
       {/* ----------------------------------------------------- validation */}
-      <section aria-label="Validation">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Validation</h2>
+      <section aria-label={copy.validation}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.validation}</h2>
         {findings.length === 0 ? (
           <p data-validation="clean" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
-            Validation reported nothing for this draft.
+            {copy.validationSilent}
           </p>
         ) : (
           <>
@@ -177,14 +179,14 @@ export function LaunchpadView({
                 onClick={() => fieldRefs.current[blockingField]?.focus()}
                 style={{ marginTop: 8 }}
               >
-                Go to the first problem
+                {copy.goToFirstProblem}
               </Button>
             ) : null}
           </>
         )}
         <div style={{ marginTop: 10, maxWidth: 360 }}>
           <TextInput
-            label="Ad name"
+            label={copy.adName}
             data-draft-field="name"
             ref={(node) => {
               fieldRefs.current.name = node;
@@ -197,18 +199,18 @@ export function LaunchpadView({
           style={{ marginTop: 8 }}
           onClick={() => onValidate?.({ name: fieldRefs.current.name?.value ?? "" })}
         >
-          Run validation
+          {copy.runValidation}
         </Button>
       </section>
 
       {/* ------------------------------------------------------- templates */}
-      <section aria-label="Templates">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Templates</h2>
+      <section aria-label={copy.templates}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.templates}</h2>
         <p data-template-note="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {TEMPLATE_IMMUTABILITY_NOTE}
         </p>
         <DataTable
-          caption="Launchpad templates"
+          caption={copy.launchpadTemplates}
           rows={[...templates]}
           rowKey={(row) => row.id}
           columns={[
@@ -227,7 +229,7 @@ export function LaunchpadView({
                     data-template-duplicate={row.id}
                     onClick={() => onDuplicateTemplate?.(row.id, `${row.name} (copy)`)}
                   >
-                    Duplicate
+                    {copy.duplicate}
                   </Button>
                   <Button variant="danger" data-template-delete={row.id} onClick={() => onDeleteTemplate?.(row.id)}>
                     Delete
@@ -240,8 +242,8 @@ export function LaunchpadView({
       </section>
 
       {/* ------------------------------------------------------------ bulk */}
-      <section aria-label="Bulk ad status">
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Bulk ad status</h2>
+      <section aria-label={copy.bulkAdStatus}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.bulkAdStatus}</h2>
         {/* Withheld even when the mutation flag is on: this page cannot build
             the handler's exact per-item contract, and a button that can only
             400 is worse than an absent one. */}

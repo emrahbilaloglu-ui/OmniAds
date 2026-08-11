@@ -43,6 +43,7 @@ import {
   type WorkflowLoadState,
   type WorkflowPosture,
 } from "@/lib/zero-base/meta/workflow-view-model";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const STATE_TONE: Record<string, string> = {
   open: "var(--ledger-ink-secondary)",
@@ -61,6 +62,7 @@ export function WorkflowChip({
   record: WorkflowRecord | null;
   loadState: WorkflowLoadState;
 }) {
+  const copy = useCopy();
   if (loadState.kind === "loading") {
     return (
       <span data-workflow-chip="loading" style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -73,7 +75,7 @@ export function WorkflowChip({
     // would claim nobody owns a decision somebody may well own.
     return (
       <span data-workflow-chip="unknown" style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
-        Workflow unknown
+        {copy.workflowUnknown}
       </span>
     );
   }
@@ -86,7 +88,7 @@ export function WorkflowChip({
       {WORKFLOW_STATE_LABEL[state]}
       {record?.assigneeUserId ? (
         <span data-workflow-assigned="" style={{ display: "block", fontWeight: 400, color: "var(--ledger-ink-tertiary)" }}>
-          Assigned
+          {copy.assigned}
         </span>
       ) : null}
     </span>
@@ -136,6 +138,7 @@ export function WorkflowPanel({
   /** Injected so a test can assert one id per attempt across retries. */
   newMutationId: () => string;
 }) {
+  const copy = useCopy();
   const [openAction, setOpenAction] = useState<CanonicalWorkflowAction | null>(null);
   const [assigneeUserId, setAssignee] = useState("");
   const [dueAt, setDueAt] = useState("");
@@ -237,11 +240,11 @@ export function WorkflowPanel({
   return (
     <section
       data-workflow-panel={decisionKey}
-      aria-label="Workflow"
+      aria-label={copy.workflow}
       style={{ display: "grid", gap: 10, marginTop: 4 }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Workflow</h3>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{copy.workflow}</h3>
         <WorkflowChip record={record} loadState={loadState} />
       </div>
       <p style={{ margin: 0, fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
@@ -308,7 +311,7 @@ export function WorkflowPanel({
 
       <div>
         <h4 id={historyId} style={{ margin: "4px 0 4px", fontSize: 12, fontWeight: 600 }}>
-          History
+          {copy.history}
         </h4>
         {loadState.kind === "loading" ? (
           <p data-workflow-history="loading" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
@@ -316,7 +319,7 @@ export function WorkflowPanel({
           </p>
         ) : events.length === 0 ? (
           <p data-workflow-history="empty" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            Nothing has been recorded for this decision yet.
+            {copy.nothingRecordedDecision}
           </p>
         ) : (
           <ul
@@ -364,34 +367,34 @@ export function WorkflowPanel({
           <div style={{ display: "grid", gap: 10 }}>
             {openAction === "assign" ? (
               <TextInput
-                label="Assignee (user id)"
+                label={copy.assigneeUserId}
                 data-workflow-field="assigneeUserId"
                 value={assigneeUserId}
                 onChange={(event) => setAssignee(event.target.value)}
-                hint="Must be an active member of this business."
+                hint={copy.mustBeActiveMember}
               />
             ) : null}
             {openAction === "snooze" ? (
               <TextInput
-                label="Wake up at"
+                label={copy.wakeUpAt}
                 data-workflow-field="snoozeUntil"
                 value={snoozeUntil}
                 onChange={(event) => setSnooze(event.target.value)}
-                hint="A snooze that has elapsed returns the decision to the queue."
+                hint={copy.snoozeReturns}
               />
             ) : null}
             {openAction === "reject" ? (
               <TextInput
-                label="Reason code"
+                label={copy.reasonCode}
                 data-workflow-field="reasonCode"
                 value={reasonCode}
                 onChange={(event) => setReason(event.target.value)}
-                hint="Rejecting the engine's call always carries a reason."
+                hint={copy.rejectionCarriesReason}
               />
             ) : null}
             {openAction === "assign" || openAction === "defer" ? (
               <TextInput
-                label="Due (optional)"
+                label={copy.dueOptional}
                 data-workflow-field="dueAt"
                 value={dueAt}
                 onChange={(event) => setDueAt(event.target.value)}

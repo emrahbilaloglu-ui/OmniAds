@@ -27,6 +27,7 @@ import {
   type ProviderPosture,
   type StopCeremonyInput,
 } from "@/lib/zero-base/meta/automation-posture";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const STATE_WORD: Record<ProviderPosture["state"], string> = {
   serving: "Serving",
@@ -49,6 +50,7 @@ export function AutomationView({
   ceremony: StopCeremonyInput;
   onEngage?: () => void;
 }) {
+  const copy = useCopy();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const state = resolveStopCeremony(ceremony);
   const rows: GuardrailRow[] = buildGuardrailRows(guardrails);
@@ -59,9 +61,9 @@ export function AutomationView({
         Automation &amp; Meta Stop
       </h1>
 
-      <section aria-label="Provider posture" style={{ marginTop: 16 }}>
+      <section aria-label={copy.providerPosture} style={{ marginTop: 16 }}>
         <DataTable
-          caption="Provider posture"
+          caption={copy.providerPosture}
           rows={[...postures]}
           rowKey={(row) => row.provider}
           columns={[
@@ -85,12 +87,12 @@ export function AutomationView({
               header: "Automation control",
               render: (row) =>
                 row.stoppable ? (
-                  <span data-stoppable={row.provider}>Controlled here</span>
+                  <span data-stoppable={row.provider}>{copy.controlledHere}</span>
                 ) : (
                   // No Google stop exists, and inventing one for an authority
                   // we do not own would be worse than having none.
                   <span data-not-stoppable={row.provider} style={{ color: "var(--ledger-ink-tertiary)" }}>
-                    Not controlled here
+                    {copy.notControlledHere}
                   </span>
                 ),
             },
@@ -101,7 +103,7 @@ export function AutomationView({
         </p>
       </section>
 
-      <section aria-label="Meta stop" style={{ marginTop: 24 }}>
+      <section aria-label={copy.metaStop} style={{ marginTop: 24 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {META_STOP_LABEL}
         </h2>
@@ -169,15 +171,15 @@ export function AutomationView({
         ) : null}
       </section>
 
-      <section aria-label="Guardrails" style={{ marginTop: 24 }}>
+      <section aria-label={copy.guardrails} style={{ marginTop: 24 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
-          Guardrails
+          {copy.guardrails}
         </h2>
         <p style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}>
           Enforced by the engine. Shown here for reference; they are not editable from this surface.
         </p>
         <DataTable
-          caption="Automation guardrails"
+          caption={copy.automationGuardrails}
           rows={rows}
           rowKey={(row) => row.id}
           columns={[

@@ -52,6 +52,7 @@ import {
   MutationCeremonyPanel,
   type MutationCeremonySeed,
 } from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 const LANE_LABEL: Record<DecisionLane, string> = {
   act: "Act now",
@@ -92,6 +93,7 @@ export function DecisionsView({
   /** Server-owned. Absent whenever the mutation UI is not enabled. */
   mutation?: MutationCeremonySeed;
 }) {
+  const copy = useCopy();
   const [search, setSearch] = useState(state.search);
   // Focus returns to the row that opened the inspector, not to the top.
   const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -112,7 +114,7 @@ export function DecisionsView({
     <div data-decisions-surface="">
       <header style={{ marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
-          Meta Decisions
+          {copy.metaDecisions}
         </h1>
         {/* Two separate facts, drawn separately and labelled. */}
         <p style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
@@ -159,19 +161,19 @@ export function DecisionsView({
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
         <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
           <TextInput
-            label="Find a decision"
+            label={copy.findADecision}
             value={search}
-            placeholder="Campaign, ad set or title"
+            placeholder={copy.campaignAdsetOrTitle}
             onChange={(event) => {
               setSearch(event.target.value);
               onStateChange({ ...state, search: event.target.value, selected: null });
             }}
-            hint="Filters the decisions served in this lane."
+            hint={copy.filtersLaneDecisions}
           />
         </div>
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, fontWeight: 500, color: "var(--ledger-ink-secondary)", padding: 0 }}>
-            Level
+            {copy.level}
           </legend>
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             {DECISION_LEVELS.map((level) => {
@@ -204,7 +206,7 @@ export function DecisionsView({
       </div>
 
       <ZeroBaseTabs
-        label="Decision lanes"
+        label={copy.decisionLanes}
         value={state.lane}
         onValueChange={(lane) =>
           onStateChange({ ...state, lane: lane as DecisionLane, selected: null })
@@ -217,7 +219,7 @@ export function DecisionsView({
               <>
                 {selectionMissing ? (
                   <div style={{ marginBottom: 12 }} data-row-gone="">
-                    <UnavailableState reason="The decision this link names is no longer served in this lane. It may have aged out of the window or moved lane." />
+                    <UnavailableState reason={copy.decisionNoLongerServed} />
                   </div>
                 ) : null}
 
@@ -377,13 +379,14 @@ function DecisionInspector({
   workflow?: DecisionsWorkflow;
   mutation?: MutationCeremonySeed;
 }) {
+  const copy = useCopy();
   const actions = actionCountFor({ row, viewer: model.viewer, demo });
 
   return (
     <div data-decision-inspector={row.id} style={{ display: "grid", gap: 12, marginTop: 12 }}>
       <dl style={{ display: "grid", gap: 8, margin: 0 }}>
         <div>
-          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Verdict</dt>
+          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.verdict}</dt>
           <dd data-inspector-verdict="" style={{ margin: 0, fontSize: 13 }}>{row.decision}</dd>
         </div>
         <div>
@@ -391,7 +394,7 @@ function DecisionInspector({
           <dd data-inspector-why="" style={{ margin: 0, fontSize: 13 }}>{row.why}</dd>
         </div>
         <div>
-          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Scope</dt>
+          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.scope}</dt>
           <dd style={{ margin: 0, fontSize: 13 }}>
             {row.campaignName ?? "—"}
             {row.adsetName ? ` · ${row.adsetName}` : ""}
@@ -438,10 +441,10 @@ function DecisionInspector({
             data-ads-manager-link=""
             style={{ color: "var(--ledger-accent-action)" }}
           >
-            Open Meta Ads Manager
+            {copy.openMetaAdsManager}
           </a>
           <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>
-            Opens Meta in a new tab. Nothing is changed by following it.
+            {copy.opensMetaNewTab}
           </span>
         </p>
       ) : null}

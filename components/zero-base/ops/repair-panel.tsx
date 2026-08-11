@@ -19,6 +19,7 @@ import {
   type RepairOutcome,
   type RepairPhase,
 } from "@/lib/zero-base/ops/repair-ceremony";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function OpsRepairPanel({
   action,
@@ -40,6 +41,7 @@ export function OpsRepairPanel({
   blockedReason?: string | null;
   confirmation?: { workspace: string; provider: string };
 }) {
+  const copy = useCopy();
   const [confirming, setConfirming] = useState(false);
   const [phase, setPhase] = useState<RepairPhase>("idle");
   const [outcome, setOutcome] = useState<RepairOutcome | null>(null);
@@ -61,7 +63,7 @@ export function OpsRepairPanel({
 
   if (blockedReason) {
     return (
-      <section data-ops-repair={action} aria-label="Repair" style={{ display: "grid", gap: 8 }}>
+      <section data-ops-repair={action} aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
         <Button
           variant="secondary"
           data-repair-run={action}
@@ -77,7 +79,7 @@ export function OpsRepairPanel({
   }
 
   return (
-    <section data-ops-repair={action} aria-label="Repair" style={{ display: "grid", gap: 8 }}>
+    <section data-ops-repair={action} aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
       <Button
         variant="secondary"
         data-repair-run={action}
@@ -88,11 +90,11 @@ export function OpsRepairPanel({
       </Button>
 
       {confirming && confirmation ? (
-        <div data-repair-confirm={action} role="group" aria-label="Confirm repair" style={{ display: "grid", gap: 6 }}>
+        <div data-repair-confirm={action} role="group" aria-label={copy.confirmRepair} style={{ display: "grid", gap: 6 }}>
           {/* The scope is spelled out: an operator confirming this must be able
               to see which workspace they are about to act on. */}
           <p data-repair-confirm-scope="" style={{ margin: 0, fontSize: 12.5 }}>
-            Run <strong>{action}</strong> against <strong>{confirmation.provider}</strong> for{" "}
+            {copy.run} <strong>{action}</strong> against <strong>{confirmation.provider}</strong> for{" "}
             <strong>{confirmation.workspace}</strong>? This calls the provider.
           </p>
           <div style={{ display: "flex", gap: 6 }}>
@@ -104,7 +106,7 @@ export function OpsRepairPanel({
                 void run();
               }}
             >
-              Run it
+              {copy.runIt}
             </Button>
             <Button variant="quiet" data-repair-confirm-cancel={action} onClick={() => setConfirming(false)}>
               Cancel
@@ -133,7 +135,7 @@ export function OpsRepairPanel({
       {outcome ? (
         <div>
           <Button variant="secondary" data-repair-recheck={action} onClick={onRecheck}>
-            Re-run the health check
+            {copy.reRunHealthCheck}
           </Button>
         </div>
       ) : null}
@@ -142,9 +144,10 @@ export function OpsRepairPanel({
 }
 
 export function CriticalIncidentPath() {
+  const copy = useCopy();
   return (
-    <section data-incident-path="" aria-label="Critical incident path">
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>If something is failing</h2>
+    <section data-incident-path="" aria-label={copy.criticalIncidentPath}>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.ifSomethingIsFailing}</h2>
       <ol style={{ margin: "8px 0 0", paddingLeft: 18 }}>
         {CRITICAL_INCIDENT_PATH.map((step) => (
           <li key={step.id} data-incident-step={step.id} style={{ fontSize: 12.5, lineHeight: "18px" }}>

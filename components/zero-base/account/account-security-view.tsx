@@ -15,6 +15,7 @@ import { Button } from "@/components/zero-base/primitives/button";
 import { ZeroBaseDialog } from "@/components/zero-base/primitives/overlays";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { ThemeControl } from "@/components/theme/theme-control";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export const CURRENT_SESSION_CONSEQUENCE =
   "This signs you out on this device immediately. You will need to log in again.";
@@ -28,6 +29,7 @@ export function AccountSecurityView({
   email: string;
   currentSessionId: string;
 }) {
+  const copy = useCopy();
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
   const [confirmRevokeCurrent, setConfirmRevokeCurrent] = useState(false);
 
@@ -43,37 +45,37 @@ export function AccountSecurityView({
             <dd style={{ margin: 0, fontSize: 13 }}>{name}</dd>
           </div>
           <div>
-            <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Email</dt>
+            <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.email}</dt>
             <dd style={{ margin: 0, fontSize: 13 }}>{email}</dd>
           </div>
         </dl>
       </div>
 
       <div>
-        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>Password</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.password}</h3>
         <div style={{ marginTop: 8, display: "grid", gap: 12 }}>
-          <TextInput label="Current password" type="password" autoComplete="current-password" />
-          <TextInput label="New password" type="password" autoComplete="new-password" />
+          <TextInput label={copy.currentPassword} type="password" autoComplete="current-password" />
+          <TextInput label={copy.newPassword} type="password" autoComplete="new-password" />
         </div>
       </div>
 
       <div>
-        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>Sessions</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.sessions}</h3>
         <p style={{ fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-ink-secondary)", marginTop: 4 }}>
           Signed in on this device as session <code style={{ fontFamily: "var(--font-adc-mono), monospace" }}>{currentSessionId.slice(0, 8)}</code>.
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <Button variant="secondary" onClick={() => setConfirmRevokeAll(true)}>
-            Revoke other sessions
+            {copy.revokeOtherSessions}
           </Button>
           <Button variant="danger" onClick={() => setConfirmRevokeCurrent(true)}>
-            Revoke this session
+            {copy.revokeThisSession}
           </Button>
         </div>
       </div>
 
       <div>
-        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>Theme</h3>
+        <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.theme}</h3>
         <div style={{ marginTop: 8 }}>
           <ThemeControl />
         </div>
@@ -82,7 +84,7 @@ export function AccountSecurityView({
       <ZeroBaseDialog
         open={confirmRevokeAll}
         onOpenChange={setConfirmRevokeAll}
-        title="Revoke other sessions?"
+        title={copy.revokeOtherSessionsQ}
         description="Every other device is signed out. This device stays signed in."
         confirmLabel="Revoke others"
         onConfirm={() => setConfirmRevokeAll(false)}
@@ -90,7 +92,7 @@ export function AccountSecurityView({
       <ZeroBaseDialog
         open={confirmRevokeCurrent}
         onOpenChange={setConfirmRevokeCurrent}
-        title="Revoke this session?"
+        title={copy.revokeThisSessionQ}
         // The consequence is stated before the confirm, not discovered after.
         description={CURRENT_SESSION_CONSEQUENCE}
         confirmLabel="Sign out here"

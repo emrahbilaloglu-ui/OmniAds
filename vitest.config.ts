@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    setupFiles: ["./vitest.setup.dom.ts"],
     exclude: ["node_modules/**", "dist/**", ".next/**", ".claude/**", "playwright/**", "lib/archive/v1-v2-v21/**"],
   },
   resolve: {

@@ -164,8 +164,15 @@ export function WorkflowPanel({
     [record, posture],
   );
 
+  const mountedKey = useRef(decisionKey);
   useEffect(() => {
     // A different decision is a different attempt.
+    //
+    // Guarded against the mount run: mounting is not a *change* of decision,
+    // and clearing here discarded a conflict the caller had already been told
+    // about — a resumed attempt opened showing no conflict at all.
+    if (mountedKey.current === decisionKey) return;
+    mountedKey.current = decisionKey;
     attemptId.current = null;
     setConflict(null);
     setError(null);

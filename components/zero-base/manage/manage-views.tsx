@@ -217,11 +217,12 @@ export function IntegrationsView({
         </div>
       ) : (
         <>
-          <p data-no-universal-health="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-no-universal-health="" data-el="provider-states" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {NO_UNIVERSAL_HEALTH}
           </p>
           <div style={{ marginTop: 12 }}>
             <DataTable
+              collection="providers"
               caption={copy.providerConnections}
               rows={[...providers]}
               rowKey={(row) => row.provider}
@@ -302,7 +303,12 @@ export function IntegrationsView({
                     // point at all on the canonical surface.
                     if (row.state.kind === "not_connected") {
                       return supported ? (
-                        <Button variant="secondary" data-connect={row.provider} onClick={() => onConnect?.(row.provider)}>
+                        <Button
+                          variant="secondary"
+                          data-connect={row.provider}
+                          data-ctl="live:INTEGRATION-03 connect"
+                          onClick={() => onConnect?.(row.provider)}
+                        >
                           {copy.connect}
                         </Button>
                       ) : (
@@ -515,10 +521,11 @@ export function TeamView({
         </p>
       )}
 
-      <section aria-label={copy.members} style={{ marginTop: 16 }}>
+      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
         <div style={{ marginTop: 8 }}>
           <DataTable
+            collection="members"
             caption={copy.teamMembers}
             rows={[...members]}
             rowKey={(row) => row.membershipId}
@@ -532,6 +539,7 @@ export function TeamView({
                   permissions.membersWrite.ok ? (
                     <select
                       data-member-role={row.membershipId}
+                      data-ctl="gated:TEAM-02 role"
                       value={row.role}
                       onChange={(event) => onChangeRole?.(row.membershipId, event.target.value)}
                       style={{ minHeight: 44, padding: "6px 8px" }}
@@ -543,7 +551,9 @@ export function TeamView({
                       ))}
                     </select>
                   ) : (
-                    <span data-member-role-readonly={row.membershipId}>{row.role}</span>
+                    <span data-member-role-readonly={row.membershipId} data-el="role-permission-state">
+                      {row.role}
+                    </span>
                   ),
               },
               { id: "status", header: "Status", render: (row) => row.status },
@@ -622,6 +632,7 @@ export function TeamView({
               <Button
                 variant="secondary"
                 data-invite-send=""
+                data-ctl="gated:TEAM-04 invite"
                 state={write.pending === "invite" ? { kind: "busy", label: "Sending\u2026" } : { kind: "enabled" }}
                 onClick={() => onInvite?.(emails, inviteRole)}
               >
@@ -684,6 +695,7 @@ export function TeamView({
                       <Button
                         variant="secondary"
                         data-access-approve={row.membershipId}
+                        data-ctl="gated:TEAM-05 approve"
                         onClick={() => onAccessRequest?.(row.membershipId, "approve")}
                       >
                         {copy.approve}
@@ -691,6 +703,7 @@ export function TeamView({
                       <Button
                         variant="quiet"
                         data-access-reject={row.membershipId}
+                        data-ctl="gated:TEAM-05 deny"
                         onClick={() => onAccessRequest?.(row.membershipId, "reject")}
                       >
                         {copy.reject}
@@ -813,6 +826,7 @@ export function BusinessView({
           </p>
         )}
         <DataTable
+          collection="economics"
           caption={copy.economicsSources}
           rows={[...economics]}
           rowKey={(row) => `${row.key}:${row.source}`}
@@ -878,7 +892,11 @@ export function PlanView({ planName, features }: { planName: string | null; feat
         ))}
       </ul>
       {/* Static presentation. No billing control, and no gating. */}
-      <p data-plan-gates-nothing="" style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+      <p
+        data-plan-gates-nothing=""
+        data-el="plan-presentation-chip"
+        style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+      >
         {PLAN_GATES_NOTHING}
       </p>
     </Shell>

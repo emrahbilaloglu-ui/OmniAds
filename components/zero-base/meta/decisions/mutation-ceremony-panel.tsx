@@ -304,6 +304,7 @@ export function MutationCeremonyPanel({
               key={action}
               variant="secondary"
               data-mutation-action={action}
+              data-ctl="gated:META-WRITE-01 open-manual"
               ref={(node: HTMLButtonElement | null) => {
                 triggerRefs.current[action] = node;
               }}
@@ -343,7 +344,7 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "collect" ? (
-        <div data-mutation-step="collect" style={{ display: "grid", gap: 10 }}>
+        <div data-mutation-step="collect" data-el="before-after" style={{ display: "grid", gap: 10 }}>
           {step.dispatch.note ? (
             <p data-mutation-note="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {step.dispatch.note}
@@ -380,7 +381,12 @@ export function MutationCeremonyPanel({
             </ul>
           ) : null}
           <div>
-            <Button variant="secondary" data-mutation-review="" onClick={() => review(step)}>
+            <Button
+              variant="secondary"
+              data-mutation-review=""
+              data-ctl="gated:META-WRITE-02 continue"
+              onClick={() => review(step)}
+            >
               Review {step.action}
             </Button>
           </div>
@@ -388,11 +394,16 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "stale" ? (
-        <div data-mutation-step="stale" style={{ fontSize: 12.5 }}>
+        <div data-mutation-step="stale" data-el="preflight-age" style={{ fontSize: 12.5 }}>
           <p style={{ margin: 0, color: "var(--ledger-semantic-warn)" }}>
             {t.checkOlderThan15}
           </p>
-          <Button variant="secondary" data-mutation-recheck="" onClick={() => void startPreflight(step.action)}>
+          <Button
+            variant="secondary"
+            data-mutation-recheck=""
+            data-ctl="live:META-WRITE-06 rerun"
+            onClick={() => void startPreflight(step.action)}
+          >
             {t.reCheck}
           </Button>
         </div>
@@ -436,7 +447,7 @@ export function MutationCeremonyPanel({
         title={step.kind === "confirm" ? `${step.action} this ${step.target.grain}?` : "Confirm"}
         description={
           step.kind === "confirm" ? (
-            <span data-mutation-confirm-scope="">
+            <span data-mutation-confirm-scope="" data-el="confirm-restate">
               {step.target.grain} {step.target.entityId} in account {step.target.providerAccountId}.
               Currently {step.target.status ?? "unknown"}. Checked at {step.checkedAt} against
               persisted state — Meta was not contacted. The target is re-checked once more
@@ -492,7 +503,7 @@ function TerminalPanel({
     >
       <strong style={{ fontWeight: 600 }}>{copy.title}</strong>
       <span>{copy.body}</span>
-      <span data-mutation-detail="" style={{ color: "var(--ledger-ink-tertiary)" }}>
+      <span data-mutation-detail="" data-el="receipt" style={{ color: "var(--ledger-ink-tertiary)" }}>
         {outcome.detail}
       </span>
 
@@ -501,6 +512,7 @@ function TerminalPanel({
           <Button
             variant="quiet"
             data-mutation-receipt=""
+            data-ctl="live:META-WRITE-08 copy-receipt"
             onClick={() => {
               void navigator.clipboard?.writeText?.(outcome.reference ?? "").catch(() => {});
               onCopy();

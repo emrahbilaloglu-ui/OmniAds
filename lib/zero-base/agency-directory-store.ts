@@ -104,6 +104,38 @@ function isoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
+/**
+ * How many clients this actor has, without materialising them.
+ *
+ * The Agency gate only needs to know whether there are at least two. Reading
+ * every membership to count it is the same unbounded-read mistake the
+ * directory itself used to make, just smaller — it simply was not visible
+ * because the result was thrown away.
+ */
+export async function countAgencyClients(input: {
+  userId: string;
+  email: string;
+}): Promise<number> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) return 0;
+
+  const reviewerOnly = isReviewerEmail(input.email);
+  const rows = (await getDb().query<{ total: string }>(
+    `
+      SELECT count(*)::text AS total
+      FROM memberships m
+      JOIN businesses b ON b.id = m.business_id
+      WHERE m.user_id = $1::uuid
+        AND m.status = 'active'
+        AND ($2::boolean IS FALSE OR b.id::text = $3::text)
+    `,
+    [input.userId, reviewerOnly, DEMO_BUSINESS_ID],
+  )) as Array<{ total: string }>;
+  return Number(rows[0]?.total ?? 0);
+}
+
 export async function readAgencyDirectoryPage(input: {
   userId: string;
   email: string;

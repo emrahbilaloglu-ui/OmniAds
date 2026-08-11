@@ -1,8 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getSessionFromCookies } from "@/lib/auth";
-import { listUserBusinesses } from "@/lib/access";
-import { scopeBusinessesForUser, isReviewerEmail } from "@/lib/reviewer-access";
+import { isReviewerEmail } from "@/lib/reviewer-access";
+import { countAgencyClients } from "@/lib/zero-base/agency-directory-store";
 import {
   isZeroBaseUiEnabledForInternal,
   readZeroBaseRolloutConfig,
@@ -24,13 +24,15 @@ export default async function AgencyLayout({ children }: { children: React.React
   const session = await getSessionFromCookies();
   if (!session) redirect(`/login?next=${encodeURIComponent("/a/desk")}`);
 
-  const businesses = scopeBusinessesForUser(
-    session.user.email,
-    await listUserBusinesses(session.user.id),
-  );
-  const active = businesses.filter((business) => business.membershipStatus === "active");
+  // A bounded count, not a materialised list: the gate only needs to know
+  // whether there are at least two clients, and the directory does its own
+  // paged read afterwards.
+  const clientCount = await countAgencyClients({
+    userId: session.user.id,
+    email: session.user.email,
+  });
   // Agency is a multi-client surface. One client is not an agency.
-  if (active.length < 2) notFound();
+  if (clientCount < 2) notFound();
 
   const envelope: WorkspaceContextEnvelope = {
     actor: {

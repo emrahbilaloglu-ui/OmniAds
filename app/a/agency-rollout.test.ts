@@ -18,14 +18,14 @@ const redirect = vi.fn((url: string) => {
 
 vi.mock("next/navigation", () => ({ notFound, redirect }));
 vi.mock("@/lib/auth", () => ({ getSessionFromCookies: vi.fn() }));
-vi.mock("@/lib/access", () => ({ listUserBusinesses: vi.fn() }));
+vi.mock("@/lib/zero-base/agency-directory-store", () => ({ countAgencyClients: vi.fn() }));
 vi.mock("@/components/zero-base/shell/agency-shell", () => ({
   AgencyShell: ({ children }: { children: unknown }) => children,
 }));
 
 const AgencyLayout = (await import("@/app/a/layout")).default;
 const auth = await import("@/lib/auth");
-const access = await import("@/lib/access");
+const store = await import("@/lib/zero-base/agency-directory-store");
 
 const ORIGINAL_MODE = process.env.ZERO_BASE_UI_MODE;
 
@@ -38,19 +38,12 @@ function session() {
   };
 }
 
-function business(id: string, membershipStatus: "active" | "invited" = "active") {
-  return { id, name: id, timezone: null, timezoneSource: null, currency: "USD", role: "admin", membershipStatus };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   if (ORIGINAL_MODE === undefined) delete process.env.ZERO_BASE_UI_MODE;
   else process.env.ZERO_BASE_UI_MODE = ORIGINAL_MODE;
   vi.mocked(auth.getSessionFromCookies).mockResolvedValue(session() as never);
-  vi.mocked(access.listUserBusinesses).mockResolvedValue([
-    business("biz_1"),
-    business("biz_2"),
-  ] as never);
+  vi.mocked(store.countAgencyClients).mockResolvedValue(2);
 });
 
 describe("rollout OFF", () => {
@@ -61,7 +54,7 @@ describe("rollout OFF", () => {
     expect(notFound).toHaveBeenCalled();
     // Refused before any read: rollout-off costs nothing and leaks nothing.
     expect(auth.getSessionFromCookies).not.toHaveBeenCalled();
-    expect(access.listUserBusinesses).not.toHaveBeenCalled();
+    expect(store.countAgencyClients).not.toHaveBeenCalled();
   });
 
   it("is also not found in allowlist mode, which scopes clients not Agency", async () => {
@@ -79,7 +72,7 @@ describe("rollout ON", () => {
 
   it("shows no teaser to an actor without Agency context — the route is absent", async () => {
     process.env.ZERO_BASE_UI_MODE = "on";
-    vi.mocked(access.listUserBusinesses).mockResolvedValue([business("biz_1")] as never);
+    vi.mocked(store.countAgencyClients).mockResolvedValue(1);
 
     // One client is not an agency. Not a disabled panel: nothing at all.
     await expect(AgencyLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
@@ -87,10 +80,9 @@ describe("rollout ON", () => {
 
   it("does not count invited memberships towards Agency context", async () => {
     process.env.ZERO_BASE_UI_MODE = "on";
-    vi.mocked(access.listUserBusinesses).mockResolvedValue([
-      business("biz_1"),
-      business("biz_2", "invited"),
-    ] as never);
+    // The count query filters on status = 'active', so an invited membership
+    // never reaches it — one active client means no Agency.
+    vi.mocked(store.countAgencyClients).mockResolvedValue(1);
 
     await expect(AgencyLayout({ children: null })).rejects.toThrow("NEXT_NOT_FOUND");
   });

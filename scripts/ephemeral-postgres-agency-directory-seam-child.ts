@@ -12,6 +12,7 @@
 import { getDb } from "@/lib/db";
 import {
   AGENCY_MAX_PAGE_SIZE,
+  countAgencyClients,
   decodeAgencyCursor,
   encodeAgencyCursor,
   InvalidAgencyCursorError,
@@ -276,6 +277,25 @@ async function main() {
   );
   expectEqual(reviewerPage.totalCount, 1, "reviewer total is scoped too");
 
+  // ------------------------------------------------------ bounded gate count
+  // The Agency gate counts rather than materialising the list, so it must agree
+  // with the paged scan exactly and apply the same scope filters.
+  expectEqual(
+    await countAgencyClients({ userId: USER_ID, email: EMAIL }),
+    CLIENT_COUNT,
+    "gate count matches the scanned total",
+  );
+  expectEqual(
+    await countAgencyClients({ userId: REVIEWER_USER_ID, email: SHOPIFY_REVIEWER_EMAIL }),
+    1,
+    "gate count honours reviewer scoping",
+  );
+  expectEqual(
+    await countAgencyClients({ userId: OTHER_USER_ID, email: "other@example.com" }),
+    1,
+    "gate count is per-actor, not global",
+  );
+
   // ------------------------------------------------------- cursor validation
   for (const bad of ["not-base64!", "x".repeat(600), Buffer.from("{}").toString("base64url")]) {
     expectEqual(decodeAgencyCursor(bad), null, "malformed cursor is rejected");
@@ -320,7 +340,7 @@ async function main() {
       "sizes with no gap, duplicate or reorder; duplicate and accented names are separated by the " +
       "id tie-break; invited/pending/other-tenant rows are excluded and a cursor cannot widen " +
       "scope; reviewer scoping holds; malformed cursors fail closed; and the served rows carry " +
-      "only allowlisted keys.",
+      "only allowlisted keys; and the bounded gate count agrees with the scan.",
   );
 }
 

@@ -43,6 +43,8 @@ The fixed collation is the load-bearing detail: if the query that produces a cur
 
 **Proof is against real PostgreSQL**, in `scripts/ephemeral-postgres-agency-directory-seam-child.ts`, wired into `migrations-from-zero`. A mocked database would have proved the mock. With 121 clients it asserts: one bounded first page; identical order across page sizes 7, 25 and 100; no gap, duplicate or reorder; three identically-named rows all served and id-ordered; invited/pending/other-tenant rows excluded; a cursor naming another tenant cannot surface it; reviewer scoping; malformed cursors failing closed; and the allowlisted key set.
 
+The Agency **gate** had the same problem in miniature: `app/a/layout.tsx` materialised every membership just to check there were at least two. It now uses a bounded `countAgencyClients` query, asserted in the same seam to agree exactly with the paged scan and to apply the same scope filters.
+
 The superseded `agency-directory-server.ts` and its test are deleted rather than left beside the new path.
 
 ## 2 · Packages

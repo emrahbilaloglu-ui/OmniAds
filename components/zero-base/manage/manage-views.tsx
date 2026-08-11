@@ -52,6 +52,9 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
 
 /* --------------------------------------------------------- integrations */
 
+export const CONNECT_UNSUPPORTED =
+  "No authorization flow exists for this provider yet, so it cannot be connected here.";
+
 export interface AssignmentPanelProps {
   provider: string;
   accounts: readonly { id: string; name: string; assigned: boolean; isManager: boolean }[];
@@ -66,12 +69,22 @@ export interface AssignmentPanelProps {
 export function IntegrationsView({
   providers,
   onReconnect,
+  onConnect,
+  /**
+   * True only where a real OAuth start route exists for this provider.
+   *
+   * A provider whose start route intentionally refuses (Klaviyo answers 501)
+   * must stay unavailable rather than being given a control that can only fail.
+   */
+  connectSupported,
   outcome,
   unavailableReason,
   assignment,
 }: {
   providers: readonly ProviderHealth[];
   onReconnect?: (provider: string) => void;
+  onConnect?: (provider: string) => void;
+  connectSupported?: (provider: string) => boolean;
   outcome: CeremonyOutcome;
   unavailableReason?: string | null;
   assignment?: AssignmentPanelProps;
@@ -112,14 +125,35 @@ export function IntegrationsView({
                 {
                   id: "action",
                   header: "Action",
-                  render: (row) =>
-                    row.state.kind === "needs_reconnect" ? (
-                      <Button variant="secondary" data-reconnect={row.provider} onClick={() => onReconnect?.(row.provider)}>
-                        Reconnect
-                      </Button>
-                    ) : (
-                      <span style={{ color: "var(--ledger-ink-tertiary)" }}>—</span>
-                    ),
+                  render: (row) => {
+                    const supported = connectSupported ? connectSupported(row.provider) : true;
+                    if (row.state.kind === "needs_reconnect") {
+                      return supported ? (
+                        <Button variant="secondary" data-reconnect={row.provider} onClick={() => onReconnect?.(row.provider)}>
+                          Reconnect
+                        </Button>
+                      ) : (
+                        <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                          {CONNECT_UNSUPPORTED}
+                        </span>
+                      );
+                    }
+                    // First-time connection. Without this the only path to a
+                    // never-connected provider was a dash: Flow H had no entry
+                    // point at all on the canonical surface.
+                    if (row.state.kind === "not_connected") {
+                      return supported ? (
+                        <Button variant="secondary" data-connect={row.provider} onClick={() => onConnect?.(row.provider)}>
+                          Connect
+                        </Button>
+                      ) : (
+                        <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                          {CONNECT_UNSUPPORTED}
+                        </span>
+                      );
+                    }
+                    return <span style={{ color: "var(--ledger-ink-tertiary)" }}>—</span>;
+                  },
                 },
               ]}
             />

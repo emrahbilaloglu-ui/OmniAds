@@ -16,6 +16,9 @@ import {
   IntegrationsClient,
   TeamClient,
 } from "@/components/zero-base/manage/manage-clients";
+import { IntegrationsView } from "@/components/zero-base/manage/manage-views";
+import { oauthStartUrl } from "@/lib/zero-base/manage/manage-contract";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 const BIZ = "55555555-5555-4555-8555-555555555555";
 
@@ -366,5 +369,125 @@ describe("WP-23 account assignment", () => {
       expect(document.querySelector("[data-assignment-unavailable]")).not.toBeNull();
     });
     expect(document.querySelector("[data-assignment-accounts]")).toBeNull();
+  });
+});
+
+describe("WP-23 Flow H — first-time connection is reachable", () => {
+  /** `/api/integrations/status` answers a flat provider→boolean map. */
+  function stubStatus(status: Record<string, boolean>) {
+    stub((call) => {
+      if (call.url.startsWith("/api/integrations/status")) return { body: status };
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+  }
+
+  const ALL_OFF = {
+    meta: false,
+    google: false,
+    shopify: false,
+    ga4: false,
+    search_console: false,
+  };
+
+  it("REGRESSION: a never-connected provider offers Connect, not a dash", async () => {
+    stubStatus(ALL_OFF);
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-connect="meta"]')).not.toBeNull();
+    });
+    for (const provider of Object.keys(ALL_OFF)) {
+      expect(document.querySelector(`[data-connect="${provider}"]`), provider).not.toBeNull();
+    }
+  });
+
+  it("Connect starts the real OAuth route with the sanitized returnTo", async () => {
+    stubStatus(ALL_OFF);
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign, search: "" },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-connect="ga4"]')).not.toBeNull());
+    (document.querySelector('[data-connect="ga4"]') as HTMLElement).click();
+
+    expect(assign).toHaveBeenCalledTimes(1);
+    const url = new URL(assign.mock.calls[0][0] as string, "https://example.test");
+    // The real start route on disk, not an invented one.
+    expect(url.pathname).toBe("/api/oauth/google-analytics/start");
+    expect(url.searchParams.get("businessId")).toBe(BIZ);
+    expect(sanitizeNextPath(url.searchParams.get("returnTo"))).toBe(url.searchParams.get("returnTo"));
+  });
+
+  it("every supported provider's Connect targets its own start route", async () => {
+    stubStatus(ALL_OFF);
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign, search: "" },
+      writable: true,
+      configurable: true,
+    });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-connect="meta"]')).not.toBeNull());
+
+    const expected: Record<string, string> = {
+      meta: "/api/oauth/meta/start",
+      google: "/api/oauth/google/start",
+      shopify: "/api/oauth/shopify/start",
+      ga4: "/api/oauth/google-analytics/start",
+      search_console: "/api/oauth/search_console/start",
+    };
+    for (const [provider, path] of Object.entries(expected)) {
+      assign.mockClear();
+      (document.querySelector(`[data-connect="${provider}"]`) as HTMLElement).click();
+      const url = new URL(assign.mock.calls[0][0] as string, "https://example.test");
+      expect(url.pathname, provider).toBe(path);
+    }
+  });
+
+  it("reconnect still appears, and only for a connection that needs it", async () => {
+    stub((call) => {
+      if (call.url.startsWith("/api/integrations/status")) {
+        return {
+          body: {
+            ...ALL_OFF,
+            meta: { status: "expired", message: "Meta needs re-authorization." },
+            google: { status: "connected", accountName: "Grandmix" },
+          },
+        };
+      }
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-reconnect="meta"]')).not.toBeNull());
+    // Connected providers offer neither control.
+    expect(document.querySelector('[data-connect="google"]')).toBeNull();
+    expect(document.querySelector('[data-reconnect="google"]')).toBeNull();
+    // A not_connected provider still offers Connect alongside.
+    expect(document.querySelector('[data-connect="shopify"]')).not.toBeNull();
+  });
+
+  it("a provider with no real start route stays unavailable and non-clickable", () => {
+    render(
+      <IntegrationsView
+        providers={[
+          { provider: "klaviyo" as never, label: "Klaviyo", state: { kind: "not_connected" } },
+        ]}
+        outcome={{ kind: "unstarted" }}
+        connectSupported={(provider) => oauthStartUrl({ provider, businessId: BIZ }) !== null}
+      />,
+    );
+    expect(document.querySelector('[data-connect="klaviyo"]')).toBeNull();
+    expect(document.querySelector('[data-connect-unavailable="klaviyo"]')!.textContent).toMatch(
+      /cannot be connected here/,
+    );
   });
 });

@@ -113,7 +113,14 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
    * 405 every time. The operator leaves for the provider and comes back, so
    * this navigates rather than mutating.
    */
-  const reconnect = useCallback(
+  /**
+   * Begin an authorization round trip.
+   *
+   * First-time connect and reconnect are the same OAuth start with the same
+   * sanitized returnTo — the provider does not distinguish them, and giving
+   * them separate paths would mean two chances to get the return wrong.
+   */
+  const beginOauth = useCallback(
     (provider: string) => {
       const url = oauthStartUrl({ provider, businessId });
       if (!url) {
@@ -269,7 +276,9 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
           onSave: (ids) => void saveAssignment(ids),
         }}
         unavailableReason={reason}
-        onReconnect={(provider) => void reconnect(provider)}
+        onReconnect={(provider) => beginOauth(provider)}
+        onConnect={(provider) => beginOauth(provider)}
+        connectSupported={(provider) => oauthStartUrl({ provider, businessId }) !== null}
       />
     </SurfaceStateBoundary>
   );

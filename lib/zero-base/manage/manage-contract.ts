@@ -240,8 +240,10 @@ export const OAUTH_START_PROVIDERS = {
 /**
  * Where the operator lands after the round trip.
  *
- * This is the surface that started the reconnect, carrying the provider so the
- * page knows which one to re-read. It is not an invented contract: every start
+ * This is the surface that started the authorization, carrying the provider so
+ * the page knows which one to re-read. The same path serves a first-time
+ * connect and a reconnect: the provider does not distinguish them, and two
+ * separate return paths would be two chances to get the return wrong. It is not an invented contract: every start
  * route sanitizes it into its OAuth state, every callback re-sanitizes it back
  * out, and the shared callback page redirects to it — so the parameter arrives
  * because the real flow carried it, not because the UI hoped for it.

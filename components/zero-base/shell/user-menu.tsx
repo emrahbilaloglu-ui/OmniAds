@@ -17,6 +17,7 @@ import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 export const USER_MENU_ITEMS = ["profile", "language", "theme", "logout"] as const;
 
 export function UserMenu({ name, onLogout }: { name: string; onLogout: () => void }) {
+  const t = useCopy();
   const copy = useCopy();
   return (
     <ZeroBasePopover
@@ -43,7 +44,7 @@ export function UserMenu({ name, onLogout }: { name: string; onLogout: () => voi
           {copy.language}
         </Link>
         <div data-user-menu-item="theme">
-          <p style={{ margin: "0 0 4px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Theme</p>
+          <p style={{ margin: "0 0 4px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{t.theme}</p>
           <ThemeControl />
         </div>
         <Button variant="secondary" onClick={onLogout} data-user-menu-item="logout">

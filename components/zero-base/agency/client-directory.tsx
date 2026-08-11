@@ -176,7 +176,7 @@ export function ClientDirectory({
         <TextInput
           label={copy.findAClient}
           value={query}
-          placeholder="Name"
+          placeholder={copy.name}
           onChange={(event) => setQuery(event.target.value)}
           hint={copy.filtersLoadedClients}
         />

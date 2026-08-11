@@ -23,6 +23,7 @@ import {
   type ZeroBaseSearchResult,
 } from "@/lib/zero-base/search-adapter";
 import type { CollectionEnvelope } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface SearchOverlayProps {
   open: boolean;
@@ -59,6 +60,7 @@ export function SearchOverlay({
   loading,
   permissionEmpty,
 }: SearchOverlayProps) {
+  const copy = useCopy();
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const items = envelope?.items ?? [];
@@ -95,7 +97,7 @@ export function SearchOverlay({
   );
 
   return (
-    <ZeroBaseSheet open={open} onOpenChange={onOpenChange} title="Search" side="bottom">
+    <ZeroBaseSheet open={open} onOpenChange={onOpenChange} title={copy.findAnything} side="bottom">
       <label htmlFor="zero-base-search-input" style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
         {SEARCH_SCOPE_LABEL}
       </label>

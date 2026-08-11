@@ -41,7 +41,7 @@ export function AccountSecurityView({
         </h2>
         <dl style={{ marginTop: 12, display: "grid", gap: 8 }}>
           <div>
-            <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Name</dt>
+            <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.name}</dt>
             <dd style={{ margin: 0, fontSize: 13 }}>{name}</dd>
           </div>
           <div>

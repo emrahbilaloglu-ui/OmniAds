@@ -109,7 +109,7 @@ export function OpsRepairPanel({
               {copy.runIt}
             </Button>
             <Button variant="quiet" data-repair-confirm-cancel={action} onClick={() => setConfirming(false)}>
-              Cancel
+              {copy.cancel}
             </Button>
           </div>
         </div>

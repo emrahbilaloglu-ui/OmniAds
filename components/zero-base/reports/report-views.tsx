@@ -168,7 +168,7 @@ export function ReportBuilderView({
         {message}
       </p>
 
-      <section aria-label="Name" style={{ marginTop: 12, maxWidth: 360 }}>
+      <section aria-label={copy.name} style={{ marginTop: 12, maxWidth: 360 }}>
         <TextInput
           label={copy.reportName}
           data-report-name=""

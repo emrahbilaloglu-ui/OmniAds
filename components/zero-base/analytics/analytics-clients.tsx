@@ -36,6 +36,7 @@ import {
   type SourcePanel,
 } from "@/lib/zero-base/analytics/analytics-contract";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 interface Props {
   businessId: string;
@@ -176,6 +177,7 @@ export function AnalyticsSourceClient({ businessId }: Props) {
 }
 
 export function AnalyticsLandingPagesClient({ businessId }: Props) {
+  const copy = useCopy();
   const { raw, reason, surface } = useEndpoint(
     "/api/analytics/landing-pages",
     businessId,
@@ -187,7 +189,7 @@ export function AnalyticsLandingPagesClient({ businessId }: Props) {
   return (
     <SurfaceStateBoundary state={surface}>
       <AnalyticsTableView
-        title="Landing pages"
+        title={copy.landingPages}
         panels={landingPanels}
         rows={
           adapted.ok

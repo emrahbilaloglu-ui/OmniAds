@@ -88,7 +88,7 @@ export function LaunchpadView({
 
       {/* ------------------------------------------------ disabled execution */}
       <section aria-label={copy.execution}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Launch</h2>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.launch}</h2>
         {actions.map((action) => (
           <div key={action.id} data-launch-action={action.id} style={{ marginTop: 8 }}>
             <Button
@@ -232,7 +232,7 @@ export function LaunchpadView({
                     {copy.duplicate}
                   </Button>
                   <Button variant="danger" data-template-delete={row.id} onClick={() => onDeleteTemplate?.(row.id)}>
-                    Delete
+                    {copy.deleteItem}
                   </Button>
                 </span>
               ),

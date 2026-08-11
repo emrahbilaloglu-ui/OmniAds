@@ -19,6 +19,7 @@ import type {
   EvidenceFreshness,
   TimezoneProof,
 } from "@/lib/workspace/workspace-context";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface ScopeFacts {
   businessName: string | null;
@@ -100,8 +101,9 @@ export function ScopeSheet({
   onOpenChange: (open: boolean) => void;
   facts: ScopeFacts;
 }) {
+  const copy = useCopy();
   return (
-    <ZeroBaseSheet open={open} onOpenChange={onOpenChange} title="Scope" side="bottom">
+    <ZeroBaseSheet open={open} onOpenChange={onOpenChange} title={copy.scope} side="bottom">
       <dl style={{ margin: "12px 0 0", display: "grid", gap: 10 }}>
         {scopeFactRows(facts).map((row) => (
           <div key={row.id} data-scope-fact={row.id}>

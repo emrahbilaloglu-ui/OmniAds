@@ -183,7 +183,7 @@ export function ZeroBaseDialog({
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
             <RadixDialog.Close asChild>
               <Button ref={cancelRef} variant="secondary">
-                Cancel
+                {copy.cancel}
               </Button>
             </RadixDialog.Close>
             <Button
@@ -330,6 +330,7 @@ export function ZeroBaseSheet({
   side?: SheetSide;
   children: ReactNode;
 }) {
+  const copy = useCopy();
   const container = useZeroBasePortalContainer();
   const onCloseAutoFocus = useFocusReturn(open);
   const fromRight = side === "right";
@@ -363,7 +364,7 @@ export function ZeroBaseSheet({
           {children}
           <RadixDialog.Close asChild>
             <Button variant="secondary" primaryTarget style={{ marginTop: 16 }}>
-              Close
+              {copy.close}
             </Button>
           </RadixDialog.Close>
         </RadixDialog.Content>

@@ -302,6 +302,8 @@ export const ZERO_BASE_COPY = {
     reCheck: "Re-check",
     metaHistory: "Meta History",
     metaActionHistory: "Meta action history",
+    whyAgencyNoTotals: "Why Agency shows no totals",
+    findAnything: "Find",
   },
 
   tr: {
@@ -571,6 +573,8 @@ export const ZERO_BASE_COPY = {
     reCheck: "Yeniden denetle",
     metaHistory: "Meta Geçmişi",
     metaActionHistory: "Meta işlem geçmişi",
+    whyAgencyNoTotals: "Ajans neden toplam göstermiyor",
+    findAnything: "Bul",
   },
 } as const;
 

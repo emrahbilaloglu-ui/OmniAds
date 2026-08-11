@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/zero-base/primitives/button";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export function LiveRegion({
   message,
@@ -76,6 +77,7 @@ export function MediaPlayer({
   onRetry: () => void;
   children?: ReactNode;
 }) {
+  const copy = useCopy();
   return (
     <div
       style={{
@@ -104,7 +106,7 @@ export function MediaPlayer({
             </p>
           ) : null}
           <Button variant="secondary" primaryTarget onClick={onRetry} style={{ marginTop: 8 }}>
-            Retry
+            {copy.retry}
           </Button>
         </div>
       ) : state === "playing" ? (

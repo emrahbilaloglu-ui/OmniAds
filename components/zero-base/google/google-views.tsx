@@ -67,11 +67,12 @@ export function GoogleSourceBadge({ state }: { state: GoogleSourceState }) {
 }
 
 export function GoogleMetric({ value, name }: { value: GoogleValue; name: string }) {
+  const t = useCopy();
   if (!value.available) {
     // Unavailable is not zero. A zero here would be a measurement nobody took.
     return (
       <span data-google-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
-        Not served
+        {t.notServed}
         <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
@@ -143,6 +144,7 @@ export function GoogleAdvisorView({
   items: readonly ServedAdvisorItem[];
   referenceCards: readonly ReferenceCard[];
 }) {
+  const t = useCopy();
   const copy = useCopy();
   const groups = groupAdvisor(items);
   return (
@@ -175,7 +177,7 @@ export function GoogleAdvisorView({
       ))}
 
       <section aria-label={copy.reference} style={{ marginTop: 24 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Reference — not enabled</h2>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.referenceNotEnabled}</h2>
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           These are proposals this product will not perform. They are shown so the reasoning is
           inspectable, not because a switch is pending.

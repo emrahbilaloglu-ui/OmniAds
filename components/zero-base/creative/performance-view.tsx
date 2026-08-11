@@ -24,11 +24,12 @@ import { CreativeMedia } from "@/components/zero-base/creative/creative-media";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 function Metric({ value, name }: { value: MetricValue; name: string }) {
+  const t = useCopy();
   if (!value.available) {
     // Never 0: an absent measurement and a measured zero are different facts.
     return (
       <span data-metric-unavailable={name} style={{ color: "var(--ledger-ink-tertiary)" }}>
-        Not served
+        {t.notServed}
         <span style={{ display: "block", fontSize: 12 }}>{value.reason}</span>
       </span>
     );
@@ -49,6 +50,7 @@ export function CreativePerformanceView({
   businessId: string;
   unavailableReason?: string | null;
 }) {
+  const t = useCopy();
   const copy = useCopy();
   const posture = postureView(model.posture);
 
@@ -138,7 +140,7 @@ export function CreativePerformanceView({
                     data-decision-link={row.creativeId}
                     style={{ color: "var(--ledger-accent-action)" }}
                   >
-                    Open in Decisions
+                    {t.openInDecisions}
                   </Link>
                 ) : (
                   <span data-decision-withheld={row.creativeId} style={{ color: "var(--ledger-ink-tertiary)" }}>

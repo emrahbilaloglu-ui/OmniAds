@@ -239,6 +239,7 @@ export function SharesView({
   error?: string | null;
   unavailableReason?: string | null;
 }) {
+  const t = useCopy();
   const copy = useCopy();
   const [title, setTitle] = useState("");
   const [audience, setAudience] = useState<"buyer" | "creator">("creator");
@@ -345,7 +346,7 @@ export function SharesView({
                     state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
                     onClick={() => onRevoke?.(row.token)}
                   >
-                    Revoke
+                    {t.revoke}
                   </Button>
                 </span>
               ) : (

@@ -45,7 +45,7 @@ export function WithheldExplainer() {
   return (
     <section>
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>
-        Why Agency shows no totals
+        {copy.whyAgencyNoTotals}
       </h2>
       <p style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", marginTop: 8 }}>
         Three specific facts are missing. Each is listed with what would unlock it, so this is a

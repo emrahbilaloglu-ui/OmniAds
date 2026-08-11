@@ -18,6 +18,7 @@ import {
   type CollectionEnvelope,
   type SurfaceState,
 } from "@/lib/zero-base/state-types";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface CollectionProps<T> {
   envelope: CollectionEnvelope<T>;
@@ -36,6 +37,7 @@ export function Collection<T>({
   loadingMore,
   onRetry,
 }: CollectionProps<T>) {
+  const copy = useCopy();
   const disclosure = envelope.disclosure ?? truncationDisclosure(envelope);
   const atEnd = envelope.nextCursor === null;
 
@@ -77,7 +79,7 @@ export function Collection<T>({
             onClick={onLoadMore}
             style={{ marginTop: 8 }}
           >
-            Load more
+            {copy.loadMore}
           </Button>
         ) : null}
 

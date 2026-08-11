@@ -68,3 +68,90 @@ describe("non-translatable terms survive on a Turkish surface", () => {
     }
   });
 });
+
+/* ------------------------------------------------- per-family EN/TR proof */
+
+import { IntegrationsView, TeamView } from "@/components/zero-base/manage/manage-views";
+import { ReportLibraryView } from "@/components/zero-base/reports/report-views";
+import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
+import { OpsRepairPanel } from "@/components/zero-base/ops/repair-panel";
+
+const NO_WRITE = { pending: null, error: null, confirmed: null };
+const ALLOWED = { ok: true } as const;
+
+/**
+ * One surface per family, rendered in both languages.
+ *
+ * Turkish runs longer than English for the same idea, so each case also asserts
+ * the Turkish string is genuinely present rather than the English fallback —
+ * a family that silently falls back would otherwise look translated.
+ */
+describe("every surface family renders EN and TR", () => {
+  /**
+   * `where` says how the string reaches the user: as visible text, or as an
+   * accessible name. Both must be translated — an aria-label left in English on
+   * a Turkish surface is exactly what a screen-reader user would hit.
+   */
+  const families: Array<{
+    name: string;
+    node: React.ReactNode;
+    key: keyof typeof ZERO_BASE_COPY.en;
+    where?: "text" | "aria";
+  }> = [
+    {
+      name: "reports",
+      key: "reportsTitle",
+      node: <ReportLibraryView reports={[]} />,
+    },
+    {
+      name: "manage/integrations",
+      key: "integrations",
+      node: <IntegrationsView providers={[]} outcome={{ kind: "unstarted" }} />,
+    },
+    {
+      name: "manage/team",
+      key: "teamTitle",
+      node: (
+        <TeamView
+          members={[]}
+          invites={[]}
+          accessRequests={[]}
+          workspaces={[]}
+          permissions={{ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }}
+          write={NO_WRITE}
+        />
+      ),
+    },
+    {
+      name: "agency",
+      key: "whyAgencyNoTotals",
+      node: <WithheldExplainer />,
+    },
+    {
+      name: "ops",
+      key: "repair",
+      where: "aria",
+      node: <OpsRepairPanel action="verify_webhooks" onRun={async () => ({ httpOk: true, status: 200, body: {}, transportFailed: false })} />,
+    },
+  ];
+
+  for (const family of families) {
+    const read = () =>
+      family.where === "aria"
+        ? Array.from(document.querySelectorAll("[aria-label]"))
+            .map((element) => element.getAttribute("aria-label") ?? "")
+            .join(" | ")
+        : document.body.textContent ?? "";
+
+    it(`${family.name} renders English`, () => {
+      renderIn("en", family.node);
+      expect(read()).toContain(ZERO_BASE_COPY.en[family.key]);
+    });
+
+    it(`${family.name} renders Turkish, with its real length`, () => {
+      renderIn("tr", family.node);
+      expect(read(), `${family.name} fell back to English`).toContain(ZERO_BASE_COPY.tr[family.key]);
+      expect(read()).not.toContain(ZERO_BASE_COPY.en[family.key]);
+    });
+  }
+});

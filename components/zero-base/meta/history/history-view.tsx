@@ -34,6 +34,7 @@ export function HistoryView({
   accountLabel?: string | null;
   unavailableReason?: string | null;
 }) {
+  const t = useCopy();
   const copy = useCopy();
   const anyReplayed = rows.some((row) => row.replayed);
 
@@ -116,10 +117,10 @@ export function HistoryView({
               render: (row) =>
                 row.replayed ? (
                   <span data-replayed={row.id} style={{ color: "var(--ledger-semantic-warn)" }}>
-                    Replayed
+                    {t.replayed}
                   </span>
                 ) : (
-                  <span data-recorded={row.id}>Recorded at the time</span>
+                  <span data-recorded={row.id}>{t.recordedAtTheTime}</span>
                 ),
             },
           ]}

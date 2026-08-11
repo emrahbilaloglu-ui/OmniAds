@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { DEFAULT_LANGUAGE, syncLanguageCookie } from "@/lib/i18n";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { PUBLIC_LANGUAGE_SELECTOR_LIMITATION } from "@/lib/zero-base/auth-states";
 
 function resolveDestination(nextPath: string | null) {
   const sanitized = sanitizeNextPath(nextPath);
@@ -38,10 +39,15 @@ export default function SelectLanguagePage() {
   return (
     <AuthSurface
       eyebrow="Workspace preference"
-      title="Applying language preference..."
-      description="Redirecting you to the right workspace route."
+      title="Taking you to your workspace"
+      /* This route is not a selector and never was: it writes the default
+         language and redirects. Calling it "Applying language preference"
+         implied the user had chosen something and it had been honoured. */
+      description="Language selection is not available here."
     >
-      <div className="h-2 rounded-full bg-neutral-100" />
+      <p className="ad-auth-alert ad-auth-alert-caution" data-language-limitation="">
+        {PUBLIC_LANGUAGE_SELECTOR_LIMITATION}
+      </p>
     </AuthSurface>
   );
 }

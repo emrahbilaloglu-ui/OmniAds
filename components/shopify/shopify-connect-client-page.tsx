@@ -7,6 +7,8 @@ import { AuthBootstrap } from "@/components/layout/auth-bootstrap";
 import { BusinessForm } from "@/components/business/BusinessForm";
 import { Button } from "@/components/ui/button";
 import { ProductSection, StateBanner } from "@/components/ui/product-surface";
+import { OAuthCallbackErrorPanel } from "@/components/zero-base/auth/auth-states";
+import { oauthCallbackErrorFrom } from "@/lib/zero-base/auth-states";
 import { useAppStore } from "@/store/app-store";
 import { applyAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { sanitizeNextPath } from "@/lib/auth-routing";
@@ -82,6 +84,10 @@ export function ShopifyConnectClientPage() {
   const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const oauthError = useMemo(
+    () => oauthCallbackErrorFrom(new URLSearchParams(searchParams.toString()), "Shopify"),
+    [searchParams],
+  );
   const autoFinalizeBusinessIdRef = useRef<string | null>(null);
 
   const contextToken = searchParams.get("context") ?? "";
@@ -301,6 +307,12 @@ export function ShopifyConnectClientPage() {
                   : "Shopify installation must start from Shopify App Store or Shopify Admin. Come back here only after Shopify redirects back with an install context."}
             </p>
           </div>
+
+          {/* A provider that refused the connection is a different fact from a
+              local error: nothing was linked, and the merchant's own account is
+              unchanged. The provider's code and description are shown verbatim
+              because a paraphrase loses what support needs. */}
+          {oauthError ? <OAuthCallbackErrorPanel error={oauthError} /> : null}
 
           {error ? (
             <StateBanner tone="danger" title="Connection needs attention">

@@ -8,9 +8,11 @@ import { logClientAuthEvent } from "@/lib/auth-diagnostics";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 import { AuthSurface } from "@/components/auth/auth-surface";
 import { AuthOnboardingArc } from "@/components/auth/onboarding-arc";
+import { useZeroBaseUi } from "@/components/zero-base/rollout-provider";
 
 export default function SelectBusinessPage() {
   const router = useRouter();
+  const { canonical } = useZeroBaseUi();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const businesses = useAppStore((state) => state.businesses);
@@ -84,7 +86,10 @@ export default function SelectBusinessPage() {
     if (id === selectedBusinessId || deleteLoading) return;
 
     const previousBusinessId = selectedBusinessId;
-    const destination = getPostSwitchDestination();
+    // Canonicalise onto the business just chosen. The legacy helper returns a
+    // surface-preserving path, which is right for legacy but wrong here: the
+    // canonical scope lives in the URL, so the destination must name it.
+    const destination = canonical ? `/c/${id}/home` : getPostSwitchDestination();
     selectBusiness(id);
 
     const response = await fetch("/api/auth/switch-business", {

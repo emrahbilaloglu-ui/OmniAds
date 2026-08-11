@@ -15,6 +15,8 @@ import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import type { ProviderScopeMode, WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
 import type { ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
+import { PostureNotice } from "@/components/zero-base/auth/auth-states";
+import { DEMO_BUSINESS_COPY, REVIEWER_READ_ONLY_COPY } from "@/lib/zero-base/auth-states";
 
 export function ClientShell({
   envelope,
@@ -67,6 +69,11 @@ export function ClientShell({
           />
         }
       >
+        {/* Posture is stated on the surface, not only in the rail footer: a
+            reviewer who cannot write, or a demo business whose numbers are
+            illustrative, must know before they read a chart. */}
+        {envelope.actor.reviewerReadOnly ? <PostureNotice text={REVIEWER_READ_ONLY_COPY} /> : null}
+        {envelope.actor.demo ? <PostureNotice text={DEMO_BUSINESS_COPY} /> : null}
         {children}
       </AppShell>
     </WorkspaceContextProvider>

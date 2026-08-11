@@ -8,6 +8,11 @@ import { getSessionFromCookies } from "@/lib/auth";
 import { getLanguageFromCookieValue, getPreferredLanguage, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 import { logStartupError } from "@/lib/startup-diagnostics";
 import { ledgerFontVariables } from "@/lib/design/fonts";
+import { ZeroBaseRolloutProvider } from "@/components/zero-base/rollout-provider";
+import {
+  isZeroBaseUiEnabledForInternal,
+  readZeroBaseRolloutConfig,
+} from "@/lib/zero-base/rollout";
 import {
   NO_FLASH_SCRIPT,
   THEME_ATTRIBUTE,
@@ -83,6 +88,14 @@ export default async function RootLayout({
   const themePreference = parseThemePreference(cookieStore.get(THEME_COOKIE_NAME)?.value);
   const serverTheme = resolveThemeForServer(themePreference);
 
+  // Read once, on the server, and handed down as inert data. Auth screens are
+  // client components and cannot read the environment themselves; exposing the
+  // flag via NEXT_PUBLIC_* would make it client-forgeable, which the plan
+  // forbids even for presentation.
+  const zeroBaseUi = {
+    canonical: isZeroBaseUiEnabledForInternal(readZeroBaseRolloutConfig()),
+  };
+
   return (
     <html
       lang={language}
@@ -105,10 +118,12 @@ export default async function RootLayout({
         <a href="#main-content" className="ad-skip-link">
           Skip to main content
         </a>
-        <QueryProvider>
-          <RouteRecoveryListener />
-          {children}
-        </QueryProvider>
+        <ZeroBaseRolloutProvider value={zeroBaseUi}>
+          <QueryProvider>
+            <RouteRecoveryListener />
+            {children}
+          </QueryProvider>
+        </ZeroBaseRolloutProvider>
       </body>
     </html>
   );

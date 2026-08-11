@@ -1,12 +1,15 @@
 # Phase E Implementation Report — WP-21 … WP-25
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase D accepted head:** `1d769b534` · **Phase E head:** `91bf1fbd8`
+**Phase D accepted head:** `1d769b534` · **Phase E head:** `8723609dc`
 **Authoritative plan:** SHA-256 verified `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`
 
-**Status: PHASE_E_BLOCKED.** WP-21, WP-22 and WP-23 are complete and proven.
-**WP-24 and WP-25 are not started.** Section 6 states exactly why I stopped
-rather than continuing.
+**Status: complete.** WP-21 through WP-25 are all implemented and proven.
+
+An earlier checkpoint of this report ended `PHASE_E_BLOCKED` with WP-24 and
+WP-25 unstarted, on grounds of remaining capacity. That was an honest report of
+where the work stood, but capacity is not a technical blocker — both are now
+built, and §6 records what each actually required.
 
 `/Users/harmelek/Adsecute` was not modified. Nothing was pushed, deployed, or
 migrated; no provider was contacted; no flag was enabled; no live data changed;
@@ -19,8 +22,8 @@ no prior commit was rewritten. WP-26 was not started.
 | 21 | `e948bfdd7` | Analytics, landing pages, SEO, GEO (4 routes) | 31 |
 | 22 | `a15dfc63c` | Reports library/builder/viewer/print/disabled share (5 routes) | 35 |
 | 23 | `91bf1fbd8` | Integrations, Team, Business, Plan + callback (5 routes) | 24 |
-| 24 | — | Ops shell and 16 Ops leaves | **not started** |
-| 25 | — | Public and marketing surfaces | **not started** |
+| 24 | `5328ac1b4` | Ops shell and all 16 Ops leaves | 39 + 6 Playwright |
+| 25 | `8723609dc` | Ten public and marketing surfaces | 16 + 6 Playwright |
 
 ## 1 · WP-21 — Analytics, landing pages, SEO, GEO · `e948bfdd7`
 
@@ -120,55 +123,118 @@ to `/api/billing`.
 | `/api/business-cost-model` | economics + read-only recommendedMode |
 | `/api/businesses/[businessId]` DELETE | delete + separate 404 read-back |
 | `/api/billing` | **zero call sites**, scan-proven |
+| `/api/admin/**` (16 Ops leaves) | reused via the mounted admin components; no Ops page issues its own fetch |
+| `/api/admin/integrations/health/shopify` PATCH | repair ceremony read from the real `{ok, action, actionResult}` shape; **no read-back exists and none is claimed** |
+| Public marketing pages | no session or business guard; root page's soft forward permitted explicitly |
 
-## 5 · Gates at `91bf1fbd8`
+## 5 · Gates at `8723609dc`
 
-typecheck 0 · lint 0 · **Vitest 8704 passed / 0 failed** (801 files; 61 skipped,
+typecheck 0 · lint 0 · **Vitest 8745 passed / 0 failed** (804 files; 61 skipped,
 63 todo pre-existing) · migrations-from-zero PASS with all DB seams ·
 selection-race seam PASS · creative:v2:safety 0 · frozen acceptance 22/22 ·
 contract verify / freshness / fonts 0 · zero-base contract 17/17 · design 26/26 ·
-responsive Playwright 72/72 · production build clean · credential-free smoke
-**83 passed / 3 failed**.
+responsive Playwright **84/84** (78 harness pages) · production build clean ·
+credential-free smoke **95 passed / 3 failed**.
 
-The three smoke failures are **identical to the accepted Phase D baseline**
-(83/3 there and here). They are pre-existing, need Meta and commercial data a
-credential-free cluster cannot hold, and are unchanged by Phase E.
+The three smoke failures are **identical to the accepted Phase D baseline** —
+3 failed there and here; the passing count rose from 83 to 95 purely from the
+new Phase E Playwright coverage. They are pre-existing, need Meta and commercial
+data a credential-free cluster cannot hold, and are unchanged by Phase E.
+
+Test growth across Phase E: 8586 (Phase D) → 8645 → 8680 → 8704 → 8729 → 8745.
 
 `git diff 1d769b534..HEAD` touches no resolver or decision-output file. No ADR
 was required and none was added.
 
-## 6 · Why I stopped — WP-24 and WP-25 are not started
+## 6 · WP-24 — Ops shell and all 16 Ops leaves · `5328ac1b4`
 
-WP-24 is 16 Ops leaves, each mirroring an `/admin` route through adapters, plus
-role gating, a buyer-link-count-zero proof, repair failure/progress/read-back
-semantics and 1280/768/390 coverage. WP-25 is ten public pages with legal and
-pricing snapshots that must remain byte/semantically unchanged.
+**Files.** `lib/zero-base/ops/{ops-routes,repair-ceremony}.ts`,
+`components/zero-base/ops/repair-panel.tsx`, `app/ops/layout.tsx` and 16
+`app/ops/**/page.tsx` routes, 2 test files.
 
-I did not have the remaining capacity to build either to the standard the
-instruction sets — mounted routes, real payload fixtures, and interaction
-evidence rather than isolated props. Phase D was rejected twice for exactly
-that gap, and producing two more work packages of unproven surface would repeat
-it at larger scale.
+**Operational logic is reused, never duplicated.** Each Ops leaf mounts the
+existing admin component, so confirmation, progress, error and read-back
+semantics are literally the same code and cannot drift from the behaviour they
+mirror. A test asserts every Ops page imports from `@/app/admin` or
+`@/components/admin`, and that none contains a `fetch` or an `/api/admin`
+string of its own. The one server-rendered admin page (release-authority)
+reuses its report and panel directly.
 
-What remains for each is listed rather than estimated:
+**The route matrix is data, not convention.** Sixteen tuples, each resolving in
+both directions, each with a real page file on disk, each legacy admin page
+still present. A tuple that resolved in a constant but had no route would be a
+404 an operator finds during an incident.
 
-**WP-24** — `/ops` shell plus 16 leaves; adapters over existing `/admin` auth,
-read models, actions and health boards; non-admin blocked; buyer navigation and
-link count to Ops = 0; every admin legacy-to-Ops tuple resolving; repair
-failure/progress/read-back with no false receipt; `/admin` left intact.
+**The gate is server-side**, using the same two guards as the admin shell —
+`getSessionFromCookies` and `isSuperadmin`. A client check would be a
+suggestion, not a boundary.
 
-**WP-25** — Ledger presentation across root/about/product/pricing/contact/
-privacy/terms/security/ai-transparency/demo; legal and pricing snapshots
-unchanged; public pages usable without a session; no product-only token leak;
-1440/390/320 coverage.
+**Buyer surfaces link to Ops zero times**, asserted by scanning every shipped
+zero-base component and `/c` route for an `/ops` path or the Ops surface token.
+
+**The repair ceremony preserves the real gap.** The admin PATCH answers
+`{ok:true, action, actionResult}` and performs **no read-back**. So the panel
+reports what the action returned, never prints a receipt, states that
+confirmation requires re-running the health check, and offers that re-check. A
+transport failure is **ambiguous** rather than refused, because the request may
+have reached the server and run. Adding a read-back would be changing
+semantics, which this work package forbids — naming the gap is the honest
+alternative. Flow J's incident path ends in a re-read at 1280/768/390 in both
+themes, with all four steps surviving every width.
+
+## 7 · WP-25 — Public and marketing surfaces · `8723609dc`
+
+**Files.** `lib/zero-base/marketing/ledger-marketing.ts`,
+`scripts/zero-base/capture-marketing-snapshots.ts`, `app/marketing-ledger.css`,
+scope attributes on `app/page.tsx`, `app/(marketing)/layout.tsx` and
+`components/legal/PublicLegalPage.tsx`, 1 test file.
+
+**The order mattered.** A copy snapshot was captured **before any edit** — 575
+fragments across all ten pages — and is asserted equal afterwards, with the
+claim-bearing pages (pricing, security, privacy, terms, ai-transparency) named
+separately so a failure says which contract broke. Extracting rendered text
+rather than hashing files means a pure styling edit may change the source while
+the words cannot move.
+
+**Presentation is scoped and rollbackable.** Everything lives under
+`[data-adc-marketing]`, attached at exactly three roots that cover all ten
+pages. Every rule is asserted scoped, and the stylesheet declares only an
+allowed token subset — a public visitor has no session, no theme cookie and no
+business scope, so the file must stand alone.
+
+**Both leakage directions are guarded**: no workspace shell, ops shell or
+business scope in any public page (asserted per file and by a DOM check at
+every width), and the marketing stylesheet asserted absent from the workspace
+shell.
+
+**One distinction the tests had to get right.** The root page reads the session
+to forward an already-signed-in visitor, then falls straight through
+(`if (!session) return;`). That is a soft forward, not a gate, and flagging it
+would have been wrong — so the check permits exactly that shape for
+`getSessionFromCookies` while still refusing the business and admin guards,
+which redirect unconditionally.
+
+EN/TR is reported from what each file actually branches on rather than assumed
+from the product supporting both.
+
+**Visual coverage** at 1440/390/320 in light and dark asserts the typography is
+really applied (body ≥15px, line height >1.4, bounded measure, heading larger
+than body), that focus is visible for a keyboard visitor, and that nothing
+scrolls sideways at 320 — with long legal prose as the hard case.
 
 ## 7 · Rollback
 
 ```
+git revert 8723609dc   # WP-25
+git revert 5328ac1b4   # WP-24
 git revert 91bf1fbd8   # WP-23
 git revert a15dfc63c   # WP-22
 git revert e948bfdd7   # WP-21
 ```
+
+WP-25 is additionally rollbackable by hand: delete `app/marketing-ledger.css`
+and the three `data-adc-marketing` attributes. WP-24 reverting leaves `/admin`
+untouched, since it was never modified.
 
 Each is an additive set of canonical routes; reverting one leaves the others and
 all legacy surfaces working. No server behaviour was changed in Phase E — the
@@ -176,7 +242,10 @@ report share route was exercised, not modified.
 
 ## 8 · Limitations
 
-1. **WP-24 and WP-25 are not started** (§6).
+1. **The Ops repair action still has no read-back.** That is a property of the
+   existing admin endpoint, preserved deliberately: the surface reports what the
+   action returned and says confirmation requires re-running the health check.
+   Adding one would change operational semantics, which WP-24 forbids.
 2. The three legacy smoke failures in §5 remain, unchanged from Phase D.
 3. These routes compose client-side over existing endpoints, matching the
    pattern accepted in Phases C and D.
@@ -186,7 +255,15 @@ report share route was exercised, not modified.
 5. Report viewer/print read `/api/reports/[reportId]`; where that endpoint does
    not serve per-widget rows, widgets render their empty grammar rather than
    fabricated data.
+6. **Marketing copy equality is proven at the source level**, by extracting
+   rendered text from each page file and comparing to the pre-change snapshot.
+   It does not execute the pages, so a claim that is composed at runtime from a
+   data file outside these ten pages is outside the snapshot's reach.
+7. **The Ops leaves inherit the legacy admin components' own language and
+   layout.** WP-24 adapts the shell; restyling each admin board's internals
+   would have meant editing operational components, which is exactly what the
+   work package forbids.
 
 ## 9 · Worktree state
 
-Clean and fully committed at `91bf1fbd8`. Nothing was pushed.
+Clean and fully committed at `8723609dc`. Nothing was pushed.

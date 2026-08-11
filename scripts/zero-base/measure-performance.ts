@@ -22,9 +22,9 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-import { SHARED_BASELINE_BUDGET_KB } from "@/lib/zero-base/performance-budgets";
+import { SHARED_BASELINE_INVESTIGATION_KB } from "@/lib/zero-base/performance-budgets";
 
-export { SHARED_BASELINE_BUDGET_KB };
+export { SHARED_BASELINE_INVESTIGATION_KB };
 
 export interface RouteBundle {
   route: string;
@@ -89,15 +89,15 @@ if (isMain) {
     console.log(`    ${kb(route.bytes).padStart(10)}  ${route.route}`);
   }
 
-  const overBaseline = bundles.sharedBytes / 1024 > SHARED_BASELINE_BUDGET_KB;
+  const overBaseline = bundles.sharedBytes / 1024 > SHARED_BASELINE_INVESTIGATION_KB;
   console.log("");
   if (overBaseline) {
     console.log(
-      `  NOTE: shared baseline ${kb(bundles.sharedBytes)} exceeds the ${SHARED_BASELINE_BUDGET_KB} KB` +
-        " investigation threshold.",
+      `  DIAGNOSTIC: shared baseline ${kb(bundles.sharedBytes)} is above the ${SHARED_BASELINE_INVESTIGATION_KB} KB` +
+        " local investigation trigger. This is not a plan gate; G11 is vitals plus no unbounded N+1.",
     );
   } else {
-    console.log(`  ok    shared baseline is within the ${SHARED_BASELINE_BUDGET_KB} KB threshold`);
+    console.log(`  ok    shared baseline is below the ${SHARED_BASELINE_INVESTIGATION_KB} KB investigation trigger`);
   }
   console.log(
     "\nVitals (LCP/CLS/TBT) are measured against the running server by\n" +

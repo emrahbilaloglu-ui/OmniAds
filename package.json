@@ -181,7 +181,9 @@
     "zero-base:reconcile:frames": "node --import tsx scripts/zero-base/reconcile-frames.ts",
     "zero-base:reconcile:flows": "node --import tsx scripts/zero-base/reconcile-flows.ts",
     "test:zero-base:flows": "vitest run components/zero-base/flows/flow-matrix.test.tsx && node --import tsx scripts/zero-base/reconcile-flows.ts",
-    "test:zero-base:locale": "vitest run lib/zero-base/copy.test.ts components/zero-base/i18n && node --import tsx scripts/zero-base/verify-locale-coverage.ts"
+    "test:zero-base:locale": "vitest run lib/zero-base/copy.test.ts components/zero-base/i18n && node --import tsx scripts/zero-base/verify-locale-coverage.ts",
+    "zero-base:seed:roles": "node scripts/zero-base/seed-role-matrix.mjs",
+    "test:zero-base:routes:roles": "node --import tsx scripts/zero-base/route-role-matrix.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

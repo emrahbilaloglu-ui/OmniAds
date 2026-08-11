@@ -2667,6 +2667,16 @@ async function main() {
       "decision-bound provider target DB seam check",
     );
 
+    // Public creative share lifecycle. Rotation atomicity and the "every dead
+    // state looks the same" property are claims about a transaction and a SQL
+    // predicate, so a mocked store proves neither.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-public-share-seam-child.ts"),
+      "public creative share DB seam check",
+    );
+
     // Agency directory keyset pagination. Only real PostgreSQL can prove that
     // the ORDER BY producing a cursor and the comparison consuming it agree —
     // collation, tie-breaks, duplicate and accented names included.

@@ -29,6 +29,11 @@ import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
 import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
+import {
+  PublicSharePage,
+  PublicShareUnavailable,
+} from "@/components/zero-base/creative/public-share-page";
+import { toPublicShare } from "@/lib/zero-base/creative/public-share";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { buildProviderPostures } from "@/lib/zero-base/meta/automation-posture";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
@@ -181,6 +186,89 @@ function automationMirrorMarkup(width: number): string {
       />,
     ),
   );
+}
+
+/** The public share, as a stranger sees it, from a real payload shape. */
+function publicShareMarkup(width: number): string {
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <PublicSharePage
+        share={toPublicShare({
+          token: "tok",
+          title: "Q3 creatives",
+          dateRange: "2026-07-01..2026-07-31",
+          createdAt: "2026-08-01",
+          expiresAt: "2026-09-01",
+          businessId: "biz-internal-9f2c",
+          providerAccountId: "act_internal_7781",
+          businessName: "Acme Internal Workspace",
+          clientEmail: "finance@acme-internal.example",
+          metrics: [],
+          includeNotes: false,
+          audience: "buyer",
+          creatives: [
+            {
+              id: "cr-internal-1",
+              name: "Hero video",
+              format: "video",
+              previewState: "preview",
+              isCatalog: false,
+              previewUrl: null,
+              imageUrl: null,
+              thumbnailUrl: null,
+              preview: {
+                render_mode: "video",
+                image_url: null,
+                video_url: "https://cdn.example/hero.mp4",
+                poster_url: null,
+                source: "preview_url",
+                is_catalog: false,
+              },
+              launchDate: "2026-07-01",
+              tags: [],
+              spend: 100,
+              purchaseValue: 300,
+              roas: 3,
+              cpa: 10,
+              ctrAll: 1.2,
+              purchases: 10,
+            },
+            {
+              id: "cr-internal-2",
+              name: "Static banner",
+              format: "image",
+              previewState: "unavailable",
+              isCatalog: false,
+              previewUrl: null,
+              imageUrl: null,
+              thumbnailUrl: null,
+              preview: {
+                render_mode: "unavailable",
+                image_url: null,
+                video_url: null,
+                poster_url: null,
+                source: null,
+                is_catalog: false,
+              },
+              launchDate: "2026-07-01",
+              tags: [],
+              spend: 5,
+              purchaseValue: 0,
+              roas: 0,
+              cpa: 0,
+              ctrAll: 0,
+              purchases: 0,
+            },
+          ],
+        } as never)}
+      />,
+    ),
+  );
+}
+
+function publicShareGoneMarkup(width: number): string {
+  return frame(width, renderToStaticMarkup(<PublicShareUnavailable />));
 }
 
 function historyMarkup(width: number): string {
@@ -558,6 +646,8 @@ function main() {
   // The remaining Flow I surfaces and the mirror provider case.
   for (const [name, markup] of [
     ["automation-mirror", automationMirrorMarkup],
+    ["public-share", publicShareMarkup],
+    ["public-share-gone", publicShareGoneMarkup],
     ["history", historyMarkup],
     ["intelligence", intelligenceMarkup],
   ] as const) {

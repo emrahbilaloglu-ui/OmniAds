@@ -1,50 +1,50 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { cookies } from "next/headers";
-import { PublicCreativeSharePage } from "@/components/creatives/PublicCreativeSharePage";
-import { MOCK_SHARE_PAYLOAD } from "@/components/creatives/shareCreativeMock";
+
+import {
+  PublicSharePage,
+  PublicShareUnavailable,
+} from "@/components/zero-base/creative/public-share-page";
 import { getCreativeShareSnapshot } from "@/lib/creative-share-store";
-import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
+import { toPublicShare } from "@/lib/zero-base/creative/public-share";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
 
+/**
+ * Page metadata is deliberately constant.
+ *
+ * Deriving a title from the share would publish the workspace's own words to
+ * anyone who fetches the page — including link unfurlers and crawlers — and
+ * would also differ between a live token and a dead one, which is a way of
+ * telling a stranger that a dead link was once real.
+ */
 export const metadata: Metadata = {
-  title: "Shared Creatives",
+  title: "Shared creatives",
   robots: { index: false, follow: false },
 };
 
 /**
- * Public share page — no auth required.
+ * The public creative share — no auth, and no workspace identity.
+ *
+ * Everything the page renders comes from `toPublicShare`, which drops the
+ * internal ids, the workspace name and the contact address rather than merely
+ * not rendering them. The route itself never touches those fields.
+ *
+ * Every failure — expired, revoked, rotated away, malformed, never existed —
+ * returns the same composition. `getCreativeShareSnapshot` already collapses
+ * them into a single null, and the page keeps them collapsed: telling a
+ * stranger which one occurred confirms the link was once real.
  */
 export default async function ShareCreativePage({
   params,
 }: {
   params: Promise<{ token: string }>;
 }) {
-  const language = getLanguageFromCookieValue((await cookies()).get(LANGUAGE_COOKIE_NAME)?.value);
   const { token } = await params;
-  const payload = token === MOCK_SHARE_PAYLOAD.token
-    ? MOCK_SHARE_PAYLOAD
-    : await getCreativeShareSnapshot(token, { recordOpen: true });
-  if (!payload) {
-    return (
-      <div className="ad-client-panel">
-        <main className="ad-client-empty-state">
-          <div className="ad-client-card">
-            <h1>{language === "tr" ? "Paylaşim linki bulunamadi veya süresi doldu" : "Share link not found or expired"}</h1>
-            <p>
-              {language === "tr" ? "Bu paylaşılan creative çıktıları süresi dolmuş olabilir veya URL geçersiz olabilir." : "This shared creatives export may have expired or the URL is invalid."}
-            </p>
-            <Link href="/">
-              {language === "tr" ? "Adsecute'e don" : "Back to Adsecute"}
-            </Link>
-          </div>
-        </main>
-      </div>
-    );
-  }
 
-  return <PublicCreativeSharePage payload={payload} language={language} />;
+  const payload = await getCreativeShareSnapshot(token, { recordOpen: true }).catch(() => null);
+  if (!payload) return <PublicShareUnavailable />;
+
+  return <PublicSharePage share={toPublicShare(payload)} />;
 }

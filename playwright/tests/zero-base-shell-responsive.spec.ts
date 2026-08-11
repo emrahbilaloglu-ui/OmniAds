@@ -523,3 +523,94 @@ for (const width of [1440, 390, 320]) {
     });
   }
 }
+
+/**
+ * BLOCKER 1 · the public creative share at desktop, 390 and 320.
+ *
+ * The fixture carries workspace identity in the stored payload deliberately —
+ * a business id, a provider account, the workspace name and a contact address —
+ * so these assertions prove the sanitizer, not merely a payload that had
+ * nothing to leak.
+ */
+for (const width of [1440, 390, 320]) {
+  for (const theme of THEMES) {
+    test(`public creative share — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `public-share-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        overflow.scrollWidth,
+        `public share scrolls horizontally at ${width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth);
+
+      // Complete media state: the served video plays, the unserved one says so.
+      await expect(page.locator('[data-share-media="video"]')).toBeVisible();
+      await expect(page.locator('[data-share-media="missing"]')).toContainText("No preview");
+      expect(await page.locator('[data-share-media="video"]').getAttribute("controls")).not.toBeNull();
+
+      // No captions track anywhere: the payload contract serves none.
+      expect(await page.locator("track").count()).toBe(0);
+
+      // Buyer disclosure travels with the numbers it qualifies.
+      await expect(page.locator("[data-share-financial-warning]")).toContainText(
+        "attribution-window dependent",
+      );
+
+      // Nothing of the workspace survives into what a stranger can read.
+      const html = await page.content();
+      for (const secret of [
+        "biz-internal-9f2c",
+        "act_internal_7781",
+        "Acme Internal Workspace",
+        "finance@acme-internal.example",
+        "cr-internal-1",
+      ]) {
+        expect(html, secret).not.toContain(secret);
+      }
+
+      await context.close();
+    });
+
+    test(`public creative share unavailable — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `public-share-gone-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+
+      await expect(page.locator('[data-public-share="unavailable"]')).toContainText(
+        "expired, been withdrawn, or never existed",
+      );
+      // The cause is never named, so a dead link tells a stranger nothing.
+      const body = (await page.locator("body").innerText()).toLowerCase();
+      for (const word of ["revoked by", "rotated", "workspace"]) {
+        expect(body, word).not.toContain(word);
+      }
+
+      await context.close();
+    });
+  }
+}

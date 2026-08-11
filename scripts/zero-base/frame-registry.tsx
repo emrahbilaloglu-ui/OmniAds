@@ -30,6 +30,10 @@ import React from "react";
 import { CeremonyResult, IntegrationsView, TeamView, BusinessView, PlanView } from "@/components/zero-base/manage/manage-views";
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
 import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import {
+  MutationCeremonyPanel,
+  type Step as CeremonyStep,
+} from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 import { GooglePlanView } from "@/components/zero-base/google/plan-view";
 import { GoogleOverviewView, GoogleAdvisorView } from "@/components/zero-base/google/google-views";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
@@ -694,6 +698,113 @@ const mediaBoard = () => (
   </div>
 );
 
+
+/* ------------------------------------------------- manual write ceremony */
+
+const CEREMONY_TARGET = {
+  grain: "adset" as const,
+  entityId: "23851234567890123",
+  providerAccountId: "act_298410771",
+  status: "ACTIVE",
+};
+
+const CEREMONY_DISPATCH = {
+  path: "/api/meta/adsets/23851234567890123/apply-bid",
+  body: { adsetId: "23851234567890123", accountId: "act_298410771" },
+  operatorFields: [
+    {
+      name: "bidAmountMinor" as const,
+      kind: "minor_amount" as const,
+      label: "New bid (USD)",
+      currency: "USD",
+      required: true as const,
+    },
+  ],
+  issuedAt: "2026-08-09T07:10:00Z",
+  note: "Meta applies budget changes at the ad set, never at the ad.",
+};
+
+const ceremonySeed = () => ({
+  businessId: "biz",
+  enabled: true as const,
+  viewer: { isReviewer: false, demo: false, role: "admin" as const },
+  preflight: async () => ({
+    ok: true as const,
+    target: CEREMONY_TARGET,
+    verdict: "ready" as const,
+    detail: "The ad set is active and matches the decision it was bound to.",
+    checkedAt: "2026-08-09T07:10:00Z",
+    dispatch: CEREMONY_DISPATCH,
+  }),
+  dispatch: async () => ({
+    outcome: "verified" as const,
+    durable: true,
+    reference: "mut_01J9F2K3",
+    detail: "The confirming read shows the new daily budget.",
+  }),
+  newMutationId: () => "mut_01J9F2K3",
+  now: () => new Date("2026-08-09T07:12:00Z"),
+});
+
+const ceremonyRow = {
+  id: "d1",
+  level: "adset" as const,
+  title: "Prospecting — Broad US",
+  decision: "Scale up — 7-day ROAS 3.4 vs target 2.6",
+  why: "Seven-day ROAS is above target and pace is +18%.",
+  recommendedAction: "Raise the daily budget by 20%.",
+  confidence: "high" as const,
+  confidenceReason: null,
+  decisionState: "act" as const,
+  campaignName: "Prospecting — Broad US",
+  adsetName: "Broad US 25-54",
+  held: false,
+  heldReason: null,
+};
+
+/** Each ceremony artboard is one of its addressable states. */
+const ceremony = (step: CeremonyStep) => (
+  <MutationCeremonyPanel row={ceremonyRow} seed={ceremonySeed()} initialStep={step} />
+);
+
+const CEREMONY_COLLECT: CeremonyStep = {
+  kind: "collect",
+  action: "bid" as const,
+  dispatch: CEREMONY_DISPATCH,
+  target: CEREMONY_TARGET,
+  checkedAt: "2026-08-09T07:10:00Z",
+};
+
+const CEREMONY_CONFIRM: CeremonyStep = {
+  kind: "confirm",
+  action: "bid",
+  dispatch: CEREMONY_DISPATCH,
+  target: CEREMONY_TARGET,
+  checkedAt: "2026-08-09T07:10:00Z",
+};
+
+const CEREMONY_RECEIPT: CeremonyStep = {
+  kind: "terminal",
+  action: "bid" as const,
+  answer: {
+    outcome: "verified",
+    durable: true,
+    reference: "mut_01J9F2K3",
+    detail: "The confirming read shows the new daily budget.",
+  },
+};
+
+const CEREMONY_RECONCILE: CeremonyStep = {
+  kind: "terminal",
+  action: "bid" as const,
+  answer: {
+    outcome: "provider_outcome_ambiguous",
+    durable: true,
+    reference: "mut_01J9F2K3",
+    detail: "The confirming read did not complete; the attempt is recorded but unsettled.",
+  },
+};
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -799,10 +910,10 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => decisions("d1") },
   { id: "H11", leaf: "L-C-META-DEC", state: "workflow-in-flight", width: 1440, theme: "light", render: () => <LoadingState label="Applying the workflow transition" /> },
   { id: "H12", leaf: "L-C-META-DEC", state: "conflict", width: 1440, theme: "light", render: () => <ErrorState reason="This decision changed while you were reading it." code="conflict" /> },
-  { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => repair({ blockedReason: "The preflight is older than 15 minutes. Run it again before acting." }) },
-  { id: "H14", leaf: "L-C-META-WRITE", state: "ceremony-confirm", width: 1440, theme: "light", render: () => <CeremonyResult outcome={{ kind: "submitted" }} name="write" /> },
-  { id: "H15", leaf: "L-C-META-WRITE", state: "ceremony-confirmed", width: 1440, theme: "light", render: () => <CeremonyResult outcome={{ kind: "confirmed", detail: "The re-read confirms the change." }} name="write" /> },
-  { id: "H16", leaf: "L-C-META-WRITE", state: "ceremony-unknown", width: 1440, theme: "light", render: () => <CeremonyResult outcome={{ kind: "unknown", detail: "The confirming read did not complete." }} name="write" /> },
+  { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => ceremony(CEREMONY_COLLECT) },
+  { id: "H14", leaf: "L-C-META-WRITE", state: "ceremony-confirm", width: 1440, theme: "light", render: () => ceremony(CEREMONY_CONFIRM) },
+  { id: "H15", leaf: "L-C-META-WRITE", state: "ceremony-receipt", width: 1440, theme: "light", render: () => ceremony(CEREMONY_RECEIPT) },
+  { id: "H16", leaf: "L-C-META-WRITE", state: "ceremony-reconciliation", width: 1440, theme: "light", render: () => ceremony(CEREMONY_RECONCILE) },
 
   /* ---- H17–H20: intelligence, history, automation ---- */
   { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} /> },

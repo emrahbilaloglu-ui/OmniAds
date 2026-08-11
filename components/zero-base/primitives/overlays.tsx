@@ -81,6 +81,8 @@ export interface ZeroBaseDialogProps {
   destructive?: boolean;
   /** When set, the exact phrase must be typed before confirm enables. */
   confirmPhrase?: string;
+  /** Contract key the confirm control satisfies, named by the caller. */
+  confirmCtl?: string;
   /** Verbatim failure text. The dialog stays open so nothing is lost. */
   error?: string | null;
   submitting?: boolean;
@@ -96,6 +98,7 @@ export function ZeroBaseDialog({
   onConfirm,
   destructive,
   confirmPhrase,
+  confirmCtl,
   error,
   submitting,
 }: ZeroBaseDialogProps) {
@@ -189,6 +192,7 @@ export function ZeroBaseDialog({
             <Button
               variant={destructive ? "danger" : "primary"}
               state={confirmState}
+              data-ctl={confirmCtl}
               onClick={onConfirm}
             >
               {confirmLabel}

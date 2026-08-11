@@ -90,7 +90,16 @@ export type DispatchAnswer = {
   detail: string;
 };
 
-type Step =
+/**
+ * A step of the ceremony.
+ *
+ * Exported because each one is a **named, addressable state**, not merely a
+ * transient. A receipt survives a reload; a stale preflight is a state an
+ * operator can return to. Callers that already know which state applies — a
+ * resumed attempt, a captured artboard — construct the panel in it rather than
+ * having to drive the whole sequence forward to reach it.
+ */
+export type Step =
   | { kind: "idle" }
   | { kind: "preflighting"; action: MutationAction }
   | { kind: "refused"; action: MutationAction; code: string; message: string }
@@ -128,12 +137,15 @@ const TYPED_PHRASE: Record<MutationAction, string> = {
 export function MutationCeremonyPanel({
   row,
   seed,
+  initialStep,
 }: {
   row: DecisionRow;
   seed: MutationCeremonySeed;
+  /** The state to open in. Defaults to the start of the ceremony. */
+  initialStep?: Step;
 }) {
   const t = useCopy();
-  const [step, setStep] = useState<Step>({ kind: "idle" });
+  const [step, setStep] = useState<Step>(initialStep ?? { kind: "idle" });
   const [announcement, setAnnouncement] = useState("");
   const [copied, setCopied] = useState(false);
   const [values, setValues] = useState<OperatorValues>({});
@@ -345,6 +357,14 @@ export function MutationCeremonyPanel({
 
       {step.kind === "collect" ? (
         <div data-mutation-step="collect" data-el="before-after" style={{ display: "grid", gap: 10 }}>
+          {/* How old the check is, always — an operator deciding whether to act
+              needs it before the check goes stale, not only after. */}
+          <p
+            data-el="preflight-age"
+            style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+          >
+            Checked at {step.checkedAt} against persisted state. Meta was not contacted.
+          </p>
           {step.dispatch.note ? (
             <p data-mutation-note="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {step.dispatch.note}
@@ -389,6 +409,29 @@ export function MutationCeremonyPanel({
             >
               Review {step.action}
             </Button>
+            <Button
+              variant="secondary"
+              data-mutation-recheck=""
+              data-ctl="live:META-WRITE-06 rerun"
+              onClick={() => void startPreflight(step.action)}
+              style={{ marginLeft: 6 }}
+            >
+              {t.reCheck}
+            </Button>
+            <Button
+              variant="quiet"
+              data-mutation-cancel=""
+              data-ctl="live:cancel"
+              onClick={() => {
+                setStep({ kind: "idle" });
+                setValues({});
+                setProblems([]);
+                triggerRefs.current[step.action]?.focus();
+              }}
+              style={{ marginLeft: 6 }}
+            >
+              {t.cancel}
+            </Button>
           </div>
         </div>
       ) : null}
@@ -425,6 +468,12 @@ export function MutationCeremonyPanel({
         <TerminalPanel
           outcome={step.answer}
           action={step.action}
+          onDone={() => {
+            const action = step.action;
+            setStep({ kind: "idle" });
+            setValues({});
+            triggerRefs.current[action]?.focus();
+          }}
           onRetry={
             retryAllowed(step.answer.outcome)
               ? () => void startPreflight(step.action)
@@ -464,6 +513,7 @@ export function MutationCeremonyPanel({
           ) : undefined
         }
         confirmLabel={step.kind === "confirm" ? step.action : "Confirm"}
+        confirmCtl="gated:META-WRITE-02 submit"
         destructive={step.kind === "confirm" && step.action === "pause"}
         // Resuming spend and changing a bid take a typed phrase; pausing and
         // duplicating are acknowledged.
@@ -484,12 +534,15 @@ function TerminalPanel({
   outcome,
   action,
   onRetry,
+  onDone,
   copied,
   onCopy,
 }: {
   outcome: DispatchAnswer;
   action: MutationAction;
   onRetry: (() => void) | null;
+  /** Closes the ceremony and returns focus to the action that opened it. */
+  onDone: () => void;
   copied: boolean;
   onCopy: () => void;
 }) {
@@ -499,6 +552,9 @@ function TerminalPanel({
     <div
       data-mutation-step="terminal"
       data-mutation-outcome={outcome.outcome}
+      // Ambiguous is the reconciliation state: recorded, but not settled either
+      // way, and it must not read as either success or failure.
+      data-el={outcome.outcome === "provider_outcome_ambiguous" ? "reconciliation-state" : undefined}
       style={{ display: "grid", gap: 6, fontSize: 12.5 }}
     >
       <strong style={{ fontWeight: 600 }}>{copy.title}</strong>
@@ -506,6 +562,12 @@ function TerminalPanel({
       <span data-mutation-detail="" data-el="receipt" style={{ color: "var(--ledger-ink-tertiary)" }}>
         {outcome.detail}
       </span>
+
+      <div>
+        <Button variant="secondary" data-mutation-done="" data-ctl="live:done" onClick={onDone}>
+          Done
+        </Button>
+      </div>
 
       {receipt ? (
         <div>

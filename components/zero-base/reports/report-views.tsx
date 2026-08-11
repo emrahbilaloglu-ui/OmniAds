@@ -44,19 +44,29 @@ export interface ReportSummary {
 
 export function ReportLibraryView({
   reports,
+  businessId,
   onCreate,
   onDuplicate,
+  onDelete,
+  onLoadMore,
+  totalCount,
   unavailableReason,
 }: {
   reports: readonly ReportSummary[];
+  businessId?: string;
   onCreate?: () => void;
   onDuplicate?: (id: string) => void;
+  /** Absent when the actor cannot delete; the control states the reason. */
+  onDelete?: (id: string) => void;
+  onLoadMore?: () => void;
+  /** Reports the server said exist. Null means it did not say. */
+  totalCount?: number | null;
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
   if (unavailableReason) {
     return (
-      <div data-reports-surface="library">
+      <div data-reports-surface="library" data-el="reports-lib">
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{copy.reportsTitle}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -68,7 +78,12 @@ export function ReportLibraryView({
     <div data-reports-surface="library">
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
       <div style={{ marginTop: 12 }}>
-        <Button variant="secondary" data-report-create="" onClick={onCreate}>
+        <Button
+          variant="secondary"
+          data-report-create=""
+          data-ctl="live:REPORT-13 new"
+          onClick={onCreate}
+        >
           {copy.newReport}
         </Button>
       </div>
@@ -79,19 +94,62 @@ export function ReportLibraryView({
       ) : (
         <div style={{ marginTop: 16 }}>
           <DataTable
+            collection="reports"
             caption={copy.reportsTitle}
             rows={[...reports]}
             rowKey={(row) => row.id}
             columns={[
-              { id: "name", header: "Report", render: (row) => row.name },
+              {
+                id: "name",
+                header: "Report",
+                render: (row) => (
+                  <a
+                    href={`/c/${businessId ?? "b"}/reports/${row.id}`}
+                    data-ctl="live:REPORT-08 open"
+                    style={{ color: "var(--ledger-accent-action)" }}
+                  >
+                    {row.name}
+                  </a>
+                ),
+              },
               { id: "updated", header: "Updated", render: (row) => row.updatedAt },
               {
                 id: "actions",
                 header: "Actions",
                 render: (row) => (
-                  <Button variant="secondary" data-report-duplicate={row.id} onClick={() => onDuplicate?.(row.id)}>
-                    {copy.duplicate}
-                  </Button>
+                  <span style={{ display: "inline-flex", gap: 6 }}>
+                    <a
+                      href={`/c/${businessId ?? "b"}/reports/${row.id}/edit`}
+                      data-ctl="live:REPORT-02 edit"
+                      style={{ color: "var(--ledger-accent-action)", alignSelf: "center" }}
+                    >
+                      {copy.edit}
+                    </a>
+                    <Button
+                      variant="secondary"
+                      data-report-duplicate={row.id}
+                      data-ctl="live:REPORT-01 duplicate"
+                      onClick={() => onDuplicate?.(row.id)}
+                    >
+                      {copy.duplicate}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      data-report-delete={row.id}
+                      data-ctl="gated:REPORT-01 delete"
+                      state={
+                        onDelete
+                          ? { kind: "enabled" }
+                          : {
+                              kind: "disabled",
+                              reason: "Deleting a report needs an admin role on this business.",
+                            }
+                      }
+                      onClick={() => onDelete?.(row.id)}
+                    >
+                      {copy.delete}
+                    </Button>
+                  </span>
                 ),
               },
             ]}
@@ -120,6 +178,7 @@ export function ReportBuilderView({
   const [history, setHistory] = useState(() => newHistory(initial));
   const [selected, setSelected] = useState<string | null>(initial.widgets[0]?.id ?? null);
   const [message, setMessage] = useState("");
+  const [keyboardMode, setKeyboardMode] = useState(false);
 
   /**
    * Adopt a later `initial`.
@@ -241,6 +300,7 @@ export function ReportBuilderView({
               key={widget.id}
               type="button"
               data-widget={widget.id}
+              data-ctl="live:REPORT-03 widget-select"
               data-widget-x={widget.x}
               data-widget-w={widget.w}
               aria-pressed={selected === widget.id}
@@ -259,10 +319,98 @@ export function ReportBuilderView({
             </button>
           ))}
         </div>
+        {/*
+          The nudge toolbar — the single-pointer alternative to dragging
+          (WCAG 2.5.7). It attaches *below* the canvas rather than floating over
+          it, so it can never cover the content being arranged, and it only
+          exists once a widget is selected because there is otherwise nothing
+          for it to act on.
+        */}
+        {selected ? (
+          <div
+            data-builder-nudge-toolbar=""
+            role="group"
+            aria-label={`Move or resize ${sourceById(
+              history.present.widgets.find((w) => w.id === selected)?.sourceId ?? "",
+            )?.label ?? "the selected widget"}`}
+            style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}
+          >
+            {(
+              [
+                { label: "Move left", dx: -1, dy: 0 },
+                { label: "Move right", dx: 1, dy: 0 },
+                { label: "Move up", dx: 0, dy: -1 },
+                { label: "Move down", dx: 0, dy: 1 },
+              ] as const
+            ).map((step) => (
+              <Button
+                key={step.label}
+                variant="secondary"
+                data-ctl="live:REPORT-03 nudge-move"
+                aria-label={step.label}
+                onClick={() => {
+                  dispatch({ kind: "move", id: selected, dx: step.dx, dy: step.dy });
+                  setMessage(`${step.label}.`);
+                }}
+              >
+                {step.label}
+              </Button>
+            ))}
+            {(
+              [
+                { label: "Narrower", dw: -1, dh: 0 },
+                { label: "Wider", dw: 1, dh: 0 },
+                { label: "Shorter", dw: 0, dh: -1 },
+                { label: "Taller", dw: 0, dh: 1 },
+              ] as const
+            ).map((step) => (
+              <Button
+                key={step.label}
+                variant="secondary"
+                data-ctl="live:REPORT-03 nudge-resize"
+                aria-label={step.label}
+                onClick={() => {
+                  // The reducer clamps to min 1x1 and the grid width, so the
+                  // toolbar never needs to know the bounds itself.
+                  dispatch({ kind: "resize", id: selected, dw: step.dw, dh: step.dh });
+                  setMessage(`${step.label}.`);
+                }}
+              >
+                {step.label}
+              </Button>
+            ))}
+            <Button
+              variant="secondary"
+              data-ctl="live:REPORT-03 keyboard-mode"
+              aria-pressed={keyboardMode}
+              onClick={() => {
+                setKeyboardMode((current) => !current);
+                setMessage(
+                  keyboardMode ? "Keyboard mode off." : "Keyboard mode on. Arrows move, Shift resizes.",
+                );
+              }}
+            >
+              {copy.keyboardMode}
+            </Button>
+            <Button
+              variant="secondary"
+              data-ctl="live:REPORT-03 exit"
+              onClick={() => {
+                setKeyboardMode(false);
+                setSelected(null);
+                setMessage("Layout committed.");
+              }}
+            >
+              {copy.done}
+            </Button>
+          </div>
+        ) : null}
+
         <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
           <Button
             variant="secondary"
             data-builder-undo=""
+            data-ctl="live:REPORT-03 undo"
             state={canUndo(history) ? { kind: "enabled" } : { kind: "disabled", reason: "Nothing to undo." }}
             onClick={() => setHistory((current) => undo(current))}
           >

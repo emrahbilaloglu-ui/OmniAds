@@ -23,7 +23,7 @@
  * `matchMedia` is implemented against the frame's own width, so the shell's
  * viewport branch is decided by a real query rather than by the SSR hint.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { JSDOM } from "jsdom";
@@ -157,6 +157,15 @@ async function renderFrameHtml(
 }
 
 async function main() {
+  // Rebuild from empty.
+  //
+  // The filename encodes id, leaf, state, width and theme, so renaming a frame
+  // — fixing a wrong leaf, say — leaves the old file behind under the same id
+  // prefix. The anatomy comparison looks a frame up by that prefix and took
+  // whichever file it found first, which meant a corrected frame could still be
+  // graded against the composition it used to render. Stale evidence is worse
+  // than missing evidence: it reads as a real result.
+  rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
   const css = canonicalCss();
   let count = 0;

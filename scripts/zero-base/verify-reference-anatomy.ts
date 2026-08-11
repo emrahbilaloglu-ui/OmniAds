@@ -50,11 +50,26 @@ export function loadReference(): ReferenceManifest {
   return JSON.parse(readFileSync(file, "utf8")) as ReferenceManifest;
 }
 
-/** The rendered implementation page for a frame, if one exists. */
+/**
+ * The rendered implementation page for a frame.
+ *
+ * Exactly one file may match. The filename encodes id, leaf, state, width and
+ * theme, so correcting any of those leaves the old file behind under the same
+ * id prefix — and taking whichever matched first meant a fixed frame could be
+ * graded against the composition it used to render. That is stale evidence
+ * reading as a real result, so it fails loudly instead.
+ */
 function renderedPage(id: string): string | null {
   if (!existsSync(FRAME_PAGES)) return null;
-  const match = readdirSync(FRAME_PAGES).find((name) => name.startsWith(`${id}__`));
-  return match ? readFileSync(path.join(FRAME_PAGES, match), "utf8") : null;
+  const matches = readdirSync(FRAME_PAGES).filter((name) => name.startsWith(`${id}__`));
+  if (matches.length > 1) {
+    throw new Error(
+      `${id}: ${matches.length} rendered pages match this frame — the artifact ` +
+        `directory holds stale output.\n  ${matches.join("\n  ")}\n` +
+        "Rebuild with: npm run zero-base:frames:build",
+    );
+  }
+  return matches[0] ? readFileSync(path.join(FRAME_PAGES, matches[0]), "utf8") : null;
 }
 
 /**

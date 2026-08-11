@@ -46,6 +46,9 @@ import {
   WithheldState,
 } from "@/components/zero-base/states/surface-state";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
+import { GENERATED_LEAVES } from "@/lib/zero-base/generated-contracts";
+import { navHref } from "@/lib/zero-base/navigation";
+import type { FrameShell, FrameShellOptions } from "@/scripts/zero-base/frame-shell";
 
 export interface FrameSpec {
   /** Reference id from §13.4. */
@@ -440,3 +443,71 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],
   ] as const,
 );
+
+/* --------------------------------------------------------------- shell ---- */
+
+/**
+ * Which shell each frame sits in, where the reference says something other than
+ * "the client shell for this leaf".
+ *
+ * Only the exceptions are listed. Everything else is a Client-scope surface and
+ * is derived from its LeafId, so this table cannot drift into a second, stale
+ * copy of the route map.
+ */
+const FRAME_SHELL_OVERRIDES: Record<string, FrameShell> = {
+  // Agency scope.
+  H01: "Agency",
+  H02: "Agency",
+  H51: "Agency",
+  H56: "Agency",
+  H62: "Agency",
+  H65: "Agency",
+  H66: "Agency",
+  // Ops scope.
+  H48: "Ops",
+  // Account scope.
+  H46: "Account",
+  // Genuinely unauthenticated: no rail, no context bar, no user menu. Wrapping
+  // these in chrome would be the same misrepresentation in reverse.
+  H05: "none",
+  H49: "none",
+  H54: "none",
+  H59: "none",
+  // Component boards, which stand for primitives rather than for a surface.
+  P01: "none",
+  P02: "none",
+  P03: "none",
+  P04: "none",
+  P05: "none",
+  P06: "none",
+  P08: "none",
+};
+
+/** Frames whose named state is a shell state rather than a leaf state. */
+const FRAME_DRAWER_OPEN = new Set(["H60", "H61", "B05"]);
+const FRAME_SCOPE_SHEET_OPEN = new Set(["H63", "H64"]);
+/** The reference draws these artboards in Turkish. */
+const FRAME_TURKISH = new Set(["P06", "P07"]);
+
+const LEAF_BY_ID = new Map(GENERATED_LEAVES.map((leaf) => [leaf.leaf, leaf]));
+
+/**
+ * The shell inputs for a frame, derived from its leaf.
+ *
+ * The route the rail marks as current comes from the leaf registry rather than
+ * being restated per frame, so a frame can never claim a path the leaf registry
+ * does not define.
+ */
+export function frameShellOptions(spec: FrameSpec): FrameShellOptions {
+  const leaf = LEAF_BY_ID.get(spec.leaf as never);
+  const shell = FRAME_SHELL_OVERRIDES[spec.id] ?? "Client";
+  return {
+    shell,
+    pathname: leaf ? navHref(leaf.url, "biz") : "/",
+    title: leaf?.label ?? spec.leaf,
+    width: spec.width,
+    drawerOpen: FRAME_DRAWER_OPEN.has(spec.id),
+    scopeSheetOpen: FRAME_SCOPE_SHEET_OPEN.has(spec.id),
+    language: FRAME_TURKISH.has(spec.id) ? "tr" : "en",
+  };
+}

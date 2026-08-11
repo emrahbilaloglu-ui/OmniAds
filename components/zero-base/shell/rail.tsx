@@ -82,6 +82,7 @@ export function Rail({ groups, businessId, pathname, footer }: RailProps) {
                   <li key={item.leaf}>
                     <Link
                       href={href}
+                      data-ctl="live:nav"
                       aria-current={current ? "page" : undefined}
                       style={{
                         display: "block",

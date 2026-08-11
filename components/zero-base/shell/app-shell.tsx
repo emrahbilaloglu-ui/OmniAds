@@ -36,11 +36,24 @@ export interface AppShellProps {
   scope: ScopeFacts | null;
   railFooter: ReactNode;
   topBarActions?: ReactNode;
+  /**
+   * Viewport class to render before the client can measure one.
+   *
+   * `matchMedia` is unavailable during server rendering, so without a hint the
+   * first paint is always the wide composition — which, at 390, is the wrong
+   * shell entirely: rail instead of drawer, full context bar instead of the
+   * compact one. Callers that already know the width pass it; the media query
+   * still owns the value from mount onwards.
+   */
+  initialNarrow?: boolean;
+  /** Drawer and scope sheet are named states the shell can be built in. */
+  initialDrawerOpen?: boolean;
+  initialScopeOpen?: boolean;
   children: ReactNode;
 }
 
-function useIsNarrow(): boolean {
-  const [narrow, setNarrow] = useState(false);
+function useIsNarrow(initial: boolean): boolean {
+  const [narrow, setNarrow] = useState(initial);
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const query = window.matchMedia(`(max-width: ${DRAWER_BREAKPOINT - 1}px)`);
@@ -60,10 +73,13 @@ export function AppShell({
   scope,
   railFooter,
   topBarActions,
+  initialNarrow = false,
+  initialDrawerOpen = false,
+  initialScopeOpen = false,
   children,
 }: AppShellProps) {
-  const narrow = useIsNarrow();
-  const [scopeOpen, setScopeOpen] = useState(false);
+  const narrow = useIsNarrow(initialNarrow);
+  const [scopeOpen, setScopeOpen] = useState(initialScopeOpen);
 
   return (
     <div
@@ -107,6 +123,7 @@ export function AppShell({
                   businessId={businessId}
                   pathname={pathname}
                   footer={railFooter}
+                  initialOpen={initialDrawerOpen}
                 />
               ) : null}
               <h1

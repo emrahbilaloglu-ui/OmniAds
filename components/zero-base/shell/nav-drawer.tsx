@@ -23,14 +23,17 @@ export function NavDrawer({
   businessId,
   pathname,
   footer,
+  initialOpen = false,
 }: {
   groups: readonly NavGroup[];
   businessId: string | null;
   pathname: string;
   footer: React.ReactNode;
+  /** Drawer-open is a real, addressable state, not only a click outcome. */
+  initialOpen?: boolean;
 }) {
   const copy = useCopy();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
 
   return (
     <>
@@ -41,6 +44,7 @@ export function NavDrawer({
         aria-label={copy.openNavigation}
         onClick={() => setOpen(true)}
         data-nav-drawer-trigger=""
+        data-ctl="live:nav-drawer"
       >
         {copy.menu}
       </Button>
@@ -69,6 +73,7 @@ export function NavDrawer({
                     <li key={item.leaf}>
                       <Link
                         href={href}
+                        data-ctl="live:nav"
                         aria-current={current ? "page" : undefined}
                         onClick={() => setOpen(false)}
                         style={{

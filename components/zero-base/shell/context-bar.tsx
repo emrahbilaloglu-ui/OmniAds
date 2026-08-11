@@ -36,6 +36,7 @@ export function ContextBar({
       <button
         type="button"
         data-context-bar="compact"
+        data-ctl="live:MOBILE-02 scope-sheet"
         aria-label={`Scope — ${summary}`}
         onClick={onOpenScopeSheet}
         style={{

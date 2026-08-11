@@ -41,7 +41,14 @@ import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import type { OverviewMetricUnit } from "@/src/types/models";
 import { buildPerformanceViewModel } from "@/lib/zero-base/creative/performance-adapter";
-import { RenderedWidgetCard, ReportLibraryView, ReportShareDisabled } from "@/components/zero-base/reports/report-views";
+import {
+  RenderedWidgetCard,
+  ReportBuilderView,
+  ReportLibraryView,
+  ReportShareDisabled,
+} from "@/components/zero-base/reports/report-views";
+import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
+import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
@@ -469,6 +476,79 @@ const googleAdvisor = () => (
   />
 );
 
+
+/* ------------------------------------------- reports / creative / launchpad */
+
+const REPORTS = [
+  { id: "r1", name: "Weekly review", updatedAt: "2026-08-11" },
+  { id: "r2", name: "Creative performance", updatedAt: "2026-08-09" },
+];
+
+const BUILDER_GRID = {
+  widgets: [
+    { id: "w1", sourceId: "overview_summary", label: "Blended spend", x: 0, y: 0, w: 6, h: 4 },
+    { id: "w2", sourceId: "meta_campaigns", label: "Campaigns", x: 6, y: 0, w: 6, h: 4 },
+    { id: "w3", sourceId: "", label: "Notes", x: 0, y: 4, w: 12, h: 2 },
+  ],
+};
+
+const CREATIVE_EVIDENCE = [
+  { label: "Spend", value: "1,240.50 USD", source: "Meta Insights" },
+  { label: "ROAS", value: "2.4", source: "Meta Insights + Shopify" },
+];
+
+const CREATIVE_HISTORY = [
+  {
+    id: "ch1",
+    occurredAt: "2026-08-09T06:00:00Z",
+    label: "Moved to Scale",
+    detail: "7-day ROAS above target.",
+    replayed: false,
+    actor: "Engine v3",
+    engineVersion: "v3.4",
+  },
+];
+
+const creativeDetail = (serving: boolean) => (
+  <CreativeDetailView
+    creativeId="c1"
+    name="Summer hero"
+    media={{ kind: "ready", url: "https://example.test/hero.jpg", origin: "snapshot" }}
+    evidence={CREATIVE_EVIDENCE}
+    band={
+      serving
+        ? { kind: "band", label: "Scale", detail: "7-day ROAS 3.4 vs target 2.6" }
+        : { kind: "none", reason: "The engine is in shadow mode for this account." }
+    }
+    decisionsHref={serving ? "/c/biz/meta/decisions?selected=c1" : null}
+    history={CREATIVE_HISTORY}
+    anyReplayed={false}
+  />
+);
+
+const LAUNCH_TEMPLATES = [
+  { id: "t1", name: "Prospecting — broad", updatedAt: "2026-08-09" },
+];
+
+const launchpad = (withFindings: boolean) => (
+  <LaunchpadView
+    templates={LAUNCH_TEMPLATES as never}
+    drafts={[{ id: "d1", name: "August prospecting", createdAt: "2026-08-09" }]}
+    findings={
+      withFindings
+        ? [
+            { id: "f1", field: "dailyBudget", severity: "error" as const, message: "Daily budget is below the account minimum." },
+            { id: "f2", field: "audience", severity: "warning" as const, message: "Audience overlaps an active ad set." },
+          ]
+        : []
+    }
+    onCreateDraft={() => {}}
+    onValidate={() => {}}
+    onDuplicateTemplate={() => {}}
+    onDeleteTemplate={() => {}}
+  />
+);
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -587,11 +667,11 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- H21–H28: creative ---- */
   { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
-  { id: "H22", leaf: "L-C-CR-DETAIL", state: "detail", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
-  { id: "H23", leaf: "L-C-CR-PERF", state: "shadow", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
+  { id: "H22", leaf: "L-C-CR-DETAIL", state: "creative-detail-actionable", width: 1440, theme: "light", render: () => creativeDetail(true) },
+  { id: "H23", leaf: "L-C-CR-DETAIL", state: "creative-detail-shadow", width: 1440, theme: "light", render: () => creativeDetail(false) },
   { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief", width: 1440, theme: "light", render: () => <EmptyState reason="No brief has been created for this creative." /> },
-  { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad", width: 1440, theme: "light", render: () => <EmptyState reason="No drafts have been saved for this account." /> },
-  { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => <ErrorState reason="Validation reported two problems in this draft." /> },
+  { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
+  { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
   { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <EmptyState reason="No share links have been minted for this creative." /> },
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => <EmptyState reason="No landing pages were served for this window." /> },
 
@@ -608,8 +688,8 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H36", leaf: "L-C-AN-GEO", state: "geo", width: 1440, theme: "light", render: () => <LoadingState label="Loading AI visibility" /> },
 
   /* ---- H37–H40: reports ---- */
-  { id: "H37", leaf: "L-C-REP", state: "reports", width: 1440, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
-  { id: "H38", leaf: "L-C-REP-NEW", state: "builder", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ rows: [{ name: "Brand" }], columns: ["name"] })} sourceId="meta_campaigns" /> },
+  { id: "H37", leaf: "L-C-REP", state: "reports-library", width: 1440, theme: "light", render: () => <ReportLibraryView reports={REPORTS} onCreate={() => {}} onDuplicate={() => {}} /> },
+  { id: "H38", leaf: "L-C-REP-NEW", state: "report-builder", width: 1440, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
   { id: "H39", leaf: "L-C-REP-VIEW", state: "print", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "metric", value: "1,204.50 USD", deltaLabel: "+8.1% vs previous" })} sourceId="overview_summary" /> },
   { id: "H40", leaf: "L-C-REP-VIEW", state: "share-disabled", width: 1440, theme: "light", render: () => <ReportShareDisabled /> },
 
@@ -652,11 +732,11 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },
   { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => decisions("d1") },
   { id: "B03", leaf: "L-C-G-PLAN", state: "geometry-1280-plan", width: 1280, theme: "light", render: () => googlePlan() },
-  { id: "B04", leaf: "L-C-M-INT", state: "geometry-1280-integrations", width: 1280, theme: "light", render: () => integrations() },
+  { id: "B04", leaf: "L-C-REP-NEW", state: "geometry-1280-builder", width: 1280, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
   { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => homeFrame(true) },
   { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => decisions() },
   { id: "B07", leaf: "L-C-META-DEC", state: "geometry-768-inspector", width: 768, theme: "light", render: () => decisions("d1") },
-  { id: "B08", leaf: "L-C-M-TEAM", state: "geometry-768-team", width: 768, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
+  { id: "B08", leaf: "L-C-REP-NEW", state: "geometry-768-builder", width: 768, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
   { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan() },
 
   /* ---- P01–P08: charts, tables, media, Turkish, dark ---- */
@@ -702,8 +782,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
     ["H24", "renders EmptyState, not the brief composition"],
-    ["H25", "renders EmptyState, not the Launchpad composition"],
-    ["H26", "renders ErrorState, not the Launchpad validation composition"],
     ["H28", "renders EmptyState, not the landing-pages composition"],
     ["H34", "renders UnavailableState, not the analytics composition"],
     ["H35", "renders EmptyState, not the SEO composition"],

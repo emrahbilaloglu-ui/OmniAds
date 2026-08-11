@@ -46,14 +46,20 @@ export interface PlatformRegistryItem {
   logoSrc: string;
 }
 
-export const platformOrder: PlatformId[] = [
-  "meta",
-  "klaviyo",
-  "google",
-  "tiktok",
-  "pinterest",
-  "snapchat",
-];
+/**
+ * Providers that appear in navigation.
+ *
+ * TikTok, Pinterest and Snapchat are `status: "soon"`: rail entries that
+ * opened an empty Layer-2 and a coming-soon panel. That is a disabled teaser —
+ * it advertises a capability the product does not have — and the zero-base
+ * design removes such controls rather than disabling them.
+ *
+ * They stay in `PlatformId` and `platformsRegistry` because their legacy
+ * routes still exist and still typecheck against them; what changes is that
+ * nothing navigates to them any more. Deleting the concept outright is
+ * WP-27's cleanup, not this package's.
+ */
+export const platformOrder: PlatformId[] = ["meta", "klaviyo", "google"];
 
 export const platformsRegistry: Record<PlatformId, PlatformRegistryItem> = {
   meta: {

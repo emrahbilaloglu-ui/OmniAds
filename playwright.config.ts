@@ -62,7 +62,7 @@ export default defineConfig({
       // from an intercepted route, so it needs no server, no database and no
       // auth fixture — and therefore no `setup` dependency.
       name: "zero-base-theme-chromium",
-      testMatch: /zero-base-theme-flash\.spec\.ts/,
+      testMatch: /zero-base-(theme-flash|shell-responsive)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {

@@ -1,0 +1,164 @@
+"use client";
+
+/**
+ * The canonical shell: skip link, rail or drawer, top bar, context bar, main.
+ *
+ * The top bar carries breadcrumb, search and the user menu — and nothing else.
+ * No bell, no Help, no What's New, no "Jump or act". Those were controls that
+ * looked live and did nothing, and the design removes them rather than
+ * disabling them, because a disabled control still claims the capability
+ * exists.
+ *
+ * Below 768 px the rail becomes a complete drawer — the same items, not a
+ * reduced set — and the context bar compresses to a two-line sticky header
+ * that opens the scope sheet. Mobile is never a read-only placeholder.
+ */
+import { useEffect, useState, type ReactNode } from "react";
+
+import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
+import { Rail } from "@/components/zero-base/shell/rail";
+import { NavDrawer } from "@/components/zero-base/shell/nav-drawer";
+import { ContextBar } from "@/components/zero-base/shell/context-bar";
+import { SkipLink, MAIN_CONTENT_ID } from "@/components/zero-base/shell/skip-link";
+import { ScopeSheet, type ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
+import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
+import type { NavGroup } from "@/lib/zero-base/navigation";
+
+/** Below this the rail is replaced by a drawer. */
+export const DRAWER_BREAKPOINT = 768;
+
+export interface AppShellProps {
+  groups: readonly NavGroup[];
+  businessId: string | null;
+  pathname: string;
+  /** Breadcrumb / surface title. */
+  title: string;
+  scope: ScopeFacts | null;
+  railFooter: ReactNode;
+  topBarActions?: ReactNode;
+  children: ReactNode;
+}
+
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(`(max-width: ${DRAWER_BREAKPOINT - 1}px)`);
+    const apply = () => setNarrow(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return narrow;
+}
+
+export function AppShell({
+  groups,
+  businessId,
+  pathname,
+  title,
+  scope,
+  railFooter,
+  topBarActions,
+  children,
+}: AppShellProps) {
+  const narrow = useIsNarrow();
+  const [scopeOpen, setScopeOpen] = useState(false);
+
+  return (
+    <div
+      {...{ [ZERO_BASE_ROOT_ATTRIBUTE]: ZERO_BASE_ROOT_VALUE }}
+      data-shell=""
+      style={{
+        // Bounded to the viewport, not min-height: a rail whose parent has no
+        // definite height grows with its own nav list, which pushes the footer
+        // identity row below the fold (B02). Height must be definite for
+        // `min-height: 0` on the nav area to give it a real scroll range.
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        // The shell owns overflow so no child can create a page-level scroll.
+        overflow: "hidden",
+      }}
+    >
+      <ZeroBasePortalHost>
+        <SkipLink />
+        <div style={{ display: "flex", flex: "1 1 auto", minHeight: 0 }}>
+          {!narrow ? (
+            <Rail groups={groups} businessId={businessId} pathname={pathname} footer={railFooter} />
+          ) : null}
+
+          <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minWidth: 0 }}>
+            <header
+              data-top-bar=""
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "8px 16px",
+                minHeight: 56,
+                borderBottom: "1px solid var(--ledger-border-subtle)",
+                background: "var(--ledger-bg-surface)",
+              }}
+            >
+              {narrow ? (
+                <NavDrawer
+                  groups={groups}
+                  businessId={businessId}
+                  pathname={pathname}
+                  footer={railFooter}
+                />
+              ) : null}
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 16,
+                  fontWeight: 600,
+                  lineHeight: "22px",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {title}
+              </h1>
+              <div style={{ flex: "1 1 auto" }} />
+              {topBarActions}
+            </header>
+
+            {scope ? (
+              <ContextBar
+                facts={scope}
+                compact={narrow}
+                onOpenScopeSheet={() => setScopeOpen(true)}
+              />
+            ) : null}
+
+            <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
+              style={{
+                flex: "1 1 auto",
+                minWidth: 0,
+                minHeight: 0,
+                padding: narrow ? 16 : 40,
+                // The page no longer scrolls, so main owns both axes: wide
+                // content scrolls sideways here rather than widening the page,
+                // and long content scrolls vertically here rather than
+                // stretching the rail.
+                overflowX: "auto",
+                overflowY: "auto",
+              }}
+            >
+              {children}
+            </main>
+          </div>
+        </div>
+
+        {scope ? (
+          <ScopeSheet open={scopeOpen} onOpenChange={setScopeOpen} facts={scope} />
+        ) : null}
+      </ZeroBasePortalHost>
+    </div>
+  );
+}

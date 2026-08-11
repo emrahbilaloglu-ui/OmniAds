@@ -165,7 +165,9 @@
     "test:zero-base:contract": "vitest run lib/zero-base/contract.test.ts",
     "zero-base:fonts:verify": "node --import tsx scripts/zero-base/verify-fonts.ts",
     "test:zero-base:theme": "PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-theme-chromium",
-    "test:zero-base:design": "vitest run lib/design lib/theme.test.ts"
+    "test:zero-base:design": "vitest run lib/design lib/theme.test.ts",
+    "zero-base:shell:harness": "node --import tsx scripts/zero-base/build-shell-harness.tsx",
+    "test:zero-base:responsive": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-theme-chromium"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

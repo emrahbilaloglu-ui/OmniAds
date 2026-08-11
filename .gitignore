@@ -74,3 +74,4 @@ certificates
 # paths are rewritten by every run and must not accumulate in the tree.
 /docs/full-ui-redesign/playwright-smoke-artifacts/html-report/
 /docs/full-ui-redesign/playwright-smoke-artifacts/test-results/
+playwright/.harness/

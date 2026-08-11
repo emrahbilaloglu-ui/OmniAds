@@ -27,6 +27,7 @@ export function BannerStack({
   /** Where an unconfigured source is connected. Absent when there is nowhere. */
   connectHref?: string | null;
 }) {
+  const copy = useCopy();
   if (banners.length === 0) return null;
   return (
     <div data-banner-stack="" style={{ display: "grid", gap: 8, marginBottom: 16 }}>
@@ -65,7 +66,7 @@ export function BannerStack({
                 data-ctl="live:INTEGRATION-03 connect"
                 style={{ color: "inherit", fontWeight: 600 }}
               >
-                Connect this source
+                {copy.connectThisSource}
               </a>
             </>
           ) : null}

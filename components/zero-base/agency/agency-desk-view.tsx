@@ -80,7 +80,7 @@ export function AgencyDeskView({
         data-desk-order="tile"
         style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}
       >
-        Clients are listed alphabetically, and totals across them are withheld.
+        {copy.clientsAlphabeticalWithheld}
       </p>
       {/* The way to the reason, not the reason itself. At desk width the design
           places this above the rows, where an operator reads it before drawing
@@ -92,7 +92,7 @@ export function AgencyDeskView({
           data-ctl="live:AGENCY-02 withheld-explainer"
           style={{ color: "var(--ledger-accent-action)" }}
         >
-          What&apos;s withheld and why
+          {copy.whatsWithheldAndWhy}
         </Link>
       </p>
     </div>

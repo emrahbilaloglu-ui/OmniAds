@@ -121,3 +121,63 @@ test("rail footer stays visible in a 640px artboard (B02)", async ({ browser }) 
 
   await context.close();
 });
+
+/**
+ * WP-10: the 50-client scan at 1440 and 390.
+ *
+ * Fifty rows is where a directory that looks fine with three starts to
+ * overflow, so this measures the real projection through the real table: the
+ * page must not scroll sideways at either width, every row must be present,
+ * and no forbidden column may have appeared.
+ */
+for (const width of [1440, 390]) {
+  for (const theme of THEMES) {
+    test(`agency directory — 50 clients at ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `agency-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      // All fifty are actually rendered — a scan that silently stops at 20 is
+      // the failure this is here to catch.
+      expect(await page.locator("tbody tr").count()).toBe(50);
+      await expect(page.locator("[data-collection-count]")).toContainText("Showing 50 of 50");
+
+      // No page-level horizontal scroll at either width.
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        overflow.scrollWidth,
+        `agency directory scrolls horizontally at ${width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth);
+
+      // Wide content stays inside main.
+      const mainScrolls = await page.evaluate(() => {
+        const main = document.getElementById("zero-base-main")!;
+        return main.scrollWidth > main.clientWidth;
+      });
+      if (width === 390) expect(mainScrolls).toBe(true);
+
+      // Column set, and the absence of anything money- or ranking-shaped.
+      const headers = await page.locator("thead th").allTextContents();
+      expect(headers).toEqual(["Client", "Your role", "Currency", "Last source activity"]);
+      const body = (await page.locator("body").innerText()).toLowerCase();
+      for (const forbidden of ["spend", "revenue", "roas", "severity", "priority", "urgency"]) {
+        expect(body, forbidden).not.toContain(forbidden);
+      }
+
+      // Currency is labelled as configuration, not as an observed value.
+      await expect(page.locator("tbody tr").first()).toContainText("(configured)");
+
+      await context.close();
+    });
+  }
+}

@@ -19,6 +19,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { ContextBar } from "@/components/zero-base/shell/context-bar";
 import { Rail } from "@/components/zero-base/shell/rail";
+import { DataTable } from "@/components/zero-base/collections/data-table";
+import { buildAgencyDirectoryPage } from "@/lib/zero-base/agency-projection";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import { THEME_ATTRIBUTE } from "@/lib/theme";
 
@@ -96,6 +98,65 @@ export function harnessFileName(width: number, theme: string): string {
   return `shell-${width}-${theme}.html`;
 }
 
+export const AGENCY_HARNESS_WIDTHS = [1440, 390] as const;
+
+export function agencyHarnessFileName(width: number, theme: string): string {
+  return `agency-${width}-${theme}.html`;
+}
+
+/**
+ * The Agency directory with fifty clients, rendered from the real projection
+ * and the real table. Fifty is the point: it is the scan the design calls out,
+ * and it is where a table that looks fine with three rows starts overflowing.
+ */
+function agencyMarkup(width: number): string {
+  const narrow = width < DRAWER_BREAKPOINT;
+  const page = buildAgencyDirectoryPage(
+    Array.from({ length: 50 }, (_, index) => {
+      const padded = String(index).padStart(2, "0");
+      return {
+        id: `biz_${padded}`,
+        name: `Client ${padded} — a deliberately long trading name`,
+        role: "admin",
+        membershipStatus: "active" as const,
+        currency: "USD",
+        sourceUpdatedAt: "2026-08-10T12:00:00Z",
+      };
+    }),
+    { pageSize: 50 },
+  );
+
+  const table = renderToStaticMarkup(
+    <DataTable
+      caption="Clients, listed alphabetically"
+      rows={page.items}
+      rowKey={(row) => row.businessId}
+      columns={[
+        { id: "name", header: "Client", render: (row) => row.name },
+        { id: "role", header: "Your role", render: (row) => row.role },
+        {
+          id: "currency",
+          header: "Currency",
+          render: (row) => `${row.configuredCurrency ?? "Not set"} (configured)`,
+        },
+        {
+          id: "activity",
+          header: "Last source activity",
+          render: (row) => row.sourceUpdatedAt ?? "Not recorded",
+        },
+      ]}
+    />,
+  );
+
+  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+  <main id="zero-base-main" data-agency-directory tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">
+    <h2 style="font-size:20px;line-height:26px;margin:0 0 16px">Clients</h2>
+    ${table}
+    <p data-collection-count style="font-size:12px;margin-top:12px">Showing ${page.servedCount} of ${page.totalCount}.</p>
+  </main>
+</div>`;
+}
+
 function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   const css = canonicalCss();
@@ -112,6 +173,22 @@ function main() {
 <body>${body}</body>
 </html>`;
       writeFileSync(path.join(OUT_DIR, harnessFileName(width, theme)), html);
+      count += 1;
+    }
+  }
+
+  for (const width of AGENCY_HARNESS_WIDTHS) {
+    const body = agencyMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Agency harness ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, agencyHarnessFileName(width, theme)), html);
       count += 1;
     }
   }

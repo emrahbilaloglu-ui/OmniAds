@@ -1,7 +1,7 @@
 # Phase C Implementation Report — WP-11 … WP-15
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase B accepted head:** `aaadbdd58` · **Phase C head:** `55b442178`
+**Phase B accepted head:** `da7eb3298` (its last code commit: `aaadbdd58`) · **Phase C head:** `55b442178`
 **Authoritative plan:** `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
 (SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`)
 
@@ -258,7 +258,10 @@ Run at `55b442178` unless noted.
 | Production build | `npm run build` | Compiled successfully; all five canonical routes present |
 | Local production smoke | `npm run test:smoke:local` equivalent (§6.2) | 53 passed · 3 failed · 1 skipped — the 3 are pre-existing (§6.2) |
 
-**Resolver / decision-output check.** `git diff aaadbdd58..55b442178` touches no
+**Resolver / decision-output check.** Taken from `aaadbdd58`, the last Phase B
+code commit — a superset of the change since the accepted head `da7eb3298`,
+which adds only documentation on top of it. `git diff aaadbdd58..55b442178`
+touches no
 file under `lib/creative-decision-engine/`, `lib/creative-decision-center/` or
 `lib/archive/`, and no `lib/meta/recommendations*`. The complete set of
 pre-existing files Phase C modified is:

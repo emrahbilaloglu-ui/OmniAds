@@ -78,6 +78,13 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      // Vitals need the built server, so this project is run explicitly
+      // against a running instance rather than as part of the harness sweep.
+      name: "zero-base-perf-chromium",
+      testMatch: /zero-base-perf\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "commercial-smoke-chromium",
       testMatch: /commercial-truth-smoke\.spec\.ts/,
       use: {

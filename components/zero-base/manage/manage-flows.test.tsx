@@ -62,11 +62,24 @@ function stub(responder: Responder) {
 }
 
 /** React tracks a controlled input's value; a raw assignment is ignored. */
+/**
+ * Type into a controlled input.
+ *
+ * Through `fireEvent`, not a hand-dispatched event: a raw `dispatchEvent` runs
+ * outside React's `act`, so the state update it triggers may not have flushed
+ * before the next line reads it. That made these tests intermittently save
+ * stale values — a flake whose cause was in the helper, not in the product.
+ */
 function type(selector: string, value: string) {
   const input = document.querySelector(selector) as HTMLInputElement;
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  fireEvent.input(input, { target: { value } });
+}
+
+/** Click through fireEvent for the same reason. */
+function click(selector: string) {
+  fireEvent.click(document.querySelector(selector) as HTMLElement);
 }
 
 const MEMBER = {
@@ -198,7 +211,7 @@ describe("WP-23 team members", () => {
     });
     render(<TeamClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector("[data-invite-send]")).not.toBeNull());
-    (document.querySelector("[data-invite-send]") as HTMLElement).click();
+    click("[data-invite-send]");
     await waitFor(() => {
       expect(document.querySelector("[data-team-error]")!.textContent).toMatch(/at least one email/i);
     });
@@ -263,7 +276,7 @@ describe("WP-23 business settings", () => {
     type("[data-business-name]", "Grandmix EU");
     type("[data-business-currency]", "EUR");
 
-    (document.querySelector("[data-settings-save]") as HTMLElement).click();
+    click("[data-settings-save]");
     await waitFor(() => {
       expect(document.querySelector("[data-settings-progress]")!.textContent).toMatch(/confirmed by a fresh read/);
     });
@@ -276,7 +289,7 @@ describe("WP-23 business settings", () => {
     render(<BusinessClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector("[data-business-name]")).not.toBeNull());
     type("[data-business-name]", "A");
-    (document.querySelector("[data-settings-save]") as HTMLElement).click();
+    click("[data-settings-save]");
     await waitFor(() => {
       expect(document.querySelector("[data-settings-error]")!.textContent).toMatch(/two characters/);
     });
@@ -331,7 +344,7 @@ describe("WP-23 account assignment", () => {
     render(<IntegrationsClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector('[data-assignment-account="act_2"]')).not.toBeNull());
     (document.querySelector('[data-assignment-account="act_2"]') as HTMLElement).click();
-    (document.querySelector("[data-assignment-save]") as HTMLElement).click();
+    click("[data-assignment-save]");
 
     await waitFor(() => {
       expect(document.querySelector("[data-assignment-progress]")!.textContent).toMatch(/confirmed by a fresh read/);
@@ -346,7 +359,7 @@ describe("WP-23 account assignment", () => {
     render(<IntegrationsClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector('[data-assignment-account="act_2"]')).not.toBeNull());
     (document.querySelector('[data-assignment-account="act_2"]') as HTMLElement).click();
-    (document.querySelector("[data-assignment-save]") as HTMLElement).click();
+    click("[data-assignment-save]");
     await waitFor(() => {
       expect(document.querySelector("[data-assignment-error]")!.textContent).toMatch(/does not show it/);
     });
@@ -356,7 +369,7 @@ describe("WP-23 account assignment", () => {
     stubAssignment({ saveOk: false });
     render(<IntegrationsClient businessId={BIZ} role="admin" />);
     await waitFor(() => expect(document.querySelector("[data-assignment-save]")).not.toBeNull());
-    (document.querySelector("[data-assignment-save]") as HTMLElement).click();
+    click("[data-assignment-save]");
     await waitFor(() => {
       expect(document.querySelector("[data-assignment-error]")!.textContent).toMatch(/lane is busy/);
     });
@@ -582,6 +595,15 @@ describe("WP-23 GA4 property and Search Console site selection", () => {
    */
   async function save(kind: string, value: string) {
     const select = document.querySelector(`[data-selection-options="${kind}"]`) as HTMLSelectElement;
+    // The options arrive from the discovery fetch, so wait for the one being
+    // chosen to exist before choosing it. Firing change against an option the
+    // select does not yet carry is a no-op that leaves the draft empty.
+    await waitFor(() => {
+      expect(
+        select.querySelector(`option[value="${value}"]`),
+        `${kind}: ${value} was never offered`,
+      ).not.toBeNull();
+    });
     fireEvent.change(select, { target: { value } });
     await waitFor(() => {
       const chosen = select.querySelector(`option[value="${value}"]`) as HTMLOptionElement | null;

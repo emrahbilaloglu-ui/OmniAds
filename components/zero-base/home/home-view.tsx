@@ -34,6 +34,7 @@ export function HomeView({
   economics,
   refreshState = "idle",
   onRefresh,
+  narrowest = false,
 }: {
   contract: HomeContract;
   /** Business · account · window, supplied by the shell's resolved scope. */
@@ -49,6 +50,8 @@ export function HomeView({
   economics?: EconomicsContextModel | null;
   refreshState?: HomeRefreshState;
   onRefresh?: () => void;
+  /** True at the narrowest supported width, where the scope line wraps. */
+  narrowest?: boolean;
 }) {
   const copy = useCopy();
   const [banners] = useState(() => buildBannerStack(contract.sources));
@@ -62,7 +65,18 @@ export function HomeView({
           data-el="mobile-scope"
           style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}
         >
-          {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
+          {narrowest ? (
+            // At 320 the scope is the line under pressure: it is what has to
+            // stay readable when everything else has already given up its
+            // width, so the constraint is marked where it applies.
+            <span data-el="win-320">
+              {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
+            </span>
+          ) : (
+            <>
+              {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
+            </>
+          )}
         </p>
         {triageHref ? (
           // The mobile entry into Tier-0 triage: on a phone the operator is

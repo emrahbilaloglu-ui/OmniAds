@@ -7965,3 +7965,19 @@
     animation: none !important;
   }
 }
+
+/* Column headings hold one line where there is room for one, and wrap where
+   there is not. Inline `white-space: nowrap` on every heading made each table
+   as wide as its longest heading, so at 320 and 390 the surface itself scrolled
+   sideways and the row actions in the last column were unreachable. */
+[data-adc-ui="zero-base"] th {
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  [data-adc-ui="zero-base"] th,
+  [data-adc-ui="zero-base"] td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}

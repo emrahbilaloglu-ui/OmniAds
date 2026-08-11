@@ -10,6 +10,12 @@
  *
  * Density changes padding only — type never shrinks below the 12 px floor, so
  * "compact" cannot quietly become unreadable.
+ *
+ * Column headings do not wrap at desk widths and do wrap on a phone. That rule
+ * lives in the stylesheet rather than here: as an inline `nowrap` it could not
+ * be overridden, and it forced every table wider than the narrowest supported
+ * viewport — which pushed the right-hand columns, where the row actions are,
+ * off the side of the screen.
  */
 import type { ReactNode } from "react";
 
@@ -95,7 +101,6 @@ export function DataTable<Row>({
                 lineHeight: "16px",
                 color: "var(--ledger-ink-secondary)",
                 borderBottom: "1px solid var(--ledger-border-subtle)",
-                whiteSpace: "nowrap",
               }}
             >
               {column.header}

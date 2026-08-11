@@ -22,6 +22,7 @@ const TOKENS = new Set(["rgb(36, 32, 26)", "rgb(252, 252, 249)"]);
 function fact(overrides: Partial<VisualFact> & { key: string }): VisualFact {
   return {
     owner: null,
+    ownerPath: [],
     orderInOwner: 0,
     visible: true,
     clipped: false,
@@ -61,6 +62,7 @@ describe("G10 fidelity mutation controls", () => {
     fact({
       key: "collection:sources",
       owner: "el:source-readiness",
+      ownerPath: ["el:source-readiness"],
       box: { x: 0, y: 0.55, width: 0.4, height: 0.1 },
     }),
     fact({ key: "ctl:live:chart-table-toggle", tag: "button", pixels: { width: 90, height: 32 } }),
@@ -72,6 +74,7 @@ describe("G10 fidelity mutation controls", () => {
     fact({
       key: "collection:sources",
       owner: "el:source-readiness",
+      ownerPath: ["el:source-readiness"],
       box: { x: 0, y: 0.55, width: 0.4, height: 0.1 },
     }),
     fact({ key: "ctl:live:chart-table-toggle", tag: "button", pixels: { width: 90, height: 32 } }),
@@ -111,7 +114,9 @@ describe("G10 fidelity mutation controls", () => {
   it("REGRESSION: the wrong parent fails", () => {
     const reparented = snapshot(
       MATCHING.facts.map((f) =>
-        f.key === "collection:sources" ? fact({ ...f, owner: "el:home-kpis" }) : f,
+        f.key === "collection:sources"
+          ? fact({ ...f, owner: "el:home-kpis", ownerPath: ["el:home-kpis"] })
+          : f,
       ),
     );
     expect(kinds(run(REFERENCE, reparented))).toContain("wrong-owner");
@@ -119,7 +124,9 @@ describe("G10 fidelity mutation controls", () => {
 
   it("a region moved to the root where the reference nests it fails", () => {
     const orphaned = snapshot(
-      MATCHING.facts.map((f) => (f.key === "collection:sources" ? fact({ ...f, owner: null }) : f)),
+      MATCHING.facts.map((f) =>
+        f.key === "collection:sources" ? fact({ ...f, owner: null, ownerPath: [] }) : f,
+      ),
     );
     expect(kinds(run(REFERENCE, orphaned))).toContain("wrong-owner");
   });
@@ -127,18 +134,68 @@ describe("G10 fidelity mutation controls", () => {
   it("REGRESSION: reordered siblings fail", () => {
     const reference = snapshot([
       fact({ key: "el:panel" }),
-      fact({ key: "ctl:live:a", owner: "el:panel", tag: "button", box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
-      fact({ key: "ctl:live:b", owner: "el:panel", tag: "button", box: { x: 0, y: 0.4, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:a", owner: "el:panel", ownerPath: ["el:panel"], tag: "button", box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:b", owner: "el:panel", ownerPath: ["el:panel"], tag: "button", box: { x: 0, y: 0.4, width: 0.2, height: 0.05 } }),
     ]);
     // Same markers, same parent, swapped vertically.
     const swapped = snapshot([
       fact({ key: "el:panel" }),
-      fact({ key: "ctl:live:a", owner: "el:panel", tag: "button", box: { x: 0, y: 0.4, width: 0.2, height: 0.05 } }),
-      fact({ key: "ctl:live:b", owner: "el:panel", tag: "button", box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:a", owner: "el:panel", ownerPath: ["el:panel"], tag: "button", box: { x: 0, y: 0.4, width: 0.2, height: 0.05 } }),
+      fact({ key: "ctl:live:b", owner: "el:panel", ownerPath: ["el:panel"], tag: "button", box: { x: 0, y: 0.1, width: 0.2, height: 0.05 } }),
     ]);
     expect(kinds(run(reference, swapped))).toContain("placement");
     // …and the faithful order does not.
     expect(kinds(run(reference, reference))).not.toContain("placement");
+  });
+
+  it("a region the design nests may hold a component the design did not draw", () => {
+    // The reference draws the control directly inside the region; the product
+    // renders it inside a real table that is itself inside that region. The
+    // containment the design states still holds.
+    const deeper = snapshot(
+      MATCHING.facts.map((f) =>
+        f.key === "collection:sources"
+          ? fact({ ...f, owner: "collection:rows", ownerPath: ["collection:rows", "el:source-readiness"] })
+          : f,
+      ),
+    );
+    expect(kinds(run(REFERENCE, deeper))).not.toContain("wrong-owner");
+  });
+
+  it("REGRESSION: nesting deeper somewhere else still fails", () => {
+    const elsewhere = snapshot(
+      MATCHING.facts.map((f) =>
+        f.key === "collection:sources"
+          ? fact({ ...f, owner: "collection:rows", ownerPath: ["collection:rows", "el:home-kpis"] })
+          : f,
+      ),
+    );
+    expect(kinds(run(REFERENCE, elsewhere))).toContain("wrong-owner");
+  });
+
+  it("a repeated marker is judged by the occurrence inside the named region", () => {
+    // Two panels carry the same contract. The design names one of them; the
+    // verdict must not depend on which happened to be rendered first.
+    const elsewhereFirst = snapshot([
+      ...MATCHING.facts.filter((f) => f.key !== "collection:sources"),
+      fact({ key: "collection:sources", owner: "el:home-kpis", ownerPath: ["el:home-kpis"] }),
+      fact({
+        key: "collection:sources",
+        owner: "el:source-readiness",
+        ownerPath: ["el:source-readiness"],
+        box: { x: 0, y: 0.55, width: 0.4, height: 0.1 },
+      }),
+    ]);
+    expect(kinds(run(REFERENCE, elsewhereFirst))).not.toContain("wrong-owner");
+  });
+
+  it("REGRESSION: repeated markers all outside the named region still fail", () => {
+    const allElsewhere = snapshot([
+      ...MATCHING.facts.filter((f) => f.key !== "collection:sources"),
+      fact({ key: "collection:sources", owner: "el:home-kpis", ownerPath: ["el:home-kpis"] }),
+      fact({ key: "collection:sources", owner: null, ownerPath: [] }),
+    ]);
+    expect(kinds(run(REFERENCE, allElsewhere))).toContain("wrong-owner");
   });
 
   it("REGRESSION: a control on a non-control element fails", () => {

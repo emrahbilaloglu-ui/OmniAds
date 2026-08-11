@@ -75,9 +75,19 @@ export function ScopeSwitchPanel({
 
   if (state.kind === "empty") {
     return (
-      <section data-el="switch-empty" style={{ fontSize: 13 }}>
+      <section data-el="switch-empty" style={{ display: "grid", gap: 6, fontSize: 13 }}>
         {/* Distinct from denied: the membership is fine, the list is not. */}
         <p style={{ margin: 0, color: "var(--ledger-ink-secondary)" }}>{state.reason}</p>
+        {/* An empty list still has somewhere to go: the desk is where a client
+            gets added. Without this the panel states a problem and offers no
+            way to act on it. */}
+        <a
+          href="/a/desk"
+          data-ctl="live:nav"
+          style={{ display: "inline-flex", alignItems: "center", minHeight: 24, fontSize: 12, color: "var(--ledger-accent-action)" }}
+        >
+          {copy.agencyDesk}
+        </a>
       </section>
     );
   }

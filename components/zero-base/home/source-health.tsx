@@ -56,6 +56,55 @@ export function BannerStack({ banners }: { banners: readonly HomeBanner[] }) {
   );
 }
 
+/**
+ * The way out of this row's state, named for what it actually does.
+ *
+ * A stale-but-connected source needs somewhere to see *why* it is stale; a
+ * source with no property or site selected needs a picker, not a connect flow
+ * it has already been through. The row said "Connect this source" to all three.
+ */
+function SourceRemedy({
+  source,
+  connectHref,
+}: {
+  source: HomeSourceState;
+  connectHref: string | null;
+}) {
+  const copy = useCopy();
+  const remedy = source.remedy ?? (source.state === "ok" ? "details" : "connect");
+  const style = {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 24,
+    fontSize: 12,
+    color: "var(--ledger-accent-action)",
+  } as const;
+
+  if (remedy === "connect") {
+    return connectHref ? (
+      <a href={connectHref} data-ctl="live:INTEGRATION-03" style={style}>
+        {copy.connect}
+      </a>
+    ) : (
+      <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+    );
+  }
+  if (remedy === "select") {
+    return connectHref ? (
+      <a href={connectHref} data-ctl="live:SCOPE-06" style={style}>
+        {copy.chooseSite}
+      </a>
+    ) : (
+      <span style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+    );
+  }
+  return (
+    <a href="/admin/sync-health" data-ctl="live:HEALTH-01" style={style}>
+      {copy.details}
+    </a>
+  );
+}
+
 export function SourceHealthPanel({
   sources,
   connectHref,
@@ -97,6 +146,9 @@ export function SourceHealthPanel({
             <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
               {copy.lastUpdated}
             </th>
+            <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+              {copy.action}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -108,7 +160,7 @@ export function SourceHealthPanel({
               <td style={{ padding: "6px 8px" }}>
                 {/* Word first, colour second. */}
                 {source.state === "ok" ? "Serving" : source.state === "partial" ? "Incomplete" : "Unavailable"}
-                {source.state !== "ok" && connectHref ? (
+                {source.state !== "ok" && connectHref && (source.remedy ?? "connect") === "connect" ? (
                   <a
                     href={connectHref}
                     data-ctl="live:INTEGRATION-03 connect"
@@ -128,6 +180,9 @@ export function SourceHealthPanel({
                 <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>
                   {FRESHNESS_WORD[source.freshness]}
                 </span>
+              </td>
+              <td style={{ padding: "6px 8px" }}>
+                <SourceRemedy source={source} connectHref={connectHref ?? null} />
               </td>
             </tr>
           ))}

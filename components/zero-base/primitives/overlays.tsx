@@ -325,6 +325,7 @@ export function ZeroBaseSheet({
   open,
   onOpenChange,
   title,
+  regionEl,
   side = "right",
   description,
   closeCtl = "live:cancel",
@@ -333,6 +334,14 @@ export function ZeroBaseSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /**
+   * Region marker for the sheet itself.
+   *
+   * The close sits in the sheet's header, so a marker placed on the sheet's
+   * *content* leaves the way out outside the region the design names — the
+   * reader's exit belongs to the sheet, not beside it.
+   */
+  regionEl?: string;
   side?: SheetSide;
   /**
    * Contract key the close control satisfies.
@@ -365,6 +374,7 @@ export function ZeroBaseSheet({
         <RadixDialog.Overlay style={scrimStyle} />
         <RadixDialog.Content
           aria-label={title}
+          data-el={regionEl}
           // Explicitly undefined: Radix warns when a dialog has neither a
           // description nor a deliberate opt-out. When `description` is given,
           // the Description below wires this through context regardless.

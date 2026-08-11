@@ -9,6 +9,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -43,6 +44,7 @@
         {
           "key": "collection:b01-sources",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -104,6 +106,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -138,6 +141,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -172,6 +176,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -206,6 +211,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -240,6 +246,7 @@
         {
           "key": "collection:b02-decisions",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -274,6 +281,7 @@
         {
           "key": "ctl:live:close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -308,6 +316,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -342,6 +351,7 @@
         {
           "key": "ctl:gated:META-WRITE-01 open-manual",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -405,6 +415,7 @@
         {
           "key": "collection:b03-plan",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -439,6 +450,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy-all",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -473,6 +485,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -507,6 +520,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -541,6 +555,7 @@
         {
           "key": "collection:b03-journal",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -600,6 +615,7 @@
         {
           "key": "collection:b04-sources",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -634,6 +650,7 @@
         {
           "key": "ctl:live:REPORT-03 exit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -668,6 +685,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -702,6 +720,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -736,6 +757,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -770,6 +794,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -804,6 +831,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -838,6 +868,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -872,6 +905,9 @@
         {
           "key": "ctl:live:REPORT-03 undo",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -906,6 +942,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -940,6 +977,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -1002,6 +1040,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -1036,6 +1075,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -1070,6 +1110,7 @@
         {
           "key": "ctl:live:SCOPE-11 search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -1104,6 +1145,7 @@
         {
           "key": "ctl:live:nav-drawer close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -1138,6 +1180,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -1172,6 +1215,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -1206,6 +1250,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -1240,6 +1285,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -1274,6 +1320,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -1308,6 +1355,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -1342,6 +1390,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -1402,6 +1451,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -1436,6 +1486,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -1470,6 +1521,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -1504,6 +1556,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -1538,6 +1591,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -1572,6 +1626,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -1606,6 +1661,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -1640,6 +1696,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -1674,6 +1731,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -1708,6 +1766,7 @@
         {
           "key": "collection:b06-decisions",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -1767,6 +1826,7 @@
         {
           "key": "ctl:live:close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -1801,6 +1861,7 @@
         {
           "key": "ctl:gated:META-WRITE-01 open-manual",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -1862,6 +1923,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -1896,6 +1958,7 @@
         {
           "key": "ctl:live:REPORT-03 exit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -1930,6 +1993,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -1964,6 +2028,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -1998,6 +2063,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -2032,6 +2100,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -2066,6 +2137,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -2100,6 +2174,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -2134,6 +2211,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -2168,6 +2248,9 @@
         {
           "key": "ctl:live:REPORT-03 undo",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -2202,6 +2285,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -2236,6 +2320,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -2270,6 +2355,7 @@
         {
           "key": "collection:b08-sources",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -2330,6 +2416,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -2364,6 +2451,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -2398,6 +2486,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -2432,6 +2521,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -2466,6 +2556,7 @@
         {
           "key": "ctl:live:cancel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -2500,6 +2591,7 @@
         {
           "key": "ctl:live:GOOGLE-26 dismiss",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -2556,6 +2648,7 @@
         {
           "key": "collection:h01-clients",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -2590,6 +2683,7 @@
         {
           "key": "ctl:live:AGENCY-02 withheld-explainer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -2624,6 +2718,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -2658,6 +2753,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -2692,6 +2788,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -2726,6 +2823,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -2760,6 +2858,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -2794,6 +2893,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -2828,6 +2928,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -2862,6 +2963,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -2896,6 +2998,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -2930,6 +3033,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -2964,6 +3068,7 @@
         {
           "key": "el:withheld-tile",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -3028,6 +3133,7 @@
         {
           "key": "ctl:live:SCOPE-11 client-search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -3062,6 +3168,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -3096,6 +3203,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -3130,6 +3238,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -3164,6 +3273,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -3198,6 +3308,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -3232,6 +3343,7 @@
         {
           "key": "collection:h02-clients",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -3266,6 +3378,7 @@
         {
           "key": "ctl:live:AGENCY-04 load-more",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -3300,6 +3413,7 @@
         {
           "key": "el:withheld-explainer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -3365,6 +3479,7 @@
         {
           "key": "el:home-kpis",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -3399,6 +3514,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -3433,6 +3549,7 @@
         {
           "key": "el:source-readiness",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -3467,6 +3584,9 @@
         {
           "key": "collection:h03-sources",
           "owner": "el:source-readiness",
+          "ownerPath": [
+            "el:source-readiness"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -3501,6 +3621,7 @@
         {
           "key": "ctl:live:ECON-04 divergence-link",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -3564,6 +3685,7 @@
         {
           "key": "ctl:live:INTEGRATION-03 connect",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -3598,6 +3720,7 @@
         {
           "key": "ctl:live:HEALTH-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -3632,6 +3755,7 @@
         {
           "key": "ctl:live:HEALTH-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -3666,6 +3790,7 @@
         {
           "key": "ctl:live:INTEGRATION-03",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -3700,6 +3825,7 @@
         {
           "key": "ctl:live:SCOPE-06",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -3762,6 +3888,7 @@
         {
           "key": "ctl:live:PUBLIC-03",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -3796,6 +3923,7 @@
         {
           "key": "ctl:live:PUBLIC-03",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -3830,6 +3958,7 @@
         {
           "key": "ctl:live:PUBLIC-05",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -3864,6 +3993,7 @@
         {
           "key": "el:login-form",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -3898,6 +4028,7 @@
         {
           "key": "ctl:live:AUTH-02 email",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -3932,6 +4063,7 @@
         {
           "key": "ctl:live:AUTH-02 password",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -3966,6 +4098,7 @@
         {
           "key": "ctl:live:AUTH-05 forgot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -4000,6 +4133,7 @@
         {
           "key": "ctl:live:AUTH-02 submit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -4034,6 +4168,7 @@
         {
           "key": "ctl:live:AUTH-03 google",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -4068,6 +4203,7 @@
         {
           "key": "ctl:live:AUTH-04 facebook",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -4102,6 +4238,7 @@
         {
           "key": "ctl:live:AUTH-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -4136,6 +4273,7 @@
         {
           "key": "ctl:live:AUTH-06 demo",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -4198,6 +4336,7 @@
         {
           "key": "ctl:live:SCOPE-12 result",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -4232,6 +4371,7 @@
         {
           "key": "ctl:live:SCOPE-12 result",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -4266,6 +4406,7 @@
         {
           "key": "ctl:live:SCOPE-12 result",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -4300,6 +4441,7 @@
         {
           "key": "ctl:live:SCOPE-12 result",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -4334,6 +4476,7 @@
         {
           "key": "el:search-results",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -4368,6 +4511,7 @@
         {
           "key": "collection:h06-search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -4427,6 +4571,7 @@
         {
           "key": "ctl:live:SCOPE-03 assign",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -4461,6 +4606,7 @@
         {
           "key": "el:context-reset",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -4549,6 +4695,7 @@
         {
           "key": "ctl:live:META-DEC-01 lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -4583,6 +4730,7 @@
         {
           "key": "ctl:live:META-DEC-01 lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -4617,6 +4765,7 @@
         {
           "key": "ctl:live:META-DEC-01 lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -4651,6 +4800,7 @@
         {
           "key": "ctl:live:META-DEC-02 level",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -4685,6 +4835,7 @@
         {
           "key": "ctl:live:META-DEC-17 search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -4719,6 +4870,7 @@
         {
           "key": "ctl:live:INV-18 share-view",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -4753,6 +4905,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -4787,6 +4940,9 @@
         {
           "key": "el:verdict-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -4821,6 +4977,9 @@
         {
           "key": "el:wf-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -4855,6 +5014,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -4889,6 +5049,9 @@
         {
           "key": "el:verdict-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -4923,6 +5086,9 @@
         {
           "key": "el:wf-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -4957,6 +5123,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -4991,6 +5158,9 @@
         {
           "key": "el:verdict-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -5025,6 +5195,9 @@
         {
           "key": "el:wf-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -5059,6 +5232,7 @@
         {
           "key": "ctl:live:META-DEC-05 open-inspector",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -5093,6 +5267,9 @@
         {
           "key": "el:verdict-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -5127,6 +5304,9 @@
         {
           "key": "el:wf-chip",
           "owner": "ctl:live:META-DEC-05 open-inspector",
+          "ownerPath": [
+            "ctl:live:META-DEC-05 open-inspector"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -5161,6 +5341,7 @@
         {
           "key": "collection:h09-decisions",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -5195,6 +5376,7 @@
         {
           "key": "ctl:live:META-DEC-13 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -5229,6 +5411,7 @@
         {
           "key": "el:stale-demoted",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -5298,6 +5481,7 @@
         {
           "key": "ctl:live:close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -5332,6 +5516,7 @@
         {
           "key": "el:asof-row",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -5366,6 +5551,7 @@
         {
           "key": "el:evidence-window",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -5400,6 +5586,7 @@
         {
           "key": "el:provenance-gap",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -5434,6 +5621,7 @@
         {
           "key": "el:row-action",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -5468,6 +5656,7 @@
         {
           "key": "ctl:gated:META-WRITE-01 open-manual",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -5502,6 +5691,7 @@
         {
           "key": "ctl:live:CREATIVE-07 brief",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -5565,6 +5755,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -5599,6 +5790,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -5633,6 +5825,7 @@
         {
           "key": "ctl:live:lane",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -5667,6 +5860,7 @@
         {
           "key": "el:blocker-chip",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -5701,6 +5895,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -5735,6 +5930,7 @@
         {
           "key": "el:blocker-chip",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -5769,6 +5965,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -5803,6 +6000,7 @@
         {
           "key": "el:blocker-chip",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -5837,6 +6035,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -5871,6 +6070,7 @@
         {
           "key": "collection:h11-needsres",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -5905,6 +6105,7 @@
         {
           "key": "ctl:live:META-DEC-05 load-more",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -5939,6 +6140,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -5973,6 +6175,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -6007,6 +6210,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -6041,6 +6245,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
@@ -6075,6 +6280,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
@@ -6109,6 +6315,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 16,
           "visible": true,
           "clipped": false,
@@ -6143,6 +6350,7 @@
         {
           "key": "ctl:gated:META-WF-02..08 menu",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 17,
           "visible": true,
           "clipped": false,
@@ -6207,6 +6415,7 @@
         {
           "key": "el:conflict-dialog",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6241,6 +6450,9 @@
         {
           "key": "ctl:live:META-WF-11 keep",
           "owner": "el:conflict-dialog",
+          "ownerPath": [
+            "el:conflict-dialog"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6275,6 +6487,9 @@
         {
           "key": "ctl:live:META-WF-11 reapply",
           "owner": "el:conflict-dialog",
+          "ownerPath": [
+            "el:conflict-dialog"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -6334,6 +6549,7 @@
         {
           "key": "el:before-after",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6368,6 +6584,7 @@
         {
           "key": "el:preflight-age",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -6402,6 +6619,9 @@
         {
           "key": "ctl:live:META-WRITE-06 rerun",
           "owner": "el:preflight-age",
+          "ownerPath": [
+            "el:preflight-age"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6436,6 +6656,7 @@
         {
           "key": "ctl:live:cancel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -6470,6 +6691,7 @@
         {
           "key": "ctl:gated:META-WRITE-02 continue",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -6531,6 +6753,7 @@
         {
           "key": "el:confirm-restate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6565,6 +6788,7 @@
         {
           "key": "ctl:live:cancel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -6599,6 +6823,7 @@
         {
           "key": "ctl:gated:META-WRITE-02 submit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -6654,6 +6879,7 @@
         {
           "key": "el:receipt",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6688,6 +6914,9 @@
         {
           "key": "ctl:live:META-WRITE-08 copy-receipt",
           "owner": "el:receipt",
+          "ownerPath": [
+            "el:receipt"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6722,6 +6951,7 @@
         {
           "key": "ctl:live:done",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -6782,6 +7012,7 @@
         {
           "key": "el:reconciliation-state",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6843,6 +7074,7 @@
         {
           "key": "ctl:gated:META-INTEL-09 run-snapshot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -6877,6 +7109,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -6911,6 +7144,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -6945,6 +7179,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -6979,6 +7214,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -7013,6 +7249,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -7047,6 +7284,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -7081,6 +7319,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -7115,6 +7354,7 @@
         {
           "key": "ctl:live:META-INTEL-07 respond",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -7149,6 +7389,7 @@
         {
           "key": "ctl:live:META-INTEL-07 respond",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -7183,6 +7424,7 @@
         {
           "key": "ctl:live:META-INTEL-07 respond",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -7217,6 +7459,7 @@
         {
           "key": "ctl:live:META-INTEL-07 respond",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -7251,6 +7494,7 @@
         {
           "key": "el:intel-recs",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -7285,6 +7529,7 @@
         {
           "key": "collection:h17-recs",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -7319,6 +7564,7 @@
         {
           "key": "el:label-chips",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -7383,6 +7629,7 @@
         {
           "key": "ctl:live:META-HIST-05 filter",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -7417,6 +7664,7 @@
         {
           "key": "ctl:live:META-HIST-05 filter",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -7451,6 +7699,7 @@
         {
           "key": "ctl:live:META-HIST-05 search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -7485,6 +7734,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -7519,6 +7769,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -7553,6 +7804,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -7587,6 +7839,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -7621,6 +7874,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -7655,6 +7909,7 @@
         {
           "key": "ctl:live:META-HIST-06 replay",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -7689,6 +7944,7 @@
         {
           "key": "ctl:live:META-HIST-05 cursor",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -7723,6 +7979,7 @@
         {
           "key": "collection:h18-history",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -7757,6 +8014,7 @@
         {
           "key": "el:history-gap",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -7791,6 +8049,7 @@
         {
           "key": "ctl:live:close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -7825,6 +8084,7 @@
         {
           "key": "el:replay-banner",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -7894,6 +8154,7 @@
         {
           "key": "el:guardrails-readonly",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -7928,6 +8189,9 @@
         {
           "key": "collection:h19-guardrails",
           "owner": "el:guardrails-readonly",
+          "ownerPath": [
+            "el:guardrails-readonly"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -7962,6 +8226,7 @@
         {
           "key": "ctl:gated:AUTO-03 mode",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -7996,6 +8261,7 @@
         {
           "key": "ctl:gated:AUTO-03 mode",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -8030,6 +8296,7 @@
         {
           "key": "ctl:gated:AUTO-03 mode",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -8064,6 +8331,7 @@
         {
           "key": "ctl:gated:AUTO-03 mode",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -8098,6 +8366,7 @@
         {
           "key": "ctl:gated:AUTO-01A engage",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -8132,6 +8401,7 @@
         {
           "key": "el:google-posture-row",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -8197,6 +8467,7 @@
         {
           "key": "ctl:gated:AUTO-02 release",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -8258,6 +8529,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -8292,6 +8564,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -8326,6 +8599,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -8360,6 +8634,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -8394,6 +8669,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -8428,6 +8704,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -8462,6 +8739,7 @@
         {
           "key": "ctl:live:CREATIVE-13 filter",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -8496,6 +8774,7 @@
         {
           "key": "ctl:live:CREATIVE-12 preset",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -8530,6 +8809,7 @@
         {
           "key": "ctl:live:CREATIVE-12 sort",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -8564,6 +8844,7 @@
         {
           "key": "collection:h21-creatives",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -8598,6 +8879,9 @@
         {
           "key": "ctl:live:META-DEC-05 load-more",
           "owner": "collection:h21-creatives",
+          "ownerPath": [
+            "collection:h21-creatives"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -8632,6 +8916,7 @@
         {
           "key": "ctl:live:CREATIVE-02 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -8666,6 +8951,7 @@
         {
           "key": "ctl:live:CREATIVE-02 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -8700,6 +8986,7 @@
         {
           "key": "ctl:live:CREATIVE-02 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -8734,6 +9021,7 @@
         {
           "key": "ctl:live:CREATIVE-02 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -8768,6 +9056,7 @@
         {
           "key": "ctl:live:CREATIVE-02 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
@@ -8802,6 +9091,7 @@
         {
           "key": "el:engine-posture",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
@@ -8868,6 +9158,7 @@
         {
           "key": "ctl:live:CREATIVE-07 brief",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -8902,6 +9193,7 @@
         {
           "key": "ctl:live:CREATIVE-10 share",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -8936,6 +9228,7 @@
         {
           "key": "el:hysteresis-note",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -8970,6 +9263,7 @@
         {
           "key": "el:enrichment-label",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -9035,6 +9329,7 @@
         {
           "key": "el:shadow-review-band",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9093,6 +9388,7 @@
         {
           "key": "ctl:live:CREATIVE-07 status",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9127,6 +9423,7 @@
         {
           "key": "ctl:live:CREATIVE-07 status",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -9161,6 +9458,7 @@
         {
           "key": "el:brief-lineage",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -9195,6 +9493,7 @@
         {
           "key": "ctl:live:CREATIVE-02 back",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -9261,6 +9560,7 @@
         {
           "key": "el:launch-validation",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9295,6 +9595,7 @@
         {
           "key": "ctl:live:LAUNCH-05 validate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9329,6 +9630,7 @@
         {
           "key": "ctl:live:LAUNCH-01 fix",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -9363,6 +9665,7 @@
         {
           "key": "ctl:live:LAUNCH-02 fix",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -9397,6 +9700,7 @@
         {
           "key": "ctl:live:LAUNCH-03 duplicate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -9431,6 +9735,7 @@
         {
           "key": "ctl:gated:LAUNCH-03 delete",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -9496,6 +9801,7 @@
         {
           "key": "ctl:disabled:LAUNCH-06 launch",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9530,6 +9836,7 @@
         {
           "key": "ctl:disabled:LAUNCH-07 add",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -9593,6 +9900,7 @@
         {
           "key": "ctl:live:CREATIVE-10 revoke",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9627,6 +9935,7 @@
         {
           "key": "ctl:live:CREATIVE-10 rotate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -9661,6 +9970,7 @@
         {
           "key": "ctl:live:CREATIVE-10 revoke",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -9695,6 +10005,7 @@
         {
           "key": "ctl:live:CREATIVE-10 rotate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -9729,6 +10040,7 @@
         {
           "key": "collection:h27-links",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -9763,6 +10075,7 @@
         {
           "key": "el:share-tiers",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -9797,6 +10110,9 @@
         {
           "key": "ctl:live:CREATIVE-11 tier",
           "owner": "el:share-tiers",
+          "ownerPath": [
+            "el:share-tiers"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -9831,6 +10147,9 @@
         {
           "key": "ctl:live:CREATIVE-11 tier",
           "owner": "el:share-tiers",
+          "ownerPath": [
+            "el:share-tiers"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -9865,6 +10184,7 @@
         {
           "key": "ctl:live:CREATIVE-10 expiry",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -9899,6 +10219,7 @@
         {
           "key": "ctl:live:CREATIVE-11 ack",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -9933,6 +10254,7 @@
         {
           "key": "ctl:live:cancel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -9967,6 +10289,7 @@
         {
           "key": "ctl:disabled:CREATIVE-10 mint",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -10001,6 +10324,7 @@
         {
           "key": "ctl:live:CREATIVE-10 mint",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -10065,6 +10389,7 @@
         {
           "key": "el:lp-ai-commentary",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10099,6 +10424,7 @@
         {
           "key": "collection:h28-landing-pages",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10161,6 +10487,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10195,6 +10522,7 @@
         {
           "key": "collection:h29-gcamps",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -10229,6 +10557,7 @@
         {
           "key": "el:google-vocab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -10263,6 +10592,7 @@
         {
           "key": "ctl:live:GOOGLE-32 portfolio",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -10326,6 +10656,7 @@
         {
           "key": "el:advisor-buckets",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10360,6 +10691,9 @@
         {
           "key": "ctl:live:GOOGLE-13 bucket",
           "owner": "el:advisor-buckets",
+          "ownerPath": [
+            "el:advisor-buckets"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10394,6 +10728,9 @@
         {
           "key": "ctl:live:GOOGLE-13 bucket",
           "owner": "el:advisor-buckets",
+          "ownerPath": [
+            "el:advisor-buckets"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -10428,6 +10765,9 @@
         {
           "key": "ctl:live:GOOGLE-13 bucket",
           "owner": "el:advisor-buckets",
+          "ownerPath": [
+            "el:advisor-buckets"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -10462,6 +10802,7 @@
         {
           "key": "ctl:live:GOOGLE-16 open-card",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -10496,6 +10837,7 @@
         {
           "key": "ctl:live:GOOGLE-16 open-card",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -10530,6 +10872,7 @@
         {
           "key": "ctl:live:GOOGLE-16 open-card",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -10564,6 +10907,7 @@
         {
           "key": "collection:h30-advisor",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -10630,6 +10974,7 @@
         {
           "key": "el:default-off-card",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10664,6 +11009,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -10698,6 +11044,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 csv",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -10732,6 +11079,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -10766,6 +11114,7 @@
         {
           "key": "ctl:live:GOOGLE-26 dismiss",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -10800,6 +11149,7 @@
         {
           "key": "el:google-trust",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -10861,6 +11211,7 @@
         {
           "key": "collection:h32-plan",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -10895,6 +11246,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy-all",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -10929,6 +11281,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 csv-all",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -10963,6 +11316,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -10997,6 +11351,7 @@
         {
           "key": "ctl:live:GOOGLE-28 mark-applied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -11031,6 +11386,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -11065,6 +11421,7 @@
         {
           "key": "ctl:live:GOOGLE-28 mark-applied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -11099,6 +11456,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -11133,6 +11491,7 @@
         {
           "key": "ctl:live:GOOGLE-28 mark-applied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -11167,6 +11526,7 @@
         {
           "key": "collection:h32-journal",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -11201,6 +11561,7 @@
         {
           "key": "el:journal-gap",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -11264,6 +11625,7 @@
         {
           "key": "el:batch-partial",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11298,6 +11660,9 @@
         {
           "key": "collection:h33-batch",
           "owner": "el:batch-partial",
+          "ownerPath": [
+            "el:batch-partial"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11364,6 +11729,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11398,6 +11764,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -11432,6 +11799,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -11466,6 +11834,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -11500,6 +11869,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -11534,6 +11904,7 @@
         {
           "key": "ctl:live:tab",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -11568,6 +11939,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -11602,6 +11974,7 @@
         {
           "key": "collection:h34-traffic",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -11636,6 +12009,7 @@
         {
           "key": "el:source-missing-state",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -11701,6 +12075,7 @@
         {
           "key": "collection:h35-seo",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11735,6 +12110,9 @@
         {
           "key": "ctl:live:SEO-01 load-more",
           "owner": "collection:h35-seo",
+          "ownerPath": [
+            "collection:h35-seo"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11769,6 +12147,7 @@
         {
           "key": "el:seo-gen-states",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -11803,6 +12182,9 @@
         {
           "key": "ctl:gated:SEO-04 run",
           "owner": "el:seo-gen-states",
+          "ownerPath": [
+            "el:seo-gen-states"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11870,6 +12252,7 @@
         {
           "key": "el:geo-gated",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -11904,6 +12287,7 @@
         {
           "key": "collection:h36-geo",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -11967,6 +12351,7 @@
         {
           "key": "ctl:live:REPORT-13 new",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -12001,6 +12386,7 @@
         {
           "key": "ctl:live:REPORT-08 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -12035,6 +12421,7 @@
         {
           "key": "ctl:live:REPORT-02 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -12069,6 +12456,7 @@
         {
           "key": "ctl:live:REPORT-01 duplicate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -12103,6 +12491,7 @@
         {
           "key": "ctl:gated:REPORT-01 delete",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -12137,6 +12526,7 @@
         {
           "key": "ctl:live:REPORT-08 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -12171,6 +12561,7 @@
         {
           "key": "ctl:live:REPORT-02 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -12205,6 +12596,7 @@
         {
           "key": "ctl:live:REPORT-01 duplicate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -12239,6 +12631,7 @@
         {
           "key": "ctl:gated:REPORT-01 delete",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -12273,6 +12666,7 @@
         {
           "key": "ctl:live:REPORT-08 open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -12307,6 +12701,7 @@
         {
           "key": "ctl:live:REPORT-02 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -12341,6 +12736,7 @@
         {
           "key": "ctl:live:REPORT-01 duplicate",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -12375,6 +12771,7 @@
         {
           "key": "ctl:gated:REPORT-01 delete",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -12409,6 +12806,7 @@
         {
           "key": "el:reports-lib",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -12443,6 +12841,7 @@
         {
           "key": "collection:h37-reports",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -12477,6 +12876,7 @@
         {
           "key": "ctl:live:REPORT-01 load-more",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
@@ -12536,6 +12936,7 @@
         {
           "key": "el:builder-sources",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -12570,6 +12971,7 @@
         {
           "key": "collection:h38-sources",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -12604,6 +13006,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -12638,6 +13041,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -12672,6 +13076,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -12706,6 +13111,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -12740,6 +13146,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -12774,6 +13181,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -12808,6 +13216,7 @@
         {
           "key": "ctl:live:REPORT-07 breakdown",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -12842,6 +13251,7 @@
         {
           "key": "ctl:live:REPORT-03 keyboard-mode",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -12876,6 +13286,7 @@
         {
           "key": "ctl:live:REPORT-03 exit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -12910,6 +13321,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -12944,6 +13356,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -12978,6 +13393,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -13012,6 +13430,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -13046,6 +13467,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-move",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -13080,6 +13504,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -13114,6 +13541,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -13148,6 +13578,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -13182,6 +13615,9 @@
         {
           "key": "ctl:live:REPORT-03 nudge-resize",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -13216,6 +13652,9 @@
         {
           "key": "ctl:live:REPORT-03 undo",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -13250,6 +13689,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -13284,6 +13724,7 @@
         {
           "key": "ctl:live:REPORT-08 retry",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -13318,6 +13759,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 13,
           "visible": true,
           "clipped": false,
@@ -13352,6 +13794,9 @@
         {
           "key": "ctl:live:REPORT-04 csv",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -13386,6 +13831,9 @@
         {
           "key": "collection:h38-table",
           "owner": "ctl:live:REPORT-03 widget-select",
+          "ownerPath": [
+            "ctl:live:REPORT-03 widget-select"
+          ],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -13420,6 +13868,7 @@
         {
           "key": "ctl:live:REPORT-03 widget-select",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 14,
           "visible": true,
           "clipped": false,
@@ -13454,6 +13903,7 @@
         {
           "key": "el:h38-handoff",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 15,
           "visible": true,
           "clipped": false,
@@ -13488,6 +13938,9 @@
         {
           "key": "el:source-contracts",
           "owner": "el:h38-handoff",
+          "ownerPath": [
+            "el:h38-handoff"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -13554,6 +14007,7 @@
         {
           "key": "el:print-view",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -13610,6 +14064,7 @@
         {
           "key": "el:share-disabled-panel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -13668,6 +14123,7 @@
         {
           "key": "el:provider-states",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -13702,6 +14158,9 @@
         {
           "key": "ctl:live:INTEGRATION-07",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -13736,6 +14195,9 @@
         {
           "key": "ctl:gated:INTEGRATION-09",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -13770,6 +14232,9 @@
         {
           "key": "ctl:live:INTEGRATION-02",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -13804,6 +14269,9 @@
         {
           "key": "ctl:live:SCOPE-05",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -13838,6 +14306,9 @@
         {
           "key": "ctl:live:SCOPE-06",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -13872,6 +14343,9 @@
         {
           "key": "ctl:live:SHOPIFY-01",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -13906,6 +14380,9 @@
         {
           "key": "ctl:gated:INTEGRATION-09",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -13940,6 +14417,9 @@
         {
           "key": "collection:h41-providers",
           "owner": "el:provider-states",
+          "ownerPath": [
+            "el:provider-states"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -14000,6 +14480,7 @@
         {
           "key": "el:assignment-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -14034,6 +14515,7 @@
         {
           "key": "ctl:live:INTEGRATION-07 assign",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -14068,6 +14550,7 @@
         {
           "key": "ctl:live:INTEGRATION-07 assign",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -14102,6 +14585,7 @@
         {
           "key": "ctl:live:INTEGRATION-07 assign",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -14136,6 +14620,7 @@
         {
           "key": "collection:h42-accounts",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -14170,6 +14655,7 @@
         {
           "key": "ctl:live:cancel",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -14204,6 +14690,7 @@
         {
           "key": "ctl:live:INTEGRATION-07 save",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -14262,6 +14749,7 @@
         {
           "key": "ctl:gated:TEAM-04 invite",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -14296,6 +14784,7 @@
         {
           "key": "ctl:gated:TEAM-02 role",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -14330,6 +14819,7 @@
         {
           "key": "ctl:gated:TEAM-02 role",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -14364,6 +14854,7 @@
         {
           "key": "ctl:gated:TEAM-03",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -14398,6 +14889,7 @@
         {
           "key": "ctl:gated:TEAM-02 role",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -14432,6 +14924,7 @@
         {
           "key": "ctl:gated:TEAM-04",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -14466,6 +14959,7 @@
         {
           "key": "ctl:gated:TEAM-04",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -14500,6 +14994,7 @@
         {
           "key": "ctl:gated:TEAM-02 role",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -14534,6 +15029,7 @@
         {
           "key": "ctl:gated:TEAM-04",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -14568,6 +15064,7 @@
         {
           "key": "collection:h43-members",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -14602,6 +15099,7 @@
         {
           "key": "el:role-permission-state",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -14636,6 +15134,7 @@
         {
           "key": "ctl:gated:TEAM-05 approve",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -14670,6 +15169,7 @@
         {
           "key": "ctl:gated:TEAM-05 deny",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 12,
           "visible": true,
           "clipped": false,
@@ -14735,6 +15235,7 @@
         {
           "key": "ctl:disabled:INV-24 reviewer-block",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -14769,6 +15270,7 @@
         {
           "key": "el:reviewer-banner",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -14803,6 +15305,7 @@
         {
           "key": "el:demo-refusal",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -14863,6 +15366,7 @@
         {
           "key": "el:biz-settings-form",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -14897,6 +15401,9 @@
         {
           "key": "ctl:live:ECON-01 edit",
           "owner": "el:biz-settings-form",
+          "ownerPath": [
+            "el:biz-settings-form"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -14931,6 +15438,9 @@
         {
           "key": "ctl:live:ECON-01 edit",
           "owner": "el:biz-settings-form",
+          "ownerPath": [
+            "el:biz-settings-form"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -14965,6 +15475,9 @@
         {
           "key": "ctl:live:ECON-01 edit",
           "owner": "el:biz-settings-form",
+          "ownerPath": [
+            "el:biz-settings-form"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -14999,6 +15512,9 @@
         {
           "key": "ctl:live:ECON-01 edit",
           "owner": "el:biz-settings-form",
+          "ownerPath": [
+            "el:biz-settings-form"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -15033,6 +15549,7 @@
         {
           "key": "ctl:live:ECON-03 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -15067,6 +15584,7 @@
         {
           "key": "ctl:live:ECON-03 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -15101,6 +15619,7 @@
         {
           "key": "ctl:live:ECON-03 edit",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -15135,6 +15654,7 @@
         {
           "key": "el:econ-divergence",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -15169,6 +15689,7 @@
         {
           "key": "el:no-readback-warning",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -15203,6 +15724,9 @@
         {
           "key": "ctl:gated:SCOPE-01 delete",
           "owner": "el:no-readback-warning",
+          "ownerPath": [
+            "el:no-readback-warning"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -15272,6 +15796,7 @@
         {
           "key": "ctl:live:AUTH-11 name",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -15306,6 +15831,7 @@
         {
           "key": "ctl:live:AUTH-11 email",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -15340,6 +15866,7 @@
         {
           "key": "ctl:live:I18N-02 lang",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -15374,6 +15901,7 @@
         {
           "key": "ctl:live:I18N-02 lang",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -15408,6 +15936,7 @@
         {
           "key": "ctl:live:AUTH-12 current",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -15442,6 +15971,7 @@
         {
           "key": "ctl:live:AUTH-12 new",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -15476,6 +16006,7 @@
         {
           "key": "ctl:live:AUTH-12 save",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -15510,6 +16041,7 @@
         {
           "key": "el:destructive-ceremony",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -15544,6 +16076,9 @@
         {
           "key": "ctl:live:AUTH-13 revoke",
           "owner": "el:destructive-ceremony",
+          "ownerPath": [
+            "el:destructive-ceremony"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -15605,6 +16140,7 @@
         {
           "key": "el:plan-presentation-chip",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -15639,6 +16175,7 @@
         {
           "key": "el:billing-gated",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -15700,6 +16237,7 @@
         {
           "key": "el:admin-incident",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -15734,6 +16272,7 @@
         {
           "key": "ctl:gated:ADMIN-12 repair",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -15768,6 +16307,7 @@
         {
           "key": "ctl:gated:ADMIN-12 repair",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -15802,6 +16342,7 @@
         {
           "key": "ctl:gated:ADMIN-12 repair",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -15836,6 +16377,7 @@
         {
           "key": "ctl:gated:ADMIN-12 repair",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -15870,6 +16412,7 @@
         {
           "key": "collection:h48-sync",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -15904,6 +16447,7 @@
         {
           "key": "el:admin-receipt-gap",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -15965,6 +16509,7 @@
         {
           "key": "el:public-share",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -16026,6 +16571,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -16060,6 +16606,7 @@
         {
           "key": "el:mobile-scope",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -16094,6 +16641,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -16128,6 +16676,7 @@
         {
           "key": "ctl:live:MOBILE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -16185,6 +16734,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -16219,6 +16769,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -16253,6 +16804,7 @@
         {
           "key": "ctl:live:SCOPE-11 client-search",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -16287,6 +16839,7 @@
         {
           "key": "el:flow-a-direction-enter",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -16321,6 +16874,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -16355,6 +16909,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -16389,6 +16944,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -16423,6 +16979,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -16457,6 +17014,7 @@
         {
           "key": "collection:h51-clients",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -16491,6 +17049,7 @@
         {
           "key": "ctl:live:AGENCY-04 load-more",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -16525,6 +17084,7 @@
         {
           "key": "ctl:live:AGENCY-02 withheld-explainer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -16586,6 +17146,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -16620,6 +17181,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -16654,6 +17216,7 @@
         {
           "key": "ctl:gated:META-WRITE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -16688,6 +17251,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -16747,6 +17311,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -16781,6 +17346,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -16815,6 +17381,7 @@
         {
           "key": "ctl:live:GOOGLE-28 mark-applied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -16849,6 +17416,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -16883,6 +17451,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 csv",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -16917,6 +17486,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -16976,6 +17546,7 @@
         {
           "key": "el:public-share",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17010,6 +17581,9 @@
         {
           "key": "ctl:live:media-play",
           "owner": "el:public-share",
+          "ownerPath": [
+            "el:public-share"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17071,6 +17645,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17105,6 +17680,7 @@
         {
           "key": "el:mobile-scope",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -17139,6 +17715,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -17173,6 +17750,10 @@
         {
           "key": "el:win-320",
           "owner": "el:mobile-scope",
+          "ownerPath": [
+            "el:mobile-scope",
+            "ctl:live:MOBILE-02 scope-sheet"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17207,6 +17788,7 @@
         {
           "key": "ctl:live:MOBILE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -17264,6 +17846,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17298,6 +17881,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -17332,6 +17916,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -17366,6 +17951,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -17400,6 +17986,7 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -17434,6 +18021,7 @@
         {
           "key": "ctl:live:AGENCY-04 load-more",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -17468,6 +18056,7 @@
         {
           "key": "ctl:live:AGENCY-02 withheld-explainer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -17528,6 +18117,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17562,6 +18152,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -17596,6 +18187,7 @@
         {
           "key": "ctl:gated:META-WRITE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -17630,6 +18222,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -17689,6 +18282,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17723,6 +18317,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -17757,6 +18352,7 @@
         {
           "key": "ctl:live:GOOGLE-28 mark-applied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -17791,6 +18387,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 copy",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -17825,6 +18422,7 @@
         {
           "key": "ctl:live:GOOGLE-ESC-01 csv",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -17859,6 +18457,7 @@
         {
           "key": "ctl:live:GOOGLE-30 deeplink",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -17917,6 +18516,7 @@
         {
           "key": "el:public-share",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -17951,6 +18551,9 @@
         {
           "key": "ctl:live:media-play",
           "owner": "el:public-share",
+          "ownerPath": [
+            "el:public-share"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -18009,6 +18612,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -18043,6 +18647,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -18077,6 +18682,7 @@
         {
           "key": "ctl:live:nav-drawer close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -18111,6 +18717,7 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -18145,6 +18752,7 @@
         {
           "key": "el:agency-return",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -18179,6 +18787,7 @@
         {
           "key": "ctl:live:AUTH-10 scope-switch",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -18213,6 +18822,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -18247,6 +18857,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -18281,6 +18892,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -18315,6 +18927,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -18349,6 +18962,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -18383,6 +18997,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -18417,6 +19032,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -18477,6 +19093,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -18511,6 +19128,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -18545,6 +19163,7 @@
         {
           "key": "ctl:live:nav-drawer close",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -18579,6 +19198,7 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -18613,6 +19233,7 @@
         {
           "key": "el:agency-return",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -18647,6 +19268,7 @@
         {
           "key": "ctl:live:AUTH-10 scope-switch",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -18681,6 +19303,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -18715,6 +19338,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -18749,6 +19373,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -18783,6 +19408,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -18817,6 +19443,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 9,
           "visible": true,
           "clipped": false,
@@ -18851,6 +19478,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 10,
           "visible": true,
           "clipped": false,
@@ -18885,6 +19513,7 @@
         {
           "key": "ctl:live:nav",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 11,
           "visible": true,
           "clipped": false,
@@ -18973,6 +19602,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -19007,6 +19637,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19041,6 +19672,7 @@
         {
           "key": "el:scope-sheet-open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19075,6 +19707,9 @@
         {
           "key": "ctl:live:cancel",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -19109,6 +19744,9 @@
         {
           "key": "el:scope-f-context",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19143,6 +19781,9 @@
         {
           "key": "ctl:live:AUTH-10 scope-switch",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19177,6 +19818,9 @@
         {
           "key": "el:scope-f-business",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19211,6 +19855,9 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19245,6 +19892,9 @@
         {
           "key": "el:scope-f-provider",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -19279,6 +19929,9 @@
         {
           "key": "el:scope-f-account",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -19313,6 +19966,9 @@
         {
           "key": "ctl:live:SCOPE-03 account-picker",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -19347,6 +20003,9 @@
         {
           "key": "el:scope-f-currency",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -19381,6 +20040,9 @@
         {
           "key": "el:scope-f-timezone",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -19415,6 +20077,9 @@
         {
           "key": "el:scope-f-window",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -19449,6 +20114,9 @@
         {
           "key": "ctl:live:SCOPE-10 window-picker",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -19483,6 +20151,9 @@
         {
           "key": "el:scope-f-freshness",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -19539,6 +20210,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -19573,6 +20245,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19607,6 +20280,7 @@
         {
           "key": "el:scope-sheet-open",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19641,6 +20315,9 @@
         {
           "key": "ctl:live:cancel",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -19675,6 +20352,9 @@
         {
           "key": "el:scope-f-context",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19709,6 +20389,9 @@
         {
           "key": "ctl:live:AUTH-10 scope-switch",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -19743,6 +20426,9 @@
         {
           "key": "el:scope-f-business",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19777,6 +20463,9 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -19811,6 +20500,9 @@
         {
           "key": "el:scope-f-provider",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -19845,6 +20537,9 @@
         {
           "key": "el:scope-f-account",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -19879,6 +20574,9 @@
         {
           "key": "ctl:live:SCOPE-03 account-picker",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -19913,6 +20611,9 @@
         {
           "key": "el:scope-f-currency",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -19947,6 +20648,9 @@
         {
           "key": "el:scope-f-timezone",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -19981,6 +20685,9 @@
         {
           "key": "el:scope-f-window",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -20015,6 +20722,9 @@
         {
           "key": "ctl:live:SCOPE-10 window-picker",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -20049,6 +20759,9 @@
         {
           "key": "el:scope-f-freshness",
           "owner": "el:scope-sheet-open",
+          "ownerPath": [
+            "el:scope-sheet-open"
+          ],
           "orderInOwner": 8,
           "visible": true,
           "clipped": false,
@@ -20105,6 +20818,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20139,6 +20853,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -20173,6 +20888,7 @@
         {
           "key": "ctl:live:AUTH-10 scope-switch",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -20207,6 +20923,7 @@
         {
           "key": "el:switch-eligible",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -20241,6 +20958,9 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": "el:switch-eligible",
+          "ownerPath": [
+            "el:switch-eligible"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20275,6 +20995,9 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": "el:switch-eligible",
+          "ownerPath": [
+            "el:switch-eligible"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -20309,6 +21032,7 @@
         {
           "key": "el:switch-denied",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -20343,6 +21067,7 @@
         {
           "key": "el:switch-loading",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -20377,6 +21102,7 @@
         {
           "key": "el:switch-empty",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 6,
           "visible": true,
           "clipped": false,
@@ -20411,6 +21137,9 @@
         {
           "key": "ctl:live:nav",
           "owner": "el:switch-empty",
+          "ownerPath": [
+            "el:switch-empty"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20445,6 +21174,7 @@
         {
           "key": "el:switch-error",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 7,
           "visible": true,
           "clipped": false,
@@ -20479,6 +21209,9 @@
         {
           "key": "ctl:live:AUTH-10 business-switcher",
           "owner": "el:switch-error",
+          "ownerPath": [
+            "el:switch-error"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20540,6 +21273,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20574,6 +21308,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -20608,6 +21343,7 @@
         {
           "key": "el:flow-a-direction-return",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -20642,6 +21378,9 @@
         {
           "key": "el:agency-return",
           "owner": "el:flow-a-direction-return",
+          "ownerPath": [
+            "el:flow-a-direction-return"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20676,6 +21415,9 @@
         {
           "key": "ctl:live:SCOPE-11 client-search",
           "owner": "el:flow-a-direction-return",
+          "ownerPath": [
+            "el:flow-a-direction-return"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -20710,6 +21452,9 @@
         {
           "key": "ctl:live:AGENCY-04 open-client",
           "owner": "el:flow-a-direction-return",
+          "ownerPath": [
+            "el:flow-a-direction-return"
+          ],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -20767,6 +21512,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20822,6 +21568,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20900,6 +21647,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -20934,6 +21682,7 @@
         {
           "key": "ctl:live:chart-table-toggle",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -20991,6 +21740,7 @@
         {
           "key": "ctl:live:media-play",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -21025,6 +21775,7 @@
         {
           "key": "ctl:live:CREATIVE-02 carousel-dot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -21059,6 +21810,7 @@
         {
           "key": "ctl:live:CREATIVE-02 carousel-dot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -21093,6 +21845,7 @@
         {
           "key": "ctl:live:CREATIVE-02 carousel-dot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 3,
           "visible": true,
           "clipped": false,
@@ -21127,6 +21880,7 @@
         {
           "key": "ctl:live:CREATIVE-02 carousel-dot",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 4,
           "visible": true,
           "clipped": false,
@@ -21161,6 +21915,7 @@
         {
           "key": "ctl:live:media-retry",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 5,
           "visible": true,
           "clipped": false,
@@ -21223,6 +21978,7 @@
         {
           "key": "el:turkish-strings",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -21257,6 +22013,7 @@
         {
           "key": "ctl:gated:META-WRITE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -21322,6 +22079,7 @@
         {
           "key": "ctl:live:nav-drawer",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -21356,6 +22114,7 @@
         {
           "key": "ctl:live:MOBILE-02 scope-sheet",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,
@@ -21390,6 +22149,7 @@
         {
           "key": "ctl:gated:META-WRITE-01",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 2,
           "visible": true,
           "clipped": false,
@@ -21450,6 +22210,7 @@
         {
           "key": "el:dark-board",
           "owner": null,
+          "ownerPath": [],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -21484,6 +22245,9 @@
         {
           "key": "ctl:live:tab",
           "owner": "el:dark-board",
+          "ownerPath": [
+            "el:dark-board"
+          ],
           "orderInOwner": 0,
           "visible": true,
           "clipped": false,
@@ -21518,6 +22282,9 @@
         {
           "key": "ctl:live:tab",
           "owner": "el:dark-board",
+          "ownerPath": [
+            "el:dark-board"
+          ],
           "orderInOwner": 1,
           "visible": true,
           "clipped": false,

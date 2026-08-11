@@ -152,10 +152,44 @@ function nearestStep(size: number, scale: readonly number[]): number {
   return scale.reduce((best, step) => (Math.abs(step - size) < Math.abs(best - size) ? step : best), scale[0] ?? size);
 }
 
-function factsByKey(snapshot: { facts: VisualFact[] }): Map<string, VisualFact> {
-  const map = new Map<string, VisualFact>();
-  for (const fact of snapshot.facts) if (!map.has(fact.key)) map.set(fact.key, fact);
+function factsByKey(snapshot: { facts: VisualFact[] }): Map<string, VisualFact[]> {
+  const map = new Map<string, VisualFact[]>();
+  for (const fact of snapshot.facts) map.set(fact.key, [...(map.get(fact.key) ?? []), fact]);
   return map;
+}
+
+/** A reference owner in the same vocabulary the implementation reports. */
+function normaliseOwner(owner: string | null): string | null {
+  if (owner === null) return null;
+  return owner.startsWith("collection:")
+    ? `collection:${collectionKind(owner.slice("collection:".length))}`
+    : owner;
+}
+
+/** Normalised marker ancestry, so collections compare on kind. */
+function ownerChain(fact: VisualFact): string[] {
+  return fact.ownerPath.map((entry) =>
+    entry.startsWith("collection:")
+      ? `collection:${collectionKind(entry.slice("collection:".length))}`
+      : entry,
+  );
+}
+
+/**
+ * Which occurrence of a repeated marker to compare against.
+ *
+ * A key can appear more than once — the same contract on two panels, or a row
+ * action drawn per row. Taking whichever came first in document order made the
+ * verdict depend on source ordering: a frame that *did* place the control
+ * inside the region the design names still failed because an unrelated second
+ * occurrence was found first. The design's statement is that such a control
+ * exists inside that region, so the occurrence that satisfies the containment
+ * is the one to check. When none does, the first is compared and it fails —
+ * which is the outcome that matters.
+ */
+function pickFact(candidates: VisualFact[], wantOwner: string | null): VisualFact {
+  if (wantOwner === null || wantOwner.startsWith("ctl:")) return candidates[0]!;
+  return candidates.find((fact) => ownerChain(fact).includes(wantOwner)) ?? candidates[0]!;
 }
 
 /** Compare one implementation frame against its reference artboard. */
@@ -188,7 +222,8 @@ export function compareFrame(
       ? `collection:${collectionKind(want.key.slice("collection:".length))}`
       : want.key;
 
-    const got = impl.get(key);
+    const candidates = impl.get(key);
+    const got = candidates ? pickFact(candidates, normaliseOwner(want.owner)) : undefined;
     if (!got) {
       add(key, "missing", "the reference draws this region; the implementation has no such marker");
       continue;
@@ -204,9 +239,7 @@ export function compareFrame(
     }
 
     // Ownership: the design's region hierarchy, compared exactly.
-    const wantOwner = want.owner?.startsWith("collection:")
-      ? `collection:${collectionKind(want.owner.slice("collection:".length))}`
-      : want.owner;
+    const wantOwner = normaliseOwner(want.owner);
     // One-directional, and deliberately so. Where the reference *nests* a
     // marker inside a region, that containment is a design fact and the
     // implementation must honour it. Where the reference leaves markers as
@@ -218,8 +251,16 @@ export function compareFrame(
     // elements are an accessibility defect rather than a layout to copy. The
     // mock draws its own "widget" as a plain div, so its nesting there is an
     // artefact of how it was drawn.
+    //
+    // Containment, not parentage. The design states that a control lives inside
+    // a region; it does not state that nothing may sit between them. Requiring
+    // the region to be the *nearest* marker ancestor would forbid putting a
+    // real table inside a region the design itself draws a table in — the
+    // implementation would have to flatten its component tree to satisfy a
+    // drawing. So the region must appear somewhere in the enclosing chain.
+    // Being outside it still fails, which is the property that matters.
     const ownerIsRegion = wantOwner !== null && !wantOwner.startsWith("ctl:");
-    if (ownerIsRegion && wantOwner !== got.owner) {
+    if (ownerIsRegion && !ownerChain(got).includes(wantOwner)) {
       add(
         key,
         "wrong-owner",
@@ -287,8 +328,8 @@ export function compareFrame(
     for (let j = i + 1; j < pairs.length; j += 1) {
       const a = pairs[i];
       const b = pairs[j];
-      const ia = impl.get(a.key)!;
-      const ib = impl.get(b.key)!;
+      const ia = pickFact(impl.get(a.key)!, normaliseOwner(a.owner));
+      const ib = pickFact(impl.get(b.key)!, normaliseOwner(b.owner));
       if (!ia.visible || !ib.visible) continue;
       // Only within one region.
       //

@@ -346,6 +346,7 @@ export function SharesView({
           value={expiresAt}
           onChange={(e) => setExpiresAt(e.target.value)}
         />
+        <div data-el="share-tiers">
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
           {(["creator", "buyer"] as const).map((option) => (
@@ -363,7 +364,7 @@ export function SharesView({
           ))}
         </fieldset>
         {audience === "buyer" ? (
-          <label data-share-ack-block="" data-el="share-tiers" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "flex-start" }}>
+          <label data-share-ack-block="" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "flex-start" }}>
             <input
               type="checkbox"
               data-share-acknowledge=""
@@ -374,6 +375,7 @@ export function SharesView({
             <span>{BUYER_FINANCIAL_WARNING}</span>
           </label>
         ) : null}
+        </div>
         <div>
           <Button
             variant="secondary"

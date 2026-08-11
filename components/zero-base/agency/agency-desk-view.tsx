@@ -33,7 +33,9 @@ export function AgencyDeskView({
   const stillListed = revoked ? initialPage.items.some((row) => row.businessId === revoked) : false;
 
   return (
-    <>
+    // A return is a state the whole desk is in, not a line at the top of it:
+    // the client that was left is the reason every row below is being read.
+    <div data-el={returnedFrom ? "flow-a-direction-return" : undefined}>
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
         {copy.today}
       </h2>
@@ -45,7 +47,7 @@ export function AgencyDeskView({
           data-flow-a-direction="return"
           style={{ margin: "0 0 12px", fontSize: 12, lineHeight: "18px" }}
         >
-          <span data-el="flow-a-direction-return">Returned from {returnedFrom.name}.</span>{" "}
+          <span>Returned from {returnedFrom.name}.</span>{" "}
           <Link href={returnedFrom.href} style={{ color: "var(--ledger-accent-action)" }}>
             {copy.goBackToClient}
           </Link>
@@ -83,6 +85,6 @@ export function AgencyDeskView({
         .
       </p>
       <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
-    </>
+    </div>
   );
 }

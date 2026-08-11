@@ -178,10 +178,84 @@ export interface AssignmentPanelProps {
   onCancel?: () => void;
 }
 
+/**
+ * What a connected provider row offers.
+ *
+ * The design draws a different primary action per provider, because "reassign"
+ * does not mean the same thing for an ad account as it does for a GA4 property
+ * or a Search Console site — and Shopify has no reassignment at all, only what
+ * the connection currently covers. The disconnect is last, quiet, and gated:
+ * taking a provider off drops evidence that rows elsewhere still cite.
+ */
+const PROVIDER_PRIMARY: Record<string, { ctl: string; label: string }> = {
+  ga4: { ctl: "live:SCOPE-05", label: "Reassign property" },
+  search_console: { ctl: "live:SCOPE-06", label: "Change site" },
+  shopify: { ctl: "live:SHOPIFY-01", label: "Details" },
+};
+
+const PROVIDER_PRIMARY_DEFAULT = { ctl: "live:INTEGRATION-07", label: "Reassign" };
+
+function ProviderRowActions({
+  provider,
+  disconnectPermission,
+  onReassign,
+  onDetails,
+  onDisconnect,
+}: {
+  provider: string;
+  disconnectPermission?: { ok: boolean; reason?: string };
+  onReassign?: (provider: string) => void;
+  onDetails?: (provider: string) => void;
+  onDisconnect?: (provider: string) => void;
+}) {
+  const primary = PROVIDER_PRIMARY[provider] ?? PROVIDER_PRIMARY_DEFAULT;
+  // Shopify's primary action reads the connection rather than moving it.
+  const primaryHandler = provider === "shopify" ? onDetails : onReassign;
+  const canDisconnect = disconnectPermission ? disconnectPermission.ok : true;
+
+  return (
+    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      {primaryHandler ? (
+        <Button
+          variant="quiet"
+          data-provider-primary={provider}
+          data-ctl={primary.ctl}
+          onClick={() => primaryHandler(provider)}
+        >
+          {primary.label}
+        </Button>
+      ) : null}
+      {onDisconnect ? (
+        <Button
+          variant="quiet"
+          data-provider-disconnect={provider}
+          data-ctl="gated:INTEGRATION-09"
+          state={
+            canDisconnect
+              ? { kind: "enabled" }
+              : {
+                  kind: "disabled",
+                  reason:
+                    disconnectPermission?.reason ??
+                    "Only a business admin can disconnect a provider.",
+                }
+          }
+          onClick={() => onDisconnect(provider)}
+        >
+          {"Disconnect\u2026"}
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
 export function IntegrationsView({
   providers,
   onReconnect,
   onConnect,
+  onReassignProvider,
+  onProviderDetails,
+  onDisconnectProvider,
   /**
    * True only where a real OAuth start route exists for this provider.
    *
@@ -202,6 +276,12 @@ export function IntegrationsView({
   providers: readonly ProviderHealth[];
   onReconnect?: (provider: string) => void;
   onConnect?: (provider: string) => void;
+  /** Move a connected provider to a different account, property or site. */
+  onReassignProvider?: (provider: string) => void;
+  /** Open what the product actually knows about this connection. */
+  onProviderDetails?: (provider: string) => void;
+  /** Take a provider off. Gated: it drops evidence the reader may still need. */
+  onDisconnectProvider?: (provider: string) => void;
   connectSupported?: (provider: string) => boolean;
   authorizePermission?: { ok: boolean; reason?: string };
   shopifyEntry?: { kind: string; href: string; label: string; note?: string; shopDomain?: string };
@@ -293,7 +373,12 @@ export function IntegrationsView({
 
                     if (row.state.kind === "needs_reconnect") {
                       return supported ? (
-                        <Button variant="secondary" data-reconnect={row.provider} onClick={() => onReconnect?.(row.provider)}>
+                        <Button
+                          variant="secondary"
+                          data-reconnect={row.provider}
+                          data-ctl="live:INTEGRATION-02"
+                          onClick={() => onReconnect?.(row.provider)}
+                        >
                           {copy.reconnect}
                         </Button>
                       ) : (
@@ -319,6 +404,21 @@ export function IntegrationsView({
                         <span data-connect-unavailable={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
                           {CONNECT_UNSUPPORTED}
                         </span>
+                      );
+                    }
+                    // A connected provider used to render an em dash — the
+                    // one state where the reader has something to do (move the
+                    // account, change the property or site, take it off) and
+                    // the row offered nothing at all.
+                    if (row.state.kind === "connected") {
+                      return (
+                        <ProviderRowActions
+                          provider={row.provider}
+                          disconnectPermission={authorizePermission}
+                          onReassign={onReassignProvider}
+                          onDetails={onProviderDetails}
+                          onDisconnect={onDisconnectProvider}
+                        />
                       );
                     }
                     return <span style={{ color: "var(--ledger-ink-tertiary)" }}>—</span>;
@@ -486,6 +586,7 @@ export function TeamView({
   onRemove,
   onInvite,
   onRevokeInvite,
+  onResendInvite,
   onAccessRequest,
   onAssignWorkspaces,
   unavailableReason,
@@ -504,6 +605,8 @@ export function TeamView({
   onRemove?: (membershipId: string) => void;
   onInvite?: (emails: string, role: string) => void;
   onRevokeInvite?: (inviteId: string) => void;
+  /** Send the same invitation again. Absent where re-sending is not wired. */
+  onResendInvite?: (inviteId: string) => void;
   onAccessRequest?: (membershipId: string, action: "approve" | "reject") => void;
   onAssignWorkspaces?: (memberUserId: string, workspaceIds: string[]) => void;
   unavailableReason?: string | null;
@@ -676,18 +779,39 @@ export function TeamView({
               { id: "status", header: "Status", render: (row) => row.status },
               {
                 id: "revoke",
-                header: "Revoke",
+                header: "Actions",
+                // A pending invitation has two answers, not one: send it again
+                // because it was never received, or withdraw it. Offering only
+                // "revoke" made the common case — a mail that went to spam —
+                // reachable solely by withdrawing and starting over.
                 render: (row) =>
                   permissions.invitesWrite.ok ? (
-                    <Button
-                      variant="quiet"
-                      data-invite-revoke={row.id}
-                      data-ctl="gated:TEAM-04"
-                      state={write.pending === row.id ? { kind: "busy", label: "Revoking\u2026" } : { kind: "enabled" }}
-                      onClick={() => onRevokeInvite?.(row.id)}
-                    >
-                      {copy.revoke}
-                    </Button>
+                    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 8 }}>
+                      {onResendInvite ? (
+                        <Button
+                          variant="quiet"
+                          data-invite-resend={row.id}
+                          data-ctl="gated:TEAM-04"
+                          state={
+                            write.pending === row.id
+                              ? { kind: "busy", label: "Sending\u2026" }
+                              : { kind: "enabled" }
+                          }
+                          onClick={() => onResendInvite(row.id)}
+                        >
+                          {copy.resend}
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="quiet"
+                        data-invite-revoke={row.id}
+                        data-ctl="gated:TEAM-04"
+                        state={write.pending === row.id ? { kind: "busy", label: "Withdrawing\u2026" } : { kind: "enabled" }}
+                        onClick={() => onRevokeInvite?.(row.id)}
+                      >
+                        {copy.withdraw}
+                      </Button>
+                    </span>
                   ) : (
                     <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
                   ),
@@ -812,7 +936,6 @@ export function BusinessView({
               data-settings-progress=""
               // Until the re-read lands, nothing is confirmed; saying so is the
               // difference between "sent" and "true".
-              data-el={settingsState.confirmed ? undefined : "no-readback-warning"}
               style={{ margin: 0, fontSize: 12, minHeight: 16 }}
             >
               {settingsState.pending ? "Saving\u2026" : settingsState.confirmed ?? ""}
@@ -892,6 +1015,10 @@ export function BusinessView({
         <p data-delete-note="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {DELETE_CEREMONY_NOTE}
         </p>
+        {/* Deleting is the one action here whose result the product cannot
+            read back: the business it would re-read is gone. The warning is
+            therefore the region the control lives in, not a line beside it. */}
+        <div data-el={deleteOutcome.kind === "confirmed" ? undefined : "no-readback-warning"}>
         <Button
           variant="danger"
           data-business-delete=""
@@ -902,6 +1029,7 @@ export function BusinessView({
           {copy.deleteBusiness}
         </Button>
         <CeremonyResult outcome={deleteOutcome} name="delete" />
+        </div>
       </section>
     </Shell>
   );

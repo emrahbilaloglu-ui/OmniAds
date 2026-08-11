@@ -36,6 +36,19 @@ import {
 import type { GoogleScope, GoogleSourceState } from "@/lib/zero-base/google/google-contract";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
+/** The steps a batch would carry, named rather than counted. */
+function BatchSteps({ steps }: { steps: readonly { id: string; title: string }[] }) {
+  return (
+    <ul data-collection="batch" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+      {steps.map((step) => (
+        <li key={step.id} style={{ fontSize: 12 }}>
+          {step.title}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function GooglePlanView({
   scope,
   source,
@@ -215,7 +228,7 @@ export function GooglePlanView({
               id: "export",
               header: "Copy",
               render: (row) => (
-                <span style={{ display: "inline-flex", gap: 6 }}>
+                <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
                   {/* Per-step, not only whole-plan: an operator applying one
                       change at a time should not have to copy the whole plan
                       and find their line in it. Each export writes its own
@@ -301,17 +314,20 @@ export function GooglePlanView({
         <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           A batch would be one execution target type, up to {MAX_BATCH_ITEMS} items.
         </p>
+        {/* The warning and the list are one thing: "some of these landed" is
+            only readable next to which ones there were. */}
         {batchPartial ? (
-          <p
-            data-el="batch-partial"
-            style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
-          >
-            {/* Neither "applied" nor "failed" describes a batch where some
-                steps landed. Saying either would be wrong about the rest. */}
-            {t.batchPartiallyApplied}
-          </p>
-        ) : null}
-        <div data-collection="batch" />
+          <div data-el="batch-partial">
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+              {/* Neither "applied" nor "failed" describes a batch where some
+                  steps landed. Saying either would be wrong about the rest. */}
+              {t.batchPartiallyApplied}
+            </p>
+            <BatchSteps steps={steps} />
+          </div>
+        ) : (
+          <BatchSteps steps={steps} />
+        )}
         <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
           {steps.map((step) => (
             <li key={step.id} style={{ fontSize: 12 }}>

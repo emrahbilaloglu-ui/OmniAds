@@ -68,6 +68,16 @@ export interface HomeSourceState {
   reason: string | null;
   freshness: EvidenceFreshness;
   lastUpdatedAt: string | null;
+  /**
+   * What this row's own action is.
+   *
+   * "Unavailable" covers three different situations that need three different
+   * ways out — a source that was never connected, one that is connected but has
+   * nothing selected to read from, and one that is connected and simply stale.
+   * A single "Connect this source" link served the first and misdescribed the
+   * other two.
+   */
+  remedy?: "details" | "connect" | "select";
 }
 
 export interface HomeContract {

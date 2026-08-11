@@ -168,8 +168,14 @@ export function ScopeSheet({
   };
 
   return (
-    <ZeroBaseSheet open={open} onOpenChange={onOpenChange} title={copy.scope} side="bottom">
-      <div data-el="scope-sheet-open">
+    <ZeroBaseSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={copy.scope}
+      regionEl="scope-sheet-open"
+      side="bottom"
+    >
+      <div>
         <dl style={{ margin: "12px 0 0", display: "grid", gap: 2 }}>
           {scopeFactRows(facts).map((row) => {
             const picker = ROW_PICKER[row.id];
@@ -178,7 +184,6 @@ export function ScopeSheet({
               <div
                 key={row.id}
                 data-scope-fact={row.id}
-                data-el={`scope-f-${row.id}`}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -191,7 +196,9 @@ export function ScopeSheet({
                   borderBottom: "1px solid var(--ledger-border-subtle)",
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                {/* The fact carries the region marker; the picker is a sibling,
+                    so it belongs to the sheet rather than to one row's label. */}
+                <div data-el={`scope-f-${row.id}`} style={{ minWidth: 0 }}>
                   <dt
                     style={{
                       fontSize: 12,

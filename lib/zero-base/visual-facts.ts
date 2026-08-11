@@ -31,6 +31,16 @@ export interface VisualFact {
   key: string;
   /** Nearest enclosing marker, or null when the region is top level. */
   owner: string | null;
+  /**
+   * Every enclosing marker, nearest first.
+   *
+   * The nearest one alone cannot express what the design states. Where the
+   * reference draws a control inside a region, the design fact is that the
+   * control *lives in* that region — not that no component may sit between
+   * them. A real table inside that region is not a violation of it; a control
+   * drawn outside it is. Containment is checked against this chain.
+   */
+  ownerPath: string[];
   /** Index among siblings that share this owner, in document order. */
   orderInOwner: number;
   visible: boolean;
@@ -123,8 +133,12 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
   for (const node of nodes) {
     let ancestor = node.parentElement;
     let owner = null;
+    const ownerPath = [];
     while (ancestor && ancestor !== root.parentElement) {
-      if (isMarker(ancestor)) { owner = markerKey(ancestor); break; }
+      if (isMarker(ancestor)) {
+        for (const key of markerKeys(ancestor)) ownerPath.push(key);
+        if (owner === null) owner = markerKey(ancestor);
+      }
       ancestor = ancestor.parentElement;
     }
 
@@ -149,6 +163,7 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
     for (const key of markerKeys(node)) facts.push({
       key,
       owner,
+      ownerPath,
       orderInOwner: order,
       visible,
       clipped: visible ? isClipped(node, rect) : false,

@@ -136,7 +136,10 @@ const home = (ready: boolean) => {
     { key: "shopify", label: "Shopify", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" },
     ready
       ? { key: "ga4", label: "GA4", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" }
-      : { key: "ga4", label: "GA4", state: "partial", reason: "Backfill still running for Jul 13 – Jul 20.", freshness: "stale", lastUpdatedAt: "2026-08-07T06:00:00Z" },
+      : { key: "ga4", label: "GA4", state: "unavailable", reason: "Not connected.", freshness: "unknown", lastUpdatedAt: null, remedy: "connect" },
+    ready
+      ? { key: "search_console", label: "Search Console", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-09T06:00:00Z" }
+      : { key: "search_console", label: "Search Console", state: "unavailable", reason: "No site selected.", freshness: "unknown", lastUpdatedAt: null, remedy: "select" },
   ];
 
   const metric = (
@@ -205,7 +208,7 @@ const home = (ready: boolean) => {
   return { contract, points, economics };
 };
 
-const homeFrame = (ready: boolean, narrow = false) => {
+const homeFrame = (ready: boolean, narrow = false, narrowest = false) => {
   const { contract, points, economics } = home(ready);
   return (
     <HomeView
@@ -216,6 +219,7 @@ const homeFrame = (ready: boolean, narrow = false) => {
       triageHref={narrow ? "/c/biz/meta/decisions?order=tier0" : null}
       trend={{ points, currency: "USD" }}
       economics={economics}
+      narrowest={narrowest}
     />
   );
 };
@@ -1043,7 +1047,12 @@ const ACCESS_REQUESTS = [
 const team = (permissions: { membersWrite: unknown; invitesWrite: unknown; accessRequests: unknown }, write = NO_WRITE) => (
   <TeamView
     members={members as never}
-    invites={[]}
+    invites={[
+      { id: "inv-1", email: "rowan@halcyon.test", role: "analyst", status: "Pending" },
+      { id: "inv-2", email: "sam@halcyon.test", role: "admin", status: "Pending" },
+    ] as never}
+    onResendInvite={() => {}}
+    onRevokeInvite={() => {}}
     accessRequests={ACCESS_REQUESTS as never}
     workspaces={[]}
     permissions={permissions as never}
@@ -1056,10 +1065,15 @@ const integrations = (extra: Record<string, unknown> = {}) => (
     providers={[
       provider("meta", "Meta Ads", { kind: "connected", accountLabel: "act_1" }),
       provider("google", "Google Ads", { kind: "needs_reconnect", reason: "This connection needs re-authorization." }),
-      provider("ga4", "Google Analytics 4", { kind: "not_connected" }),
+      provider("ga4", "Google Analytics 4", { kind: "connected", accountLabel: "properties/318204" }),
+      provider("search_console", "Search Console", { kind: "connected", accountLabel: "sc-domain:halcyon.test" }),
+      provider("shopify", "Shopify", { kind: "connected", accountLabel: "halcyon.myshopify.com" }),
     ] as never}
     outcome={{ kind: "unstarted" }}
     connectSupported={() => true}
+    onReassignProvider={() => {}}
+    onProviderDetails={() => {}}
+    onDisconnectProvider={() => {}}
     {...(extra as Record<string, never>)}
   />
 );
@@ -1246,7 +1260,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
-  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => <div data-el="win-320">{homeFrame(true, true)}</div> },
+  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true, true, true) },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 320, theme: "light", render: () => agencyDesk() },
   { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 320, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },

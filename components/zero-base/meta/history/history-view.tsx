@@ -106,11 +106,6 @@ export function HistoryView({
         </p>
       ) : null}
 
-      {disclosure ? (
-        <p data-history-disclosure="" data-el="history-gap" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          {disclosure}
-        </p>
-      ) : null}
 
       {limitations && limitations.length > 0 ? (
         <ul data-history-limitations="" style={{ margin: "8px 0 0", paddingLeft: 16 }}>
@@ -135,6 +130,11 @@ export function HistoryView({
               />
             </div>
           ) : null}
+      {disclosure ? (
+        <p data-history-disclosure="" data-el="history-gap" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {disclosure}
+        </p>
+      ) : null}
           {onOutcomeFilterChange ? (
             <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
               {copy.outcome}

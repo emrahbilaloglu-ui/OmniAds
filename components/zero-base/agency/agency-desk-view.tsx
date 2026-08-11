@@ -35,7 +35,11 @@ export function AgencyDeskView({
   return (
     // A return is a state the whole desk is in, not a line at the top of it:
     // the client that was left is the reason every row below is being read.
-    <div data-el={returnedFrom ? "flow-a-direction-return" : undefined}>
+    <div
+      data-agency-desk=""
+      data-el={returnedFrom ? "flow-a-direction-return" : undefined}
+      style={{ display: "flex", flexDirection: "column" }}
+    >
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: "0 0 8px" }}>
         {copy.today}
       </h2>
@@ -70,21 +74,27 @@ export function AgencyDeskView({
           {AGENCY_MEMBERSHIP_REVOKED}
         </p>
       ) : null}
+      <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
       <p
         data-el="withheld-tile"
+        data-desk-order="tile"
         style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}
       >
-        Clients are listed alphabetically. Totals across clients are{" "}
+        Clients are listed alphabetically, and totals across them are withheld.
+      </p>
+      {/* The way to the reason, not the reason itself. At desk width the design
+          places this above the rows, where an operator reads it before drawing
+          conclusions from the numbers; on a phone the rows come first and this
+          follows them. Ordering only — there is one link either way. */}
+      <p data-desk-order="explainer" style={{ margin: "0 0 12px", fontSize: 13, lineHeight: "19px" }}>
         <Link
           href="/a/desk/withheld"
           data-ctl="live:AGENCY-02 withheld-explainer"
           style={{ color: "var(--ledger-accent-action)" }}
         >
-          withheld for a stated reason
+          What&apos;s withheld and why
         </Link>
-        .
       </p>
-      <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
     </div>
   );
 }

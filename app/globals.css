@@ -7981,3 +7981,25 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Agency desk reading order. The accepted design places the withheld explainer
+   above the client rows at desk width and after them on a phone; the rows and
+   the tile keep their order at both. One element, moved — not two copies with
+   one hidden. */
+[data-adc-ui="zero-base"] [data-agency-desk] > * {
+  order: 2;
+}
+
+[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="tile"] {
+  order: 3;
+}
+
+[data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
+  order: 4;
+}
+
+@media (min-width: 768px) {
+  [data-adc-ui="zero-base"] [data-agency-desk] > [data-desk-order="explainer"] {
+    order: 1;
+  }
+}

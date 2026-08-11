@@ -120,6 +120,7 @@ export function DataTable<Row>({
                   {...(isRowHeader ? { scope: "row" as const } : {})}
                   style={{
                     textAlign: column.numeric ? "right" : "left",
+                    verticalAlign: "top",
                     padding,
                     height: ROW_HEIGHT[density],
                     fontWeight: isRowHeader ? 600 : 400,

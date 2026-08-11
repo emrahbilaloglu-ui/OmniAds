@@ -9,6 +9,15 @@ import {
   type ClientDataHealth,
 } from "@/lib/agency-today-read-model";
 import { readAgencyTodayTotals, resolveClientFreshness } from "@/lib/agency-today-store";
+import {
+  InvalidAgencyCursorError,
+  readAgencyDirectoryPage,
+} from "@/lib/zero-base/agency-directory-store";
+import { findForbiddenAgencyKeys } from "@/lib/zero-base/agency-projection";
+import {
+  isZeroBaseUiEnabledForInternal,
+  readZeroBaseRolloutConfig,
+} from "@/lib/zero-base/rollout";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +48,14 @@ export async function GET(request: NextRequest) {
   }
 
   const params = request.nextUrl.searchParams;
+
+  // Canonical callers opt in explicitly. Adapting this route rather than
+  // adding a parallel one is the WP-00.5 disposition: the legacy projection
+  // below is untouched and keeps serving its existing callers.
+  if (params.get("contract") === "zero-base.v1") {
+    return handleZeroBaseDirectory(request, session);
+  }
+
   const endDate = isIsoDate(params.get("endDate"))
     ? (params.get("endDate") as string)
     : shiftIsoDate(new Date().toISOString().slice(0, 10), -1);
@@ -168,4 +185,64 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ startDate, endDate, model });
+}
+
+
+/**
+ * Zero-base Agency directory — one bounded, ordered page.
+ *
+ * Re-authorizes on every request: the session is read here, the rollout gate is
+ * re-checked here, and scope is re-derived inside the query. A page request is
+ * not a continuation of a trusted session — it is its own authorization.
+ */
+async function handleZeroBaseDirectory(
+  request: NextRequest,
+  session: NonNullable<Awaited<ReturnType<typeof getSessionFromRequest>>>,
+): Promise<NextResponse> {
+  // Rollout is re-checked per page, not just at first render, so turning it
+  // off closes the boundary immediately rather than at the next reload.
+  if (!isZeroBaseUiEnabledForInternal(readZeroBaseRolloutConfig())) {
+    return NextResponse.json(
+      { error: "not_found", message: "Not found." },
+      { status: 404 },
+    );
+  }
+
+  const params = request.nextUrl.searchParams;
+  const rawPageSize = Number(params.get("pageSize"));
+
+  let page;
+  try {
+    page = await readAgencyDirectoryPage({
+      userId: session.user.id,
+      email: session.user.email,
+      cursor: params.get("cursor"),
+      pageSize: Number.isFinite(rawPageSize) ? rawPageSize : undefined,
+      withTotal: !params.get("cursor"),
+    });
+  } catch (error: unknown) {
+    if (error instanceof InvalidAgencyCursorError) {
+      // Fail closed on a cursor we cannot read, rather than silently serving
+      // page one — that would look like the list had quietly restarted.
+      return NextResponse.json(
+        { error: "invalid_cursor", message: "Invalid directory cursor." },
+        { status: 400 },
+      );
+    }
+    throw error;
+  }
+
+  // Last line of defence before the bytes leave the server. The projection
+  // cannot structurally carry money, but this proves it for the whole payload.
+  const forbidden = findForbiddenAgencyKeys(page);
+  if (forbidden.length > 0) {
+    return NextResponse.json(
+      { error: "projection_violation", message: "Response withheld." },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json(page, {
+    headers: { "Cache-Control": "no-store, max-age=0", Vary: "Cookie" },
+  });
 }

@@ -2647,6 +2647,16 @@ async function main() {
       "product instrumentation DB seam check",
     );
 
+    // Agency directory keyset pagination. Only real PostgreSQL can prove that
+    // the ORDER BY producing a cursor and the comparison consuming it agree —
+    // collation, tie-breaks, duplicate and accented names included.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-agency-directory-seam-child.ts"),
+      "agency directory pagination DB seam check",
+    );
+
     // The notification lifecycle, driven through its real production
     // transitions rather than asserted from shape.
     await runChildScript(

@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 
-import { ClientDirectory } from "@/components/zero-base/agency/client-directory";
+import {
+  ClientDirectory,
+  type AgencyDirectoryPageData,
+} from "@/components/zero-base/agency/client-directory";
 import { AGENCY_MEMBERSHIP_REVOKED } from "@/lib/zero-base/agency-projection";
-import type { AgencySourceBusiness } from "@/lib/zero-base/agency-projection";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -14,10 +16,12 @@ import { useSearchParams } from "next/navigation";
  * returning from it carries `revoked=<id>`, and the desk says what happened
  * instead of leaving them to notice a row has vanished.
  */
-export function AgencyDeskView({ businesses }: { businesses: readonly AgencySourceBusiness[] }) {
+export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPageData }) {
   const searchParams = useSearchParams();
   const revoked = searchParams?.get("revoked") ?? null;
-  const stillListed = revoked ? businesses.some((b) => b.id === revoked) : false;
+  // Checked against the served page: a revoked client is absent from the
+  // authorized query entirely, so it cannot appear here.
+  const stillListed = revoked ? initialPage.items.some((row) => row.businessId === revoked) : false;
 
   return (
     <>
@@ -48,7 +52,7 @@ export function AgencyDeskView({ businesses }: { businesses: readonly AgencySour
         </Link>
         .
       </p>
-      <ClientDirectory businesses={businesses} returnPath="/a/desk" />
+      <ClientDirectory initialPage={initialPage} returnPath="/a/desk" />
     </>
   );
 }

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getSessionFromCookies } from "@/lib/auth";
-import { readAgencyDirectorySource } from "@/lib/zero-base/agency-directory-server";
+import { readAgencyDirectoryPage } from "@/lib/zero-base/agency-directory-store";
 import { AgencyDeskView } from "@/components/zero-base/agency/agency-desk-view";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 
@@ -19,10 +19,11 @@ export default async function AgencyDeskPage() {
   const session = await getSessionFromCookies();
   if (!session) redirect(loginUrlFor("/a/desk"));
 
-  const businesses = await readAgencyDirectorySource({
+  const page = await readAgencyDirectoryPage({
     userId: session.user.id,
     email: session.user.email,
+    withTotal: true,
   });
 
-  return <AgencyDeskView businesses={businesses} />;
+  return <AgencyDeskView initialPage={page} />;
 }

@@ -28,6 +28,7 @@ export function AccountSecurityView({
   onChangePassword,
   profileError,
   passwordError,
+  preferences,
 }: {
   name: string;
   email: string;
@@ -37,6 +38,14 @@ export function AccountSecurityView({
   /** The server's own words, kept beside the field, value preserved. */
   profileError?: string | null;
   passwordError?: string | null;
+  /**
+   * Account-wide preferences, between the profile and the session controls.
+   *
+   * The design places language here rather than on a separate surface: it is
+   * part of who the account is, and it must not be reached only by scrolling
+   * past controls that end sessions.
+   */
+  preferences?: React.ReactNode;
 }) {
   const copy = useCopy();
   const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
@@ -114,6 +123,8 @@ export function AccountSecurityView({
           </div>
         </div>
       </div>
+
+      {preferences}
 
       <div data-el="destructive-ceremony">
         <h3 style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>{copy.sessions}</h3>

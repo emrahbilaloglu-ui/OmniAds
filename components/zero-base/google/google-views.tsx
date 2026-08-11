@@ -289,7 +289,7 @@ export function GoogleAdvisorView({
                 stabilization window is what makes a signal trustworthy. Both
                 are shown so "off by default" is a stated posture rather than
                 an unexplained absence. */}
-            <span data-card-fingerprint="" data-el="google-trust">
+            <span data-card-fingerprint="">
               Fingerprint: {card.fingerprint}
             </span>
             <span data-card-dependency="">Depends on: {card.dependency}</span>

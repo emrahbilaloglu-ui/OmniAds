@@ -356,6 +356,14 @@ export function SharesView({
             </label>
           ))}
         </fieldset>
+        </div>
+        <TextInput
+          label={copy.expiresAt}
+          data-share-expires=""
+          data-ctl="live:CREATIVE-10 expiry"
+          value={expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+        />
         {audience === "buyer" ? (
           <label data-share-ack-block="" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "flex-start" }}>
             <input
@@ -368,14 +376,6 @@ export function SharesView({
             <span>{BUYER_FINANCIAL_WARNING}</span>
           </label>
         ) : null}
-        </div>
-        <TextInput
-          label={copy.expiresAt}
-          data-share-expires=""
-          data-ctl="live:CREATIVE-10 expiry"
-          value={expiresAt}
-          onChange={(e) => setExpiresAt(e.target.value)}
-        />
         <div>
           <Button
             variant="secondary"

@@ -1234,16 +1234,14 @@ export const FRAMES: readonly FrameSpec[] = [
     { key: "targetRoas", label: "Target ROAS", source: "Commercial targets", consumers: ["Reports"], value: "2.6" },
   ]) },
   { id: "H46", leaf: "L-ME-ACCOUNT", state: "account-security", width: 1440, theme: "light", render: () => (
-    <>
-      <LanguageView current="en" />
-      <AccountSecurityView
-        name="Dana Whitfield"
-        email="dana@halcyonsupply.example"
-        currentSessionId="7f3c9a12b4d5"
-        onSaveProfile={() => {}}
-        onChangePassword={() => {}}
-      />
-    </>
+    <AccountSecurityView
+      name="Dana Whitfield"
+      email="dana@halcyonsupply.example"
+      currentSessionId="7f3c9a12b4d5"
+      onSaveProfile={() => {}}
+      onChangePassword={() => {}}
+      preferences={<LanguageView current="en" />}
+    />
   ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
   { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "admin-incident", width: 1440, theme: "light", render: () => (

@@ -683,57 +683,6 @@ export function TeamView({
             {permissions.invitesWrite.reason}
           </p>
         )}
-        <div style={{ marginTop: 12 }}>
-          <DataTable
-            caption={copy.pendingInvitations}
-            rows={[...invites]}
-            rowKey={(row) => row.id}
-            columns={[
-              { id: "email", header: "Email", render: (row) => row.email },
-              { id: "role", header: "Role", render: (row) => row.role },
-              { id: "status", header: "Status", render: (row) => row.status },
-              {
-                id: "revoke",
-                header: "Actions",
-                // A pending invitation has two answers, not one: send it again
-                // because it was never received, or withdraw it. Offering only
-                // "revoke" made the common case — a mail that went to spam —
-                // reachable solely by withdrawing and starting over.
-                render: (row) =>
-                  permissions.invitesWrite.ok ? (
-                    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 8 }}>
-                      {onResendInvite ? (
-                        <Button
-                          variant="quiet"
-                          data-invite-resend={row.id}
-                          data-ctl="gated:TEAM-04"
-                          state={
-                            write.pending === row.id
-                              ? { kind: "busy", label: "Sending\u2026" }
-                              : { kind: "enabled" }
-                          }
-                          onClick={() => onResendInvite(row.id)}
-                        >
-                          {copy.resend}
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="quiet"
-                        data-invite-revoke={row.id}
-                        data-ctl="gated:TEAM-04"
-                        state={write.pending === row.id ? { kind: "busy", label: "Withdrawing\u2026" } : { kind: "enabled" }}
-                        onClick={() => onRevokeInvite?.(row.id)}
-                      >
-                        {copy.withdraw}
-                      </Button>
-                    </span>
-                  ) : (
-                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
-                  ),
-              },
-            ]}
-          />
-        </div>
       </section>
 
       <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16 }}>
@@ -812,6 +761,60 @@ export function TeamView({
                     >
                       {copy.remove}
                     </Button>
+                  ) : (
+                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+                  ),
+              },
+            ]}
+          />
+        </div>
+      </section>
+
+      <section aria-label={copy.invitations} style={{ marginTop: 20 }}>
+        <div style={{ marginTop: 12 }}>
+          <DataTable
+            caption={copy.pendingInvitations}
+            rows={[...invites]}
+            rowKey={(row) => row.id}
+            columns={[
+              { id: "email", header: "Email", render: (row) => row.email },
+              { id: "role", header: "Role", render: (row) => row.role },
+              { id: "status", header: "Status", render: (row) => row.status },
+              {
+                id: "revoke",
+                header: "Actions",
+                // A pending invitation has two answers, not one: send it again
+                // because it was never received, or withdraw it. Offering only
+                // "revoke" made the common case — a mail that went to spam —
+                // reachable solely by withdrawing and starting over.
+                render: (row) =>
+                  permissions.invitesWrite.ok ? (
+                    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 8 }}>
+                      {onResendInvite ? (
+                        <Button
+                          variant="quiet"
+                          data-invite-resend={row.id}
+                          data-ctl="gated:TEAM-04"
+                          state={
+                            write.pending === row.id
+                              ? { kind: "busy", label: "Sending\u2026" }
+                              : { kind: "enabled" }
+                          }
+                          onClick={() => onResendInvite(row.id)}
+                        >
+                          {copy.resend}
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="quiet"
+                        data-invite-revoke={row.id}
+                        data-ctl="gated:TEAM-04"
+                        state={write.pending === row.id ? { kind: "busy", label: "Withdrawing\u2026" } : { kind: "enabled" }}
+                        onClick={() => onRevokeInvite?.(row.id)}
+                      >
+                        {copy.withdraw}
+                      </Button>
+                    </span>
                   ) : (
                     <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
                   ),

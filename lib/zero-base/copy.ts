@@ -56,6 +56,8 @@ export const ZERO_BASE_COPY = {
     served: "Served",
     all: "All",
     batchPartiallyApplied: "Some steps in this batch were applied and some were not. Neither word describes the batch as a whole.",
+    planTrustNote:
+      "Every step above is carried out by hand in Google Ads; nothing here changes an account. What was read to produce them is named on each step, and what could not be verified is stated rather than omitted.",
     fixThis: "Fix this",
     breakdown: "Breakdown",
     sourceContractsNote: "Each source states what it can break down by. A source that cannot answer a breakdown says so here, before it is added.",
@@ -425,6 +427,8 @@ export const ZERO_BASE_COPY = {
     served: "Sunulan",
     all: "Tümü",
     batchPartiallyApplied: "Bu gruptaki bazı adımlar uygulandı, bazıları uygulanmadı. Hiçbir sözcük grubun tamamını tanımlamıyor.",
+    planTrustNote:
+      "Yukarıdaki adımlar Google Ads içinde elle uygulanır; burada hiçbir şey hesabı değiştirmez. Her adımın neye dayandığı adımın üzerinde yazar, doğrulanamayan şeyler atlanmaz, açıkça belirtilir.",
     fixThis: "Bunu düzelt",
     breakdown: "Kırılım",
     sourceContractsNote: "Her kaynak hangi kırılımları yanıtlayabildiğini belirtir. Yanıtlayamayan bir kaynak, eklenmeden önce bunu burada söyler.",

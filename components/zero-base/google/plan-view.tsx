@@ -234,14 +234,6 @@ export function GooglePlanView({
                       and find their line in it. Each export writes its own
                       journal entry. */}
                   <Button
-                    variant="quiet"
-                    data-ctl="live:GOOGLE-26 dismiss"
-                    aria-label={`Dismiss ${row.title}`}
-                    onClick={() => onDismiss?.(row.id)}
-                  >
-                    {t.dismiss}
-                  </Button>
-                  <Button
                     variant="secondary"
                     data-ctl="live:GOOGLE-ESC-01 copy"
                     aria-label={`Copy ${row.title}`}
@@ -256,6 +248,14 @@ export function GooglePlanView({
                     onClick={() => onCsvStep?.(row.id)}
                   >
                     {t.downloadCsv}
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    data-ctl="live:GOOGLE-26 dismiss"
+                    aria-label={`Dismiss ${row.title}`}
+                    onClick={() => onDismiss?.(row.id)}
+                  >
+                    {t.dismiss}
                   </Button>
                 </span>
               ),
@@ -406,6 +406,13 @@ export function GooglePlanView({
           />
         </section>
       ) : null}
+      {/* What the plan rests on, stated after it. Every step above is a
+          recommendation the operator has to carry out by hand in Google Ads;
+          this says what was read to produce them and what was not verified, so
+          "apply" is a decision rather than an act of faith. */}
+      <p data-el="google-trust" style={{ margin: "12px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-tertiary)" }}>
+        {t.planTrustNote}
+      </p>
     </div>
   );
 }

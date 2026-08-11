@@ -88,6 +88,8 @@ export function DecisionsView({
   mutation,
   stickyBar,
   shareViewHref = null,
+  inspectorEvidence = null,
+  briefHref = null,
 }: {
   model: DecisionsViewModel;
   state: DecisionsUrlState;
@@ -108,6 +110,8 @@ export function DecisionsView({
   stickyBar?: { metaStopHref: string; onOpenManual?: () => void };
   /** URL that reproduces this lane, filter and search exactly. */
   shareViewHref?: string | null;
+  inspectorEvidence?: { windowLabel: string; snapshotAt: string; gaps: readonly string[] } | null;
+  briefHref?: string | null;
 }) {
   const copy = useCopy();
   const [search, setSearch] = useState(state.search);
@@ -441,6 +445,8 @@ export function DecisionsView({
             row={selectedRow}
             model={model}
             demo={demo}
+            evidence={inspectorEvidence}
+            briefHref={briefHref}
             adsManagerHref={adsManagerHref}
             workflow={workflow}
             mutation={mutation}
@@ -458,6 +464,8 @@ function DecisionInspector({
   adsManagerHref,
   workflow,
   mutation,
+  evidence,
+  briefHref,
 }: {
   row: DecisionRow;
   model: DecisionsViewModel;
@@ -465,6 +473,9 @@ function DecisionInspector({
   adsManagerHref?: string | null;
   workflow?: DecisionsWorkflow;
   mutation?: MutationCeremonySeed;
+  /** What the verdict was measured over, and what was missing from it. */
+  evidence?: { windowLabel: string; snapshotAt: string; gaps: readonly string[] } | null;
+  briefHref?: string | null;
 }) {
   const copy = useCopy();
   const actions = actionCountFor({ row, viewer: model.viewer, demo });
@@ -489,7 +500,54 @@ function DecisionInspector({
             {row.adsetName ? ` · ${row.adsetName}` : ""}
           </dd>
         </div>
+        {evidence ? (
+          <>
+            <div>
+              <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                {copy.evidenceWindow}
+              </dt>
+              {/* The window every figure below covers. A verdict without it is
+                  unfalsifiable — the reader cannot tell what it was measured
+                  over. */}
+              <dd data-el="evidence-window" style={{ margin: 0, fontSize: 13 }}>
+                {evidence.windowLabel}
+              </dd>
+            </div>
+            <div>
+              <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.asOf}</dt>
+              {/* Snapshot time, not "now": these numbers are as of a moment. */}
+              <dd data-el="asof-row" style={{ margin: 0, fontSize: 13 }}>
+                {evidence.snapshotAt}
+              </dd>
+            </div>
+            {evidence.gaps.length > 0 ? (
+              <div>
+                <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.gaps}</dt>
+                <dd
+                  data-el="provenance-gap"
+                  style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+                >
+                  {/* Named, not smoothed over: a metric missing at this grain
+                      is a different fact from a metric that is zero. */}
+                  {evidence.gaps.map((gap) => (
+                    <span key={gap} style={{ display: "block" }}>
+                      {gap}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </dl>
+
+      {briefHref ? (
+        <p data-el="row-action" style={{ margin: 0, fontSize: 12.5 }}>
+          <Link href={briefHref} data-ctl="live:CREATIVE-07 brief" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.openTheBrief}
+          </Link>
+        </p>
+      ) : null}
 
       {actions === 0 ? (
         <p data-inspector-action-count="0" style={{ margin: 0, fontSize: 13, color: "var(--ledger-ink-secondary)" }}>

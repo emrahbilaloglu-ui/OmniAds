@@ -336,6 +336,12 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false) => 
       onStateChange={() => {}}
       adsManagerHref="https://adsmanager.facebook.com/"
       shareViewHref="/c/biz/meta/decisions?lane=act&levels=campaign"
+      briefHref="/c/biz/creative/c1/brief"
+      inspectorEvidence={{
+        windowLabel: "Jul 13 – Aug 9",
+        snapshotAt: "2026-08-09T06:10:00Z",
+        gaps: ["CPA at ad grain — not served at this grain (META-DEC-06)."],
+      }}
       mutation={ceremonySeed()}
       workflow={{
         records: new Map(

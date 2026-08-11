@@ -58,7 +58,10 @@ const Host = ({ children }: { children: React.ReactNode }) => (
 /* --------------------------------------------------------------- generic */
 
 describe("generic controls", () => {
-  interactionCase("live:cancel", async () => {
+  // NOT a claim on live:cancel: a bare Button proves nothing about a dialog or
+  // sheet closing without mutating. The real owners are the confirm dialog and
+  // the scope sheet, proved in interactions-shell.
+  it("a quiet button invokes its handler", async () => {
     const onCancel = vi.fn();
     render(<Button variant="quiet" onClick={onCancel}>Cancel</Button>);
     const node = expectOperable(screen.getByRole("button", { name: "Cancel" }), "cancel");
@@ -66,7 +69,9 @@ describe("generic controls", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  interactionCase("live:close", async () => {
+  // NOT a claim on live:close: closing a confirm dialog is live:cancel. The
+  // inspector overlay owns live:close.
+  it("the confirm dialog closes", async () => {
     const onOpenChange = vi.fn();
     render(
       <Host>
@@ -177,7 +182,9 @@ describe("scope", () => {
     freshnessLabel: "Updated 2 minutes ago",
   };
 
-  interactionCase("live:MOBILE-02 scope-sheet", async () => {
+  // NOT a claim on live:MOBILE-02 scope-sheet: rendering the sheet already open
+  // skips the control the contract is about. The compact context bar owns it.
+  it("the scope sheet renders its facts", async () => {
     render(
       <Host>
         <ScopeSheet open onOpenChange={vi.fn()} facts={facts as never} />
@@ -280,13 +287,17 @@ describe("scope", () => {
 /* ---------------------------------------------------------------- agency */
 
 describe("agency", () => {
-  interactionCase("live:AGENCY-02 withheld-explainer", () => {
+  // NOT a claim on live:AGENCY-02: this asserts the explainer's content and
+  // never operates the desk link that opens it.
+  it("the withheld explainer states its reasons", () => {
     render(<WithheldExplainer />);
     expect(screen.getByText(/Why Agency shows no totals/)).toBeTruthy();
   });
 
 
-  interactionCase("live:AGENCY-04 load-more", async () => {
+  // NOT a claim on live:AGENCY-04 load-more: the Collection primitive is the
+  // mechanism, but the agency directory is the owner.
+  it("the collection primitive pages", async () => {
     const onLoadMore = vi.fn();
     render(
       <Collection
@@ -482,7 +493,8 @@ describe("integrations", () => {
 /* ----------------------------------------------------------------- media */
 
 describe("media", () => {
-  interactionCase("live:media-play", () => {
+  // NOT a claim on live:media-play: a still image has nothing to play.
+  it("a ready image carries alt text", () => {
     render(<CreativeMedia state={{ kind: "ready", url: "https://x/i.png", origin: "snapshot" }} label="Creative" />);
     const img = document.querySelector("img");
     expect(img).not.toBeNull();
@@ -490,7 +502,9 @@ describe("media", () => {
     expect(img!.getAttribute("alt")).toBeTruthy();
   });
 
-  interactionCase("live:media-retry", () => {
+  // NOT a claim on live:media-retry: a *missing* asset has no retry by design,
+  // so this could never have exercised the control.
+  it("a missing asset states why", () => {
     render(<CreativeMedia state={{ kind: "missing", reason: "No preview was captured." }} label="Creative" />);
     expect(screen.getByText(/No preview/)).toBeTruthy();
   });

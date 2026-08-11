@@ -47,7 +47,7 @@
   },
   "interactions": {
     "required": 142,
-    "executed": 18,
+    "executed": 17,
     "missing": [
       "live:AUTH-01",
       "live:AUTH-02 email",
@@ -75,6 +75,7 @@
       "live:nav-drawer",
       "live:nav-drawer close",
       "live:chart-table-toggle",
+      "live:SCOPE-03 account-picker",
       "live:SCOPE-05",
       "live:SCOPE-06",
       "live:SCOPE-10 window-picker",
@@ -190,7 +191,6 @@
       "live:REPORT-03 widget-select",
       "live:REPORT-04 csv",
       "live:REPORT-08 retry",
-      "live:SCOPE-03 account-picker",
       "live:SCOPE-03 assign",
       "live:SHOPIFY-01"
     ]

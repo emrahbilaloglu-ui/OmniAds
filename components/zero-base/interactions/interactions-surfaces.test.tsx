@@ -59,7 +59,10 @@ const DENIED = { ok: false, reason: "This needs the admin role. Your role on thi
 /* ------------------------------------------------------------ scope/econ */
 
 describe("scope and economics", () => {
-  interactionCase("live:SCOPE-03 account-picker", async () => {
+  // NOT a claim on live:SCOPE-03: assigning accounts to a business in
+  // Integrations is a different surface from the scope sheet's account picker,
+  // which re-scopes the surface and the URL.
+  it("integrations offers account assignment", async () => {
     const onChange = vi.fn();
     render(
       <IntegrationsView

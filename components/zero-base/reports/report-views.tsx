@@ -350,6 +350,7 @@ export function ReportBuilderView({
         </p>
         <div
           data-builder-canvas=""
+          data-collection="table"
           role="application"
           aria-label={copy.reportCanvas}
           tabIndex={0}

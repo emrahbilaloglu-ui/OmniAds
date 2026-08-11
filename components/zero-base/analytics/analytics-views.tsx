@@ -189,6 +189,7 @@ export function AnalyticsTableView({
   rows,
   columns,
   capText,
+  insight,
   unavailableReason,
 }: {
   title: string;
@@ -196,6 +197,8 @@ export function AnalyticsTableView({
   rows: readonly { id: string; cells: Record<string, AnalyticsValue | string> }[];
   columns: readonly { id: string; header: string; numeric?: boolean }[];
   capText: string;
+  /** Served commentary. Absent means none was generated; never invented here. */
+  insight?: { text: string | null; absentReason: string | null } | null;
   unavailableReason?: string | null;
 }) {
   return (
@@ -210,6 +213,15 @@ export function AnalyticsTableView({
           <p data-cap-text="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {capText}
           </p>
+          {insight ? (
+            <p
+              data-el="lp-ai-commentary"
+              style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
+            >
+              {/* Read-only: this surface shows commentary, it never writes it. */}
+              {insight.text ?? insight.absentReason}
+            </p>
+          ) : null}
           <div style={{ marginTop: 12 }}>
             <DataTable
               collection="landing-pages"

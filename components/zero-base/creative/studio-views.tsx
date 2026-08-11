@@ -245,6 +245,10 @@ export function SharesView({
   busyToken,
   error,
   unavailableReason,
+  initialTitle = "",
+  initialAudience = "buyer",
+  initialExpiresAt = "",
+  initialAcknowledged = false,
 }: {
   rows: readonly ShareRow[];
   onRevoke?: (token: string) => void;
@@ -253,13 +257,18 @@ export function SharesView({
   busyToken?: string | null;
   error?: string | null;
   unavailableReason?: string | null;
+  /** Draft state to open in; a share form part-way through is a real state. */
+  initialTitle?: string;
+  initialAudience?: "buyer" | "creator";
+  initialExpiresAt?: string;
+  initialAcknowledged?: boolean;
 }) {
   const t = useCopy();
   const copy = useCopy();
-  const [title, setTitle] = useState("");
-  const [audience, setAudience] = useState<"buyer" | "creator">("creator");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [acknowledged, setAcknowledged] = useState(false);
+  const [title, setTitle] = useState(initialTitle);
+  const [audience, setAudience] = useState<"buyer" | "creator">(initialAudience);
+  const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
+  const [acknowledged, setAcknowledged] = useState(initialAcknowledged);
   const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
   if (unavailableReason) {
     return (

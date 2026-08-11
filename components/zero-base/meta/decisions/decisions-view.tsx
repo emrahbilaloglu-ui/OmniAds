@@ -382,6 +382,20 @@ export function DecisionsView({
       />
       </div>
 
+      {adsManagerHref ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
+          <a
+            href={adsManagerHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-ctl="live:META-DEC-13 open"
+            style={{ color: "var(--ledger-accent-action)" }}
+          >
+            {copy.openMetaAdsManager}
+          </a>
+        </p>
+      ) : null}
+
       {shareViewHref ? (
         <p style={{ margin: "8px 0 0", fontSize: 12.5 }}>
           {/* The exact view, not "Decisions": a shared link that lands on a

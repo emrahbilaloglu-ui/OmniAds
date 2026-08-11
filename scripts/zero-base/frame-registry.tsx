@@ -315,7 +315,7 @@ const DECISION_VIEWER = {
 };
 
 /** The Decisions workspace, optionally with its inspector open. */
-const decisions = (selected: string | null = null, rows = 3, sticky = false) => {
+const decisions = (selected: string | null = null, rows = 3, sticky = false, conflict = false) => {
   const items = Array.from({ length: rows }, (_, index) =>
     metaRecommendation({
       id: `d${index + 1}`,
@@ -363,7 +363,24 @@ const decisions = (selected: string | null = null, rows = 3, sticky = false) => 
         ),
         events: [],
         loadState: { kind: "ready" },
-        onSubmit: async () => ({ ok: true }),
+        onSubmit: async () =>
+          conflict
+            ? {
+                ok: false,
+                kind: "conflict",
+                current: {
+                  businessId: "biz",
+                  decisionKey: "d1",
+                  state: "acknowledged",
+                  assigneeUserId: null,
+                  dueAt: null,
+                  snoozeUntil: null,
+                  reasonCode: null,
+                  stateVersion: 4,
+                },
+                message: "This decision changed while you were reading it.",
+              }
+            : { ok: true },
         newMutationId: () => "wf_01J9F2K3",
       } as never}
       stickyBar={
@@ -709,6 +726,7 @@ const landingPages = () => (
       { id: "revenue", header: "Revenue", numeric: true },
     ]}
     capText="Showing the 2 highest-revenue pages the server served."
+    insight={{ text: "Storage collection pages carry most of the revenue this window.", absentReason: null }}
   />
 );
 
@@ -1063,8 +1081,8 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H09–H16: decisions, workflow, mutation ceremony ---- */
   { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => decisions() },
   { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => decisions("d1") },
-  { id: "H11", leaf: "L-C-META-DEC", state: "workflow-in-flight", width: 1440, theme: "light", render: () => <LoadingState label="Applying the workflow transition" /> },
-  { id: "H12", leaf: "L-C-META-DEC", state: "conflict", width: 1440, theme: "light", render: () => <ErrorState reason="This decision changed while you were reading it." code="conflict" /> },
+  { id: "H11", leaf: "L-C-META-DEC", state: "needs-resolution", width: 1440, theme: "light", render: () => decisions("d1", 3) },
+  { id: "H12", leaf: "L-C-META-DEC", state: "workflow-conflict", width: 1440, theme: "light", render: () => decisions("d1", 3, false, true) },
   { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => ceremony(CEREMONY_COLLECT) },
   { id: "H14", leaf: "L-C-META-WRITE", state: "ceremony-confirm", width: 1440, theme: "light", render: () => ceremony(CEREMONY_CONFIRM) },
   { id: "H15", leaf: "L-C-META-WRITE", state: "ceremony-receipt", width: 1440, theme: "light", render: () => ceremony(CEREMONY_RECEIPT) },
@@ -1083,7 +1101,17 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} backHref="/c/biz/creative" canCreate createBlockedReason={null} onCreate={() => {}} /> },
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
-  { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <SharesView rows={SHARE_ROWS} onRevoke={() => {}} onRotate={() => {}} onCreate={() => {}} /> },
+  { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => (
+    <SharesView
+      rows={SHARE_ROWS}
+      onRevoke={() => {}}
+      onRotate={() => {}}
+      onCreate={() => {}}
+      initialTitle="September review"
+      initialExpiresAt="2026-10-01"
+      initialAcknowledged
+    />
+  ) },
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => landingPages() },
 
   /* ---- H29–H33: google ---- */
@@ -1235,7 +1263,6 @@ export function frameFileName(spec: FrameSpec): string {
  */
 export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
   [
-    ["H11", "renders LoadingState, not the workflow overlay"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],

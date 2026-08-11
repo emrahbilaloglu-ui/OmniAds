@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  newWidgetDefinition,
   adaptRenderedReport,
   buildCreateBody,
   buildDuplicateBody,
@@ -16,6 +17,7 @@ import {
   toReportDocument,
 } from "@/lib/zero-base/reports/report-documents";
 import { REPORT_GRID_COLUMNS } from "@/lib/custom-reports";
+import type { CustomReportDocument, RenderedReportPayload } from "@/lib/custom-reports";
 import { RENDERABLE_SOURCES } from "@/lib/zero-base/reports/report-catalog";
 
 const WIDGETS = [
@@ -75,7 +77,9 @@ describe("the builder grid becomes a real CustomReportDocument", () => {
   it("REGRESSION: a raw GridState is not a document", () => {
     // The old save sent { businessId, layout: widgets }.
     const raw = { widgets: WIDGETS } as unknown;
-    expect(fromReportDocument(raw).every((w) => w.sourceId)).toBe(true);
+    // A raw grid carries no `dataSource` on any widget, so reading it back
+    // yields widgets with no source — proof it was never a stored document.
+    expect(fromReportDocument(raw).every((w) => w.sourceId === "")).toBe(true);
     // ...but it carries none of the fields the route stores.
     expect((raw as { version?: unknown }).version).toBeUndefined();
     expect(toReportDocument({ widgets: WIDGETS }).version).toBe(1);
@@ -134,7 +138,16 @@ describe("duplicate creates from the source record", () => {
 });
 
 describe("the viewer reads the render route's payload", () => {
-  const RENDERED = {
+  /**
+   * Typed as the real payload.
+   *
+   * The previous fixture carried a `dataSource` on each widget and the adapter
+   * read it. `RenderedReportWidget` has no such field — the renderer reads
+   * `dataSource` off the *definition* and never echoes it — so in production
+   * every widget resolved to `""`. Typing the fixture makes the excess property
+   * a compile error rather than a self-fulfilling test.
+   */
+  const RENDERED: { report: RenderedReportPayload } = {
     report: {
       businessId: "biz-1",
       name: "Weekly",
@@ -142,8 +155,9 @@ describe("the viewer reads the render route's payload", () => {
       currency: "USD",
       generatedAt: "2026-08-11T12:00:00Z",
       widgets: [
-        { id: "w1", slot: 0, colSpan: 2, rowSpan: 1, type: "table", title: "Meta campaigns", dataSource: "meta_campaigns", rows: [{ name: "Brand" }] },
-        { id: "w2", slot: 4, colSpan: 4, rowSpan: 2, type: "trend", title: "Trend", dataSource: "overview_trend", errorMessage: "Trend source failed.", retryable: true },
+        { id: "w1", slot: 0, colSpan: 2, rowSpan: 1, type: "table", title: "Meta campaigns", rows: [{ name: "Brand" }], columns: ["name"] },
+        { id: "w2", slot: 4, colSpan: 4, rowSpan: 2, type: "trend", title: "Trend", errorMessage: "Trend source failed.", retryable: true },
+        { id: "w3", slot: 8, colSpan: 1, rowSpan: 1, type: "metric", title: "Spend", value: "12.00 USD", deltaLabel: "+2.0% vs previous" },
       ],
     },
   };
@@ -156,6 +170,27 @@ describe("the viewer reads the render route's payload", () => {
     expect(result.value.widgets[0].rows).toHaveLength(1);
     expect(result.value.widgets[1].errorMessage).toBe("Trend source failed.");
     expect(result.value.widgets[1].retryable).toBe(true);
+    // The metric's own content survives: it used to be dropped entirely,
+    // because every widget was reshaped into a rows-only table.
+    expect(result.value.widgets[2].value).toBe("12.00 USD");
+    expect(result.value.widgets[2].deltaLabel).toBe("+2.0% vs previous");
+  });
+
+  it("REGRESSION: widget ids are distinct, so the viewer can key on them", () => {
+    const result = adaptRenderedReport(RENDERED);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ids = result.value.widgets.map((widget) => widget.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("REGRESSION: the rendered widget type carries no dataSource to read", () => {
+    const result = adaptRenderedReport(RENDERED);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const widget of result.value.widgets) {
+      expect(Object.prototype.hasOwnProperty.call(widget, "dataSource")).toBe(false);
+    }
   });
 
   it("refuses a body with no nested report rather than showing an empty report", () => {
@@ -174,5 +209,121 @@ describe("the viewer reads the render route's payload", () => {
     const detailShape = { report: { id: "r1", businessId: "b", name: "Weekly", definition: {} } };
     expect("widgets" in detailShape).toBe(false);
     expect("report" in detailShape).toBe(true);
+  });
+});
+
+
+describe("editing preserves the whole stored document", () => {
+  /**
+   * A document exercising every field the builder does not model. If saving
+   * drops one, the operator loses configuration they never touched.
+   */
+  const STORED: CustomReportDocument = {
+    version: 1,
+    dateRangePreset: "7",
+    compareMode: "previous_period",
+    reportPlatforms: ["meta", "google"],
+    widgets: [
+      {
+        id: "w1",
+        type: "table",
+        slot: 0,
+        colSpan: 2,
+        rowSpan: 2,
+        title: "Top Meta Campaigns",
+        subtitle: "By spend",
+        dataSource: "meta_campaigns",
+        accountId: "act_123",
+        limit: 25,
+        columns: ["name", "spend", "roas"],
+        tableDimension: "campaign",
+      },
+      {
+        id: "w2",
+        type: "trend",
+        slot: 8,
+        colSpan: 2,
+        rowSpan: 2,
+        title: "Spend trend",
+        dataSource: "overview_trend",
+        metricKey: "combined.spend",
+        yMetrics: ["meta.spend", "google.spend"],
+        breakdown: "week",
+        axisMode: "zero_based",
+      },
+      {
+        id: "w3",
+        type: "text",
+        slot: 16,
+        colSpan: 2,
+        rowSpan: 1,
+        title: "Note",
+        text: "Reviewed with the client on the 4th.",
+      },
+    ],
+  };
+
+  it("REGRESSION: a full round-trip is lossless for untouched fields", () => {
+    const widgets = fromReportDocument(STORED);
+    const saved = toReportDocument({ widgets, base: STORED });
+
+    // Document-level settings survive.
+    expect(saved.dateRangePreset).toBe("7");
+    expect(saved.compareMode).toBe("previous_period");
+    expect(saved.reportPlatforms).toEqual(["meta", "google"]);
+
+    for (const original of STORED.widgets) {
+      const after = saved.widgets.find((widget) => widget.id === original.id);
+      expect(after, original.id).toBeDefined();
+      // Geometry may be rewritten by the grid; nothing else may change.
+      const { slot: _s, colSpan: _c, rowSpan: _r, ...restBefore } = original;
+      const { slot: _s2, colSpan: _c2, rowSpan: _r2, ...restAfter } = after!;
+      expect(restAfter, original.id).toEqual(restBefore);
+    }
+  });
+
+  it("REGRESSION: moving one widget does not destroy another's configuration", () => {
+    const widgets = fromReportDocument(STORED).map((widget) =>
+      widget.id === "w1" ? { ...widget, x: 2, y: 1 } : widget,
+    );
+    const saved = toReportDocument({ widgets, base: STORED });
+    const trend = saved.widgets.find((widget) => widget.id === "w2");
+    expect(trend?.yMetrics).toEqual(["meta.spend", "google.spend"]);
+    expect(trend?.breakdown).toBe("week");
+    expect(trend?.axisMode).toBe("zero_based");
+    const table = saved.widgets.find((widget) => widget.id === "w1");
+    expect(table?.columns).toEqual(["name", "spend", "roas"]);
+    expect(table?.accountId).toBe("act_123");
+    expect(table?.limit).toBe(25);
+    // The move itself did land.
+    expect(table?.slot).toBe(1 * REPORT_GRID_COLUMNS + 2);
+  });
+
+  it("a newly added source arrives fully configured, not bare", () => {
+    for (const source of RENDERABLE_SOURCES) {
+      const created = newWidgetDefinition({ id: `new-${source.id}`, sourceId: source.id, slot: 0 });
+      expect(created, source.id).not.toBeNull();
+      if (!created) continue;
+      expect(created.dataSource, source.id).toBe(source.id);
+      if (created.type === "metric") {
+        // Without a metricKey the renderer returns "Metric unavailable for
+        // this business." purely because the builder omitted configuration.
+        expect(created.metricKey, source.id).toBeTruthy();
+      }
+      if (created.type === "trend" || created.type === "bar") {
+        expect(created.metricKey ?? created.yMetrics?.length, source.id).toBeTruthy();
+      }
+      if (created.type === "table") {
+        expect(created.columns?.length, source.id).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("a new report with no base still produces configured widgets", () => {
+    const saved = toReportDocument({
+      widgets: [{ id: "n1", sourceId: "overview_summary", x: 0, y: 0, w: 1, h: 1 }],
+    });
+    expect(saved.widgets[0].metricKey).toBeTruthy();
+    expect(saved.widgets[0].type).toBe("metric");
   });
 });

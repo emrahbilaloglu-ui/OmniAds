@@ -29,7 +29,8 @@ export interface DataTableProps<Row> {
   caption: string;
   columns: ReadonlyArray<TableColumn<Row>>;
   rows: readonly Row[];
-  rowKey: (row: Row) => string;
+  /** Index is offered so callers never need a random key for rows with no id. */
+  rowKey: (row: Row, index: number) => string;
   /** Column whose cell is the row header. Defaults to the first. */
   rowHeaderColumnId?: string;
   density?: TableDensity;
@@ -93,8 +94,8 @@ export function DataTable<Row>({
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={rowKey(row)} style={{ minHeight: ROW_HEIGHT[density] }}>
+        {rows.map((row, index) => (
+          <tr key={rowKey(row, index)} style={{ minHeight: ROW_HEIGHT[density] }}>
             {columns.map((column) => {
               const isRowHeader = column.id === headerColumnId;
               const Cell = isRowHeader ? "th" : "td";

@@ -24,18 +24,76 @@ import type {
   RenderedReportPayload,
   RenderedReportWidget,
 } from "@/lib/custom-reports";
-import { REPORT_GRID_COLUMNS } from "@/lib/custom-reports";
+import { REPORT_GRID_COLUMNS, getDefaultWidgetSpan } from "@/lib/custom-reports";
 import type { Widget } from "@/lib/zero-base/reports/builder-model";
-import { sourceById } from "@/lib/zero-base/reports/report-catalog";
 
-/** Widget type per catalog source, from the catalog's own widget grammar. */
-const WIDGET_TYPE: Record<string, CustomReportWidgetDefinition["type"]> = {
-  overview_summary: "metric",
-  overview_trend: "trend",
-  channel_attribution: "table",
-  meta_campaigns: "table",
-  google_campaigns: "table",
+/**
+ * A complete, renderable widget definition per catalog source.
+ *
+ * Type alone is not enough. `overview_summary` with no `metricKey` renders as
+ * "Metric unavailable for this business."; a table with no `columns` renders
+ * nothing useful. These configurations are lifted from the shipped
+ * `CUSTOM_REPORT_TEMPLATES`, so they are known to render rather than guessed.
+ */
+const SOURCE_DEFAULTS: Record<
+  string,
+  Omit<CustomReportWidgetDefinition, "id" | "slot" | "colSpan" | "rowSpan">
+> = {
+  overview_summary: { type: "metric", title: "Spend", dataSource: "overview_summary", metricKey: "spend" },
+  overview_trend: {
+    type: "trend",
+    title: "Blended Spend Trend",
+    dataSource: "overview_trend",
+    metricKey: "combined.spend",
+  },
+  channel_attribution: {
+    type: "table",
+    title: "Channel Attribution",
+    dataSource: "channel_attribution",
+    columns: ["channel", "spend", "revenue", "roas", "conversions"],
+    limit: 8,
+  },
+  meta_campaigns: {
+    type: "table",
+    title: "Top Meta Campaigns",
+    dataSource: "meta_campaigns",
+    columns: ["name", "status", "spend", "revenue", "purchases", "roas"],
+    limit: 8,
+  },
+  google_campaigns: {
+    type: "table",
+    title: "Top Google Campaigns",
+    dataSource: "google_campaigns",
+    columns: ["name", "status", "spend", "revenue", "conversions", "roas"],
+    limit: 8,
+  },
 };
+
+/**
+ * Build a renderable definition for a source the operator just added.
+ *
+ * Adding a source used to produce `{id, dataSource, type, slot, spans, title}`
+ * and nothing else, so a freshly added metric widget rendered "Metric
+ * unavailable" purely because the builder omitted its configuration.
+ */
+export function newWidgetDefinition(input: {
+  id: string;
+  sourceId: string;
+  slot: number;
+  colSpan?: number;
+  rowSpan?: number;
+}): CustomReportWidgetDefinition | null {
+  const defaults = SOURCE_DEFAULTS[input.sourceId];
+  if (!defaults) return null;
+  const span = getDefaultWidgetSpan(defaults.type);
+  return {
+    id: input.id,
+    slot: input.slot,
+    colSpan: input.colSpan ?? span.colSpan,
+    rowSpan: input.rowSpan ?? span.rowSpan,
+    ...defaults,
+  };
+}
 
 /**
  * Turn the builder grid into the document the routes accept.
@@ -46,24 +104,54 @@ const WIDGET_TYPE: Record<string, CustomReportWidgetDefinition["type"]> = {
  */
 export function toReportDocument(input: {
   widgets: readonly Widget[];
+  /**
+   * The stored document this edit started from.
+   *
+   * Everything the builder does not model — `metricKey`, `yMetrics`,
+   * `breakdown`, `accountId`, `limit`, `columns`, `tableDimension`, `axisMode`,
+   * `text`, `subtitle`, and the document's own `dateRangePreset`,
+   * `compareMode`, `reportPlatforms` — is carried through from here untouched.
+   * Rebuilding the document from the grid alone silently destroyed all of it on
+   * every save.
+   */
+  base?: CustomReportDocument | null;
   dateRangePreset?: CustomReportDocument["dateRangePreset"];
   compareMode?: CustomReportDocument["compareMode"];
 }): CustomReportDocument {
-  return {
-    version: 1,
-    dateRangePreset: input.dateRangePreset ?? "30",
-    compareMode: input.compareMode ?? "none",
-    widgets: input.widgets.map((widget) => ({
-      id: widget.id,
-      // Identity: the catalog ids ARE the CustomReportDataSource union.
-      dataSource: widget.sourceId as CustomReportWidgetDefinition["dataSource"],
-      type: WIDGET_TYPE[widget.sourceId] ?? "table",
-      slot: widget.y * REPORT_GRID_COLUMNS + Math.min(widget.x, REPORT_GRID_COLUMNS - 1),
+  const stored = new Map(
+    (input.base?.widgets ?? []).map((widget) => [widget.id, widget] as const),
+  );
+
+  const widgets = input.widgets.flatMap((widget) => {
+    const slot = widget.y * REPORT_GRID_COLUMNS + Math.min(widget.x, REPORT_GRID_COLUMNS - 1);
+    const geometry = {
+      slot,
       colSpan: Math.max(1, Math.min(widget.w, REPORT_GRID_COLUMNS)),
       rowSpan: Math.max(1, widget.h),
-      title: sourceById(widget.sourceId)?.label ?? widget.sourceId,
-    })),
+    };
+    const existing = stored.get(widget.id);
+    // Only geometry is mutated. Every other stored field survives verbatim.
+    if (existing) return [{ ...existing, ...geometry }];
+    const created = newWidgetDefinition({ id: widget.id, sourceId: widget.sourceId, slot });
+    if (!created) return [];
+    return [{ ...created, ...geometry }];
+  });
+
+  return {
+    version: 1,
+    dateRangePreset: input.dateRangePreset ?? input.base?.dateRangePreset ?? "30",
+    compareMode: input.compareMode ?? input.base?.compareMode ?? "none",
+    // Preserved rather than dropped: an absent key and an empty list differ.
+    ...(input.base?.reportPlatforms ? { reportPlatforms: input.base.reportPlatforms } : {}),
+    widgets,
   };
+}
+
+/** Read a stored definition back, keeping the whole document for round-trip. */
+export function baseDocument(document: unknown): CustomReportDocument | null {
+  if (!document || typeof document !== "object") return null;
+  const candidate = document as CustomReportDocument;
+  return Array.isArray(candidate.widgets) ? candidate : null;
 }
 
 /** Read a stored document back into builder widgets, for edit. */
@@ -76,12 +164,14 @@ export function fromReportDocument(document: unknown): Widget[] {
     .map((widget) => ({
       id: widget.id,
       sourceId: String(widget.dataSource ?? ""),
+      label: widget.title,
       x: (widget.slot ?? 0) % REPORT_GRID_COLUMNS,
       y: Math.floor((widget.slot ?? 0) / REPORT_GRID_COLUMNS),
       w: widget.colSpan ?? 1,
       h: widget.rowSpan ?? 1,
-    }))
-    .filter((widget) => widget.sourceId);
+    }));
+  // No filter: `text` and `section` widgets legitimately carry no dataSource,
+  // and excluding them here deleted them from the document on the next save.
 }
 
 /** The exact body `POST /api/reports` accepts. */
@@ -149,20 +239,22 @@ export function buildPatchBody(input: {
 
 /* --------------------------------------------------------------- render */
 
+/**
+ * The rendered report, exactly as the renderer produces it.
+ *
+ * `widgets` is `RenderedReportWidget[]` — the real type — rather than a
+ * reshaped copy. An earlier version invented a `dataSource` field on this type
+ * and a fixture that supplied one; the renderer reads `dataSource` off the
+ * *definition* and never emits it, so in production every widget resolved to
+ * `""`: identical React keys for every card, and metric/trend/text content
+ * dropped because it was all forced through a rows-only table.
+ */
 export interface AdaptedRenderedReport {
   name: string;
   dateRangeLabel: string | null;
   currency: string | null;
   generatedAt: string | null;
-  widgets: Array<{
-    id: string;
-    dataSource: string;
-    title: string;
-    type: string;
-    rows: Array<Record<string, string>>;
-    errorMessage: string | null;
-    retryable: boolean;
-  }>;
+  widgets: RenderedReportWidget[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,17 +287,11 @@ export function adaptRenderedReport(raw: unknown): { ok: true; value: AdaptedRen
       dateRangeLabel: report.dateRangeLabel ?? null,
       currency: report.currency ?? null,
       generatedAt: report.generatedAt ?? null,
-      widgets: report.widgets.map((widget: RenderedReportWidget & { dataSource?: string; rows?: unknown }) => ({
-        id: widget.id,
-        dataSource: String(widget.dataSource ?? ""),
-        title: widget.title,
-        type: widget.type,
-        rows: Array.isArray(widget.rows) ? (widget.rows as Array<Record<string, string>>) : [],
-        // Per-widget failure travels with the widget, so one failed source
-        // cannot blank the page.
-        errorMessage: widget.errorMessage ?? null,
-        retryable: widget.retryable === true,
-      })),
+      // Passed through whole. Every field the renderer emits — value,
+      // deltaLabel, points, series, rows, columns, text, emptyMessage, warning,
+      // errorMessage, retryable, axisMode — reaches the view, because the view
+      // is what decides which of them this widget type needs.
+      widgets: report.widgets,
     },
   };
 }

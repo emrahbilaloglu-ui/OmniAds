@@ -18,7 +18,15 @@ export const MIN_HEIGHT = 1;
 
 export interface Widget {
   id: string;
+  /**
+   * The stored `dataSource`, or "" for widget types that have none.
+   *
+   * `text` and `section` widgets carry no data source at all. Dropping them for
+   * lacking one deleted them from the document on the next save.
+   */
   sourceId: string;
+  /** The stored title, so a source-less widget is still nameable on the canvas. */
+  label?: string;
   x: number;
   y: number;
   w: number;

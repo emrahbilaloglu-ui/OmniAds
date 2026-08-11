@@ -7,7 +7,9 @@
  * fail-closed branch is the server's answer; a button here would be a control
  * whose only outcome is a refusal, and its absence is asserted by test.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import type { RenderedReportWidget } from "@/lib/custom-reports";
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
@@ -26,7 +28,6 @@ import {
   keyboardAction,
   newHistory,
   undo,
-  widgetStateFor,
   type GridState,
   type Widget,
 } from "@/lib/zero-base/reports/builder-model";
@@ -116,6 +117,20 @@ export function ReportBuilderView({
   const [selected, setSelected] = useState<string | null>(initial.widgets[0]?.id ?? null);
   const [message, setMessage] = useState("");
 
+  /**
+   * Adopt a later `initial`.
+   *
+   * `useState` captures its argument once. The edit route loads its record
+   * asynchronously and hands the grid down afterwards, so the mounted builder
+   * stayed permanently blank on every stored report. The caller is expected to
+   * gate on load as well; this is the second line of defence, and it only fires
+   * when the identity actually changes so it cannot stomp an in-progress edit.
+   */
+  useEffect(() => {
+    setHistory(newHistory(initial));
+    setSelected(initial.widgets[0]?.id ?? null);
+  }, [initial]);
+
   const dispatch = useCallback(
     (action: Parameters<typeof commit>[1]) => {
       setHistory((current) => commit(current, action));
@@ -170,7 +185,14 @@ export function ReportBuilderView({
                 onClick={() =>
                   dispatch({
                     kind: "add",
-                    widget: { id: `w${Date.now()}`, sourceId: source.id, x: 0, y: 0, w: 4, h: 2 },
+                    widget: {
+                      id: `w${Date.now()}-${source.id}`,
+                      sourceId: source.id,
+                      x: 0,
+                      y: 0,
+                      w: 4,
+                      h: 2,
+                    },
                   })
                 }
               >
@@ -229,7 +251,7 @@ export function ReportBuilderView({
                 color: "var(--ledger-ink-primary)",
               }}
             >
-              {sourceById(widget.sourceId)?.label ?? widget.sourceId}
+              {sourceById(widget.sourceId)?.label ?? widget.label ?? widget.sourceId}
             </button>
           ))}
         </div>
@@ -262,57 +284,137 @@ export function ReportBuilderView({
 
 /* --------------------------------------------------- viewer / print widget */
 
-export function ReportWidget({
+/**
+ * One rendered widget, rendered as the type it actually is.
+ *
+ * The renderer emits a different payload per widget type: a metric carries
+ * `value`/`deltaLabel`, a trend carries `points` or `series`, a table carries
+ * `rows`/`columns`, and text carries `text`. The previous version pushed all of
+ * them through a `DataTable` fed from `rows`, so every metric, trend and text
+ * widget in a healthy report rendered as an empty table.
+ *
+ * Nothing is recomputed here. The renderer has already formatted values against
+ * the report's currency; this component places them.
+ */
+export function RenderedWidgetCard({
+  widget,
+  /**
+   * The stored `dataSource` for this widget id, from the report's definition.
+   * The rendered payload does not carry one, and the CSV guard is a per-source
+   * rule — so an unreadable definition fails the guard closed rather than
+   * offering an export whose safety is unknown.
+   */
   sourceId,
-  loaded,
-  failed,
-  rows,
   onRetry,
   onExportCsv,
 }: {
-  sourceId: string;
-  loaded: boolean;
-  failed: boolean;
-  rows: readonly Record<string, string>[];
+  widget: RenderedReportWidget;
+  sourceId: string | null;
   onRetry?: () => void;
   onExportCsv?: () => void;
 }) {
-  const source = sourceById(sourceId);
-  const state = widgetStateFor({
-    loaded,
-    failed,
-    rowCount: rows.length,
-    emptyGrammar: source?.emptyGrammar ?? null,
-    errorGrammar: source?.errorGrammar ?? null,
-  });
-  const csv = canExportCsv(sourceId);
+  const rows = widget.rows ?? [];
+  const columns = widget.columns ?? Object.keys(rows[0] ?? {});
+  const csv = sourceId
+    ? canExportCsv(sourceId)
+    : { ok: false as const, reason: "This widget's source could not be read, so export is withheld." };
 
   return (
-    <section data-report-widget={sourceId} aria-label={source?.label ?? sourceId} style={{ display: "grid", gap: 6 }}>
-      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{source?.label ?? sourceId}</h3>
+    <section
+      data-report-widget={widget.id}
+      data-widget-type={widget.type}
+      aria-label={widget.title}
+      style={{ display: "grid", gap: 6 }}
+    >
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{widget.title}</h3>
+      {widget.subtitle ? (
+        <p style={{ margin: 0, fontSize: 11.5, color: "var(--ledger-ink-tertiary)" }}>{widget.subtitle}</p>
+      ) : null}
 
-      {state.kind === "error" ? (
+      {/* A warning rides alongside the content rather than replacing it. */}
+      {widget.warning ? (
+        <p data-widget-warning={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+          {widget.warning}
+        </p>
+      ) : null}
+
+      {widget.errorMessage ? (
         <div data-widget-state="error">
           {/* Inside the widget frame: a failed source must not blank the page. */}
-          <p style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>{state.grammar}</p>
-          <Button variant="secondary" data-widget-retry={sourceId} onClick={onRetry}>
-            Retry
-          </Button>
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>{widget.errorMessage}</p>
+          {widget.retryable ? (
+            <Button variant="secondary" data-widget-retry={widget.id} onClick={onRetry}>
+              Retry
+            </Button>
+          ) : (
+            <p data-widget-retry-blocked={widget.id} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+              The renderer did not mark this failure as retryable.
+            </p>
+          )}
         </div>
-      ) : state.kind === "empty" ? (
+      ) : widget.emptyMessage ? (
         <p data-widget-state="empty" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
-          {state.grammar}
+          {widget.emptyMessage}
         </p>
+      ) : widget.type === "metric" ? (
+        <div data-widget-state="ready">
+          <p data-widget-value={widget.id} style={{ margin: 0, fontSize: 22, fontWeight: 700, lineHeight: "28px" }}>
+            {widget.value ?? "Not served"}
+          </p>
+          {widget.deltaLabel ? (
+            <p data-widget-delta={widget.id} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+              {widget.deltaLabel}
+            </p>
+          ) : null}
+        </div>
+      ) : widget.type === "trend" || widget.type === "bar" ? (
+        <div data-widget-state="ready" data-widget-axis={widget.axisMode ?? "adaptive"}>
+          {/* Points are listed, not drawn: a value an operator cannot read off
+              the surface is a value they cannot check. */}
+          {(widget.series ?? []).map((series) => (
+            <dl key={series.key ?? series.label} data-widget-series={series.key ?? series.label} style={{ margin: 0 }}>
+              <dt style={{ fontSize: 12, fontWeight: 600 }}>{series.label}</dt>
+              {series.points.map((point) => (
+                <dd key={point.label} data-point={point.label} style={{ margin: 0, fontSize: 12 }}>
+                  {point.label}: {point.value}
+                </dd>
+              ))}
+            </dl>
+          ))}
+          {widget.points ? (
+            <dl data-widget-points={widget.id} style={{ margin: 0 }}>
+              {widget.points.map((point) => (
+                <div key={point.label}>
+                  <dt style={{ fontSize: 12, display: "inline" }}>{point.label}: </dt>
+                  <dd data-point={point.label} style={{ margin: 0, fontSize: 12, display: "inline" }}>
+                    {point.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+      ) : widget.type === "text" || widget.type === "section" ? (
+        <div data-widget-state="ready">
+          <p data-widget-text={widget.id} style={{ margin: 0, fontSize: 12.5, lineHeight: "18px" }}>
+            {widget.text ?? ""}
+          </p>
+        </div>
       ) : (
         <div data-widget-state="ready">
           <DataTable
-            caption={source?.label ?? sourceId}
+            caption={widget.title}
             rows={[...rows]}
-            rowKey={(row) => String(row.id ?? row.name ?? Math.random())}
-            columns={Object.keys(rows[0] ?? { value: "" }).map((key) => ({
+            // The widget id plus the row's position in the served order. The
+            // previous Math.random() key remounted every row on every render.
+            rowKey={(row, index) => `${widget.id}:${String(row.id ?? row.name ?? index)}`}
+            columns={columns.map((key) => ({
               id: key,
               header: key,
-              render: (row: Record<string, string>) => row[key],
+              render: (row: Record<string, string | number | null>) => {
+                const cell = row[key];
+                return cell === null || cell === undefined ? "" : String(cell);
+              },
             }))}
           />
         </div>
@@ -320,13 +422,13 @@ export function ReportWidget({
 
       {csv.ok ? (
         <div>
-          <Button variant="quiet" data-widget-csv={sourceId} onClick={onExportCsv}>
+          <Button variant="quiet" data-widget-csv={widget.id} onClick={onExportCsv}>
             Export CSV
           </Button>
         </div>
       ) : (
-        <p data-widget-csv-blocked={sourceId} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
-          {csv.ok ? "" : csv.reason}
+        <p data-widget-csv-blocked={widget.id} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+          {csv.reason}
         </p>
       )}
     </section>

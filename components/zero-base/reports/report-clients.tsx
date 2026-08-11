@@ -13,20 +13,22 @@ import { useRouter } from "next/navigation";
 import {
   ReportBuilderView,
   ReportLibraryView,
+  RenderedWidgetCard,
   ReportShareDisabled,
-  ReportWidget,
   type ReportSummary,
 } from "@/components/zero-base/reports/report-views";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
 import type { GridState } from "@/lib/zero-base/reports/builder-model";
 import {
   adaptRenderedReport,
+  baseDocument,
   buildCreateBody,
   buildDuplicateBody,
   buildPatchBody,
   fromReportDocument,
   toReportDocument,
 } from "@/lib/zero-base/reports/report-documents";
+import type { CustomReportDocument, RenderedReportWidget } from "@/lib/custom-reports";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 function useReports(businessId: string) {
@@ -142,6 +144,18 @@ export function ReportBuilderClient({
   const [initial, setInitial] = useState<GridState>({ widgets: [] });
   const [name, setName] = useState("Untitled report");
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The stored document this edit started from.
+   *
+   * Kept whole so that saving preserves `metricKey`, `yMetrics`, `breakdown`,
+   * `accountId`, `limit`, `columns`, `tableDimension`, `axisMode`, `text`,
+   * `subtitle` and the document-level settings. Rebuilding from the grid alone
+   * destroyed all of them on every save.
+   */
+  const [stored, setStored] = useState<CustomReportDocument | null>(null);
+  // A new report is ready immediately; an edit is not ready until it loads.
+  const [loaded, setLoaded] = useState(!reportId);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Edit loads the stored record and reads its definition back into the grid.
   useEffect(() => {
@@ -150,11 +164,21 @@ export function ReportBuilderClient({
     fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((json: { report?: { name?: string; definition?: unknown } } | null) => {
-        if (cancelled || !json?.report) return;
+        if (cancelled) return;
+        if (!json?.report) {
+          // Never fall through to a blank canvas: an empty builder is
+          // indistinguishable from a report whose widgets were all deleted.
+          setLoadError("This report could not be read, so its layout is not shown.");
+          return;
+        }
         setName(json.report.name ?? "Untitled report");
+        setStored(baseDocument(json.report.definition));
         setInitial({ widgets: fromReportDocument(json.report.definition) });
+        setLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setLoadError("This report could not be read, so its layout is not shown.");
+      });
     return () => {
       cancelled = true;
     };
@@ -165,7 +189,8 @@ export function ReportBuilderClient({
       setError(null);
       // A GridState is not a CustomReportDocument, and both routes require a
       // name. Sending the raw grid was a guaranteed 400.
-      const document = toReportDocument({ widgets: state.widgets });
+      // `base` carries every stored field the grid does not model.
+      const document = toReportDocument({ widgets: state.widgets, base: stored });
       const response = await fetch(
         reportId ? `/api/reports/${encodeURIComponent(reportId)}` : "/api/reports",
         {
@@ -185,8 +210,24 @@ export function ReportBuilderClient({
       }
       router.push(`/c/${encodeURIComponent(businessId)}/reports`);
     },
-    [businessId, name, reportId, router],
+    [businessId, name, reportId, router, stored],
   );
+
+  if (loadError) {
+    return (
+      <p role="status" data-report-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        {loadError}
+      </p>
+    );
+  }
+
+  if (!loaded) {
+    return (
+      <p role="status" data-builder-loading="" style={{ margin: 0, fontSize: 12.5 }}>
+        Loading this report&rsquo;s layout&hellip;
+      </p>
+    );
+  }
 
   return (
     <>
@@ -214,10 +255,16 @@ export function ReportViewerClient({
   reportId: string;
   print?: boolean;
 }) {
-  const [widgets, setWidgets] = useState<Array<{ sourceId: string; rows: Record<string, string>[]; failed: boolean }>>([]);
+  const [report, setReport] = useState<{
+    name: string;
+    dateRangeLabel: string | null;
+    generatedAt: string | null;
+    widgets: RenderedReportWidget[];
+  } | null>(null);
+  /** widget id -> stored dataSource, for the per-source CSV guard. */
+  const [sources, setSources] = useState<Record<string, string>>({});
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading report" });
   const [nonce, setNonce] = useState(0);
-
   const [reason, setReason] = useState<string | null>(null);
 
   useEffect(() => {
@@ -241,13 +288,8 @@ export function ReportViewerClient({
       if (!adapted.ok) {
         setReason(adapted.reason);
       } else {
-        setWidgets(
-          adapted.value.widgets.map((widget) => ({
-            sourceId: widget.dataSource,
-            rows: widget.rows,
-            failed: Boolean(widget.errorMessage),
-          })),
-        );
+        setReason(null);
+        setReport(adapted.value);
       }
       setSurface({ kind: "ready" });
     })();
@@ -256,22 +298,52 @@ export function ReportViewerClient({
     };
   }, [businessId, reportId, nonce]);
 
+  // The rendered payload carries no dataSource — the renderer reads it off the
+  // definition and does not echo it — so the CSV guard reads the definition.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json: { report?: { definition?: unknown } } | null) => {
+        if (cancelled) return;
+        const document = baseDocument(json?.report?.definition);
+        if (!document) return;
+        setSources(
+          Object.fromEntries(
+            document.widgets
+              .filter((widget) => widget.dataSource)
+              .map((widget) => [widget.id, String(widget.dataSource)]),
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+
   return (
     <SurfaceStateBoundary state={surface}>
       <div data-reports-surface={print ? "print" : "viewer"} style={{ display: "grid", gap: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Report</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{report?.name ?? "Report"}</h1>
+        {report?.dateRangeLabel ? (
+          <p data-report-range="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+            {report.dateRangeLabel}
+            {report.generatedAt ? ` · generated ${report.generatedAt}` : ""}
+          </p>
+        ) : null}
         {reason ? (
           <p data-report-unavailable="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
             {reason}
           </p>
         ) : null}
-        {widgets.map((widget) => (
-          <ReportWidget
-            key={widget.sourceId}
-            sourceId={widget.sourceId}
-            loaded
-            failed={widget.failed}
-            rows={widget.rows}
+        {(report?.widgets ?? []).map((widget) => (
+          <RenderedWidgetCard
+            // The widget's own id. Keying on dataSource gave every card the
+            // same key, because the rendered payload has no dataSource at all.
+            key={widget.id}
+            widget={widget}
+            sourceId={sources[widget.id] ?? null}
             onRetry={() => setNonce((v) => v + 1)}
           />
         ))}

@@ -11,6 +11,8 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import React from "react";
+
+import type { RenderedReportWidget } from "@/lib/custom-reports";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,7 +21,7 @@ import {
   ReportBuilderView,
   ReportLibraryView,
   ReportShareDisabled,
-  ReportWidget,
+  RenderedWidgetCard,
 } from "@/components/zero-base/reports/report-views";
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import { COMING_SOON_SOURCES, RENDERABLE_SOURCES } from "@/lib/zero-base/reports/report-catalog";
@@ -96,47 +98,182 @@ describe("the builder is operable from the keyboard", () => {
   });
 });
 
+/**
+ * These exercise the REAL `RenderedReportWidget`. The renderer emits no
+ * `dataSource`, so nothing below invents one.
+ */
+function rendered(overrides: Partial<RenderedReportWidget>): RenderedReportWidget {
+  return {
+    id: "w1",
+    slot: 0,
+    colSpan: 2,
+    rowSpan: 2,
+    type: "table",
+    title: "Top Meta Campaigns",
+    ...overrides,
+  };
+}
+
 describe("a failing widget keeps its neighbours", () => {
   it("shows its own error and retry", async () => {
     const onRetry = vi.fn();
     render(
       <ZeroBasePortalHost>
         <div>
-          <ReportWidget sourceId="meta_campaigns" loaded failed rows={[]} onRetry={onRetry} />
-          <ReportWidget sourceId="channel_attribution" loaded failed={false} rows={[{ id: "1", channel: "Meta" }]} />
+          <RenderedWidgetCard
+            widget={rendered({ id: "wA", errorMessage: "Meta campaigns could not be read.", retryable: true })}
+            sourceId="meta_campaigns"
+            onRetry={onRetry}
+          />
+          <RenderedWidgetCard
+            widget={rendered({
+              id: "wB",
+              title: "Channel Attribution",
+              rows: [{ channel: "Meta", spend: 10 }],
+              columns: ["channel", "spend"],
+            })}
+            sourceId="channel_attribution"
+          />
         </div>
       </ZeroBasePortalHost>,
     );
-    expect(document.querySelector('[data-report-widget="meta_campaigns"] [data-widget-state="error"]')).not.toBeNull();
+    expect(document.querySelector('[data-report-widget="wA"] [data-widget-state="error"]')).not.toBeNull();
     // The neighbour still rendered.
-    expect(
-      document.querySelector('[data-report-widget="channel_attribution"] [data-widget-state="ready"]'),
-    ).not.toBeNull();
+    expect(document.querySelector('[data-report-widget="wB"] [data-widget-state="ready"]')).not.toBeNull();
 
-    await userEvent.setup().click(document.querySelector('[data-widget-retry="meta_campaigns"]') as HTMLElement);
+    await userEvent.setup().click(document.querySelector('[data-widget-retry="wA"]') as HTMLElement);
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the empty grammar rather than zeros", () => {
-    render(<ReportWidget sourceId="meta_campaigns" loaded failed={false} rows={[]} />);
+  it("withholds retry when the renderer did not mark the failure retryable", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({ id: "wC", errorMessage: "Upstream refused.", retryable: false })}
+        sourceId="meta_campaigns"
+      />,
+    );
+    expect(document.querySelector('[data-widget-retry="wC"]')).toBeNull();
+    expect(document.querySelector('[data-widget-retry-blocked="wC"]')).not.toBeNull();
+  });
+
+  it("renders the renderer's own empty message rather than zeros", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({ id: "wD", emptyMessage: "No Meta campaigns served in this period." })}
+        sourceId="meta_campaigns"
+      />,
+    );
     expect(document.querySelector('[data-widget-state="empty"]')!.textContent).toMatch(
       /No Meta campaigns served/,
     );
   });
 });
 
+describe("each widget type renders as the type it is", () => {
+  it("renders a metric's value and delta, not an empty table", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({ id: "m1", type: "metric", title: "Spend", value: "1,204.50 USD", deltaLabel: "+8.1% vs previous" })}
+        sourceId="overview_summary"
+      />,
+    );
+    expect(document.querySelector('[data-widget-value="m1"]')!.textContent).toBe("1,204.50 USD");
+    expect(document.querySelector('[data-widget-delta="m1"]')!.textContent).toMatch(/\+8\.1%/);
+    expect(document.querySelector('[data-report-widget="m1"] table')).toBeNull();
+  });
+
+  it("renders trend points", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({
+          id: "t1",
+          type: "trend",
+          title: "Blended Spend Trend",
+          points: [
+            { label: "2026-07-01", value: 120 },
+            { label: "2026-07-02", value: 140 },
+          ],
+        })}
+        sourceId="overview_trend"
+      />,
+    );
+    expect(document.querySelectorAll('[data-widget-points="t1"] [data-point]').length).toBe(2);
+  });
+
+  it("renders multi-series trends", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({
+          id: "t2",
+          type: "trend",
+          title: "Channel Revenue",
+          series: [{ key: "meta", label: "Meta", color: "#3b5bdb", points: [{ label: "d1", value: 5 }] }],
+        })}
+        sourceId="overview_trend"
+      />,
+    );
+    expect(document.querySelector('[data-widget-series="meta"]')).not.toBeNull();
+  });
+
+  it("renders text content", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({ id: "x1", type: "text", title: "Note", text: "Reviewed with the client." })}
+        sourceId={null}
+      />,
+    );
+    expect(document.querySelector('[data-widget-text="x1"]')!.textContent).toBe("Reviewed with the client.");
+  });
+
+  it("renders a table on the served columns", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({
+          id: "tb1",
+          rows: [{ name: "Campaign A", spend: 12 }],
+          columns: ["name", "spend"],
+        })}
+        sourceId="meta_campaigns"
+      />,
+    );
+    const headers = Array.from(document.querySelectorAll("thead th")).map((th) => th.textContent);
+    expect(headers).toEqual(["name", "spend"]);
+  });
+
+  it("surfaces a warning alongside content rather than instead of it", () => {
+    render(
+      <RenderedWidgetCard
+        widget={rendered({ id: "w9", type: "metric", value: "10", warning: "Partial data for this window." })}
+        sourceId="overview_summary"
+      />,
+    );
+    expect(document.querySelector('[data-widget-warning="w9"]')).not.toBeNull();
+    expect(document.querySelector('[data-widget-value="w9"]')!.textContent).toBe("10");
+  });
+});
+
 describe("CSV is offered only on tables", () => {
   it("offers export on a table source", () => {
-    render(<ReportWidget sourceId="meta_campaigns" loaded failed={false} rows={[{ id: "1" }]} />);
-    expect(document.querySelector('[data-widget-csv="meta_campaigns"]')).not.toBeNull();
+    render(
+      <RenderedWidgetCard widget={rendered({ id: "c1", rows: [{ name: "A" }] })} sourceId="meta_campaigns" />,
+    );
+    expect(document.querySelector('[data-widget-csv="c1"]')).not.toBeNull();
   });
 
   it("refuses on a metric card, with the reason", () => {
-    render(<ReportWidget sourceId="overview_summary" loaded failed={false} rows={[{ id: "1" }]} />);
-    expect(document.querySelector('[data-widget-csv="overview_summary"]')).toBeNull();
-    expect(document.querySelector('[data-widget-csv-blocked="overview_summary"]')!.textContent).toMatch(
+    render(
+      <RenderedWidgetCard widget={rendered({ id: "c2", type: "metric", value: "3" })} sourceId="overview_summary" />,
+    );
+    expect(document.querySelector('[data-widget-csv="c2"]')).toBeNull();
+    expect(document.querySelector('[data-widget-csv-blocked="c2"]')!.textContent).toMatch(
       /does not match what you are looking at/,
     );
+  });
+
+  it("fails the guard closed when the definition could not be read", () => {
+    render(<RenderedWidgetCard widget={rendered({ id: "c3", rows: [{ name: "A" }] })} sourceId={null} />);
+    expect(document.querySelector('[data-widget-csv="c3"]')).toBeNull();
+    expect(document.querySelector('[data-widget-csv-blocked="c3"]')!.textContent).toMatch(/withheld/);
   });
 });
 

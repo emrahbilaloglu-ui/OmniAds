@@ -17,6 +17,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 
 import { FRAMES, SUBSTITUTED_FRAMES } from "@/scripts/zero-base/frame-registry";
+import { compareAnatomy } from "@/scripts/zero-base/verify-reference-anatomy";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -167,18 +168,18 @@ if (isMain) {
   /* ------------------------------------------------ reference authority ---- */
 
   /**
-   * G10 is a *visual fidelity* gate. Markers, dimensions, byte counts and unique
-   * hashes prove a capture happened; they prove nothing about whether Ledger
-   * tokens, type, density and control anatomy match the accepted reference.
+   * Reference fidelity, against the checksum-bound accepted package.
    *
-   * There is no accepted rendered H/B/P/M reference set in this worktree. The
-   * design package's own reconciliation.json states that its archived check
-   * images "live under v1/ and export/v2/checks/ and are history, not
-   * evidence", and the only PNGs on disk are the legacy five-name full-UI smoke
-   * set, which §13.1 forbids as G10 proof.
-   *
-   * So the comparison cannot be performed mechanically here, and this gate says
-   * so instead of passing on proxies.
+   * An earlier version of this gate reported the comparison as UNAVAILABLE. It
+   * was wrong: it generalised a note about the archived v2 *check PNGs* —
+   * "history, not evidence" — into a claim about the whole package, without
+   * opening the active `.dc.html` artifacts the master plan names as visual
+   * authority. Those artifacts declare, per artboard, the `data-el` regions,
+   * `data-ctl` controls and `data-collection` collections a composition must
+   * carry, and `verify-reference-anatomy` compares the rendered frames against
+   * them. The archive is bound to the SHA-256 recorded in SOURCE.md, so a
+   * changed reference fails extraction rather than silently redefining
+   * correctness.
    */
   const declared = crosswalk();
   const substituted = Object.keys(SUBSTITUTED_FRAMES).filter((id) => declared[id]);
@@ -188,18 +189,38 @@ if (isMain) {
   }
   if (substituted.length > 12) console.log(`    … and ${substituted.length - 12} more`);
 
-  console.log("\n  reference comparison                     UNAVAILABLE");
-  console.log(
-    "    No accepted rendered H/B/P/M reference set exists locally. The design\n" +
-      "    package states its check images are history, not evidence, and the only\n" +
-      "    PNGs on disk are the legacy smoke set the plan forbids for G10.",
+  const anatomy = compareAnatomy();
+  const unmatched = anatomy.filter(
+    (frame) =>
+      !frame.rendered ||
+      frame.missingEls.length > 0 ||
+      frame.missingCtls.length > 0 ||
+      frame.missingCollections.length > 0,
   );
+  console.log(
+    `
+  reference comparison                     ${anatomy.length - unmatched.length}/${anatomy.length} artboards`,
+  );
+  for (const frame of unmatched.slice(0, 8)) {
+    console.log(
+      `    ${frame.id} — missing ${[...frame.missingEls, ...frame.missingCtls, ...frame.missingCollections].join(", ")}`,
+    );
+  }
+
+  if (unmatched.length > 0) {
+    console.log(
+      `
+FAIL: G10 is not satisfied. ${unmatched.length} artboards do not carry the anatomy the
+` +
+        "accepted design package declares. Captures are not fidelity.",
+    );
+    process.exit(1);
+  }
 
   if (substituted.length > 0) {
     console.log(
-      `\nFAIL: G10 is not satisfied. ${result.mapped.length}/${result.totals.all} frames are captured, but\n` +
-        `${substituted.length} render a substituted fragment rather than the canonical leaf\n` +
-        "composition, and no reference comparison is possible. Captures are not fidelity.",
+      `\nFAIL: G10 is not satisfied. ${substituted.length} frames render a substituted fragment\n` +
+        "rather than the canonical leaf composition.",
     );
     process.exit(1);
   }

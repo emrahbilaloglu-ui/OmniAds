@@ -1243,11 +1243,11 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 
   /* ---- H60–H66: drawers, scope sheets, switch, return ---- */
-  { id: "H60", leaf: "L-C-HOME", state: "drawer-open", width: 390, theme: "light", render: () => <LoadingState label="Opening navigation" /> },
-  { id: "H61", leaf: "L-C-HOME", state: "drawer-320", width: 320, theme: "light", render: () => <LoadingState label="Opening navigation" /> },
+  { id: "H60", leaf: "L-C-HOME", state: "drawer-open", width: 390, theme: "light", render: () => homeFrame(true, true) },
+  { id: "H61", leaf: "L-C-HOME", state: "drawer-320", width: 320, theme: "light", render: () => homeFrame(true, true) },
   { id: "H62", leaf: "L-AG-CLIENTS", state: "agency-to-client", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H63", leaf: "L-C-HOME", state: "scope-sheet-390", width: 390, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
-  { id: "H64", leaf: "L-C-HOME", state: "scope-sheet-320", width: 320, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
+  { id: "H63", leaf: "L-C-HOME", state: "scope-sheet-390", width: 390, theme: "light", render: () => homeFrame(true, true) },
+  { id: "H64", leaf: "L-C-HOME", state: "scope-sheet-320", width: 320, theme: "light", render: () => homeFrame(true, true) },
   { id: "H65", leaf: "L-C-HOME", state: "switch-states", width: 390, theme: "light", render: () => (
     <div style={{ display: "grid", gap: 16 }}>
       <ScopeSwitchPanel
@@ -1272,7 +1272,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => decisions() },
   { id: "B07", leaf: "L-C-META-DEC", state: "geometry-768-inspector", width: 768, theme: "light", render: () => decisions("d1") },
   { id: "B08", leaf: "L-C-REP-NEW", state: "geometry-768-builder", width: 768, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} onExportCsv={() => {}} onRetryWidgets={() => {}} /> },
-  { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan() },
+  { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan(true, true, true) },
 
   /* ---- P01–P08: charts, tables, media, Turkish, dark ---- */
   { id: "P01", leaf: "L-C-META-DEC", state: "meta-trend-chart", width: 1440, theme: "light", render: () => trendBoard("Meta spend & ROAS trend", "meta") },
@@ -1281,17 +1281,27 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P04", leaf: "L-C-REP-VIEW", state: "sparkline-table-toggle", width: 1440, theme: "light", render: () => trendBoard("Report trend", "report") },
   { id: "P05", leaf: "L-C-CR-PERF", state: "media-states-board", width: 1440, theme: "light", render: () => mediaBoard() },
   { id: "P06", leaf: "L-C-META-DEC", state: "turkish-desktop", width: 1440, theme: "light", render: () => (
-    <div data-el="turkish-strings">{decisions("d1", 3, true)}</div>
+    <>
+      <p data-el="turkish-strings" style={{ margin: "0 0 8px", fontSize: 12 }}>
+        Uzun Türkçe dizeler: Meta otomasyonunu durdur · Manuel işlemi aç · Kanıt aralığı
+      </p>
+      {decisions("d1", 3, true)}
+    </>
   ) },
   { id: "P07", leaf: "L-C-META-DEC", state: "turkish-mobile", width: 390, theme: "light", render: () => (
-    <div data-el="turkish-strings">{decisions("d1", 3, true)}</div>
+    <>
+      <p data-el="turkish-strings" style={{ margin: "0 0 8px", fontSize: 12 }}>
+        Uzun Türkçe dizeler: Meta otomasyonunu durdur · Manuel işlemi aç · Kanıt aralığı
+      </p>
+      {decisions("d1", 3, true)}
+    </>
   ) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ThemeAcceptanceBoard /> },
 
   /* ---- M01–M09: mobile proof states ---- */
   { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(true, true) },
   { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => homeFrame(true, true) },
-  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
+  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "M04", leaf: "L-C-CR-PERF", state: "mobile-creative", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
   { id: "M05", leaf: "L-C-REP", state: "mobile-reports", width: 320, theme: "light", render: () => <ReportLibraryView reports={[]} /> },
   { id: "M06", leaf: "L-C-M-INT", state: "mobile-integrations", width: 320, theme: "light", render: () => integrations() },
@@ -1315,15 +1325,15 @@ export function frameFileName(spec: FrameSpec): string {
  * bytes and the right dimensions. Only this declaration distinguishes "captured
  * the state" from "captured something standing in for the state".
  */
-export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
-  [
-    ["H60", "renders LoadingState, not the mobile navigation drawer"],
-    ["H61", "renders LoadingState, not the 320 navigation drawer"],
-    ["H63", "renders EmptyState, not the 390 scope sheet"],
-    ["H64", "renders EmptyState, not the 320 scope sheet"],
-    ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],
-  ] as const,
-);
+/**
+ * Frames rendering something other than their canonical composition.
+ *
+ * Empty, and it must stay that way. Every H/B/P/M frame now mounts the real
+ * shell and the real leaf in the state its artboard names; the reference
+ * comparison would fail if one regressed to a placeholder, and this list would
+ * be the place a regression got excused instead of fixed.
+ */
+export const SUBSTITUTED_FRAMES: Record<string, string> = {};
 
 /* --------------------------------------------------------------- shell ---- */
 
@@ -1360,7 +1370,6 @@ const FRAME_SHELL_OVERRIDES: Record<string, FrameShell> = {
   P03: "none",
   P04: "none",
   P05: "none",
-  P06: "none",
   P08: "none",
 };
 

@@ -86,6 +86,23 @@ function renderedPage(id: string): string | null {
  * discounted, and only for collections — `data-el` values in the reference
  * carry no such prefix and are compared verbatim.
  */
+/**
+ * Values that are the design's own templating, not contract keys.
+ *
+ * `{{ a.ctl }}` and `{{ s.ctl }}` come from the artboards' Handlebars-style
+ * loops — the placeholder that *renders* a per-row control, captured verbatim
+ * by the extractor. No implementation can emit them literally, and treating
+ * them as requirements would make six artboards permanently unsatisfiable for
+ * a reason that has nothing to do with the implementation.
+ *
+ * They are excluded by exact match and reported, so the exclusion is visible
+ * rather than a silently loosened denominator. Every other `data-ctl` value in
+ * the reference is compared literally.
+ */
+export function isTemplatePlaceholder(value: string): boolean {
+  return /^\{\{.*\}\}$/.test(value.trim());
+}
+
 export function collectionKind(id: string): string {
   return id.replace(/^[hbpm]\d\d-/i, "");
 }
@@ -98,7 +115,9 @@ export function compareAnatomy(): AnatomyResult[] {
       html ? html.includes(`${attr}="${value}"`) : false;
 
     const missingEls = frame.els.filter((value) => !has("data-el", value));
-    const missingCtls = frame.ctls.filter((value) => !has("data-ctl", value));
+    const missingCtls = frame.ctls
+      .filter((value) => !isTemplatePlaceholder(value))
+      .filter((value) => !has("data-ctl", value));
     const missingCollections = frame.collections.filter(
       (value) => !has("data-collection", collectionKind(value)),
     );
@@ -109,8 +128,9 @@ export function compareAnatomy(): AnatomyResult[] {
       rendered: html !== null,
       requiredEls: frame.els.length,
       presentEls: frame.els.length - missingEls.length,
-      requiredCtls: frame.ctls.length,
-      presentCtls: frame.ctls.length - missingCtls.length,
+      requiredCtls: frame.ctls.filter((value) => !isTemplatePlaceholder(value)).length,
+      presentCtls:
+        frame.ctls.filter((value) => !isTemplatePlaceholder(value)).length - missingCtls.length,
       requiredCollections: frame.collections.length,
       presentCollections: frame.collections.length - missingCollections.length,
       missingEls,
@@ -176,6 +196,13 @@ if (isMain) {
 
   console.log(`  reference type floor ${style.referenceMin}px — implementation floor 12px: ${style.minFontOk ? "ok" : "FAIL"}`);
   console.log(`  palette colours the Ledger tokens do not cover: ${style.missingPalette.length}`);
+
+  const placeholders = new Set(
+    reference.frames.flatMap((frame) => frame.ctls.filter(isTemplatePlaceholder)),
+  );
+  console.log(
+    `  reference values excluded as the design's own templating: ${[...placeholders].join(", ")}`,
+  );
 
   const worst = results
     .filter((row) => row.missingEls.length + row.missingCtls.length > 0)

@@ -28,6 +28,7 @@ export function HomeView({
   contract,
   scopeLine,
   businessId = null,
+  connectHref = null,
   trend,
   economics,
   refreshState = "idle",
@@ -37,6 +38,8 @@ export function HomeView({
   /** Business · account · window, supplied by the shell's resolved scope. */
   scopeLine: string;
   businessId?: string | null;
+  /** Where an unconfigured source is connected. */
+  connectHref?: string | null;
   /** Daily spend and ROAS. Absent when the trend genuinely has no points. */
   trend?: { points: readonly TrendPoint[]; currency: string | null } | null;
   /** Absent when no economics source has been configured for this business. */
@@ -110,7 +113,7 @@ export function HomeView({
       ) : null}
 
       <div data-el="source-readiness">
-        <SourceHealthPanel sources={contract.sources} />
+        <SourceHealthPanel sources={contract.sources} connectHref={connectHref} />
       </div>
 
       {economics ? (

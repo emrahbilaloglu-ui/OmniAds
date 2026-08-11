@@ -56,7 +56,14 @@ export function BannerStack({ banners }: { banners: readonly HomeBanner[] }) {
   );
 }
 
-export function SourceHealthPanel({ sources }: { sources: readonly HomeSourceState[] }) {
+export function SourceHealthPanel({
+  sources,
+  connectHref,
+}: {
+  sources: readonly HomeSourceState[];
+  /** Where an unconfigured source is connected. Absent when none needs it. */
+  connectHref?: string | null;
+}) {
   const copy = useCopy();
   return (
     <section
@@ -101,6 +108,15 @@ export function SourceHealthPanel({ sources }: { sources: readonly HomeSourceSta
               <td style={{ padding: "6px 8px" }}>
                 {/* Word first, colour second. */}
                 {source.state === "ok" ? "Serving" : source.state === "partial" ? "Incomplete" : "Unavailable"}
+                {source.state !== "ok" && connectHref ? (
+                  <a
+                    href={connectHref}
+                    data-ctl="live:INTEGRATION-03 connect"
+                    style={{ display: "block", fontSize: 12, color: "var(--ledger-accent-action)" }}
+                  >
+                    {copy.connectThisSource}
+                  </a>
+                ) : null}
                 {source.reason ? (
                   <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                     {source.reason}

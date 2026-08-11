@@ -204,6 +204,15 @@ export const RECOMMENDED_MODE_READ_ONLY =
 
 export const BILLING_ENDPOINT = "/api/billing";
 
+/**
+ * Where billing actually happens.
+ *
+ * Stated rather than implied by the absence of a button: an operator looking
+ * for an invoice needs to know where it is, not merely that it is not here.
+ */
+export const PLAN_BILLING_ELSEWHERE =
+  "Invoices and payment methods are handled by our billing provider, not in this product. Contact support to change a plan.";
+
 /** Plan gates nothing. Stated so the absence of gating is deliberate. */
 export const PLAN_GATES_NOTHING =
   "Your plan is shown for reference. No route or control in this product is gated by it.";

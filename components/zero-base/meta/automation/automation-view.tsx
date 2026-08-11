@@ -44,11 +44,16 @@ export function AutomationView({
   guardrails,
   ceremony,
   onEngage,
+  mode = "observe",
+  onModeChange,
 }: {
   postures: readonly ProviderPosture[];
   guardrails: Parameters<typeof buildGuardrailRows>[0];
   ceremony: StopCeremonyInput;
   onEngage?: () => void;
+  mode?: string;
+  /** Absent where the actor cannot change it; no control is drawn. */
+  onModeChange?: (value: string) => void;
 }) {
   const copy = useCopy();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -188,6 +193,23 @@ export function AutomationView({
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {copy.guardrails}
         </h2>
+        {onModeChange ? (
+          <label style={{ fontSize: 12, display: "grid", gap: 4, marginBottom: 8 }}>
+            {copy.automationMode}
+            <select
+              data-ctl="gated:AUTO-03 mode"
+              value={mode}
+              onChange={(event) => onModeChange(event.target.value)}
+              style={{ minHeight: 44, padding: "6px 8px", maxWidth: 280 }}
+            >
+              {["observe", "suggest", "act"].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <p
           data-el="guardrails-readonly"
           style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}

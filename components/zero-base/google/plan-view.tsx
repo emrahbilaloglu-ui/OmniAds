@@ -209,6 +209,14 @@ export function GooglePlanView({
                       and find their line in it. Each export writes its own
                       journal entry. */}
                   <Button
+                    variant="quiet"
+                    data-ctl="live:GOOGLE-26 dismiss"
+                    aria-label={`Dismiss ${row.title}`}
+                    onClick={() => onDismiss?.(row.id)}
+                  >
+                    {t.dismiss}
+                  </Button>
+                  <Button
                     variant="secondary"
                     data-ctl="live:GOOGLE-ESC-01 copy"
                     aria-label={`Copy ${row.title}`}

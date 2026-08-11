@@ -8,6 +8,7 @@
  * cards so no column is dropped — a metric missing on mobile is a different
  * surface pretending to be the same one.
  */
+import { Button } from "@/components/zero-base/primitives/button";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
@@ -261,12 +262,17 @@ export function SeoView({
   panels,
   role,
   seo,
+  onRunAnalysis,
+  onLoadMore,
   unavailableReason,
 }: {
   panels: readonly SourcePanel[];
   role: SeoRoleState;
   /** The adapted `SeoOverviewPayload`. Null when the shape was wrong. */
   seo: AdaptedSeo | null;
+  /** Absent where the actor cannot run one; the gate states why. */
+  onRunAnalysis?: () => void;
+  onLoadMore?: () => void;
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
@@ -289,6 +295,25 @@ export function SeoView({
             {seo.rowCount === null ? "" : ` · ${seo.rowCount} rows in window`}
           </p>
 
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 12px" }}>
+            <Button
+              variant="secondary"
+              data-ctl="gated:SEO-04 run"
+              state={
+                role.allowed
+                  ? { kind: "enabled" }
+                  : { kind: "disabled", reason: role.reason }
+              }
+              onClick={onRunAnalysis}
+            >
+              {copy.runAnalysis}
+            </Button>
+            {onLoadMore ? (
+              <Button variant="secondary" data-ctl="live:SEO-01 load-more" onClick={onLoadMore}>
+                {copy.loadMore}
+              </Button>
+            ) : null}
+          </div>
           <DataTable
             collection="seo"
             caption={copy.searchPerformance}

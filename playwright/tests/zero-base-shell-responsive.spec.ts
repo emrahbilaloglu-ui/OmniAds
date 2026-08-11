@@ -265,3 +265,69 @@ for (const width of [1440, 390, 320]) {
     });
   }
 }
+
+/**
+ * WP-12 · H09/H10 — Meta Decisions at 1440/1280/768/390/320 in both themes.
+ *
+ * The verdict text on screen is compared against the exact strings the fixture
+ * served: a surface that reformats a verdict can disagree with the resolver,
+ * which the Decision Center's invariants forbid.
+ */
+const SERVED_VERDICTS = [
+  "Scale up — 7-day ROAS 3.4 vs target 2.6",
+  "Hold — evidence incomplete at ad grain",
+  "Cut — 14-day CPA above break-even",
+];
+
+for (const width of [1440, 1280, 768, 390, 320]) {
+  for (const theme of THEMES) {
+    test(`meta decisions — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `decisions-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        overflow.scrollWidth,
+        `decisions scrolls horizontally at ${width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth);
+
+      // Verdict text is byte-identical to what was served.
+      for (const [index, verdict] of SERVED_VERDICTS.entries()) {
+        await expect(page.locator(`[data-verdict="d${index + 1}"]`)).toHaveText(verdict);
+      }
+
+      // A held decision offers no action and says why.
+      await expect(page.locator('[data-decision-row="d2"]')).toBeVisible();
+      const heldCell = page.locator('tbody tr', { has: page.locator('[data-decision-row="d2"]') });
+      await expect(heldCell.locator('[data-action-count="0"]')).toBeVisible();
+      await expect(heldCell).toContainText("Authority blocked");
+
+      // Blocking and advisory banners are visible together.
+      await expect(page.locator('[data-banner="hard"]')).toBeVisible();
+      await expect(page.locator('[data-banner="partial"]')).toBeVisible();
+
+      // Evidence window and snapshot time are distinct, labelled facts.
+      const windowText = await page.locator("[data-evidence-window]").textContent();
+      const snapshotText = await page.locator("[data-snapshot-time]").textContent();
+      expect(windowText).toContain("2026-08-01");
+      expect(snapshotText).toContain("2026-08-11T06:00:00Z");
+      expect(windowText).not.toEqual(snapshotText);
+
+      // Lane counts come from the payload, not from the rendered row count.
+      await expect(page.getByRole("tab", { name: /Monitoring \(4\)/ })).toBeVisible();
+
+      await context.close();
+    });
+  }
+}

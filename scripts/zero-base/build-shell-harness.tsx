@@ -23,6 +23,10 @@ import { DataTable } from "@/components/zero-base/collections/data-table";
 import { buildAgencyDirectoryPage } from "@/lib/zero-base/agency-projection";
 import { HomeView } from "@/components/zero-base/home/home-view";
 import { toHomeMetric, type HomeContract } from "@/lib/zero-base/home/metric-contract";
+import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
+import type { MetaRecommendation } from "@/lib/meta/recommendations";
+import type { MetaLanePayload } from "@/components/meta/redesign/types";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import { THEME_ATTRIBUTE } from "@/lib/theme";
 
@@ -106,6 +110,97 @@ export const HOME_HARNESS_WIDTHS = [1440, 390, 320] as const;
 
 export function homeHarnessFileName(width: number, theme: string): string {
   return `home-${width}-${theme}.html`;
+}
+
+/** H09/H10: Decisions is a daily operator surface at every drawn width. */
+export const DECISIONS_HARNESS_WIDTHS = [1440, 1280, 768, 390, 320] as const;
+
+export function decisionsHarnessFileName(width: number, theme: string): string {
+  return `decisions-${width}-${theme}.html`;
+}
+
+function decisionsMarkup(width: number): string {
+  const narrow = width < DRAWER_BREAKPOINT;
+
+  const row = (
+    id: string,
+    title: string,
+    decision: string,
+    overrides: Partial<MetaRecommendation> = {},
+  ) =>
+    ({
+      id,
+      level: "campaign",
+      type: "campaign_state",
+      lens: "profitability",
+      priority: "high",
+      confidence: "high",
+      decisionState: "act",
+      decision,
+      title,
+      why: "Seven-day ROAS is above target and pace is +18%.",
+      summary: "",
+      recommendedAction: "Raise the daily budget by 20%.",
+      expectedImpact: "",
+      evidence: [],
+      timeframeContext: {},
+      campaignName: title,
+      ...overrides,
+    }) as unknown as MetaRecommendation;
+
+  const rows = [
+    row("d1", "Prospecting — Broad US", "Scale up — 7-day ROAS 3.4 vs target 2.6"),
+    row("d2", "Retargeting — 30d", "Hold — evidence incomplete at ad grain", {
+      recommendedAction: "",
+      stateReason: "Authority blocked: no write token for this account.",
+    }),
+    row("d3", "Lookalike 3% — AU", "Cut — 14-day CPA above break-even", {
+      confidence: "medium",
+      confidenceReason: "Source freshness capped confidence.",
+    }),
+  ];
+
+  const lanePayload = {
+    businessId: "biz_1",
+    startDate: "2026-08-01",
+    endDate: "2026-08-07",
+    sourceModel: "v3",
+    snapshotDate: "2026-08-07",
+    snapshotCreatedAt: "2026-08-11T06:00:00Z",
+    actionNow: rows,
+    watching: [],
+    healthy: [],
+    nonSales: [],
+    archive: [],
+    deferredIds: [],
+    counts: { actionNow: rows.length, watching: 4, healthy: 0, nonSales: 2, archive: 0 },
+  } as unknown as MetaLanePayload;
+
+  const state = { lane: "act" as const, levels: [], search: "", selected: null };
+
+  const model = buildDecisionsViewModel({
+    lane: lanePayload,
+    banners: [
+      { id: "b1", tone: "danger", title: "Meta token expired", detail: "Reconnect to refresh decisions.", blocking: true },
+      { id: "b2", tone: "warning", title: "Partial window", detail: "Two days are missing from the evidence window.", blocking: false },
+    ],
+    viewer: { role: "collaborator", isReviewer: false, readOnly: false, readOnlyReason: null },
+    state,
+  });
+
+  const body = renderToStaticMarkup(
+    <DecisionsView
+      model={model}
+      state={state}
+      demo={false}
+      onStateChange={() => {}}
+      adsManagerHref="https://adsmanager.facebook.com/"
+    />,
+  );
+
+  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+</div>`;
 }
 
 /**
@@ -276,6 +371,22 @@ function main() {
 <body>${body}</body>
 </html>`;
       writeFileSync(path.join(OUT_DIR, homeHarnessFileName(width, theme)), html);
+      count += 1;
+    }
+  }
+
+  for (const width of DECISIONS_HARNESS_WIDTHS) {
+    const body = decisionsMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Decisions harness ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, decisionsHarnessFileName(width, theme)), html);
       count += 1;
     }
   }

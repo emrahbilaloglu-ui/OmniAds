@@ -1,0 +1,370 @@
+"use client";
+
+/**
+ * Meta Decisions — the daily operator surface (H09/H10, read side of H11/H12).
+ *
+ * The surface renders the served presentation and computes nothing. Verdict and
+ * metric strings are printed exactly as the server produced them, because the
+ * Decision Center's standing rule is that the UI must not compute buyerAction
+ * and a surface that reformats a verdict will eventually disagree with it.
+ *
+ * Two things the design is emphatic about:
+ *
+ * - the evidence window and the snapshot time are drawn as separate facts. A
+ *   snapshot written this morning can describe a window that ended days ago,
+ *   and collapsing them is how a stale read looks current.
+ * - a generic Ads Manager link is a link, never an executed action. It is
+ *   labelled as opening Meta, and it never appears where an action would.
+ */
+import { useMemo, useRef, useState } from "react";
+
+import { Collection } from "@/components/zero-base/collections/collection";
+import { DataTable } from "@/components/zero-base/collections/data-table";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
+import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
+import { ZeroBaseSheet } from "@/components/zero-base/primitives/overlays";
+import { UnavailableState } from "@/components/zero-base/states/surface-state";
+import {
+  actionCountFor,
+  orderedBanners,
+  type DecisionRow,
+  type DecisionsViewModel,
+} from "@/lib/zero-base/meta/decisions-presentation";
+import {
+  DECISION_LEVELS,
+  type DecisionLane,
+  type DecisionLevel,
+  type DecisionsUrlState,
+} from "@/lib/zero-base/meta/decisions-url-state";
+
+const LANE_LABEL: Record<DecisionLane, string> = {
+  act: "Act now",
+  test: "Needs resolution",
+  watch: "Monitoring",
+};
+
+export function DecisionsView({
+  model,
+  state,
+  demo,
+  onStateChange,
+  adsManagerHref,
+}: {
+  model: DecisionsViewModel;
+  state: DecisionsUrlState;
+  demo: boolean;
+  onStateChange: (next: DecisionsUrlState) => void;
+  adsManagerHref?: string | null;
+}) {
+  const [search, setSearch] = useState(state.search);
+  // Focus returns to the row that opened the inspector, not to the top.
+  const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const selectedRow = useMemo(
+    () => model.rows.find((row) => row.id === state.selected) ?? null,
+    [model.rows, state.selected],
+  );
+
+  // A URL naming a row this lane does not serve is a real situation — the row
+  // aged out, or the link is from another filter. Say so instead of silently
+  // showing nothing.
+  const selectionMissing = state.selected !== null && selectedRow === null;
+
+  const banners = orderedBanners(model.banners);
+
+  return (
+    <div data-decisions-surface="">
+      <header style={{ marginBottom: 12 }}>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
+          Meta Decisions
+        </h1>
+        {/* Two separate facts, drawn separately and labelled. */}
+        <p style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
+          <span data-evidence-window="">
+            Evidence window {model.evidenceWindow.startDate} to {model.evidenceWindow.endDate}
+          </span>
+          {" · "}
+          <span data-snapshot-time="">
+            Snapshot written {model.snapshotAt ?? "not recorded"}
+            {model.snapshotDate ? ` for ${model.snapshotDate}` : ""}
+          </span>
+        </p>
+      </header>
+
+      {banners.length > 0 ? (
+        <div data-banner-stack="" style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+          {banners.map((banner) => (
+            <p
+              key={banner.id}
+              role="status"
+              data-banner={banner.blocking ? "hard" : "partial"}
+              data-banner-id={banner.id}
+              style={{
+                margin: 0,
+                padding: "10px 14px",
+                borderRadius: "var(--ledger-radius-card)",
+                fontSize: 13,
+                lineHeight: "19px",
+                border: `1px solid ${
+                  banner.blocking ? "var(--ledger-semantic-danger)" : "var(--ledger-semantic-warn)"
+                }`,
+                color: banner.blocking
+                  ? "var(--ledger-semantic-danger)"
+                  : "var(--ledger-semantic-warn)",
+              }}
+            >
+              <strong>{banner.blocking ? "Blocking: " : "Advisory: "}</strong>
+              {banner.title} — {banner.detail}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+        <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
+          <TextInput
+            label="Find a decision"
+            value={search}
+            placeholder="Campaign, ad set or title"
+            onChange={(event) => {
+              setSearch(event.target.value);
+              onStateChange({ ...state, search: event.target.value, selected: null });
+            }}
+            hint="Filters the decisions served in this lane."
+          />
+        </div>
+        <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+          <legend style={{ fontSize: 12, fontWeight: 500, color: "var(--ledger-ink-secondary)", padding: 0 }}>
+            Level
+          </legend>
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            {DECISION_LEVELS.map((level) => {
+              const checked = state.levels.includes(level);
+              return (
+                <label
+                  key={level}
+                  style={{ display: "flex", alignItems: "center", gap: 6, minHeight: 24, fontSize: 13 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    data-level-filter={level}
+                    onChange={() =>
+                      onStateChange({
+                        ...state,
+                        selected: null,
+                        levels: checked
+                          ? state.levels.filter((entry) => entry !== level)
+                          : ([...state.levels, level] as DecisionLevel[]),
+                      })
+                    }
+                  />
+                  {level}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      </div>
+
+      <ZeroBaseTabs
+        label="Decision lanes"
+        value={state.lane}
+        onValueChange={(lane) =>
+          onStateChange({ ...state, lane: lane as DecisionLane, selected: null })
+        }
+        tabs={(["act", "test", "watch"] as DecisionLane[]).map((lane) => ({
+          id: lane,
+          label: `${LANE_LABEL[lane]} (${model.counts[lane]})`,
+          content:
+            lane === state.lane ? (
+              <>
+                {selectionMissing ? (
+                  <div style={{ marginBottom: 12 }} data-row-gone="">
+                    <UnavailableState reason="The decision this link names is no longer served in this lane. It may have aged out of the window or moved lane." />
+                  </div>
+                ) : null}
+
+                <Collection
+                  envelope={{
+                    items: model.rows,
+                    servedCount: model.rows.length,
+                    totalCount: model.counts[lane],
+                    cap: null,
+                    nextCursor: null,
+                    truncated: model.truncated,
+                    disclosure: model.disclosure,
+                  }}
+                  state={
+                    model.rows.length === 0
+                      ? {
+                          kind: "empty",
+                          reason: `No decisions in ${LANE_LABEL[lane]} for this window and filter.`,
+                        }
+                      : { kind: "ready" }
+                  }
+                >
+                  <DataTable
+                    caption={`${LANE_LABEL[lane]} decisions`}
+                    rows={model.rows}
+                    rowKey={(row) => row.id}
+                    columns={[
+                      {
+                        id: "title",
+                        header: "Decision",
+                        render: (row) => (
+                          <button
+                            type="button"
+                            ref={(node) => {
+                              triggerRefs.current[row.id] = node;
+                            }}
+                            data-decision-row={row.id}
+                            onClick={() => onStateChange({ ...state, selected: row.id })}
+                            style={{
+                              minHeight: 24,
+                              padding: 0,
+                              background: "transparent",
+                              border: 0,
+                              textAlign: "left",
+                              color: "var(--ledger-accent-action)",
+                              cursor: "pointer",
+                              fontSize: 13,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {row.title}
+                          </button>
+                        ),
+                      },
+                      { id: "level", header: "Level", render: (row) => row.level },
+                      {
+                        id: "verdict",
+                        header: "Verdict",
+                        // Printed exactly as served. No formatting, no mapping.
+                        render: (row) => <span data-verdict={row.id}>{row.decision}</span>,
+                      },
+                      {
+                        id: "confidence",
+                        header: "Confidence",
+                        render: (row) => (
+                          <span data-confidence={row.id}>
+                            {row.confidence}
+                            {row.confidenceReason ? (
+                              <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                                {row.confidenceReason}
+                              </span>
+                            ) : null}
+                          </span>
+                        ),
+                      },
+                      {
+                        id: "action",
+                        header: "Action",
+                        render: (row) => {
+                          const count = actionCountFor({ row, viewer: model.viewer, demo });
+                          if (count === 0) {
+                            return (
+                              <span data-action-count="0" style={{ color: "var(--ledger-ink-tertiary)" }}>
+                                {row.held ? "Held" : "Read-only"}
+                                {row.heldReason ? (
+                                  <span style={{ display: "block", fontSize: 12 }}>{row.heldReason}</span>
+                                ) : null}
+                              </span>
+                            );
+                          }
+                          return (
+                            <span data-action-count="1">{row.recommendedAction}</span>
+                          );
+                        },
+                      },
+                    ]}
+                  />
+                </Collection>
+              </>
+            ) : null,
+        }))}
+      />
+
+      <ZeroBaseSheet
+        open={selectedRow !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            const previous = state.selected;
+            onStateChange({ ...state, selected: null });
+            // Focus returns to the row that opened it.
+            if (previous) triggerRefs.current[previous]?.focus();
+          }
+        }}
+        title={selectedRow?.title ?? "Decision"}
+      >
+        {selectedRow ? <DecisionInspector row={selectedRow} model={model} demo={demo} adsManagerHref={adsManagerHref} /> : null}
+      </ZeroBaseSheet>
+    </div>
+  );
+}
+
+function DecisionInspector({
+  row,
+  model,
+  demo,
+  adsManagerHref,
+}: {
+  row: DecisionRow;
+  model: DecisionsViewModel;
+  demo: boolean;
+  adsManagerHref?: string | null;
+}) {
+  const actions = actionCountFor({ row, viewer: model.viewer, demo });
+
+  return (
+    <div data-decision-inspector={row.id} style={{ display: "grid", gap: 12, marginTop: 12 }}>
+      <dl style={{ display: "grid", gap: 8, margin: 0 }}>
+        <div>
+          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Verdict</dt>
+          <dd data-inspector-verdict="" style={{ margin: 0, fontSize: 13 }}>{row.decision}</dd>
+        </div>
+        <div>
+          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Why</dt>
+          <dd data-inspector-why="" style={{ margin: 0, fontSize: 13 }}>{row.why}</dd>
+        </div>
+        <div>
+          <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Scope</dt>
+          <dd style={{ margin: 0, fontSize: 13 }}>
+            {row.campaignName ?? "—"}
+            {row.adsetName ? ` · ${row.adsetName}` : ""}
+          </dd>
+        </div>
+      </dl>
+
+      {actions === 0 ? (
+        <p data-inspector-action-count="0" style={{ margin: 0, fontSize: 13, color: "var(--ledger-ink-secondary)" }}>
+          {row.held
+            ? (row.heldReason ?? "No action is offered for this decision.")
+            : "This view is read-only for your role."}
+        </p>
+      ) : (
+        <p data-inspector-action-count="1" style={{ margin: 0, fontSize: 13 }}>
+          {row.recommendedAction}
+        </p>
+      )}
+
+      {adsManagerHref ? (
+        <p style={{ margin: 0, fontSize: 12, lineHeight: "16px" }}>
+          {/* Explicitly a link out, never dressed as something that happened. */}
+          <a
+            href={adsManagerHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-ads-manager-link=""
+            style={{ color: "var(--ledger-accent-action)" }}
+          >
+            Open Meta Ads Manager
+          </a>
+          <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>
+            Opens Meta in a new tab. Nothing is changed by following it.
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+}

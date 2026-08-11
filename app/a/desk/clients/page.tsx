@@ -2,10 +2,11 @@ import { redirect } from "next/navigation";
 
 import { getSessionFromCookies } from "@/lib/auth";
 import {
-  InvalidAgencyCursorError,
+  decodeAgencyCursor,
   readAgencyDirectoryPage,
 } from "@/lib/zero-base/agency-directory-store";
 import { ClientDirectory } from "@/components/zero-base/agency/client-directory";
+import { InvalidCursorState } from "@/components/zero-base/agency/invalid-cursor-state";
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 
 export const dynamic = "force-dynamic";
@@ -23,23 +24,23 @@ export default async function AgencyClientsPage({
     typeof value === "string" ? value : Array.isArray(value) ? (value[0] ?? null) : null;
 
   const cursor = single(params.cursor);
-  // A tampered cursor restarts at the first page rather than erroring the
-  // whole surface: the operator gets a usable directory, and the boundary
-  // still refuses the bad value.
+
+  // Validated before anything is read.
+  //
+  // The earlier version caught the store's error and quietly served page one,
+  // then handed the rejected cursor back to the client as `restoredCursor` —
+  // so every row on that page advertised a return the API boundary would 400.
+  // A bad cursor now costs no query and reaches no return link: the page says
+  // what happened and offers one clean way out.
+  if (cursor !== null && decodeAgencyCursor(cursor) === null) {
+    return <InvalidCursorState returnPath="/a/desk/clients" />;
+  }
+
   const page = await readAgencyDirectoryPage({
     userId: session.user.id,
     email: session.user.email,
     cursor,
     withTotal: true,
-  }).catch(async (error: unknown) => {
-    if (error instanceof InvalidAgencyCursorError) {
-      return readAgencyDirectoryPage({
-        userId: session.user.id,
-        email: session.user.email,
-        withTotal: true,
-      });
-    }
-    throw error;
   });
 
   return (

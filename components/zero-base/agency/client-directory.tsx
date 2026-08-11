@@ -19,6 +19,13 @@
  * Search filters the rows already served, exactly as the plan specifies. It is
  * not a query: making it one would turn a scan aid into an unbounded
  * cross-client search over names the actor has not paged to.
+ *
+ * Rows are held as page *segments* rather than one flat list, because each row
+ * has to remember which page it arrived on. A single mutable "current cursor"
+ * looks equivalent and is not: after loading page 2, every page-1 row would
+ * start advertising a return to page 2, where that row does not exist. Segments
+ * make the provenance immutable — appending a page cannot alter what an earlier
+ * row carries.
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -43,6 +50,13 @@ export interface AgencyDirectoryPageData {
   nextCursor: string | null;
   truncated: boolean;
   disclosure: string | null;
+}
+
+/** One served page and the cursor that produced it. */
+interface PageSegment {
+  /** Cursor that fetched this page; null for the first page. */
+  cursor: string | null;
+  items: AgencyClientRow[];
 }
 
 export interface ClientDirectoryProps {
@@ -75,14 +89,26 @@ export function ClientDirectory({
   fetchPage = fetchNextPage,
 }: ClientDirectoryProps) {
   const [query, setQuery] = useState(initialQuery);
-  // Accumulated served rows, in server order. Appended to, never re-sorted.
-  const [rows, setRows] = useState<AgencyClientRow[]>(initialPage.items);
+  // Served pages in arrival order. Each keeps the cursor that produced it, so
+  // a row's return state is fixed the moment it is served.
+  const [segments, setSegments] = useState<PageSegment[]>([
+    { cursor: restoredCursor, items: initialPage.items },
+  ]);
   const [cursor, setCursor] = useState<string | null>(initialPage.nextCursor);
-  // The cursor that produced the last appended page, so a return link points
-  // at the page the row is actually on.
-  const [pageCursor, setPageCursor] = useState<string | null>(restoredCursor);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const rows = useMemo(() => segments.flatMap((segment) => segment.items), [segments]);
+
+  // businessId → the cursor of the page it arrived on. Built from the
+  // segments, so it cannot drift from them.
+  const cursorByRow = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const segment of segments) {
+      for (const row of segment.items) map.set(row.businessId, segment.cursor);
+    }
+    return map;
+  }, [segments]);
 
   const visible = useMemo(() => {
     const needle = normalizeBusinessName(query);
@@ -113,13 +139,16 @@ export function ClientDirectory({
     const requested = cursor;
     try {
       const next = await fetchPage(requested, pageSize);
-      setRows((current) => {
+      setSegments((current) => {
         // Defensive append: the server order is total, but a duplicate here
         // would be a silent correctness bug rather than a visible one.
-        const seen = new Set(current.map((row) => row.businessId));
-        return [...current, ...next.items.filter((row) => !seen.has(row.businessId))];
+        const seen = new Set(current.flatMap((segment) => segment.items.map((row) => row.businessId)));
+        const fresh = next.items.filter((row) => !seen.has(row.businessId));
+        if (fresh.length === 0) return current;
+        // Appended as its own segment: existing segments are untouched, so no
+        // already-served row can have its return state rewritten.
+        return [...current, { cursor: requested, items: fresh }];
       });
-      setPageCursor(requested);
       setCursor(next.nextCursor);
     } catch {
       setError("Could not load more clients. Nothing already shown was lost.");
@@ -132,7 +161,8 @@ export function ClientDirectory({
     const returnTo = buildAgencyReturn({
       path: returnPath,
       q: query || null,
-      cursor: pageCursor,
+      // This row's own page, not whichever page was loaded most recently.
+      cursor: cursorByRow.get(businessId) ?? null,
       row: businessId,
     });
     return `/c/${businessId}/home?${AGENCY_RETURN_PARAM}=${encodeURIComponent(returnTo)}`;

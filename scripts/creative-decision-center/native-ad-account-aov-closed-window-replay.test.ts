@@ -1083,6 +1083,9 @@ describe("D061 closed-window replay producer", () => {
     }
   });
 
+  // Hashes the entire repository several times over — once for the real
+  // provenance manifest and again for each forged variant — so it costs ~4s and
+  // grows with the repo. It relies on the raised testTimeout in vitest.config.
   it("derives exact authority provenance exclusions and verifies the full source hash scope", () => {
     const repoRoot = process.cwd();
     const authorityAsOfDate = "2026-07-20";

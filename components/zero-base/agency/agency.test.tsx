@@ -284,19 +284,120 @@ describe("Open Client carries an allowlisted return state", () => {
     expect(parsed.row).toBe("biz_000");
   });
 
+  /** The parsed return state a given row currently advertises. */
+  function returnStateFor(name: string) {
+    const href = screen.getByRole("link", { name }).getAttribute("href")!;
+    return parseAgencyReturn(
+      new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM),
+    )!;
+  }
+
+  async function loadPages(user: ReturnType<typeof userEvent.setup>, count: number) {
+    for (let page = 0; page < count; page += 1) {
+      await user.click(screen.getByRole("button", { name: "Load more" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy());
+    }
+  }
+
   it("points the return at the page the row is actually on", async () => {
     const user = userEvent.setup();
     renderDirectory(25);
-    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await loadPages(user, 1);
     await waitFor(() => expect(servedNames()).toHaveLength(50));
 
     // A row from the second page must return to the second page, not page one.
-    const href = screen.getByRole("link", { name: "Client 030" }).getAttribute("href")!;
-    const parsed = parseAgencyReturn(
-      new URL(href, "https://app.invalid").searchParams.get(AGENCY_RETURN_PARAM),
-    )!;
-    expect(parsed.cursor).toBe("biz_024");
-    expect(parsed.row).toBe("biz_030");
+    const second = returnStateFor("Client 030");
+    expect(second.cursor).toBe("biz_024");
+    expect(second.row).toBe("biz_030");
+  });
+
+  it("keeps each row's provenance immutable as later pages append", async () => {
+    const user = userEvent.setup();
+    renderDirectory(25);
+
+    // Page 1 rows restore to the first page, which has no cursor.
+    expect(returnStateFor("Client 000").cursor).toBeNull();
+
+    await loadPages(user, 1);
+    await waitFor(() => expect(servedNames()).toHaveLength(50));
+    // Loading page 2 must not rewrite what page-1 rows advertise. The bug this
+    // guards against pointed every row at the most recently loaded page, so a
+    // page-1 row returned to a page it does not appear on.
+    expect(returnStateFor("Client 000").cursor).toBeNull();
+    expect(returnStateFor("Client 024").cursor).toBeNull();
+    expect(returnStateFor("Client 025").cursor).toBe("biz_024");
+
+    await loadPages(user, 1);
+    await waitFor(() => expect(servedNames()).toHaveLength(75));
+    // Three pages in: every earlier row still carries its own page.
+    expect(returnStateFor("Client 000").cursor).toBeNull();
+    expect(returnStateFor("Client 030").cursor).toBe("biz_024");
+    expect(returnStateFor("Client 050").cursor).toBe("biz_049");
+
+    await loadPages(user, 2);
+    await waitFor(() => expect(servedNames()).toHaveLength(121));
+    expect(returnStateFor("Client 000").cursor).toBeNull();
+    expect(returnStateFor("Client 030").cursor).toBe("biz_024");
+    expect(returnStateFor("Client 050").cursor).toBe("biz_049");
+    expect(returnStateFor("Client 100").cursor).toBe("biz_099");
+  });
+
+  it("gives every row on every page a complete, allowlisted return state", async () => {
+    const user = userEvent.setup();
+    renderDirectory(25);
+    await loadPages(user, 2);
+    await waitFor(() => expect(servedNames()).toHaveLength(75));
+
+    const expectedCursor = (index: number) =>
+      index < 25 ? null : index < 50 ? "biz_024" : "biz_049";
+
+    for (const index of [0, 12, 24, 25, 40, 49, 50, 74]) {
+      const name = `Client ${String(index).padStart(3, "0")}`;
+      const parsed = returnStateFor(name);
+      // parseAgencyReturn returning a value at all proves the allowlist held.
+      expect(parsed.path, name).toBe("/a/desk/clients");
+      expect(parsed.row, name).toBe(`biz_${String(index).padStart(3, "0")}`);
+      expect(parsed.cursor, name).toBe(expectedCursor(index));
+      expect(parsed.q, name).toBeNull();
+    }
+  });
+
+  it("preserves each matching row's own page cursor while searching", async () => {
+    const user = userEvent.setup();
+    renderDirectory(25);
+    await loadPages(user, 2);
+    await waitFor(() => expect(servedNames()).toHaveLength(75));
+
+    // "Client 0" matches rows drawn from all three loaded pages.
+    await user.type(screen.getByLabelText("Find a client"), "Client 0");
+
+    expect(returnStateFor("Client 001").cursor).toBeNull();
+    expect(returnStateFor("Client 030").cursor).toBe("biz_024");
+    expect(returnStateFor("Client 060").cursor).toBe("biz_049");
+    // And the search term rides along on each of them.
+    for (const name of ["Client 001", "Client 030", "Client 060"]) {
+      expect(returnStateFor(name).q, name).toBe("Client 0");
+    }
+  });
+
+  it("restores provenance from a server-rendered later page", async () => {
+    const user = userEvent.setup();
+    // Arriving directly at page 2 via a return link: its rows belong to that
+    // page, and the page loaded after it belongs to the next one.
+    render(
+      <ClientDirectory
+        initialPage={serverPage("biz_024", 25)}
+        returnPath="/a/desk/clients"
+        restoredCursor="biz_024"
+        fetchPage={vi.fn(async (cursor: string) => serverPage(cursor, 25))}
+      />,
+    );
+    expect(returnStateFor("Client 025").cursor).toBe("biz_024");
+
+    await loadPages(user, 1);
+    await waitFor(() => expect(servedNames()).toHaveLength(50));
+    expect(returnStateFor("Client 025").cursor).toBe("biz_024");
+    expect(returnStateFor("Client 050").cursor).toBe("biz_049");
   });
 
   it("carries the search term so the return restores it", async () => {

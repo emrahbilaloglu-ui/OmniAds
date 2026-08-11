@@ -249,6 +249,7 @@ export function SharesView({
   initialAudience = "creator",
   initialExpiresAt = "",
   initialAcknowledged = false,
+  onCancel,
 }: {
   rows: readonly ShareRow[];
   onRevoke?: (token: string) => void;
@@ -262,6 +263,8 @@ export function SharesView({
   initialAudience?: "buyer" | "creator";
   initialExpiresAt?: string;
   initialAcknowledged?: boolean;
+  /** Discards the draft. A form with no way out is a trap. */
+  onCancel?: () => void;
 }) {
   const t = useCopy();
   const copy = useCopy();
@@ -342,6 +345,22 @@ export function SharesView({
           >
             {copy.createShare}
           </Button>
+          {onCancel ? (
+            <Button
+              variant="quiet"
+              data-share-cancel=""
+              data-ctl="live:cancel"
+              onClick={() => {
+                setTitle("");
+                setExpiresAt("");
+                setAcknowledged(false);
+                onCancel();
+              }}
+              style={{ marginLeft: 6 }}
+            >
+              {copy.cancel}
+            </Button>
+          ) : null}
         </div>
       </section>
 

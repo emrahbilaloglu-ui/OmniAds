@@ -1124,15 +1124,30 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
   { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => (
-    <SharesView
-      rows={SHARE_ROWS}
-      onRevoke={() => {}}
-      onRotate={() => {}}
-      onCreate={() => {}}
-      initialAudience="buyer"
-      initialTitle="September review"
-      initialExpiresAt="2026-10-01"
-    />
+    <div style={{ display: "grid", gap: 24 }}>
+      {/* Both mint postures: the tier warning is the whole subject, so the
+          acknowledged and unacknowledged forms are drawn together. */}
+      <SharesView
+        rows={SHARE_ROWS}
+        onRevoke={() => {}}
+        onRotate={() => {}}
+        onCreate={() => {}}
+        initialAudience="buyer"
+        initialTitle="September review"
+        initialExpiresAt="2026-10-01"
+      />
+      <SharesView
+        rows={[]}
+        onRevoke={() => {}}
+        onRotate={() => {}}
+        onCreate={() => {}}
+        onCancel={() => {}}
+        initialAudience="buyer"
+        initialTitle="September review"
+        initialExpiresAt="2026-10-01"
+        initialAcknowledged
+      />
+    </div>
   ) },
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => landingPages() },
 
@@ -1252,10 +1267,10 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P03", leaf: "L-C-REP-VIEW", state: "table-dense", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ rows: [{ name: "Brand", spend: 12 }, { name: "Prospecting", spend: 44 }], columns: ["name", "spend"] })} sourceId="meta_campaigns" /> },
   { id: "P04", leaf: "L-C-REP-VIEW", state: "sparkline-table-toggle", width: 1440, theme: "light", render: () => trendBoard("Report trend", "report") },
   { id: "P05", leaf: "L-C-CR-PERF", state: "media-states-board", width: 1440, theme: "light", render: () => mediaBoard() },
-  { id: "P06", leaf: "L-C-META-DEC", state: "turkish-desktop", width: 1440, theme: "light", render: () => tr(
-    <div data-el="turkish-strings">{decisions("d1", 3)}</div>
+  { id: "P06", leaf: "L-C-META-DEC", state: "turkish-desktop", width: 1440, theme: "light", render: () => (
+    <div data-el="turkish-strings">{decisions("d1", 3, true)}</div>
   ) },
-  { id: "P07", leaf: "L-C-META-DEC", state: "turkish-mobile", width: 390, theme: "light", render: () => tr(
+  { id: "P07", leaf: "L-C-META-DEC", state: "turkish-mobile", width: 390, theme: "light", render: () => (
     <div data-el="turkish-strings">{decisions("d1", 3, true)}</div>
   ) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ThemeAcceptanceBoard /> },

@@ -62,14 +62,7 @@ export function HistoryView({
   if (unavailableReason) {
     return (
       <div data-history-surface="">
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
-        {onClose ? (
-          <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
-            {copy.close}
-          </Button>
-        ) : null}
-      </div>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>
@@ -79,7 +72,14 @@ export function HistoryView({
 
   return (
     <div data-history-surface="">
-      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
+        {onClose ? (
+          <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
+            {copy.close}
+          </Button>
+        ) : null}
+      </div>
       {accountLabel ? (
         <p data-history-account="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Account {accountLabel}

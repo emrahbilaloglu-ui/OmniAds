@@ -173,6 +173,24 @@ export function LaunchpadView({
                   }}
                 >
                   {finding.message}
+                  {finding.field ? (
+                    <button
+                      type="button"
+                      data-ctl={finding.severity === "error" ? "live:LAUNCH-01 fix" : "live:LAUNCH-02 fix"}
+                      onClick={() => fieldRefs.current[finding.field!]?.focus()}
+                      style={{
+                        marginLeft: 6,
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        color: "var(--ledger-accent-action)",
+                        cursor: "pointer",
+                        fontSize: 12.5,
+                      }}
+                    >
+                      {copy.fixThis}
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -232,11 +250,17 @@ export function LaunchpadView({
                   <Button
                     variant="secondary"
                     data-template-duplicate={row.id}
+                    data-ctl="live:LAUNCH-03 duplicate"
                     onClick={() => onDuplicateTemplate?.(row.id, `${row.name} (copy)`)}
                   >
                     {copy.duplicate}
                   </Button>
-                  <Button variant="danger" data-template-delete={row.id} onClick={() => onDeleteTemplate?.(row.id)}>
+                  <Button
+                    variant="danger"
+                    data-template-delete={row.id}
+                    data-ctl="gated:LAUNCH-03 delete"
+                    onClick={() => onDeleteTemplate?.(row.id)}
+                  >
                     {copy.deleteItem}
                   </Button>
                 </span>

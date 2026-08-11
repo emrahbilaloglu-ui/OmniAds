@@ -185,18 +185,24 @@ export function ReportBuilderView({
   name,
   onNameChange,
   onSave,
+  onExportCsv,
+  onRetryWidgets,
 }: {
   initial: GridState;
   /** Both save routes require a name, so the builder collects one. */
   name?: string;
   onNameChange?: (name: string) => void;
   onSave?: (state: GridState) => void;
+  onExportCsv?: () => void;
+  /** Re-requests only the widgets that failed, not the whole report. */
+  onRetryWidgets?: () => void;
 }) {
   const copy = useCopy();
   const [history, setHistory] = useState(() => newHistory(initial));
   const [selected, setSelected] = useState<string | null>(initial.widgets[0]?.id ?? null);
   const [message, setMessage] = useState("");
   const [keyboardMode, setKeyboardMode] = useState(false);
+  const [breakdown, setBreakdown] = useState("none");
 
   /**
    * Adopt a later `initial`.
@@ -257,6 +263,38 @@ export function ReportBuilderView({
 
       <section aria-label={copy.sources} style={{ marginTop: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
+        {/* What each source will and will not answer, before it is added.
+            Discovering a breakdown limit after building a report around it is
+            the expensive way to learn it. */}
+        <p
+          data-el="source-contracts"
+          style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+        >
+          {copy.sourceContractsNote}
+        </p>
+        <div data-el="h38-handoff" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+            {copy.breakdown}
+            <select
+              data-ctl="live:REPORT-07 breakdown"
+              value={breakdown}
+              onChange={(event) => setBreakdown(event.target.value)}
+              style={{ minHeight: 44, padding: "6px 8px" }}
+            >
+              {["none", "day", "campaign", "device"].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="secondary" data-ctl="live:REPORT-04 csv" onClick={onExportCsv}>
+            {copy.downloadCsv}
+          </Button>
+          <Button variant="secondary" data-ctl="live:REPORT-08 retry" onClick={onRetryWidgets}>
+            {copy.retry}
+          </Button>
+        </div>
         <ul
           data-source-picker=""
           data-el="builder-sources"

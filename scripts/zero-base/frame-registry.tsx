@@ -1105,7 +1105,7 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- H37–H40: reports ---- */
   { id: "H37", leaf: "L-C-REP", state: "reports-library", width: 1440, theme: "light", render: () => <ReportLibraryView reports={REPORTS} businessId="biz" totalCount={9} onCreate={() => {}} onDuplicate={() => {}} onDelete={() => {}} onLoadMore={() => {}} /> },
-  { id: "H38", leaf: "L-C-REP-NEW", state: "report-builder", width: 1440, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
+  { id: "H38", leaf: "L-C-REP-NEW", state: "report-builder", width: 1440, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} onExportCsv={() => {}} onRetryWidgets={() => {}} /> },
   { id: "H39", leaf: "L-C-REP-VIEW", state: "print", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "metric", value: "1,204.50 USD", deltaLabel: "+8.1% vs previous" })} sourceId="overview_summary" /> },
   { id: "H40", leaf: "L-C-REP-VIEW", state: "share-disabled", width: 1440, theme: "light", render: () => <ReportShareDisabled /> },
 
@@ -1189,11 +1189,11 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },
   { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => decisions("d1") },
   { id: "B03", leaf: "L-C-G-PLAN", state: "geometry-1280-plan", width: 1280, theme: "light", render: () => googlePlan() },
-  { id: "B04", leaf: "L-C-REP-NEW", state: "geometry-1280-builder", width: 1280, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
+  { id: "B04", leaf: "L-C-REP-NEW", state: "geometry-1280-builder", width: 1280, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} onExportCsv={() => {}} onRetryWidgets={() => {}} /> },
   { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => homeFrame(true) },
   { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => decisions() },
   { id: "B07", leaf: "L-C-META-DEC", state: "geometry-768-inspector", width: 768, theme: "light", render: () => decisions("d1") },
-  { id: "B08", leaf: "L-C-REP-NEW", state: "geometry-768-builder", width: 768, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} /> },
+  { id: "B08", leaf: "L-C-REP-NEW", state: "geometry-768-builder", width: 768, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} onExportCsv={() => {}} onRetryWidgets={() => {}} /> },
   { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan() },
 
   /* ---- P01–P08: charts, tables, media, Turkish, dark ---- */

@@ -390,7 +390,7 @@ async function main() {
 
   if (findings.length > 0) {
     console.log("\n  first findings:");
-    for (const finding of findings.slice(0, 20)) {
+    for (const finding of findings.slice(0, Number(process.env.FIDELITY_LIST ?? 20))) {
       console.log(`    ${finding.frame} ${finding.key} — ${finding.kind}: ${finding.detail}`);
     }
     console.log(

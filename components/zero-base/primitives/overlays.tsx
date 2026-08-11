@@ -386,9 +386,20 @@ export function ZeroBaseSheet({
             padding: 16,
           }}
         >
-          <RadixDialog.Title style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>
-            {title}
-          </RadixDialog.Title>
+          {/* The close sits in the header, where the design draws it. It used
+              to come last, after the sheet's content, which put the way out
+              below a scrolling region — reachable only after paging through
+              everything the reader opened the sheet to skip. */}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+            <RadixDialog.Title style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>
+              {title}
+            </RadixDialog.Title>
+            <RadixDialog.Close asChild>
+              <Button variant="secondary" primaryTarget data-ctl={closeCtl}>
+                {copy.close}
+              </Button>
+            </RadixDialog.Close>
+          </div>
           {description ? (
             <RadixDialog.Description
               style={{
@@ -402,11 +413,6 @@ export function ZeroBaseSheet({
             </RadixDialog.Description>
           ) : null}
           {children}
-          <RadixDialog.Close asChild>
-            <Button variant="secondary" primaryTarget data-ctl={closeCtl} style={{ marginTop: 16 }}>
-              {copy.close}
-            </Button>
-          </RadixDialog.Close>
         </RadixDialog.Content>
       </RadixDialog.Portal>
     </RadixDialog.Root>

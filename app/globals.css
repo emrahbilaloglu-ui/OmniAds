@@ -7826,6 +7826,16 @@
   letter-spacing: inherit;
 }
 
+/* …nor colour. A native select paints the UA's own white, which is not a
+ * Ledger surface and is plainly wrong in dark theme. */
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea {
+  background-color: var(--ledger-bg-surface);
+  color: var(--ledger-ink-primary);
+  border: 1px solid var(--ledger-border-control);
+  border-radius: var(--ledger-radius-input);
+}
+
 /* Explicit choice wins everywhere. Both forms are matched so the attribute can
  * sit on <html> (the usual case) or on the canonical root itself (harnesses). */
 [data-adc-theme="dark"] [data-adc-ui="zero-base"],

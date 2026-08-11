@@ -161,7 +161,15 @@ export function GooglePlanView({
                     rel="noopener noreferrer"
                     data-plan-link={row.id}
                     data-ctl="live:GOOGLE-30 deeplink"
-                    style={{ color: "var(--ledger-accent-action)" }}
+                    // A bare inline link is a 16px-tall target. Padding brings
+                    // it to the minimum without changing what it is.
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      minHeight: 24,
+                      padding: "4px 6px",
+                      color: "var(--ledger-accent-action)",
+                    }}
                   >
                     {t.open}
                   </a>

@@ -63,6 +63,7 @@ export function HistoryView({
         <p
           role="status"
           data-replay-banner=""
+          data-el="replay-banner"
           style={{
             marginTop: 12,
             padding: "10px 14px",
@@ -95,6 +96,7 @@ export function HistoryView({
 
       <div style={{ marginTop: 16 }}>
         <DataTable
+          collection="history"
           caption={copy.metaActionHistory}
           rows={[...rows]}
           rowKey={(row) => row.id}

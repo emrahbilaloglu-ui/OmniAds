@@ -30,6 +30,9 @@ import React from "react";
 import { CeremonyResult, IntegrationsView, TeamView, BusinessView, PlanView } from "@/components/zero-base/manage/manage-views";
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
 import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
+import { HistoryView } from "@/components/zero-base/meta/history/history-view";
+import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import { HomeView } from "@/components/zero-base/home/home-view";
 import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
@@ -299,6 +302,68 @@ const decisions = (selected: string | null = null, rows = 3) => {
   );
 };
 
+
+/* ---------------------------------------- meta intelligence / history / auto */
+
+const intelSources = [
+  {
+    key: "meta_insights",
+    label: "Meta Insights",
+    state: "serving" as const,
+    reason: null,
+    observedAt: "2026-08-09T06:00:00Z",
+    facts: [
+      { label: "Active campaigns", value: "12" },
+      { label: "Learning ad sets", value: "3" },
+    ],
+  },
+  {
+    key: "meta_delivery",
+    label: "Delivery diagnostics",
+    state: "partial" as const,
+    reason: "Two ad sets returned no delivery estimate for this window.",
+    observedAt: "2026-08-09T06:00:00Z",
+  },
+];
+
+const historyRows = [
+  { id: "h1", occurredAt: "2026-08-09T06:04:00Z", action: "Budget raised 20%", outcome: "Confirmed by read-back", actor: "Dana Whitfield", replayed: false },
+  { id: "h2", occurredAt: "2026-08-08T18:20:00Z", action: "Ad set paused", outcome: "Confirmed by read-back", actor: "Dana Whitfield", replayed: true },
+];
+
+const automationPostures = [
+  {
+    provider: "meta" as const,
+    label: "Meta",
+    state: "serving" as const,
+    reason: null,
+    stoppable: true,
+    basis: "automation_control_plane" as const,
+  },
+  {
+    provider: "google" as const,
+    label: "Google Ads",
+    state: "unknown" as const,
+    reason: "Google readiness is a separate system; this row reports connection only.",
+    stoppable: false,
+    basis: "connection_only" as const,
+  },
+];
+
+const GUARDRAILS = {
+  dailyAutoActionCap: 8,
+  perActionSpendCeilingMinor: 25000,
+  minimumConfidence: "high",
+  cooldownMinutes: 45,
+};
+
+const stopCeremony = (intent: "engage" | "release") => ({
+  intent,
+  viewer: { role: "admin" as const, isReviewer: false, demo: false },
+  currentlyEngaged: intent === "release",
+  readBack: null,
+});
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -410,10 +475,10 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H16", leaf: "L-C-META-WRITE", state: "ceremony-unknown", width: 1440, theme: "light", render: () => <CeremonyResult outcome={{ kind: "unknown", detail: "The confirming read did not complete." }} name="write" /> },
 
   /* ---- H17–H20: intelligence, history, automation ---- */
-  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <UnavailableState reason="Intelligence sources were not served for this window." /> },
-  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <EmptyState reason="Nothing has been recorded for this account yet." /> },
-  { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => repair({ blockedReason: "Automation engagement needs the admin role." }) },
-  { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <WithheldState reason="Meta stop is engaged for this account." /> },
+  { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} /> },
+  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" /> },
+  { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("engage")} onEngage={() => {}} /> },
+  { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },
 
   /* ---- H21–H28: creative ---- */
   { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
@@ -531,10 +596,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H06", "renders EmptyState, not the global search overlay"],
     ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
-    ["H17", "renders UnavailableState, not the Intelligence composition"],
-    ["H18", "renders EmptyState, not the History composition"],
-    ["H19", "renders OpsRepairPanel, not the Automation composition"],
-    ["H20", "renders WithheldState, not the Meta Stop composition"],
     ["H24", "renders EmptyState, not the brief composition"],
     ["H25", "renders EmptyState, not the Launchpad composition"],
     ["H26", "renders ErrorState, not the Launchpad validation composition"],

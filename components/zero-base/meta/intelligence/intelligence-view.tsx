@@ -69,6 +69,7 @@ export function IntelligenceView({
       ) : null}
       <div style={{ marginTop: 16 }}>
         <DataTable
+          collection="recs"
           caption={copy.intelligenceSources}
           rows={[...sources]}
           rowKey={(row) => row.key}
@@ -96,7 +97,11 @@ export function IntelligenceView({
                 row.facts && row.facts.length > 0 ? (
                   <span data-source-facts={row.key}>
                     {row.facts.map((fact) => (
-                      <span key={fact.label} style={{ display: "block", fontSize: 12 }}>
+                      <span
+                        key={fact.label}
+                        data-el="label-chips"
+                        style={{ display: "block", fontSize: 12 }}
+                      >
                         {fact.label}: {fact.value}
                       </span>
                     ))}

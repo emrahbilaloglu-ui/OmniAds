@@ -67,7 +67,17 @@ export function AutomationView({
           rows={[...postures]}
           rowKey={(row) => row.provider}
           columns={[
-            { id: "provider", header: "Provider", render: (row) => row.label },
+            {
+              id: "provider",
+              header: "Provider",
+              render: (row) => (
+                // Google's row is a connection claim, not a health claim, and
+                // is named so the difference is inspectable.
+                <span data-el={row.provider === "google" ? "google-posture-row" : undefined}>
+                  {row.label}
+                </span>
+              ),
+            },
             {
               id: "state",
               header: "State",
@@ -130,6 +140,9 @@ export function AutomationView({
             variant="danger"
             primaryTarget
             data-stop-trigger=""
+            data-ctl={
+              ceremony.intent === "engage" ? "gated:AUTO-01A engage" : "gated:AUTO-02 release"
+            }
             onClick={() => setConfirmOpen(true)}
             style={{ marginTop: 8 }}
           >
@@ -175,10 +188,14 @@ export function AutomationView({
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {copy.guardrails}
         </h2>
-        <p style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}>
+        <p
+          data-el="guardrails-readonly"
+          style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)", margin: "4px 0 8px" }}
+        >
           Enforced by the engine. Shown here for reference; they are not editable from this surface.
         </p>
         <DataTable
+          collection="guardrails"
           caption={copy.automationGuardrails}
           rows={rows}
           rowKey={(row) => row.id}

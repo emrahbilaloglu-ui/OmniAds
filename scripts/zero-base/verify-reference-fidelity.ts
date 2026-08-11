@@ -280,8 +280,18 @@ export function compareFrame(
       const ia = impl.get(a.key)!;
       const ib = impl.get(b.key)!;
       if (!ia.visible || !ib.visible) continue;
-      // Only compare pairs the reference separates clearly, so a 1px
-      // difference in a shared row is not treated as an ordering fact.
+      // Only within one region.
+      //
+      // Order among siblings is a design fact: the reference decides that the
+      // tier selector precedes the expiry field. Order *across* regions is not.
+      // The mock is a single scrolling canvas where an overlay's contents are
+      // drawn inline beneath the surface they cover, while the implementation
+      // renders that overlay on top; comparing a marker inside a sheet against
+      // one on the page below it measures the mock's document flow, not the
+      // design's intent.
+      if ((a.owner ?? null) !== (b.owner ?? null)) continue;
+      // Only pairs the reference separates clearly, so a 1px difference in a
+      // shared row is not treated as an ordering fact.
       if (a.box.y + 0.02 < b.box.y && ia.box.y > ib.box.y + 0.02) {
         findings.push({
           frame: reference.id,

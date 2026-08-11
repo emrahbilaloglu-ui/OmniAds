@@ -79,12 +79,19 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
   if (!root) return null;
   const rootRect = root.getBoundingClientRect();
 
-  const markerKey = (node) => {
-    if (node.hasAttribute("data-el")) return "el:" + node.getAttribute("data-el");
-    if (node.hasAttribute("data-ctl")) return "ctl:" + node.getAttribute("data-ctl");
-    if (node.hasAttribute("data-collection")) return "collection:" + node.getAttribute("data-collection");
-    return null;
+  // One element can be several things at once: the source picker is both the
+  // builder-sources region and the sources collection. Returning only the first
+  // attribute lost the other, and the gate then reported a region as missing
+  // that was on screen the whole time.
+  const markerKeys = (node) => {
+    const keys = [];
+    if (node.hasAttribute("data-el")) keys.push("el:" + node.getAttribute("data-el"));
+    if (node.hasAttribute("data-ctl")) keys.push("ctl:" + node.getAttribute("data-ctl"));
+    if (node.hasAttribute("data-collection")) keys.push("collection:" + node.getAttribute("data-collection"));
+    return keys;
   };
+
+  const markerKey = (node) => markerKeys(node)[0] ?? null;
 
   const isMarker = (node) => node.nodeType === 1 && markerKey(node) !== null;
 
@@ -114,7 +121,6 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
   const facts = [];
 
   for (const node of nodes) {
-    const key = markerKey(node);
     let ancestor = node.parentElement;
     let owner = null;
     while (ancestor && ancestor !== root.parentElement) {
@@ -140,7 +146,7 @@ export const EXTRACT_VISUAL_FACTS = `(rootSelector) => {
       return Number.isFinite(parsed) ? parsed : 0;
     };
 
-    facts.push({
+    for (const key of markerKeys(node)) facts.push({
       key,
       owner,
       orderInOwner: order,

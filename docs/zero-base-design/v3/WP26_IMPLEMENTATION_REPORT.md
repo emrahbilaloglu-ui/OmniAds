@@ -1082,3 +1082,43 @@ withdraw the substitution.
 
 Verified at `6c784d26b`: typecheck, lint, full Vitest twice (9144 passed,
 identical both runs), production build.
+
+### Slice progress against the checksum-bound reference
+
+Measured after each slice by `npm run test:zero-base:reference`.
+
+| commit | regions | controls | collections | frames |
+|---|---:|---:|---:|---:|
+| `ba16178fb` (extractor built) | 0/99 | 0/254 | 0/35 | 0/83 |
+| `6c784d26b` Home vertical slice | 2/99 | 3/254 | 1/35 | 1/83 |
+| `866985d39` real shell mounted | 2/99 | 38/254 | 1/35 | 1/83 |
+| `de5e4db14` jsdom render (overlays) | 2/99 | 41/254 | 1/35 | 1/83 |
+| `a184795d4` scope sheet, eight facts | 20/99 | 54/254 | 1/35 | 6/83 |
+| `b758d4a48` media states, public share | 25/99 | 56/254 | 2/35 | 12/83 |
+| `22c287547` agency desk | 30/99 | 67/254 | 4/35 | 15/83 |
+| `675faf1e9` decisions workspace | 31/99 | 76/254 | 7/35 | 15/83 |
+| `6226b6e74` intelligence/history/automation | 35/99 | 78/254 | 10/35 | 16/83 |
+| `4168a930f` google plan + activity journal | 36/99 | 85/254 | 12/35 | 17/83 |
+| `5b9da7e6e` stale-evidence fix + nudge toolbar | 36/99 | 112/254 | 15/35 | 18/83 |
+| `b4bacf7f7` manage contracts | 39/99 | 114/254 | 17/35 | 18/83 |
+| `97362c998` analytics/SEO/GEO | 42/99 | 114/254 | 20/35 | 18/83 |
+
+Two measurement defects were found and fixed along the way, both of which had
+been inflating or masking results:
+
+- **Stale frame evidence.** The harness never cleared its output directory, and
+  frame filenames encode leaf and state — so every frame whose leaf was
+  corrected left an old file behind under the same id prefix, and the comparison
+  took whichever it found first. Corrected frames were still being graded
+  against the composition they used to render. The harness now rebuilds from
+  empty and the comparison fails if two files match one id.
+- **A faked shell.** The harness hand-wrote `<div data-adc-ui>` and `<main>` and
+  mounted only the leaf, so rail, top bar, context bar, skip link and drawer
+  never appeared in any capture.
+
+Nine crosswalk defects were also found — frames filed against leaves they do not
+belong to (H56, H57, B07, H53, H58, B03, B09 among them) — each fixed to the
+leaf the reference names.
+
+G7 stands at 53/142 executed production-owner cases, after ten surrogate claims
+were found and demoted.

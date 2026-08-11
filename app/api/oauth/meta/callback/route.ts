@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
 import { scheduleAfterProviderConnect } from "@/lib/oauth/post-connect-schedule";
@@ -86,9 +87,13 @@ export async function GET(request: NextRequest) {
 
   // Decode businessId from state
   let businessId: string;
+  // Re-sanitized on return: the state round-tripped through the provider, so it
+  // is not trusted just because we wrote it.
+  let stateReturnTo: string | null = null;
   try {
     const payload = JSON.parse(Buffer.from(state, "base64url").toString());
     businessId = payload.businessId;
+    stateReturnTo = sanitizeNextPath(payload.returnTo);
     if (!businessId) throw new Error("No businessId in state payload");
   } catch {
     return NextResponse.redirect(
@@ -210,6 +215,7 @@ export async function GET(request: NextRequest) {
     // ── Redirect to frontend callback with success ──────────────
     const redirectUrl = new URL(`/integrations/callback/meta`, baseUrl);
     redirectUrl.searchParams.set("status", "success");
+    if (stateReturnTo) redirectUrl.searchParams.set("returnTo", stateReturnTo);
     redirectUrl.searchParams.set("businessId", businessId);
     redirectUrl.searchParams.set("integrationId", integration.id);
     // Truthful about what happened. A connection that saved but scheduled

@@ -222,15 +222,35 @@ export const PLAN_GATES_NOTHING =
  *   saw 405 and could never confirm.
  * ========================================================================== */
 
-/** Providers with a real OAuth start route on disk. */
+/**
+ * Providers with a real OAuth start route that can actually complete.
+ *
+ * Klaviyo is deliberately absent. `/api/oauth/klaviyo/start` exists but answers
+ * 501 by design — it refuses to fabricate a connection — so offering a
+ * reconnect control for it would be a control whose only outcome is a refusal.
+ */
 export const OAUTH_START_PROVIDERS = {
   meta: "/api/oauth/meta/start",
   google: "/api/oauth/google/start",
   shopify: "/api/oauth/shopify/start",
-  klaviyo: "/api/oauth/klaviyo/start",
   ga4: "/api/oauth/google-analytics/start",
   search_console: "/api/oauth/search_console/start",
-} as const satisfies Record<ProviderId | "klaviyo", string>;
+} as const satisfies Partial<Record<ProviderId, string>>;
+
+/**
+ * Where the operator lands after the round trip.
+ *
+ * This is the surface that started the reconnect, carrying the provider so the
+ * page knows which one to re-read. It is not an invented contract: every start
+ * route sanitizes it into its OAuth state, every callback re-sanitizes it back
+ * out, and the shared callback page redirects to it — so the parameter arrives
+ * because the real flow carried it, not because the UI hoped for it.
+ */
+export function reconnectReturnPath(input: { businessId: string; provider: string }): string {
+  return `/c/${encodeURIComponent(input.businessId)}/manage/integrations?reconnected=${encodeURIComponent(
+    input.provider,
+  )}`;
+}
 
 /**
  * The URL that begins a reconnect.
@@ -245,7 +265,8 @@ export function oauthStartUrl(input: {
 }): string | null {
   const base = (OAUTH_START_PROVIDERS as Record<string, string>)[input.provider];
   if (!base) return null;
-  return `${base}?businessId=${encodeURIComponent(input.businessId)}`;
+  const returnTo = reconnectReturnPath({ businessId: input.businessId, provider: input.provider });
+  return `${base}?businessId=${encodeURIComponent(input.businessId)}&returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 /** `{ costModel: { cogsPercent, shippingPercent, feePercent, fixedCost } }`. */
@@ -308,4 +329,52 @@ export function confirmDeletionFromList(input: {
   // An empty list from a failed-but-ok read would be a false confirmation, so
   // the caller must only pass a genuinely successful list read.
   return !ids.includes(input.deletedId);
+}
+
+
+/* ------------------------------------------------------- business settings */
+
+export interface BusinessSettings {
+  name: string;
+  currency: string;
+}
+
+/**
+ * Current name and currency.
+ *
+ * `/api/businesses/[businessId]` has PATCH and DELETE only — no GET — so the
+ * current values are read from the collection the session can already see.
+ */
+export function businessFromList(raw: unknown, businessId: string): BusinessSettings | null {
+  if (!isRecord(raw)) return null;
+  const list = Array.isArray(raw.businesses) ? raw.businesses : null;
+  if (!list) return null;
+  const match = list.filter(isRecord).find((row) => String(row.id ?? "") === businessId);
+  if (!match) return null;
+  return {
+    name: typeof match.name === "string" ? match.name : "",
+    currency: typeof match.currency === "string" ? match.currency.toUpperCase() : "",
+  };
+}
+
+/**
+ * The exact body `PATCH /api/businesses/[businessId]` accepts.
+ *
+ * It requires **both** fields on every call and refuses a name under two
+ * characters, so a partial patch is a guaranteed 400. Refusing here keeps the
+ * round trip out and states the same rule the handler enforces.
+ */
+export function businessSettingsBody(input: {
+  name: string;
+  currency: string;
+}): { name: string; currency: string } | { error: string } {
+  const name = input.name.trim();
+  const currency = input.currency.trim().toUpperCase();
+  if (name.length < 2) {
+    return { error: "A workspace name needs at least two characters." };
+  }
+  if (!currency) {
+    return { error: "A currency is required." };
+  }
+  return { name, currency };
 }

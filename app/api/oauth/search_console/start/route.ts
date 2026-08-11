@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -21,5 +22,8 @@ export async function GET(request: NextRequest) {
   const target = new URL("/api/oauth/google/start", request.nextUrl.origin);
   target.searchParams.set("businessId", businessId);
   target.searchParams.set("provider", "search_console");
+  // Forwarded so the operator lands back where they started the reconnect.
+  const returnTo = sanitizeNextPath(searchParams.get("returnTo"));
+  if (returnTo) target.searchParams.set("returnTo", returnTo);
   return NextResponse.redirect(target.toString());
 }

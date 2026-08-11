@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GA_CONFIG } from "@/lib/oauth/google-analytics-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
+import { sanitizeNextPath } from "@/lib/auth-routing";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
@@ -55,9 +56,13 @@ export async function GET(request: NextRequest) {
 
   // Decode businessId from state
   let businessId: string;
+  // Re-sanitized on return: the state round-tripped through the provider, so it
+  // is not trusted just because we wrote it.
+  let stateReturnTo: string | null = null;
   try {
     const payload = JSON.parse(Buffer.from(state, "base64url").toString());
     businessId = payload.businessId;
+    stateReturnTo = sanitizeNextPath(payload.returnTo);
     if (!businessId) throw new Error("No businessId in state payload");
   } catch {
     return NextResponse.redirect(
@@ -181,6 +186,7 @@ export async function GET(request: NextRequest) {
     // ── Redirect to frontend callback with success ──────────────
     const redirectUrl = new URL("/integrations/callback/ga4", baseUrl);
     redirectUrl.searchParams.set("status", "success");
+    if (stateReturnTo) redirectUrl.searchParams.set("returnTo", stateReturnTo);
     redirectUrl.searchParams.set("businessId", businessId);
     redirectUrl.searchParams.set("integrationId", integration.id);
 

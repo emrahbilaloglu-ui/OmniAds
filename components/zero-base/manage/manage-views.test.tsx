@@ -81,6 +81,9 @@ describe("business", () => {
           recommendedMode="profit_first"
           deleteOutcome={{ kind: "unstarted" }}
           canDelete
+          settings={{ name: "Grandmix", currency: "TRY" }}
+          settingsPermission={{ ok: true }}
+          settingsState={{ pending: false, error: null, confirmed: null }}
           {...props}
         />
       </ZeroBasePortalHost>,
@@ -118,8 +121,21 @@ describe("business", () => {
 
 describe("team permissions are visible", () => {
   it("states why a non-admin cannot manage", () => {
-    render(<TeamView members={[]} canManage={false} blockedReason="Only a business admin can change team membership." />);
-    expect(document.querySelector("[data-team-blocked]")!.textContent).toMatch(/business admin/);
+    render(
+      <TeamView
+        members={[]}
+        invites={[]}
+        accessRequests={[]}
+        workspaces={[]}
+        permissions={{
+          membersWrite: { ok: false, reason: "This needs the admin role. Your role on this workspace is reviewer." },
+          invitesWrite: { ok: false, reason: "This needs the admin role. Your role on this workspace is reviewer." },
+          accessRequests: { ok: false, reason: "This needs the admin role. Your role on this workspace is reviewer." },
+        }}
+        write={{ pending: null, error: null, confirmed: null }}
+      />,
+    );
+    expect(document.querySelector("[data-team-blocked]")!.textContent).toMatch(/admin role/);
   });
 });
 

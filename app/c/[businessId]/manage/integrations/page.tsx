@@ -16,5 +16,5 @@ export default async function Page({ params }: { params: Promise<{ businessId: s
   const access = await requireBusinessPageContext({ businessId });
   if (access.kind !== "ok") notFound();
 
-  return <IntegrationsClient businessId={businessId} />;
+  return <IntegrationsClient businessId={businessId} role={access.context.role} />;
 }

@@ -9,6 +9,7 @@ import {
   type PreflightTarget,
 } from "@/lib/meta/guarded-action-preflight";
 import { isGuardedExecutionEnabled } from "@/lib/meta/guarded-action-capability";
+import { stripClientExpectations } from "@/lib/zero-base/meta/mutation-ceremony";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,17 @@ export async function POST(request: NextRequest) {
     expectedCreativeId?: string | null;
     expectedParentId?: string | null;
     killSwitchEngaged?: boolean;
+    contract?: string;
   } | null;
+
+  // Canonical callers opt in explicitly, so every existing caller keeps its
+  // exact behaviour. This adds a mode to the one preflight route rather than a
+  // second route: two preflights would be two different answers to "is this
+  // safe to write", and only one of them could be right.
+  const zeroBase = body?.contract === "zero-base.v1";
+  const rejectedExpectations = zeroBase
+    ? stripClientExpectations(body as unknown as Record<string, unknown>).rejected
+    : [];
 
   const businessId = body?.businessId;
   const providerAccountId = body?.providerAccountId;
@@ -53,13 +64,31 @@ export async function POST(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
 
+  // Refused rather than silently ignored: a caller that believed its expected
+  // state was honoured would otherwise get a pass it did not earn.
+  if (rejectedExpectations.length > 0) {
+    return NextResponse.json(
+      {
+        error: "client_expectations_rejected",
+        message:
+          "In zero-base.v1 the server derives the expected state. Remove: " +
+          rejectedExpectations.join(", "),
+        rejected: rejectedExpectations,
+      },
+      { status: 400 },
+    );
+  }
+
   const target: PreflightTarget = {
     entityType,
     entityId,
     providerAccountId,
-    expectedStatus: body?.expectedStatus ?? null,
-    expectedCreativeId: body?.expectedCreativeId ?? null,
-    expectedParentId: body?.expectedParentId ?? null,
+    // In the canonical mode the server derives the expected state; a client
+    // that can name what it expects can also name something that makes a stale
+    // write look fresh. Legacy callers keep the existing behaviour.
+    expectedStatus: zeroBase ? null : (body?.expectedStatus ?? null),
+    expectedCreativeId: zeroBase ? null : (body?.expectedCreativeId ?? null),
+    expectedParentId: zeroBase ? null : (body?.expectedParentId ?? null),
   };
 
   let observed: ObservedTarget | null = null;

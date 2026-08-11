@@ -13,6 +13,8 @@
  *   claim about who acted, and the truth is that nobody knows.
  */
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { Button } from "@/components/zero-base/primitives/button";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { REPLAY_BANNER, actorLabel } from "@/lib/zero-base/meta/automation-posture";
 import type { HistoryRow } from "@/lib/zero-base/meta/history-adapter";
@@ -26,8 +28,24 @@ export function HistoryView({
   limitations,
   accountLabel,
   unavailableReason,
+  query = "",
+  onQueryChange,
+  outcomeFilter = "all",
+  onOutcomeFilterChange,
+  onLoadMore,
+  onReplay,
 }: {
   rows: readonly HistoryRow[];
+  /** Search is server-side against the history projection, not a local filter
+   *  over the loaded page — a page-local search silently answers "no matches"
+   *  for a row that exists two pages further on. */
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  outcomeFilter?: string;
+  onOutcomeFilterChange?: (value: string) => void;
+  /** Absent at the end of the projection. */
+  onLoadMore?: () => void;
+  onReplay?: (id: string) => void;
   /** Names the page cap. Absence of a disclosure is never "this is everything". */
   disclosure?: string | null;
   limitations?: readonly string[];
@@ -94,6 +112,39 @@ export function HistoryView({
         </ul>
       ) : null}
 
+      {onQueryChange || onOutcomeFilterChange ? (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16 }}>
+          {onQueryChange ? (
+            <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
+              <TextInput
+                label={copy.searchHistory}
+                data-ctl="live:META-HIST-05 search"
+                value={query}
+                onChange={(event) => onQueryChange(event.target.value)}
+                hint={copy.historySearchIsServerSide}
+              />
+            </div>
+          ) : null}
+          {onOutcomeFilterChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              {copy.outcome}
+              <select
+                data-ctl="live:META-HIST-05 filter"
+                value={outcomeFilter}
+                onChange={(event) => onOutcomeFilterChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {["all", "confirmed", "failed", "unsettled"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       <div style={{ marginTop: 16 }}>
         <DataTable
           collection="history"
@@ -125,8 +176,36 @@ export function HistoryView({
                   <span data-recorded={row.id}>{t.recordedAtTheTime}</span>
                 ),
             },
+            {
+              id: "replay",
+              header: "Replay",
+              render: (row) =>
+                onReplay ? (
+                  <Button
+                    variant="secondary"
+                    data-ctl="live:META-HIST-06 replay"
+                    onClick={() => onReplay(row.id)}
+                  >
+                    {t.replay}
+                  </Button>
+                ) : (
+                  <span style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                    {t.notAvailable}
+                  </span>
+                ),
+            },
           ]}
         />
+        {onLoadMore ? (
+          <Button
+            variant="secondary"
+            data-ctl="live:META-HIST-05 cursor"
+            onClick={onLoadMore}
+            style={{ marginTop: 8 }}
+          >
+            {copy.loadMore}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

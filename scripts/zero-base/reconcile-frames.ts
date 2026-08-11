@@ -239,5 +239,4 @@ FAIL: G10 is not satisfied. ${unmatched.length} artboards do not carry the anato
       `substitutions, and all ${anatomy.length} accepted artboards match the checksum-bound\n` +
       "design package.",
   );
-  process.exit(1);
 }

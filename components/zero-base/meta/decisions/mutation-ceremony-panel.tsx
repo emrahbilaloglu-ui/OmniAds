@@ -546,6 +546,7 @@ function TerminalPanel({
   copied: boolean;
   onCopy: () => void;
 }) {
+  const t = useCopy();
   const copy = TERMINAL_COPY[outcome.outcome];
   const receipt = receiptAvailable(outcome.outcome, outcome.durable);
   return (
@@ -565,7 +566,7 @@ function TerminalPanel({
 
       <div>
         <Button variant="secondary" data-mutation-done="" data-ctl="live:done" onClick={onDone}>
-          Done
+          {t.done}
         </Button>
       </div>
 

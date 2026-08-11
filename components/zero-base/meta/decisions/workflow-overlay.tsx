@@ -439,6 +439,7 @@ function ConflictPanel({
   /** Accepts the current state and abandons the attempt. */
   onKeep?: () => void;
 }) {
+  const copy = useCopy();
   const plan = reapplyPlan(conflict);
   return (
     <div
@@ -482,7 +483,7 @@ function ConflictPanel({
           {/* The other half of the resolution. Without it the only way out of a
               conflict is to overwrite, which is not a choice. */}
           <Button variant="quiet" data-workflow-keep="" data-ctl="live:META-WF-11 keep" onClick={onKeep}>
-            Keep the current state
+            {copy.keepCurrentState}
           </Button>
         </div>
       ) : null}

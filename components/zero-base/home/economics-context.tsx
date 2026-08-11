@@ -10,6 +10,7 @@
  * stated here, and ECON-04 links to the panel that shows them side by side.
  */
 import Link from "next/link";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 import {
   economicsPanelHref,
@@ -25,12 +26,13 @@ export function EconomicsContext({
   businessId: string | null;
 }) {
   const pack = model.sources.find((source) => source.key === "target-pack");
+  const copy = useCopy();
   const cost = model.sources.find((source) => source.key === "cost-model");
 
   return (
     <section
       data-economics-context=""
-      aria-label="Economics context"
+      aria-label={copy.economicsContext}
       style={{
         borderRadius: "var(--ledger-radius-card)",
         border: "1px solid var(--ledger-border-subtle)",
@@ -39,7 +41,7 @@ export function EconomicsContext({
       }}
     >
       <h2 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
-        Economics context
+        {copy.economicsContext}
       </h2>
       <p style={{ margin: 0, fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)" }}>
         Break-even ROAS{" "}

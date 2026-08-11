@@ -19,6 +19,7 @@
  * axis, because a day with no spend recorded is not a day of zero spend.
  */
 import { useCallback, useEffect, useId, useState } from "react";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export interface TrendPoint {
   date: string;
@@ -66,6 +67,7 @@ export function TrendPanel({
   surface: string;
 }) {
   const [showTable, setShowTable] = useState(false);
+  const copy = useCopy();
   const regionId = useId();
 
   // The preference is read after mount so the server and first client render
@@ -171,13 +173,13 @@ export function TrendPanel({
             <thead>
               <tr>
                 <th scope="col" style={{ textAlign: "left", padding: "6px 8px", fontSize: 12 }}>
-                  Date
+                  {copy.date}
                 </th>
                 <th scope="col" style={{ textAlign: "right", padding: "6px 8px", fontSize: 12 }}>
-                  Spend
+                  {copy.spend}
                 </th>
                 <th scope="col" style={{ textAlign: "right", padding: "6px 8px", fontSize: 12 }}>
-                  ROAS
+                  {copy.returnOnAdSpend}
                 </th>
               </tr>
             </thead>

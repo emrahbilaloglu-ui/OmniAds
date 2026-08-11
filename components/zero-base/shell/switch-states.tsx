@@ -22,6 +22,7 @@
  * into the new one. `ContextResetNotice` states exactly what was dropped.
  */
 import { Button } from "@/components/zero-base/primitives/button";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 
 export type SwitchState =
@@ -42,6 +43,7 @@ export function ScopeSwitchPanel({
   onSwitchScope?: () => void;
   onOpenBusinessSwitcher?: () => void;
 }) {
+  const copy = useCopy();
   if (state.kind === "loading") {
     return (
       <section data-el="switch-loading" aria-busy="true" style={{ fontSize: 13 }}>
@@ -82,16 +84,16 @@ export function ScopeSwitchPanel({
 
   return (
     <section data-el="switch-eligible" style={{ display: "grid", gap: 8, fontSize: 13 }}>
-      <div role="radiogroup" aria-label="Scope" style={{ display: "flex", gap: 6 }}>
+      <div role="radiogroup" aria-label={copy.scopeLabel} style={{ display: "flex", gap: 6 }}>
         <Button variant="secondary" data-ctl="live:AUTH-10 scope-switch" onClick={onSwitchScope}>
-          Agency
+          {copy.agency}
         </Button>
         <Button variant="secondary" data-ctl="live:AUTH-10 scope-switch" onClick={onSwitchScope}>
-          Client
+          {copy.client}
         </Button>
       </div>
       <a href="/a/desk" data-ctl="live:nav" style={{ fontSize: 12.5, color: "var(--ledger-accent-action)" }}>
-        Agency Desk
+        {copy.agencyDesk}
       </a>
       <Button
         variant="secondary"
@@ -120,6 +122,7 @@ export function ContextResetNotice({
   droppedLabel: string;
   onAssign?: () => void;
 }) {
+  const copy = useCopy();
   return (
     <section
       data-el="context-reset"
@@ -140,7 +143,7 @@ export function ContextResetNotice({
       </p>
       <div>
         <Button variant="secondary" data-ctl="live:SCOPE-03 assign" onClick={onAssign}>
-          Choose an account
+          {copy.chooseAnAccount}
         </Button>
       </div>
     </section>

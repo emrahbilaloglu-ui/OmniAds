@@ -153,7 +153,7 @@ export function CreativeMedia({
           <source src={state.url} />
           {/* Captions are part of the contract, not an enhancement. */}
           {state.captionsUrl ? (
-            <track kind="captions" src={state.captionsUrl} srcLang="en" label="English" default />
+            <track kind="captions" src={state.captionsUrl} srcLang="en" label={copy.englishCaptions} default />
           ) : null}
         </video>
         <button

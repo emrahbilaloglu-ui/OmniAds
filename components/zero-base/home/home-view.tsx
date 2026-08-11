@@ -128,7 +128,7 @@ export function HomeView({
       {trend ? (
         <div style={{ marginBottom: 16 }}>
           <TrendPanel
-            title="Spend & ROAS trend"
+            title={copy.spendRoasTrend}
             points={trend.points}
             currency={trend.currency}
             targetRoas={economics?.targetRoas ?? null}

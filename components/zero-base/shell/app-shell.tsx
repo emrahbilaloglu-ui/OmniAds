@@ -27,6 +27,7 @@ import {
   type ScopePickers,
 } from "@/components/zero-base/primitives/scope-sheet";
 import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
+import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 import type { NavGroup } from "@/lib/zero-base/navigation";
 
 /**
@@ -142,6 +143,7 @@ export function AppShell({
   agencyReturn,
   children,
 }: AppShellProps) {
+  const copy = useCopy();
   const narrow = useIsNarrow(initialNarrow);
   const [scopeOpen, setScopeOpen] = useState(initialScopeOpen);
 
@@ -211,7 +213,7 @@ export function AppShell({
                               onClick={scopePickers.onSwitchScope}
                               style={drawerScopeButton}
                             >
-                              Switch scope
+                              {copy.switchScope}
                             </button>
                           ) : null}
                           {scopePickers.onSwitchBusiness ? (
@@ -221,7 +223,7 @@ export function AppShell({
                               onClick={scopePickers.onSwitchBusiness}
                               style={drawerScopeButton}
                             >
-                              Switch business
+                              {copy.switchBusiness}
                             </button>
                           ) : null}
                         </div>

@@ -339,8 +339,8 @@ export function GooglePlanView({
       </section>
 
       {journal ? (
-        <section aria-label="Activity" style={{ marginTop: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Activity</h2>
+        <section aria-label={t.activity} style={{ marginTop: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.activity}</h2>
           <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             What was recorded here, by whom and when. These are our records of
             manual confirmations — Adsecute never reads Google back to verify
@@ -365,7 +365,7 @@ export function GooglePlanView({
           ) : null}
           <DataTable
             collection="journal"
-            caption="Activity journal"
+            caption={t.activityJournal}
             rows={[...journal.entries]}
             rowKey={(row) => row.id}
             columns={[

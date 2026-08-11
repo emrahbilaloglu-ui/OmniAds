@@ -18,8 +18,10 @@ import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
 import {
   CRITICAL_INCIDENT_PATH,
   READ_BACK_GAP_NOTE,
+  REPAIR_ENDPOINTS,
   interpretRepairResponse,
   repairReceiptAvailable,
+  resolveRepairWithSemantics,
 } from "@/lib/zero-base/ops/repair-ceremony";
 
 afterEach(cleanup);
@@ -157,5 +159,87 @@ describe("the critical incident path ends in a re-read", () => {
       /Only this shows whether the condition is actually resolved/,
     );
     expect(document.querySelectorAll("[data-incident-step]").length).toBe(4);
+  });
+});
+
+/* ---------------------------- production mounting and both semantics ----- */
+
+describe("Flow J is mounted in production, not only in a test", () => {
+  it("the Ops overview and integrations pages render the incident surface", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    for (const page of ["app/ops/page.tsx", "app/ops/integrations/page.tsx"]) {
+      const source = readFileSync(page, "utf8");
+      expect(source.includes("OpsIncidentSurface"), page).toBe(true);
+    }
+  });
+
+  it("the incident surface names the endpoint and its semantics", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const source = readFileSync("components/zero-base/ops/ops-incident-surface.tsx", "utf8");
+    expect(source).toContain("REPAIR_ENDPOINTS");
+    expect(source).toContain("performs no read-back");
+  });
+});
+
+describe("the two admin repair semantics stay apart", () => {
+  it("names the sync-health path as having a read-back", () => {
+    // The admin sync-health page GETs after its POST, so that path may confirm.
+    expect(REPAIR_ENDPOINTS.sync_health.semantics).toBe("read_back_performed");
+    expect(REPAIR_ENDPOINTS.sync_health.disclosure).toBeNull();
+  });
+
+  it("names the Shopify path as having none", () => {
+    expect(REPAIR_ENDPOINTS.shopify_integration.semantics).toBe("no_read_back");
+    expect(REPAIR_ENDPOINTS.shopify_integration.disclosure).toBe(READ_BACK_GAP_NOTE);
+    expect(REPAIR_ENDPOINTS.shopify_integration.method).toBe("PATCH");
+  });
+
+  it("never confirms on the no-read-back path, however clean the response", () => {
+    const outcome = resolveRepairWithSemantics({
+      contract: REPAIR_ENDPOINTS.shopify_integration,
+      raw: ACCEPTED,
+    });
+    expect(outcome.kind).toBe("accepted");
+    // Nothing observed the state, so nothing may be confirmed.
+    expect(outcome.confirmed).toBe(false);
+  });
+
+  it("confirms on the read-back path only when the re-read agrees", () => {
+    const confirmed = resolveRepairWithSemantics({
+      contract: REPAIR_ENDPOINTS.sync_health,
+      raw: ACCEPTED,
+      observedHealthy: true,
+    });
+    expect(confirmed.confirmed).toBe(true);
+    expect(confirmed.detail).toMatch(/re-read confirms/);
+  });
+
+  it("stays unconfirmed when the re-read still reports the condition", () => {
+    const outcome = resolveRepairWithSemantics({
+      contract: REPAIR_ENDPOINTS.sync_health,
+      raw: ACCEPTED,
+      observedHealthy: false,
+    });
+    expect(outcome.kind).toBe("ambiguous");
+    expect(outcome.confirmed).toBe(false);
+    expect(outcome.detail).toMatch(/still reports the condition/);
+  });
+
+  it("stays unconfirmed when the re-read did not complete", () => {
+    const outcome = resolveRepairWithSemantics({
+      contract: REPAIR_ENDPOINTS.sync_health,
+      raw: ACCEPTED,
+      observedHealthy: null,
+    });
+    expect(outcome.confirmed).toBe(false);
+    expect(outcome.detail).toMatch(/did not complete/);
+  });
+
+  it("verifies the real routes exist with the methods named", async () => {
+    const shopify = (await import("@/app/api/admin/integrations/health/shopify/route")) as Record<string, unknown>;
+    const sync = (await import("@/app/api/admin/sync-health/route")) as Record<string, unknown>;
+    expect(typeof shopify.PATCH).toBe("function");
+    expect(typeof sync.POST).toBe("function");
+    expect(typeof sync.GET).toBe("function");
   });
 });

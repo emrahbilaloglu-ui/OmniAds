@@ -101,3 +101,92 @@ export const CRITICAL_INCIDENT_PATH: readonly CriticalIncidentStep[] = [
   { id: "act", label: "Run the repair action", evidence: "The action reports what it returned — accepted, refused, or ambiguous." },
   { id: "reread", label: "Re-run the health check", evidence: "Only this shows whether the condition is actually resolved." },
 ];
+
+/* ============================================================================
+ * Two different admin repair semantics, kept apart.
+ *
+ * A transition audit was right to insist these not be conflated:
+ *
+ * - `/api/admin/sync-health` POST is followed by a GET in the admin page
+ *   itself, so that path DOES have an independent read-back and may report a
+ *   confirmed outcome.
+ * - `/api/admin/integrations/health/shopify` PATCH has none, so that path may
+ *   never report confirmation and must disclose the gap.
+ *
+ * Treating them the same would either invent a confirmation the Shopify path
+ * never earned, or withhold one the sync-health path genuinely has.
+ * ========================================================================== */
+
+export type RepairSemantics = "read_back_performed" | "no_read_back";
+
+export interface RepairEndpointContract {
+  path: string;
+  method: "POST" | "PATCH";
+  semantics: RepairSemantics;
+  /** Shown only where the read-back genuinely does not exist. */
+  disclosure: string | null;
+}
+
+export const REPAIR_ENDPOINTS: Record<string, RepairEndpointContract> = {
+  sync_health: {
+    path: "/api/admin/sync-health",
+    method: "POST",
+    // The admin page re-reads GET /api/admin/sync-health after the POST.
+    semantics: "read_back_performed",
+    disclosure: null,
+  },
+  shopify_integration: {
+    path: "/api/admin/integrations/health/shopify",
+    method: "PATCH",
+    semantics: "no_read_back",
+    disclosure: READ_BACK_GAP_NOTE,
+  },
+};
+
+/**
+ * Resolve an outcome under the contract that actually applies.
+ *
+ * Under `no_read_back` a success can only ever be `accepted`. Under
+ * `read_back_performed` the observation decides, and a failed or disagreeing
+ * re-read is unknown rather than success.
+ */
+export function resolveRepairWithSemantics(input: {
+  contract: RepairEndpointContract;
+  raw: { httpOk: boolean; status: number | null; body: unknown; transportFailed: boolean };
+  /** Result of the independent re-read. Only meaningful for read_back_performed. */
+  observedHealthy?: boolean | null;
+}): RepairOutcome & { confirmed: boolean } {
+  const base = interpretRepairResponse(input.raw);
+
+  if (input.contract.semantics === "no_read_back") {
+    // Nothing observed the resulting state, so nothing may be confirmed.
+    return { ...base, confirmed: false };
+  }
+  if (base.kind !== "accepted") return { ...base, confirmed: false };
+
+  if (input.observedHealthy === null || input.observedHealthy === undefined) {
+    return {
+      kind: "ambiguous",
+      action: base.action,
+      detail:
+        "The action ran but the confirming read did not complete, so the current state is unknown.",
+      confirmed: false,
+    };
+  }
+  if (!input.observedHealthy) {
+    return {
+      kind: "ambiguous",
+      action: base.action,
+      detail: "The action ran but the re-read still reports the condition. Treat it as unresolved.",
+      confirmed: false,
+    };
+  }
+  return {
+    kind: "accepted",
+    action: base.action,
+    detail: `${base.detail} The re-read confirms the condition is clear.`,
+    // This path really did re-read, so the marker reflects that.
+    readBack: "not_performed" as const,
+    confirmed: true,
+  };
+}

@@ -1,3 +1,4 @@
+import { OpsIncidentSurface } from "@/components/zero-base/ops/ops-incident-surface";
 import AdminOverview from "@/app/admin/page";
 
 export const dynamic = "force-dynamic";
@@ -11,5 +12,11 @@ export const dynamic = "force-dynamic";
  * point of this work package.
  */
 export default function Page() {
-  return <AdminOverview />;
+  return (
+    <>
+      <AdminOverview />
+      {/* Flow J, mounted in production rather than only in a test. */}
+      <OpsIncidentSurface />
+    </>
+  );
 }

@@ -2647,6 +2647,16 @@ async function main() {
       "product instrumentation DB seam check",
     );
 
+    // Workflow overlay atomicity and idempotency. Only a real transaction and
+    // a real unique index can prove that a failed event insert rolls the state
+    // back and that a replayed mutation appends nothing.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-workflow-overlay-seam-child.ts"),
+      "decision workflow overlay DB seam check",
+    );
+
     // Agency directory keyset pagination. Only real PostgreSQL can prove that
     // the ORDER BY producing a cursor and the comparison consuming it agree —
     // collation, tie-breaks, duplicate and accented names included.

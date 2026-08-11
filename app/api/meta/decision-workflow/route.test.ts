@@ -4,7 +4,20 @@ const requireBusinessAccess = vi.hoisted(() => vi.fn());
 const readWorkflowRecord = vi.hoisted(() => vi.fn());
 const persistWorkflowTransition = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/access", () => ({ requireBusinessAccess }));
+// An assignee must now be an active member of the same business, so the mock
+// supplies one. Returning null here would be the route correctly refusing.
+const findMembership = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "mem-1",
+    userId: "user-2",
+    businessId: "biz-1",
+    role: "collaborator",
+    status: "active",
+    joinedAt: "2026-01-01T00:00:00.000Z",
+  })),
+);
+
+vi.mock("@/lib/access", () => ({ requireBusinessAccess, findMembership }));
 vi.mock("@/lib/decision-workflow-store", () => ({
   readWorkflowRecord,
   persistWorkflowTransition,

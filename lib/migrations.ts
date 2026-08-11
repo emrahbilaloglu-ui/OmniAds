@@ -38,6 +38,7 @@ import {
 } from "@/lib/meta/controlled-experiment-registry";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 import { instrumentationV2UpgradeStatements } from "@/lib/zero-base/instrumentation-schema";
+import { workflowIdempotencyUpgradeStatements } from "@/lib/zero-base/meta/workflow-schema";
 
 let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
@@ -6879,6 +6880,12 @@ export async function runMigrations(options?: {
           state_version      INTEGER NOT NULL,
           created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        // Zero-base WP-13: additive idempotency for the existing overlay.
+        // One nullable column and a partial unique index — no second table and
+        // no parallel store, so the event journal stays single-sourced.
+        ...workflowIdempotencyUpgradeStatements().map((statement) =>
+          sql.query(statement).catch(() => {}),
+        ),
         sql`CREATE INDEX IF NOT EXISTS idx_decision_workflow_events_decision
           ON decision_workflow_events (business_id, decision_key, created_at DESC)`.catch(() => {}),
         // Notification ledger. Every event that was worth telling someone about

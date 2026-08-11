@@ -1,6 +1,6 @@
 import { recordProductInstrumentationEvent } from "@/lib/product-instrumentation";
 import { NextRequest, NextResponse } from "next/server";
-import { requireBusinessAccess } from "@/lib/access";
+import { findMembership, requireBusinessAccess } from "@/lib/access";
 import {
   applyWorkflowTransition,
   newWorkflowRecord,
@@ -63,6 +63,7 @@ export async function POST(request: NextRequest) {
     entityId?: string;
     providerAccountId?: string | null;
     assigneeUserId?: string | null;
+    mutationId?: string | null;
     dueAt?: string | null;
     snoozeUntil?: string | null;
     reasonCode?: string | null;
@@ -92,6 +93,33 @@ export async function POST(request: NextRequest) {
   // Changing ownership is a write; a viewer may read the overlay but not move it.
   const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
   if ("error" in access) return access.error;
+
+  // An assignee must be an active member of THIS business. Without the check
+  // work can be assigned to somebody who cannot open it — or to a user id
+  // belonging to another tenant, which also confirms that id exists.
+  if (body.assigneeUserId) {
+    const membership = await findMembership({
+      userId: body.assigneeUserId,
+      businessId,
+    }).catch(() => null);
+    if (!membership || membership.status !== "active") {
+      return NextResponse.json(
+        {
+          error: "invalid_assignee",
+          message: "Assign work only to an active member of this business.",
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  const mutationId =
+    typeof body.mutationId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      body.mutationId,
+    )
+      ? body.mutationId
+      : null;
 
   const current =
     (await readWorkflowRecord({ businessId, decisionKey })) ??
@@ -123,6 +151,7 @@ export async function POST(request: NextRequest) {
     entityType: body.entityType ?? "creative",
     entityId: body.entityId ?? decisionKey,
     providerAccountId: body.providerAccountId ?? null,
+    mutationId,
     event: outcome.event,
   });
 
@@ -160,5 +189,11 @@ export async function POST(request: NextRequest) {
   });
 
 
-  return NextResponse.json({ workflow: outcome.next, event: outcome.event });
+  // A replayed mutation reports the state it already produced rather than
+  // pretending a second transition happened.
+  return NextResponse.json({
+    workflow: outcome.next,
+    event: outcome.event,
+    replayed: persisted.ok && persisted.replayed === true,
+  });
 }

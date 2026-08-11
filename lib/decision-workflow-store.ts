@@ -1,13 +1,20 @@
-import { getDb } from "@/lib/db";
+import { getDb, runDbTransaction } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { newWorkflowRecord, type WorkflowRecord } from "@/lib/decision-workflow";
 
 /**
  * Persistence for the operator workflow overlay.
  *
- * State and journal are written together: a transition that changed the state
- * but left no journal entry would lose the record of who decided what, which is
- * the whole reason the overlay exists.
+ * State and journal are written together, in one transaction. They were
+ * previously two independent statements: the state upsert committed, then the
+ * event insert ran, and if that second write failed the state had already
+ * moved with nothing in the journal to explain it. The overlay exists to record
+ * who decided what, so a state change with no event is worse than no change.
+ *
+ * A `mutationId` makes a retry safe. Without one, a flaky connection or a
+ * double click appends a second event and bumps the version again, so the
+ * operator sees their own action twice and the next actor's expectedVersion is
+ * already wrong.
  */
 
 interface StateRow {
@@ -98,6 +105,8 @@ export async function persistWorkflowTransition(input: {
   entityType: string;
   entityId: string;
   providerAccountId: string | null;
+  /** Client-generated idempotency key. A repeat is accepted as a no-op. */
+  mutationId?: string | null;
   event: {
     event: string;
     fromState: string;
@@ -107,10 +116,26 @@ export async function persistWorkflowTransition(input: {
     comment: string | null;
     stateVersion: number;
   };
-}): Promise<{ ok: true } | { ok: false; reason: "version_conflict" | "unavailable" }> {
+}): Promise<
+  { ok: true; replayed?: boolean } | { ok: false; reason: "version_conflict" | "unavailable" }
+> {
   if (!(await overlayReady())) return { ok: false, reason: "unavailable" };
-  const sql = getDb();
   const { next } = input;
+
+  return runDbTransaction(async () => {
+  const sql = getDb();
+
+  // A replay of a mutation we already recorded is a no-op success, not a
+  // second transition. Checked inside the transaction so two concurrent
+  // retries cannot both pass it.
+  if (input.mutationId) {
+    const seen = (await sql.query<{ id: string }>(
+      `SELECT id FROM decision_workflow_events
+       WHERE business_id = $1 AND mutation_id = $2::uuid LIMIT 1`,
+      [next.businessId, input.mutationId],
+    )) as Array<{ id: string }>;
+    if (seen.length > 0) return { ok: true as const, replayed: true };
+  }
 
   const updated = (await sql.query<{ decision_key: string }>(
     `
@@ -119,7 +144,7 @@ export async function persistWorkflowTransition(input: {
         decision_key, state, assignee_user_id, due_at, snooze_until, reason_code,
         state_version, updated_by_user_id, updated_at
       ) VALUES (
-        $1, $1::uuid, $2, $3, $4, $5, $6, $7::uuid, $8::timestamptz, $9::timestamptz,
+        $1, $14::uuid, $2, $3, $4, $5, $6, $7::uuid, $8::timestamptz, $9::timestamptz,
         $10, $11, $12::uuid, now()
       )
       ON CONFLICT (business_id, decision_key) DO UPDATE SET
@@ -148,17 +173,23 @@ export async function persistWorkflowTransition(input: {
       next.stateVersion,
       input.event.actorUserId,
       input.expectedVersion,
+      // Separate parameter for the UUID form: reusing $1 for both the TEXT
+      // business_id and business_ref_id::uuid made PostgreSQL deduce two
+      // conflicting types for one parameter and refuse the whole statement.
+      next.businessId,
     ],
   )) as Array<{ decision_key: string }>;
 
-  if (updated.length === 0) return { ok: false, reason: "version_conflict" };
+  if (updated.length === 0) return { ok: false as const, reason: "version_conflict" as const };
 
+  // Same transaction: if this throws, the state upsert above is rolled back.
   await sql.query(
     `
       INSERT INTO decision_workflow_events (
         business_id, decision_key, event, from_state, to_state,
-        assignee_user_id, reason_code, comment, actor_user_id, state_version
-      ) VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::uuid, $10)
+        assignee_user_id, reason_code, comment, actor_user_id, state_version,
+        mutation_id
+      ) VALUES ($1, $2, $3, $4, $5, $6::uuid, $7, $8, $9::uuid, $10, $11::uuid)
     `,
     [
       next.businessId,
@@ -171,8 +202,10 @@ export async function persistWorkflowTransition(input: {
       input.event.comment,
       input.event.actorUserId,
       input.event.stateVersion,
+      input.mutationId ?? null,
     ],
   );
 
-  return { ok: true };
+  return { ok: true as const };
+  });
 }

@@ -27,6 +27,8 @@ import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-v
 import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
+import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
+import { buildProviderPostures } from "@/lib/zero-base/meta/automation-posture";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import { THEME_ATTRIBUTE } from "@/lib/theme";
 
@@ -117,6 +119,39 @@ export const DECISIONS_HARNESS_WIDTHS = [1440, 1280, 768, 390, 320] as const;
 
 export function decisionsHarnessFileName(width: number, theme: string): string {
   return `decisions-${width}-${theme}.html`;
+}
+
+/** Flow I: Meta automation and the Meta stop. */
+export const AUTOMATION_HARNESS_WIDTHS = [1440, 390, 320] as const;
+
+export function automationHarnessFileName(width: number, theme: string): string {
+  return `automation-${width}-${theme}.html`;
+}
+
+function automationMarkup(width: number): string {
+  const narrow = width < DRAWER_BREAKPOINT;
+
+  const body = renderToStaticMarkup(
+    <AutomationView
+      // Meta degraded, Google healthy: the case where a missing Google row
+      // would teach an operator that one switch covers both providers.
+      postures={buildProviderPostures({
+        meta: { state: "degraded", reason: "Token refresh is failing for one account." },
+      })}
+      guardrails={{ dailyAutoActionCap: 3, perActionSpendCeilingMinor: 5000 }}
+      ceremony={{
+        intent: "engage",
+        viewer: { role: "admin", isReviewer: false, demo: false },
+        currentlyEngaged: false,
+        // No read-back yet: no status banner may appear.
+        readBack: null,
+      }}
+    />,
+  );
+
+  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+</div>`;
 }
 
 function decisionsMarkup(width: number): string {
@@ -371,6 +406,22 @@ function main() {
 <body>${body}</body>
 </html>`;
       writeFileSync(path.join(OUT_DIR, homeHarnessFileName(width, theme)), html);
+      count += 1;
+    }
+  }
+
+  for (const width of AUTOMATION_HARNESS_WIDTHS) {
+    const body = automationMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Automation harness ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, automationHarnessFileName(width, theme)), html);
       count += 1;
     }
   }

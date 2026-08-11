@@ -331,3 +331,65 @@ for (const width of [1440, 1280, 768, 390, 320]) {
     });
   }
 }
+
+/**
+ * WP-15 · Flow I — Meta Automation and the Meta stop at 1440/390/320.
+ *
+ * The fixture is the dangerous case: Meta degraded, Google healthy, no
+ * read-back yet. A missing Google row here is exactly what would teach an
+ * operator that one switch covers both providers, and a status banner here
+ * would claim a state nobody has observed.
+ */
+for (const width of [1440, 390, 320]) {
+  for (const theme of THEMES) {
+    test(`meta automation — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `automation-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        overflow.scrollWidth,
+        `automation scrolls horizontally at ${width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth);
+
+      // Google is present even though Meta is the degraded one, and is marked
+      // as not controlled here.
+      await expect(page.locator('[data-provider-state="google"]')).toBeVisible();
+      await expect(page.locator('[data-not-stoppable="google"]')).toBeVisible();
+      await expect(page.locator("[data-google-unaffected]")).toContainText("unaffected");
+
+      // Meta is the only stoppable provider.
+      await expect(page.locator('[data-stoppable="meta"]')).toBeVisible();
+      expect(await page.locator("[data-stoppable]").count()).toBe(1);
+
+      // The stop names its scope and over-claims nothing.
+      const bodyText = (await page.locator("body").innerText()).toLowerCase();
+      for (const phrase of ["global", "stop all", "all providers", "all platforms"]) {
+        expect(bodyText, phrase).not.toContain(phrase);
+      }
+      await expect(page.locator("[data-stop-scope]")).toContainText("this business only");
+
+      // No status banner before a read-back.
+      expect(await page.locator("[data-stop-status]").count()).toBe(0);
+
+      // Guardrails render with zero edit affordances.
+      const guardrailValues = await page.locator("[data-guardrail-value]").count();
+      expect(guardrailValues).toBe(6);
+      const guardrailSection = page.locator("section", { hasText: "Guardrails" }).last();
+      expect(await guardrailSection.locator("input, select, textarea").count()).toBe(0);
+
+      await context.close();
+    });
+  }
+}

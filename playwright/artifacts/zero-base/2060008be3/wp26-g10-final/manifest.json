@@ -1,8 +1,8 @@
 {
-  "commit": "9c116ba5ff",
-  "package": "wp26-g10-fidelity",
-  "createdAt": "2026-08-11T23:46:37.639Z",
-  "artifactSet": "zero-base/9c116ba5ff/wp26-g10-fidelity",
+  "commit": "2060008be3",
+  "package": "wp26-g10-final",
+  "createdAt": "2026-08-11T23:47:26.674Z",
+  "artifactSet": "zero-base/2060008be3/wp26-g10-final",
   "provenance": {
     "digest": "8a07b2f305488dddb767e2376162929e80c0e71c2352e2f99fb59e3e7990063b",
     "files": {
@@ -718,8 +718,8 @@
       "width": 390,
       "theme": "light",
       "file": "H54__L-SH-CREATIVE__narrow-share__390__light.png",
-      "sha256": "0462e6ec178873ed309752a0aeaf6e04cd25e846adf214342d35ae3a6047c021",
-      "bytes": 25832
+      "sha256": "3a65bd0d5d68b64587e08add0753be637b5a80c4feff0cd16ce5e7dadaf3bc0e",
+      "bytes": 25900
     },
     {
       "leaf": "H55:L-C-HOME",
@@ -763,8 +763,8 @@
       "width": 320,
       "theme": "dark",
       "file": "H59__L-SH-CREATIVE__narrow-share-gone__320__dark.png",
-      "sha256": "53662d646f32614c5c6338b0f30f44eb77354768445134e41ec7ab38a745d578",
-      "bytes": 25174
+      "sha256": "1f2f8536730323c50a117f95ba673b9f6739d17dc92495528cd2e6fb7f879533",
+      "bytes": 25208
     },
     {
       "leaf": "H60:L-C-HOME",

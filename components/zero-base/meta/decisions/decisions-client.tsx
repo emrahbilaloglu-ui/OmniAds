@@ -41,6 +41,7 @@ import { indexWorkflows, type WorkflowLoadState } from "@/lib/zero-base/meta/wor
 import type { WorkflowRecord } from "@/lib/decision-workflow";
 import type { WorkflowEvent } from "@/lib/decision-workflow-store";
 import type { MutationAction, TerminalOutcome } from "@/lib/zero-base/meta/mutation-ceremony";
+import type { DispatchDescriptor } from "@/lib/zero-base/meta/dispatch-contract";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 import type { MetaDecisionsWorkspacePayload } from "@/components/meta/redesign/types";
 
@@ -267,7 +268,8 @@ export function DecisionsClient({
             });
             const json = (await response.json().catch(() => null)) as {
               receipt?: { verdict: string; detail: string; checkedAt: string };
-              endpoint?: string;
+              dispatch?: DispatchDescriptor;
+              withheld?: { reason: string; message: string };
               target?: {
                 grain: "campaign" | "adset" | "ad";
                 entityId: string;
@@ -277,7 +279,18 @@ export function DecisionsClient({
               error?: string;
               message?: string;
             } | null;
-            if (!response.ok || !json?.receipt || !json.endpoint || !json.target) {
+            // The server proved the target but the handler's required inputs
+            // are unavailable. Said plainly rather than offered as a control
+            // that could only fail.
+            if (response.ok && json?.withheld) {
+              return {
+                ok: false,
+                kind: "withheld",
+                code: json.withheld.reason,
+                message: json.withheld.message,
+              } satisfies PreflightAnswer;
+            }
+            if (!response.ok || !json?.receipt || !json.dispatch || !json.target) {
               return {
                 ok: false,
                 code: json?.error ?? `http_${response.status}`,
@@ -286,19 +299,23 @@ export function DecisionsClient({
             }
             return {
               ok: true,
-              endpoint: json.endpoint,
               target: json.target,
               verdict: json.receipt.verdict as "ready",
               detail: json.receipt.detail,
               checkedAt: json.receipt.checkedAt,
+              // Path and body both come from the server. This client assembles
+              // neither.
+              dispatch: json.dispatch,
             } satisfies PreflightAnswer;
           },
-          dispatch: async ({ path, businessId: business, mutationId }) => {
+          dispatch: async ({ path, body, mutationId }) => {
             try {
               const response = await fetch(path, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ businessId: business, mutationId }),
+                // Verbatim: the server's own body for this handler, plus the
+                // operator choices the descriptor declared. Nothing invented.
+                body: JSON.stringify({ ...body, mutationId }),
               });
               const json = (await response.json().catch(() => null)) as {
                 outcome?: TerminalOutcome;

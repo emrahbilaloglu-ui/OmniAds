@@ -21,36 +21,32 @@
 import type { WidthBucket } from "@/lib/zero-base/instrumentation-schema";
 
 export type MutationGrain = "campaign" | "adset" | "ad";
-export type MutationAction = "pause" | "resume" | "bid" | "duplicate";
+export type { MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
+import { endpointFor, type MutationAction } from "@/lib/zero-base/meta/dispatch-contract";
 
 /**
- * Every endpoint the ceremony may call, keyed by grain and action.
+ * Endpoints and their request contracts live in `dispatch-contract.ts`.
  *
- * Exhaustive and explicit: an action with no entry cannot be dispatched at all,
- * which is the property a generic executor gives up.
+ * They were inlined here as a bare path map, which is how this module came to
+ * claim `/api/meta/adsets/[adsetId]/bid` — a route that does not exist. A path
+ * with no body contract beside it is a path nobody checks against a handler.
  */
-export const MUTATION_ENDPOINTS: Readonly<
-  Partial<Record<MutationGrain, Partial<Record<MutationAction, string>>>>
-> = {
-  campaign: {
-    pause: "/api/meta/campaigns/[campaignId]/pause",
-    resume: "/api/meta/campaigns/[campaignId]/resume",
-  },
-  adset: {
-    pause: "/api/meta/adsets/[adsetId]/pause",
-    resume: "/api/meta/adsets/[adsetId]/resume",
-    bid: "/api/meta/adsets/[adsetId]/bid",
-  },
-  ad: {
-    pause: "/api/meta/ads/[adId]/pause",
-    resume: "/api/meta/ads/[adId]/resume",
-    duplicate: "/api/meta/ads/[adId]/duplicate",
-  },
-};
-
-export function endpointFor(grain: MutationGrain, action: MutationAction): string | null {
-  return MUTATION_ENDPOINTS[grain]?.[action] ?? null;
-}
+export {
+  MUTATION_ENDPOINTS,
+  MANUAL_ACTION_ORIGIN,
+  MANUAL_CONFIRMATION,
+  FORBIDDEN_DISPATCH_FIELDS,
+  buildDispatchDescriptor,
+  composeDispatchBody,
+  validateOperatorValues,
+  WITHHOLD_MESSAGE,
+  type DispatchDescriptor,
+  type DispatchTarget,
+  type OperatorField,
+  type OperatorValues,
+  type WithholdReason,
+} from "@/lib/zero-base/meta/dispatch-contract";
+export { endpointFor };
 
 /** Server-owned name of the flag. Never a `NEXT_PUBLIC_*` value. */
 export const MUTATION_UI_FLAG = "ZERO_BASE_MUTATION_UI_ENABLED";
@@ -68,11 +64,11 @@ export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boole
 }
 
 /**
- * Substitute the server-proven entity id into a typed endpoint template.
+ * Substitute a proven entity id into a typed endpoint template.
  *
- * The browser never supplies a path. It supplies a decision key; the server
- * proved the id; this fills exactly one placeholder with it. A caller-supplied
- * path would be a generic execute route wearing a typed endpoint's name.
+ * Retained for the endpoint-shape tests. The ceremony no longer calls it: the
+ * server now issues a concrete path inside the dispatch descriptor, so the
+ * browser never assembles one.
  */
 export function resolveEndpointPath(endpoint: string, provenEntityId: string): string {
   return endpoint.replace(/\[[^\]]+\]/, encodeURIComponent(provenEntityId));

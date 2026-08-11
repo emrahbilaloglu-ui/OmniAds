@@ -25,17 +25,23 @@
 import { useCallback, useRef, useState } from "react";
 
 import { Button } from "@/components/zero-base/primitives/button";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { ZeroBaseDialog } from "@/components/zero-base/primitives/overlays";
 import {
   TERMINAL_COPY,
   confirmationFor,
   receiptAvailable,
-  resolveEndpointPath,
   retryAllowed,
   type MutationAction,
   type MutationGrain,
   type TerminalOutcome,
 } from "@/lib/zero-base/meta/mutation-ceremony";
+import {
+  composeDispatchBody,
+  validateOperatorValues,
+  type DispatchDescriptor,
+  type OperatorValues,
+} from "@/lib/zero-base/meta/dispatch-contract";
 import type { DecisionRow } from "@/lib/zero-base/meta/decisions-presentation";
 
 /** Everything the ceremony needs, all of it from the authorized server route. */
@@ -51,8 +57,10 @@ export interface MutationCeremonySeed {
     action: MutationAction;
   }) => Promise<PreflightAnswer>;
   dispatch: (input: {
+    /** Concrete path the server named. Never assembled here. */
     path: string;
-    businessId: string;
+    /** The handler's exact body: server fields plus validated operator choices. */
+    body: Record<string, unknown>;
     mutationId: string;
   }) => Promise<DispatchAnswer>;
   newMutationId: () => string;
@@ -62,13 +70,16 @@ export interface MutationCeremonySeed {
 export type PreflightAnswer =
   | {
       ok: true;
-      endpoint: string;
       target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
       verdict: "ready" | "drifted" | "blocked" | "ambiguous" | "not_found";
       detail: string;
       checkedAt: string;
+      /** Present only when the action can actually be attempted. */
+      dispatch: DispatchDescriptor;
     }
-  | { ok: false; code: string; message: string };
+  /** The server can prove the target but the handler's inputs are unavailable. */
+  | { ok: false; kind: "withheld"; code: string; message: string }
+  | { ok: false; kind?: "refused"; code: string; message: string };
 
 export type DispatchAnswer = {
   outcome: TerminalOutcome;
@@ -85,9 +96,16 @@ type Step =
   | { kind: "stale"; action: MutationAction; ageMs: number }
   | { kind: "changed"; action: MutationAction; detail: string }
   | {
+      kind: "collect";
+      action: MutationAction;
+      dispatch: DispatchDescriptor;
+      target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
+      checkedAt: string;
+    }
+  | {
       kind: "confirm";
       action: MutationAction;
-      endpoint: string;
+      dispatch: DispatchDescriptor;
       target: { grain: MutationGrain; entityId: string; providerAccountId: string; status: string | null };
       checkedAt: string;
     }
@@ -116,6 +134,8 @@ export function MutationCeremonyPanel({
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [announcement, setAnnouncement] = useState("");
   const [copied, setCopied] = useState(false);
+  const [values, setValues] = useState<OperatorValues>({});
+  const [problems, setProblems] = useState<string[]>([]);
   const attemptId = useRef<string | null>(null);
   const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const now = seed.now ?? (() => new Date());
@@ -159,10 +179,24 @@ export function MutationCeremonyPanel({
         return;
       }
 
+      // An action with operator choices collects them first; validation
+      // happens before the confirmation, never after it.
+      if (answer.dispatch.operatorFields.length > 0) {
+        setStep({
+          kind: "collect",
+          action,
+          dispatch: answer.dispatch,
+          target: answer.target,
+          checkedAt: answer.checkedAt,
+        });
+        setAnnouncement(`${action} needs a few details before it can be confirmed.`);
+        return;
+      }
+
       setStep({
         kind: "confirm",
         action,
-        endpoint: answer.endpoint,
+        dispatch: answer.dispatch,
         target: answer.target,
         checkedAt: answer.checkedAt,
       });
@@ -171,19 +205,59 @@ export function MutationCeremonyPanel({
     [now, row.id, seed],
   );
 
+  /** Move from the form to the confirmation, but only if the form is valid. */
+  const review = useCallback(
+    (collecting: Extract<Step, { kind: "collect" }>) => {
+      const found = validateOperatorValues(collecting.dispatch, values);
+      setProblems(found);
+      if (found.length > 0) {
+        setAnnouncement(found.join(" "));
+        return;
+      }
+      setStep({ ...collecting, kind: "confirm" });
+      setAnnouncement(`Ready to ${collecting.action}. Confirm to continue.`);
+    },
+    [values],
+  );
+
   const dispatch = useCallback(
     async (confirmed: Extract<Step, { kind: "confirm" }>) => {
       // One id per attempt, so a retried request is a replay rather than a
       // second write.
       if (!attemptId.current) attemptId.current = seed.newMutationId();
       setStep({ kind: "dispatching", action: confirmed.action });
-      setAnnouncement(`Sending ${confirmed.action} to Meta…`);
 
-      const answer = await seed.dispatch({
-        // The path is built from the endpoint the server named and the id the
-        // server proved. Neither came from this browser.
-        path: resolveEndpointPath(confirmed.endpoint, confirmed.target.entityId),
+      // A fresh preflight at dispatch time. The one behind the confirmation
+      // described the world when the operator started reading; between then and
+      // now the target may have moved, been reassigned, or become ambiguous.
+      setAnnouncement("Re-checking the target before sending…");
+      const fresh = await seed.preflight({
         businessId: seed.businessId,
+        decisionKey: row.id,
+        action: confirmed.action,
+      });
+      if (!fresh.ok) {
+        setStep({
+          kind: "refused",
+          action: confirmed.action,
+          code: fresh.code,
+          message: fresh.message,
+        });
+        setAnnouncement(`${confirmed.action} was refused at dispatch. ${fresh.message}`);
+        return;
+      }
+      if (fresh.verdict !== "ready") {
+        setStep({ kind: "changed", action: confirmed.action, detail: fresh.detail });
+        setAnnouncement(`${confirmed.action} was not sent: ${fresh.detail}`);
+        return;
+      }
+
+      setAnnouncement(`Sending ${confirmed.action} to Meta…`);
+      const answer = await seed.dispatch({
+        // The path and body the server just issued. The browser adds only the
+        // operator choices the descriptor asked for, already validated.
+        path: fresh.dispatch.path,
+        body: composeDispatchBody(fresh.dispatch, values),
         mutationId: attemptId.current,
       });
 
@@ -191,7 +265,7 @@ export function MutationCeremonyPanel({
       setStep({ kind: "terminal", action: confirmed.action, answer });
       setAnnouncement(`${TERMINAL_COPY[answer.outcome].title}. ${TERMINAL_COPY[answer.outcome].body}`);
     },
-    [seed],
+    [row.id, seed, values],
   );
 
   return (
@@ -238,7 +312,11 @@ export function MutationCeremonyPanel({
                     ? { kind: "busy", label: "Sending…" }
                     : { kind: "enabled" }
               }
-              onClick={() => void startPreflight(action)}
+              onClick={() => {
+                setValues({});
+                setProblems([]);
+                void startPreflight(action);
+              }}
             >
               {action}
             </Button>
@@ -260,6 +338,51 @@ export function MutationCeremonyPanel({
         >
           {step.message}
         </p>
+      ) : null}
+
+      {step.kind === "collect" ? (
+        <div data-mutation-step="collect" style={{ display: "grid", gap: 10 }}>
+          {step.dispatch.note ? (
+            <p data-mutation-note="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+              {step.dispatch.note}
+            </p>
+          ) : null}
+          {step.dispatch.operatorFields.map((field) => (
+            <TextInput
+              key={field.name}
+              label={
+                field.kind === "minor_amount"
+                  ? `${field.label} (minor units, ${field.currency})`
+                  : field.label
+              }
+              data-mutation-field={field.name}
+              inputMode={field.kind === "minor_amount" ? "numeric" : undefined}
+              value={values[field.name] ?? ""}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, [field.name]: event.target.value }))
+              }
+              hint={
+                field.kind === "minor_amount"
+                  ? `Entered in ${field.currency}. No conversion happens here.`
+                  : undefined
+              }
+            />
+          ))}
+          {problems.length > 0 ? (
+            <ul data-mutation-problems="" style={{ margin: 0, paddingLeft: 16 }}>
+              {problems.map((problem) => (
+                <li key={problem} style={{ fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+                  {problem}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div>
+            <Button variant="secondary" data-mutation-review="" onClick={() => review(step)}>
+              Review {step.action}
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {step.kind === "stale" ? (
@@ -314,7 +437,16 @@ export function MutationCeremonyPanel({
             <span data-mutation-confirm-scope="">
               {step.target.grain} {step.target.entityId} in account {step.target.providerAccountId}.
               Currently {step.target.status ?? "unknown"}. Checked at {step.checkedAt} against
-              persisted state — Meta was not contacted.
+              persisted state — Meta was not contacted. The target is re-checked once more
+              before anything is sent.
+              {step.dispatch.operatorFields.length > 0 ? (
+                <span data-mutation-confirm-values="" style={{ display: "block", marginTop: 4 }}>
+                  {step.dispatch.operatorFields
+                    .filter((field) => (values[field.name] ?? "").trim())
+                    .map((field) => `${field.label}: ${values[field.name]}`)
+                    .join(" · ")}
+                </span>
+              ) : null}
             </span>
           ) : undefined
         }

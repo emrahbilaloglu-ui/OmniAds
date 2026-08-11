@@ -5,11 +5,19 @@ const requireBusinessAccess = vi.hoisted(() => vi.fn());
 const query = vi.hoisted(() => vi.fn());
 const getDbSchemaReadiness = vi.hoisted(() => vi.fn());
 const fetchAssignedAccountIds = vi.hoisted(() => vi.fn(async () => ["act_1"]));
+const getMetaAccountContext = vi.hoisted(() =>
+  vi.fn(async () => ({ accountProfiles: { act_1: { currency: "USD" } } })),
+);
 
 vi.mock("@/lib/access", () => ({ requireBusinessAccess }));
 vi.mock("@/lib/db", () => ({ getDb: () => ({ query }) }));
 vi.mock("@/lib/db-schema-readiness", () => ({ getDbSchemaReadiness }));
 vi.mock("@/lib/meta/creatives-fetchers", () => ({ fetchAssignedAccountIds }));
+vi.mock("@/lib/meta/account-context", () => ({
+  getMetaAccountContext,
+  normalizeMetaCurrencyCode: (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim().toUpperCase() : null,
+}));
 
 import { POST } from "@/app/api/meta/decision-action/preflight/route";
 
@@ -161,6 +169,7 @@ describe("decision-bound preflight", () => {
     requireBusinessAccess.mockResolvedValue({ session: { user: { id: "user-1" } } });
     getDbSchemaReadiness.mockResolvedValue({ ready: true });
     fetchAssignedAccountIds.mockResolvedValue(["act_1"]);
+    getMetaAccountContext.mockResolvedValue({ accountProfiles: { act_1: { currency: "USD" } } });
     query.mockResolvedValue(warehouseRow());
   });
 
@@ -185,7 +194,55 @@ describe("decision-bound preflight", () => {
     ).toBe("/api/meta/campaigns/[campaignId]/resume");
     expect(
       (await (await POST(bound({ decisionKey: "adset:as-1", action: "bid" }))).json()).endpoint,
-    ).toBe("/api/meta/adsets/[adsetId]/bid");
+    ).toBe("/api/meta/adsets/[adsetId]/apply-bid");
+  });
+
+  it("issues the exact body the real handler requires, not a generic one", async () => {
+    const body = await (await POST(bound())).json();
+    expect(body.dispatch.path).toBe("/api/meta/ads/ad-1/pause");
+    expect(body.dispatch.body).toEqual({
+      actionOrigin: "manual_operator_v1",
+      manualConfirmation: "explicit_operator_confirmation",
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adId: "ad-1",
+      creativeId: "cr-1",
+    });
+  });
+
+  it("asks the operator for a bid amount in the account's own currency", async () => {
+    getMetaAccountContext.mockResolvedValue({ accountProfiles: { act_1: { currency: "try" } } });
+    const body = await (
+      await POST(bound({ decisionKey: "adset:as-1", action: "bid" }))
+    ).json();
+    expect(body.dispatch.operatorFields[0]).toMatchObject({
+      name: "bidAmountMinor",
+      currency: "TRY",
+    });
+  });
+
+  it("withholds a bid when the account currency cannot be verified", async () => {
+    getMetaAccountContext.mockRejectedValue(new Error("account context unavailable"));
+    const body = await (
+      await POST(bound({ decisionKey: "adset:as-1", action: "bid" }))
+    ).json();
+    // The handler refuses without a verified currency, so the control is
+    // withheld with a reason instead of offered as a guaranteed failure.
+    expect(body.withheld.reason).toBe("account_currency_unavailable");
+    expect(body.dispatch).toBeUndefined();
+  });
+
+  it("withholds an ad action when the creative identity was never recorded", async () => {
+    query.mockResolvedValue(warehouseRow({ creative_id: null }));
+    const body = await (await POST(bound())).json();
+    expect(body.withheld.reason).toBe("creative_identity_unavailable");
+    expect(body.dispatch).toBeUndefined();
+  });
+
+  it("withholds a duplicate when the source ad's parent ad set is unknown", async () => {
+    query.mockResolvedValue(warehouseRow({ parent_id: null }));
+    const body = await (await POST(bound({ action: "duplicate" }))).json();
+    expect(body.withheld.reason).toBe("parent_adset_unknown");
   });
 
   it("resolves all three grains from their own dimension tables", async () => {

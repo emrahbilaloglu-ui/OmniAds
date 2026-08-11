@@ -25,8 +25,11 @@ import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presenta
 import {
   MUTATION_UI_FLAG,
   isMutationUiEnabled,
-  resolveEndpointPath,
 } from "@/lib/zero-base/meta/mutation-ceremony";
+import {
+  buildDispatchDescriptor,
+  type DispatchDescriptor,
+} from "@/lib/zero-base/meta/dispatch-contract";
 import type { DecisionRow } from "@/lib/zero-base/meta/decisions-presentation";
 import type { MetaRecommendation } from "@/lib/meta/recommendations";
 import type { MetaLanePayload } from "@/components/meta/redesign/types";
@@ -57,10 +60,32 @@ function row(overrides: Partial<DecisionRow> = {}): DecisionRow {
   };
 }
 
+/** The real builder, so a test can never assert against a body shape that
+ *  the handlers would refuse. */
+function descriptor(
+  action: "pause" | "resume" | "bid" | "duplicate" = "pause",
+  grain: "campaign" | "adset" | "ad" = "ad",
+): DispatchDescriptor {
+  const built = buildDispatchDescriptor({
+    businessId: "biz-1",
+    target: {
+      grain,
+      entityId: grain === "ad" ? "ad-1" : grain === "adset" ? "adset-1" : "camp-1",
+      providerAccountId: "act_1",
+      creativeId: "cr-1",
+      parentId: "adset-1",
+    },
+    action,
+    accountCurrency: "USD",
+    issuedAt: "2026-08-11T11:59:00.000Z",
+  });
+  if (!built.ok) throw new Error(built.reason);
+  return built.descriptor;
+}
+
 function readyPreflight(overrides: Partial<Extract<PreflightAnswer, { ok: true }>> = {}) {
   return {
     ok: true as const,
-    endpoint: "/api/meta/ads/[adId]/pause",
     target: {
       grain: "ad" as const,
       entityId: "ad-1",
@@ -70,6 +95,7 @@ function readyPreflight(overrides: Partial<Extract<PreflightAnswer, { ok: true }
     verdict: "ready" as const,
     detail: "Target verified against persisted state.",
     checkedAt: "2026-08-11T11:59:00.000Z",
+    dispatch: descriptor(),
     ...overrides,
   };
 }
@@ -278,8 +304,7 @@ describe("the ordered state machine", () => {
 describe("confirmation level", () => {
   it("takes a typed phrase for resuming spend", async () => {
     const { dispatch } = mount({
-      preflight: async () =>
-        readyPreflight({ endpoint: "/api/meta/ads/[adId]/resume" }),
+      preflight: async () => readyPreflight({ dispatch: descriptor("resume", "ad") }),
     });
     const user = userEvent.setup();
     const dialog = await reachConfirm(user, "resume");
@@ -320,13 +345,34 @@ describe("dispatch goes to the typed endpoint with the proven id", () => {
     expect(dispatch.mock.calls[0][0].mutationId).toBe("11111111-1111-4111-8111-111111111111");
   });
 
-  it("substitutes exactly one placeholder and escapes the id", () => {
-    expect(resolveEndpointPath("/api/meta/ads/[adId]/pause", "ad 1")).toBe(
-      "/api/meta/ads/ad%201/pause",
-    );
-    expect(resolveEndpointPath("/api/meta/adsets/[adsetId]/bid", "as-1")).toBe(
-      "/api/meta/adsets/as-1/bid",
-    );
+  it("posts the server's own concrete path, never one it assembled", async () => {
+    const { dispatch } = mount();
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalled());
+    // Byte-identical to what the descriptor carried; nothing was recomputed.
+    expect(dispatch.mock.calls[0][0].path).toBe(descriptor().path);
+  });
+
+  it("posts the handler's exact body, not a generic two-field one", async () => {
+    const { dispatch } = mount();
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalled());
+    // This is what the acceptance review caught: the old client sent only
+    // businessId and mutationId, which every handler refuses.
+    expect(dispatch.mock.calls[0][0].body).toEqual({
+      actionOrigin: "manual_operator_v1",
+      manualConfirmation: "explicit_operator_confirmation",
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      adId: "ad-1",
+      creativeId: "cr-1",
+    });
   });
 
   it("announces progress and the terminal outcome", async () => {
@@ -466,3 +512,269 @@ const urlState: DecisionsUrlState = {
   search: "",
   selected: "ad:ad-1",
 };
+
+/* ------------------------------------------- operator fields and validation */
+
+describe("actions with operator choices collect and validate first", () => {
+  function bidSeed() {
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>(async () => ({
+      outcome: "verified",
+      durable: true,
+      reference: "a-1",
+      detail: "ok",
+    }));
+    const preflightSpy = vi.fn<MutationCeremonySeed["preflight"]>(async () =>
+      readyPreflight({
+        target: { grain: "adset", entityId: "adset-1", providerAccountId: "act_1", status: "ACTIVE" },
+        dispatch: descriptor("bid", "adset"),
+      }),
+    );
+    mount({ preflight: preflightSpy, dispatch: dispatchSpy });
+    return { preflight: preflightSpy, dispatch: dispatchSpy };
+  }
+
+  it("shows a bid form before any confirmation, in the account's currency", async () => {
+    bidSeed();
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-mutation-action="bid"]') as HTMLElement);
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-mutation-step="collect"]')).not.toBeNull(),
+    );
+    // No dialog yet: the operator has not been asked to confirm anything.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByLabelText(/Bid amount \(minor units, USD\)/)).toBeTruthy();
+  });
+
+  it("refuses to reach the confirmation with an empty amount", async () => {
+    const { dispatch } = bidSeed();
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-mutation-action="bid"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector("[data-mutation-review]")).not.toBeNull());
+    await user.click(document.querySelector("[data-mutation-review]") as HTMLElement);
+
+    expect(document.querySelector("[data-mutation-problems]")!.textContent).toMatch(/required/);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-integer or zero amount before the confirmation", async () => {
+    for (const bad of ["12.5", "0", "-3", "abc"]) {
+      cleanup();
+      const { dispatch } = bidSeed();
+      const user = userEvent.setup();
+      await user.click(document.querySelector('[data-mutation-action="bid"]') as HTMLElement);
+      await waitFor(() => expect(document.querySelector("[data-mutation-review]")).not.toBeNull());
+      await user.type(screen.getByLabelText(/Bid amount/), bad);
+      await user.click(document.querySelector("[data-mutation-review]") as HTMLElement);
+
+      expect(document.querySelector("[data-mutation-problems]"), bad).not.toBeNull();
+      expect(dispatch, bad).not.toHaveBeenCalled();
+    }
+  });
+
+  it("sends a valid amount as a number in the handler's own body", async () => {
+    const { dispatch } = bidSeed();
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-mutation-action="bid"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector("[data-mutation-review]")).not.toBeNull());
+    await user.type(screen.getByLabelText(/Bid amount/), "250");
+    await user.click(document.querySelector("[data-mutation-review]") as HTMLElement);
+
+    const dialogs = await screen.findAllByRole("dialog");
+    const confirm = dialogs[dialogs.length - 1];
+    // A bid starts money moving, so it takes a typed phrase.
+    await user.type(within(confirm).getByRole("textbox"), "CHANGE BID");
+    await user.click(within(confirm).getByRole("button", { name: "bid" }));
+
+    await waitFor(() => expect(dispatch).toHaveBeenCalled());
+    expect(dispatch.mock.calls[0][0].path).toBe("/api/meta/adsets/adset-1/apply-bid");
+    expect(dispatch.mock.calls[0][0].body).toMatchObject({
+      actionOrigin: "manual_operator_v1",
+      manualConfirmation: "explicit_operator_confirmation",
+      providerAccountId: "act_1",
+      bidAmountMinor: 250,
+    });
+  });
+
+  it("collects a destination for a duplicate and never asks to activate it", async () => {
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>(async () => ({
+      outcome: "verified",
+      durable: true,
+      reference: "a-1",
+      detail: "ok",
+    }));
+    mount({
+      preflight: async () => readyPreflight({ dispatch: descriptor("duplicate", "ad") }),
+      dispatch: dispatchSpy,
+    });
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-mutation-action="duplicate"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector("[data-mutation-review]")).not.toBeNull());
+
+    // The route refuses activation outright, so no toggle is offered and the
+    // constraint is stated instead.
+    expect(document.querySelector("[data-mutation-note]")!.textContent).toMatch(
+      /always created paused/,
+    );
+    expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+
+    await user.type(screen.getByLabelText(/Destination ad set/), "adset-2");
+    await user.click(document.querySelector("[data-mutation-review]") as HTMLElement);
+    const dialogs = await screen.findAllByRole("dialog");
+    await user.click(within(dialogs[dialogs.length - 1]).getByRole("button", { name: "duplicate" }));
+
+    await waitFor(() => expect(dispatchSpy).toHaveBeenCalled());
+    expect(dispatchSpy.mock.calls[0][0].body).toMatchObject({ targetAdsetId: "adset-2" });
+    expect(Object.keys(dispatchSpy.mock.calls[0][0].body)).not.toContain("activateAfterCreate");
+  });
+});
+
+/* ------------------------------------------------ withheld rather than shown */
+
+describe("an action the handler could not accept is withheld, not offered", () => {
+  it("says why, and never reaches a confirmation", async () => {
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>();
+    mount({
+      preflight: async () => ({
+        ok: false,
+        kind: "withheld",
+        code: "creative_identity_unavailable",
+        message:
+          "This ad's exact creative identity is not recorded, and the action endpoint requires it.",
+      }),
+      dispatch: dispatchSpy,
+    });
+    const user = userEvent.setup();
+    await user.click(document.querySelector('[data-mutation-action="pause"]') as HTMLElement);
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-mutation-refusal="creative_identity_unavailable"]'),
+      ).not.toBeNull(),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/* -------------------------------------- a fresh preflight at dispatch time */
+
+describe("the target is re-checked at dispatch, not only before confirmation", () => {
+  it("runs preflight again after the operator confirms", async () => {
+    const { preflight, dispatch } = mount();
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    expect(preflight).toHaveBeenCalledTimes(1);
+
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+    await waitFor(() => expect(dispatch).toHaveBeenCalled());
+    // Once to offer the action, once immediately before sending it.
+    expect(preflight).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends nothing when the re-check no longer says ready", async () => {
+    let call = 0;
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>();
+    mount({
+      preflight: async () => {
+        call += 1;
+        return call === 1
+          ? readyPreflight()
+          : readyPreflight({ verdict: "drifted", detail: "The ad is already paused." });
+      },
+      dispatch: dispatchSpy,
+    });
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-mutation-step="changed"]')!.textContent).toMatch(
+        /already paused/,
+      ),
+    );
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the re-check refuses outright", async () => {
+    let call = 0;
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>();
+    mount({
+      preflight: async () => {
+        call += 1;
+        return call === 1
+          ? readyPreflight()
+          : {
+              ok: false,
+              code: "target_ambiguous",
+              message: "More than one warehouse row matches this identity.",
+            };
+      },
+      dispatch: dispatchSpy,
+    });
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-mutation-refusal="target_ambiguous"]')).not.toBeNull(),
+    );
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+
+  it("dispatches the body from the FRESH descriptor, not the stale one", async () => {
+    let call = 0;
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>(async () => ({
+      outcome: "verified",
+      durable: true,
+      reference: "a-1",
+      detail: "ok",
+    }));
+    mount({
+      preflight: async () => {
+        call += 1;
+        return readyPreflight({
+          dispatch: {
+            ...descriptor(),
+            // The account was re-resolved between the two checks.
+            body: { ...descriptor().body, providerAccountId: call === 1 ? "act_stale" : "act_1" },
+          },
+        });
+      },
+      dispatch: dispatchSpy,
+    });
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+
+    await waitFor(() => expect(dispatchSpy).toHaveBeenCalled());
+    expect(dispatchSpy.mock.calls[0][0].body).toMatchObject({ providerAccountId: "act_1" });
+  });
+
+  it("keeps one mutation id across a retried attempt", async () => {
+    const ids = ["a1111111-1111-4111-8111-111111111111", "b2222222-2222-4222-8222-222222222222"];
+    let index = 0;
+    let call = 0;
+    const dispatchSpy = vi.fn<MutationCeremonySeed["dispatch"]>(async () => {
+      call += 1;
+      return call === 1
+        ? { outcome: "failed", durable: true, reference: "a-1", detail: "Meta refused." }
+        : { outcome: "verified", durable: true, reference: "a-1", detail: "ok" };
+    });
+    mount({ dispatch: dispatchSpy, newMutationId: () => ids[index++] });
+    const user = userEvent.setup();
+    const dialog = await reachConfirm(user);
+    await user.click(within(dialog).getByRole("button", { name: "pause" }));
+    await waitFor(() => expect(document.querySelector("[data-mutation-retry]")).not.toBeNull());
+
+    await user.click(document.querySelector("[data-mutation-retry]") as HTMLElement);
+    const again = await screen.findAllByRole("dialog");
+    await user.click(within(again[again.length - 1]).getByRole("button", { name: "pause" }));
+
+    await waitFor(() => expect(dispatchSpy).toHaveBeenCalledTimes(2));
+    // A clean refusal left the attempt open, so the retry is the same attempt.
+    expect(dispatchSpy.mock.calls[0][0].mutationId).toBe(ids[0]);
+    expect(dispatchSpy.mock.calls[1][0].mutationId).toBe(ids[0]);
+  });
+});

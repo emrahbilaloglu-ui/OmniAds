@@ -11,11 +11,18 @@ import {
 import { isGuardedExecutionEnabled } from "@/lib/meta/guarded-action-capability";
 import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
 import {
-  endpointFor,
   isMutationUiEnabled,
   stripClientExpectations,
-  type MutationAction,
 } from "@/lib/zero-base/meta/mutation-ceremony";
+import {
+  buildDispatchDescriptor,
+  endpointFor,
+  type MutationAction,
+} from "@/lib/zero-base/meta/dispatch-contract";
+import {
+  getMetaAccountContext,
+  normalizeMetaCurrencyCode,
+} from "@/lib/meta/account-context";
 import {
   FORBIDDEN_BODY_FIELDS,
   ZERO_BASE_DECISION_CONTRACT,
@@ -178,6 +185,36 @@ async function decisionBoundPreflight(
     checkedAt: new Date().toISOString(),
   });
 
+  // A bid needs the account's own currency: the handler refuses without a
+  // verified one, and an operator cannot enter a minor amount without knowing
+  // its unit. Read here so the action is withheld rather than offered blind.
+  const accountCurrency =
+    action === "bid"
+      ? await getMetaAccountContext(businessId)
+          .then((context) =>
+            normalizeMetaCurrencyCode(
+              context.accountProfiles[resolved.providerAccountId]?.currency,
+            ),
+          )
+          .catch(() => null)
+      : null;
+
+  // The exact body the real handler requires, built server-side. The browser
+  // supplies none of it — only the operator choices the descriptor declares.
+  const dispatch = buildDispatchDescriptor({
+    businessId,
+    target: {
+      grain: resolved.grain,
+      entityId: resolved.entityId,
+      providerAccountId: resolved.providerAccountId,
+      creativeId: resolved.creativeId,
+      parentId: resolved.parentId,
+    },
+    action,
+    accountCurrency,
+    issuedAt: receipt.checkedAt,
+  });
+
   await recordProductInstrumentationEvent({
     businessId,
     scope: "business",
@@ -188,16 +225,36 @@ async function decisionBoundPreflight(
     occurredAt: new Date().toISOString(),
   });
 
+  if (!dispatch.ok) {
+    // Withheld with a reason rather than offered as a control that could only
+    // fail at the handler.
+    return NextResponse.json(
+      {
+        contract: ZERO_BASE_DECISION_CONTRACT,
+        receipt,
+        decisionKey,
+        action,
+        target: resolved,
+        withheld: { reason: dispatch.reason, message: dispatch.message },
+        mutationUiEnabled: isMutationUiEnabled(),
+        providerContacted: false,
+      },
+      { status: 200 },
+    );
+  }
+
   return NextResponse.json({
     contract: ZERO_BASE_DECISION_CONTRACT,
     receipt,
     decisionKey,
     action,
     target: resolved,
-    // The endpoint that action WOULD use. Naming it is not permission to call
-    // it: the mutation UI flag gates the control, and the endpoint runs its own
-    // fresh preflight when it is called.
+    // The endpoint that action WOULD use, and the exact body it requires.
+    // Naming them is not permission to call: the mutation UI flag gates the
+    // control, and the handler re-resolves and re-checks everything before it
+    // writes — a tampered descriptor fails closed there.
     endpoint,
+    dispatch: dispatch.descriptor,
     mutationUiEnabled: isMutationUiEnabled(),
     // Persisted state only. Saying otherwise would claim a live check nobody ran.
     providerContacted: false,

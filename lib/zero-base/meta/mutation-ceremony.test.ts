@@ -74,7 +74,8 @@ describe("posture refusals come before any provider consideration", () => {
 describe("dispatch is an allowlist", () => {
   it("maps only the endpoints that exist", () => {
     expect(endpointFor("ad", "pause")).toBe("/api/meta/ads/[adId]/pause");
-    expect(endpointFor("adset", "bid")).toBe("/api/meta/adsets/[adsetId]/bid");
+    // apply-bid is the route that exists; `/bid` never did.
+    expect(endpointFor("adset", "bid")).toBe("/api/meta/adsets/[adsetId]/apply-bid");
     expect(endpointFor("campaign", "pause")).toBe("/api/meta/campaigns/[campaignId]/pause");
   });
 

@@ -67,7 +67,7 @@ export function OpsRepairPanel({
         <Button
           variant="secondary"
           data-repair-run={action}
-        data-ctl="gated:ADMIN-12 repair"
+          data-ctl="gated:ADMIN-12 repair"
           state={{ kind: "disabled", reason: blockedReason }}
         >
           Run {action}
@@ -80,10 +80,11 @@ export function OpsRepairPanel({
   }
 
   return (
-    <section data-ops-repair={action} aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
+    <section data-ops-repair={action} data-el="admin-incident" aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
       <Button
         variant="secondary"
         data-repair-run={action}
+        data-ctl="gated:ADMIN-12 repair"
         state={phase === "running" ? { kind: "busy", label: "Running…" } : { kind: "enabled" }}
         onClick={() => (confirmation ? setConfirming(true) : void run())}
       >
@@ -116,7 +117,15 @@ export function OpsRepairPanel({
         </div>
       ) : null}
 
-      <p role="status" aria-live="polite" data-repair-progress={phase} style={{ margin: 0, fontSize: 12.5, minHeight: 16 }}>
+      <p
+        role="status"
+        aria-live="polite"
+        data-repair-progress={phase}
+        // Until a receipt comes back there is a gap between "we asked" and "it
+        // happened", and the surface says so rather than implying completion.
+        data-el={phase === "running" ? "admin-receipt-gap" : undefined}
+        style={{ margin: 0, fontSize: 12.5, minHeight: 16 }}
+      >
         {phase === "running" ? "The repair is running…" : ""}
       </p>
 
@@ -149,7 +158,7 @@ export function CriticalIncidentPath() {
   return (
     <section data-incident-path="" aria-label={copy.criticalIncidentPath}>
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.ifSomethingIsFailing}</h2>
-      <ol style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+      <ol data-collection="sync" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
         {CRITICAL_INCIDENT_PATH.map((step) => (
           <li key={step.id} data-incident-step={step.id} style={{ fontSize: 12.5, lineHeight: "18px" }}>
             <strong style={{ fontWeight: 600 }}>{step.label}</strong>

@@ -29,6 +29,7 @@ export function HomeView({
   scopeLine,
   businessId = null,
   connectHref = null,
+  triageHref = null,
   trend,
   economics,
   refreshState = "idle",
@@ -40,6 +41,8 @@ export function HomeView({
   businessId?: string | null;
   /** Where an unconfigured source is connected. */
   connectHref?: string | null;
+  /** Mobile entry into Tier-0 triage. Absent at desktop widths. */
+  triageHref?: string | null;
   /** Daily spend and ROAS. Absent when the trend genuinely has no points. */
   trend?: { points: readonly TrendPoint[]; currency: string | null } | null;
   /** Absent when no economics source has been configured for this business. */
@@ -54,9 +57,31 @@ export function HomeView({
     <div data-home-surface="" data-refresh-state={refreshState}>
       <header style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.home}</h1>
-        <p data-scope-line="" style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
+        <p
+          data-scope-line=""
+          data-el="mobile-scope"
+          style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}
+        >
           {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
         </p>
+        {triageHref ? (
+          // The mobile entry into Tier-0 triage: on a phone the operator is
+          // usually here to act on the worst thing first, not to browse.
+          <p style={{ margin: "8px 0 0", fontSize: 13 }}>
+            <a
+              href={triageHref}
+              data-ctl="live:MOBILE-01"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                minHeight: 44,
+                color: "var(--ledger-accent-action)",
+              }}
+            >
+              {copy.startTriage}
+            </a>
+          </p>
+        ) : null}
       </header>
 
       <BannerStack banners={banners} />

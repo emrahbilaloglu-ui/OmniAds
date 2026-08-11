@@ -191,7 +191,7 @@ const home = (ready: boolean) => {
   return { contract, points, economics };
 };
 
-const homeFrame = (ready: boolean) => {
+const homeFrame = (ready: boolean, narrow = false) => {
   const { contract, points, economics } = home(ready);
   return (
     <HomeView
@@ -199,6 +199,7 @@ const homeFrame = (ready: boolean) => {
       scopeLine="Halcyon Supply Co."
       businessId="biz"
       connectHref="/c/biz/manage/integrations"
+      triageHref={narrow ? "/c/biz/meta/decisions?order=tier0" : null}
       trend={{ points, currency: "USD" }}
       economics={economics}
     />
@@ -1084,16 +1085,21 @@ export const FRAMES: readonly FrameSpec[] = [
     </>
   ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
-  { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "admin-incident", width: 1440, theme: "light", render: () => repair({ confirmation: { workspace: "Halcyon Supply Co.", provider: "Shopify", action: "Re-run the customer backfill" } }) },
+  { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "admin-incident", width: 1440, theme: "light", render: () => (
+    <div style={{ display: "grid", gap: 16 }}>
+      {repair({ confirmation: { workspace: "Halcyon Supply Co.", provider: "Shopify", action: "verify_webhooks" } })}
+      <CriticalIncidentPath />
+    </div>
+  ) },
   { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <PublicSharePage share={publicShare("image")} /> },
 
   /* ---- H50–H59: mobile / narrow core flows ---- */
-  { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
+  { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true, true) },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
-  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
+  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true, true) },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },
@@ -1142,8 +1148,8 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
 
   /* ---- M01–M09: mobile proof states ---- */
-  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(true) },
-  { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => homeFrame(true) },
+  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(true, true) },
+  { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => homeFrame(true, true) },
   { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 3, 3)} businessId="biz" /> },
   { id: "M04", leaf: "L-C-CR-PERF", state: "mobile-creative", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
   { id: "M05", leaf: "L-C-REP", state: "mobile-reports", width: 320, theme: "light", render: () => <ReportLibraryView reports={[]} /> },

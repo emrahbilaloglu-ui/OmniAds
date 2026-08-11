@@ -1,15 +1,22 @@
 # Phase E Implementation Report — WP-21 … WP-25
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase D accepted head:** `1d769b534` · **Phase E head:** `8723609dc`
+**Phase D accepted head:** `1d769b534` · **Phase E head:** `13b4274b0`
 **Authoritative plan:** SHA-256 verified `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`
 
 **Status: complete.** WP-21 through WP-25 are all implemented and proven.
 
-An earlier checkpoint of this report ended `PHASE_E_BLOCKED` with WP-24 and
-WP-25 unstarted, on grounds of remaining capacity. That was an honest report of
-where the work stood, but capacity is not a technical blocker — both are now
-built, and §6 records what each actually required.
+Two earlier states of this report were wrong and are recorded rather than
+overwritten:
+
+1. A checkpoint ended `PHASE_E_BLOCKED` with WP-24 and WP-25 unstarted on
+   grounds of remaining capacity. Capacity is not a technical blocker; both were
+   then built (§6, §7).
+2. A **transition audit rejected `PHASE_E_COMPLETE` at `f27eb81ee`.** The 131
+   focused tests passed, but they exercised isolated invented fixtures rather
+   than the shipped clients against real handlers — so four boundaries that
+   could never work still shipped. §10 records each defect, the fix, and the
+   regression test that fails against the old code.
 
 `/Users/harmelek/Adsecute` was not modified. Nothing was pushed, deployed, or
 migrated; no provider was contacted; no flag was enabled; no live data changed;
@@ -267,3 +274,121 @@ report share route was exercised, not modified.
 ## 9 · Worktree state
 
 Clean and fully committed at `8723609dc`. Nothing was pushed.
+
+
+---
+
+## 10 · Transition-audit corrections
+
+The audit was right on every point, and the root cause was one habit: writing a
+client against an assumed payload and then testing the assumption. Each fix
+below is accompanied by a regression assertion that fails against the previous
+code.
+
+### 10.1 · WP-21 — the analytics payloads · `bf71a2999`
+
+| Endpoint | What it returns | What the client did |
+|---|---|---|
+| `/api/analytics/overview` | `{propertyName, kpis, newVsReturning, insights}` | `adaptTable(["rows","sources","channels"])` — **always degraded** |
+| `/api/analytics/landing-pages` | `pages[]` with `purchases`, `purchaseCvr` | asked for `conversions` — **"Not served" on every row** |
+| `/api/seo/overview` | `{meta, summary, leaders, movers, causes, recommendations, aiBrief, aiWorkspace}` | expected `findings/rows/pages` — **always degraded** |
+
+A wrong-shape guess is indistinguishable from an outage to whoever is looking at
+it, which is why all three read as failures on healthy data. The adapters are now
+typed against the handlers' actual return types. New vs returning renders as two
+labelled cohorts and is never summed — GA4 serves no combined figure, so adding
+them would invent one. A null `deltaPercent` renders unavailable rather than as a
+0% "no change" claim. GEO and the latest-insight read are unchanged.
+
+### 10.2 · WP-22 — the report workflows · `993e0b089`
+
+- **Duplicate** POSTed `{businessId, duplicateOf}`; the route requires
+  `businessId` **and `name`** and has no `duplicateOf`. Every duplicate was a
+  400. It now reads the source record and creates from its definition.
+- **Save** sent `{businessId, layout}` with no name, and `PATCH` also requires
+  one; a `GridState` is not a `CustomReportDocument` either. The builder now
+  collects a name (save is disabled without it) and converts the grid to a real
+  version-1, slot-based document. Edit loads the record and reads its definition
+  back into the canvas.
+- **Viewer/print** read `/api/reports/[id]` expecting top-level `widgets`, but
+  that route returns `{report: CustomReportRecord}` — so a healthy report
+  rendered as one with nothing in it. It now reads `/render` and adapts
+  `{report: RenderedReportPayload}`, including per-widget `errorMessage` and
+  `retryable`, and refuses a body without that nesting.
+
+One thing worth stating: the catalog source ids are exactly the
+`CustomReportDataSource` union, so source→dataSource is identity rather than a
+mapping table that could drift. Share UI stays absent; WP-03A fail-closed is
+untouched.
+
+### 10.3 · WP-23 — the Manage workflows · `bf6f78c7b`
+
+- `/api/integrations` has **GET and DELETE only**, so the reconnect POST
+  answered 405 every time. Reconnect is an OAuth round trip: the surface
+  navigates to the provider's real start route, and on return re-reads
+  `/api/integrations/status` and reports only the observed state.
+- `/api/business-cost-model` returns `{costModel}`, and the client read the
+  wrapper while asking for `targetRoas`/`recommendedMode`, which the cost model
+  does not carry — the economics table was empty forever. It now reads the
+  nested model, the target from `/api/business-commercial-settings`, and
+  `recommendedMode` from `/api/business-operating-mode`, each labelled with its
+  own source and consumers.
+- `/api/businesses/[businessId]` has **no GET**, so the deletion read-back saw
+  405 and could never confirm. Confirmation now comes from `GET /api/businesses`
+  and counts only the deleted id's absence; a failed list read stays unknown
+  rather than becoming a false confirmation from an empty array.
+
+### 10.4 · WP-24 — production mounting and two semantics · `13b4274b0`
+
+`repair-panel.tsx` and `CriticalIncidentPath` were referenced only by their own
+test. A test-only component is not Flow J. Both are now mounted on the Ops
+overview and Ops integrations pages, wired to the real Shopify health handler —
+which the admin integrations page does not call, so this exposes an existing
+endpoint rather than duplicating a mutation.
+
+The two admin repair paths are now explicitly separated, because conflating them
+would either invent a confirmation or withhold a real one:
+
+| Path | Read-back | May confirm? |
+|---|---|---|
+| `/api/admin/sync-health` POST | the admin page GETs after the POST | yes — but only when the re-read agrees |
+| `/api/admin/integrations/health/shopify` PATCH | none | never; the gap is disclosed |
+
+The superadmin gate, all 16 tuples, zero buyer links and legacy `/admin` are
+unchanged.
+
+### 10.5 · Evidence integrity
+
+87 tests were added or rewritten to bind to real contracts. They import the
+actual route modules and assert method sets (`POST` absent on `/api/integrations`,
+`GET` absent on `/api/businesses/[businessId]`, `PATCH`/`POST`/`GET` present
+where claimed), the real payload nesting, and that the shipped clients use
+neither a missing method nor a missing field. Eleven are explicit regressions
+that fail against the pre-correction code.
+
+### 10.6 · Gates at `13b4274b0`
+
+typecheck 0 · lint 0 · **Vitest 8809 passed / 0 failed** (807 files; 61 skipped,
+63 todo pre-existing) · migrations-from-zero PASS with all DB seams ·
+selection-race seam PASS · creative:v2:safety 0 · frozen acceptance 22/22 ·
+contract verify / freshness / fonts 0 · zero-base contract 17/17 · design 26/26 ·
+responsive Playwright 84/84 · production build clean · credential-free smoke
+**95 passed / 3 failed**.
+
+The three smoke failures are byte-for-byte the accepted Phase D baseline — the
+same three spec names (`reviewer-smoke.spec.ts:71`,
+`commercial-truth-smoke.spec.ts:322`, `commercial-truth-smoke.spec.ts:367`),
+unchanged by any Phase E work.
+
+`git diff 1d769b534..13b4274b0` touches no resolver or decision-output file.
+
+### 10.7 · Remaining limitations
+
+1. The Ops repair on the Shopify path still has no read-back. That is the
+   endpoint's property, preserved deliberately and disclosed; adding one would
+   change operational semantics.
+2. The three baseline smoke failures remain, unchanged.
+3. Report viewer rows come from the render payload; where a widget carries no
+   rows, it renders its catalog empty grammar rather than fabricated data.
+4. Reconnect completes outside this product, in the provider's OAuth flow. The
+   surface proves only what the post-return status read observed.

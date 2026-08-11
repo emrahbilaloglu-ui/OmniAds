@@ -61,6 +61,50 @@ export function buildGeneratedSource(): string {
     "export/audit.json",
   );
 
+  type LedgerRow = {
+    leaf: string;
+    surface: string;
+    event: string;
+    properties: string;
+    actorScope: string;
+  };
+  const ledger = readJson<LedgerRow[]>("export/instrumentation-ledger.json");
+
+  // "surface · ts · actor_role · width_bucket · account_id (when scoped)"
+  // becomes a sorted key list. The parenthetical is a condition, not part of
+  // the key, so it is stripped rather than becoming `account_id (when`.
+  const propertyKeys = (raw: string) =>
+    [
+      ...new Set(
+        raw
+          .split("·")
+          .map((part) => part.replace(/\(.*?\)/g, "").trim())
+          .filter(Boolean),
+      ),
+    ].sort();
+
+  const ledgerRows = ledger
+    .map((row) => {
+      const keys = propertyKeys(row.properties);
+      // Only a pre-auth public surface may be emitted without a session.
+      const anonymous = row.actorScope.startsWith("Public");
+      return (
+        `  {\n` +
+        `    leaf: ${JSON.stringify(row.leaf)},\n` +
+        `    surface: ${JSON.stringify(row.surface)},\n` +
+        `    event: ${JSON.stringify(row.event)},\n` +
+        `    anonymous: ${anonymous},\n` +
+        `    properties: [${keys.map((k) => JSON.stringify(k)).join(", ")}],\n` +
+        `  },`
+      );
+    })
+    .join("\n");
+
+  const allProperties = [
+    ...new Set(ledger.flatMap((row) => propertyKeys(row.properties))),
+  ].sort();
+  const allEvents = [...new Set(ledger.map((row) => row.event))].sort();
+
   const availabilities = [...new Set(leaves.map((l) => l.availability))].sort();
   const legacyModes = [
     ...new Set(leaves.flatMap((l) => (l.legacy ?? []).map((r) => r.mode))),
@@ -104,6 +148,7 @@ export function buildGeneratedSource(): string {
 //   export/sitemap.json              ${sha256("export/sitemap.json")}
 //   export/interaction-manifest.json ${sha256("export/interaction-manifest.json")}
 //   export/report-catalog.json       ${sha256("export/report-catalog.json")}
+//   export/instrumentation-ledger.json ${sha256("export/instrumentation-ledger.json")}
 
 export const DESIGN_FINGERPRINT = ${JSON.stringify(audit.packageHash)} as const;
 export const DESIGN_RULE_VERSION = ${JSON.stringify(audit.ruleVersion)} as const;
@@ -161,6 +206,29 @@ export const GENERATED_REPORT_SOURCES: readonly {
   readonly kind: string;
 }[] = [
 ${sourceRows}
+] as const;
+
+export type InstrumentationSurface =
+${ledger.map((row) => `  | ${JSON.stringify(row.surface)}`).join("\n")};
+
+export type InstrumentationEventName =
+${allEvents.map((e) => `  | ${JSON.stringify(e)}`).join("\n")};
+
+export type InstrumentationPropertyKey =
+${allProperties.map((k) => `  | ${JSON.stringify(k)}`).join("\n")};
+
+export interface GeneratedInstrumentationRow {
+  readonly leaf: LeafId;
+  readonly surface: InstrumentationSurface;
+  readonly event: InstrumentationEventName;
+  /** True only for pre-auth public surfaces. */
+  readonly anonymous: boolean;
+  readonly properties: readonly InstrumentationPropertyKey[];
+}
+
+/** One row per canonical screen: the closed emitter allowlist (INSTR-01). */
+export const GENERATED_INSTRUMENTATION: readonly GeneratedInstrumentationRow[] = [
+${ledgerRows}
 ] as const;
 `;
 }

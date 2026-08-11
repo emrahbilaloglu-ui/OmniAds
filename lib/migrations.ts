@@ -37,6 +37,7 @@ import {
   inspectControlledRegistryCapabilities,
 } from "@/lib/meta/controlled-experiment-registry";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
+import { instrumentationV2UpgradeStatements } from "@/lib/zero-base/instrumentation-schema";
 
 let migrationsPromise: Promise<void> | null = null;
 let migrationsCompleted = false;
@@ -13815,6 +13816,14 @@ export async function runMigrations(options?: {
         `CREATE INDEX IF NOT EXISTS idx_product_instrumentation_retention
          ON product_instrumentation_events (retain_until)`,
       );
+      // Zero-base v2 (WP-07): additive only. Nullable columns, widened
+      // allowlists that keep every v1 value, and a partial unique index so
+      // existing rows with a NULL event_id do not collide. One table — a
+      // second would split retention, health counting and every operator
+      // query in two.
+      for (const statement of instrumentationV2UpgradeStatements()) {
+        await sql.query(statement);
+      }
       // Operator-visible sink health: a failing sink must be a fact someone can
       // read, not a console line.
       await sql.query(`

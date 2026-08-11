@@ -10,6 +10,7 @@
 //   export/sitemap.json              558f626b5448eb2172042789bae6d4378eca86366eed8e0789c045e99f877c2a
 //   export/interaction-manifest.json 9673ac631645fadc8ef428d8f84249b393865107f6ede7d57fd03ab9cf208596
 //   export/report-catalog.json       5b823c131db214ec7bbe6746f47c1692744b6a5bc2910c7981ccc251c5c51169
+//   export/instrumentation-ledger.json b07421a30fec16ef0273795616a93a11a6ebe852968a41e974c24a851c438956
 
 export const DESIGN_FINGERPRINT = "f27bf51b31ddffe20b5c6404f5b7c1758ba5087342cd84941bf6c2d937befe4a" as const;
 export const DESIGN_RULE_VERSION = "3.1.0" as const;
@@ -1547,4 +1548,629 @@ export const GENERATED_REPORT_SOURCES: readonly {
   { id: "ga4_data", kind: "coming_soon" },
   { id: "search_console_data", kind: "coming_soon" },
   { id: "klaviyo_data", kind: "coming_soon" },
+] as const;
+
+export type InstrumentationSurface =
+  | "pub_home"
+  | "pub_about"
+  | "pub_product"
+  | "pub_pricing"
+  | "pub_contact"
+  | "pub_privacy"
+  | "pub_terms"
+  | "pub_security"
+  | "pub_ai_transparency"
+  | "auth_login"
+  | "auth_signup"
+  | "auth_forgot_password"
+  | "auth_reset_password"
+  | "auth_demo"
+  | "auth_invite"
+  | "auth_select_business"
+  | "auth_business_new"
+  | "me_account_security"
+  | "me_language"
+  | "auth_shopify_connect"
+  | "agency_desk_today"
+  | "agency_desk_clients"
+  | "agency_desk_withheld"
+  | "client_home"
+  | "meta_decisions"
+  | "meta_intelligence"
+  | "meta_launchpad"
+  | "meta_automation"
+  | "meta_history"
+  | "creative_performance"
+  | "creative_detail"
+  | "creative_briefs"
+  | "creative_inbox"
+  | "creative_copies"
+  | "creative_landing_pages"
+  | "creative_shares"
+  | "google_overview"
+  | "google_advisor"
+  | "google_search"
+  | "google_products"
+  | "google_assets_audiences"
+  | "google_plan"
+  | "analytics_ga4_shopify"
+  | "analytics_landing_pages"
+  | "analytics_seo"
+  | "analytics_geo"
+  | "reports_library"
+  | "reports_new"
+  | "reports_view"
+  | "reports_edit"
+  | "reports_print"
+  | "manage_integrations"
+  | "manage_integrations_callback"
+  | "manage_team"
+  | "manage_business"
+  | "manage_plan"
+  | "ops_overview"
+  | "ops_activity"
+  | "ops_auth_health"
+  | "ops_businesses"
+  | "ops_business_detail"
+  | "ops_discounts"
+  | "ops_discount_new"
+  | "ops_discount_detail"
+  | "ops_integrations"
+  | "ops_release_authority"
+  | "ops_revenue_risk"
+  | "ops_subscriptions"
+  | "ops_sync_health"
+  | "ops_system_capacity"
+  | "ops_users"
+  | "ops_user_detail"
+  | "share_creative"
+  | "share_report";
+
+export type InstrumentationEventName =
+  | "screen_view";
+
+export type InstrumentationPropertyKey =
+  | "account_id"
+  | "actor_role"
+  | "agency_scope"
+  | "business_id"
+  | "code_id"
+  | "creative_id"
+  | "provider"
+  | "report_id"
+  | "surface"
+  | "token_hash"
+  | "ts"
+  | "user_id"
+  | "width_bucket";
+
+export interface GeneratedInstrumentationRow {
+  readonly leaf: LeafId;
+  readonly surface: InstrumentationSurface;
+  readonly event: InstrumentationEventName;
+  /** True only for pre-auth public surfaces. */
+  readonly anonymous: boolean;
+  readonly properties: readonly InstrumentationPropertyKey[];
+}
+
+/** One row per canonical screen: the closed emitter allowlist (INSTR-01). */
+export const GENERATED_INSTRUMENTATION: readonly GeneratedInstrumentationRow[] = [
+  {
+    leaf: "L-PUB-ROOT",
+    surface: "pub_home",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-ABOUT",
+    surface: "pub_about",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-PRODUCT",
+    surface: "pub_product",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-PRICING",
+    surface: "pub_pricing",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-CONTACT",
+    surface: "pub_contact",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-PRIVACY",
+    surface: "pub_privacy",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-TERMS",
+    surface: "pub_terms",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-SECURITY",
+    surface: "pub_security",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-PUB-AITRANS",
+    surface: "pub_ai_transparency",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-LOGIN",
+    surface: "auth_login",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-SIGNUP",
+    surface: "auth_signup",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-FORGOT",
+    surface: "auth_forgot_password",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-RESET",
+    surface: "auth_reset_password",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-DEMO",
+    surface: "auth_demo",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-INVITE",
+    surface: "auth_invite",
+    event: "screen_view",
+    anonymous: true,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-SELBIZ",
+    surface: "auth_select_business",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-NEWBIZ",
+    surface: "auth_business_new",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-ME-ACCOUNT",
+    surface: "me_account_security",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-ME-LANG",
+    surface: "me_language",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-AUTH-SHOPIFY",
+    surface: "auth_shopify_connect",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-A-DESK",
+    surface: "agency_desk_today",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "agency_scope", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-A-CLIENTS",
+    surface: "agency_desk_clients",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "agency_scope", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-A-WITHHELD",
+    surface: "agency_desk_withheld",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "agency_scope", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-HOME",
+    surface: "client_home",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-META-DEC",
+    surface: "meta_decisions",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-META-INTEL",
+    surface: "meta_intelligence",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-META-LAUNCH",
+    surface: "meta_launchpad",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-META-AUTO",
+    surface: "meta_automation",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-META-HIST",
+    surface: "meta_history",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-PERF",
+    surface: "creative_performance",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-DETAIL",
+    surface: "creative_detail",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "creative_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-BRIEFS",
+    surface: "creative_briefs",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-INBOX",
+    surface: "creative_inbox",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-COPIES",
+    surface: "creative_copies",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-LP",
+    surface: "creative_landing_pages",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-CR-SHARES",
+    surface: "creative_shares",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-OVER",
+    surface: "google_overview",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-ADV",
+    surface: "google_advisor",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-SEARCH",
+    surface: "google_search",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-PROD",
+    surface: "google_products",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-ASSETS",
+    surface: "google_assets_audiences",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-G-PLAN",
+    surface: "google_plan",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-AN-GA",
+    surface: "analytics_ga4_shopify",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-AN-LP",
+    surface: "analytics_landing_pages",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-AN-SEO",
+    surface: "analytics_seo",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-AN-GEO",
+    surface: "analytics_geo",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-REP",
+    surface: "reports_library",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-REP-NEW",
+    surface: "reports_new",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-REP-VIEW",
+    surface: "reports_view",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "report_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-REP-EDIT",
+    surface: "reports_edit",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "report_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-REP-PRINT",
+    surface: "reports_print",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "report_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-M-INT",
+    surface: "manage_integrations",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-M-CB",
+    surface: "manage_integrations_callback",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "provider", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-M-TEAM",
+    surface: "manage_team",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-M-BIZ",
+    surface: "manage_business",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-C-M-PLAN",
+    surface: "manage_plan",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["account_id", "actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-OVER",
+    surface: "ops_overview",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-ACT",
+    surface: "ops_activity",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-AUTH",
+    surface: "ops_auth_health",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-BIZ",
+    surface: "ops_businesses",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-BIZ-D",
+    surface: "ops_business_detail",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "business_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-DISC",
+    surface: "ops_discounts",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-DISC-N",
+    surface: "ops_discount_new",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-DISC-D",
+    surface: "ops_discount_detail",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "code_id", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-INT",
+    surface: "ops_integrations",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-REL",
+    surface: "ops_release_authority",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-REV",
+    surface: "ops_revenue_risk",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-SUBS",
+    surface: "ops_subscriptions",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-SYNC",
+    surface: "ops_sync_health",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-CAP",
+    surface: "ops_system_capacity",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-USERS",
+    surface: "ops_users",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-OPS-USER-D",
+    surface: "ops_user_detail",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "ts", "user_id", "width_bucket"],
+  },
+  {
+    leaf: "L-SH-CREATIVE",
+    surface: "share_creative",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "token_hash", "ts", "width_bucket"],
+  },
+  {
+    leaf: "L-SH-REPORT",
+    surface: "share_report",
+    event: "screen_view",
+    anonymous: false,
+    properties: ["actor_role", "surface", "token_hash", "ts", "width_bucket"],
+  },
 ] as const;

@@ -47,6 +47,24 @@ The Agency **gate** had the same problem in miniature: `app/a/layout.tsx` materi
 
 The superseded `agency-directory-server.ts` and its test are deleted rather than left beside the new path.
 
+## 1c · Second correction after acceptance review
+
+Review found two further defects in the pagination correction itself. Both were real, and both are fixed in `aaadbdd58`.
+
+**Row return provenance was overwritten.** A single mutable `pageCursor` became the cursor of whichever page loaded most recently, and every row's return link used it. Loading page 2 therefore rewrote what page-1 rows advertised, so clicking a page-1 row returned to page 2 — a page that row does not appear on. The existing test only inspected a second-page row and could not see it. Rows are now held as immutable page segments, each keeping the cursor that produced it; appending a page cannot touch an earlier one.
+
+**A malformed direct-page cursor silently restarted and propagated.** `app/a/desk/clients/page.tsx` caught the store's rejection, served page one, and then handed the rejected cursor back as `restoredCursor` — so every row on that page advertised a return the API boundary would 400. One bad value became a page of them. The cursor is now validated before anything is read: a bad one costs no query and reaches no link. It renders a recoverable state rather than a bare not-found (a poor answer to "my bookmark stopped working") whose single action points at a clean URL carrying neither the cursor nor a stale search term.
+
+**Both fixes are proven by reinstating the defect.** Restoring the single-cursor version fails exactly the four new provenance tests; restoring the swallow-and-restart version fails ten of the twenty new direct-page tests. Tests that cannot fail prove nothing, so this was checked rather than assumed.
+
+| Concern | Before | After |
+|---|---|---|
+| Row provenance | one mutable cursor for all rows | immutable per-page segments; `cursorByRow` derived from them |
+| Page-1 row after loading page 2 | returned to page 2 | still returns to page 1 |
+| Search across pages | all matches got the newest cursor | each match keeps its own page's cursor |
+| Malformed direct-page cursor | silent page-1 read, value propagated | no read, recoverable state, clean recovery URL |
+| Malformed cursor at the API | 400 | 400 (unchanged) |
+
 ## 2 · Packages
 
 | WP | State | Commits |
@@ -57,7 +75,7 @@ The superseded `agency-directory-server.ts` and its test are deleted rather than
 | **07** Instrumentation v2 | **complete** | `6d6cba61e`, `cc5a29050` |
 | **08** Permission-aware search | **complete** | `d94e440dc` |
 | **09** Auth, onboarding, account | **complete** | `7865057c1` → `45276d383` |
-| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` → `601094543` → `0a50fa6a8` |
+| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` → `601094543` → `0a50fa6a8` → `aaadbdd58` |
 
 ## 3 · Gates
 
@@ -65,7 +83,7 @@ The superseded `agency-directory-server.ts` and its test are deleted rather than
 |---|---|
 | `npm run typecheck` | **PASS — 0** |
 | `npm run lint` | **PASS — 0** |
-| `npm test` | **PASS — 7,984 passed · 0 failed · 771 files** |
+| `npm test` | **PASS — 8,008 passed · 0 failed · 772 files** (five consecutive runs) |
 | `npm run test:migrations-from-zero` | **PASS — exit 0** (incl. the instrumentation seam) |
 | `npm run zero-base:contract:verify` | **PASS — 23/23** |
 | `npm run zero-base:contracts:check` | **PASS — generated file current** |
@@ -73,7 +91,7 @@ The superseded `agency-directory-server.ts` and its test are deleted rather than
 | Playwright `zero-base-theme-chromium` | **PASS — 20/20** |
 | Production build | **PASS** |
 
-Phase A ended at 7,714 tests; Phase B added 270, and no pre-existing test changed status.
+Phase A ended at 7,714 tests; Phase B added 294, and no pre-existing test changed status.
 
 ## 4 · Responsive and theme evidence
 
@@ -100,7 +118,7 @@ Plus **B02**: at 1280×640 the rail footer's bottom edge is inside the artboard 
 
 ## 5 · What the tests caught that reasoning did not
 
-Eight defects surfaced from measurement rather than review:
+Ten defects surfaced from measurement rather than review:
 
 1. **Rail was 233px, not 232.** Content-box sizing put the 1px border outside the declared width, shifting every column beside it.
 2. **Rail footer sat 732px below a 640px viewport.** `min-height: 100vh` left the flex parent without a definite height, so the rail grew with its own nav list and `min-height: 0` on the scroll area did nothing. That is B02, and only a real browser could show it.
@@ -109,7 +127,9 @@ Eight defects surfaced from measurement rather than review:
 5. **Agency's Load more disappeared at the end of the projection** instead of disabling with its reason. A control that vanishes reads as a broken page, not a finished list.
 6. **A cursor of `"zzzzzzzz"` was not past the end.** Under `C` collation a non-ASCII first byte sorts above `z`, so `"ácme"` follows it. Accent placement is now asserted explicitly rather than left implicit.
 7. **A search matching nothing among loaded rows rendered an empty table** with headers and no body, which says none of the three things it could mean — no clients, no matches, or keep paging. It now names which.
-8. **Banning the bare word `total` also banned `totalCount`**, an honest row count the collection envelope needs. Every monetary total is already caught by its own term, so the broad ban forbade correct pagination and caught nothing extra.
+8. **A single mutable page cursor silently rewrote earlier rows' return links** — invisible until a test looked at a page-1 row *after* page 2 had loaded.
+9. **Several pre-existing tests sat within a second of Vitest's 5s default** and began timing out intermittently once this work added files. Raised to 15s; a timeout is a liveness bound, not an assertion, and the suite now passes five consecutive full runs.
+10. **Banning the bare word `total` also banned `totalCount`**, an honest row count the collection envelope needs. Every monetary total is already caught by its own term, so the broad ban forbade correct pagination and caught nothing extra.
 
 ## 6 · Font licensing (WP-04)
 
@@ -146,7 +166,7 @@ Binaries came only from the hash-verified archive (`0695ae4524…`), and the pro
 Every package is one revert. Canonical routes do not exist with rollout off, so no rollback is needed to protect legacy:
 
 ```
-git revert 0a50fa6a8 601094543 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
+git revert aaadbdd58 0a50fa6a8 601094543 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
 ```
 
 Reverting only the follow-up commits (`45a9ff1ab`, `45276d383`) returns Phase B to its `66dbfc3fb` state with WP-04–WP-08 intact.

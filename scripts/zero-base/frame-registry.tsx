@@ -65,6 +65,7 @@ import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { LoginView } from "@/components/zero-base/auth/login-view";
+import { ContextResetNotice, ScopeSwitchPanel } from "@/components/zero-base/shell/switch-states";
 import { SearchOverlay } from "@/components/zero-base/search/search-overlay";
 import { AccountSecurityView } from "@/components/zero-base/account/account-security-view";
 import { LanguageView } from "@/components/zero-base/account/language-view";
@@ -999,7 +1000,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
   { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" failure={{ message: "That email and password do not match an account.", retryAfterSeconds: null, offline: false }} /> },
   { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => searchOverlay() },
-  { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <LoadingState label="Switching workspace" /> },
+  { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <ContextResetNotice droppedLabel="act_298410771 · Halcyon Main" onAssign={() => {}} /> },
   { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => homeFrame(true) },
 
   /* ---- H09–H16: decisions, workflow, mutation ceremony ---- */
@@ -1089,7 +1090,19 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H62", leaf: "L-AG-CLIENTS", state: "agency-to-client", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H63", leaf: "L-C-HOME", state: "scope-sheet-390", width: 390, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
   { id: "H64", leaf: "L-C-HOME", state: "scope-sheet-320", width: 320, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
-  { id: "H65", leaf: "L-C-HOME", state: "switch-states", width: 390, theme: "light", render: () => <ErrorState reason="The workspace switch could not complete." /> },
+  { id: "H65", leaf: "L-C-HOME", state: "switch-states", width: 390, theme: "light", render: () => (
+    <div style={{ display: "grid", gap: 16 }}>
+      <ScopeSwitchPanel
+        state={{ kind: "eligible", businesses: [{ id: "biz", name: "Halcyon Supply Co." }, { id: "b2", name: "Northwind" }] }}
+        onSwitchScope={() => {}}
+        onOpenBusinessSwitcher={() => {}}
+      />
+      <ScopeSwitchPanel state={{ kind: "denied", reason: "You have no agency membership, so there is no agency scope to switch to." }} />
+      <ScopeSwitchPanel state={{ kind: "loading" }} />
+      <ScopeSwitchPanel state={{ kind: "empty", reason: "Your agency has no clients yet." }} />
+      <ScopeSwitchPanel state={{ kind: "error", reason: "The workspace list could not be read (503). Nothing was changed." }} />
+    </div>
+  ) },
   { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => agencyDesk() },
 
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
@@ -1142,13 +1155,11 @@ export function frameFileName(spec: FrameSpec): string {
  */
 export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
   [
-    ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],
     ["H64", "renders EmptyState, not the 320 scope sheet"],
-    ["H65", "renders ErrorState, not the switch-state composition"],
     ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],
   ] as const,
 );

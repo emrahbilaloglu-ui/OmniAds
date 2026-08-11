@@ -36,6 +36,22 @@ import {
   type DecisionLevel,
   type DecisionsUrlState,
 } from "@/lib/zero-base/meta/decisions-url-state";
+import {
+  WorkflowChip,
+  WorkflowPanel,
+  type WorkflowSubmit,
+  type WorkflowSubmitResult,
+} from "@/components/zero-base/meta/decisions/workflow-overlay";
+import type { WorkflowRecord } from "@/lib/decision-workflow";
+import type { WorkflowEvent } from "@/lib/decision-workflow-store";
+import {
+  workflowPosture,
+  type WorkflowLoadState,
+} from "@/lib/zero-base/meta/workflow-view-model";
+import {
+  MutationCeremonyPanel,
+  type MutationCeremonySeed,
+} from "@/components/zero-base/meta/decisions/mutation-ceremony-panel";
 
 const LANE_LABEL: Record<DecisionLane, string> = {
   act: "Act now",
@@ -43,18 +59,38 @@ const LANE_LABEL: Record<DecisionLane, string> = {
   watch: "Monitoring",
 };
 
+/**
+ * The workflow overlay's wiring, supplied by the route.
+ *
+ * Optional as a whole: with no overlay the surface is exactly the read-only
+ * Decisions page it was, rather than a page with broken controls.
+ */
+export interface DecisionsWorkflow {
+  records: Map<string, WorkflowRecord>;
+  events: readonly WorkflowEvent[];
+  loadState: WorkflowLoadState;
+  onSubmit: (decisionKey: string, submit: WorkflowSubmit) => Promise<WorkflowSubmitResult>;
+  onRefresh?: () => void;
+  newMutationId: () => string;
+}
+
 export function DecisionsView({
   model,
   state,
   demo,
   onStateChange,
   adsManagerHref,
+  workflow,
+  mutation,
 }: {
   model: DecisionsViewModel;
   state: DecisionsUrlState;
   demo: boolean;
   onStateChange: (next: DecisionsUrlState) => void;
   adsManagerHref?: string | null;
+  workflow?: DecisionsWorkflow;
+  /** Server-owned. Absent whenever the mutation UI is not enabled. */
+  mutation?: MutationCeremonySeed;
 }) {
   const [search, setSearch] = useState(state.search);
   // Focus returns to the row that opened the inspector, not to the top.
@@ -257,6 +293,20 @@ export function DecisionsView({
                           </span>
                         ),
                       },
+                      ...(workflow
+                        ? [
+                            {
+                              id: "workflow",
+                              header: "Workflow",
+                              render: (row: DecisionRow) => (
+                                <WorkflowChip
+                                  record={workflow.records.get(row.id) ?? null}
+                                  loadState={workflow.loadState}
+                                />
+                              ),
+                            },
+                          ]
+                        : []),
                       {
                         id: "action",
                         header: "Action",
@@ -297,7 +347,16 @@ export function DecisionsView({
         }}
         title={selectedRow?.title ?? "Decision"}
       >
-        {selectedRow ? <DecisionInspector row={selectedRow} model={model} demo={demo} adsManagerHref={adsManagerHref} /> : null}
+        {selectedRow ? (
+          <DecisionInspector
+            row={selectedRow}
+            model={model}
+            demo={demo}
+            adsManagerHref={adsManagerHref}
+            workflow={workflow}
+            mutation={mutation}
+          />
+        ) : null}
       </ZeroBaseSheet>
     </div>
   );
@@ -308,11 +367,15 @@ function DecisionInspector({
   model,
   demo,
   adsManagerHref,
+  workflow,
+  mutation,
 }: {
   row: DecisionRow;
   model: DecisionsViewModel;
   demo: boolean;
   adsManagerHref?: string | null;
+  workflow?: DecisionsWorkflow;
+  mutation?: MutationCeremonySeed;
 }) {
   const actions = actionCountFor({ row, viewer: model.viewer, demo });
 
@@ -347,6 +410,23 @@ function DecisionInspector({
           {row.recommendedAction}
         </p>
       )}
+
+      {workflow ? (
+        <WorkflowPanel
+          decisionKey={row.id}
+          servedIds={model.servedIds}
+          record={workflow.records.get(row.id) ?? null}
+          events={workflow.events}
+          loadState={workflow.loadState}
+          posture={workflowPosture({ viewer: model.viewer, demo })}
+          onSubmit={(submit) => workflow.onSubmit(row.id, submit)}
+          onRefresh={workflow.onRefresh}
+          newMutationId={workflow.newMutationId}
+        />
+      ) : null}
+
+      {/* Absent entirely unless the server says the mutation UI is enabled. */}
+      {mutation ? <MutationCeremonyPanel row={row} seed={mutation} /> : null}
 
       {adsManagerHref ? (
         <p style={{ margin: 0, fontSize: 12, lineHeight: "16px" }}>

@@ -5,6 +5,7 @@ import { requireBusinessPageContext } from "@/lib/access/require-business-page-c
 import { loginUrlFor } from "@/lib/zero-base/auth-routing";
 import { DecisionsClient } from "@/components/zero-base/meta/decisions/decisions-client";
 import { parseDecisionsUrlState } from "@/lib/zero-base/meta/decisions-url-state";
+import { isMutationUiEnabled } from "@/lib/zero-base/meta/mutation-ceremony";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,19 @@ export default async function MetaDecisionsPage({
     else if (Array.isArray(value) && value[0]) query.set(key, value[0]);
   }
 
+  // Read on the server and passed down as a plain boolean. A `NEXT_PUBLIC_*`
+  // flag would be readable and settable in the browser, which is not a gate.
+  // A reviewer or demo viewer never gets the ceremony at all, whatever the flag
+  // says, so the flag can only ever narrow what is offered.
+  const mutationUiEnabled =
+    isMutationUiEnabled() && !access.context.reviewerReadOnly && !access.context.demo;
+
   return (
     <DecisionsClient
       businessId={businessId}
       initialState={parseDecisionsUrlState(query)}
       demo={access.context.demo}
+      mutationUiEnabled={mutationUiEnabled}
     />
   );
 }

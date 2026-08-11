@@ -52,6 +52,32 @@ export function endpointFor(grain: MutationGrain, action: MutationAction): strin
   return MUTATION_ENDPOINTS[grain]?.[action] ?? null;
 }
 
+/** Server-owned name of the flag. Never a `NEXT_PUBLIC_*` value. */
+export const MUTATION_UI_FLAG = "ZERO_BASE_MUTATION_UI_ENABLED";
+
+/**
+ * Whether the manual write UI exists at all.
+ *
+ * Read on the server only, and default OFF: an unset, empty, or any-other-value
+ * environment means off. The flag is set in no environment file, so this
+ * returns false everywhere unless somebody deliberately exports it for a single
+ * process.
+ */
+export function isMutationUiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[MUTATION_UI_FLAG]?.trim() === "true";
+}
+
+/**
+ * Substitute the server-proven entity id into a typed endpoint template.
+ *
+ * The browser never supplies a path. It supplies a decision key; the server
+ * proved the id; this fills exactly one placeholder with it. A caller-supplied
+ * path would be a generic execute route wearing a typed endpoint's name.
+ */
+export function resolveEndpointPath(endpoint: string, provenEntityId: string): string {
+  return endpoint.replace(/\[[^\]]+\]/, encodeURIComponent(provenEntityId));
+}
+
 /** Preflight older than this must be re-run before anything is dispatched. */
 export const PREFLIGHT_MAX_AGE_MS = 15 * 60 * 1000;
 

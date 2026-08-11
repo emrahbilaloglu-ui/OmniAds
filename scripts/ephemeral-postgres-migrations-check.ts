@@ -2657,6 +2657,16 @@ async function main() {
       "decision workflow overlay DB seam check",
     );
 
+    // Decision-bound provider targets. The claims here — business scoping,
+    // per-grain column mapping, ambiguity detection — are claims about SQL, so
+    // a mock that echoes its own input proves none of them.
+    await runChildScript(
+      repoRoot,
+      databaseUrl,
+      path.join("scripts", "ephemeral-postgres-decision-bound-target-seam-child.ts"),
+      "decision-bound provider target DB seam check",
+    );
+
     // Agency directory keyset pagination. Only real PostgreSQL can prove that
     // the ORDER BY producing a cursor and the comparison consuming it agree —
     // collation, tie-breaks, duplicate and accented names included.

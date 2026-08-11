@@ -9,9 +9,202 @@ import {
   type PreflightTarget,
 } from "@/lib/meta/guarded-action-preflight";
 import { isGuardedExecutionEnabled } from "@/lib/meta/guarded-action-capability";
-import { stripClientExpectations } from "@/lib/zero-base/meta/mutation-ceremony";
+import { fetchAssignedAccountIds } from "@/lib/meta/creatives-fetchers";
+import {
+  endpointFor,
+  isMutationUiEnabled,
+  stripClientExpectations,
+  type MutationAction,
+} from "@/lib/zero-base/meta/mutation-ceremony";
+import {
+  FORBIDDEN_BODY_FIELDS,
+  ZERO_BASE_DECISION_CONTRACT,
+  GRAIN_SOURCE,
+  REFUSAL_MESSAGE,
+  parseDecisionKey,
+  type DecisionBoundRefusal,
+  type ResolvedDecisionTarget,
+} from "@/lib/zero-base/meta/decision-bound-target";
 
 export const dynamic = "force-dynamic";
+
+function refuse(code: DecisionBoundRefusal, status: number) {
+  return NextResponse.json(
+    { error: code, message: REFUSAL_MESSAGE[code] },
+    { status },
+  );
+}
+
+/**
+ * Decision-bound preflight for campaign, ad-set and ad grains.
+ *
+ * Input is a served decision key plus an allowlisted action — nothing else.
+ * The server re-resolves that decision inside the authorized business, proves
+ * the provider account is assigned, derives the exact target and its expected
+ * state from persisted provider state, and returns a receipt with the typed
+ * endpoint that action would use.
+ *
+ * It never contacts Meta, and it never claims to have. Each action endpoint
+ * still runs its own fresh preflight; this one narrows what may be attempted,
+ * it does not replace what the endpoint checks at write time.
+ */
+async function decisionBoundPreflight(
+  request: NextRequest,
+  body: { businessId?: string; decisionKey?: string; action?: string },
+) {
+  const businessId = body?.businessId;
+  const decisionKey = (body?.decisionKey ?? "").trim();
+  const action = body?.action as MutationAction | undefined;
+
+  if (!businessId || !decisionKey || !action) {
+    return NextResponse.json(
+      {
+        error: "invalid_request",
+        message: "businessId, decisionKey and action are required.",
+      },
+      { status: 400 },
+    );
+  }
+
+  // Any attempt to name the target or its expected state is refused before any
+  // read, so a caller can never learn whether its override would have worked.
+  const supplied = FORBIDDEN_BODY_FIELDS.filter(
+    (field) => (body as Record<string, unknown>)[field] !== undefined,
+  );
+  if (supplied.length > 0) {
+    return NextResponse.json(
+      {
+        error: "client_target_rejected",
+        message:
+          "In the decision-bound contract the server derives the target and its expected state. Remove: " +
+          supplied.join(", "),
+        rejected: supplied,
+      },
+      { status: 400 },
+    );
+  }
+
+  const access = await requireBusinessAccess({ request, businessId, minRole: "collaborator" });
+  if ("error" in access) return access.error;
+
+  const parsed = parseDecisionKey(decisionKey);
+  if (!parsed) return refuse("decision_not_actionable", 422);
+
+  // The action must exist at this grain. An action with no typed endpoint
+  // cannot be prepared, let alone dispatched.
+  const endpoint = endpointFor(parsed.grain, action);
+  if (!endpoint) return refuse("unsupported_action", 422);
+
+  const readiness = await getDbSchemaReadiness({
+    tables: [GRAIN_SOURCE[parsed.grain].table],
+  }).catch(() => null);
+  if (!readiness?.ready) return refuse("warehouse_unavailable", 503);
+
+  const source = GRAIN_SOURCE[parsed.grain];
+  const rows = (await getDb().query<{
+    entity_id: string;
+    provider_account_id: string;
+    status: string | null;
+    creative_id: string | null;
+    parent_id: string | null;
+    match_count: string;
+  }>(
+    `
+      SELECT ${source.idColumn} AS entity_id,
+             provider_account_id,
+             ${source.statusColumn} AS status,
+             ${parsed.grain === "ad" ? "creative_id" : "NULL::text AS creative_id"},
+             ${source.parentColumn ? `${source.parentColumn} AS parent_id` : "NULL::text AS parent_id"},
+             COUNT(*) OVER ()::text AS match_count
+      FROM ${source.table}
+      WHERE business_id = $1
+        AND ${source.idColumn} = $2
+      ORDER BY updated_at DESC
+      LIMIT 2
+    `,
+    [businessId, parsed.entityId],
+  )) as Array<{
+    entity_id: string;
+    provider_account_id: string;
+    status: string | null;
+    creative_id: string | null;
+    parent_id: string | null;
+    match_count: string;
+  }>;
+
+  if (rows.length === 0) return refuse("decision_not_in_served_universe", 404);
+
+  const matchCount = Number(rows[0].match_count) || rows.length;
+  // Two rows for one identity means the exact target is not proven. Picking the
+  // newest would be a guess, and the guess would be a provider write.
+  if (matchCount > 1) return refuse("target_ambiguous", 409);
+
+  // The account behind the decision must be assigned to this business. Without
+  // this, a warehouse row that survived an unassignment would still resolve.
+  const assigned = await fetchAssignedAccountIds(businessId).catch(() => null);
+  if (!assigned || !assigned.includes(rows[0].provider_account_id)) {
+    return refuse("provider_account_not_assigned", 403);
+  }
+
+  const resolved: ResolvedDecisionTarget = {
+    grain: parsed.grain,
+    entityId: rows[0].entity_id,
+    providerAccountId: rows[0].provider_account_id,
+    status: rows[0].status,
+    creativeId: rows[0].creative_id,
+    parentId: rows[0].parent_id,
+    matchCount,
+  };
+
+  const receipt = runGuardedActionPreflight({
+    target: {
+      entityType: resolved.grain,
+      entityId: resolved.entityId,
+      providerAccountId: resolved.providerAccountId,
+      // Derived from what the server just read, never from the request.
+      expectedStatus: resolved.status,
+      expectedCreativeId: resolved.creativeId,
+      expectedParentId: resolved.parentId,
+    },
+    observed: {
+      entityId: resolved.entityId,
+      providerAccountId: resolved.providerAccountId,
+      status: resolved.status,
+      creativeId: resolved.creativeId,
+      parentId: resolved.parentId,
+      matchCount: resolved.matchCount,
+    },
+    killSwitchEngaged: false,
+    checkedAt: new Date().toISOString(),
+  });
+
+  await recordProductInstrumentationEvent({
+    businessId,
+    scope: "business",
+    eventName: "guarded_action_preflight",
+    surface: "meta_decision_inspector",
+    outcome: "ok",
+    provider: "meta",
+    occurredAt: new Date().toISOString(),
+  });
+
+  return NextResponse.json({
+    contract: ZERO_BASE_DECISION_CONTRACT,
+    receipt,
+    decisionKey,
+    action,
+    target: resolved,
+    // The endpoint that action WOULD use. Naming it is not permission to call
+    // it: the mutation UI flag gates the control, and the endpoint runs its own
+    // fresh preflight when it is called.
+    endpoint,
+    mutationUiEnabled: isMutationUiEnabled(),
+    // Persisted state only. Saying otherwise would claim a live check nobody ran.
+    providerContacted: false,
+    note:
+      "Derived from persisted provider state. Meta was not contacted, and each action endpoint re-checks before it writes.",
+  });
+}
 
 /**
  * Verify that a guarded action still points at exactly what its decision named.
@@ -32,7 +225,16 @@ export async function POST(request: NextRequest) {
     expectedParentId?: string | null;
     killSwitchEngaged?: boolean;
     contract?: string;
+    decisionKey?: string;
+    action?: string;
   } | null;
+
+  // The decision-bound mode is a third branch on this one route. A second
+  // preflight route would be a second answer to "is this safe to write", and
+  // only one of them could be right.
+  if (body?.contract === ZERO_BASE_DECISION_CONTRACT) {
+    return decisionBoundPreflight(request, body);
+  }
 
   // Canonical callers opt in explicitly, so every existing caller keeps its
   // exact behaviour. This adds a mode to the one preflight route rather than a

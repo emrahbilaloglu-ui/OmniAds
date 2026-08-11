@@ -17,7 +17,11 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 
-import { OpsIncidentSurface, isReadableHealthBody } from "@/components/zero-base/ops/ops-incident-surface";
+import {
+  OpsIncidentSurface,
+  fetchAllAdminBusinesses,
+  readHealthBody,
+} from "@/components/zero-base/ops/ops-incident-surface";
 
 const BIZ_A = "33333333-3333-4333-8333-333333333333";
 const BIZ_B = "44444444-4444-4444-8444-444444444444";
@@ -61,7 +65,10 @@ function stub(routes: {
         const route = routes.patch ?? { body: { ok: true, action: "verify_webhooks" } };
         return { ok: route.ok ?? true, status: route.ok === false ? 400 : 200, json: async () => route.body } as Response;
       }
-      const route = routes.healthGet ?? { body: { businessId: BIZ_A } };
+      // Default: echo whichever business the caller asked about, as the
+      // handler does. Tests that need a mismatch say so explicitly.
+      const asked = new URL(url, "https://example.test").searchParams.get("businessId") ?? BIZ_A;
+      const route = routes.healthGet ?? { body: { businessId: asked } };
       return { ok: route.ok ?? true, status: route.ok === false ? 400 : 200, json: async () => route.body } as Response;
     }),
   );
@@ -221,10 +228,12 @@ describe("WP-24 the re-read only claims what it observed", () => {
     expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
   });
 
-  it("reads a health body by the field the handler actually echoes", () => {
-    expect(isReadableHealthBody({ businessId: BIZ_A })).toBe(true);
-    expect(isReadableHealthBody({ error: "businessId is required." })).toBe(false);
-    expect(isReadableHealthBody(null)).toBe(false);
+  it("REGRESSION: reads health only for the business that was asked about", () => {
+    expect(readHealthBody({ businessId: BIZ_A }, BIZ_A)).not.toBeNull();
+    // A body for a different workspace is not this workspace's health.
+    expect(readHealthBody({ businessId: BIZ_B }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ error: "businessId is required." }, BIZ_A)).toBeNull();
+    expect(readHealthBody(null, BIZ_A)).toBeNull();
   });
 });
 
@@ -243,4 +252,171 @@ describe("WP-24 the surface holds at every width", () => {
       expect(document.querySelector("[data-repair-no-receipt]")).not.toBeNull();
     });
   }
+});
+
+describe("WP-24 every workspace is findable", () => {
+  /** The route hardcodes limit=30 and ignores any limit we ask for. */
+  const PAGE_SIZE = 30;
+  const TOTAL = 74;
+
+  function page(n: number) {
+    const start = (n - 1) * PAGE_SIZE;
+    return {
+      businesses: Array.from({ length: Math.max(0, Math.min(PAGE_SIZE, TOTAL - start)) }, (_, i) => ({
+        id: `biz-${start + i}`,
+        name: `Workspace ${start + i}`,
+      })),
+      total: TOTAL,
+      page: n,
+      limit: PAGE_SIZE,
+    };
+  }
+
+  function stubPaged(failPage?: number) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push({ url, method: "GET", body: null });
+        if (url.startsWith("/api/admin/businesses")) {
+          const n = Number(new URL(url, "https://example.test").searchParams.get("page") ?? 1);
+          if (failPage === n) return { ok: false, status: 500, json: async () => ({}) } as Response;
+          return { ok: true, status: 200, json: async () => page(n) } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ businessId: "x" }) } as Response;
+      }),
+    );
+  }
+
+  it("REGRESSION: a workspace past the first page can be selected", async () => {
+    stubPaged();
+    render(<OpsIncidentSurface />);
+    await waitFor(() => {
+      // 74 workspaces plus the placeholder option.
+      expect(document.querySelectorAll("[data-ops-workspace-select] option").length).toBe(TOTAL + 1);
+    });
+    // The 31st workspace exists only on page 2; ?limit=200 returned 30 rows.
+    await selectWorkspace("biz-30");
+    expect((document.querySelector("[data-ops-workspace-select]") as HTMLSelectElement).value).toBe("biz-30");
+  });
+
+  it("walks pages using the route's own total and limit", async () => {
+    stubPaged();
+    render(<OpsIncidentSurface />);
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-ops-workspace-select] option").length).toBe(TOTAL + 1),
+    );
+    const pages = calls
+      .filter((call) => call.url.startsWith("/api/admin/businesses"))
+      .map((call) => new URL(call.url, "https://example.test").searchParams.get("page"));
+    expect(pages).toEqual(["1", "2", "3"]);
+  });
+
+  it("REGRESSION: discloses a partial list rather than looking complete", async () => {
+    stubPaged(2);
+    render(<OpsIncidentSurface />);
+    await waitFor(() => {
+      expect(document.querySelector("[data-ops-workspace-error]")).not.toBeNull();
+    });
+    expect(document.querySelector("[data-ops-workspace-error]")!.textContent).toMatch(/incomplete/i);
+    // What was read is still offered; only the claim of completeness is dropped.
+    expect(document.querySelectorAll("[data-ops-workspace-select] option").length).toBeGreaterThan(1);
+  });
+
+  it("reports a first-page failure as unreadable, not as an empty estate", async () => {
+    stubPaged(1);
+    render(<OpsIncidentSurface />);
+    await waitFor(() => {
+      expect(document.querySelector("[data-ops-workspace-error]")!.textContent).toMatch(/could not be read/);
+    });
+    expect(document.querySelector('[data-repair-blocked="verify_webhooks"]')).not.toBeNull();
+  });
+
+  it("fetchAllAdminBusinesses reports partial and failed reads distinctly", async () => {
+    const okAll = await fetchAllAdminBusinesses(async (url) => {
+      const n = Number(new URL(url, "https://e.test").searchParams.get("page") ?? 1);
+      return page(n);
+    });
+    expect(okAll.businesses).toHaveLength(TOTAL);
+    expect(okAll.partial).toBe(false);
+    expect(okAll.readFailed).toBe(false);
+
+    const failedFirst = await fetchAllAdminBusinesses(async () => null);
+    expect(failedFirst.readFailed).toBe(true);
+    expect(failedFirst.businesses).toHaveLength(0);
+  });
+});
+
+describe("WP-24 the health re-read is this workspace's own", () => {
+  const HEALTH = (businessId: string) => ({
+    businessId,
+    status: { state: "action_required", connected: true, shopId: "grandmix.myshopify.com" },
+    auth: {
+      shopDomain: "grandmix.myshopify.com",
+      tokenPresent: true,
+      tokenValid: false,
+      tokenValidationError: "The token was rejected by Shopify.",
+      missingRequiredScopes: ["read_all_orders"],
+      missingOptionalScopes: [],
+      historicalCoverageBlockedByMissingReadAllOrders: true,
+      returnsRepairBlockedByMissingReadReturns: false,
+      productionMode: "disabled",
+    },
+  });
+
+  async function runToRecheck(healthGet: { ok?: boolean; body?: unknown }, workspace = BIZ_A) {
+    stub({ healthGet });
+    render(<OpsIncidentSurface />);
+    await waitFor(() => expect(document.querySelector("[data-ops-workspace-select]")).not.toBeNull());
+    await selectWorkspace(workspace);
+    (document.querySelector('[data-repair-run="verify_webhooks"]') as HTMLElement).click();
+    await waitFor(() => expect(document.querySelector("[data-repair-confirm-scope]")).not.toBeNull());
+    (document.querySelector('[data-repair-confirm-yes="verify_webhooks"]') as HTMLElement).click();
+    await waitFor(() =>
+      expect(document.querySelector('[data-repair-recheck="verify_webhooks"]')).not.toBeNull(),
+    );
+    (document.querySelector('[data-repair-recheck="verify_webhooks"]') as HTMLElement).click();
+  }
+
+  it("REGRESSION: shows the state this GET returned, not a pointer to another board", async () => {
+    await runToRecheck({ body: HEALTH(BIZ_A) });
+    await waitFor(() => expect(document.querySelector("[data-ops-health]")).not.toBeNull());
+    expect(document.querySelector("[data-health-state]")!.textContent).toContain("action_required");
+    expect(document.querySelector("[data-health-shop]")!.textContent).toContain("grandmix.myshopify.com");
+    expect(document.querySelector("[data-health-token]")!.textContent).toMatch(/invalid/);
+    expect(document.querySelector("[data-health-mode]")!.textContent).toContain("disabled");
+    const blockers = document.querySelector("[data-ops-health-blockers]")!.textContent ?? "";
+    expect(blockers).toMatch(/read_all_orders/);
+    // The old copy sent the operator to a board this GET did not update.
+    expect(document.querySelector("[data-ops-rechecked]")!.textContent).not.toMatch(/board above/);
+  });
+
+  it("says so plainly when a read reports no blockers", async () => {
+    await runToRecheck({
+      body: {
+        businessId: BIZ_A,
+        status: { state: "ready", connected: true },
+        auth: { shopDomain: "x.myshopify.com", tokenValid: true, missingRequiredScopes: [] },
+      },
+    });
+    await waitFor(() => expect(document.querySelector("[data-ops-health-clear]")).not.toBeNull());
+    expect(document.querySelector("[data-ops-health-blockers]")).toBeNull();
+  });
+
+  it("REGRESSION: a body for a different workspace is not this workspace's health", async () => {
+    // 200, well-formed, but about another business entirely.
+    await runToRecheck({ body: HEALTH(BIZ_B) }, BIZ_A);
+    await waitFor(() => expect(document.querySelector("[data-ops-recheck-failed]")).not.toBeNull());
+    expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
+    expect(document.querySelector("[data-ops-health]")).toBeNull();
+    expect(document.querySelector("[data-ops-recheck-failed]")!.textContent).toMatch(/unknown/i);
+  });
+
+  it("REGRESSION: changing workspace drops the previous workspace's health", async () => {
+    await runToRecheck({ body: HEALTH(BIZ_A) });
+    await waitFor(() => expect(document.querySelector("[data-ops-health]")).not.toBeNull());
+    await selectWorkspace(BIZ_B);
+    expect(document.querySelector("[data-ops-health]")).toBeNull();
+    expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
+  });
 });

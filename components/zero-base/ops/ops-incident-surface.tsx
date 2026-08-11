@@ -40,19 +40,112 @@ function adaptAdminBusinesses(raw: unknown): AdminBusiness[] {
     .filter((row) => row.id);
 }
 
+/** Guard against a runaway loop if the route ever reports a nonsense total. */
+const MAX_WORKSPACE_PAGES = 50;
+
 /**
- * Did the health GET actually return a readable health body?
+ * Every workspace, not just the first page.
  *
- * The handler echoes the `businessId` it read for. A 200 that does not is not
- * something to stamp a re-read against.
+ * The route **hardcodes `limit = 30`** and ignores any `limit` in the query, so
+ * the previous `?limit=200` silently returned 30 rows and a superadmin could
+ * not select the 31st workspace at all. Pages are walked using the route's own
+ * reported `total`/`limit`.
+ *
+ * A page that fails is disclosed rather than swallowed: a short list that looks
+ * complete is how an operator concludes a workspace does not exist.
  */
-export function isReadableHealthBody(body: unknown): boolean {
-  return Boolean(body && typeof body === "object" && "businessId" in (body as Record<string, unknown>));
+export async function fetchAllAdminBusinesses(
+  get: (url: string) => Promise<unknown | null>,
+): Promise<{ businesses: AdminBusiness[]; partial: boolean; readFailed: boolean }> {
+  const first = await get("/api/admin/businesses?page=1");
+  if (!first || typeof first !== "object") {
+    return { businesses: [], partial: false, readFailed: true };
+  }
+  const head = first as { total?: unknown; limit?: unknown };
+  const businesses = adaptAdminBusinesses(first);
+  const total = typeof head.total === "number" ? head.total : businesses.length;
+  // The route's own page size, never a number we asked for.
+  const limit = typeof head.limit === "number" && head.limit > 0 ? head.limit : 30;
+  const pages = Math.min(Math.ceil(total / limit), MAX_WORKSPACE_PAGES);
+
+  let partial = pages < Math.ceil(total / limit);
+  for (let page = 2; page <= pages; page += 1) {
+    const body = await get(`/api/admin/businesses?page=${page}`);
+    if (!body) {
+      partial = true;
+      continue;
+    }
+    businesses.push(...adaptAdminBusinesses(body));
+  }
+  return { businesses, partial, readFailed: false };
+}
+
+export interface ShopifyHealthView {
+  businessId: string;
+  /** `ShopifyStatusResponse.state` — the authoritative condition. */
+  state: string;
+  connected: boolean;
+  shopDomain: string | null;
+  tokenValid: boolean | null;
+  tokenValidationError: string | null;
+  productionMode: string | null;
+  /** Named blockers, from the handler's own fields. */
+  blockers: string[];
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Read the health body, and only for the business we asked about.
+ *
+ * Requiring the echoed `businessId` to equal the selected one matters because
+ * the operator switches workspaces on this surface: a response that arrives for
+ * the previous selection would otherwise be rendered as this one's health.
+ * Anything else returns null, which the caller renders as unknown.
+ */
+export function readHealthBody(body: unknown, expectedBusinessId: string): ShopifyHealthView | null {
+  const root = record(body);
+  if (!root) return null;
+  if (typeof root.businessId !== "string" || root.businessId !== expectedBusinessId) return null;
+
+  const status = record(root.status);
+  const auth = record(root.auth);
+  const missingRequired = Array.isArray(auth?.missingRequiredScopes) ? auth.missingRequiredScopes : [];
+
+  const blockers: string[] = [];
+  for (const scope of missingRequired) {
+    if (typeof scope === "string") blockers.push(`Missing required scope: ${scope}`);
+  }
+  if (auth?.historicalCoverageBlockedByMissingReadAllOrders === true) {
+    blockers.push("Historical coverage is blocked by a missing read_all_orders scope.");
+  }
+  if (auth?.returnsRepairBlockedByMissingReadReturns === true) {
+    blockers.push("Returns repair is blocked by a missing read_returns scope.");
+  }
+  if (auth?.tokenValid === false) {
+    blockers.push("The stored access token did not validate.");
+  }
+
+  return {
+    businessId: root.businessId,
+    state: typeof status?.state === "string" ? status.state : "not reported",
+    connected: status?.connected === true,
+    shopDomain: typeof auth?.shopDomain === "string" ? auth.shopDomain : null,
+    tokenValid: typeof auth?.tokenValid === "boolean" ? auth.tokenValid : null,
+    tokenValidationError:
+      typeof auth?.tokenValidationError === "string" ? auth.tokenValidationError : null,
+    productionMode: typeof auth?.productionMode === "string" ? auth.productionMode : null,
+    blockers,
+  };
 }
 
 type RecheckState =
   | { kind: "idle" }
-  | { kind: "confirmed"; at: string }
+  | { kind: "confirmed"; at: string; health: ShopifyHealthView }
   | { kind: "failed"; detail: string };
 
 export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
@@ -64,23 +157,25 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/admin/businesses?limit=200", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json) => {
-        if (cancelled) return;
-        if (!json) {
-          setListError("The workspace list could not be read, so no repair can be scoped.");
-          setBusinesses([]);
-          return;
-        }
-        setBusinesses(adaptAdminBusinesses(json));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setListError("The workspace list could not be read, so no repair can be scoped.");
-          setBusinesses([]);
-        }
+    (async () => {
+      const result = await fetchAllAdminBusinesses(async (url) => {
+        const response = await fetch(url, { cache: "no-store" }).catch(() => null);
+        if (!response?.ok) return null;
+        return response.json().catch(() => null);
       });
+      if (cancelled) return;
+      if (result.readFailed) {
+        setListError("The workspace list could not be read, so no repair can be scoped.");
+        setBusinesses([]);
+        return;
+      }
+      setBusinesses(result.businesses);
+      setListError(
+        result.partial
+          ? "Some pages of the workspace list could not be read, so this list is incomplete."
+          : null,
+      );
+    })();
     return () => {
       cancelled = true;
     };
@@ -125,14 +220,18 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
       return;
     }
     const body = await response.json().catch(() => null);
-    if (!isReadableHealthBody(body)) {
+    // Must be this workspace's health. A body for another business — or one
+    // this surface cannot read — leaves the current state unknown.
+    const health = readHealthBody(body, selected);
+    if (!health) {
       setRecheck({
         kind: "failed",
-        detail: "The health check returned a response this surface could not read. The current state is unknown.",
+        detail:
+          "The health check did not return readable health for the selected workspace. The current state is unknown.",
       });
       return;
     }
-    setRecheck({ kind: "confirmed", at: new Date().toISOString() });
+    setRecheck({ kind: "confirmed", at: new Date().toISOString(), health });
   }, [contract.path, selected]);
 
   const blockedReason = !selected
@@ -199,9 +298,58 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
         </div>
 
         {recheck.kind === "confirmed" ? (
-          <p role="status" data-ops-rechecked="" style={{ margin: "6px 0 0", fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
-            Health re-read at {recheck.at}. Read the board above for the current state.
-          </p>
+          <div role="status" data-ops-rechecked="" style={{ marginTop: 8 }}>
+            <p style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+              Health re-read at {recheck.at} for {selectedName}.
+            </p>
+            {/* The state this GET actually returned. Pointing the operator at a
+                separate legacy board would be pointing them at something this
+                read did not update. */}
+            <dl data-ops-health="" style={{ margin: "4px 0 0", fontSize: 12.5, display: "grid", gap: 2 }}>
+              <div>
+                <dt style={{ display: "inline", fontWeight: 600 }}>Condition: </dt>
+                <dd data-health-state="" style={{ display: "inline", margin: 0 }}>
+                  {recheck.health.state}
+                  {recheck.health.connected ? "" : " (not connected)"}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ display: "inline", fontWeight: 600 }}>Shop: </dt>
+                <dd data-health-shop="" style={{ display: "inline", margin: 0 }}>
+                  {recheck.health.shopDomain ?? "not reported"}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ display: "inline", fontWeight: 600 }}>Token: </dt>
+                <dd data-health-token="" style={{ display: "inline", margin: 0 }}>
+                  {recheck.health.tokenValid === null
+                    ? "not reported"
+                    : recheck.health.tokenValid
+                      ? "valid"
+                      : `invalid — ${recheck.health.tokenValidationError ?? "no reason reported"}`}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ display: "inline", fontWeight: 600 }}>Serving mode: </dt>
+                <dd data-health-mode="" style={{ display: "inline", margin: 0 }}>
+                  {recheck.health.productionMode ?? "not reported"}
+                </dd>
+              </div>
+            </dl>
+            {recheck.health.blockers.length > 0 ? (
+              <ul data-ops-health-blockers="" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {recheck.health.blockers.map((blocker) => (
+                  <li key={blocker} style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
+                    {blocker}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p data-ops-health-clear="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+                This read reported no blockers.
+              </p>
+            )}
+          </div>
         ) : recheck.kind === "failed" ? (
           <p role="status" data-ops-recheck-failed="" style={{ margin: "6px 0 0", fontSize: 11, color: "var(--ledger-semantic-warn)" }}>
             {recheck.detail}

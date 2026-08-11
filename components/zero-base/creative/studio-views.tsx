@@ -68,7 +68,12 @@ export function BriefsView({
         ) : null}
         <div>
           {canCreate ? (
-            <Button variant="secondary" data-brief-create="" onClick={onCreate}>
+            <Button
+              variant="secondary"
+              data-brief-create=""
+              data-ctl="live:CREATIVE-07 status"
+              onClick={onCreate}
+            >
               {copy.createBriefFromCreative}
             </Button>
           ) : (
@@ -97,7 +102,7 @@ export function BriefsView({
               header: "Derived from",
               render: (row) =>
                 row.lineage.known ? (
-                  <span data-brief-lineage={row.id}>
+                  <span data-brief-lineage={row.id} data-el="brief-lineage">
                     {row.lineage.creativeId} · {row.lineage.accountId}
                   </span>
                 ) : (
@@ -263,7 +268,13 @@ export function SharesView({
       <section aria-label={copy.createAShare} style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
         <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextInput label={copy.expiresAt} data-share-expires="" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+        <TextInput
+          label={copy.expiresAt}
+          data-share-expires=""
+          data-ctl="live:CREATIVE-10 expiry"
+          value={expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+        />
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
           {(["creator", "buyer"] as const).map((option) => (
@@ -272,6 +283,7 @@ export function SharesView({
                 type="radio"
                 name="share-audience"
                 data-share-audience={option}
+                data-ctl="live:CREATIVE-11 tier"
                 checked={audience === option}
                 onChange={() => setAudience(option)}
               />
@@ -280,10 +292,11 @@ export function SharesView({
           ))}
         </fieldset>
         {audience === "buyer" ? (
-          <label data-share-ack-block="" style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}>
+          <label data-share-ack-block="" data-el="share-tiers" style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}>
             <input
               type="checkbox"
               data-share-acknowledge=""
+              data-ctl="live:CREATIVE-11 ack"
               checked={acknowledged}
               onChange={(event) => setAcknowledged(event.target.checked)}
             />
@@ -294,6 +307,7 @@ export function SharesView({
           <Button
             variant="secondary"
             data-share-create=""
+            data-ctl={canSubmit ? "live:CREATIVE-10 mint" : "disabled:CREATIVE-10 mint"}
             state={
               canSubmit
                 ? { kind: "enabled" }
@@ -313,6 +327,7 @@ export function SharesView({
       </section>
 
       <DataTable
+        collection="links"
         caption={copy.shareLedger}
         rows={[...rows]}
         rowKey={(row) => row.token}
@@ -335,6 +350,7 @@ export function SharesView({
                   <Button
                     variant="secondary"
                     data-share-rotate={row.token}
+                    data-ctl="live:CREATIVE-10 rotate"
                     state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
                     onClick={() => onRotate?.(row.token)}
                   >
@@ -343,6 +359,7 @@ export function SharesView({
                   <Button
                     variant="danger"
                     data-share-revoke={row.token}
+                    data-ctl="live:CREATIVE-10 revoke"
                     state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
                     onClick={() => onRevoke?.(row.token)}
                   >

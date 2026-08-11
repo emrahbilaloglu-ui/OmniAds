@@ -52,6 +52,7 @@ import {
   ReportShareDisabled,
 } from "@/components/zero-base/reports/report-views";
 import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
+import { BriefsView, SharesView } from "@/components/zero-base/creative/studio-views";
 import { TrendPanel } from "@/components/zero-base/home/trend-panel";
 import { CreativeCarousel, CreativeMedia } from "@/components/zero-base/creative/creative-media";
 import {
@@ -808,6 +809,49 @@ const CEREMONY_RECONCILE: CeremonyStep = {
   },
 };
 
+
+/* ---------------------------------------------------- creative studio */
+
+const SHARE_ROWS = [
+  {
+    token: "tk_live",
+    title: "August creative review",
+    audience: "buyer" as const,
+    createdAt: "2026-08-02",
+    expiresAt: "2026-09-01",
+    revokedAt: null,
+    status: "active" as const,
+    statusText: "Active",
+  },
+  {
+    token: "tk_gone",
+    title: "July review",
+    audience: "creator" as const,
+    createdAt: "2026-07-01",
+    expiresAt: "2026-07-31",
+    revokedAt: "2026-07-20",
+    status: "revoked" as const,
+    statusText: "Revoked",
+  },
+];
+
+const BRIEF_ROWS = [
+  {
+    id: "b1",
+    title: "Summer hero — refresh",
+    createdAt: "2026-08-04",
+    status: "draft",
+    lineage: { known: true as const, creativeId: "c1", accountId: "act_298410771" },
+  },
+  {
+    id: "b2",
+    title: "Autumn teaser",
+    createdAt: "2026-08-06",
+    status: "draft",
+    lineage: { known: false as const, reason: "The source creative was deleted in Meta." },
+  },
+];
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -928,10 +972,10 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "H22", leaf: "L-C-CR-DETAIL", state: "creative-detail-actionable", width: 1440, theme: "light", render: () => creativeDetail(true) },
   { id: "H23", leaf: "L-C-CR-DETAIL", state: "creative-detail-shadow", width: 1440, theme: "light", render: () => creativeDetail(false) },
-  { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief", width: 1440, theme: "light", render: () => <EmptyState reason="No brief has been created for this creative." /> },
+  { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} canCreate createBlockedReason={null} onCreate={() => {}} /> },
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
-  { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <EmptyState reason="No share links have been minted for this creative." /> },
+  { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <SharesView rows={SHARE_ROWS} onRevoke={() => {}} onRotate={() => {}} onCreate={() => {}} /> },
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => landingPages() },
 
   /* ---- H29–H33: google ---- */
@@ -1051,7 +1095,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H06", "renders EmptyState, not the global search overlay"],
     ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
-    ["H24", "renders EmptyState, not the brief composition"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],

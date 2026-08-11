@@ -7844,7 +7844,9 @@
 [data-adc-ui="zero-base"] input[type="checkbox"],
 [data-adc-ui="zero-base"] input[type="radio"] {
   width: 24px;
+  min-width: 24px;
   height: 24px;
+  min-height: 24px;
   accent-color: var(--ledger-accent-action);
 }
 

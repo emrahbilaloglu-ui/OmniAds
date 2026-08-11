@@ -287,6 +287,55 @@ export function SharesView({
           {error}
         </p>
       ) : null}
+      <DataTable
+        collection="links"
+        caption={copy.shareLedger}
+        rows={[...rows]}
+        rowKey={(row) => row.token}
+        columns={[
+          { id: "title", header: "Share", render: (row) => row.title },
+          { id: "audience", header: "Audience", render: (row) => row.audience },
+          {
+            id: "status",
+            header: "Status",
+            // The owner sees revoked and expired as different facts; the public
+            // surface deliberately cannot tell them apart.
+            render: (row) => <span data-share-status={row.token}>{row.statusText}</span>,
+          },
+          {
+            id: "actions",
+            header: "Actions",
+            render: (row) =>
+              row.status === "active" ? (
+                <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <Button
+                    variant="secondary"
+                    data-share-rotate={row.token}
+                    data-ctl="live:CREATIVE-10 rotate"
+                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
+                    onClick={() => onRotate?.(row.token)}
+                  >
+                    {copy.rotateLink}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    data-share-revoke={row.token}
+                    data-ctl="live:CREATIVE-10 revoke"
+                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
+                    onClick={() => onRevoke?.(row.token)}
+                  >
+                    {t.revoke}
+                  </Button>
+                </span>
+              ) : (
+                <span data-share-actions-none={row.token} style={{ color: "var(--ledger-ink-tertiary)" }}>
+                  No actions — this link is already {row.status}.
+                </span>
+              ),
+          },
+        ]}
+      />
+
       <section aria-label={copy.createAShare} style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
         <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -364,54 +413,6 @@ export function SharesView({
         </div>
       </section>
 
-      <DataTable
-        collection="links"
-        caption={copy.shareLedger}
-        rows={[...rows]}
-        rowKey={(row) => row.token}
-        columns={[
-          { id: "title", header: "Share", render: (row) => row.title },
-          { id: "audience", header: "Audience", render: (row) => row.audience },
-          {
-            id: "status",
-            header: "Status",
-            // The owner sees revoked and expired as different facts; the public
-            // surface deliberately cannot tell them apart.
-            render: (row) => <span data-share-status={row.token}>{row.statusText}</span>,
-          },
-          {
-            id: "actions",
-            header: "Actions",
-            render: (row) =>
-              row.status === "active" ? (
-                <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <Button
-                    variant="secondary"
-                    data-share-rotate={row.token}
-                    data-ctl="live:CREATIVE-10 rotate"
-                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
-                    onClick={() => onRotate?.(row.token)}
-                  >
-                    {copy.rotateLink}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    data-share-revoke={row.token}
-                    data-ctl="live:CREATIVE-10 revoke"
-                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
-                    onClick={() => onRevoke?.(row.token)}
-                  >
-                    {t.revoke}
-                  </Button>
-                </span>
-              ) : (
-                <span data-share-actions-none={row.token} style={{ color: "var(--ledger-ink-tertiary)" }}>
-                  No actions — this link is already {row.status}.
-                </span>
-              ),
-          },
-        ]}
-      />
     </Surface>
   );
 }

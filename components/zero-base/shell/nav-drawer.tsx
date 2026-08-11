@@ -128,7 +128,20 @@ export function NavDrawer({
               </ul>
             </div>
           ))}
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--ledger-border-subtle)" }}>
+          {/* Sticky, for the same reason the rail's footer is a non-scrolling
+              sibling: the identity row and the scope affordances must stay
+              reachable however long the nav list is. They were scrolling out
+              of the sheet entirely. */}
+          <div
+            style={{
+              position: "sticky",
+              bottom: 0,
+              marginTop: 16,
+              paddingTop: 12,
+              background: "var(--ledger-bg-surface)",
+              borderTop: "1px solid var(--ledger-border-subtle)",
+            }}
+          >
             {footer}
           </div>
         </nav>

@@ -351,45 +351,12 @@ export function ReportBuilderView({
         <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           Arrow keys move the selected widget; Shift with an arrow resizes it; Z undoes.
         </p>
-        <div
-          data-builder-canvas=""
-          data-collection="table"
-          role="application"
-          aria-label={copy.reportCanvas}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 8 }}
-        >
-          {history.present.widgets.map((widget) => (
-            <button
-              key={widget.id}
-              type="button"
-              data-widget={widget.id}
-              data-ctl="live:REPORT-03 widget-select"
-              data-widget-x={widget.x}
-              data-widget-w={widget.w}
-              aria-pressed={selected === widget.id}
-              onClick={() => setSelected(widget.id)}
-              style={{
-                textAlign: "left",
-                padding: 8,
-                minHeight: 44,
-                border: selected === widget.id ? "2px solid var(--ledger-accent-action)" : "1px solid var(--ledger-border-control)",
-                borderRadius: 6,
-                background: "var(--ledger-bg-surface)",
-                color: "var(--ledger-ink-primary)",
-              }}
-            >
-              {sourceById(widget.sourceId)?.label ?? widget.label ?? widget.sourceId}
-            </button>
-          ))}
-        </div>
         {/*
           The nudge toolbar — the single-pointer alternative to dragging
-          (WCAG 2.5.7). It attaches *below* the canvas rather than floating over
-          it, so it can never cover the content being arranged, and it only
-          exists once a widget is selected because there is otherwise nothing
-          for it to act on.
+          (WCAG 2.5.7). It sits above the canvas rather than floating over it,
+          so it can never cover the content being arranged — the reference
+          draws it there — and it only exists once a widget is selected,
+          because there is otherwise nothing for it to act on.
         */}
         {selected ? (
           <div
@@ -471,6 +438,39 @@ export function ReportBuilderView({
           </div>
         ) : null}
 
+        <div
+          data-builder-canvas=""
+          data-collection="table"
+          role="application"
+          aria-label={copy.reportCanvas}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          style={{ display: "grid", gap: 6, padding: 8, border: "1px solid var(--ledger-border-control)", borderRadius: 8 }}
+        >
+          {history.present.widgets.map((widget) => (
+            <button
+              key={widget.id}
+              type="button"
+              data-widget={widget.id}
+              data-ctl="live:REPORT-03 widget-select"
+              data-widget-x={widget.x}
+              data-widget-w={widget.w}
+              aria-pressed={selected === widget.id}
+              onClick={() => setSelected(widget.id)}
+              style={{
+                textAlign: "left",
+                padding: 8,
+                minHeight: 44,
+                border: selected === widget.id ? "2px solid var(--ledger-accent-action)" : "1px solid var(--ledger-border-control)",
+                borderRadius: 6,
+                background: "var(--ledger-bg-surface)",
+                color: "var(--ledger-ink-primary)",
+              }}
+            >
+              {sourceById(widget.sourceId)?.label ?? widget.label ?? widget.sourceId}
+            </button>
+          ))}
+        </div>
         <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
           <Button
             variant="secondary"

@@ -200,7 +200,6 @@ export function AppShell({
                   pathname={pathname}
                   footer={
                     <>
-                      {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
                       {/* The drawer is the mobile rail, so it carries the same
                           scope affordances rather than sending the operator to
                           a second surface to change business or scope. */}
@@ -228,6 +227,7 @@ export function AppShell({
                           ) : null}
                         </div>
                       ) : null}
+                      {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
                       {railFooter}
                     </>
                   }

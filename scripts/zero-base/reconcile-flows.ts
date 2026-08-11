@@ -1,133 +1,83 @@
 /**
- * WP-26 step 2 — flow × viewport matrix reconciliation.
+ * WP-26 step 2 — flow × viewport reconciliation, from executed results only.
  *
- * The 13 flows are read from the vendored design spec (`spec/flows.js`), not
- * restated here, so the denominator cannot drift from the authority.
+ * The first version of this script grepped source files for "Flow X" and a
+ * viewport number, so a comment could satisfy it. That was circular: the thing
+ * under test was also the evidence.
  *
- * The plan requires all 13 flows exercised at 1440, and flows A, B, I and L
- * additionally at 1280, 768, 390 and 320. This reports, per flow and width,
- * whether executable coverage exists — where "executable" means a mounted test
- * that drives the flow, or a captured harness frame at that width.
- *
- * It is a reconciliation, not a substitute. A flow with no coverage is printed
- * as a gap; the ratio is the honest one.
+ * It now reads exactly one input — the manifest written by
+ * `components/zero-base/flows/flow-matrix.test.tsx`, which records a case id
+ * only *after* that case's assertions have passed. Source text cannot reach
+ * this file, and a failing case simply never appears.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { FLOW_RESULTS_DIR, requiredCases, FLOW_SPECS } from "@/lib/zero-base/flows/flow-cases";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** Widths the plan names. */
-export const ALL_WIDTHS = [1440, 1280, 768, 390, 320] as const;
-/** Flows that must additionally hold at every narrow width. */
-export const NARROW_FLOWS = ["Flow A", "Flow B", "Flow I", "Flow L"] as const;
-
-/** The 13 flows, parsed from the design spec's own list. */
-export function specFlows(): { id: string; title: string }[] {
-  const source = readFileSync(
-    path.join(ROOT, "docs", "zero-base-design", "v3", "spec", "flows.js"),
-    "utf8",
-  );
-  const block = source.slice(source.indexOf("export const FLOWS="), source.indexOf("export function flowIds"));
-  return [...block.matchAll(/\{id:"(Flow [A-M])",title:"([^"]+)"/g)].map((match) => ({
-    id: match[1],
-    title: match[2],
-  }));
+interface FlowManifest {
+  commit: string;
+  required: number;
+  executed: number;
+  missing: string[];
+  cases: string[];
 }
 
-function walk(dir: string, out: string[] = []): string[] {
-  if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(tsx?|spec\.ts)$/.test(entry)) out.push(full);
-  }
-  return out;
-}
-
-/** Test files that name a flow, with what they assert about widths. */
-export function flowEvidence(): Map<string, { files: string[]; widths: Set<number> }> {
-  const sources = [
-    ...walk(path.join(ROOT, "components", "zero-base")),
-    ...walk(path.join(ROOT, "lib", "zero-base")),
-    ...walk(path.join(ROOT, "playwright", "tests")),
-  ].filter((file) => /\.test\.tsx?$|\.spec\.ts$/.test(file));
-
-  const evidence = new Map<string, { files: string[]; widths: Set<number> }>();
-  for (const file of sources) {
-    const text = readFileSync(file, "utf8");
-    for (const match of text.matchAll(/Flow ([A-M])\b/g)) {
-      const id = `Flow ${match[1]}`;
-      const entry = evidence.get(id) ?? { files: [], widths: new Set<number>() };
-      const relative = path.relative(ROOT, file);
-      if (!entry.files.includes(relative)) entry.files.push(relative);
-      for (const width of ALL_WIDTHS) {
-        if (new RegExp(`\\b${width}\\b`).test(text)) entry.widths.add(width);
-      }
-      evidence.set(id, entry);
-    }
-  }
-  return evidence;
-}
-
-export interface FlowRow {
-  id: string;
-  title: string;
-  files: string[];
-  covered: number[];
-  requiredWidths: number[];
-  missingWidths: number[];
-}
-
-export function reconcileFlows(): FlowRow[] {
-  const evidence = flowEvidence();
-  return specFlows().map((flow) => {
-    const entry = evidence.get(flow.id);
-    const requiredWidths = (NARROW_FLOWS as readonly string[]).includes(flow.id)
-      ? [...ALL_WIDTHS]
-      : [1440];
-    const covered = [...(entry?.widths ?? [])].sort((a, b) => b - a);
-    return {
-      id: flow.id,
-      title: flow.title,
-      files: entry?.files ?? [],
-      covered,
-      requiredWidths,
-      missingWidths: requiredWidths.filter((width) => !covered.includes(width)),
-    };
-  });
+/** The most recently written results manifest. */
+export function latestResults(): { file: string; manifest: FlowManifest } | null {
+  const dir = path.join(ROOT, FLOW_RESULTS_DIR);
+  if (!existsSync(dir)) return null;
+  const files = readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => path.join(dir, name))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  if (files.length === 0) return null;
+  return { file: files[0], manifest: JSON.parse(readFileSync(files[0], "utf8")) as FlowManifest };
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
-  const rows = reconcileFlows();
-  const withAnyEvidence = rows.filter((row) => row.files.length > 0);
-  const fullyCovered = rows.filter((row) => row.files.length > 0 && row.missingWidths.length === 0);
+  const required = requiredCases();
+  const results = latestResults();
 
   console.log("zero-base flow × viewport matrix (WP-26 step 2)\n");
-  console.log(`  flows in the design spec           ${rows.length}`);
-  console.log(`  flows with executable evidence      ${withAnyEvidence.length}`);
-  console.log(`  flows meeting their width matrix    ${fullyCovered.length}\n`);
+  console.log(`  flows declared              ${FLOW_SPECS.length}`);
+  console.log(`  required cases              ${required.length}`);
 
-  for (const row of rows) {
-    const status = row.files.length === 0 ? "NO EVIDENCE" : row.missingWidths.length === 0 ? "ok" : "partial";
-    console.log(`  ${row.id.padEnd(7)} ${status.padEnd(12)} ${row.title}`);
-    if (row.files.length > 0) {
-      console.log(`          widths covered: ${row.covered.join(", ") || "none asserted"}`);
-      if (row.missingWidths.length > 0) {
-        console.log(`          missing:        ${row.missingWidths.join(", ")}`);
-      }
-      console.log(`          evidence:       ${row.files.slice(0, 3).join(", ")}`);
-    }
+  if (!results) {
+    console.log("\nFAIL: no executed results manifest. Run the flow matrix suite first:");
+    console.log("  npx vitest run components/zero-base/flows/flow-matrix.test.tsx");
+    process.exit(1);
+  }
+
+  const executed = new Set(results.manifest.cases);
+  const missing = required.filter((id) => !executed.has(id));
+
+  console.log(`  executed & passing cases    ${executed.size}`);
+  console.log(`  evidence                    ${path.relative(ROOT, results.file)}\n`);
+
+  // Per-flow rollup, so a gap names its flow rather than only a case id.
+  for (const flow of FLOW_SPECS) {
+    const flowRequired = required.filter((id) => id.startsWith(`${flow.id}::`));
+    const flowDone = flowRequired.filter((id) => executed.has(id));
+    const status = flowDone.length === flowRequired.length ? "ok" : "INCOMPLETE";
+    console.log(
+      `  ${flow.id.padEnd(7)} ${status.padEnd(11)} ${flowDone.length}/${flowRequired.length}  ${flow.title}`,
+    );
+  }
+
+  if (missing.length > 0) {
+    console.log(`\n  missing ${missing.length}:`);
+    for (const id of missing) console.log(`    ${id}`);
+    console.log("\nFAIL: the flow matrix is incomplete.");
+    process.exit(1);
   }
 
   console.log(
-    `\n  RECONCILED: ${fullyCovered.length}/${rows.length} flows meet their required width matrix.`,
-  );
-  console.log(
-    "\nThis is a measurement. A flow counted here has a test that names it and\n" +
-      "asserts the required widths; it is not proof that every branch of that flow\n" +
-      "is exercised. Flows with no evidence are listed rather than dropped.",
+    `\nPASS: ${executed.size}/${required.length} required flow cases executed and passed ` +
+      `across all ${FLOW_SPECS.length} flows.`,
   );
 }

@@ -179,7 +179,8 @@
     "zero-base:perf:bundles": "node --import tsx scripts/zero-base/measure-performance.ts",
     "test:zero-base:perf": "PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-perf-chromium",
     "zero-base:reconcile:frames": "node --import tsx scripts/zero-base/reconcile-frames.ts",
-    "zero-base:reconcile:flows": "node --import tsx scripts/zero-base/reconcile-flows.ts"
+    "zero-base:reconcile:flows": "node --import tsx scripts/zero-base/reconcile-flows.ts",
+    "test:zero-base:flows": "vitest run components/zero-base/flows/flow-matrix.test.tsx && node --import tsx scripts/zero-base/reconcile-flows.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

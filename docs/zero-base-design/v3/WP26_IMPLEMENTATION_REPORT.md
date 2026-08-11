@@ -1195,3 +1195,102 @@ design has no retry.
 VoiceOver with a system-settings change I may not make, and Android TalkBack —
 none available here, and no automated scan was substituted for it. WP-27A
 therefore remains not started.
+
+---
+
+## G10 evidence gate, rebuilt after independent review (`9d7b0b045`)
+
+Both defects the review raised were real and are reproduced below with what was
+done about them.
+
+### Defect 1 — stale evidence passed. Fixed, fail-closed.
+
+Reproduced: 92 frames captured at `3b217a75d`, thirteen render-affecting files
+changed in `1936a2a17`, and the gate stayed green because `latestManifest()`
+selected the newest artifact set **by mtime**. Recency is not provenance.
+
+`lib/zero-base/render-provenance.ts` fingerprints every file that can change a
+rendered frame — zero-base components, view models and the copy catalogue, the
+design tokens and `globals.css`, the frame registry, shell wrapper and renderer,
+and the dependency lockfile — and binds the accepted archive's SHA-256 alongside.
+Selection requires **exactly one** set matching the working tree: zero is stale
+and the failure names the changed files; more than one is refused, because two
+sets claiming the same tree means neither can be trusted.
+
+Binding by content rather than commit id answers the case the plan singles out —
+an artifact-only or report-only commit after capture leaves the digest untouched
+and still passes.
+
+`render-provenance.test.ts` — **13 negative controls**: changed component,
+stylesheet, copy, fixture, harness, dependency; changed archive; added and
+removed render files; and the artifact-only commit that must still pass.
+
+### Defect 2 — fidelity was marker presence. Replaced.
+
+`scripts/zero-base/render-reference.ts` renders all 83 accepted artboards in
+Chromium at their declared widths and measures them; `verify-reference-fidelity.ts`
+measures the implementation frames with the **same function** and compares.
+
+Compared **exactly**: presence, visibility, clipping, the containment the
+reference asserts, control tag or ARIA role, target size in both axes,
+membership of the reference's own type scale, and that every painted colour
+resolves to a Ledger token. Compared **bounded**: relative ordering within a
+region.
+
+Deliberately **not** compared, each documented in code with its reason:
+
+- **Area share.** The artboards are compressed mocks drawing a whole surface in
+  ~850px; the implementation renders at real height with real data, so every
+  region occupies a systematically different fraction.
+- **Containment inside a control.** The mock nests its toolbar inside a plain
+  div it calls a widget; the implementation's is a real button, and a button may
+  not contain buttons.
+- **Ordering across regions.** The mock is one scrolling canvas where an
+  overlay's contents are drawn inline beneath the surface they cover.
+- **Font family equality.** The mock's blocks inherit whatever their author set;
+  the same kind of region is mono on one artboard and sans on the next. The
+  check is that every element resolves to one of the two shipped faces.
+
+`verify-reference-fidelity.test.ts` — **17 mutation controls**: marker injection
+on an invisible element, clipping, wrong parent, region hoisted to the root,
+reordered siblings, control-on-a-div, undersized target, off-scale type,
+non-Ledger face, collapsed line-height, untokenised colour — plus three proving
+the gate is not merely strict.
+
+### Product defects these gates found
+
+1. Every captured frame rendered in **Arial and Times** — `next/font` variables
+   do not exist in a static file, so no screenshot ever showed the shipping
+   typeface. The harness now embeds the vendored faces under their real names.
+2. **Form controls inherited no type**: buttons, inputs and selects took the UA
+   font while the prose around them used the Ledger face.
+3. **Native selects painted UA white**, not a Ledger surface — plainly wrong in
+   dark theme.
+4. The **sheet close came last**, below a scrolling region.
+5. The **drawer footer scrolled out of the sheet entirely**, taking the scope
+   switchers and the agency return with it.
+6. **13×13 checkboxes** and 16px links, below the 24px minimum.
+7. **`12.5px` across 28 files**, which is not a step of the design's scale.
+8. Two controls existed **twice** — added by an earlier pass without removing.
+9. Several ordering inversions against the reference.
+
+### Current state — G10 is RED
+
+```
+artboards compared  83/83
+frames matching     45/83
+placement 64 · wrong-owner 18 · missing 10 · clipped 4 · invisible 2
+```
+
+**98 findings across 38 artboards**, each naming its artboard, marker and the
+specific difference. G10 must not be called green until these reach zero.
+
+### Not done
+
+- **No recapture.** The existing set is correctly rejected as unverifiable, so
+  nothing stale is passing. Recapturing against a tree whose fidelity gate fails
+  would repeat the original defect in a new form.
+- Release aggregate, full Vitest twice and the production build have not been
+  run since the last fixes.
+
+G7 remains 142/142 and G6 38/38, untouched. G9 stays red. WP-27A not started.

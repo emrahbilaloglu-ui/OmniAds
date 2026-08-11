@@ -378,13 +378,14 @@ describe("Flow H — integration recovery", () => {
       <IntegrationsView
         providers={[]}
         outcome={{
-          kind: "ambiguous",
-          action: "reconnect",
+          // `unknown` is the real union member: the action ran and nothing
+          // observed the result, which is not the same as failure.
+          kind: "unknown",
           detail: "The action ran but the confirming read did not complete.",
         }}
       />,
     );
-    expect(document.querySelector("[data-ceremony=\"reconnect:ambiguous\"]")).not.toBeNull();
+    expect(document.querySelector("[data-ceremony=\"reconnect:unknown\"]")).not.toBeNull();
   });
 });
 

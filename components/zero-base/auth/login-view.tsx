@@ -136,6 +136,11 @@ export function LoginView({
           onKeyUp={(event) => setCapsLock(event.getModifierState?.("CapsLock") ?? false)}
           hint={capsLock ? copy.capsLockOn : undefined}
         />
+        <p style={{ margin: 0, fontSize: 12 }}>
+          <Link href="/reset" data-ctl="live:AUTH-05 forgot" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.forgotPassword}
+          </Link>
+        </p>
         <Button
           type="submit"
           variant="primary"
@@ -156,9 +161,6 @@ export function LoginView({
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12 }}>
-        <Link href="/reset" data-ctl="live:AUTH-05 forgot" style={{ color: "var(--ledger-accent-action)" }}>
-          {copy.forgotPassword}
-        </Link>
         <Link href="/signup" data-ctl="live:AUTH-01" style={{ color: "var(--ledger-accent-action)" }}>
           {copy.createAccount}
         </Link>

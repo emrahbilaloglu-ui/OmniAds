@@ -141,6 +141,15 @@ export function DecisionsView({
 
   return (
     <div data-decisions-surface="">
+      {shareViewHref ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
+          {/* The exact view, not "Decisions": a shared link that lands on a
+              different filter is a different set of decisions. */}
+          <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.shareThisView}
+          </Link>
+        </p>
+      ) : null}
       <header style={{ marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
           {copy.metaDecisions}
@@ -408,15 +417,6 @@ export function DecisionsView({
         </p>
       ) : null}
 
-      {shareViewHref ? (
-        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
-          {/* The exact view, not "Decisions": a shared link that lands on a
-              different filter is a different set of decisions. */}
-          <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)" }}>
-            {copy.shareThisView}
-          </Link>
-        </p>
-      ) : null}
 
 
       <ZeroBaseSheet

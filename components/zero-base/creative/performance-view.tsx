@@ -166,15 +166,6 @@ export function CreativePerformanceView({
         </div>
       ) : null}
 
-      {/* The posture is stated on the surface, not implied by what is absent —
-          below the controls, where the reference places it. */}
-      <p
-        data-engine-posture={posture.posture}
-        data-el="engine-posture"
-        style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
-      >
-        <strong style={{ fontWeight: 600 }}>{posture.label}.</strong> {posture.explanation}
-      </p>
 
       <div style={{ marginTop: 16 }} data-collection="creatives">
         <DataTable
@@ -250,6 +241,15 @@ export function CreativePerformanceView({
           </Button>
         ) : null}
       </div>
+      {/* The posture is stated on the surface, not implied by what is absent —
+          after the creatives it describes, where the reference places it. */}
+      <p
+        data-engine-posture={posture.posture}
+        data-el="engine-posture"
+        style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
+      >
+        <strong style={{ fontWeight: 600 }}>{posture.label}.</strong> {posture.explanation}
+      </p>
     </div>
   );
 }

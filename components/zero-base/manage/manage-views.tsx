@@ -643,91 +643,6 @@ export function TeamView({
         </p>
       )}
 
-      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
-        <div style={{ marginTop: 8 }}>
-          <DataTable
-            collection="members"
-            caption={copy.teamMembers}
-            rows={[...members]}
-            rowKey={(row) => row.membershipId}
-            columns={[
-              { id: "name", header: "Member", render: (row) => row.name },
-              { id: "email", header: "Email", render: (row) => row.email ?? "Not served" },
-              {
-                id: "role",
-                header: "Role",
-                render: (row) =>
-                  permissions.membersWrite.ok ? (
-                    <select
-                      data-member-role={row.membershipId}
-                      data-ctl="gated:TEAM-02 role"
-                      value={row.role}
-                      onChange={(event) => onChangeRole?.(row.membershipId, event.target.value)}
-                      style={{ minHeight: 44, padding: "6px 8px" }}
-                    >
-                      {["admin", "collaborator", "reviewer", "guest"].map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span data-member-role-readonly={row.membershipId} data-el="role-permission-state">
-                      {row.role}
-                    </span>
-                  ),
-              },
-              { id: "status", header: "Status", render: (row) => row.status },
-              {
-                id: "workspaces",
-                header: "Workspaces",
-                render: (row) =>
-                  permissions.membersWrite.ok && row.userId && workspaces.length > 0 ? (
-                    <select
-                      multiple
-                      data-member-workspaces={row.userId}
-                      onChange={(event) =>
-                        onAssignWorkspaces?.(
-                          row.userId as string,
-                          Array.from(event.target.selectedOptions).map((option) => option.value),
-                        )
-                      }
-                      style={{ minHeight: 44 }}
-                    >
-                      {workspaces.map((workspace) => (
-                        <option key={workspace.id} value={workspace.id}>
-                          {workspace.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
-                  ),
-              },
-              {
-                id: "remove",
-                header: "Remove",
-                render: (row) =>
-                  permissions.membersWrite.ok ? (
-                    <Button
-                      variant="quiet"
-                      data-member-remove={row.membershipId}
-                      data-ctl="gated:TEAM-03"
-                      state={write.pending === row.membershipId ? { kind: "busy", label: "Removing\u2026" } : { kind: "enabled" }}
-                      onClick={() => onRemove?.(row.membershipId)}
-                    >
-                      {copy.remove}
-                    </Button>
-                  ) : (
-                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
-                  ),
-              },
-            ]}
-          />
-        </div>
-      </section>
-
       <section aria-label={copy.invitations} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.invitations}</h2>
         {permissions.invitesWrite.ok ? (
@@ -812,6 +727,91 @@ export function TeamView({
                         {copy.withdraw}
                       </Button>
                     </span>
+                  ) : (
+                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+                  ),
+              },
+            ]}
+          />
+        </div>
+      </section>
+
+      <section aria-label={copy.members} data-el="role-permission-state" style={{ marginTop: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.members}</h2>
+        <div style={{ marginTop: 8 }}>
+          <DataTable
+            collection="members"
+            caption={copy.teamMembers}
+            rows={[...members]}
+            rowKey={(row) => row.membershipId}
+            columns={[
+              { id: "name", header: "Member", render: (row) => row.name },
+              { id: "email", header: "Email", render: (row) => row.email ?? "Not served" },
+              {
+                id: "role",
+                header: "Role",
+                render: (row) =>
+                  permissions.membersWrite.ok ? (
+                    <select
+                      data-member-role={row.membershipId}
+                      data-ctl="gated:TEAM-02 role"
+                      value={row.role}
+                      onChange={(event) => onChangeRole?.(row.membershipId, event.target.value)}
+                      style={{ minHeight: 44, padding: "6px 8px" }}
+                    >
+                      {["admin", "collaborator", "reviewer", "guest"].map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span data-member-role-readonly={row.membershipId} data-el="role-permission-state">
+                      {row.role}
+                    </span>
+                  ),
+              },
+              { id: "status", header: "Status", render: (row) => row.status },
+              {
+                id: "workspaces",
+                header: "Workspaces",
+                render: (row) =>
+                  permissions.membersWrite.ok && row.userId && workspaces.length > 0 ? (
+                    <select
+                      multiple
+                      data-member-workspaces={row.userId}
+                      onChange={(event) =>
+                        onAssignWorkspaces?.(
+                          row.userId as string,
+                          Array.from(event.target.selectedOptions).map((option) => option.value),
+                        )
+                      }
+                      style={{ minHeight: 44 }}
+                    >
+                      {workspaces.map((workspace) => (
+                        <option key={workspace.id} value={workspace.id}>
+                          {workspace.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
+                  ),
+              },
+              {
+                id: "remove",
+                header: "Remove",
+                render: (row) =>
+                  permissions.membersWrite.ok ? (
+                    <Button
+                      variant="quiet"
+                      data-member-remove={row.membershipId}
+                      data-ctl="gated:TEAM-03"
+                      state={write.pending === row.membershipId ? { kind: "busy", label: "Removing\u2026" } : { kind: "enabled" }}
+                      onClick={() => onRemove?.(row.membershipId)}
+                    >
+                      {copy.remove}
+                    </Button>
                   ) : (
                     <span style={{ color: "var(--ledger-ink-tertiary)" }}>&mdash;</span>
                   ),

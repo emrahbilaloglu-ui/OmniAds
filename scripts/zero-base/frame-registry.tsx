@@ -1235,6 +1235,7 @@ export const FRAMES: readonly FrameSpec[] = [
   ]) },
   { id: "H46", leaf: "L-ME-ACCOUNT", state: "account-security", width: 1440, theme: "light", render: () => (
     <>
+      <LanguageView current="en" />
       <AccountSecurityView
         name="Dana Whitfield"
         email="dana@halcyonsupply.example"
@@ -1242,7 +1243,6 @@ export const FRAMES: readonly FrameSpec[] = [
         onSaveProfile={() => {}}
         onChangePassword={() => {}}
       />
-      <LanguageView current="en" />
     </>
   ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },

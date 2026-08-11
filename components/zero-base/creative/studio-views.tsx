@@ -66,32 +66,11 @@ export function BriefsView({
   return (
     <Surface title={copy.creativeBriefs}>
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
-        <p style={{ margin: 0, fontSize: 12 }}>
-          <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>
-            {copy.backToCreatives}
-          </Link>
-        </p>
         {error ? (
           <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {error}
           </p>
         ) : null}
-        <div>
-          {canCreate ? (
-            <Button
-              variant="secondary"
-              data-brief-create=""
-              data-ctl="live:CREATIVE-07 status"
-              onClick={onCreate}
-            >
-              {copy.createBriefFromCreative}
-            </Button>
-          ) : (
-            <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
-              {createBlockedReason}
-            </p>
-          )}
-        </div>
 
         <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {/* Stated rather than discovered by trying: a brief is lineage. */}
@@ -123,6 +102,27 @@ export function BriefsView({
             },
           ]}
         />
+        <p style={{ margin: 0, fontSize: 12 }}>
+          <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.backToCreatives}
+          </Link>
+        </p>
+        <div>
+          {canCreate ? (
+            <Button
+              variant="secondary"
+              data-brief-create=""
+              data-ctl="live:CREATIVE-07 status"
+              onClick={onCreate}
+            >
+              {copy.createBriefFromCreative}
+            </Button>
+          ) : (
+            <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
+              {createBlockedReason}
+            </p>
+          )}
+        </div>
       </div>
     </Surface>
   );
@@ -339,13 +339,6 @@ export function SharesView({
       <section aria-label={copy.createAShare} style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.createAShare}</h2>
         <TextInput label={copy.title} data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <TextInput
-          label={copy.expiresAt}
-          data-share-expires=""
-          data-ctl="live:CREATIVE-10 expiry"
-          value={expiresAt}
-          onChange={(e) => setExpiresAt(e.target.value)}
-        />
         <div data-el="share-tiers">
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
@@ -376,6 +369,13 @@ export function SharesView({
           </label>
         ) : null}
         </div>
+        <TextInput
+          label={copy.expiresAt}
+          data-share-expires=""
+          data-ctl="live:CREATIVE-10 expiry"
+          value={expiresAt}
+          onChange={(e) => setExpiresAt(e.target.value)}
+        />
         <div>
           <Button
             variant="secondary"

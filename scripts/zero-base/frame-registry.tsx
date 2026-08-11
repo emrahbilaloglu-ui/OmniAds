@@ -63,6 +63,7 @@ import {
 import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
+import { LoginView } from "@/components/zero-base/auth/login-view";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
 import { AgencyDeskView } from "@/components/zero-base/agency/agency-desk-view";
 import { PublicSharePage } from "@/components/zero-base/creative/public-share-page";
@@ -900,7 +901,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => <WithheldExplainer /> },
   { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => homeFrame(true) },
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
-  { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <InviteStatePanel state="login_required" token="t" invitedEmail="ada@x.test" /> },
+  { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" failure={{ message: "That email and password do not match an account.", retryAfterSeconds: null, offline: false }} /> },
   { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => <EmptyState reason="No results were served for that query." /> },
   { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <LoadingState label="Switching workspace" /> },
   { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => homeFrame(true) },

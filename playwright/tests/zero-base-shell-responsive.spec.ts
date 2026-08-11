@@ -181,3 +181,87 @@ for (const width of [1440, 390]) {
     });
   }
 }
+
+/**
+ * WP-11 · H03/H04/H08 — Client Home at 1440, 390 and 320 in both themes.
+ *
+ * Rendered from the real contract through the real components, so the checks
+ * are about the surface's truth rules rather than its pixels: no fabricated
+ * zero, no percentage where there is no comparison, a cost metric coloured by
+ * meaning rather than by its arrow, both banner severities visible at once, and
+ * a failed refresh that keeps the previous figures on screen.
+ */
+for (const width of [1440, 390, 320]) {
+  for (const theme of THEMES) {
+    test(`client home — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `home-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      // No page-level horizontal scroll at any width.
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth, `home scrolls horizontally at ${width}px`).toBeLessThanOrEqual(
+        overflow.clientWidth,
+      );
+
+      // Every metric card is present, including the unavailable one.
+      expect(await page.locator("[data-metric-card]").count()).toBe(6);
+      await expect(page.locator('[data-metric-card="aov"]')).toHaveAttribute(
+        "data-availability",
+        "unavailable",
+      );
+
+      // An unavailable metric renders an em dash, never a zero.
+      await expect(
+        page.locator('[data-metric-card="aov"] [data-metric-value]'),
+      ).toHaveText("—");
+
+      // A metric with no comparison states the reason instead of 0.0%.
+      const noComparison = page.locator('[data-metric-card="orders"] [data-comparison="unavailable"]');
+      await expect(noComparison).toBeVisible();
+      expect(await noComparison.textContent()).not.toMatch(/0\.0\s*%/);
+
+      // Direction and desirability disagree on a rising cost metric.
+      const cpa = page.locator('[data-metric-card="cpa"] [data-comparison="available"]');
+      await expect(cpa).toHaveAttribute("data-sentiment", "negative");
+      expect(await cpa.textContent()).toContain("▲");
+
+      // Rising spend stays neutral.
+      await expect(
+        page.locator('[data-metric-card="spend"] [data-comparison="available"]'),
+      ).toHaveAttribute("data-sentiment", "neutral");
+
+      // Both banner severities are visible together.
+      await expect(page.locator('[data-banner="hard"]')).toBeVisible();
+      await expect(page.locator('[data-banner="partial"]')).toBeVisible();
+
+      // A failed refresh keeps the previous figures and says they are unchanged.
+      await expect(page.locator('[data-refresh-notice="failed"]')).toContainText("unchanged");
+
+      // Money never claims an unproven currency was observed.
+      await expect(
+        page.locator('[data-metric-card="revenue"] [data-money-proof="configured-only"]'),
+      ).toContainText("not observed");
+
+      // Every chart offers its values as a table.
+      const charts = await page.locator("svg[role='img']").count();
+      expect(await page.locator("[data-sparkline-toggle]").count()).toBe(charts);
+
+      // Source health lists each source with its state.
+      await expect(page.locator("[data-source-health]")).toBeVisible();
+      expect(await page.locator("[data-source]").count()).toBe(3);
+
+      await context.close();
+    });
+  }
+}

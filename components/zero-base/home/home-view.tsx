@@ -1,0 +1,100 @@
+"use client";
+
+/**
+ * Client Home (H03/H04/H08).
+ *
+ * A new composition, not the legacy dashboard body: it renders the metric
+ * contract, which is the only thing allowed to say what a number means.
+ *
+ * Refresh keeps the last truthful content on screen. Blanking to skeletons
+ * while a refresh is in flight replaces known-good numbers with nothing, and if
+ * the refresh then fails the operator is left worse off than before they asked.
+ * The stale content stays, labelled stale, until something better arrives.
+ */
+import { useState } from "react";
+
+import { MetricCard } from "@/components/zero-base/home/metric-card";
+import { BannerStack, SourceHealthPanel } from "@/components/zero-base/home/source-health";
+import { Button } from "@/components/zero-base/primitives/button";
+import { buildBannerStack, type HomeContract } from "@/lib/zero-base/home/metric-contract";
+
+export type HomeRefreshState = "idle" | "refreshing" | "failed";
+
+export function HomeView({
+  contract,
+  scopeLine,
+  refreshState = "idle",
+  onRefresh,
+}: {
+  contract: HomeContract;
+  /** Business · account · window, supplied by the shell's resolved scope. */
+  scopeLine: string;
+  refreshState?: HomeRefreshState;
+  onRefresh?: () => void;
+}) {
+  const [banners] = useState(() => buildBannerStack(contract.sources));
+
+  return (
+    <div data-home-surface="" data-refresh-state={refreshState}>
+      <header style={{ marginBottom: 16 }}>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>Home</h1>
+        <p data-scope-line="" style={{ margin: "4px 0 0", fontSize: 12, lineHeight: "16px", color: "var(--ledger-ink-tertiary)" }}>
+          {scopeLine} · {contract.window.startDate} to {contract.window.endDate}
+        </p>
+      </header>
+
+      <BannerStack banners={banners} />
+
+      {/* Refresh never blanks the surface. While it runs, and if it fails, the
+          previous numbers stay visible and are labelled for what they are. */}
+      {refreshState !== "idle" ? (
+        <p
+          role="status"
+          aria-live="polite"
+          data-refresh-notice={refreshState}
+          style={{
+            margin: "0 0 16px",
+            padding: "10px 14px",
+            borderRadius: "var(--ledger-radius-card)",
+            border: "1px dashed var(--ledger-border-control)",
+            fontSize: 12.5,
+            lineHeight: "18px",
+            color: "var(--ledger-ink-secondary)",
+          }}
+        >
+          {refreshState === "refreshing"
+            ? "Refreshing. The figures below are the last ones we served."
+            : "Refresh failed. The figures below are the last ones we served, unchanged."}
+        </p>
+      ) : null}
+
+      <section
+        aria-label="Key metrics"
+        data-metric-grid=""
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        {contract.metrics.map((metric) => (
+          <MetricCard key={metric.key} metric={metric} />
+        ))}
+      </section>
+
+      <SourceHealthPanel sources={contract.sources} />
+
+      {onRefresh ? (
+        <Button
+          variant="secondary"
+          onClick={onRefresh}
+          state={refreshState === "refreshing" ? { kind: "busy", label: "Refreshing…" } : { kind: "enabled" }}
+          style={{ marginTop: 16 }}
+        >
+          Refresh
+        </Button>
+      ) : null}
+    </div>
+  );
+}

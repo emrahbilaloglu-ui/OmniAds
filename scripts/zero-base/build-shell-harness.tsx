@@ -21,6 +21,8 @@ import { ContextBar } from "@/components/zero-base/shell/context-bar";
 import { Rail } from "@/components/zero-base/shell/rail";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { buildAgencyDirectoryPage } from "@/lib/zero-base/agency-projection";
+import { HomeView } from "@/components/zero-base/home/home-view";
+import { toHomeMetric, type HomeContract } from "@/lib/zero-base/home/metric-contract";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
 import { THEME_ATTRIBUTE } from "@/lib/theme";
 
@@ -99,6 +101,91 @@ export function harnessFileName(width: number, theme: string): string {
 }
 
 export const AGENCY_HARNESS_WIDTHS = [1440, 390] as const;
+/** H03/H04/H08: desktop plus both mobile widths the design draws. */
+export const HOME_HARNESS_WIDTHS = [1440, 390, 320] as const;
+
+export function homeHarnessFileName(width: number, theme: string): string {
+  return `home-${width}-${theme}.html`;
+}
+
+/**
+ * Client Home from the real contract and the real components.
+ *
+ * The fixture deliberately mixes states the surface must survive: an
+ * unavailable metric, a metric with no comparison, a cost metric that rose, a
+ * neutral spend, and both banner severities at once.
+ */
+function homeMarkup(width: number): string {
+  const narrow = width < DRAWER_BREAKPOINT;
+
+  const spark = [
+    { date: "2026-08-05", value: 120 },
+    { date: "2026-08-06", value: null },
+    { date: "2026-08-07", value: 180 },
+    { date: "2026-08-08", value: 150 },
+  ];
+
+  const build = (
+    metricKey: string,
+    title: string,
+    unit: "currency" | "count" | "ratio",
+    value: number | null,
+    previousValue: number | null,
+    changePct: number | null,
+    status: "available" | "partial" | "unavailable" = "available",
+  ) =>
+    toHomeMetric({
+      metricKey,
+      card:
+        status === "unavailable"
+          ? undefined
+          : {
+              id: metricKey,
+              title,
+              value,
+              previousValue,
+              changePct,
+              sparklineData: spark.filter((point) => point.value !== null) as Array<{
+                date: string;
+                value: number;
+              }>,
+              trendDirection: "neutral",
+              dataSource: { key: "shopify_ledger", label: "Shopify ledger" },
+              status,
+              unit,
+            },
+      mode: "previous_period",
+      currency: "USD",
+      currencyProof: "configured-only",
+      unavailableReason: "Meta is not connected for this business.",
+    });
+
+  const contract: HomeContract = {
+    metrics: [
+      build("revenue", "Revenue", "currency", 48213, 41200, 17),
+      build("spend", "Spend", "currency", 12480, 9900, 26),
+      build("blended_roas", "Blended ROAS", "ratio", 3.86, 4.16, -7.2),
+      build("cpa", "Blended CPA", "currency", 31.4, 26.2, 19.8),
+      build("orders", "Orders", "count", 397, null, null),
+      build("aov", "AOV", "currency", null, null, null, "unavailable"),
+    ],
+    sources: [
+      { key: "meta", label: "Meta", state: "unavailable", reason: "Token expired.", freshness: "unknown", lastUpdatedAt: null },
+      { key: "ga4", label: "GA4", state: "partial", reason: "Window incomplete.", freshness: "stale", lastUpdatedAt: "2026-08-06T09:00:00Z" },
+      { key: "shopify", label: "Shopify", state: "ok", reason: null, freshness: "fresh", lastUpdatedAt: "2026-08-11T08:00:00Z" },
+    ],
+    window: { startDate: "2026-08-01", endDate: "2026-08-11" },
+    comparisonMode: "previous_period",
+  };
+
+  const body = renderToStaticMarkup(
+    <HomeView contract={contract} scopeLine="Grandmix · act_298410771" refreshState="failed" />,
+  );
+
+  return `<div data-adc-ui="zero-base" data-shell style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+  <main id="zero-base-main" tabindex="-1" style="flex:1 1 auto;min-width:0;min-height:0;padding:${narrow ? 16 : 40}px;overflow-x:auto;overflow-y:auto">${body}</main>
+</div>`;
+}
 
 export function agencyHarnessFileName(width: number, theme: string): string {
   return `agency-${width}-${theme}.html`;
@@ -173,6 +260,22 @@ function main() {
 <body>${body}</body>
 </html>`;
       writeFileSync(path.join(OUT_DIR, harnessFileName(width, theme)), html);
+      count += 1;
+    }
+  }
+
+  for (const width of HOME_HARNESS_WIDTHS) {
+    const body = homeMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Home harness ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, homeHarnessFileName(width, theme)), html);
       count += 1;
     }
   }

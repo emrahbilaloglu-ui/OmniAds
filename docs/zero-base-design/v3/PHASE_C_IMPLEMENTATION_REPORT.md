@@ -1,7 +1,7 @@
 # Phase C Implementation Report — WP-11 … WP-15
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase B accepted head:** `da7eb3298` (its last code commit: `aaadbdd58`) · **Phase C head:** `8c9e13eb8`
+**Phase B accepted head:** `da7eb3298` (its last code commit: `aaadbdd58`) · **Phase C head:** `7889d4812`
 **Authoritative plan:** `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
 (SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`)
 
@@ -11,10 +11,31 @@ read; no rollout was activated; WP-16 and WP-27B were not started.
 
 ---
 
-## 0.0 · Acceptance review rejected the first completion claim
+## 0.0 · Acceptance review rejected the completion claim twice
 
-**This report originally claimed `PHASE_C_COMPLETE` at `55b442178`. That claim
-was wrong.** Acceptance review found WP-13, WP-14 and WP-15 materially
+**Both earlier `PHASE_C_COMPLETE` claims were wrong.** They are recorded here
+rather than smoothed over, because each says something about how the work
+failed.
+
+### Second review — a WP-14 production-contract defect at `8c9e13eb8`
+
+The ceremony named `/api/meta/adsets/[adsetId]/bid`. **That route does not
+exist**; the real one is `apply-bid`. And `DecisionsClient` posted
+`{businessId, mutationId}` to every endpoint — a body all four handlers refuse
+on contract grounds. Every offered action would have failed.
+
+Both defects survived a green suite for one reason: **the component tests
+mocked a generic dispatch function**, so no body was ever compared to a real
+handler and no path was ever resolved against a real route. A mock of the thing
+under test proves the mock.
+
+Corrected by `7889d4812` (§4.2), which replaces that mock with 38 integration
+tests that import and drive the actual route modules. Those tests immediately
+earned their keep: they caught a *third* contract error I had just written —
+the ad-level body without `actionOrigin`, which the real handler rejected with
+`action_origin_required`.
+
+### First review — WP-13, WP-14 and WP-15 materially incomplete at `55b442178` Acceptance review found WP-13, WP-14 and WP-15 materially
 incomplete behind green unit tests, and every defect it named was real:
 
 | WP | What the first attempt actually shipped | Correction |
@@ -23,7 +44,7 @@ incomplete behind green unit tests, and every defect it named was real:
 | 14 | A pure model and a preflight branch. **No ceremony was mounted**, and the canonical preflight was **not decision-bound**: it accepted business, account and entity from the client, merely nulled the expected fields, and rejected every grain except `ad`. | `5bbfc2ca7` |
 | 15 | History rendered `rows={[]}` behind a comment promising data "in a later slice". Intelligence read one boolean and drew one row. `AutomationView` received no `onEngage`, so confirming the stop closed a dialog and changed nothing. `buildProviderPostures` hard-coded Google to `serving`, so the UI printed "Serving" for a provider nobody had queried. | `8c9e13eb8` |
 
-The three original commits are retained unmodified; nothing was rewritten or
+Every original commit is retained unmodified; nothing was rewritten or
 relabelled. Sections 3, 4 and 5 below describe each work package as it stands
 after correction, and say plainly which part came from which commit.
 
@@ -209,7 +230,7 @@ may well own.
 **Rollback.** The column and both indexes are additive and nullable; existing
 rows and callers are unaffected. `git revert ada7a6bf4 d3a3e10e9`.
 
-## 4 · WP-14 — Preflight and the manual write ceremony (H13–H16, Flow B) · `4486eaaa4` → `5bbfc2ca7`
+## 4 · WP-14 — Preflight and the manual write ceremony (H13–H16, Flow B) · `4486eaaa4` → `5bbfc2ca7` → `7889d4812`
 
 **Files.** `lib/zero-base/meta/mutation-ceremony.ts`,
 `app/api/meta/decision-action/preflight/route.ts` (`contract=zero-base.v1`
@@ -294,6 +315,77 @@ browser supplies neither path nor entity id.
 
 **Rollback.** `git revert 5bbfc2ca7 4486eaaa4`. The flag is set in no
 environment file, so the UI is unreachable either way.
+
+### 4.2 · The second correction — `7889d4812`
+
+`5bbfc2ca7` mounted a ceremony that could not have worked. Two defects, both
+hidden by the same testing mistake.
+
+**The endpoint did not exist.** `bid` mapped to `/api/meta/adsets/[adsetId]/bid`.
+The real route is **`apply-bid`**. Nothing ever resolved that string against the
+filesystem, so it read as correct for as long as nobody clicked it.
+
+**The body was generic.** The client posted `{businessId, mutationId}` to every
+endpoint. Each of these handlers refuses that outright — a fact now asserted as
+a test: the old body returns `400 action_origin_required` from the real handler.
+
+The cause of both was the same: **the tests mocked a generic dispatch
+function**, so the suite proved the mock, not the contract.
+
+**What the handlers actually require**, read from the handlers themselves and
+now encoded in one place (`dispatch-contract.ts`):
+
+| Route | Contract |
+|---|---|
+| `campaigns/[campaignId]/{pause,resume}`, `adsets/[adsetId]/{pause,resume}` | `actionOrigin: "manual_operator_v1"`, `manualConfirmation: "explicit_operator_confirmation"`, `businessId`, server-presented `providerAccountId`. No native lineage or origin-alias field. |
+| `adsets/[adsetId]/apply-bid` | The above **plus** `bidAmountMinor` as a positive integer. `bidValue`/`bidValueMinor` are refused. |
+| `ads/[adId]/{pause,resume}` | The same origin and confirmation **plus** the exact identity: `providerAccountId`, an `adId` equal to the route path, and a `creativeId` that still matches the resolved target. |
+| `ads/[adId]/duplicate` | The above **plus** `targetAdsetId`. `activateAfterCreate: true` is refused. |
+
+The ad-level origin requirement is worth naming: I first wrote that body
+without it, and the new integration test failed with the handler's own
+`action_origin_required`. That is the failure the previous mock could not
+produce.
+
+**The server issues the dispatch contract.** The preflight response now carries
+a descriptor — a concrete path with the proven id already substituted, and the
+exact body. The browser invents no business, account, entity, creative, expected
+state, route, origin or confirmation; it adds only the operator choices the
+descriptor declares.
+
+**On the token option.** The review preferred an opaque server-bound token.
+Resolving one requires a new authoritative mutation endpoint, and a parallel
+mutation API is precisely what this work package forbids — so the descriptor is
+server-issued instead, and **the existing handler is the revalidation**: it
+re-resolves the true target from the warehouse and refuses on any mismatch
+(`provider_account_mismatch`, `creative_identity_mismatch`, `ad_identity_mismatch`),
+so a tampered descriptor fails closed there rather than landing anywhere.
+
+**Withheld rather than broken.** An action whose required inputs cannot be
+proven is withheld with a stated reason instead of rendered as a control that
+can only fail: an ad with no recorded creative identity, a bid on an account
+whose currency could not be verified, a duplicate whose source has no known
+parent ad set.
+
+**Operator fields, validated before the confirmation.** Bid amount in the
+account's own currency — stated as minor units of that currency, with no
+conversion anywhere in the path — and destination ad set plus optional name for
+duplicate. There is **no activate-after-create toggle**: the route refuses
+activation outright, so the constraint is stated rather than offered.
+
+**A fresh preflight at dispatch time.** After the operator confirms, the target
+is re-checked and the body sent is the *newly issued* descriptor's, not the one
+behind the confirmation. A re-check that no longer says ready sends nothing.
+
+**Evidence.** 38 integration tests import and drive the real route modules —
+correct paths and bodies for all three grains, every missing-field refusal, bid
+validation, duplicate destination, activation refusal, and the absence of every
+field a handler would reject. 38 component tests cover collect/validate,
+withholding, the dispatch-time re-check, one-attempt idempotency across a retry,
+and zero call sites when the server flag is absent. No provider is contacted:
+the integration tests stop at a sentinel that fires before any write path.
+
+**Rollback.** `git revert 7889d4812 5bbfc2ca7 4486eaaa4`.
 
 ## 5 · WP-15 — Intelligence, History, Automation, Meta stop (H17–H20, Flow I) · `55b442178` → `8c9e13eb8`
 
@@ -406,7 +498,7 @@ Run at `55b442178` unless noted.
 | Font provenance | `npm run zero-base:fonts:verify` | exit 0 |
 | Typecheck | `npm run typecheck` | 0 errors |
 | Lint | `npm run lint` | 0 problems |
-| Full Vitest | `npm test` | **8314 passed · 0 failed** (781 files; 61 skipped, 63 todo pre-existing) |
+| Full Vitest | `npm test` | **8369 passed · 0 failed** (782 files; 61 skipped, 63 todo pre-existing) |
 | Migrations from zero | `npm run test:migrations-from-zero` | PASS (incl. the extended workflow-overlay seam and the new decision-bound-target seam) |
 | Provider account selection seam | `npm run test:selection-race-seam` | PASS (S1–S7), exit 0 |
 | Creative V2 safety | `npm run creative:v2:safety` | exit 0 |
@@ -428,6 +520,7 @@ pre-existing files Phase C modified is:
 ```
 app/api/meta/decision-action/preflight/route.ts
 app/api/meta/decision-action/preflight/route.test.ts
+app/api/meta/{campaigns,adsets,ads}/**  (imported by tests only; unmodified)
 app/api/meta/decision-workflow/route.ts
 app/api/meta/decision-workflow/route.test.ts
 lib/decision-workflow-store.ts
@@ -457,7 +550,7 @@ no provider request can be formed. Every sync lane and both live-read flags are
 off. `/Users/harmelek/Adsecute/.env.local` was deliberately not used: it points
 at production over an SSH tunnel.
 
-Result at `8c9e13eb8`: **71 passed, 3 failed, 1 skipped.** The three failures
+Result at `7889d4812`: **71 passed, 3 failed, 1 skipped.** The three failures
 are:
 
 ```
@@ -482,7 +575,7 @@ Per work package, newest first:
 
 ```
 git revert 8c9e13eb8 55b442178   # WP-15 + its correction
-git revert 5bbfc2ca7 4486eaaa4   # WP-14 + its correction
+git revert 7889d4812 5bbfc2ca7 4486eaaa4   # WP-14 + both corrections
 git revert ada7a6bf4 d3a3e10e9   # WP-13 + its correction
 git revert ce8e8c389             # WP-12
 git revert 33d16dd5f             # WP-11
@@ -501,9 +594,13 @@ environment file, so its UI is unreachable whether or not the commit is present.
    laundered green by any Phase C work.
 2. **The mutation UI has never been exercised end to end against a provider**,
    by design. The ceremony is proven as a pure function, at the preflight route
-   boundary, and as a mounted component driven by real user events over stubbed
-   transports. `ZERO_BASE_MUTATION_UI_ENABLED` is off everywhere, turning it on
-   is outside this phase's authority, and no test or E2E run reaches Meta.
+   boundary, as a mounted component driven by real user events, and — since
+   `7889d4812` — with every dispatch body posted to the **actual** route
+   handlers, which accept it and stop at an authorization sentinel.
+   `ZERO_BASE_MUTATION_UI_ENABLED` is off everywhere, turning it on is outside
+   this phase's authority, and no test or E2E run reaches Meta. What remains
+   unproven is everything past authorization: the provider write itself, its
+   verification, and reconciliation of an ambiguous outcome.
 3. **The three legacy smoke failures in §6.2 remain failing.** They predate
    Phase C, they need data a credential-free local cluster cannot hold, and
    nothing here fixes them.
@@ -521,7 +618,7 @@ environment file, so its UI is unreachable whether or not the commit is present.
 
 ## 9 · Worktree state
 
-Clean and fully committed at `8c9e13eb8` on
+Clean and fully committed at `7889d4812` on
 `codex/adsecute-zero-base-implementation`. Nothing was pushed. `.env.local` was
 written only inside the smoke run and removed by its cleanup trap; it is
 untracked and absent.
@@ -532,8 +629,8 @@ Phase C commit chain, in order:
 6fef159b5  ledger correction (stale WP-10 figure)
 33d16dd5f  WP-11
 ce8e8c389  WP-12
-d3a3e10e9  WP-13            → ada7a6bf4  WP-13 correction
-4486eaaa4  WP-14            → 5bbfc2ca7  WP-14 correction
-55b442178  WP-15            → 8c9e13eb8  WP-15 correction
-79b33a187  docs             ,  57edb254c  docs
+d3a3e10e9  WP-13   → ada7a6bf4  WP-13 correction
+4486eaaa4  WP-14   → 5bbfc2ca7  WP-14 correction 1 → 7889d4812  WP-14 correction 2
+55b442178  WP-15   → 8c9e13eb8  WP-15 correction
+79b33a187  docs · 57edb254c  docs · 01407b2dc  docs
 ```

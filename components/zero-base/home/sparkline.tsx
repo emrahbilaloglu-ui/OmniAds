@@ -95,6 +95,7 @@ export function Sparkline({
         type="button"
         aria-expanded={showTable}
         aria-controls={tableId}
+        data-ctl="live:chart-table-toggle"
         onClick={() => setShowTable((current) => !current)}
         data-sparkline-toggle=""
         style={{

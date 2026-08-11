@@ -217,6 +217,6 @@ describe("G7 mutation controls — these must fail if the real controls regress"
     // case names the reason so the failure is diagnosable at unit level.
     expect(document.querySelector('[data-el="home-kpis"]')).not.toBeNull();
     expect(document.querySelector('[data-el="source-readiness"]')).not.toBeNull();
-    expect(document.querySelector('[data-collection="h03-sources"]')).not.toBeNull();
+    expect(document.querySelector('[data-collection="sources"]')).not.toBeNull();
   });
 });

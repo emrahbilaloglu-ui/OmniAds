@@ -35,6 +35,7 @@ export function PublicSharePage({ share }: { share: PublicShare }) {
   return (
     <main
       data-public-share="ready"
+      data-el="public-share"
       data-share-audience={share.audience}
       style={{ maxWidth: 960, margin: "0 auto", padding: 24 }}
     >

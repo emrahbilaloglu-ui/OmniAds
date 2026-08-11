@@ -70,6 +70,15 @@ export interface PerformanceRow {
 
 export type MediaState =
   | { kind: "ready"; url: string; origin: string }
+  /** Video needs its poster and captions; both are contract, not enhancement. */
+  | { kind: "video"; url: string; poster: string; captionsUrl: string | null; origin: string }
+  /**
+   * Distinct from `missing`. A failure can be retried; an asset that was never
+   * captured cannot, and offering retry for it sends the user round a loop that
+   * cannot succeed. The reason is carried verbatim so a transient stream error
+   * is distinguishable from a revoked asset.
+   */
+  | { kind: "failed"; reason: string; alt: string }
   | { kind: "missing"; reason: string };
 
 export interface PerformanceDisclosure {

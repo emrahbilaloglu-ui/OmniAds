@@ -45,7 +45,14 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
   const tone =
     outcome.kind === "confirmed" ? "var(--ledger-semantic-ok)" : "var(--ledger-semantic-warn)";
   return (
-    <p role="status" data-ceremony={`${name}:${outcome.kind}`} style={{ margin: "6px 0 0", fontSize: 12.5, color: tone }}>
+    <p
+      role="status"
+      data-ceremony={`${name}:${outcome.kind}`}
+      // An unknown outcome is the reconciliation state: the write was sent and
+      // the confirming read did not settle it either way.
+      data-el={outcome.kind === "unknown" ? "reconciliation-state" : undefined}
+      style={{ margin: "6px 0 0", fontSize: 12.5, color: tone }}
+    >
       {outcome.detail}
     </p>
   );

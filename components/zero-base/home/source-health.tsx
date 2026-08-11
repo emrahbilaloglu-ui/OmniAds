@@ -73,7 +73,7 @@ export function SourceHealthPanel({ sources }: { sources: readonly HomeSourceSta
         {copy.whereNumbersFrom}
       </h2>
       <table
-        data-collection="h03-sources"
+        data-collection="sources"
         style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}
       >
         <caption style={{ textAlign: "left", fontSize: 12, color: "var(--ledger-ink-tertiary)", paddingBottom: 6 }}>

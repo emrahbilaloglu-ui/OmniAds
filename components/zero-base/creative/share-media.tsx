@@ -50,6 +50,7 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
         <button
           type="button"
           data-share-media-retry=""
+          data-ctl="live:media-retry"
           onClick={retry}
           style={{
             minHeight: 44,
@@ -73,8 +74,11 @@ export function ShareMedia({ source }: { source: ShareMediaSource | null }) {
         key={attempt}
         ref={videoRef}
         data-share-media="video"
-        // Native controls are keyboard operable; a custom control set here
-        // would have to reimplement that and would eventually get it wrong.
+        // The video element *is* the play control here: native controls are
+        // keyboard operable, expose play/pause state to assistive technology
+        // and handle captions. A custom button set would have to reimplement
+        // all of that and would eventually get it wrong.
+        data-ctl="live:media-play"
         controls
         preload="metadata"
         playsInline

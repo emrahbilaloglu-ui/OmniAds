@@ -38,6 +38,7 @@ import { RenderedWidgetCard, ReportLibraryView, ReportShareDisabled } from "@/co
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
+import { PublicSharePage } from "@/components/zero-base/creative/public-share-page";
 import {
   EmptyState,
   ErrorState,
@@ -180,6 +181,31 @@ const homeFrame = (ready: boolean) => {
  * If two frames render identically, that is a crosswalk defect to fix, not a
  * digest to perturb.
  */
+
+/** A served public share, with one video creative so media states are real. */
+const publicShare = (kind: "image" | "video") => ({
+  title: "Halcyon Supply Co. — August creative review",
+  dateRange: "Jul 13 – Aug 9",
+  expiresAt: "2026-09-08",
+  audience: "buyer" as const,
+  financialWarning: "Figures are the advertiser's own reported results.",
+  captionsSupported: false as const,
+  creatives: [
+    {
+      key: "k1",
+      name: "Summer hero",
+      media: {
+        kind,
+        url: kind === "video" ? "https://example.test/hero.mp4" : "https://example.test/hero.jpg",
+        captionsUrl: kind === "video" ? "https://example.test/hero.vtt" : null,
+        captionsLabel: kind === "video" ? "English" : null,
+        alt: "Summer hero creative",
+      },
+      mediaUnavailableReason: null,
+    },
+  ],
+});
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -336,19 +362,19 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H46", leaf: "L-ME-ACCOUNT", state: "account", width: 1440, theme: "light", render: () => business(ALLOWED) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
   { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "ops", width: 1440, theme: "light", render: () => <CriticalIncidentPath /> },
-  { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <WithheldState reason="This share link is not available." /> },
+  { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <PublicSharePage share={publicShare("image")} /> },
 
   /* ---- H50–H59: mobile / narrow core flows ---- */
   { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => <WithheldExplainer /> },
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
-  { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <WithheldState reason="This share link is not available." /> },
+  { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
   { id: "H56", leaf: "L-C-REP", state: "narrow-reports", width: 390, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
   { id: "H57", leaf: "L-C-M-INT", state: "narrow-integrations", width: 390, theme: "light", render: () => integrations() },
   { id: "H58", leaf: "L-C-M-TEAM", state: "narrow-team", width: 390, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
-  { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <WithheldState reason="This share link is not available." /> },
+  { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 
   /* ---- H60–H66: drawers, scope sheets, switch, return ---- */
   { id: "H60", leaf: "L-C-HOME", state: "drawer-open", width: 390, theme: "light", render: () => <LoadingState label="Opening navigation" /> },
@@ -377,7 +403,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P04", leaf: "L-C-REP-VIEW", state: "table-empty", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ emptyMessage: "No rows were served for this period." })} sourceId="meta_campaigns" /> },
   { id: "P05", leaf: "L-C-CR-PERF", state: "media-missing", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
   { id: "P06", leaf: "L-C-M-TEAM", state: "turkish", width: 1440, theme: "light", render: () => tr(team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED })) },
-  { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 1440, theme: "light", render: () => tr(integrations()) },
+  { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 390, theme: "light", render: () => tr(integrations()) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
 
   /* ---- M01–M09: mobile proof states ---- */

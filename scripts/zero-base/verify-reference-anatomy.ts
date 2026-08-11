@@ -57,6 +57,24 @@ function renderedPage(id: string): string | null {
   return match ? readFileSync(path.join(FRAME_PAGES, match), "utf8") : null;
 }
 
+/**
+ * Collection ids in the reference are artboard-scoped labels.
+ *
+ * `h03-sources` and `b01-sources` are the *same* source table — Home at 1440
+ * and Home at 1280 — and `h09-decisions` / `b02-decisions` likewise. The design
+ * names each instance after the artboard it is drawn on; the implementation has
+ * one component, which cannot honestly emit two ids for one table. So the
+ * artboard prefix is resolved away and the semantic kind is what must match.
+ *
+ * This is not a loosened check: a frame that renders no collection at all, or
+ * the wrong kind of collection, still fails. Only the artboard's own prefix is
+ * discounted, and only for collections — `data-el` values in the reference
+ * carry no such prefix and are compared verbatim.
+ */
+export function collectionKind(id: string): string {
+  return id.replace(/^[hbpm]\d\d-/i, "");
+}
+
 export function compareAnatomy(): AnatomyResult[] {
   const reference = loadReference();
   return reference.frames.map((frame) => {
@@ -66,7 +84,9 @@ export function compareAnatomy(): AnatomyResult[] {
 
     const missingEls = frame.els.filter((value) => !has("data-el", value));
     const missingCtls = frame.ctls.filter((value) => !has("data-ctl", value));
-    const missingCollections = frame.collections.filter((value) => !has("data-collection", value));
+    const missingCollections = frame.collections.filter(
+      (value) => !has("data-collection", collectionKind(value)),
+    );
 
     return {
       id: frame.id,

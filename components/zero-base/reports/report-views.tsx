@@ -466,7 +466,12 @@ export const SHARE_PREREQUISITES = [
 export function ReportShareDisabled() {
   const copy = useCopy();
   return (
-    <section data-report-share="disabled" aria-label={copy.sharing} style={{ marginTop: 20 }}>
+    <section
+      data-report-share="disabled"
+      data-el="share-disabled-panel"
+      aria-label={copy.sharing}
+      style={{ marginTop: 20 }}
+    >
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sharing}</h2>
       <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
         {copy.sharingUnavailable}

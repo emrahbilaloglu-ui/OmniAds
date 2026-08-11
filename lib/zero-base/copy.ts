@@ -32,6 +32,9 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    playing: "Playing",
+    paused: "Paused",
+    cardPosition: "Card {index} of {total}",
     scopeServedNote: "Every value above is served — nothing is recomputed on the client.",
     undo: "Undo",
 
@@ -316,6 +319,9 @@ export const ZERO_BASE_COPY = {
     cancel: "Vazgeç",
     save: "Kaydet",
     close: "Kapat",
+    playing: "Oynatılıyor",
+    paused: "Duraklatıldı",
+    cardPosition: "Kart {index} / {total}",
     scopeServedNote: "Yukarıdaki her değer sunucudan gelir — istemcide hiçbir şey yeniden hesaplanmaz.",
     undo: "Geri al",
 

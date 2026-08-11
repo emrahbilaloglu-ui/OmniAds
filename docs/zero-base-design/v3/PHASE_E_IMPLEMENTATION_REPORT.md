@@ -837,3 +837,96 @@ decision-output file.
    `returnTo`.
 6. The workspace list is walked to at most 50 pages and discloses truncation.
 7. The three baseline smoke failures remain, unchanged and unrelated.
+
+---
+
+## 14 · Fifth audit — correction at `600130a2b`
+
+Acceptance at `ed9e33179` found exactly one remaining defect, and it was real.
+
+### 14.1 · Shopify bypassed the role gate
+
+`IntegrationsView` evaluated the Shopify branch **before** `authorizePermission`,
+so §13.1's role posture never reached Shopify: a guest still received an enabled
+`data-shopify-action` link in both the `external_install` and the `reauthorize`
+state.
+
+This is not a cosmetic ordering bug. Shopify's *start* route is
+session-authenticated only — which is why §13.5 recorded that no `minRole` was
+claimed for it — but its **callback and finalize handlers both require
+`collaborator`**:
+
+| handler | gate |
+|---|---|
+| `app/api/oauth/shopify/callback/route.ts` | `minRole: "collaborator"` |
+| `app/api/oauth/shopify/finalize/route.ts` | `minRole: "collaborator"` |
+
+So a guest who followed the link was sent out to Shopify, through an external
+install, and refused at the very end of it. The refusal belongs before anything
+leaves the product.
+
+The role check now runs first for every provider. A guest sees the same stated
+read-only reason as elsewhere and has **no Shopify anchor at all**, so there is
+no href to follow in either state. For admin and collaborator the honest
+external-install and verified-domain reauthorize semantics are unchanged, and
+the server gates remain the authority.
+
+A second, smaller correction followed from typecheck: the handler-existence
+assertion permitted `finalize` to expose either `GET` or `POST`. It exports only
+`POST`; the assertion is now bound to the real verb.
+
+Six mounted tests — guest + `external_install`, guest + `reauthorize`, a
+no-navigation check across both states, plus retained collaborator and admin
+success paths — and two handler-bound assertions covering the callback/finalize
+gates. The three guest regressions fail against `ed9e33179`; the permitted-role
+tests pass in both, which is what makes them a check on the fix rather than on
+the ordering.
+
+### 14.2 · Gates at `600130a2b`
+
+```
+npm run typecheck                                     → 0 errors
+npm run lint                                          → 0 problems
+npx vitest run                                        → 8954 passed / 0 failed
+                                                        (813 files passed, 4 skipped;
+                                                         61 skipped, 63 todo — pre-existing)
+npm run creative:v2:safety                            → exit 0
+npm run creative:decision:native-ad-frozen-acceptance → exit 0
+npm run zero-base:contract:verify                     → exit 0
+npm run zero-base:contracts:check                     → exit 0
+npm run zero-base:fonts:verify                        → exit 0
+npm run test:zero-base:contract                       → exit 0
+npm run test:zero-base:design                         → exit 0
+npm run test:migrations-from-zero                     → PASS, all DB seams clean
+npm run test:selection-race-seam                      → PASS (S1–S7)
+npm run build                                         → compiled successfully
+npm run test:zero-base:responsive                     → 84/84
+credential-free smoke                                 → 95 passed / 3 failed / 1 skipped
+```
+
+Smoke ran against an ephemeral PostgreSQL created for the run, migrated from
+zero and destroyed afterwards; the throwaway `.env.local` is gitignored and was
+deleted. The three failures are the accepted Phase D baseline spec names.
+
+`git diff 1d769b534..600130a2b` touches no resolver or decision-output file.
+Worktree clean.
+
+### 14.3 · Residual limitations
+
+Unchanged from §13.5, with one correction:
+
+1. Shopify cannot support a first-time in-product round trip; installation is
+   owned by the App Store or store admin, and the surface says so.
+2. **§13.5 item 2 is superseded.** It recorded that no collaborator gate was
+   claimed for Shopify because its start route enforces none. That was true of
+   the start route and misleading about the flow: the callback and finalize
+   handlers do require collaborator, so the UI now applies the same gate to
+   Shopify as to every other provider.
+3. Account assignment covers Meta and Google Ads only; GA4 and Search Console
+   have their own selection panels.
+4. The Shopify repair endpoint performs no read-back of its own; the surface
+   shows what a separate health GET returned, labelled as such.
+5. OAuth error redirects firing before the state is decoded cannot carry
+   `returnTo`.
+6. The workspace list is walked to at most 50 pages and discloses truncation.
+7. The three baseline smoke failures remain, unchanged and unrelated.

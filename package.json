@@ -173,7 +173,7 @@
     "test:zero-base:a11y": "npm run zero-base:shell:harness && npm run zero-base:legibility && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-a11y-chromium",
     "zero-base:visual": "node --import tsx scripts/zero-base/visual-regression.ts",
     "test:zero-base:visual": "npm run zero-base:shell:harness && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-visual-chromium",
-    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive",
+    "test:zero-base:release": "npm run test:zero-base:contract && npm run typecheck && npm run lint && npm run test:zero-base:routes && npm run zero-base:legibility && npm run test:zero-base:locale && npm run test:zero-base:flows && npm run zero-base:reconcile:frames && npm run test:zero-base:design && npm run test:zero-base:a11y && npm run test:zero-base:responsive",
     "zero-base:locale": "node --import tsx scripts/zero-base/verify-locale-coverage.ts",
     "test:zero-base:routes:http": "node --import tsx scripts/zero-base/route-http-smoke.ts",
     "zero-base:perf:bundles": "node --import tsx scripts/zero-base/measure-performance.ts",

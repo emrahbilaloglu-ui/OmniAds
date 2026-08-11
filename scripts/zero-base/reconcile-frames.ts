@@ -152,13 +152,22 @@ if (isMain) {
 
   const coverage = (result.mapped.length / result.totals.all) * 100;
   console.log(`  RECONCILED: ${result.mapped.length}/${result.totals.all} (${coverage.toFixed(1)}%)`);
-  console.log(
-    "\nThis is a measurement, not a gate verdict. G10 is not green until every\n" +
-      "frame in the crosswalk resolves to a captured artifact. Unmapped frames are\n" +
-      "surfaces this programme has not built or not captured; they are listed rather\n" +
-      "than excluded from the denominator.",
-  );
+
   if (result.unmapped.length > 0) {
     console.log(`\n  unmapped (${result.unmapped.length}): ${result.unmapped.join(", ")}`);
   }
+  if (result.missingEvidence.length > 0) {
+    console.log(`\n  mapped but unevidenced (${result.missingEvidence.length}): ${result.missingEvidence.join(", ")}`);
+  }
+
+  // Fail closed. G10 needs the full denominator, and a reconciler that reports
+  // 14% while exiting zero would let the release aggregate go green over it.
+  if (result.mapped.length < result.totals.all) {
+    console.log(
+      `\nFAIL: G10 requires ${result.totals.all}/${result.totals.all}. Every frame must resolve to a\n` +
+        "captured artifact or to an explicit, plan-authorized no-frame contract.",
+    );
+    process.exit(1);
+  }
+  console.log(`\nPASS: all ${result.totals.all} reference frames resolve to captured evidence.`);
 }

@@ -26,6 +26,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import type { RenderFingerprint } from "@/lib/zero-base/render-provenance";
+
 /** Repo root. Resolved from cwd so this module stays CJS-safe for Playwright. */
 const ROOT = process.cwd();
 
@@ -53,6 +55,14 @@ export interface ScreenshotManifest {
   package: string;
   createdAt: string;
   artifactSet: string;
+  /**
+   * The render-affecting tree this capture was taken from.
+   *
+   * Recorded so a later run can prove the evidence still describes the code,
+   * rather than trusting that the commit has not moved on. See
+   * `lib/zero-base/render-provenance.ts`.
+   */
+  provenance: RenderFingerprint;
   entries: ManifestEntry[];
 }
 
@@ -111,6 +121,7 @@ export function buildManifest(input: {
   commit: string;
   wp: string;
   createdAt: string;
+  provenance: RenderFingerprint;
   entries: ManifestEntry[];
 }): ScreenshotManifest {
   assertNotLegacyNameSet(input.entries);
@@ -129,6 +140,7 @@ export function buildManifest(input: {
     package: input.wp,
     createdAt: input.createdAt,
     artifactSet: artifactSetPath(input.commit, input.wp),
+    provenance: input.provenance,
     entries: [...input.entries].sort((a, b) => entryKey(a).localeCompare(entryKey(b))),
   };
 }

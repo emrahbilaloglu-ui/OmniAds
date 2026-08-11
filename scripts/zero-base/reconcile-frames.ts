@@ -18,6 +18,13 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 
 import { FRAMES, SUBSTITUTED_FRAMES } from "@/scripts/zero-base/frame-registry";
 import { compareAnatomy } from "@/scripts/zero-base/verify-reference-anatomy";
+import { DESIGN_ZIP_SHA256 } from "@/scripts/zero-base/extract-design-reference";
+import {
+  compareFingerprints,
+  describeDrift,
+  renderFingerprint,
+  type RenderFingerprint,
+} from "@/lib/zero-base/render-provenance";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -72,23 +79,90 @@ interface ManifestEntry {
   sha256: string;
 }
 
-/** The most recent captured artifact set, with its path. */
-export function latestManifest(): { dir: string; entries: ManifestEntry[] } | null {
+export interface ManifestSelection {
+  dir: string;
+  entries: ManifestEntry[];
+  /** Non-empty when the chosen set no longer describes the working tree. */
+  drift: string[];
+  /** Every set on disk, for the "which one did you mean" failure. */
+  candidates: string[];
+}
+
+/**
+ * The captured set that actually describes the current tree.
+ *
+ * Selection used to be "newest manifest.json by mtime", which is how 92
+ * screenshots taken before thirteen render-affecting files changed went on
+ * passing as current evidence. Recency is not provenance.
+ *
+ * Now every candidate is checked against a content fingerprint of the
+ * render-affecting tree and the accepted archive's digest. Exactly one set must
+ * match. Zero matches is stale evidence; more than one means two sets claim the
+ * same tree and the run cannot tell which was verified, so both are refused.
+ */
+export function selectManifest(): ManifestSelection | null {
   if (!existsSync(ARTIFACTS)) return null;
   const candidates: string[] = [];
   for (const commit of readdirSync(ARTIFACTS)) {
     const commitDir = path.join(ARTIFACTS, commit);
+    if (!statSync(commitDir).isDirectory()) continue;
     for (const set of readdirSync(commitDir)) {
       const manifest = path.join(commitDir, set, "manifest.json");
       if (existsSync(manifest)) candidates.push(manifest);
     }
   }
   if (candidates.length === 0) return null;
-  // Newest wins. Sorting by name picked whichever artifact set happened to sort
-  // last, which was not necessarily the run that just captured.
-  const chosen = candidates.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  const parsed = JSON.parse(readFileSync(chosen, "utf8")) as { entries: ManifestEntry[] };
-  return { dir: path.relative(ROOT, path.dirname(chosen)), entries: parsed.entries };
+
+  const current = renderFingerprint(DESIGN_ZIP_SHA256);
+  const relative = candidates.map((file) => path.relative(ROOT, path.dirname(file)));
+
+  const matching = candidates.filter((file) => {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+      provenance?: { digest?: string };
+    };
+    return parsed.provenance?.digest === current.digest;
+  });
+
+  if (matching.length === 1) {
+    const parsed = JSON.parse(readFileSync(matching[0], "utf8")) as { entries: ManifestEntry[] };
+    return {
+      dir: path.relative(ROOT, path.dirname(matching[0])),
+      entries: parsed.entries,
+      drift: [],
+      candidates: relative,
+    };
+  }
+
+  if (matching.length > 1) {
+    return {
+      dir: "",
+      entries: [],
+      drift: [
+        `${matching.length} artifact sets claim this exact render tree. Evidence must be`,
+        "unambiguous: remove the sets that are not the verified one.",
+        ...matching.map((file) => `  ${path.relative(ROOT, path.dirname(file))}`),
+      ],
+      candidates: relative,
+    };
+  }
+
+  // Nothing matches. Report the drift of the newest set, which is the one a
+  // reader would otherwise have assumed was current.
+  const newest = candidates.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  const parsed = JSON.parse(readFileSync(newest, "utf8")) as {
+    entries: ManifestEntry[];
+    provenance?: RenderFingerprint;
+  };
+  const drift = parsed.provenance
+    ? describeDrift(compareFingerprints(parsed.provenance, current))
+    : ["this capture predates provenance recording and cannot be verified"];
+
+  return {
+    dir: path.relative(ROOT, path.dirname(newest)),
+    entries: parsed.entries,
+    drift,
+    candidates: relative,
+  };
 }
 
 export interface Reconciliation {
@@ -98,10 +172,12 @@ export interface Reconciliation {
   /** Mapped but with no matching capture in the manifest. */
   missingEvidence: string[];
   evidenceDir: string | null;
+  /** Why the selected evidence does not describe this tree. Empty when it does. */
+  drift: string[];
 }
 
 export function reconcile(): Reconciliation {
-  const manifest = latestManifest();
+  const manifest = selectManifest();
   // Frame captures record their leaf as `${frameId}:${LeafId}`, so identity is
   // checked per reference rather than per surface.
   const captured = new Set(
@@ -130,6 +206,7 @@ export function reconcile(): Reconciliation {
     unmapped,
     missingEvidence,
     evidenceDir: manifest?.dir ?? null,
+    drift: manifest?.drift ?? [],
   };
 }
 
@@ -138,6 +215,22 @@ if (isMain) {
   const result = reconcile();
 
   console.log("zero-base H/B/P/M reconciliation (WP-26 step 3 / G10)\n");
+
+  // Provenance first. Everything below describes captured pixels, and pixels
+  // captured from a different tree describe a product that no longer exists.
+  if (result.drift.length > 0) {
+    console.log(`  evidence set: ${result.evidenceDir ?? "(none)"}`);
+    console.log("\n  STALE EVIDENCE — the captured frames do not describe this tree:\n");
+    for (const line of result.drift.slice(0, 24)) console.log(`    ${line}`);
+    if (result.drift.length > 24) {
+      console.log(`    … and ${result.drift.length - 24} more`);
+    }
+    console.log(
+      "\nFAIL: G10 evidence must be captured from the code under test. Recapture with:\n" +
+        "  ZERO_BASE_FRAME_SET=<new-name> npx playwright test playwright/tests/zero-base-frames.spec.ts",
+    );
+    process.exit(1);
+  }
   console.log(
     `  denominators (from the design package's own audit): H ${result.totals.H} · B ${result.totals.B} · ` +
       `P ${result.totals.P} · M ${result.totals.M}  =  ${result.totals.all}`,

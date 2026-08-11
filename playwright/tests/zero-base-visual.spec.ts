@@ -14,6 +14,8 @@ import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { test, expect } from "@playwright/test";
 
+import { renderFingerprint } from "../../lib/zero-base/render-provenance";
+import { DESIGN_ZIP_SHA256 } from "../../scripts/zero-base/extract-design-reference";
 import {
   artifactSetPath,
   buildManifest,
@@ -115,6 +117,7 @@ test("G10 capture the canonical screenshot manifest", async ({ page }) => {
     wp: artifactSet!,
     // Stamped from the run, not from the clock inside a pure helper.
     createdAt: new Date().toISOString(),
+    provenance: renderFingerprint(DESIGN_ZIP_SHA256),
     entries,
   });
   const manifestFile = writeManifest(absolute, manifest);

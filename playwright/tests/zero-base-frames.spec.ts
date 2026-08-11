@@ -18,6 +18,8 @@ import path from "node:path";
 import { test, expect } from "@playwright/test";
 
 import { FRAMES, frameFileName } from "../../scripts/zero-base/frame-registry";
+import { renderFingerprint } from "../../lib/zero-base/render-provenance";
+import { DESIGN_ZIP_SHA256 } from "../../scripts/zero-base/extract-design-reference";
 import {
   artifactSetPath,
   buildManifest,
@@ -106,6 +108,9 @@ test("G10 capture and verify the 92 reference frames", async ({ page }) => {
     commit,
     wp: artifactSet!,
     createdAt: new Date().toISOString(),
+    // Binds this evidence to the tree that produced it and to the accepted
+    // archive it was compared against.
+    provenance: renderFingerprint(DESIGN_ZIP_SHA256),
     entries,
   });
   const manifestFile = writeManifest(absolute, manifest);

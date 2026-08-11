@@ -39,6 +39,31 @@ function canonicalCss(): string {
   return readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
 }
 
+/**
+ * The Ledger faces, embedded.
+ *
+ * `next/font/local` defines `--font-adc-sans` and `--font-adc-mono` at build
+ * time, which a static file rendered outside Next never sees. Every captured
+ * frame was therefore drawn in Arial and Times — not what ships, and not what
+ * the reference is drawn in, which made every font comparison meaningless.
+ *
+ * The vendored woff2 files are inlined as data URIs so a capture needs no
+ * network and no server, and the variables are declared on :root exactly as the
+ * font loader declares them. The faces keep their real family names, so a
+ * comparison against the reference compares typefaces rather than two packagings
+ * of the same one.
+ */
+function ledgerFontFace(): string {
+  const dir = path.join(ROOT, "public", "fonts", "zero-base");
+  const sans = readFileSync(path.join(dir, "schibsted-grotesk-variable.woff2")).toString("base64");
+  const mono = readFileSync(path.join(dir, "fragment-mono-400.woff2")).toString("base64");
+  return `
+@font-face{font-family:'Schibsted Grotesk';font-style:normal;font-weight:400 700;font-display:block;src:url(data:font/woff2;base64,${sans}) format('woff2');}
+@font-face{font-family:'Fragment Mono';font-style:normal;font-weight:400;font-display:block;src:url(data:font/woff2;base64,${mono}) format('woff2');}
+:root{--font-adc-sans:'Schibsted Grotesk';--font-adc-mono:'Fragment Mono';}
+`;
+}
+
 /** A media-query implementation that answers from the frame's real width. */
 function installMatchMedia(window: JSDOM["window"], width: number): void {
   Object.defineProperty(window, "matchMedia", {
@@ -168,6 +193,7 @@ async function main() {
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
   const css = canonicalCss();
+  const fonts = ledgerFontFace();
   let count = 0;
 
   for (const spec of FRAMES) {
@@ -182,6 +208,7 @@ async function main() {
 <html lang="en" ${THEME_ATTRIBUTE}="${spec.theme}">
 <head><meta charset="utf-8"><title>${spec.id} ${spec.leaf} ${spec.state}</title>
 <style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${fonts}</style>
 <style>${css}</style>
 </head>
 <body><div data-frame="${spec.id}" data-frame-leaf="${spec.leaf}" data-frame-state="${spec.state}" style="height:100vh;overflow:hidden">${body}</div></body>

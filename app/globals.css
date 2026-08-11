@@ -7808,6 +7808,24 @@
   line-height: 19px;
 }
 
+/* Form controls do not inherit type.
+ *
+ * `button`, `input`, `select` and `textarea` take the UA's own font rather than
+ * their ancestor's, so every control on a zero-base surface rendered in the
+ * browser default while the prose around it rendered in the Ledger face. The
+ * reference draws them in one voice, and a rendered comparison against it is
+ * what caught this. */
+[data-adc-ui="zero-base"] button,
+[data-adc-ui="zero-base"] input,
+[data-adc-ui="zero-base"] select,
+[data-adc-ui="zero-base"] textarea,
+[data-adc-ui="zero-base"] optgroup {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+
 /* Explicit choice wins everywhere. Both forms are matched so the attribute can
  * sit on <html> (the usual case) or on the canonical root itself (harnesses). */
 [data-adc-theme="dark"] [data-adc-ui="zero-base"],

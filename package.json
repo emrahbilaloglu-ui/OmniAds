@@ -188,7 +188,9 @@
     "zero-base:frames:build": "node --import tsx scripts/zero-base/build-frame-harness.tsx",
     "test:zero-base:frames": "npm run zero-base:frames:build && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-frames-chromium && node --import tsx scripts/zero-base/reconcile-frames.ts",
     "zero-base:reference:extract": "node --import tsx scripts/zero-base/extract-design-reference.ts",
-    "test:zero-base:reference": "npm run zero-base:reference:extract && npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-anatomy.ts"
+    "test:zero-base:reference": "npm run zero-base:reference:extract && npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-anatomy.ts",
+    "zero-base:reference:render": "node --import tsx scripts/zero-base/render-reference.ts",
+    "test:zero-base:fidelity": "npm run zero-base:frames:build && node --import tsx scripts/zero-base/verify-reference-fidelity.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

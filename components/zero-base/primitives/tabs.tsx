@@ -31,6 +31,7 @@ export function ZeroBaseTabs({
   onValueChange,
   label,
   tabCtl = "live:tab",
+  listCtl,
 }: {
   tabs: readonly ZeroBaseTab[];
   value: string;
@@ -44,11 +45,18 @@ export function ZeroBaseTabs({
    * because "changed lane" and "changed tab" are not the same event.
    */
   tabCtl?: string;
+  /**
+   * Contract the tab *list* satisfies, where the surface names the set of tabs
+   * as a control in its own right. Carried by the real tablist rather than a
+   * wrapper, so it has the role and keyboard model the contract implies.
+   */
+  listCtl?: string;
 }) {
   return (
     <RadixTabs.Root value={value} onValueChange={onValueChange}>
       <RadixTabs.List
         aria-label={label}
+        data-ctl={listCtl}
         style={{
           display: "flex",
           gap: 4,

@@ -101,6 +101,16 @@ export interface FrameSpec {
 
 /* ------------------------------------------------------------- fixtures */
 
+/**
+ * A 1×1 transparent PNG.
+ *
+ * Fixture media is inline rather than a URL so a captured frame's layout is
+ * deterministic and offline: an external image that never resolves leaves a
+ * zero-height box, which changes geometry and is not a fidelity defect.
+ */
+const PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
 const creativeRow = (overrides: Record<string, unknown> = {}) => ({
   id: "r1",
   creative_id: "c1",
@@ -235,7 +245,7 @@ const publicShare = (kind: "image" | "video") => ({
       name: "Summer hero",
       media: {
         kind,
-        url: kind === "video" ? "https://example.test/hero.mp4" : "https://example.test/hero.jpg",
+        url: kind === "video" ? "https://example.test/hero.mp4" : PIXEL,
         captionsUrl: kind === "video" ? "https://example.test/hero.vtt" : null,
         captionsLabel: kind === "video" ? "English" : null,
         alt: "Summer hero creative",
@@ -622,7 +632,7 @@ const creativeDetail = (serving: boolean) => (
   <CreativeDetailView
     creativeId="c1"
     name="Summer hero"
-    media={{ kind: "ready", url: "https://example.test/hero.jpg", origin: "snapshot" }}
+    media={{ kind: "ready", url: PIXEL, origin: "snapshot" }}
     evidence={CREATIVE_EVIDENCE}
     band={
       serving
@@ -779,7 +789,7 @@ const mediaBoard = () => (
     <CreativeCarousel
       label="Summer carousel"
       cards={[
-        { id: "a", media: { kind: "ready", url: "https://example.test/1.jpg", origin: "snapshot" } },
+        { id: "a", media: { kind: "ready", url: PIXEL, origin: "snapshot" } },
         { id: "b", media: { kind: "missing", reason: "No preview was captured." } },
       ]}
     />
@@ -787,7 +797,7 @@ const mediaBoard = () => (
       state={{
         kind: "video",
         url: "https://example.test/a.mp4",
-        poster: "https://example.test/a.jpg",
+        poster: PIXEL,
         captionsUrl: "https://example.test/a.vtt",
         origin: "snapshot",
       }}

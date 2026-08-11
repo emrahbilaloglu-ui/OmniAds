@@ -236,10 +236,11 @@ export function DecisionsView({
         </fieldset>
       </div>
 
-      <div data-lane-region="" data-ctl="live:lane">
+      <div data-lane-region="">
       <ZeroBaseTabs
         label={copy.decisionLanes}
         tabCtl="live:META-DEC-01 lane"
+        listCtl="live:lane"
         value={state.lane}
         onValueChange={(lane) =>
           onStateChange({ ...state, lane: lane as DecisionLane, selected: null })

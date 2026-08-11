@@ -159,12 +159,29 @@ for (const width of [1440, 390]) {
         `agency directory scrolls horizontally at ${width}px`,
       ).toBeLessThanOrEqual(overflow.clientWidth);
 
-      // Wide content stays inside main.
-      const mainScrolls = await page.evaluate(() => {
-        const main = document.getElementById("zero-base-main")!;
-        return main.scrollWidth > main.clientWidth;
+      // Wide content scrolls inside its own frame, not by dragging the surface.
+      //
+      // This used to assert that `main` itself scrolled sideways. That does
+      // keep the overflow off the document, but it moves the heading and the
+      // navigation along with the table, and the columns that leave the screen
+      // give no sign they are there. The table now declares its own horizontal
+      // scroller, so the surface stays put and the table moves inside it.
+      const scrolling = await page.evaluate(() => {
+        const undeclared: string[] = [];
+        for (const node of document.querySelectorAll("*")) {
+          if (node.hasAttribute("data-scroll-x")) continue;
+          const cs = getComputedStyle(node);
+          if (cs.overflowX !== "auto" && cs.overflowX !== "scroll") continue;
+          if (node.scrollWidth > node.clientWidth + 1) {
+            undeclared.push(`${node.tagName.toLowerCase()}#${node.id || "-"}`);
+          }
+        }
+        return undeclared;
       });
-      if (width === 390) expect(mainScrolls).toBe(true);
+      expect(
+        scrolling,
+        `something other than a declared scroller runs off the side at ${width}px`,
+      ).toEqual([]);
 
       // Column set, and the absence of anything money- or ranking-shaped.
       const headers = await page.locator("thead th").allTextContents();

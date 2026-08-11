@@ -58,6 +58,14 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // Zero-base theme first paint. Serves the shipped CSS and no-flash script
+      // from an intercepted route, so it needs no server, no database and no
+      // auth fixture — and therefore no `setup` dependency.
+      name: "zero-base-theme-chromium",
+      testMatch: /zero-base-theme-flash\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "commercial-smoke-chromium",
       testMatch: /commercial-truth-smoke\.spec\.ts/,
       use: {

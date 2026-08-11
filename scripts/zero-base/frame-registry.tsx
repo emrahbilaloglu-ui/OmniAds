@@ -48,6 +48,8 @@ import {
   ReportShareDisabled,
 } from "@/components/zero-base/reports/report-views";
 import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
+import { TrendPanel } from "@/components/zero-base/home/trend-panel";
+import { CreativeCarousel, CreativeMedia } from "@/components/zero-base/creative/creative-media";
 import {
   AnalyticsTableView,
   GeoView,
@@ -643,6 +645,55 @@ const landingPages = () => (
   />
 );
 
+
+/* --------------------------------------------------------- primitive boards */
+
+const TREND_POINTS = Array.from({ length: 14 }, (_, index) => ({
+  date: `2026-07-${String(index + 20).padStart(2, "0")}`,
+  spend: index === 9 ? null : 420 + ((index * 53) % 240),
+  roas: index === 9 ? null : 2.0 + ((index * 17) % 110) / 100,
+}));
+
+/** A chart board: the real trend panel, which owns the chart/table toggle. */
+const trendBoard = (title: string, surface: string) => (
+  <TrendPanel
+    title={title}
+    points={TREND_POINTS}
+    currency="USD"
+    targetRoas={2.6}
+    surface={surface}
+  />
+);
+
+/** The media states board: every state the design draws, side by side. */
+const mediaBoard = () => (
+  <div style={{ display: "grid", gap: 16 }}>
+    <CreativeCarousel
+      label="Summer carousel"
+      cards={[
+        { id: "a", media: { kind: "ready", url: "https://example.test/1.jpg", origin: "snapshot" } },
+        { id: "b", media: { kind: "missing", reason: "No preview was captured." } },
+      ]}
+    />
+    <CreativeMedia
+      state={{
+        kind: "video",
+        url: "https://example.test/a.mp4",
+        poster: "https://example.test/a.jpg",
+        captionsUrl: "https://example.test/a.vtt",
+        origin: "snapshot",
+      }}
+      label="Summer hero"
+    />
+    <CreativeMedia
+      state={{ kind: "failed", reason: "Stream returned 502.", alt: "Summer hero" }}
+      label="Summer hero"
+      onRetry={() => {}}
+    />
+    <CreativeMedia state={{ kind: "missing", reason: "No preview was captured." }} label="Autumn" />
+  </div>
+);
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -834,11 +885,11 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan() },
 
   /* ---- P01–P08: charts, tables, media, Turkish, dark ---- */
-  { id: "P01", leaf: "L-C-REP-VIEW", state: "chart-trend", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "trend", title: "Blended spend", points: [{ label: "d1", value: 120 }, { label: "d2", value: 138 }] })} sourceId="overview_trend" /> },
-  { id: "P02", leaf: "L-C-REP-VIEW", state: "chart-series", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "trend", title: "Channel revenue", series: [{ key: "meta", label: "Meta", color: "#3b5bdb", points: [{ label: "d1", value: 12 }] }] })} sourceId="overview_trend" /> },
+  { id: "P01", leaf: "L-C-META-DEC", state: "meta-trend-chart", width: 1440, theme: "light", render: () => trendBoard("Meta spend & ROAS trend", "meta") },
+  { id: "P02", leaf: "L-C-G-OVERVIEW", state: "google-trend-chart", width: 1440, theme: "light", render: () => trendBoard("Google spend & ROAS trend", "google") },
   { id: "P03", leaf: "L-C-REP-VIEW", state: "table-dense", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ rows: [{ name: "Brand", spend: 12 }, { name: "Prospecting", spend: 44 }], columns: ["name", "spend"] })} sourceId="meta_campaigns" /> },
-  { id: "P04", leaf: "L-C-REP-VIEW", state: "table-empty", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ emptyMessage: "No rows were served for this period." })} sourceId="meta_campaigns" /> },
-  { id: "P05", leaf: "L-C-CR-PERF", state: "media-missing", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
+  { id: "P04", leaf: "L-C-REP-VIEW", state: "sparkline-table-toggle", width: 1440, theme: "light", render: () => trendBoard("Report trend", "report") },
+  { id: "P05", leaf: "L-C-CR-PERF", state: "media-states-board", width: 1440, theme: "light", render: () => mediaBoard() },
   { id: "P06", leaf: "L-C-M-TEAM", state: "turkish", width: 1440, theme: "light", render: () => tr(team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED })) },
   { id: "P07", leaf: "L-C-M-INT", state: "turkish-integrations", width: 390, theme: "light", render: () => tr(integrations()) },
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },

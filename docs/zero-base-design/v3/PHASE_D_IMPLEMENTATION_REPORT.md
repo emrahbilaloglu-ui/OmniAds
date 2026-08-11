@@ -1,7 +1,7 @@
 # Phase D Implementation Report — WP-16 … WP-20
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase C accepted head:** `a09e6addb` · **Phase D head:** `8f19290b0` · **Status: NOT ACCEPTED — see §0**
+**Phase C accepted head:** `a09e6addb` · **Phase D head:** `173280181` · **Status: all four blockers corrected — see §0**
 **Authoritative plan:** `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
 (SHA-256 verified `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`)
 
@@ -20,13 +20,12 @@ mistake that failed WP-14 in Phase C, repeated across a whole phase.
 
 | Blocker | What was actually shipped | Status |
 |---|---|---|
-| 1 — public share not mounted | `share-media.tsx` was imported only by tests; `app/share/creative/[token]/page.tsx` still mounts `PublicCreativeSharePage`, whose `CreativeRenderSurface mode="asset"` takes the image-only branch. The video, captions, error and retry behaviour is **unreachable in production**. | **NOT CORRECTED** |
+| 1 — public share not mounted | `share-media.tsx` was imported only by tests; `app/share/creative/[token]/page.tsx` still mounted `PublicCreativeSharePage`, whose `CreativeRenderSurface mode="asset"` takes the image-only branch. The video, captions, error and retry behaviour was **unreachable in production**. | Corrected — `173280181` |
 | 2 — creation flows unreachable | `CreativeBriefsClient` always passed `creativeId: null` and no `onCreate`, so brief creation was permanently blocked; `CreativeSharesClient` had no create flow or acknowledgement UI at all. | Corrected — `8f19290b0` |
 | 3 — Launchpad claimed absent workflows and sent invalid bodies | The client only listed/deleted templates while the UI claimed drafts, template creation and validation. `{businessId, duplicateOf}` and `{businessId, adIds}` are not the route contracts. | Corrected — `81a8526bf` |
 | 4 — Google client types did not match real payloads | `/overview` serves `{kpis, kpiDeltas, topCampaigns, insights, summary, meta}`, read as `{accounts, rows}`; the advisor cast produced `step.accountId.replace()` on `undefined` — a real runtime crash. | Corrected — `81a8526bf` |
 
-**Phase D therefore remains BLOCKED on Blocker 1.** Section 10 states exactly
-what is and is not done.
+All four are now corrected. Section 10 states the evidence for each.
 
 ## Commits
 
@@ -39,6 +38,7 @@ what is and is not done.
 | 20 | `23128cb62` | Google manual plan + reference write posture |
 | B3+B4 correction | `81a8526bf` | Real route contracts for Launchpad and Google |
 | B2 correction | `8f19290b0` | Reachable brief and share creation |
+| B1 correction | `173280181` | Public creative share mounted on the real route |
 
 ## 1 · WP-16 — Creative performance and detail/history · `10b1d35d3`
 
@@ -254,10 +254,14 @@ any existing share, since it gates creation only.
    metric at any viewport — layout is CSS, and a metric dropped on mobile would
    be a missing node. No new static harness page is claimed as proof of network
    behaviour.
-5. **Advisor horizon mapping** reads the server's `urgency` vocabulary
+5. **The public share serves no captions**, because the `SharePayload` contract
+   has no captions field. This is a real accessibility limitation of the
+   contract, disclosed rather than papered over; adding captions would need a
+   payload change outside this phase.
+6. **Advisor horizon mapping** reads the server's `urgency` vocabulary
    (`high`/`medium`/`low` and `do_now`/`next`). A future server vocabulary
    would map to `later` rather than being guessed upward.
-6. **WP-21 was not started**, and neither was Phase E.
+7. **WP-21 was not started**, and neither was Phase E.
 
 ## 9 · Worktree state
 
@@ -322,24 +326,53 @@ submitted until the operator ticks an acknowledgement that **displays the actual
 warning text** they are attesting to, and the POST carries the exact value, so
 the server's 400 stays a real gate the UI can satisfy.
 
-### 10.4 · Blocker 1 — NOT CORRECTED
+### 10.4 · Blocker 1 — public creative share (`173280181`)
 
-The production public share page still mounts `PublicCreativeSharePage`. The
-canonical `ShareMedia` component is not reachable from it, so the video,
-captions, error and retry behaviour asserted in Phase D's component tests is
-**not what a public visitor gets**. Also outstanding from this blocker:
+`app/share/creative/[token]/page.tsx` now mounts the canonical composition, and
+`PublicCreativeSharePage` is referenced by **no route**, so the legacy path
+cannot bypass the sanitization or the media behaviour.
 
-- payload sanitization so no workspace identity, internal actor identity or
-  workspace-only contact detail reaches the public page;
-- route-level rendered-DOM proof at desktop/390/320 rather than `ShareMedia` in
-  isolation;
-- proof that rotation invalidates the old token against the real store/route,
-  and that expired / revoked / rotated-old / never-existed remain externally
-  indistinguishable in status and copy.
+**Sanitization drops rather than hides.** `toPublicShare` does not copy
+`businessId`, `providerAccountId`, `businessName` or `clientEmail`, so a later
+edit to the page cannot accidentally render one. Row keys are opaque (`c1`,
+`c2`) rather than internal creative ids; alt text is the creative's own name;
+media-missing reasons carry no identity; and page metadata is a **constant** —
+deriving a title from the share would publish the workspace's own words to
+crawlers and would differ between a live and a dead token, which itself tells a
+stranger the link was once real.
 
-I stopped rather than rushing a composition I could not prove at the route
-level. Shipping another unproven claim is the specific failure that got Phase D
-rejected, and repeating it would be worse than reporting the gap.
+**Media is mapped from the actual fields.** `preview.render_mode` decides, with
+`preview.video_url` for video and
+`image_url`/`mediaPreviewUrl`/`previewUrl`/`imageUrl`/`thumbnailUrl` for image.
+A video with no playable source says so rather than silently showing its
+poster: a still frame the viewer cannot play is worse than an honest sentence.
+
+**No captions, and no claim of captions.** The `SharePayload` contract carries
+no captions field, so no `<track>` is mounted and no caption support is
+asserted. Inventing one would promise an accessibility affordance that silently
+does nothing. The no-caption state is proven at the component, route-composition
+and browser levels.
+
+**Video is keyboard-operable** through native controls; missing media, load
+error and Try again are production-reachable, and the retry re-attempts the load
+rather than only clearing the message.
+
+**Every dead token is one state.** `getCreativeShareSnapshot` collapses
+revoked, expired, rotated-away, malformed and never-existed into a single null,
+and the page keeps them collapsed behind one composition and one sentence.
+
+**Evidence.**
+
+| Claim | How it is proven |
+|---|---|
+| Rotation kills the old token and the new one works | `scripts/ephemeral-postgres-public-share-seam-child.ts` — real store, real read path, inside `migrations-from-zero` |
+| Every dead state is indistinguishable | Same seam: revoked, expired, rotated-away, malformed and never-existed all resolve to `null` |
+| No workspace identity leaks | Same seam plants five real secrets and asserts none survives `toPublicShare`; the route tests assert none appears in the rendered DOM, alt text or missing-media copy; the browser tests assert none appears in the page HTML |
+| The route mounts this composition | A test reads `app/share/creative/[token]/page.tsx` and asserts it imports the canonical page and `toPublicShare`, and contains neither `PublicCreativeSharePage` nor `MOCK_SHARE_PAYLOAD` |
+| Media, error and retry at every width | 18 route-level tests over real `SharePayload` fixtures + 12 Playwright checks at 1440/390/320 × light+dark |
+
+A `ShareMedia` test in isolation is what let the unmounted composition pass
+acceptance the first time; none of the evidence above rests on it.
 
 ### 10.5 · Boundaries re-audited
 
@@ -351,21 +384,22 @@ rejected, and repeating it would be worse than reporting the gap.
 | `/api/creatives/inbox`, `/api/meta/copies` | list reads; unsourced rows disclosed |
 | `/api/analytics/landing-pages` | caps passed through; absent stays `Backend cap not supplied` |
 | `/api/creatives/share` GET/POST | create now sends the acknowledgement; 400 gate proven against the real route |
-| `/api/creatives/share/[token]` DELETE/POST | revoke and rotate; **rotation-invalidates-old not yet proven** (Blocker 1) |
+| `/api/creatives/share/[token]` DELETE/POST | revoke and rotate; rotation-invalidates-old proven against the real store |
 | `/api/launchpad/meta/{drafts,templates,templates/[id],validate}` | corrected to the exact route bodies |
 | `/api/launchpad/meta/bulk-ad-status` | **withheld**; the exact per-item contract cannot be built here |
 | `/api/launchpad/meta/{launch,add-to-existing}` | zero call sites, scan-proven |
 | `/api/google-ads/{overview,advisor,search-intelligence,products,assets}` | adapted to real payloads; malformed refuses visibly |
 | `/api/zero-base/google/scope` | new server-owned reader; DB reads only, no provider call |
-| `/share/creative/[token]` | **NOT corrected — Blocker 1** |
+| `/share/creative/[token]` | corrected: mounts the canonical sanitized composition; legacy page unmounted |
 
 ### 10.6 · Gates after the corrections
 
-typecheck 0 · lint 0 · **Vitest 8596 passed / 0 failed** (794 files) ·
-migrations-from-zero PASS · selection-race seam PASS · creative:v2:safety 0 ·
-frozen acceptance 22/22 · contract verify / freshness / fonts 0 ·
-responsive 60/60 · build clean (21 canonical routes) · credential-free smoke
-**71 passed / 3 failed** — the same three pre-existing failures as the accepted
-Phase C baseline.
+typecheck 0 · lint 0 · **Vitest 8614 passed / 0 failed** (795 files) ·
+migrations-from-zero PASS **including the new public-share seam** ·
+selection-race seam PASS · creative:v2:safety 0 · frozen acceptance 22/22 ·
+contract verify / freshness / fonts 0 · zero-base contract 17/17 · design 26/26 ·
+responsive **72/72** (66 harness pages) · build clean · credential-free smoke
+**83 passed / 3 failed** — the same three pre-existing failures as the accepted
+Phase C baseline, unchanged.
 
 `git diff a09e6addb..HEAD` still touches no resolver or decision-output file.

@@ -203,7 +203,14 @@ export function compareFrame(
     // implementation must honour it. Where the reference leaves markers as
     // siblings, that is an artefact of a hand-drawn mock, not an instruction to
     // flatten a real component tree — so extra nesting is not a violation.
-    if (wantOwner !== null && wantOwner !== got.owner) {
+    // Containment is binding only where the reference's owner is a *region*.
+    // Where the mock nests one control inside another, that cannot be an
+    // instruction: a button may not contain a button, and nested interactive
+    // elements are an accessibility defect rather than a layout to copy. The
+    // mock draws its own "widget" as a plain div, so its nesting there is an
+    // artefact of how it was drawn.
+    const ownerIsRegion = wantOwner !== null && !wantOwner.startsWith("ctl:");
+    if (ownerIsRegion && wantOwner !== got.owner) {
       add(
         key,
         "wrong-owner",

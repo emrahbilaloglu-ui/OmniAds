@@ -263,38 +263,6 @@ export function ReportBuilderView({
 
       <section aria-label={copy.sources} style={{ marginTop: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
-        {/* What each source will and will not answer, before it is added.
-            Discovering a breakdown limit after building a report around it is
-            the expensive way to learn it. */}
-        <p
-          data-el="source-contracts"
-          style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
-        >
-          {copy.sourceContractsNote}
-        </p>
-        <div data-el="h38-handoff" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
-            {copy.breakdown}
-            <select
-              data-ctl="live:REPORT-07 breakdown"
-              value={breakdown}
-              onChange={(event) => setBreakdown(event.target.value)}
-              style={{ minHeight: 44, padding: "6px 8px" }}
-            >
-              {["none", "day", "campaign", "device"].map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button variant="secondary" data-ctl="live:REPORT-04 csv" onClick={onExportCsv}>
-            {copy.downloadCsv}
-          </Button>
-          <Button variant="secondary" data-ctl="live:REPORT-08 retry" onClick={onRetryWidgets}>
-            {copy.retry}
-          </Button>
-        </div>
         <ul
           data-source-picker=""
           data-el="builder-sources"
@@ -341,6 +309,41 @@ export function ReportBuilderView({
             );
           })}
         </ul>
+        {/* What each source will and will not answer, before it is added.
+            Discovering a breakdown limit after building a report around it is
+            the expensive way to learn it. */}
+        <div data-el="h38-handoff" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8, alignItems: "flex-end" }}>
+          <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+            {copy.breakdown}
+            <select
+              data-ctl="live:REPORT-07 breakdown"
+              value={breakdown}
+              onChange={(event) => setBreakdown(event.target.value)}
+              style={{ minHeight: 44, padding: "6px 8px" }}
+            >
+              {["none", "day", "campaign", "device"].map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="secondary" data-ctl="live:REPORT-04 csv" onClick={onExportCsv}>
+            {copy.downloadCsv}
+          </Button>
+          <Button variant="secondary" data-ctl="live:REPORT-08 retry" onClick={onRetryWidgets}>
+            {copy.retry}
+          </Button>
+          {/* The note follows the controls it qualifies, as the reference
+              draws it: what a source can break down by is read after seeing
+              the breakdown control, not before. */}
+          <p
+            data-el="source-contracts"
+            style={{ margin: "4px 0 0", flexBasis: "100%", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+          >
+            {copy.sourceContractsNote}
+          </p>
+        </div>
       </section>
 
       <section aria-label={copy.canvas} style={{ marginTop: 16 }}>

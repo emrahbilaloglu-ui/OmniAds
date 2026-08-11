@@ -996,3 +996,89 @@ npm run test:zero-base:release → exit 1
 4. **G9 manual AT** — unchanged, external, unsimulated.
 
 WP-27A remains prohibited: G7, G9 and G10 are red.
+
+---
+
+## Reference authority established, and what it measured (`6c784d26b`)
+
+### The retracted claim was wrong
+
+I previously reported that G10 reference fidelity was "mechanically
+unavailable". That was incorrect, and the correction matters more than the
+retraction: I had generalised a note about the archived v2 *check PNGs*
+("history, not evidence") into a claim about the entire design package, without
+opening the archive the master plan names as visual authority. The active
+`.dc.html` artifacts are that authority and they are richly machine-readable —
+`data-screen-label`, `data-artboard`, `data-el`, `data-ctl`, `data-collection`,
+plus the full 142-contract interaction manifest.
+
+### What now exists
+
+`scripts/zero-base/extract-design-reference.ts` verifies the archive against the
+SHA-256 recorded in `SOURCE.md` and emits `reference-manifest.json`: 83
+artboards, 142 contracts, a 48-colour palette and a 13-step type scale, with
+every source file's own digest recorded. Altering the expected digest fails the
+extraction with both hashes printed — verified, not assumed.
+
+`scripts/zero-base/verify-reference-anatomy.ts` compares the rendered
+implementation against it. It runs inside `test:zero-base:release` and exits
+non-zero.
+
+### The measurement
+
+|                        | at `ba16178fb` | at `6c784d26b` | required |
+|------------------------|---------------:|---------------:|---------:|
+| `data-el` regions      | 0              | 2              | 99       |
+| `data-ctl` controls    | 0              | 3              | 254      |
+| `data-collection`      | 0              | 1              | 35       |
+| frames matching anatomy| 3              | 4              | 83       |
+
+The starting three "matches" were an artefact: H08, H62 and P03 are precisely
+the artboards that declare no anatomy. The true starting score was **zero**.
+H03 is the first frame that genuinely satisfies the reference.
+
+Of the declared totals, 85 `data-el`, 129 `data-ctl` and 35 `data-collection`
+values are literal. Two `data-ctl` values (`{{ a.ctl }}`, `{{ s.ctl }}`) are
+extraction artefacts of the design's own templating and can never be matched
+literally; they are excluded from the achievable denominator and named here
+rather than silently dropped.
+
+### What this says about the earlier "92/92"
+
+The previous frame-capture number was not merely unproven against the
+reference — it was near zero against it. Capturing 92 screenshots and checking
+their widths, byte counts and digest uniqueness verified that 92 images existed
+and differed. It never verified that any of them depicted the accepted design.
+
+### Gate status, honestly
+
+- **G7 — 45/142.** Unchanged in count, improved in composition: two keys
+  (`live:chart-table-toggle`, `live:ECON-04 divergence-link`) are now proven on
+  the production owner, and two surrogates that had claimed them were removed —
+  a generic tabs primitive switching to `<p>Table</p>`, and a `BusinessView`
+  assertion that never operated a link on a surface the reference does not
+  assign the contract to. **97 keys remain without an executed owner case.**
+- **G10 — red.** 4/83 frames. 32 declared substitutions remain (down from 41).
+- **G9 — red.** Manual NVDA/VoiceOver/TalkBack evidence remains environmentally
+  unobtainable. No automated scan was substituted.
+- **WP-27A — not started**, and its precondition does not hold.
+
+### What the remaining work actually is
+
+Not attribute-tagging. The 83 unmatched `data-el`, 126 unmatched `data-ctl` and
+34 unmatched `data-collection` values belong to product surfaces that do not yet
+exist in the implementation: the Meta Decisions workspace and its inspector, the
+Google manual plan, the Reports builder with its nudge/undo controls, the mobile
+navigation drawer, the scope sheet, Intelligence, History, Automation,
+Launchpad, analytics, SEO and GEO. Each needs building before its anatomy and
+its contracts can be proven, which is the same work G7's 97 remaining keys
+require — the reference's `data-ctl` values are the authoritative owner map for
+both.
+
+Home is the worked example of that path end to end: locate the owner in the
+reference, build what is genuinely missing (here the trend panel and the
+economics context), mount the real composition, prove the contract on it, and
+withdraw the substitution.
+
+Verified at `6c784d26b`: typecheck, lint, full Vitest twice (9144 passed,
+identical both runs), production build.

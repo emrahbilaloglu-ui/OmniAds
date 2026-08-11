@@ -744,3 +744,147 @@ mistaken for done.
 RED for NVDA + Chrome, VoiceOver + Safari macOS/iOS, TalkBack + Chrome Android.
 No automated scan, DOM inspection, screenshot or simulated keystroke is offered
 in its place, and no scope reduction is requested.
+
+---
+
+# WP-26 — fifth pass: G7 and G10 complete (`c90b1e690` … `1a3f88f7c`)
+
+Both remaining local gates are now green. **Manual AT (G9) is the only
+requirement left**, and it is external.
+
+## 1. G7 — 142/142 executed interaction contracts
+
+`npm run test:zero-base:states`
+
+```
+G6 state cases       38/38
+G7 interaction keys  142/142
+PASS: G6 and G7 fully reconciled from executed cases.
+```
+
+181 mounted cases across two suites. Each drives the real control and asserts
+what a user could observe: native role; an accessible name resolved the way a
+screen reader resolves it (`aria-label`, `aria-labelledby`, or the associated
+`<label>` — a form field's own text content is always empty); posture through
+`aria-disabled`/`aria-busy` with a reason reachable via `aria-describedby`; and
+the actual consequence.
+
+Gated and disabled keys assert the guard rather than the control's presence.
+Because `aria-disabled` does not suppress activation the way the `disabled`
+attribute does, each also asserts that clicking fires nothing.
+
+`recordInteraction` rejects any key absent from the generated registry, and it
+earned that immediately: two keys I had invented — `live:AUTH-02 submit busy`
+and `live:AGENCY-04 load-more exhausted` — were rejected and removed rather than
+quietly counted.
+
+Results are written per vitest worker and unioned by the reconciler, because
+vitest isolates test files. The union can only add coverage that executed: a
+fragment records a case after its assertions pass.
+
+**Non-circularity verified:** removing the six `gated:TEAM` keys from a fragment
+makes the reconciler report exactly those six missing and fail; restoring it
+passes.
+
+## 2. G10 — 92/92 reference frames captured and verified
+
+`npm run test:zero-base:frames`
+
+```
+denominators (from the design package's own audit): H 66 · B 9 · P 8 · M 9 = 92
+RECONCILED: 92/92 (100.0%)
+PASS: all 92 reference frames resolve to captured evidence.
+```
+
+Artifact set: `playwright/artifacts/zero-base/c90b1e690f/g10-c90b1e690f/`
+— 92 PNGs plus `manifest.json`, **92 unique SHA-256 digests**, widths
+320/390/768/1280/1440, both themes.
+
+The crosswalk covers every id in §13.4 with **no self-authored exclusions**, and
+lives beside the code that renders each state, so a frame cannot be listed
+without a renderable state existing.
+
+Per frame, capture verifies: the page carries this frame's `data-frame`,
+`data-frame-leaf` and `data-frame-state` markers; the Ledger root is present;
+the body renders text; the PNG has non-zero bytes; the **actual pixel width**
+equals the frame's required width; and the digest is unique across all 92.
+
+**The uniqueness check found four real crosswalk defects** — H11/H14, H22/H10,
+H27/H40 and H51/H66 rendered byte-identical images because I had given two
+references the same state. Each was fixed by giving the frame its own genuine
+state (a workflow in flight is not a submitted ceremony; an agency arrival is
+not an agency return), and performance fixtures are tagged with their frame id
+so two frames sharing a posture still produce different pixels.
+
+**Non-circularity verified:** dropping the eight `P0x` entries from the manifest
+reports exactly those eight unevidenced at 84/92. A second defect was found
+here too — the reconciler selected artifact sets by name order and had silently
+been reading an older set, reporting 0/92; it now selects by mtime.
+
+## 3. Full gate set at `1a3f88f7c`
+
+```
+npx vitest run                        → 9235 passed / 0 failed   (two consecutive runs)
+npm run typecheck / lint              → 0 / 0
+npm run build                         → OK
+npm run test:zero-base:release        → PASS (all constituent gates)
+npm run test:zero-base:routes         → PASS (74 leaves)
+npm run test:zero-base:routes:http    → PASS (74/74 unauthenticated posture)
+npm run test:zero-base:routes:roles   → PASS (312/312 authenticated)
+npm run test:zero-base:locale         → PASS (0 unexplained inline copy)
+npm run test:zero-base:flows          → PASS (71/71 across 13 flows)
+npm run test:zero-base:states         → PASS (G6 38/38, G7 142/142)
+npm run test:zero-base:frames         → PASS (G10 92/92)
+npm run test:zero-base:a11y           → 85/85
+npm run test:zero-base:responsive     → 84/84
+npm run test:zero-base:perf           → 12/12 leaves within budget
+npm run test:migrations-from-zero     → PASS with all DB seams
+npm run test:selection-race-seam      → PASS (S1–S7)
+creative:v2:safety / frozen / contract / fonts → exit 0
+credential-free smoke                 → 11 passed / 3 failed / 1 skipped
+```
+
+The three smoke failures are the accepted Phase D baseline spec names,
+unchanged. One intermittent was found and **fixed at its cause**: the GA4
+selection helper assigned `select.value` and waited on that same assigned value,
+which proves nothing about React state, so under load the save could fire with a
+stale draft. It now uses `fireEvent.change` and waits on the option React
+re-rendered as selected.
+
+## 4. Gate status
+
+| Gate | Status |
+|---|---|
+| G1 contract | green |
+| G2 compile | green |
+| G3 data | green — 9235 passed / 0 failed |
+| G4 decision safety | green |
+| G5 routes | green — 74/74 + 312/312 |
+| G6 state truth | green — 38/38 |
+| G7 interaction | **green — 142/142** |
+| G8 responsive | green — 71/71 flows, 84/84 geometry, 85/85 a11y |
+| G9 accessibility | **RED — manual AT, external** |
+| G10 visual | **green — 92/92** |
+| G11 performance | green on the plan's definition |
+| G12 deployment | out of scope |
+
+## 5. The sole remaining requirement
+
+**G9 manual assistive technology (§13.5).** Unchanged, unsimulated, and the only
+thing between this work and G1–G11 green:
+
+| Requirement | Status | Environment fact |
+|---|---|---|
+| NVDA + Chrome desktop, all 13 flows | UNPROVEN | macOS host; no Windows machine, no VM software |
+| VoiceOver + Safari macOS | UNPROVEN | enabling it is a system-settings change I may not make, and certifying speech output requires hearing it |
+| VoiceOver + Safari iOS at 390 | UNPROVEN | no iOS device or paired simulator |
+| TalkBack + Chrome Android at 320/390 | UNPROVEN | no `adb`, no emulator, no device |
+| Keyboard-only, all 13 flows | automated only | a human pass is still required |
+| Live regions, focus trap/Escape/return | automated only | announcement order needs a real screen reader |
+
+**Smallest human next action:** one tester with a Windows machine, an Android
+device or emulator, and a macOS/iOS device performs the §13.5 passes and records
+tester name, date, browser, assistive technology and result.
+
+WP-26 is **not** complete and this is **not** `READY FOR AUTHORIZED G12`, because
+G9 is red. WP-27A was not started.

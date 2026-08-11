@@ -659,3 +659,72 @@ for (const width of [1280, 768, 390]) {
     });
   }
 }
+
+/**
+ * WP-25 · marketing presentation at 1440/390/320.
+ *
+ * Long legal prose is the hard case: readable at 320 without the page scrolling
+ * sideways, and bounded measure at 1440 so a line does not run edge to edge.
+ */
+for (const width of [1440, 390, 320]) {
+  for (const theme of THEMES) {
+    test(`marketing presentation — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `marketing-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth, `marketing scrolls horizontally at ${width}px`).toBeLessThanOrEqual(
+        overflow.clientWidth,
+      );
+
+      // Ledger typography actually applied, not just the attribute present.
+      const type = await page.evaluate(() => {
+        const p = document.querySelector("[data-adc-marketing] p") as HTMLElement;
+        const h1 = document.querySelector("[data-adc-marketing] h1") as HTMLElement;
+        const style = getComputedStyle(p);
+        return {
+          fontSize: parseFloat(style.fontSize),
+          lineHeight: parseFloat(style.lineHeight),
+          maxWidth: style.maxWidth,
+          h1Size: parseFloat(getComputedStyle(h1).fontSize),
+        };
+      });
+      expect(type.fontSize, "body type is readable").toBeGreaterThanOrEqual(15);
+      expect(type.lineHeight / type.fontSize, "line height is comfortable").toBeGreaterThan(1.4);
+      // Measure is bounded so a wide viewport does not produce edge-to-edge lines.
+      expect(type.maxWidth).not.toBe("none");
+      expect(type.h1Size).toBeGreaterThan(type.fontSize);
+
+      // Keyboard focus is visible for a visitor with no session.
+      await page.locator("[data-adc-marketing] a").first().focus();
+      const focusOutline = await page.evaluate(() => {
+        const active = document.activeElement as HTMLElement;
+        const style = getComputedStyle(active);
+        return { width: style.outlineWidth, style: style.outlineStyle };
+      });
+      expect(focusOutline.style).not.toBe("none");
+      expect(parseFloat(focusOutline.width)).toBeGreaterThan(0);
+
+      // No product-only surface leaked into a public page. Asserted on the
+      // DOM rather than the page source: the harness inlines globals.css,
+      // whose text legitimately contains the product selector as a CSS rule.
+      for (const selector of ['[data-adc-ui="zero-base"]', "[data-ops-shell]", "[data-shell]"]) {
+        expect(await page.locator(selector).count(), selector).toBe(0);
+      }
+      expect(await page.locator("[data-adc-marketing]").count()).toBeGreaterThan(0);
+
+      await context.close();
+    });
+  }
+}

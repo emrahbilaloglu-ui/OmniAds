@@ -1,3 +1,4 @@
+import "@/app/marketing-ledger.css";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -288,7 +289,9 @@ export default async function HomePage() {
   await maybeRedirectAuthenticatedUser();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    // Ledger presentation, scoped to marketing. No workspace shell here: this
+    // page must render for a visitor with no session at all.
+    <div data-adc-marketing className="flex min-h-screen flex-col">
       <MarketingNavbar />
 
       <main className="flex-1">

@@ -268,6 +268,38 @@ function publicShareMarkup(width: number): string {
   );
 }
 
+/**
+ * A marketing page under the scoped Ledger stylesheet.
+ *
+ * Long legal prose is the hard case: it must stay readable at 320 without the
+ * page scrolling sideways, and its measure must stay bounded at 1440.
+ */
+function marketingMarkup(width: number): string {
+  const body = renderToStaticMarkup(
+    <div data-adc-marketing>
+      <main>
+        <h1>Security</h1>
+        <p>
+          Adsecute stores provider credentials encrypted at rest and never shares
+          workspace data between businesses. This paragraph exists to exercise the
+          measure and line height at every supported width, including the narrowest
+          one, where an unbounded line length is the difference between readable and
+          unusable.
+        </p>
+        <h2>Data handling</h2>
+        <ul>
+          <li>Provider tokens are encrypted with a per-installation key.</li>
+          <li>Access is scoped to the business a member belongs to.</li>
+        </ul>
+        <p>
+          <a href="/privacy">Read the privacy policy</a>
+        </p>
+      </main>
+    </div>,
+  );
+  return `<div style="min-height:100vh">${body}</div>`;
+}
+
 /** Flow J: the critical incident path, at Ops widths. */
 function opsIncidentMarkup(width: number): string {
   return frame(
@@ -661,6 +693,24 @@ function main() {
   }
 
   // The remaining Flow I surfaces and the mirror provider case.
+  const marketingCss = readFileSync(path.join(ROOT, "app", "marketing-ledger.css"), "utf8");
+  for (const width of [1440, 390, 320]) {
+    const body = marketingMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Marketing ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+<style>${marketingCss}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, `marketing-${width}-${theme}.html`), html);
+      count += 1;
+    }
+  }
+
   for (const width of [1280, 768, 390]) {
     const body = opsIncidentMarkup(width);
     for (const theme of HARNESS_THEMES) {

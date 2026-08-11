@@ -1,0 +1,75 @@
+/*
+ * Ledger presentation for public marketing pages.
+ *
+ * Scoped entirely to [data-adc-marketing]. Nothing here reaches the workspace
+ * product, and nothing product-only reaches here — a public visitor has no
+ * session, no theme cookie and no business scope, so this file must stand on
+ * its own.
+ *
+ * It changes typography, spacing, focus and colour only. Every claim on these
+ * pages is proven unchanged by a copy snapshot.
+ */
+
+[data-adc-marketing] {
+  /* The subset marketing is allowed to use. Deliberately small. */
+  --ledger-bg-canvas: #f5f5f3;
+  --ledger-bg-surface: #ffffff;
+  --ledger-ink-primary: #16150f;
+  --ledger-ink-secondary: #46443a;
+  --ledger-ink-tertiary: #6f6c5f;
+  --ledger-border-control: #ddd9cd;
+  --ledger-accent-action: #4b3bd6;
+  --ledger-radius-card: 12px;
+  --ledger-radius-control: 8px;
+
+  background: var(--ledger-bg-canvas);
+  color: var(--ledger-ink-primary);
+  font-family: var(--font-adc-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "kern" 1, "liga" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-adc-marketing] {
+    --ledger-bg-canvas: #14140f;
+    --ledger-bg-surface: #1c1c16;
+    --ledger-ink-primary: #f3f1e7;
+    --ledger-ink-secondary: #c9c5b4;
+    --ledger-ink-tertiary: #918d7d;
+    --ledger-border-control: #35342b;
+    --ledger-accent-action: #a99bff;
+  }
+}
+
+/* Type scale. Sizes only — no content, no weight-based emphasis changes. */
+[data-adc-marketing] h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.12; letter-spacing: -0.02em; }
+[data-adc-marketing] h2 { font-size: clamp(20px, 2.4vw, 28px); line-height: 1.2; letter-spacing: -0.01em; }
+[data-adc-marketing] h3 { font-size: clamp(16px, 1.8vw, 20px); line-height: 1.3; }
+[data-adc-marketing] p,
+[data-adc-marketing] li { font-size: 15px; line-height: 1.65; color: var(--ledger-ink-secondary); }
+
+/* Measure: long legal text is unreadable edge to edge. */
+[data-adc-marketing] p,
+[data-adc-marketing] li { max-width: 68ch; }
+
+[data-adc-marketing] a { color: var(--ledger-accent-action); }
+
+/* Focus must be visible for a keyboard visitor with no session. */
+[data-adc-marketing] :where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--ledger-accent-action);
+  outline-offset: 2px;
+  border-radius: var(--ledger-radius-control);
+}
+
+/* Touch targets on the smallest supported width. */
+@media (max-width: 480px) {
+  [data-adc-marketing] :where(a, button):not(:where(p, li) a) {
+    min-height: 44px;
+  }
+}
+
+/* Nothing may scroll the page sideways at 320. */
+[data-adc-marketing] { overflow-x: clip; }
+[data-adc-marketing] :where(img, video, table, pre) { max-width: 100%; }
+[data-adc-marketing] :where(pre, table) { overflow-x: auto; }

@@ -1122,3 +1122,76 @@ leaf the reference names.
 
 G7 stands at 53/142 executed production-owner cases, after ten surrogate claims
 were found and demoted.
+
+---
+
+## Completion at `1936a2a17`
+
+`npm run test:zero-base:release` passes end to end.
+
+| gate | result |
+|---|---|
+| G6 state cases | **38/38** |
+| G7 interaction contracts | **142/142** executed production-owner cases, zero surrogates |
+| G10 `data-el` regions | **99/99** |
+| G10 `data-ctl` controls | **248/248** |
+| G10 `data-collection` | **35/35** |
+| G10 accepted artboards | **83/83** matching the checksum-bound package |
+| G10 captures | **92/92**, zero substitutions |
+| G9 | **red**, as instructed — manual NVDA/VoiceOver/TalkBack evidence is unobtainable here |
+
+Verified at HEAD: typecheck, lint, full Vitest twice (9283 passed, identical
+both runs), production build, and the release aggregate. Worktree clean.
+`/Users/harmelek/Adsecute` untouched at `c46d91c2a`.
+
+`SUBSTITUTED_FRAMES` is empty and documented as needing to stay that way — it is
+where a regression would get excused instead of fixed.
+
+### Guards proved by negative control
+
+- **Changed authority** — altering the expected archive digest fails extraction
+  with both hashes printed.
+- **Stale evidence** — two rendered pages matching one frame id fails loudly,
+  verified by planting a second file for H37.
+- **Wrong surface or state** — the duplicate-digest guard caught four real
+  crosswalk defects during the final capture (H56/H57 declared at 390 when they
+  are the 320 artboards; M01 and M03 duplicating H50 and H57).
+- **Substitution** — the reconciler fails on any declared substitution.
+- **Missing owner** — G7 records a key only after its case's assertions pass.
+
+### Defects this work found and fixed
+
+Product, not evidence:
+
+1. The workflow conflict panel cleared itself on mount, so a resumed attempt
+   showed **no conflict at all** and could have been written straight over.
+2. The mobile terminus bar sat behind the modal inspector, making it inert at
+   exactly the width where INV-17 requires it one tap away.
+3. `ZeroBaseSheet` rendered a dialog with no description and no deliberate
+   opt-out.
+4. The shell's drawer breakpoint excluded 768, where the design draws a drawer.
+5. Unshelled surfaces carried no Ledger root, so their tokens did not resolve.
+
+Evidence integrity:
+
+6. The harness faked the shell — rail, top bar, context bar, skip link and
+   drawer appeared in no capture.
+7. The harness never cleared its output, so corrected frames were still graded
+   against the compositions they used to render.
+8. `renderToStaticMarkup` cannot render a portal, so the drawer- and
+   scope-sheet-open artboards were capturing the surface behind them.
+9. Captures at 900px tall could not see below the fold, because the shell owns
+   both scroll axes.
+10. Two test helpers fired events outside React's `act`, failing about one run
+    in three.
+
+Ten G7 surrogates were also found and demoted, including `live:media-play`
+proved on a still image and `live:media-retry` on a *missing* asset that by
+design has no retry.
+
+### Still red
+
+**G9** stays red. Manual screen-reader evidence needs Windows/NVDA, macOS
+VoiceOver with a system-settings change I may not make, and Android TalkBack —
+none available here, and no automated scan was substituted for it. WP-27A
+therefore remains not started.

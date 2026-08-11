@@ -768,10 +768,11 @@ export function BusinessView({
             {copy.settingsUnreadable}
           </p>
         ) : settingsPermission.ok ? (
-          <div style={{ marginTop: 8, display: "grid", gap: 6, maxWidth: 360 }}>
+          <div data-el="biz-settings-form" style={{ marginTop: 8, display: "grid", gap: 6, maxWidth: 360 }}>
             <TextInput
               label={copy.workspaceName}
               data-business-name=""
+              data-ctl="live:ECON-01 edit"
               value={name}
               onChange={(event) => setName(event.target.value)}
               hint={copy.workspaceNameHint}
@@ -779,11 +780,20 @@ export function BusinessView({
             <TextInput
               label={copy.currency}
               data-business-currency=""
+              data-ctl="live:ECON-03 edit"
               value={currency}
               onChange={(event) => setCurrency(event.target.value)}
               hint={copy.currencyHint}
             />
-            <p role="status" aria-live="polite" data-settings-progress="" style={{ margin: 0, fontSize: 12, minHeight: 16 }}>
+            <p
+              role="status"
+              aria-live="polite"
+              data-settings-progress=""
+              // Until the re-read lands, nothing is confirmed; saying so is the
+              // difference between "sent" and "true".
+              data-el={settingsState.confirmed ? undefined : "no-readback-warning"}
+              style={{ margin: 0, fontSize: 12, minHeight: 16 }}
+            >
               {settingsState.pending ? "Saving\u2026" : settingsState.confirmed ?? ""}
             </p>
             {settingsState.error ? (
@@ -817,7 +827,7 @@ export function BusinessView({
       <section aria-label={copy.economics} style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.economics}</h2>
         {divergence.diverged ? (
-          <p data-economics-divergence="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p data-economics-divergence="" data-el="econ-divergence" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
             {divergence.message}
           </p>
         ) : (
@@ -864,6 +874,7 @@ export function BusinessView({
         <Button
           variant="danger"
           data-business-delete=""
+          data-ctl="gated:SCOPE-01 delete"
           state={canDelete ? { kind: "enabled" } : { kind: "disabled", reason: "Only a business admin can delete it." }}
           onClick={onDelete}
         >

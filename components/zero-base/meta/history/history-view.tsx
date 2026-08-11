@@ -79,7 +79,7 @@ export function HistoryView({
       ) : null}
 
       {disclosure ? (
-        <p data-history-disclosure="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-history-disclosure="" data-el="history-gap" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {disclosure}
         </p>
       ) : null}

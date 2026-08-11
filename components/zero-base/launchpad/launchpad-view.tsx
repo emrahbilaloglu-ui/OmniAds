@@ -94,6 +94,9 @@ export function LaunchpadView({
             <Button
               variant="secondary"
               data-launch-disabled={action.id}
+              data-ctl={
+                action.id === "add_to_existing" ? "disabled:LAUNCH-07 add" : "disabled:LAUNCH-06 launch"
+              }
               state={{ kind: "disabled", reason: action.summary, code: action.id }}
             >
               {action.label}
@@ -136,6 +139,7 @@ export function LaunchpadView({
         <Button
           variant="secondary"
           data-draft-create=""
+          data-ctl="live:LAUNCH-05 validate"
           style={{ marginTop: 8 }}
           state={draftName.trim() ? { kind: "enabled" } : { kind: "disabled", reason: "A draft needs a name." }}
           onClick={() => onCreateDraft?.(draftName.trim(), { name: draftName.trim() })}
@@ -153,7 +157,7 @@ export function LaunchpadView({
           </p>
         ) : (
           <>
-            <ul data-validation="findings" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+            <ul data-validation="findings" data-el="launch-validation" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
               {findings.map((finding) => (
                 <li
                   key={finding.id}
@@ -176,6 +180,7 @@ export function LaunchpadView({
               <Button
                 variant="secondary"
                 data-validation-focus={blockingField}
+                data-ctl="live:LAUNCH-01 fix"
                 onClick={() => fieldRefs.current[blockingField]?.focus()}
                 style={{ marginTop: 8 }}
               >

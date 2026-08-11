@@ -15,8 +15,11 @@ import { useState } from "react";
 
 import { MetricCard } from "@/components/zero-base/home/metric-card";
 import { BannerStack, SourceHealthPanel } from "@/components/zero-base/home/source-health";
+import { EconomicsContext } from "@/components/zero-base/home/economics-context";
+import { TrendPanel, type TrendPoint } from "@/components/zero-base/home/trend-panel";
 import { Button } from "@/components/zero-base/primitives/button";
 import { buildBannerStack, type HomeContract } from "@/lib/zero-base/home/metric-contract";
+import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
 import { useCopy } from "@/components/zero-base/i18n/copy-provider";
 
 export type HomeRefreshState = "idle" | "refreshing" | "failed";
@@ -24,12 +27,20 @@ export type HomeRefreshState = "idle" | "refreshing" | "failed";
 export function HomeView({
   contract,
   scopeLine,
+  businessId = null,
+  trend,
+  economics,
   refreshState = "idle",
   onRefresh,
 }: {
   contract: HomeContract;
   /** Business · account · window, supplied by the shell's resolved scope. */
   scopeLine: string;
+  businessId?: string | null;
+  /** Daily spend and ROAS. Absent when the trend genuinely has no points. */
+  trend?: { points: readonly TrendPoint[]; currency: string | null } | null;
+  /** Absent when no economics source has been configured for this business. */
+  economics?: EconomicsContextModel | null;
   refreshState?: HomeRefreshState;
   onRefresh?: () => void;
 }) {
@@ -73,6 +84,7 @@ export function HomeView({
       <section
         aria-label={copy.keyMetrics}
         data-metric-grid=""
+        data-el="home-kpis"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -85,7 +97,27 @@ export function HomeView({
         ))}
       </section>
 
-      <SourceHealthPanel sources={contract.sources} />
+      {trend ? (
+        <div style={{ marginBottom: 16 }}>
+          <TrendPanel
+            title="Spend & ROAS trend"
+            points={trend.points}
+            currency={trend.currency}
+            targetRoas={economics?.targetRoas ?? null}
+            surface="home"
+          />
+        </div>
+      ) : null}
+
+      <div data-el="source-readiness">
+        <SourceHealthPanel sources={contract.sources} />
+      </div>
+
+      {economics ? (
+        <div style={{ marginTop: 16 }}>
+          <EconomicsContext model={economics} businessId={businessId} />
+        </div>
+      ) : null}
 
       {onRefresh ? (
         <Button

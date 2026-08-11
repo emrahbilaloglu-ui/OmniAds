@@ -138,7 +138,11 @@ describe("generic controls", () => {
     expect(onChange).toHaveBeenCalledWith("monitor");
   });
 
-  interactionCase("live:chart-table-toggle", async () => {
+  // NOT a claim on live:chart-table-toggle. This exercises the generic tabs
+  // primitive; the contract's real owner is the Home trend panel, which must
+  // swap in actual <table> markup and persist the choice per surface. A tab
+  // switching to <p>Table</p> demonstrates neither.
+  it("tabs switch panels", async () => {
     const onValueChange = vi.fn();
     render(
       <ZeroBaseTabs
@@ -157,12 +161,6 @@ describe("generic controls", () => {
 });
 
 /* ----------------------------------------------------------------- shell */
-
-describe("shell navigation", () => {
-
-
-
-});
 
 /* ----------------------------------------------------------------- scope */
 

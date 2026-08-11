@@ -47,7 +47,7 @@
   },
   "interactions": {
     "required": 142,
-    "executed": 19,
+    "executed": 18,
     "missing": [
       "live:AUTH-01",
       "live:AUTH-02 email",
@@ -91,6 +91,7 @@
       "live:INTEGRATION-07",
       "live:INTEGRATION-07 assign",
       "live:INTEGRATION-07 save",
+      "live:ECON-04 divergence-link",
       "live:I18N-02 lang",
       "live:META-DEC-01 lane",
       "live:META-DEC-02 level",
@@ -179,7 +180,6 @@
       "gated:SCOPE-01 delete",
       "live:ECON-01 edit",
       "live:ECON-03 edit",
-      "live:ECON-04 divergence-link",
       "live:GOOGLE-30 deeplink",
       "live:INV-18 share-view",
       "live:MOBILE-01",

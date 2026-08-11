@@ -165,7 +165,11 @@ describe("scope and economics", () => {
     expect(screen.getByText("Commercial targets")).toBeTruthy();
   });
 
-  interactionCase("live:ECON-04 divergence-link", () => {
+  // NOT a claim on live:ECON-04 divergence-link. This asserts that Business
+  // Settings names a divergence rather than averaging it away — worth keeping,
+  // but it never operates a link and ECON-04 is owned by Home, which is where
+  // the contract's navigation is proven.
+  it("business settings names an economics divergence", () => {
     render(
       <Host>
         <BusinessView

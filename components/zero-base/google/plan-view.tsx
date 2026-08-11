@@ -12,6 +12,7 @@ import { useCallback, useState } from "react";
 
 import { Button } from "@/components/zero-base/primitives/button";
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { ZeroBaseDialog } from "@/components/zero-base/primitives/overlays";
 import {
   APPLIED_MANUAL_LABEL,
   JOURNAL_ACTION_LABEL,
@@ -309,6 +310,16 @@ export function GooglePlanView({
             </li>
           ))}
         </ul>
+        {batchPartial ? (
+          <ZeroBaseDialog
+            open
+            onOpenChange={() => {}}
+            title={t.confirmBatch}
+            description={t.batchIsReferenceOnly}
+            confirmLabel={t.checkThisSelection}
+            onConfirm={() => {}}
+          />
+        ) : null}
         <Button
           variant="secondary"
           data-batch-validate=""

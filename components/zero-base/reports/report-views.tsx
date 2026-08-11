@@ -7,7 +7,7 @@
  * fail-closed branch is the server's answer; a button here would be a control
  * whose only outcome is a refusal, and its absence is asserted by test.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { RenderedReportWidget } from "@/lib/custom-reports";
 
@@ -672,6 +672,38 @@ export const SHARE_PREREQUISITES = [
   "A written operator authorization recorded in Appendix C.",
   "A decision on what happens to share tokens that were already issued.",
 ] as const;
+
+/**
+ * The print / PDF view (H39).
+ *
+ * No chrome and no controls: paper has no rail, no context bar and nothing to
+ * click. What it does carry is the scope and the window the figures were served
+ * for — a printed page outlives the session that produced it, and a number
+ * without its window is unreadable a week later.
+ */
+export function ReportPrintView({
+  name,
+  scopeLine,
+  windowLabel,
+  snapshotAt,
+  children,
+}: {
+  name: string;
+  scopeLine: string;
+  windowLabel: string;
+  snapshotAt: string;
+  children?: ReactNode;
+}) {
+  return (
+    <article data-el="print-view" data-report-print="" style={{ maxWidth: 960, margin: "0 auto" }}>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{name}</h1>
+      <p style={{ margin: "4px 0 16px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+        {scopeLine} · {windowLabel} · as of {snapshotAt}
+      </p>
+      {children}
+    </article>
+  );
+}
 
 export function ReportShareDisabled() {
   const copy = useCopy();

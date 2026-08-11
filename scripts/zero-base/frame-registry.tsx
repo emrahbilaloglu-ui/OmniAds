@@ -49,6 +49,7 @@ import {
   RenderedWidgetCard,
   ReportBuilderView,
   ReportLibraryView,
+  ReportPrintView,
   ReportShareDisabled,
 } from "@/components/zero-base/reports/report-views";
 import { CreativeDetailView } from "@/components/zero-base/creative/detail-view";
@@ -1171,7 +1172,19 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H37–H40: reports ---- */
   { id: "H37", leaf: "L-C-REP", state: "reports-library", width: 1440, theme: "light", render: () => <ReportLibraryView reports={REPORTS} businessId="biz" totalCount={9} onCreate={() => {}} onDuplicate={() => {}} onDelete={() => {}} onLoadMore={() => {}} /> },
   { id: "H38", leaf: "L-C-REP-NEW", state: "report-builder", width: 1440, theme: "light", render: () => <ReportBuilderView initial={BUILDER_GRID} name="Weekly review" onNameChange={() => {}} onSave={() => {}} onExportCsv={() => {}} onRetryWidgets={() => {}} /> },
-  { id: "H39", leaf: "L-C-REP-VIEW", state: "print", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "metric", value: "1,204.50 USD", deltaLabel: "+8.1% vs previous" })} sourceId="overview_summary" /> },
+  { id: "H39", leaf: "L-C-REP-VIEW", state: "print", width: 1440, theme: "light", render: () => (
+    <ReportPrintView
+      name="Weekly review"
+      scopeLine="Halcyon Supply Co. · act_298410771"
+      windowLabel="Jul 13 – Aug 9"
+      snapshotAt="2026-08-09T06:10:00Z"
+    >
+      <RenderedWidgetCard
+        widget={widget({ type: "metric", value: "1,204.50 USD", deltaLabel: "+8.1% vs previous" })}
+        sourceId="overview_summary"
+      />
+    </ReportPrintView>
+  ) },
   { id: "H40", leaf: "L-C-REP-VIEW", state: "share-disabled", width: 1440, theme: "light", render: () => <ReportShareDisabled /> },
 
   /* ---- H41–H49: manage, ops, share ---- */
@@ -1223,7 +1236,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
-  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true, true) },
+  { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => <div data-el="win-320">{homeFrame(true, true)}</div> },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },

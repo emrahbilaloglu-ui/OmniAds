@@ -162,6 +162,7 @@ export function DecisionsView({
         <div style={{ maxWidth: 280, flex: "1 1 220px" }}>
           <TextInput
             label={copy.findADecision}
+            data-ctl="live:META-DEC-17 search"
             value={search}
             placeholder={copy.campaignAdsetOrTitle}
             onChange={(event) => {
@@ -187,6 +188,7 @@ export function DecisionsView({
                     type="checkbox"
                     checked={checked}
                     data-level-filter={level}
+                    data-ctl="live:META-DEC-02 level"
                     onChange={() =>
                       onStateChange({
                         ...state,
@@ -207,6 +209,7 @@ export function DecisionsView({
 
       <ZeroBaseTabs
         label={copy.decisionLanes}
+        tabCtl="live:META-DEC-01 lane"
         value={state.lane}
         onValueChange={(lane) =>
           onStateChange({ ...state, lane: lane as DecisionLane, selected: null })
@@ -243,6 +246,7 @@ export function DecisionsView({
                   }
                 >
                   <DataTable
+                    collection="decisions"
                     caption={`${LANE_LABEL[lane]} decisions`}
                     rows={model.rows}
                     rowKey={(row) => row.id}
@@ -257,6 +261,7 @@ export function DecisionsView({
                               triggerRefs.current[row.id] = node;
                             }}
                             data-decision-row={row.id}
+                            data-ctl="live:META-DEC-05 open-inspector"
                             onClick={() => onStateChange({ ...state, selected: row.id })}
                             style={{
                               minHeight: 24,
@@ -279,7 +284,11 @@ export function DecisionsView({
                         id: "verdict",
                         header: "Verdict",
                         // Printed exactly as served. No formatting, no mapping.
-                        render: (row) => <span data-verdict={row.id}>{row.decision}</span>,
+                        render: (row) => (
+                          <span data-verdict={row.id} data-el="verdict-chip">
+                            {row.decision}
+                          </span>
+                        ),
                       },
                       {
                         id: "confidence",
@@ -348,6 +357,7 @@ export function DecisionsView({
           }
         }}
         title={selectedRow?.title ?? "Decision"}
+        closeCtl="live:close"
       >
         {selectedRow ? (
           <DecisionInspector
@@ -387,7 +397,9 @@ function DecisionInspector({
       <dl style={{ display: "grid", gap: 8, margin: 0 }}>
         <div>
           <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.verdict}</dt>
-          <dd data-inspector-verdict="" style={{ margin: 0, fontSize: 13 }}>{row.decision}</dd>
+          <dd data-inspector-verdict="" data-el="verdict-chip" style={{ margin: 0, fontSize: 13 }}>
+            {row.decision}
+          </dd>
         </div>
         <div>
           <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>Why</dt>
@@ -439,6 +451,7 @@ function DecisionInspector({
             target="_blank"
             rel="noopener noreferrer"
             data-ads-manager-link=""
+            data-ctl="live:META-DEC-13 open"
             style={{ color: "var(--ledger-accent-action)" }}
           >
             {copy.openMetaAdsManager}

@@ -30,11 +30,20 @@ export function ZeroBaseTabs({
   value,
   onValueChange,
   label,
+  tabCtl = "live:tab",
 }: {
   tabs: readonly ZeroBaseTab[];
   value: string;
   onValueChange: (value: string) => void;
   label: string;
+  /**
+   * Contract key the triggers satisfy.
+   *
+   * Defaults to the generic tab contract. Surfaces where switching tabs *is* a
+   * named product action — the Decisions lanes, for instance — pass their own,
+   * because "changed lane" and "changed tab" are not the same event.
+   */
+  tabCtl?: string;
 }) {
   return (
     <RadixTabs.Root value={value} onValueChange={onValueChange}>
@@ -53,6 +62,7 @@ export function ZeroBaseTabs({
             key={tab.id}
             value={tab.id}
             data-unavailable={tab.unavailableReason ? "" : undefined}
+            data-ctl={tabCtl}
             style={{
               minHeight: 44,
               padding: "10px 14px",

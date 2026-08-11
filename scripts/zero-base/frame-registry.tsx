@@ -29,6 +29,8 @@ import React from "react";
 
 import { CeremonyResult, IntegrationsView, TeamView, BusinessView, PlanView } from "@/components/zero-base/manage/manage-views";
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
+import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { buildDecisionsViewModel } from "@/lib/zero-base/meta/decisions-presentation";
 import { HomeView } from "@/components/zero-base/home/home-view";
 import type { HomeContract, HomeMetric, HomeSourceState } from "@/lib/zero-base/home/metric-contract";
 import type { EconomicsContextModel } from "@/lib/zero-base/home/economics-context";
@@ -228,6 +230,75 @@ const agencyPage = (count: number) => ({
 
 const agencyDesk = () => <AgencyDeskView initialPage={agencyPage(4)} />;
 
+
+/* ------------------------------------------------------- meta decisions */
+
+const metaRecommendation = (overrides: Record<string, unknown> = {}) => ({
+  id: "d1",
+  level: "campaign",
+  type: "campaign_state",
+  lens: "profitability",
+  priority: "high",
+  confidence: "high",
+  decisionState: "act",
+  decision: "Scale up — 7-day ROAS 3.4 vs target 2.6",
+  title: "Prospecting — Broad US",
+  why: "Seven-day ROAS is above target and pace is +18%.",
+  summary: "",
+  recommendedAction: "Raise the daily budget by 20%.",
+  expectedImpact: "",
+  evidence: [],
+  timeframeContext: {},
+  campaignName: "Prospecting — Broad US",
+  ...overrides,
+});
+
+const metaLane = (rows: ReturnType<typeof metaRecommendation>[]) => ({
+  businessId: "biz",
+  startDate: "2026-07-13",
+  endDate: "2026-08-09",
+  sourceModel: "v3",
+  snapshotDate: "2026-08-09",
+  snapshotCreatedAt: "2026-08-09T06:00:00Z",
+  actionNow: rows,
+  watching: [],
+  healthy: [],
+  nonSales: [],
+  archive: [],
+  deferredIds: [],
+  counts: { actionNow: rows.length, watching: 0, healthy: 0, nonSales: 0, archive: 0 },
+});
+
+const DECISION_STATE = { lane: "act" as const, levels: [], search: "", selected: null };
+const DECISION_VIEWER = {
+  role: "collaborator" as const,
+  isReviewer: false,
+  readOnly: false,
+  readOnlyReason: null,
+};
+
+/** The Decisions workspace, optionally with its inspector open. */
+const decisions = (selected: string | null = null, rows = 3) => {
+  const items = Array.from({ length: rows }, (_, index) =>
+    metaRecommendation({ id: `d${index + 1}`, title: `Prospecting — Broad US ${index + 1}` }),
+  );
+  const state = { ...DECISION_STATE, selected };
+  return (
+    <DecisionsView
+      model={buildDecisionsViewModel({
+        lane: metaLane(items) as never,
+        banners: [],
+        viewer: DECISION_VIEWER,
+        state,
+      })}
+      state={state}
+      demo={false}
+      onStateChange={() => {}}
+      adsManagerHref="https://adsmanager.facebook.com/"
+    />
+  );
+};
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -329,8 +400,8 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => homeFrame(true) },
 
   /* ---- H09–H16: decisions, workflow, mutation ceremony ---- */
-  { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 5, 5)} businessId="biz" /> },
-  { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 1, 1)} businessId="biz" /> },
+  { id: "H09", leaf: "L-C-META-DEC", state: "decisions", width: 1440, theme: "light", render: () => decisions() },
+  { id: "H10", leaf: "L-C-META-DEC", state: "inspector", width: 1440, theme: "light", render: () => decisions("d1") },
   { id: "H11", leaf: "L-C-META-DEC", state: "workflow-in-flight", width: 1440, theme: "light", render: () => <LoadingState label="Applying the workflow transition" /> },
   { id: "H12", leaf: "L-C-META-DEC", state: "conflict", width: 1440, theme: "light", render: () => <ErrorState reason="This decision changed while you were reading it." code="conflict" /> },
   { id: "H13", leaf: "L-C-META-WRITE", state: "ceremony-preflight", width: 1440, theme: "light", render: () => repair({ blockedReason: "The preflight is older than 15 minutes. Run it again before acting." }) },
@@ -389,12 +460,12 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H50–H59: mobile / narrow core flows ---- */
   { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
+  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1") },
   { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H57", leaf: "L-C-M-INT", state: "narrow-integrations", width: 390, theme: "light", render: () => integrations() },
+  { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1") },
   { id: "H58", leaf: "L-C-M-TEAM", state: "narrow-team", width: 390, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 
@@ -409,12 +480,12 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },
-  { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 5, 5)} businessId="biz" /> },
+  { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => decisions("d1") },
   { id: "B03", leaf: "L-C-CR-PERF", state: "geometry-1280-creative", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "B04", leaf: "L-C-M-INT", state: "geometry-1280-integrations", width: 1280, theme: "light", render: () => integrations() },
   { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => homeFrame(true) },
-  { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
-  { id: "B07", leaf: "L-C-REP", state: "geometry-768-reports", width: 768, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
+  { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => decisions() },
+  { id: "B07", leaf: "L-C-META-DEC", state: "geometry-768-inspector", width: 768, theme: "light", render: () => decisions("d1") },
   { id: "B08", leaf: "L-C-M-TEAM", state: "geometry-768-team", width: 768, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
   { id: "B09", leaf: "L-OPS-INTEGRATIONS", state: "geometry-768-ops", width: 768, theme: "light", render: () => <CriticalIncidentPath /> },
 
@@ -459,8 +530,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
   [
     ["H06", "renders EmptyState, not the global search overlay"],
     ["H07", "renders LoadingState, not the switch-reset composition"],
-    ["H09", "renders CreativePerformanceView, not the Decisions lane composition"],
-    ["H10", "renders CreativePerformanceView, not the Decisions inspector"],
     ["H11", "renders LoadingState, not the workflow overlay"],
     ["H17", "renders UnavailableState, not the Intelligence composition"],
     ["H18", "renders EmptyState, not the History composition"],
@@ -478,14 +547,11 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H34", "renders UnavailableState, not the analytics composition"],
     ["H35", "renders EmptyState, not the SEO composition"],
     ["H36", "renders LoadingState, not the GEO composition"],
-    ["H52", "renders CreativePerformanceView, not the narrow Decisions composition"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],
     ["H64", "renders EmptyState, not the 320 scope sheet"],
     ["H65", "renders ErrorState, not the switch-state composition"],
-    ["B02", "renders CreativePerformanceView, not the 1280 Decisions composition"],
-    ["B06", "renders CreativePerformanceView, not the 768 Decisions composition"],
     ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],
   ] as const,
 );

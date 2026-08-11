@@ -13,10 +13,31 @@ import { WorkspaceContextProvider } from "@/components/workspace/workspace-conte
 import { AppShell } from "@/components/zero-base/shell/app-shell";
 import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
-import type { ProviderScopeMode, WorkspaceContextEnvelope } from "@/lib/workspace/workspace-context";
+import type {
+  ProviderId,
+  ProviderScopeMode,
+  WorkspaceContextEnvelope,
+  WorkspaceMode,
+} from "@/lib/workspace/workspace-context";
 import type { ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
 import { PostureNotice } from "@/components/zero-base/auth/auth-states";
 import { DEMO_BUSINESS_COPY, REVIEWER_READ_ONLY_COPY } from "@/lib/zero-base/auth-states";
+
+/** Human names for the scope facts, so the sheet never prints an enum. */
+const WORKSPACE_MODE_LABEL: Record<WorkspaceMode, string> = {
+  agency: "Agency",
+  client: "Client",
+  ops: "Ops",
+  account: "Account",
+};
+
+const PROVIDER_LABEL: Record<ProviderId, string> = {
+  meta: "Meta",
+  google: "Google Ads",
+  shopify: "Shopify",
+  ga4: "GA4",
+  search_console: "Search Console",
+};
 
 export function ClientShell({
   envelope,
@@ -33,6 +54,17 @@ export function ClientShell({
   const groups = navGroupsFor("Client");
 
   const scope: ScopeFacts = {
+    // Context and provider are facts the envelope already carries; the sheet
+    // states them rather than leaving the actor to infer scope from the rail.
+    scopeContext: WORKSPACE_MODE_LABEL[envelope.mode],
+    // Not yet tracked in the envelope: nothing records which surface the client
+    // scope was entered from, so this stays null rather than guessing "Agency
+    // Desk" for someone who navigated straight to a bookmark.
+    enteredFrom: null,
+    providerLabel:
+      providerScopeMode === "none" || !envelope.provider
+        ? null
+        : PROVIDER_LABEL[envelope.provider.id],
     businessName: envelope.business?.name ?? null,
     providerAccountLabel:
       providerScopeMode === "none" ? null : (envelope.provider?.selectedAccountLabel ?? null),

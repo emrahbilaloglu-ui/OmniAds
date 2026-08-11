@@ -169,6 +169,9 @@ describe("MediaPlayer", () => {
 
 describe("ScopeSheet", () => {
   const facts = {
+    scopeContext: "Client",
+    enteredFrom: null,
+    providerLabel: "Meta",
     businessName: "Grandmix",
     providerAccountLabel: "act_298410771",
     evidenceWindowLabel: "Last 7 days",
@@ -180,7 +183,7 @@ describe("ScopeSheet", () => {
     snapshotAt: "2026-08-10T14:02:00Z",
   };
 
-  it("renders all six named facts", async () => {
+  it("renders all eight named facts", async () => {
     render(
       <Canonical>
         <ScopeSheet open onOpenChange={vi.fn()} facts={facts} />
@@ -190,7 +193,9 @@ describe("ScopeSheet", () => {
     for (const id of SCOPE_FACT_IDS) {
       expect(sheet.querySelector(`[data-scope-fact="${id}"]`), id).not.toBeNull();
     }
-    expect(SCOPE_FACT_IDS).toHaveLength(6);
+    // Eight, per the accepted design's H63: the sheet separates which provider
+    // is in scope from which account, and names the scope context itself.
+    expect(SCOPE_FACT_IDS).toHaveLength(8);
   });
 
   it("carries the proof state with the value, not just the value", async () => {
@@ -201,7 +206,7 @@ describe("ScopeSheet", () => {
     );
     const sheet = await screen.findByRole("dialog");
     // A bare "USD" would imply we observed it when we were only told it.
-    expect(within(sheet).getByText(/USD — configured, not yet observed/)).toBeVisible();
+    expect(within(sheet).getByText(/USD · configured, not yet observed/)).toBeVisible();
     expect(within(sheet).getByText(/disagrees with the account/)).toBeVisible();
   });
 
@@ -221,9 +226,9 @@ describe("ScopeSheet", () => {
       </Canonical>,
     );
     const sheet = await screen.findByRole("dialog");
-    // Six rows either way — a dropped row reads as "this fact agrees".
-    expect(sheet.querySelectorAll("[data-scope-fact]")).toHaveLength(6);
-    expect(within(sheet).getByText(/Unknown — not set/)).toBeVisible();
+    // Eight rows either way — a dropped row reads as "this fact agrees".
+    expect(sheet.querySelectorAll("[data-scope-fact]")).toHaveLength(8);
+    expect(within(sheet).getByText(/TZ Unknown · not set/)).toBeVisible();
     expect(within(sheet).getByText("None selected")).toBeVisible();
   });
 });

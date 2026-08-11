@@ -48,7 +48,13 @@ export function NavDrawer({
       >
         {copy.menu}
       </Button>
-      <ZeroBaseSheet open={open} onOpenChange={setOpen} title={copy.navigation} side="bottom">
+      <ZeroBaseSheet
+        open={open}
+        onOpenChange={setOpen}
+        title={copy.navigation}
+        side="bottom"
+        closeCtl="live:nav-drawer close"
+      >
         <nav aria-label={copy.primary} data-nav-drawer="">
           {groups.map((group) => (
             <div key={group.id} style={{ marginTop: 12 }}>

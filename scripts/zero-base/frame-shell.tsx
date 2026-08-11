@@ -26,8 +26,11 @@ export type FrameShell = NavContext | "Account" | "none";
 
 /** The frame's scope, fixed so captures are deterministic. */
 export const FRAME_SCOPE: ScopeFacts = {
+  scopeContext: "Client",
+  enteredFrom: "Agency Desk",
+  providerLabel: "Meta (Google Ads also assigned)",
   businessName: "Halcyon Supply Co.",
-  providerAccountLabel: "act_8842190 · Halcyon US",
+  providerAccountLabel: "act_298410771 · Halcyon Main",
   evidenceWindowLabel: "Jul 13 – Aug 9",
   configuredCurrency: "USD",
   currencyProof: "proven",
@@ -88,6 +91,12 @@ export function withFrameShell(
         initialNarrow={isNarrowWidth(options.width)}
         initialDrawerOpen={options.drawerOpen ?? false}
         initialScopeOpen={options.scopeSheetOpen ?? false}
+        scopePickers={{
+          onSwitchScope: () => {},
+          onSwitchBusiness: () => {},
+          onPickAccount: () => {},
+          onPickWindow: () => {},
+        }}
         railFooter={
           <p
             style={{

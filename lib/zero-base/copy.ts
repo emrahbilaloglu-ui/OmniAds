@@ -32,6 +32,7 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    scopeServedNote: "Every value above is served — nothing is recomputed on the client.",
     undo: "Undo",
 
     /* -------------------------------------------------------- collections */
@@ -315,6 +316,7 @@ export const ZERO_BASE_COPY = {
     cancel: "Vazgeç",
     save: "Kaydet",
     close: "Kapat",
+    scopeServedNote: "Yukarıdaki her değer sunucudan gelir — istemcide hiçbir şey yeniden hesaplanmaz.",
     undo: "Geri al",
 
     noRows: "Bu dönem için satır sunulmadı.",

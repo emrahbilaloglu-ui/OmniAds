@@ -20,7 +20,11 @@ import { Rail } from "@/components/zero-base/shell/rail";
 import { NavDrawer } from "@/components/zero-base/shell/nav-drawer";
 import { ContextBar } from "@/components/zero-base/shell/context-bar";
 import { SkipLink, MAIN_CONTENT_ID, MAIN_CONTENT_TABINDEX } from "@/components/zero-base/shell/skip-link";
-import { ScopeSheet, type ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
+import {
+  ScopeSheet,
+  type ScopeFacts,
+  type ScopePickers,
+} from "@/components/zero-base/primitives/scope-sheet";
 import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
 import type { NavGroup } from "@/lib/zero-base/navigation";
 
@@ -59,6 +63,8 @@ export interface AppShellProps {
   /** Drawer and scope sheet are named states the shell can be built in. */
   initialDrawerOpen?: boolean;
   initialScopeOpen?: boolean;
+  /** Omitted handlers mean the actor cannot re-scope; the row shows no picker. */
+  scopePickers?: ScopePickers;
   children: ReactNode;
 }
 
@@ -86,6 +92,7 @@ export function AppShell({
   initialNarrow = false,
   initialDrawerOpen = false,
   initialScopeOpen = false,
+  scopePickers,
   children,
 }: AppShellProps) {
   const narrow = useIsNarrow(initialNarrow);
@@ -195,7 +202,12 @@ export function AppShell({
         </div>
 
         {scope ? (
-          <ScopeSheet open={scopeOpen} onOpenChange={setScopeOpen} facts={scope} />
+          <ScopeSheet
+            open={scopeOpen}
+            onOpenChange={setScopeOpen}
+            facts={scope}
+            pickers={scopePickers}
+          />
         ) : null}
       </ZeroBasePortalHost>
     </div>

@@ -182,7 +182,7 @@ export function ZeroBaseDialog({
           ) : null}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
             <RadixDialog.Close asChild>
-              <Button ref={cancelRef} variant="secondary">
+              <Button ref={cancelRef} variant="secondary" data-ctl="live:cancel">
                 {copy.cancel}
               </Button>
             </RadixDialog.Close>
@@ -323,12 +323,22 @@ export function ZeroBaseSheet({
   title,
   side = "right",
   description,
+  closeCtl = "live:cancel",
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   side?: SheetSide;
+  /**
+   * Contract key the close control satisfies.
+   *
+   * Closing is the same gesture but a different contract depending on what is
+   * being closed: `live:cancel` for a sheet that could have mutated something,
+   * `live:close` for an inspector whose selection survives in the URL, and
+   * `live:nav-drawer close` for the navigation drawer.
+   */
+  closeCtl?: string;
   /**
    * Sentence describing the sheet's purpose, announced after its title.
    *
@@ -389,7 +399,7 @@ export function ZeroBaseSheet({
           ) : null}
           {children}
           <RadixDialog.Close asChild>
-            <Button variant="secondary" primaryTarget style={{ marginTop: 16 }}>
+            <Button variant="secondary" primaryTarget data-ctl={closeCtl} style={{ marginTop: 16 }}>
               {copy.close}
             </Button>
           </RadixDialog.Close>

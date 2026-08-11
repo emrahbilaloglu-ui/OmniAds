@@ -49,6 +49,9 @@ export const HARNESS_THEMES = ["light", "dark"] as const;
 export const DRAWER_BREAKPOINT = 768;
 
 const SCOPE = {
+  scopeContext: "Client",
+  enteredFrom: null,
+  providerLabel: "Meta",
   businessName: "Grandmix",
   providerAccountLabel: "act_298410771",
   evidenceWindowLabel: "Last 7 days",
@@ -204,6 +207,9 @@ function publicShareMarkup(width: number): string {
           expiresAt: "2026-09-01",
           businessId: "biz-internal-9f2c",
           providerAccountId: "act_internal_7781",
+          scopeContext: "Client",
+          enteredFrom: null,
+          providerLabel: "Meta",
           businessName: "Acme Internal Workspace",
           clientEmail: "finance@acme-internal.example",
           metrics: [],

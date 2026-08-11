@@ -31,6 +31,9 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/c/biz_1/home" }));
 afterEach(cleanup);
 
 const scope = {
+  scopeContext: "Client",
+  enteredFrom: null,
+  providerLabel: "Meta",
   businessName: "Grandmix",
   providerAccountLabel: "act_298410771",
   evidenceWindowLabel: "Last 7 days",
@@ -223,11 +226,11 @@ describe("AppShell", () => {
     }
   });
 
-  it("names the compact context bar with all six facts", () => {
+  it("names the compact context bar with all eight facts", () => {
     renderShell(320);
     const compact = document.querySelector('[data-context-bar="compact"]')!;
     const label = compact.getAttribute("aria-label") ?? "";
-    for (const word of ["Business", "Provider account", "Evidence window", "Currency", "Timezone", "Freshness"]) {
+    for (const word of ["Context", "Business", "Provider", "Account", "Currency", "Timezone", "Window", "Freshness"]) {
       expect(label, word).toContain(word);
     }
   });

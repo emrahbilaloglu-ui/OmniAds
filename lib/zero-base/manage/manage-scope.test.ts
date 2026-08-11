@@ -86,7 +86,8 @@ describe("WP-23 the OAuth return path is real end to end", () => {
     const paths: Record<string, string> = {
       meta: "app/api/oauth/meta/start/route.ts",
       google: "app/api/oauth/google/start/route.ts",
-      shopify: "app/api/oauth/shopify/start/route.ts",
+      // Shopify is deliberately not in OAUTH_START_PROVIDERS; its handler
+      // behavior is tested directly in shopify-entry.test.ts.
       ga4: "app/api/oauth/google-analytics/start/route.ts",
       search_console: "app/api/oauth/search_console/start/route.ts",
     };

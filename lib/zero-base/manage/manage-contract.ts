@@ -223,19 +223,41 @@ export const PLAN_GATES_NOTHING =
  * ========================================================================== */
 
 /**
- * Providers with a real OAuth start route that can actually complete.
+ * Providers whose start route begins a completable OAuth round trip from here.
  *
- * Klaviyo is deliberately absent. `/api/oauth/klaviyo/start` exists but answers
- * 501 by design — it refuses to fabricate a connection — so offering a
- * reconnect control for it would be a control whose only outcome is a refusal.
+ * Two deliberate absences:
+ *
+ * - **Klaviyo.** `/api/oauth/klaviyo/start` answers 501 by design, so a control
+ *   for it could only ever refuse.
+ * - **Shopify.** Its start route redirects any request without a `shop` to
+ *   `/shopify/connect` and drops `businessId`/`returnTo` on the way, because
+ *   installation is owned by the Shopify App Store or Admin. Presenting it here
+ *   as a generic Connect would claim a round trip this product cannot begin.
+ *   Shopify has its own entry below.
  */
 export const OAUTH_START_PROVIDERS = {
   meta: "/api/oauth/meta/start",
   google: "/api/oauth/google/start",
-  shopify: "/api/oauth/shopify/start",
   ga4: "/api/oauth/google-analytics/start",
   search_console: "/api/oauth/search_console/start",
 } as const satisfies Partial<Record<ProviderId, string>>;
+
+/**
+ * Who may begin an authorization round trip.
+ *
+ * Every start route above calls `requireBusinessAccess({minRole:
+ * "collaborator"})`. A guest who clicks is answered with a JSON 403 — a raw
+ * error document, not a surface — so the refusal has to happen here, before the
+ * navigation. The server gate remains the authority; this only stops the UI
+ * from offering an action it knows will be refused.
+ */
+export function oauthStartPermission(role: string | null): { ok: true } | { ok: false; reason: string } {
+  if (role === "admin" || role === "collaborator") return { ok: true };
+  return {
+    ok: false,
+    reason: `Connecting or reconnecting a provider needs the collaborator role. Your role on this workspace is ${role ?? "not reported"}.`,
+  };
+}
 
 /**
  * Where the operator lands after the round trip.
@@ -379,4 +401,65 @@ export function businessSettingsBody(input: {
     return { error: "A currency is required." };
   }
   return { name, currency };
+}
+
+
+/* ------------------------------------------------------------------ Shopify */
+
+/** The pattern the real `normalizeShopifyShopDomain` accepts. */
+const SHOPIFY_SHOP_DOMAIN = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/;
+
+/** The setup surface the Shopify start route itself redirects to. */
+export const SHOPIFY_SETUP_PATH = "/shopify/connect";
+
+export const SHOPIFY_EXTERNAL_NOTE =
+  "Authorization for Shopify starts in Shopify, from the App Store or your store admin. This product cannot begin it, and cannot confirm the result until the install returns.";
+
+export type ShopifyEntry =
+  | {
+      kind: "reauthorize";
+      /** A real, completable start: the handler accepts a session plus a shop. */
+      href: string;
+      shopDomain: string;
+      label: string;
+    }
+  | { kind: "external_install"; href: string; label: string; note: string };
+
+/**
+ * How Shopify is actually entered.
+ *
+ * With no `shop`, `/api/oauth/shopify/start` redirects to `/shopify/connect`
+ * and discards `businessId` and `returnTo`, so a generic Connect is a dead end.
+ * With a valid `shop` the same handler *does* complete: it reads the session,
+ * encodes `businessId` and a sanitized `returnTo` into the OAuth state, and
+ * redirects to Shopify's authorization URL. That path is only offered when a
+ * connected integration supplies an authoritative shop domain — never from a
+ * domain this surface guessed or asked the operator to type.
+ */
+export function shopifyEntry(input: {
+  businessId: string;
+  /** `provider_account_id` from the stored Shopify integration, if connected. */
+  shopDomain: string | null;
+}): ShopifyEntry {
+  const shop = input.shopDomain?.trim().toLowerCase() ?? "";
+  if (SHOPIFY_SHOP_DOMAIN.test(shop)) {
+    const returnTo = reconnectReturnPath({ businessId: input.businessId, provider: "shopify" });
+    const params = new URLSearchParams({
+      shop,
+      businessId: input.businessId,
+      returnTo,
+    });
+    return {
+      kind: "reauthorize",
+      href: `/api/oauth/shopify/start?${params.toString()}`,
+      shopDomain: shop,
+      label: `Reauthorize ${shop}`,
+    };
+  }
+  return {
+    kind: "external_install",
+    href: SHOPIFY_SETUP_PATH,
+    label: "Open Shopify setup",
+    note: SHOPIFY_EXTERNAL_NOTE,
+  };
 }

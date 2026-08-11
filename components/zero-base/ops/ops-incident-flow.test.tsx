@@ -65,13 +65,23 @@ function stub(routes: {
         const route = routes.patch ?? { body: { ok: true, action: "verify_webhooks" } };
         return { ok: route.ok ?? true, status: route.ok === false ? 400 : 200, json: async () => route.body } as Response;
       }
-      // Default: echo whichever business the caller asked about, as the
-      // handler does. Tests that need a mismatch say so explicitly.
+      // Default: a valid producer-shaped health body for whichever business
+      // was asked about. Tests needing a mismatch or a malformed core say so.
       const asked = new URL(url, "https://example.test").searchParams.get("businessId") ?? BIZ_A;
-      const route = routes.healthGet ?? { body: { businessId: asked } };
+      const route = routes.healthGet ?? { body: validHealth(asked) };
       return { ok: route.ok ?? true, status: route.ok === false ? 400 : 200, json: async () => route.body } as Response;
     }),
   );
+}
+
+/** The minimum shape `getShopifyStatus` + the health route actually produce. */
+function validHealth(businessId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    businessId,
+    status: { state: "ready", connected: true, shopId: "x.myshopify.com" },
+    auth: { shopDomain: "x.myshopify.com", tokenValid: true, missingRequiredScopes: [] },
+    ...overrides,
+  };
 }
 
 async function selectWorkspace(value: string) {
@@ -195,7 +205,7 @@ describe("WP-24 the re-read only claims what it observed", () => {
   }
 
   it("stamps a re-read only after a readable health body", async () => {
-    stub({ healthGet: { body: { businessId: BIZ_A, canaryKey: "k" } } });
+    stub({ healthGet: { body: validHealth(BIZ_A, { canaryKey: "k" }) } });
     await runToOutcome();
     (document.querySelector('[data-repair-recheck="verify_webhooks"]') as HTMLElement).click();
     await waitFor(() => expect(document.querySelector("[data-ops-rechecked]")).not.toBeNull());
@@ -228,12 +238,49 @@ describe("WP-24 the re-read only claims what it observed", () => {
     expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
   });
 
-  it("REGRESSION: reads health only for the business that was asked about", () => {
-    expect(readHealthBody({ businessId: BIZ_A }, BIZ_A)).not.toBeNull();
+  it("REGRESSION: a matching tenant id alone is not a health result", () => {
+    // This used to return a non-null object and be stamped as a successful
+    // re-read, claiming a condition nobody had observed.
+    expect(readHealthBody({ businessId: BIZ_A }, BIZ_A)).toBeNull();
+    // A real producer-shaped body is read.
+    expect(readHealthBody(validHealth(BIZ_A), BIZ_A)).not.toBeNull();
     // A body for a different workspace is not this workspace's health.
-    expect(readHealthBody({ businessId: BIZ_B }, BIZ_A)).toBeNull();
+    expect(readHealthBody(validHealth(BIZ_B), BIZ_A)).toBeNull();
     expect(readHealthBody({ error: "businessId is required." }, BIZ_A)).toBeNull();
     expect(readHealthBody(null, BIZ_A)).toBeNull();
+  });
+
+  it("REGRESSION: a malformed health core is unknown, not a reading", () => {
+    // status present but not an object.
+    expect(readHealthBody({ businessId: BIZ_A, status: "ready" }, BIZ_A)).toBeNull();
+    // state missing, or the wrong type.
+    expect(readHealthBody({ businessId: BIZ_A, status: { connected: true } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ businessId: BIZ_A, status: { state: 7, connected: true } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ businessId: BIZ_A, status: { state: "  ", connected: true } }, BIZ_A)).toBeNull();
+    // connected missing, or the wrong type.
+    expect(readHealthBody({ businessId: BIZ_A, status: { state: "ready" } }, BIZ_A)).toBeNull();
+    expect(
+      readHealthBody({ businessId: BIZ_A, status: { state: "ready", connected: "yes" } }, BIZ_A),
+    ).toBeNull();
+  });
+
+  it("distinguishes an absent optional field from a malformed one", () => {
+    // Absent is ordinary: auth may simply not be there.
+    const bare = readHealthBody({ businessId: BIZ_A, status: { state: "stale", connected: false } }, BIZ_A);
+    expect(bare).not.toBeNull();
+    expect(bare!.shopDomain).toBeNull();
+    expect(bare!.tokenValid).toBeNull();
+    expect(bare!.state).toBe("stale");
+    expect(bare!.connected).toBe(false);
+
+    // Present-but-wrong-type must not be silently downgraded to "not reported".
+    const core = { businessId: BIZ_A, status: { state: "ready", connected: true } };
+    expect(readHealthBody({ ...core, auth: "nope" }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ ...core, auth: { shopDomain: 42 } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ ...core, auth: { tokenValid: "true" } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ ...core, auth: { productionMode: 1 } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ ...core, auth: { missingRequiredScopes: "read_orders" } }, BIZ_A)).toBeNull();
+    expect(readHealthBody({ ...core, auth: { missingRequiredScopes: [1] } }, BIZ_A)).toBeNull();
   });
 });
 
@@ -418,5 +465,63 @@ describe("WP-24 the health re-read is this workspace's own", () => {
     await selectWorkspace(BIZ_B);
     expect(document.querySelector("[data-ops-health]")).toBeNull();
     expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
+  });
+});
+
+describe("WP-24 a health claim needs a health core, mounted", () => {
+  async function recheckWith(body: unknown) {
+    stub({ healthGet: { body } });
+    render(<OpsIncidentSurface />);
+    await waitFor(() => expect(document.querySelector("[data-ops-workspace-select]")).not.toBeNull());
+    await selectWorkspace(BIZ_A);
+    (document.querySelector('[data-repair-run="verify_webhooks"]') as HTMLElement).click();
+    await waitFor(() => expect(document.querySelector("[data-repair-confirm-scope]")).not.toBeNull());
+    (document.querySelector('[data-repair-confirm-yes="verify_webhooks"]') as HTMLElement).click();
+    await waitFor(() =>
+      expect(document.querySelector('[data-repair-recheck="verify_webhooks"]')).not.toBeNull(),
+    );
+    (document.querySelector('[data-repair-recheck="verify_webhooks"]') as HTMLElement).click();
+  }
+
+  it("REGRESSION: a {businessId}-only 200 does not stamp a successful re-read", async () => {
+    await recheckWith({ businessId: BIZ_A });
+    await waitFor(() => expect(document.querySelector("[data-ops-recheck-failed]")).not.toBeNull());
+    expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
+    expect(document.querySelector("[data-ops-health]")).toBeNull();
+  });
+
+  it("REGRESSION: a malformed status is unknown, not a reading", async () => {
+    await recheckWith({ businessId: BIZ_A, status: { connected: true } });
+    await waitFor(() => expect(document.querySelector("[data-ops-recheck-failed]")).not.toBeNull());
+    expect(document.querySelector("[data-ops-rechecked]")).toBeNull();
+  });
+
+  it("a malformed optional field is unknown rather than shown as not reported", async () => {
+    await recheckWith({
+      businessId: BIZ_A,
+      status: { state: "ready", connected: true },
+      auth: { shopDomain: 42 },
+    });
+    await waitFor(() => expect(document.querySelector("[data-ops-recheck-failed]")).not.toBeNull());
+    expect(document.querySelector("[data-health-shop]")).toBeNull();
+  });
+
+  it("renders the visible fields of a real producer-shaped payload", async () => {
+    await recheckWith({
+      businessId: BIZ_A,
+      status: { state: "partial", connected: true, shopId: "grandmix.myshopify.com" },
+      auth: {
+        shopDomain: "grandmix.myshopify.com",
+        tokenValid: true,
+        missingRequiredScopes: [],
+        productionMode: "enabled",
+      },
+    });
+    await waitFor(() => expect(document.querySelector("[data-ops-health]")).not.toBeNull());
+    expect(document.querySelector("[data-health-state]")!.textContent).toContain("partial");
+    expect(document.querySelector("[data-health-shop]")!.textContent).toContain("grandmix.myshopify.com");
+    expect(document.querySelector("[data-health-token]")!.textContent).toMatch(/valid/);
+    expect(document.querySelector("[data-health-mode]")!.textContent).toContain("enabled");
+    expect(document.querySelector("[data-ops-health-clear]")).not.toBeNull();
   });
 });

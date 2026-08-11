@@ -20,6 +20,8 @@ import {
   adaptCommercialTarget,
   adaptCostModel,
   businessFromList,
+  oauthStartPermission,
+  shopifyEntry,
   businessSettingsBody,
   type BusinessSettings,
   adaptProviderHealth,
@@ -98,6 +100,8 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
   const [outcome, setOutcome] = useState<CeremonyOutcome>({ kind: "unstarted" });
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading integrations" });
   const [nonce, setNonce] = useState(0);
+  /** `provider_account_id` on the stored Shopify integration, when connected. */
+  const [shopDomain, setShopDomain] = useState<string | null>(null);
 
   const read = useCallback(async () => {
     const response = await fetch(
@@ -320,6 +324,22 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
     void readSearchConsole();
   }, [readGa4, readSearchConsole]);
 
+  // The shop domain must come from the stored integration. A domain this
+  // surface guessed would send the operator into another merchant's install.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const body = await getJson(
+        `/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=shopify`,
+      );
+      if (cancelled) return;
+      setShopDomain(selectedSiteFromIntegration(body));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
   const saveGa4 = useCallback(
     async (propertyId: string) => {
       const property = ga4Options.find((option) => option.propertyId === propertyId);
@@ -452,6 +472,12 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
         onReconnect={(provider) => beginOauth(provider)}
         onConnect={(provider) => beginOauth(provider)}
         connectSupported={(provider) => oauthStartUrl({ provider, businessId }) !== null}
+        authorizePermission={
+          oauthStartPermission(role ?? null).ok
+            ? { ok: true }
+            : { ok: false, reason: (oauthStartPermission(role ?? null) as { reason: string }).reason }
+        }
+        shopifyEntry={shopifyEntry({ businessId, shopDomain })}
       />
     </SurfaceStateBoundary>
   );

@@ -398,9 +398,13 @@ describe("WP-23 Flow H — first-time connection is reachable", () => {
     await waitFor(() => {
       expect(document.querySelector('[data-connect="meta"]')).not.toBeNull();
     });
-    for (const provider of Object.keys(ALL_OFF)) {
+    // Shopify is deliberately excluded: its start route cannot begin a round
+    // trip without a shop, so it gets its own entry rather than a Connect.
+    for (const provider of ["meta", "google", "ga4", "search_console"]) {
       expect(document.querySelector(`[data-connect="${provider}"]`), provider).not.toBeNull();
     }
+    expect(document.querySelector('[data-connect="shopify"]')).toBeNull();
+    expect(document.querySelector("[data-shopify-action]")).not.toBeNull();
   });
 
   it("Connect starts the real OAuth route with the sanitized returnTo", async () => {
@@ -438,7 +442,6 @@ describe("WP-23 Flow H — first-time connection is reachable", () => {
     const expected: Record<string, string> = {
       meta: "/api/oauth/meta/start",
       google: "/api/oauth/google/start",
-      shopify: "/api/oauth/shopify/start",
       ga4: "/api/oauth/google-analytics/start",
       search_console: "/api/oauth/search_console/start",
     };
@@ -472,7 +475,7 @@ describe("WP-23 Flow H — first-time connection is reachable", () => {
     expect(document.querySelector('[data-connect="google"]')).toBeNull();
     expect(document.querySelector('[data-reconnect="google"]')).toBeNull();
     // A not_connected provider still offers Connect alongside.
-    expect(document.querySelector('[data-connect="shopify"]')).not.toBeNull();
+    expect(document.querySelector('[data-connect="ga4"]')).not.toBeNull();
   });
 
   it("a provider with no real start route stays unavailable and non-clickable", () => {
@@ -717,5 +720,128 @@ describe("WP-23 GA4 property and Search Console site selection", () => {
         "sc-domain:grandmix.example",
       );
     });
+  });
+});
+
+describe("WP-23 authorization is gated by the role the start routes require", () => {
+  function stubStatusFor(status: Record<string, unknown>) {
+    stub((call) => {
+      if (call.url.startsWith("/api/integrations/status")) return { body: status };
+      if (call.url.includes("provider=shopify")) return { body: { integration: null } };
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+  }
+
+  const OFF = { meta: false, google: false, shopify: false, ga4: false, search_console: false };
+  const EXPIRED = { ...OFF, meta: { status: "expired", message: "Meta needs re-authorization." } };
+
+  it("REGRESSION: a guest gets a stated reason, not an enabled Connect", async () => {
+    stubStatusFor(OFF);
+    render(<IntegrationsClient businessId={BIZ} role="guest" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-authorize-blocked="meta"]')).not.toBeNull();
+    });
+    // The start routes answer a guest with a JSON 403, which is not a surface.
+    expect(document.querySelector('[data-connect="meta"]')).toBeNull();
+    expect(document.querySelector('[data-authorize-blocked="meta"]')!.textContent).toMatch(
+      /collaborator role/,
+    );
+  });
+
+  it("REGRESSION: a guest cannot reconnect an expired connection either", async () => {
+    stubStatusFor(EXPIRED);
+    render(<IntegrationsClient businessId={BIZ} role="guest" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-authorize-blocked="meta"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-reconnect="meta"]')).toBeNull();
+  });
+
+  it("a guest clicking anywhere in the row starts no navigation", async () => {
+    stubStatusFor(OFF);
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign, search: "" },
+      writable: true,
+      configurable: true,
+    });
+    render(<IntegrationsClient businessId={BIZ} role="guest" />);
+    await waitFor(() => expect(document.querySelector('[data-authorize-blocked="meta"]')).not.toBeNull());
+    (document.querySelector('[data-authorize-blocked="meta"]') as HTMLElement).click();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("a collaborator may connect", async () => {
+    stubStatusFor(OFF);
+    render(<IntegrationsClient businessId={BIZ} role="collaborator" />);
+    await waitFor(() => expect(document.querySelector('[data-connect="meta"]')).not.toBeNull());
+    expect(document.querySelector('[data-authorize-blocked="meta"]')).toBeNull();
+  });
+
+  it("an admin may reconnect", async () => {
+    stubStatusFor(EXPIRED);
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-reconnect="meta"]')).not.toBeNull());
+    expect(document.querySelector('[data-authorize-blocked="meta"]')).toBeNull();
+  });
+});
+
+describe("WP-23 Shopify is entered the way Shopify actually allows", () => {
+  function stubShopify(integration: unknown) {
+    stub((call) => {
+      if (call.url.startsWith("/api/integrations/status")) {
+        return { body: { meta: false, google: false, shopify: false, ga4: false, search_console: false } };
+      }
+      if (call.url.includes("provider=shopify")) return { body: { integration } };
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+  }
+
+  it("REGRESSION: with no known shop, the control leads to setup and says why", async () => {
+    stubShopify(null);
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector("[data-shopify-action]")).not.toBeNull());
+    const anchor = document.querySelector("[data-shopify-action]") as HTMLAnchorElement;
+    // Not a generic OAuth start: that redirects to /shopify/connect and drops
+    // businessId and returnTo on the way.
+    expect(anchor.getAttribute("href")).toBe("/shopify/connect");
+    expect(document.querySelector('[data-shopify-entry="external_install"]')).not.toBeNull();
+    expect(document.querySelector("[data-shopify-note]")!.textContent).toMatch(
+      /starts in Shopify/i,
+    );
+    // No automatic return or read-back is claimed.
+    expect(document.querySelector("[data-shopify-note]")!.textContent).toMatch(/cannot confirm/i);
+  });
+
+  it("with an authoritative shop domain, it starts the real handler", async () => {
+    stubShopify({ provider_account_id: "grandmix.myshopify.com" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-shopify-entry="reauthorize"]')).not.toBeNull(),
+    );
+    const anchor = document.querySelector("[data-shopify-action]") as HTMLAnchorElement;
+    const url = new URL(anchor.getAttribute("href")!, "https://example.test");
+    expect(url.pathname).toBe("/api/oauth/shopify/start");
+    // The handler only completes when a shop is supplied.
+    expect(url.searchParams.get("shop")).toBe("grandmix.myshopify.com");
+    expect(url.searchParams.get("businessId")).toBe(BIZ);
+    expect(sanitizeNextPath(url.searchParams.get("returnTo"))).toBe(url.searchParams.get("returnTo"));
+  });
+
+  it("a shop domain that is not a myshopify domain is not trusted", async () => {
+    stubShopify({ provider_account_id: "grandmix.example.com" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-shopify-entry="external_install"]')).not.toBeNull(),
+    );
+    expect((document.querySelector("[data-shopify-action]") as HTMLAnchorElement).getAttribute("href")).toBe(
+      "/shopify/connect",
+    );
   });
 });

@@ -100,25 +100,67 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Read the health body, and only for the business we asked about.
+ * Read the health body, and only when it really is health for this business.
  *
- * Requiring the echoed `businessId` to equal the selected one matters because
- * the operator switches workspaces on this surface: a response that arrives for
- * the previous selection would otherwise be rendered as this one's health.
- * Anything else returns null, which the caller renders as unknown.
+ * Two independent requirements, both learned the hard way:
+ *
+ * - The echoed `businessId` must equal the selected one. The operator switches
+ *   workspaces here, so a response for the previous selection would otherwise
+ *   be rendered as this one's health.
+ * - The body must carry a **health core**: a `status` object with the
+ *   authoritative `state` and `connected` fields in valid types. A matching
+ *   tenant id alone is not a health result — `{businessId}` used to satisfy
+ *   this and be stamped as a successful re-read, which claimed a condition
+ *   nobody had observed.
+ *
+ * Optional fields may be absent; that is ordinary. They may not be present and
+ * malformed — a rendered field silently downgraded to "not reported" under a
+ * successful receipt would be a fabricated reading. Anything failing returns
+ * null, which the caller renders as unknown.
  */
 export function readHealthBody(body: unknown, expectedBusinessId: string): ShopifyHealthView | null {
   const root = record(body);
   if (!root) return null;
   if (typeof root.businessId !== "string" || root.businessId !== expectedBusinessId) return null;
 
+  // The health core. Without it there is no claim to make.
   const status = record(root.status);
-  const auth = record(root.auth);
-  const missingRequired = Array.isArray(auth?.missingRequiredScopes) ? auth.missingRequiredScopes : [];
+  if (!status) return null;
+  if (typeof status.state !== "string" || !status.state.trim()) return null;
+  if (typeof status.connected !== "boolean") return null;
+
+  // `auth` is optional, but if present it must be an object.
+  const authRaw = root.auth;
+  if (authRaw !== undefined && authRaw !== null && !record(authRaw)) return null;
+  const auth = record(authRaw);
+
+  /** Absent is fine; present-but-wrong-type is malformed, not "not reported". */
+  const optionalString = (value: unknown): string | null | undefined =>
+    value === undefined || value === null ? null : typeof value === "string" ? value : undefined;
+  const optionalBoolean = (value: unknown): boolean | null | undefined =>
+    value === undefined || value === null ? null : typeof value === "boolean" ? value : undefined;
+
+  const shopDomain = optionalString(auth?.shopDomain);
+  const tokenValid = optionalBoolean(auth?.tokenValid);
+  const tokenValidationError = optionalString(auth?.tokenValidationError);
+  const productionMode = optionalString(auth?.productionMode);
+  if (
+    shopDomain === undefined ||
+    tokenValid === undefined ||
+    tokenValidationError === undefined ||
+    productionMode === undefined
+  ) {
+    return null;
+  }
+
+  const missingRequiredRaw = auth?.missingRequiredScopes;
+  if (missingRequiredRaw !== undefined && !Array.isArray(missingRequiredRaw)) return null;
+  const missingRequired = Array.isArray(missingRequiredRaw) ? missingRequiredRaw : [];
+  if (missingRequired.some((scope) => typeof scope !== "string")) return null;
 
   const blockers: string[] = [];
   for (const scope of missingRequired) {
-    if (typeof scope === "string") blockers.push(`Missing required scope: ${scope}`);
+    blockers.push(`Missing required scope: ${String(scope)}`);
   }
   if (auth?.historicalCoverageBlockedByMissingReadAllOrders === true) {
     blockers.push("Historical coverage is blocked by a missing read_all_orders scope.");
@@ -126,19 +168,18 @@ export function readHealthBody(body: unknown, expectedBusinessId: string): Shopi
   if (auth?.returnsRepairBlockedByMissingReadReturns === true) {
     blockers.push("Returns repair is blocked by a missing read_returns scope.");
   }
-  if (auth?.tokenValid === false) {
+  if (tokenValid === false) {
     blockers.push("The stored access token did not validate.");
   }
 
   return {
     businessId: root.businessId,
-    state: typeof status?.state === "string" ? status.state : "not reported",
-    connected: status?.connected === true,
-    shopDomain: typeof auth?.shopDomain === "string" ? auth.shopDomain : null,
-    tokenValid: typeof auth?.tokenValid === "boolean" ? auth.tokenValid : null,
-    tokenValidationError:
-      typeof auth?.tokenValidationError === "string" ? auth.tokenValidationError : null,
-    productionMode: typeof auth?.productionMode === "string" ? auth.productionMode : null,
+    state: status.state,
+    connected: status.connected,
+    shopDomain,
+    tokenValid,
+    tokenValidationError,
+    productionMode,
     blockers,
   };
 }

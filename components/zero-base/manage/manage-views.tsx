@@ -177,6 +177,10 @@ export function IntegrationsView({
    * must stay unavailable rather than being given a control that can only fail.
    */
   connectSupported,
+  /** Mirrors the start routes' own collaborator gate. */
+  authorizePermission,
+  /** Shopify's real entry, which is not a generic OAuth start. */
+  shopifyEntry,
   outcome,
   unavailableReason,
   assignment,
@@ -187,6 +191,8 @@ export function IntegrationsView({
   onReconnect?: (provider: string) => void;
   onConnect?: (provider: string) => void;
   connectSupported?: (provider: string) => boolean;
+  authorizePermission?: { ok: boolean; reason?: string };
+  shopifyEntry?: { kind: string; href: string; label: string; note?: string; shopDomain?: string };
   outcome: CeremonyOutcome;
   unavailableReason?: string | null;
   assignment?: AssignmentPanelProps;
@@ -231,6 +237,40 @@ export function IntegrationsView({
                   header: "Action",
                   render: (row) => {
                     const supported = connectSupported ? connectSupported(row.provider) : true;
+                    const needsAction =
+                      row.state.kind === "needs_reconnect" || row.state.kind === "not_connected";
+
+                    // Shopify is entered through Shopify, not through a generic
+                    // OAuth start this product can begin.
+                    if (row.provider === "shopify" && shopifyEntry && needsAction) {
+                      return (
+                        <span data-shopify-entry={shopifyEntry.kind} style={{ display: "grid", gap: 2 }}>
+                          <a
+                            data-shopify-action=""
+                            href={shopifyEntry.href}
+                            style={{ color: "var(--ledger-accent-action)", fontWeight: 600, minHeight: 44, display: "inline-flex", alignItems: "center" }}
+                          >
+                            {shopifyEntry.label}
+                          </a>
+                          {shopifyEntry.note ? (
+                            <span data-shopify-note="" style={{ fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>
+                              {shopifyEntry.note}
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    }
+
+                    // The start routes require collaborator; a guest who clicks
+                    // is answered with a JSON 403, which is not a surface.
+                    if (needsAction && authorizePermission && !authorizePermission.ok) {
+                      return (
+                        <span data-authorize-blocked={row.provider} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
+                          {authorizePermission.reason}
+                        </span>
+                      );
+                    }
+
                     if (row.state.kind === "needs_reconnect") {
                       return supported ? (
                         <Button variant="secondary" data-reconnect={row.provider} onClick={() => onReconnect?.(row.provider)}>

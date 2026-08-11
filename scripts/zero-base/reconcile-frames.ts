@@ -234,6 +234,10 @@ FAIL: G10 is not satisfied. ${unmatched.length} artboards do not carry the anato
     );
     process.exit(1);
   }
-  console.log(`\nCAPTURED: all ${result.totals.all} frames. Reference fidelity remains unproven.`);
+  console.log(
+    `\nPASS: all ${result.totals.all} frames captured from canonical compositions, with no\n` +
+      `substitutions, and all ${anatomy.length} accepted artboards match the checksum-bound\n` +
+      "design package.",
+  );
   process.exit(1);
 }

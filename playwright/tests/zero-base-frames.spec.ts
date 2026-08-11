@@ -32,6 +32,9 @@ const PAGES = path.resolve(process.cwd(), "playwright/.frames");
 const ARTIFACT_ROOT = path.resolve(process.cwd(), "playwright/artifacts");
 
 test("G10 capture and verify the 92 reference frames", async ({ page }) => {
+  // 92 full-page captures at 1600px; the default 120s is not enough for the
+  // whole set on a cold run.
+  test.setTimeout(600_000);
   const artifactSet = process.env.ZERO_BASE_FRAME_SET?.trim();
   test.skip(!artifactSet, "Set ZERO_BASE_FRAME_SET to a new, recorded value to capture evidence.");
 
@@ -46,7 +49,14 @@ test("G10 capture and verify the 92 reference frames", async ({ page }) => {
 
   for (const spec of FRAMES) {
     const name = frameFileName(spec);
-    await page.setViewportSize({ width: spec.width, height: 900 });
+    // Tall enough to bring the whole surface into frame.
+    //
+    // The shell owns both scroll axes, so the page itself never scrolls and
+    // `fullPage` captures only the viewport. At 900 the differing part of two
+    // frames could sit below the fold and their captures came out
+    // byte-identical — which the duplicate guard correctly rejected, but for a
+    // capture reason rather than a real one.
+    await page.setViewportSize({ width: spec.width, height: 1600 });
     await page.emulateMedia({ colorScheme: spec.theme });
     await page.goto(`file://${path.join(PAGES, `${name}.html`)}`);
 

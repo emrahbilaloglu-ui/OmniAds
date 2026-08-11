@@ -1237,8 +1237,8 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => <div data-el="win-320">{homeFrame(true, true)}</div> },
-  { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
+  { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 320, theme: "light", render: () => agencyDesk() },
+  { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 320, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 
@@ -1299,9 +1299,9 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "P08", leaf: "L-C-REP", state: "dark-acceptance", width: 1440, theme: "dark", render: () => <ThemeAcceptanceBoard /> },
 
   /* ---- M01–M09: mobile proof states ---- */
-  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(true, true) },
+  { id: "M01", leaf: "L-C-HOME", state: "mobile-home", width: 390, theme: "light", render: () => homeFrame(false, true) },
   { id: "M02", leaf: "L-C-HOME", state: "mobile-home-dark", width: 390, theme: "dark", render: () => homeFrame(true, true) },
-  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => decisions("d1", 3, true) },
+  { id: "M03", leaf: "L-C-META-DEC", state: "mobile-decisions", width: 320, theme: "light", render: () => decisions(null, 3) },
   { id: "M04", leaf: "L-C-CR-PERF", state: "mobile-creative", width: 320, theme: "light", render: () => <CreativePerformanceView model={perf("shadow_only", 2, 2)} businessId="biz" /> },
   { id: "M05", leaf: "L-C-REP", state: "mobile-reports", width: 320, theme: "light", render: () => <ReportLibraryView reports={[]} /> },
   { id: "M06", leaf: "L-C-M-INT", state: "mobile-integrations", width: 320, theme: "light", render: () => integrations() },

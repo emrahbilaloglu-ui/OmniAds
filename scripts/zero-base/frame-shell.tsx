@@ -20,6 +20,7 @@ import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
 import { navGroupsFor, type NavContext } from "@/lib/zero-base/navigation";
 import type { ScopeFacts } from "@/components/zero-base/primitives/scope-sheet";
+import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
 
 /** Which shell a frame sits in. `none` is for unauthenticated surfaces. */
 export type FrameShell = NavContext | "Account" | "none";
@@ -72,7 +73,12 @@ export function withFrameShell(
     // user menu. Wrapping them in chrome would be the same lie in reverse.
     return (
       <ZeroBaseCopyProvider language={language}>
-        <div data-frame-unshelled="">{children}</div>
+        {/* The canonical root still applies. A login page has no rail, but it
+            has Ledger tokens — without the root attribute they do not resolve
+            and the surface renders with legacy colours. */}
+        <div {...{ [ZERO_BASE_ROOT_ATTRIBUTE]: ZERO_BASE_ROOT_VALUE }} data-frame-unshelled="">
+          {children}
+        </div>
       </ZeroBaseCopyProvider>
     );
   }

@@ -12,6 +12,13 @@ import { useCallback, useState } from "react";
 
 import { Button } from "@/components/zero-base/primitives/button";
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import {
+  APPLIED_MANUAL_LABEL,
+  JOURNAL_ACTION_LABEL,
+  appliedStepIds,
+  markIsReversible,
+  type JournalPage,
+} from "@/lib/zero-base/google/activity-journal";
 import { GoogleScopeHeader, GoogleSourceBadge } from "@/components/zero-base/google/google-views";
 import {
   GOOGLE_PENDING_COPY,
@@ -33,15 +40,24 @@ export function GooglePlanView({
   source,
   steps,
   servedStatuses,
+  journal,
+  onMarkApplied,
+  markError,
 }: {
   scope: GoogleScope;
   source: GoogleSourceState;
   steps: readonly PlanStep[];
   /** Statuses the response contract actually carries. */
   servedStatuses: readonly string[];
+  /** Absent when the journal could not be read at all. */
+  journal?: JournalPage | null;
+  onMarkApplied?: (stepId: string, applied: boolean) => void;
+  /** Verbatim journal-write failure. The checkbox reverts; nothing is claimed. */
+  markError?: string | null;
 }) {
   const t = useCopy();
   const [copied, setCopied] = useState(false);
+  const applied = journal ? appliedStepIds(journal) : new Set<string>();
   const [selected, setSelected] = useState<string[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
 
@@ -72,15 +88,26 @@ export function GooglePlanView({
           {t.carryOutInGoogle}
         </p>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          <Button variant="secondary" data-plan-copy="" onClick={copy}>
+          <Button
+            variant="secondary"
+            data-plan-copy=""
+            data-ctl="live:GOOGLE-ESC-01 copy-all"
+            onClick={copy}
+          >
             {copied ? "Plan copied" : "Copy plan"}
           </Button>
-          <Button variant="secondary" data-plan-csv="" onClick={download}>
+          <Button
+            variant="secondary"
+            data-plan-csv=""
+            data-ctl="live:GOOGLE-ESC-01 csv-all"
+            onClick={download}
+          >
             {t.downloadCsv}
           </Button>
         </div>
 
         <DataTable
+          collection="plan"
           caption={t.googleManualPlan}
           rows={[...steps]}
           rowKey={(row) => row.id}
@@ -122,6 +149,7 @@ export function GooglePlanView({
                     target="_blank"
                     rel="noopener noreferrer"
                     data-plan-link={row.id}
+                    data-ctl="live:GOOGLE-30 deeplink"
                     style={{ color: "var(--ledger-accent-action)" }}
                   >
                     {t.open}
@@ -129,6 +157,37 @@ export function GooglePlanView({
                 ) : (
                   <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 12 }}>
                     {LINK_WITHHELD}
+                  </span>
+                );
+              },
+            },
+            {
+              id: "applied",
+              header: "Applied",
+              render: (row) => {
+                const isApplied = applied.has(row.id);
+                const reversible = journal ? markIsReversible(journal, row.id) : true;
+                return (
+                  <span data-plan-applied={row.id}>
+                    <input
+                      type="checkbox"
+                      data-ctl="live:GOOGLE-28 mark-applied"
+                      aria-label={`Mark ${row.title} as applied in Google`}
+                      checked={isApplied}
+                      // Once the batch has been exported the record has left
+                      // the system; un-marking here would make our journal
+                      // disagree with the file the operator is working from.
+                      aria-disabled={isApplied && !reversible ? "true" : undefined}
+                      onChange={(event) => {
+                        if (isApplied && !reversible) return;
+                        onMarkApplied?.(row.id, event.target.checked);
+                      }}
+                    />
+                    {isApplied ? (
+                      // Never "applied": the qualifier is the difference
+                      // between a fact we observed and a claim someone made.
+                      <span style={{ marginLeft: 6, fontSize: 12 }}>{APPLIED_MANUAL_LABEL}</span>
+                    ) : null}
                   </span>
                 );
               },
@@ -204,6 +263,50 @@ export function GooglePlanView({
           </p>
         ) : null}
       </section>
+
+      {journal ? (
+        <section aria-label="Activity" style={{ marginTop: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Activity</h2>
+          <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+            What was recorded here, by whom and when. These are our records of
+            manual confirmations — Adsecute never reads Google back to verify
+            them.
+          </p>
+          {markError ? (
+            <p
+              role="alert"
+              data-journal-error=""
+              style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--ledger-semantic-danger)" }}
+            >
+              {markError}
+            </p>
+          ) : null}
+          {journal.hasGap ? (
+            <p
+              data-el="journal-gap"
+              style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+            >
+              {journal.gapReason}
+            </p>
+          ) : null}
+          <DataTable
+            collection="journal"
+            caption="Activity journal"
+            rows={[...journal.entries]}
+            rowKey={(row) => row.id}
+            columns={[
+              { id: "at", header: "When", render: (row) => row.at },
+              { id: "actor", header: "Who", render: (row) => row.actor },
+              {
+                id: "action",
+                header: "What",
+                render: (row) => JOURNAL_ACTION_LABEL[row.action],
+              },
+              { id: "detail", header: "Detail", render: (row) => row.detail },
+            ]}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }

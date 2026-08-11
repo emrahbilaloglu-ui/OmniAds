@@ -30,6 +30,8 @@ import React from "react";
 import { CeremonyResult, IntegrationsView, TeamView, BusinessView, PlanView } from "@/components/zero-base/manage/manage-views";
 import { CreativePerformanceView } from "@/components/zero-base/creative/performance-view";
 import { DecisionsView } from "@/components/zero-base/meta/decisions/decisions-view";
+import { GooglePlanView } from "@/components/zero-base/google/plan-view";
+import { GoogleOverviewView, GoogleAdvisorView } from "@/components/zero-base/google/google-views";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { HistoryView } from "@/components/zero-base/meta/history/history-view";
 import { AutomationView } from "@/components/zero-base/meta/automation/automation-view";
@@ -364,6 +366,109 @@ const stopCeremony = (intent: "engage" | "release") => ({
   readBack: null,
 });
 
+
+/* -------------------------------------------------------------- google */
+
+const GOOGLE_SCOPE = {
+  kind: "single" as const,
+  account: { id: "123-456-7890", name: "Halcyon US", currency: "USD", timezone: "America/New_York" },
+  label: "Halcyon US · 123-456-7890",
+};
+
+const GOOGLE_SERVING = { kind: "serving" as const, observedAt: "2026-08-09T06:00:00Z" };
+
+const googleValue = (display: string, raw: number) => ({ available: true as const, display, raw });
+
+const planStep = (index: number, withLink: boolean) => ({
+  id: `g${index}`,
+  position: index,
+  rank: index,
+  title: ["Raise Shopping tROAS to 2.6", "Add negative keyword: free", "Pause Display placement"][index - 1],
+  rationale: "Served by the advisor from the last complete day.",
+  entityId: `c${index}`,
+  entityName: `Campaign ${index}`,
+  executionTargetType: "campaign",
+  executionTargetId: `c${index}`,
+  deepLinkUrl: withLink ? `https://ads.google.com/aw/campaigns?campaignId=c${index}` : null,
+  executionStatus: null,
+  dependencyReadiness: null,
+  stabilizationNote: null,
+  weaknesses: index === 2 ? ["Based on 4 days of data, not 7."] : [],
+});
+
+const googleJournal = (hasGap: boolean) => ({
+  entries: [
+    {
+      id: "j1",
+      at: "2026-08-09T07:12:00Z",
+      actor: "Dana Whitfield",
+      action: "marked-applied" as const,
+      stepId: "g1",
+      detail: "Raise Shopping tROAS to 2.6",
+    },
+    {
+      id: "j2",
+      at: "2026-08-09T07:14:00Z",
+      actor: "Dana Whitfield",
+      action: "copied-all" as const,
+      stepId: null,
+      detail: "3 queued changes",
+    },
+  ],
+  hasGap,
+  gapReason: hasGap
+    ? "Entries before Jul 20 are past retention and cannot be shown."
+    : null,
+});
+
+const googlePlan = (withLink = true, gap = true) => (
+  <GooglePlanView
+    scope={GOOGLE_SCOPE}
+    source={GOOGLE_SERVING}
+    steps={[planStep(1, withLink), planStep(2, withLink), planStep(3, false)] as never}
+    servedStatuses={["pending", "applied"]}
+    journal={googleJournal(gap)}
+    onMarkApplied={() => {}}
+  />
+);
+
+const googleOverview = () => (
+  <GoogleOverviewView
+    scope={GOOGLE_SCOPE}
+    source={GOOGLE_SERVING}
+    rows={[
+      {
+        id: "a1",
+        account: "Halcyon US",
+        spend: googleValue("4,210.40 USD", 4210.4),
+        conversions: googleValue("184", 184),
+        pulse: "Steady",
+      },
+    ]}
+  />
+);
+
+const googleAdvisor = () => (
+  <GoogleAdvisorView
+    scope={GOOGLE_SCOPE}
+    source={GOOGLE_SERVING}
+    items={[
+      { id: "a1", title: "Raise Shopping tROAS to 2.6", rationale: "ROAS above target for 7 days.", urgency: "do now" },
+      { id: "a2", title: "Add negative keyword: free", rationale: "Spend with no conversions.", urgency: "next" },
+    ]}
+    referenceCards={[
+      {
+        id: "r1",
+        title: "Automatic budget rebalance",
+        reason: "Google writeback is off by default and is not enabled for this business.",
+        fingerprint: "rebalance:v3:c1",
+        dependency: "A verified write path and a stable 14-day signal.",
+        stabilizationDays: 14,
+      },
+    ] as never}
+  />
+);
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -491,11 +596,11 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H28", leaf: "L-C-AN-LP", state: "landing-pages", width: 1440, theme: "light", render: () => <EmptyState reason="No landing pages were served for this window." /> },
 
   /* ---- H29–H33: google ---- */
-  { id: "H29", leaf: "L-C-G-OVERVIEW", state: "google-overview", width: 1440, theme: "light", render: () => <UnavailableState reason="Google Ads is not connected for this business." /> },
-  { id: "H30", leaf: "L-C-G-ADV", state: "advisor", width: 1440, theme: "light", render: () => <EmptyState reason="Nothing in this horizon." /> },
-  { id: "H31", leaf: "L-C-G-PLAN", state: "default-off", width: 1440, theme: "light", render: () => repair({ blockedReason: "Google writeback is off by default and is not enabled here." }) },
-  { id: "H32", leaf: "L-C-G-PLAN", state: "google-plan", width: 1440, theme: "light", render: () => <EmptyState reason="No manual plan steps were served." /> },
-  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-reference", width: 1440, theme: "light", render: () => <WithheldState reason="Batch writes are reference only and are not enabled." /> },
+  { id: "H29", leaf: "L-C-G-OVERVIEW", state: "google-overview", width: 1440, theme: "light", render: () => googleOverview() },
+  { id: "H30", leaf: "L-C-G-ADV", state: "advisor", width: 1440, theme: "light", render: () => googleAdvisor() },
+  { id: "H31", leaf: "L-C-G-ADV", state: "default-off-card", width: 1440, theme: "light", render: () => googleAdvisor() },
+  { id: "H32", leaf: "L-C-G-PLAN", state: "google-plan", width: 1440, theme: "light", render: () => googlePlan() },
+  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-reference", width: 1440, theme: "light", render: () => googlePlan(false, false) },
 
   /* ---- H34–H36: analytics ---- */
   { id: "H34", leaf: "L-C-AN-GA", state: "analytics", width: 1440, theme: "light", render: () => <UnavailableState reason="GA4 is not connected for this business." /> },
@@ -526,12 +631,12 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1") },
-  { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
+  { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1") },
-  { id: "H58", leaf: "L-C-M-TEAM", state: "narrow-team", width: 390, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
+  { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 
   /* ---- H60–H66: drawers, scope sheets, switch, return ---- */
@@ -546,13 +651,13 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },
   { id: "B02", leaf: "L-C-META-DEC", state: "geometry-1280-decisions", width: 1280, theme: "light", render: () => decisions("d1") },
-  { id: "B03", leaf: "L-C-CR-PERF", state: "geometry-1280-creative", width: 1280, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
+  { id: "B03", leaf: "L-C-G-PLAN", state: "geometry-1280-plan", width: 1280, theme: "light", render: () => googlePlan() },
   { id: "B04", leaf: "L-C-M-INT", state: "geometry-1280-integrations", width: 1280, theme: "light", render: () => integrations() },
   { id: "B05", leaf: "L-C-HOME", state: "geometry-768", width: 768, theme: "light", render: () => homeFrame(true) },
   { id: "B06", leaf: "L-C-META-DEC", state: "geometry-768-decisions", width: 768, theme: "light", render: () => decisions() },
   { id: "B07", leaf: "L-C-META-DEC", state: "geometry-768-inspector", width: 768, theme: "light", render: () => decisions("d1") },
   { id: "B08", leaf: "L-C-M-TEAM", state: "geometry-768-team", width: 768, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
-  { id: "B09", leaf: "L-OPS-INTEGRATIONS", state: "geometry-768-ops", width: 768, theme: "light", render: () => <CriticalIncidentPath /> },
+  { id: "B09", leaf: "L-C-G-PLAN", state: "geometry-768-plan-confirm", width: 768, theme: "light", render: () => googlePlan() },
 
   /* ---- P01–P08: charts, tables, media, Turkish, dark ---- */
   { id: "P01", leaf: "L-C-REP-VIEW", state: "chart-trend", width: 1440, theme: "light", render: () => <RenderedWidgetCard widget={widget({ type: "trend", title: "Blended spend", points: [{ label: "d1", value: 120 }, { label: "d2", value: 138 }] })} sourceId="overview_trend" /> },
@@ -600,11 +705,6 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H25", "renders EmptyState, not the Launchpad composition"],
     ["H26", "renders ErrorState, not the Launchpad validation composition"],
     ["H28", "renders EmptyState, not the landing-pages composition"],
-    ["H29", "renders UnavailableState, not the Google overview composition"],
-    ["H30", "renders EmptyState, not the Advisor composition"],
-    ["H31", "renders OpsRepairPanel, not the Google default-off composition"],
-    ["H32", "renders EmptyState, not the Google plan composition"],
-    ["H33", "renders WithheldState, not the batch reference composition"],
     ["H34", "renders UnavailableState, not the analytics composition"],
     ["H35", "renders EmptyState, not the SEO composition"],
     ["H36", "renders LoadingState, not the GEO composition"],

@@ -15,7 +15,7 @@
  */
 import React from "react";
 
-import { AppShell } from "@/components/zero-base/shell/app-shell";
+import { AppShell, isNarrowWidth } from "@/components/zero-base/shell/app-shell";
 import { UserMenu } from "@/components/zero-base/shell/user-menu";
 import { ZeroBaseCopyProvider } from "@/components/zero-base/i18n/copy-provider";
 import { navGroupsFor, type NavContext } from "@/lib/zero-base/navigation";
@@ -56,10 +56,7 @@ export interface FrameShellOptions {
   language?: "en" | "tr";
 }
 
-/** Below the shell's own breakpoint the rail is a drawer. */
-export function isNarrowWidth(width: number): boolean {
-  return width < 1024;
-}
+
 
 export function withFrameShell(
   options: FrameShellOptions,

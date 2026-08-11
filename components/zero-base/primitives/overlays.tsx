@@ -322,12 +322,22 @@ export function ZeroBaseSheet({
   onOpenChange,
   title,
   side = "right",
+  description,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   side?: SheetSide;
+  /**
+   * Sentence describing the sheet's purpose, announced after its title.
+   *
+   * Optional because some sheets — the navigation drawer, the scope sheet —
+   * are wholly described by their own contents, and inventing a sentence for
+   * them would add noise. When absent the dialog says so explicitly rather
+   * than leaving `aria-describedby` dangling at a missing element.
+   */
+  description?: string;
   children: ReactNode;
 }) {
   const copy = useCopy();
@@ -341,6 +351,10 @@ export function ZeroBaseSheet({
         <RadixDialog.Overlay style={scrimStyle} />
         <RadixDialog.Content
           aria-label={title}
+          // Explicitly undefined: Radix warns when a dialog has neither a
+          // description nor a deliberate opt-out. When `description` is given,
+          // the Description below wires this through context regardless.
+          aria-describedby={undefined}
           onCloseAutoFocus={onCloseAutoFocus}
           style={{
             ...overlaySurface,
@@ -361,6 +375,18 @@ export function ZeroBaseSheet({
           <RadixDialog.Title style={{ fontSize: 16, fontWeight: 600, lineHeight: "22px", margin: 0 }}>
             {title}
           </RadixDialog.Title>
+          {description ? (
+            <RadixDialog.Description
+              style={{
+                margin: "4px 0 0",
+                fontSize: 12.5,
+                lineHeight: "18px",
+                color: "var(--ledger-ink-secondary)",
+              }}
+            >
+              {description}
+            </RadixDialog.Description>
+          ) : null}
           {children}
           <RadixDialog.Close asChild>
             <Button variant="secondary" primaryTarget style={{ marginTop: 16 }}>

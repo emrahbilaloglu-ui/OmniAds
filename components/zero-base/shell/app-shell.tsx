@@ -24,8 +24,18 @@ import { ScopeSheet, type ScopeFacts } from "@/components/zero-base/primitives/s
 import { ZERO_BASE_ROOT_ATTRIBUTE, ZERO_BASE_ROOT_VALUE } from "@/lib/design/ledger-tokens";
 import type { NavGroup } from "@/lib/zero-base/navigation";
 
-/** Below this the rail is replaced by a drawer. */
+/**
+ * At and below this width the rail is replaced by a drawer.
+ *
+ * Inclusive: the accepted design's B05 is "Rail-to-drawer at 768 — open", so
+ * 768 itself is a drawer width, not the last rail width.
+ */
 export const DRAWER_BREAKPOINT = 768;
+
+/** The one place the breakpoint is turned into a decision. */
+export function isNarrowWidth(width: number): boolean {
+  return width <= DRAWER_BREAKPOINT;
+}
 
 export interface AppShellProps {
   groups: readonly NavGroup[];
@@ -56,7 +66,7 @@ function useIsNarrow(initial: boolean): boolean {
   const [narrow, setNarrow] = useState(initial);
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(`(max-width: ${DRAWER_BREAKPOINT - 1}px)`);
+    const query = window.matchMedia(`(max-width: ${DRAWER_BREAKPOINT}px)`);
     const apply = () => setNarrow(query.matches);
     apply();
     query.addEventListener("change", apply);

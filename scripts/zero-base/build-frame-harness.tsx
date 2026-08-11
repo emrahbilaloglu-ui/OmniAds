@@ -9,14 +9,24 @@
  * file wrote `<div data-adc-ui>` and `<main>` into the template string by hand
  * and mounted only the leaf fragment, which meant the rail, top bar, context
  * bar, skip link and drawer — most of what the accepted artboards draw — never
- * appeared in a single capture. Which shell, and the route the rail marks as
- * current, are derived from the frame's own LeafId rather than restated here,
- * so the crosswalk and the route authority cannot disagree.
+ * appeared in a single capture.
+ *
+ * Rendering happens in a real DOM rather than through `renderToStaticMarkup`.
+ * Two of the shell's states exist only after effects run and content is
+ * portalled: the navigation drawer (H60/H61/B05) and the scope sheet
+ * (H63/H64) are Radix dialogs, and a portal has nothing to attach to during
+ * string rendering. Static markup therefore silently omitted exactly the
+ * artboards whose entire subject is an open overlay. A jsdom document runs the
+ * effects, mounts the portal host, and yields markup that contains the state
+ * the frame is named for.
+ *
+ * `matchMedia` is implemented against the frame's own width, so the shell's
+ * viewport branch is decided by a real query rather than by the SSR hint.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
 
 import { FRAMES, frameFileName, frameShellOptions } from "@/scripts/zero-base/frame-registry";
 import { withFrameShell } from "@/scripts/zero-base/frame-shell";
@@ -29,14 +39,133 @@ function canonicalCss(): string {
   return readFileSync(path.join(ROOT, "app", "globals.css"), "utf8");
 }
 
-function main() {
+/** A media-query implementation that answers from the frame's real width. */
+function installMatchMedia(window: JSDOM["window"], width: number): void {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => {
+      const max = /max-width:\s*(\d+)px/.exec(query);
+      const min = /min-width:\s*(\d+)px/.exec(query);
+      const matches =
+        (max ? width <= Number(max[1]) : true) && (min ? width >= Number(min[1]) : true);
+      return {
+        matches,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      };
+    },
+  });
+}
+
+async function renderFrameHtml(
+  element: React.ReactElement,
+  width: number,
+  theme: string,
+): Promise<string> {
+  const dom = new JSDOM(
+    `<!doctype html><html ${THEME_ATTRIBUTE}="${theme}"><body><div id="root"></div></body></html>`,
+    { pretendToBeVisual: true },
+  );
+  const { window } = dom;
+  installMatchMedia(window, width);
+
+  // Some of these (notably `navigator`) are getter-only on the Node global, so
+  // they must be installed with defineProperty rather than assigned.
+  const globals = globalThis as Record<string, unknown>;
+  const installed: string[] = [];
+  const previous = new Map<string, PropertyDescriptor | undefined>();
+  const install = (key: string, value: unknown) => {
+    previous.set(key, Object.getOwnPropertyDescriptor(globals, key));
+    Object.defineProperty(globals, key, { value, configurable: true, writable: true });
+    installed.push(key);
+  };
+
+  install("window", window);
+  install("self", window);
+  install("document", window.document);
+  install("navigator", window.navigator);
+  install("getComputedStyle", window.getComputedStyle.bind(window));
+
+  // Install the DOM globals wholesale rather than one at a time. Chasing them
+  // individually is endless — Radix walks the tree with NodeFilter, next/link
+  // dispatches Events, focus management constructs KeyboardEvents — and each
+  // missing one surfaces as an unrelated-looking React commit error. jsdom's
+  // realm is also strict: an Event built from Node's global constructor is
+  // rejected by jsdom's dispatchEvent, so the window's own must win.
+  for (const key of Object.getOwnPropertyNames(window)) {
+    if (!/^[A-Z]/.test(key)) continue;
+    const value = (window as unknown as Record<string, unknown>)[key];
+    if (typeof value !== "function" && typeof value !== "object") continue;
+    if (value === undefined || value === null) continue;
+    install(key, value);
+  }
+
+  install("requestAnimationFrame", (callback: FrameRequestCallback) =>
+    window.setTimeout(() => callback(Date.now()), 0) as unknown as number);
+  install("cancelAnimationFrame", (handle: number) => window.clearTimeout(handle));
+  // next/link observes viewport intersection to prefetch, through an idle
+  // callback. Neither exists in jsdom, and without them mounting a single Link
+  // throws — which would be every rail item on every frame.
+  install("requestIdleCallback", (callback: (deadline: unknown) => void) =>
+    window.setTimeout(
+      () => callback({ didTimeout: false, timeRemaining: () => 0 }),
+      0,
+    ) as unknown as number);
+  install("cancelIdleCallback", (handle: number) => window.clearTimeout(handle));
+  // Radix measures with these; jsdom implements neither.
+  const NoopObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  };
+  install("ResizeObserver", window.ResizeObserver ?? NoopObserver);
+  install("IntersectionObserver", window.IntersectionObserver ?? NoopObserver);
+  install("IS_REACT_ACT_ENVIRONMENT", true);
+
+  try {
+    const { createRoot } = await import("react-dom/client");
+    const { act } = await import("react");
+    const container = window.document.getElementById("root")!;
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(element);
+    });
+    // A second pass lets the portal host publish its node and any overlay that
+    // depends on it mount into the canonical container.
+    await act(async () => {});
+    const html = container.innerHTML;
+    await act(async () => {
+      root.unmount();
+    });
+    return html;
+  } finally {
+    for (const key of installed.reverse()) {
+      const descriptor = previous.get(key);
+      if (descriptor) Object.defineProperty(globals, key, descriptor);
+      else delete globals[key];
+    }
+    window.close();
+  }
+}
+
+async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   const css = canonicalCss();
   let count = 0;
 
   for (const spec of FRAMES) {
-    const body = renderToStaticMarkup(
+    const body = await renderFrameHtml(
       withFrameShell(frameShellOptions(spec), spec.render()),
+      spec.width,
+      spec.theme,
     );
     // The frame markers wrap the composition; they identify the capture without
     // standing in for any part of it.
@@ -54,4 +183,7 @@ function main() {
   console.log(`rendered ${count} frame pages → ${path.relative(ROOT, OUT_DIR)}`);
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

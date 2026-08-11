@@ -52,6 +52,25 @@ import {
 } from "@/lib/zero-base/manage/team-contract";
 import type { TeamWriteState } from "@/components/zero-base/manage/manage-views";
 import {
+  adaptSearchConsoleSites,
+  fetchGa4Properties,
+  sameSiteUrl,
+  samePropertyId,
+  saveGa4PropertySelection,
+  selectSiteBody,
+  selectedSiteFromIntegration,
+  selectionPermission,
+  type GA4Property,
+  type SearchConsoleSite,
+} from "@/lib/zero-base/manage/property-selection-contract";
+
+interface SelectionWrite {
+  pending: boolean;
+  error: string | null;
+  confirmed: string | null;
+}
+const IDLE_SELECTION: SelectionWrite = { pending: false, error: null, confirmed: null };
+import {
   adaptAccessibleAccounts,
   getProviderFetchPath,
   isAssignableProvider,
@@ -248,11 +267,165 @@ export function IntegrationsClient({ businessId, role }: { businessId: string; r
     [assignProvider, businessId, readAccounts],
   );
 
+  /* -------------------------------------------------- GA4 / Search Console */
+
+  const selectionPermitted = selectionPermission(role ?? null);
+
+  const [ga4Options, setGa4Options] = useState<GA4Property[]>([]);
+  const [ga4Selected, setGa4Selected] = useState<string | null>(null);
+  const [ga4Discovery, setGa4Discovery] = useState<string | null>(null);
+  const [ga4State, setGa4State] = useState<SelectionWrite>(IDLE_SELECTION);
+
+  const [scOptions, setScOptions] = useState<SearchConsoleSite[]>([]);
+  const [scSelected, setScSelected] = useState<string | null>(null);
+  const [scDiscovery, setScDiscovery] = useState<string | null>(null);
+  const [scState, setScState] = useState<SelectionWrite>(IDLE_SELECTION);
+
+  /** Discovery is the GA4 read-back authority: it reports the selection too. */
+  const readGa4 = useCallback(async () => {
+    const result = await fetchGa4Properties(businessId);
+    if (result.error) {
+      setGa4Discovery(result.error);
+      return null;
+    }
+    setGa4Discovery(null);
+    setGa4Options(result.properties);
+    setGa4Selected(result.selectedPropertyId);
+    return result.selectedPropertyId;
+  }, [businessId]);
+
+  /**
+   * The sites route reports no selection, so the stored site is re-read from
+   * the integration record — which is what select-site actually writes.
+   */
+  const readSearchConsole = useCallback(async () => {
+    const listed = adaptSearchConsoleSites(
+      await getJson(`/api/google-search-console/sites?businessId=${encodeURIComponent(businessId)}`),
+    );
+    if (!listed.ok) {
+      setScDiscovery(listed.reason);
+    } else {
+      setScDiscovery(null);
+      setScOptions(listed.sites);
+    }
+    const current = selectedSiteFromIntegration(
+      await getJson(`/api/integrations?businessId=${encodeURIComponent(businessId)}&provider=search_console`),
+    );
+    setScSelected(current);
+    return current;
+  }, [businessId]);
+
+  useEffect(() => {
+    void readGa4();
+    void readSearchConsole();
+  }, [readGa4, readSearchConsole]);
+
+  const saveGa4 = useCallback(
+    async (propertyId: string) => {
+      const property = ga4Options.find((option) => option.propertyId === propertyId);
+      if (!property) {
+        setGa4State({ pending: false, error: "That property is not in the served list.", confirmed: null });
+        return;
+      }
+      setGa4State({ pending: true, error: null, confirmed: null });
+      const { error } = await saveGa4PropertySelection({ businessId, property });
+      if (error) {
+        setGa4State({ pending: false, error, confirmed: null });
+        return;
+      }
+      const observed = await readGa4();
+      if (observed === null) {
+        setGa4State({
+          pending: false,
+          error: "The selection was accepted but the confirming read failed, so the stored property is unknown.",
+          confirmed: null,
+        });
+        return;
+      }
+      setGa4State(
+        samePropertyId(observed, propertyId)
+          ? { pending: false, error: null, confirmed: "Property selected and confirmed by a fresh read." }
+          : {
+              pending: false,
+              error: "The selection was accepted but the re-read shows a different property. Treat it as unresolved.",
+              confirmed: null,
+            },
+      );
+    },
+    [businessId, ga4Options, readGa4],
+  );
+
+  const saveSearchConsole = useCallback(
+    async (siteUrl: string) => {
+      setScState({ pending: true, error: null, confirmed: null });
+      const response = await fetch("/api/google-search-console/select-site", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selectSiteBody({ businessId, siteUrl })),
+      }).catch(() => null);
+
+      if (!response?.ok) {
+        const json = (await response?.json().catch(() => null)) as { message?: string } | null;
+        setScState({
+          pending: false,
+          // A 409 connection_changed carries its own message and saved nothing.
+          error: json?.message ?? "The site selection was refused.",
+          confirmed: null,
+        });
+        return;
+      }
+      // Never from the write response: re-read the integration record.
+      const observed = await readSearchConsole();
+      if (observed === null) {
+        setScState({
+          pending: false,
+          error: "The selection was accepted but the confirming read failed, so the stored site is unknown.",
+          confirmed: null,
+        });
+        return;
+      }
+      setScState(
+        sameSiteUrl(observed, siteUrl)
+          ? { pending: false, error: null, confirmed: "Site selected and confirmed by a fresh read." }
+          : {
+              pending: false,
+              error: "The selection was accepted but the re-read shows a different site. Treat it as unresolved.",
+              confirmed: null,
+            },
+      );
+    },
+    [businessId, readSearchConsole],
+  );
+
   return (
     <SurfaceStateBoundary state={surface}>
       <IntegrationsView
         providers={providers}
         outcome={outcome}
+        ga4Selection={{
+          selected: ga4Selected,
+          options: ga4Options.map((option) => ({
+            value: option.propertyId,
+            label: option.propertyName,
+            detail: option.accountName,
+          })),
+          discoveryError: ga4Discovery,
+          permission: selectionPermitted.ok ? { ok: true } : { ok: false, reason: selectionPermitted.reason },
+          state: ga4State,
+          onSave: (value) => void saveGa4(value),
+        }}
+        searchConsoleSelection={{
+          selected: scSelected,
+          options: scOptions.map((site) => ({
+            value: site.siteUrl,
+            label: site.siteUrl,
+            detail: site.permissionLevel,
+          })),
+          discoveryError: scDiscovery,
+          permission: selectionPermitted.ok ? { ok: true } : { ok: false, reason: selectionPermitted.reason },
+          state: scState,
+          onSave: (value) => void saveSearchConsole(value),
+        }}
         assignment={{
           provider: assignProvider,
           accounts,

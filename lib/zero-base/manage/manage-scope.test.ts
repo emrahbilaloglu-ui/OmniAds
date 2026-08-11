@@ -41,6 +41,13 @@ import {
   getProviderSavePath,
 } from "@/lib/zero-base/manage/assignment-contract";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import {
+  adaptSearchConsoleSites,
+  sameSiteUrl,
+  samePropertyId,
+  selectedSiteFromIntegration,
+  selectionPermission,
+} from "@/lib/zero-base/manage/property-selection-contract";
 
 const ROOT = process.cwd();
 const BIZ = "55555555-5555-4555-8555-555555555555";
@@ -247,5 +254,87 @@ describe("WP-23 Plan stays static", () => {
     ]) {
       expect(source(file), file).not.toContain("/api/billing");
     }
+  });
+});
+
+describe("WP-23 GA4 / Search Console selection is bound to the real routes", () => {
+  it("the routes and their verbs exist as claimed", async () => {
+    const ga4List = await import("@/app/api/google-analytics/properties/route");
+    const ga4Select = await import("@/app/api/google-analytics/select-property/route");
+    const scList = await import("@/app/api/google-search-console/sites/route");
+    const scSelect = await import("@/app/api/google-search-console/select-site/route");
+    expect(typeof ga4List.GET).toBe("function");
+    expect(typeof ga4Select.POST).toBe("function");
+    expect(typeof scList.GET).toBe("function");
+    expect(typeof scSelect.POST).toBe("function");
+    // A prior report claimed this scope was absent. It was not.
+    expect("POST" in ga4List).toBe(false);
+  });
+
+  it("GA4 discovery reports the selection, so it is its own read-back", () => {
+    const text = source("app/api/google-analytics/properties/route.ts");
+    expect(text).toContain("selectedPropertyId");
+  });
+
+  it("REGRESSION: the sites route reports no selection, so read-back goes elsewhere", () => {
+    const text = source("app/api/google-search-console/sites/route.ts");
+    // Only `sites`. Confirming a write from this body would be impossible.
+    expect(text).not.toContain("selectedSiteUrl");
+    // The integration record is what select-site writes.
+    expect(source("app/api/google-search-console/select-site/route.ts")).toContain("provider_account_id");
+  });
+
+  it("select-site can answer 409 connection_changed, which saved nothing", () => {
+    const text = source("app/api/google-search-console/select-site/route.ts");
+    expect(text).toContain("connection_changed");
+    expect(text).toContain("Nothing was saved");
+  });
+
+  it("both selection routes require collaborator", () => {
+    expect(source("app/api/google-analytics/select-property/route.ts")).toContain('minRole: "collaborator"');
+    expect(source("app/api/google-search-console/select-site/route.ts")).toContain('minRole: "collaborator"');
+  });
+
+  it("reuses the proven helpers rather than duplicating selection semantics", () => {
+    const contract = source("lib/zero-base/manage/property-selection-contract.ts");
+    expect(contract).toContain("ga4-property-picker-support");
+    // The POST body is built by the proven helper, not re-derived here.
+    expect(contract).not.toContain('method: "POST"');
+  });
+
+  it("adapts the sites body and refuses anything else", () => {
+    const ok = adaptSearchConsoleSites({
+      sites: [{ siteUrl: "https://x.test/", permissionLevel: "siteOwner", siteType: "url-prefix" }],
+    });
+    expect(ok.ok).toBe(true);
+    expect(adaptSearchConsoleSites({ data: [] }).ok).toBe(false);
+  });
+
+  it("compares identifiers the way the routes normalize them", () => {
+    // The Admin API returns `properties/12345`; the stored value is prefixed too.
+    expect(samePropertyId("properties/12345", "12345")).toBe(true);
+    expect(samePropertyId("properties/12345", "properties/67890")).toBe(false);
+    expect(samePropertyId(null, "12345")).toBe(false);
+    // select-site runs URLs through new URL().toString(), which can add a slash.
+    expect(sameSiteUrl("https://x.test/", "https://x.test")).toBe(true);
+    expect(sameSiteUrl("sc-domain:x.test", "https://x.test/")).toBe(false);
+    expect(sameSiteUrl(null, "https://x.test")).toBe(false);
+  });
+
+  it("reads the stored site from the integration record", () => {
+    expect(selectedSiteFromIntegration({ integration: { provider_account_id: "sc-domain:x.test" } })).toBe(
+      "sc-domain:x.test",
+    );
+    // Not readable and nothing selected are different facts.
+    expect(selectedSiteFromIntegration({ integration: null })).toBeNull();
+    expect(selectedSiteFromIntegration({})).toBeNull();
+  });
+
+  it("mirrors the collaborator gate before the round trip", () => {
+    expect(selectionPermission("collaborator").ok).toBe(true);
+    expect(selectionPermission("admin").ok).toBe(true);
+    const denied = selectionPermission("reviewer");
+    expect(denied.ok).toBe(false);
+    expect(!denied.ok && denied.reason).toMatch(/collaborator role/);
   });
 });

@@ -52,6 +52,106 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
 
 /* --------------------------------------------------------- integrations */
 
+export interface SelectionPanelProps {
+  /** What the independent re-read observed. Null means not readable. */
+  selected: string | null;
+  /** Options served by the discovery route. */
+  options: readonly { value: string; label: string; detail?: string | null }[];
+  discoveryError: string | null;
+  permission: { ok: boolean; reason?: string };
+  state: { pending: boolean; error: string | null; confirmed: string | null };
+  onSave?: (value: string) => void;
+}
+
+/**
+ * One provider-scoped selection (GA4 property, Search Console site).
+ *
+ * The selected value shown is always the one the re-read observed, never the
+ * one this session just submitted — a write response says what the server
+ * accepted, not what is now stored.
+ */
+export function SelectionPanel({
+  kind,
+  title,
+  selected,
+  options,
+  discoveryError,
+  permission,
+  state,
+  onSave,
+}: SelectionPanelProps & { kind: string; title: string }) {
+  const [draft, setDraft] = useState(selected ?? "");
+  useEffect(() => {
+    setDraft(selected ?? "");
+  }, [selected]);
+
+  return (
+    <section data-selection-panel={kind} aria-label={title} style={{ marginTop: 20 }}>
+      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{title}</h3>
+
+      <p data-selection-current={kind} style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+        {selected
+          ? `Currently selected: ${selected}`
+          : "Nothing is selected, or the current selection could not be read."}
+      </p>
+
+      {discoveryError ? (
+        <p data-selection-unavailable={kind} style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          {discoveryError}
+        </p>
+      ) : !permission.ok ? (
+        <p data-selection-blocked={kind} style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+          {permission.reason}
+        </p>
+      ) : (
+        <>
+          <select
+            data-selection-options={kind}
+            aria-label={title}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            style={{ minHeight: 44, padding: "8px 10px", marginTop: 6, maxWidth: 420, width: "100%" }}
+          >
+            <option value="">Choose&hellip;</option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+                {option.detail ? ` — ${option.detail}` : ""}
+              </option>
+            ))}
+          </select>
+
+          <p role="status" aria-live="polite" data-selection-progress={kind} style={{ margin: "6px 0 0", fontSize: 12, minHeight: 16 }}>
+            {state.pending ? "Saving…" : state.confirmed ?? ""}
+          </p>
+          {state.error ? (
+            <p data-selection-error={kind} style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+              {state.error}
+            </p>
+          ) : null}
+
+          <div style={{ marginTop: 6 }}>
+            <Button
+              variant="secondary"
+              data-selection-save={kind}
+              state={
+                state.pending
+                  ? { kind: "busy", label: "Saving…" }
+                  : draft
+                    ? { kind: "enabled" }
+                    : { kind: "disabled", reason: "Choose an option first." }
+              }
+              onClick={() => onSave?.(draft)}
+            >
+              Save selection
+            </Button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export const CONNECT_UNSUPPORTED =
   "No authorization flow exists for this provider yet, so it cannot be connected here.";
 
@@ -80,6 +180,8 @@ export function IntegrationsView({
   outcome,
   unavailableReason,
   assignment,
+  ga4Selection,
+  searchConsoleSelection,
 }: {
   providers: readonly ProviderHealth[];
   onReconnect?: (provider: string) => void;
@@ -88,6 +190,8 @@ export function IntegrationsView({
   outcome: CeremonyOutcome;
   unavailableReason?: string | null;
   assignment?: AssignmentPanelProps;
+  ga4Selection?: SelectionPanelProps;
+  searchConsoleSelection?: SelectionPanelProps;
 }) {
   return (
     <Shell title="Integrations">
@@ -160,6 +264,12 @@ export function IntegrationsView({
           </div>
           <CeremonyResult outcome={outcome} name="reconnect" />
           {assignment ? <AssignmentPanel {...assignment} /> : null}
+          {ga4Selection ? (
+            <SelectionPanel kind="ga4_property" title="Google Analytics 4 property" {...ga4Selection} />
+          ) : null}
+          {searchConsoleSelection ? (
+            <SelectionPanel kind="search_console_site" title="Search Console site" {...searchConsoleSelection} />
+          ) : null}
         </>
       )}
     </Shell>

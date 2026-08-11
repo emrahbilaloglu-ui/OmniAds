@@ -491,3 +491,231 @@ describe("WP-23 Flow H — first-time connection is reachable", () => {
     );
   });
 });
+
+describe("WP-23 GA4 property and Search Console site selection", () => {
+  const PROPERTY = {
+    propertyId: "properties/12345",
+    propertyName: "Grandmix GA4",
+    accountId: "accounts/9",
+    accountName: "Grandmix",
+  };
+  const OTHER = {
+    propertyId: "properties/67890",
+    propertyName: "Second GA4",
+    accountId: "accounts/9",
+    accountName: "Grandmix",
+  };
+
+  function stubSelection(options: {
+    ga4Selected?: string | null;
+    ga4ListOk?: boolean;
+    ga4SaveOk?: boolean;
+    /** What the GA4 re-read reports after a save. */
+    ga4LandsAs?: string | null;
+    scSelected?: string | null;
+    scListOk?: boolean;
+    scSaveOk?: boolean;
+    scSaveMessage?: string;
+    scLandsAs?: string | null;
+  } = {}) {
+    let ga4 = options.ga4Selected ?? null;
+    let sc = options.scSelected ?? null;
+    stub((call) => {
+      if (call.url.startsWith("/api/google-analytics/select-property")) {
+        if (options.ga4SaveOk === false) return { ok: false, body: { message: "GA4 refused that property." } };
+        ga4 = options.ga4LandsAs !== undefined ? options.ga4LandsAs : (call.body as { propertyId: string }).propertyId;
+        return { body: { success: true } };
+      }
+      if (call.url.startsWith("/api/google-analytics/properties")) {
+        if (options.ga4ListOk === false) return { ok: false, body: { message: "GA4 discovery failed." } };
+        return { body: { data: [PROPERTY, OTHER], selectedPropertyId: ga4 } };
+      }
+      if (call.url.startsWith("/api/google-search-console/select-site")) {
+        if (options.scSaveOk === false) {
+          return { ok: false, body: { message: options.scSaveMessage ?? "Search Console refused that site." } };
+        }
+        sc = options.scLandsAs !== undefined ? options.scLandsAs : (call.body as { siteUrl: string }).siteUrl;
+        return { body: { success: true, integration: { provider_account_id: sc } } };
+      }
+      if (call.url.startsWith("/api/google-search-console/sites")) {
+        if (options.scListOk === false) return { ok: false, body: { message: "Search Console discovery failed." } };
+        return {
+          body: {
+            sites: [
+              { siteUrl: "https://grandmix.example/", permissionLevel: "siteOwner", siteType: "url-prefix" },
+              { siteUrl: "sc-domain:grandmix.example", permissionLevel: "siteOwner", siteType: "domain" },
+            ],
+          },
+        };
+      }
+      if (call.url.includes("provider=search_console")) {
+        return { body: { integration: sc ? { provider_account_id: sc } : null } };
+      }
+      if (call.url.includes("ad-accounts") || call.url.includes("accessible-accounts")) {
+        return { body: { data: [], notice: null } };
+      }
+      return { body: {} };
+    });
+  }
+
+  async function save(kind: string, value: string) {
+    const select = document.querySelector(`[data-selection-options="${kind}"]`) as HTMLSelectElement;
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(select.value).toBe(value));
+    (document.querySelector(`[data-selection-save="${kind}"]`) as HTMLElement).click();
+  }
+
+  it("REGRESSION: GA4 property selection is reachable and shows the stored property", async () => {
+    stubSelection({ ga4Selected: "properties/12345" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-panel="ga4_property"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-selection-current="ga4_property"]')!.textContent).toContain(
+      "properties/12345",
+    );
+  });
+
+  it("sends the exact select-property body and confirms only after the re-read", async () => {
+    stubSelection({ ga4Selected: "properties/12345" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-selection-options="ga4_property"]')).not.toBeNull());
+    await save("ga4_property", "properties/67890");
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-progress="ga4_property"]')!.textContent).toMatch(
+        /confirmed by a fresh read/,
+      );
+    });
+    const post = calls.find((call) => call.url.includes("select-property"))!;
+    expect(post.body).toEqual({
+      businessId: BIZ,
+      propertyId: "properties/67890",
+      propertyName: "Second GA4",
+      accountId: "accounts/9",
+      accountName: "Grandmix",
+    });
+    // The visible value came from the re-read, not the write.
+    expect(document.querySelector('[data-selection-current="ga4_property"]')!.textContent).toContain(
+      "properties/67890",
+    );
+  });
+
+  it("REGRESSION: a stale or mismatched read-back is not reported as success", async () => {
+    // The save reports ok, but the re-read still shows the old property.
+    stubSelection({ ga4Selected: "properties/12345", ga4LandsAs: "properties/12345" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-selection-options="ga4_property"]')).not.toBeNull());
+    await save("ga4_property", "properties/67890");
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-error="ga4_property"]')!.textContent).toMatch(
+        /different property/,
+      );
+    });
+    expect(document.querySelector('[data-selection-progress="ga4_property"]')!.textContent).not.toMatch(
+      /confirmed/,
+    );
+  });
+
+  it("surfaces a failed write without claiming success", async () => {
+    stubSelection({ ga4SaveOk: false });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => expect(document.querySelector('[data-selection-options="ga4_property"]')).not.toBeNull());
+    await save("ga4_property", "properties/67890");
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-error="ga4_property"]')!.textContent).toMatch(
+        /GA4 refused that property/,
+      );
+    });
+  });
+
+  it("refuses unreadable discovery rather than offering an empty list", async () => {
+    stubSelection({ ga4ListOk: false });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-unavailable="ga4_property"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-selection-options="ga4_property"]')).toBeNull();
+  });
+
+  it("withholds selection from a reviewer, with the reason", async () => {
+    stubSelection({ ga4Selected: "properties/12345", scSelected: "https://grandmix.example/" });
+    render(<IntegrationsClient businessId={BIZ} role="reviewer" />);
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-blocked="ga4_property"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-selection-blocked="search_console_site"]')!.textContent).toMatch(
+      /collaborator role/,
+    );
+    expect(document.querySelector('[data-selection-save="ga4_property"]')).toBeNull();
+    // A reviewer may still SEE the stored selection; the sites route admits guest.
+    expect(document.querySelector('[data-selection-current="ga4_property"]')!.textContent).toContain("12345");
+  });
+
+  it("REGRESSION: Search Console selection re-reads the integration, not the write response", async () => {
+    stubSelection({ scSelected: "https://grandmix.example/" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-selection-options="search_console_site"]')).not.toBeNull(),
+    );
+    await save("search_console_site", "sc-domain:grandmix.example");
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-progress="search_console_site"]')!.textContent).toMatch(
+        /confirmed by a fresh read/,
+      );
+    });
+    const post = calls.find((call) => call.url.includes("select-site"))!;
+    expect(post.body).toEqual({ businessId: BIZ, siteUrl: "sc-domain:grandmix.example" });
+    // The confirming read went to the integration record.
+    expect(calls.some((call) => call.url.includes("provider=search_console"))).toBe(true);
+  });
+
+  it("treats a trailing-slash difference as the same site, not a mismatch", async () => {
+    stubSelection({ scSelected: null, scLandsAs: "https://grandmix.example/" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-selection-options="search_console_site"]')).not.toBeNull(),
+    );
+    await save("search_console_site", "https://grandmix.example/");
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-progress="search_console_site"]')!.textContent).toMatch(
+        /confirmed/,
+      );
+    });
+  });
+
+  it("REGRESSION: reports a 409 connection_changed rather than a success", async () => {
+    stubSelection({
+      scSaveOk: false,
+      scSaveMessage: "The connection changed while this property was being validated. Nothing was saved; try again.",
+    });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-selection-options="search_console_site"]')).not.toBeNull(),
+    );
+    await save("search_console_site", "sc-domain:grandmix.example");
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-error="search_console_site"]')!.textContent).toMatch(
+        /Nothing was saved/,
+      );
+    });
+  });
+
+  it("reassignment from one site to another is confirmed by the re-read", async () => {
+    stubSelection({ scSelected: "https://grandmix.example/" });
+    render(<IntegrationsClient businessId={BIZ} role="admin" />);
+    await waitFor(() =>
+      expect(document.querySelector('[data-selection-current="search_console_site"]')!.textContent).toContain(
+        "grandmix.example",
+      ),
+    );
+    await save("search_console_site", "sc-domain:grandmix.example");
+    await waitFor(() => {
+      expect(document.querySelector('[data-selection-current="search_console_site"]')!.textContent).toContain(
+        "sc-domain:grandmix.example",
+      );
+    });
+  });
+});

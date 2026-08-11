@@ -57,7 +57,7 @@ The superseded `agency-directory-server.ts` and its test are deleted rather than
 | **07** Instrumentation v2 | **complete** | `6d6cba61e`, `cc5a29050` |
 | **08** Permission-aware search | **complete** | `d94e440dc` |
 | **09** Auth, onboarding, account | **complete** | `7865057c1` → `45276d383` |
-| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` → `601094543` |
+| **10** Agency Desk | **complete** | `15de2901c` → `45a9ff1ab` → `601094543` → `0a50fa6a8` |
 
 ## 3 · Gates
 
@@ -146,7 +146,7 @@ Binaries came only from the hash-verified archive (`0695ae4524…`), and the pro
 Every package is one revert. Canonical routes do not exist with rollout off, so no rollback is needed to protect legacy:
 
 ```
-git revert 601094543 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
+git revert 0a50fa6a8 601094543 45a9ff1ab 15de2901c 45276d383 7865057c1 d94e440dc cc5a29050 6d6cba61e 13eecae3a 37f58cd10 dd34e444f a1727c835
 ```
 
 Reverting only the follow-up commits (`45a9ff1ab`, `45276d383`) returns Phase B to its `66dbfc3fb` state with WP-04–WP-08 intact.

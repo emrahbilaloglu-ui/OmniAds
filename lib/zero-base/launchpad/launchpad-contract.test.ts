@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  BULK_WITHHELD_REASON,
   FORBIDDEN_LAUNCH_ENDPOINTS,
   MAX_BULK_ADS,
   TEMPLATE_ACTIONS,
@@ -112,6 +113,16 @@ describe("launch is disabled with its exact prerequisites", () => {
     }
   });
 
+  it("claims nothing in What works today that is not mounted", () => {
+    const claims = WHAT_WORKS_TODAY.join(" ");
+    // Every line must correspond to a wired call; the first version claimed
+    // drafts, templates and validation that were never mounted.
+    expect(claims).toMatch(/Drafts are listed/);
+    expect(claims).toMatch(/Templates are listed, created, and deleted/);
+    expect(claims).toMatch(/Validation runs your draft payload/);
+    expect(claims).not.toMatch(/can be created and edited here, and they are saved/);
+  });
+
   it("does not claim a rollback that does not exist", () => {
     const rollback = launchPrerequisites().find((item) => item.id === "rollback")!;
     expect(rollback.detail).toMatch(/no rollback for that today/);
@@ -167,25 +178,32 @@ describe("bulk ad status", () => {
     expect(!gate.ok && gate.reason).toMatch(/not enabled/);
   });
 
-  it("accepts exactly 20", () => {
-    const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: ids(MAX_BULK_ADS) });
-    expect(gate.ok).toBe(true);
-    expect(gate.ok && gate.adIds).toHaveLength(20);
+  it("is withheld even with the flag on, because the exact contract cannot be built here", () => {
+    // The real handler needs per-item ad and creative identity plus a
+    // canonical action origin. This page holds none of it, so the flag alone
+    // is not sufficient and the request is refused before it is assembled.
+    const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: ids(3) });
+    expect(gate.ok).toBe(false);
+    expect(!gate.ok && gate.reason).toBe(BULK_WITHHELD_REASON);
   });
 
-  it("rejects 21 before any request is made", () => {
-    const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: ids(21) });
-    expect(gate.ok).toBe(false);
-    expect(!gate.ok && gate.reason).toMatch(/at most 20 ads\. 21 were selected/);
+  it("still enforces the cap for a caller that CAN build the exact contract", () => {
+    const ok = gateBulkRequest({ mutationUiEnabled: true, adIds: ids(MAX_BULK_ADS), canBuildExactContract: true });
+    expect(ok.ok).toBe(true);
+    expect(ok.ok && ok.adIds).toHaveLength(20);
+
+    const over = gateBulkRequest({ mutationUiEnabled: true, adIds: ids(21), canBuildExactContract: true });
+    expect(over.ok).toBe(false);
+    expect(!over.ok && over.reason).toMatch(/at most 20 ads\. 21 were selected/);
   });
 
   it("de-duplicates before counting, so a repeat is not a rejection", () => {
-    const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: ["a", "a", "b"] });
+    const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: ["a", "a", "b"], canBuildExactContract: true });
     expect(gate.ok && gate.adIds).toEqual(["a", "b"]);
   });
 
   it("refuses an empty selection", () => {
-    expect(gateBulkRequest({ mutationUiEnabled: true, adIds: [] }).ok).toBe(false);
+    expect(gateBulkRequest({ mutationUiEnabled: true, adIds: [], canBuildExactContract: true }).ok).toBe(false);
   });
 });
 

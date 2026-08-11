@@ -9,7 +9,9 @@ import {
   MAX_BATCH_ITEMS,
   REFERENCE_WRITE_STATES,
   buildPlan,
+  LINK_WITHHELD,
   csvCell,
+  fromAdaptedRecommendation,
   gateBatch,
   googleDeepLink,
   pendingCopyIsClean,
@@ -27,10 +29,11 @@ function rec(o: Partial<ServedRecommendation> = {}): ServedRecommendation {
     rank: 1,
     title: "Raise budget on Brand",
     rationale: "Impression share lost to budget.",
-    accountId: "123-456-7890",
-    entityType: "campaign",
     entityId: "c-1",
     entityName: "Brand",
+    executionTargetType: "campaign",
+    executionTargetId: "c-1",
+    deepLinkUrl: "https://ads.google.com/aw/campaigns?__e=1234567890&id=c-1",
     ...o,
   };
 }
@@ -75,25 +78,30 @@ describe("Google pending copy never borrows Meta's word", () => {
   });
 });
 
-describe("deep links land on the exact entity", () => {
-  it("includes the account and the entity id", () => {
-    const url = new URL(googleDeepLink(rec()));
-    expect(url.pathname).toContain("/campaigns");
-    // Without the account Google opens whichever one the session last used.
-    expect(url.searchParams.get("__e")).toBe("1234567890");
-    expect(url.searchParams.get("id")).toBe("c-1");
+describe("deep links are served, never assembled", () => {
+  it("uses the link Google served", () => {
+    expect(googleDeepLink(rec())).toBe(
+      "https://ads.google.com/aw/campaigns?__e=1234567890&id=c-1",
+    );
   });
 
-  it("maps each entity type to its own surface", () => {
-    expect(googleDeepLink(rec({ entityType: "ad_group" }))).toContain("/adgroups");
-    expect(googleDeepLink(rec({ entityType: "keyword" }))).toContain("/keywords");
-    expect(googleDeepLink(rec({ entityType: "asset" }))).toContain("/assetgroups");
+  it("withholds the link when Google served none", () => {
+    // The previous version built one from an accountId the recommendation
+    // never carries, which crashed on `.replace()` of undefined.
+    expect(googleDeepLink(rec({ deepLinkUrl: null }))).toBeNull();
+    expect(LINK_WITHHELD).toMatch(/did not serve a direct link/);
   });
 
-  it("falls back to the account overview when no entity was served", () => {
-    const url = googleDeepLink(rec({ entityId: null, entityType: null }));
-    expect(url).toContain("/overview");
-    expect(url).toContain("1234567890");
+  it("refuses a link that is not an https Google URL", () => {
+    expect(googleDeepLink(rec({ deepLinkUrl: "http://ads.google.com/x" }))).toBeNull();
+    expect(googleDeepLink(rec({ deepLinkUrl: "https://evil.example/aw" }))).toBeNull();
+    expect(googleDeepLink(rec({ deepLinkUrl: "not a url" }))).toBeNull();
+  });
+
+  it("never throws on a recommendation with no identity at all", () => {
+    expect(() =>
+      googleDeepLink({ deepLinkUrl: null, executionTargetId: null, executionTargetType: null }),
+    ).not.toThrow();
   });
 });
 
@@ -137,10 +145,9 @@ describe("copy and CSV are exact", () => {
 
 describe("batch validation", () => {
   const steps = buildPlan([
-    rec({ id: "a", entityType: "campaign" }),
-    rec({ id: "b", entityType: "campaign" }),
-    rec({ id: "c", entityType: "keyword" }),
-    rec({ id: "d", entityType: "campaign", accountId: "999-999-9999" }),
+    rec({ id: "a", executionTargetType: "campaign" }),
+    rec({ id: "b", executionTargetType: "campaign" }),
+    rec({ id: "c", executionTargetType: "keyword" }),
   ]);
 
   it("accepts one type in one account", () => {
@@ -151,12 +158,7 @@ describe("batch validation", () => {
     const gate = gateBatch({ steps, selectedIds: ["a", "c"] });
     // A batch spanning types is not one operation.
     expect(gate.ok).toBe(false);
-    expect(!gate.ok && gate.reason).toMatch(/one entity type/);
-  });
-
-  it("refuses a selection spanning two accounts", () => {
-    const gate = gateBatch({ steps, selectedIds: ["a", "d"] });
-    expect(!gate.ok && gate.reason).toMatch(/one account/);
+    expect(!gate.ok && gate.reason).toMatch(/one execution target type/);
   });
 
   it("refuses more than 250", () => {
@@ -225,5 +227,42 @@ describe("no pause_ad control and no Google mutation endpoint", () => {
       expect(source.includes("pause_ad"), path.basename(file)).toBe(false);
       expect(/method:\s*["']POST["']/.test(source), `${path.basename(file)} posts`).toBe(false);
     }
+  });
+});
+
+
+describe("plan steps are mapped from the real recommendation", () => {
+  it("takes rank from rankScore and rationale from summary", () => {
+    const step = fromAdaptedRecommendation({
+      id: "r1",
+      title: "Raise budget",
+      summary: "Impression share lost to budget.",
+      why: "why text",
+      doBucket: "do_now",
+      rankScore: 42,
+      level: "campaign",
+      entityId: "c-1",
+      entityName: "Brand",
+      executionTargetType: "campaign",
+      executionTargetId: "c-1",
+      deepLinkUrl: "https://ads.google.com/aw/campaigns?id=c-1",
+      rollbackGuidance: "Revert the budget within 24h.",
+    });
+    expect(step.rank).toBe(42);
+    expect(step.rationale).toBe("Impression share lost to budget.");
+    expect(step.executionTargetId).toBe("c-1");
+    expect(step.stabilizationNote).toBe("Revert the budget within 24h.");
+    // No accountId anywhere: the served recommendation has none.
+    expect("accountId" in step).toBe(false);
+  });
+
+  it("falls back to why when no summary was served", () => {
+    const step = fromAdaptedRecommendation({
+      id: "r1", title: "t", summary: null, why: "because", doBucket: "do_later",
+      rankScore: null, level: null, entityId: null, entityName: null,
+      executionTargetType: null, executionTargetId: null, deepLinkUrl: null, rollbackGuidance: null,
+    });
+    expect(step.rationale).toBe("because");
+    expect(step.rank).toBeNull();
   });
 });

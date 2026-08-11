@@ -16,22 +16,49 @@
  *   thing this surface does, and a greyed control implies it is coming.
  */
 import type { GoogleExecutionStatus } from "@/lib/google-ads/growth-advisor-types";
+import type { AdaptedRecommendation } from "@/lib/zero-base/google/payload-adapters";
 
 /* ------------------------------------------------------------ plan model */
 
+/**
+ * A plan input, built ONLY by `fromAdaptedRecommendation` from the real
+ * `GoogleRecommendation` fields. It carries no `accountId`, because the served
+ * recommendation has none — assuming one is what made `googleDeepLink` call
+ * `.replace()` on `undefined`.
+ */
 export interface ServedRecommendation {
   id: string;
-  /** Server-assigned order. Never re-sorted here by a metric. */
+  /** From the server's own `rankScore`. Never re-derived from a metric. */
   rank?: number | null;
   title: string;
   rationale: string | null;
-  accountId: string;
-  entityType: "campaign" | "ad_group" | "keyword" | "asset" | null;
   entityId: string | null;
   entityName: string | null;
+  executionTargetType: string | null;
+  executionTargetId: string | null;
+  /** The link Google served. Absent means the exact link is withheld. */
+  deepLinkUrl: string | null;
   executionStatus?: GoogleExecutionStatus | null;
   dependencyReadiness?: string | null;
   stabilizationNote?: string | null;
+}
+
+/** Map the real adapted recommendation onto a plan input. No invention. */
+export function fromAdaptedRecommendation(item: AdaptedRecommendation): ServedRecommendation {
+  return {
+    id: item.id,
+    // rankScore is the served ordering semantic.
+    rank: item.rankScore,
+    title: item.title,
+    rationale: item.summary ?? item.why,
+    entityId: item.entityId,
+    entityName: item.entityName,
+    executionTargetType: item.executionTargetType,
+    executionTargetId: item.executionTargetId,
+    deepLinkUrl: item.deepLinkUrl,
+    dependencyReadiness: null,
+    stabilizationNote: item.rollbackGuidance,
+  };
 }
 
 export interface PlanStep extends ServedRecommendation {
@@ -78,29 +105,33 @@ export function pendingCopyIsClean(text: string): boolean {
 
 /* ------------------------------------------------------------ deep links */
 
-const GOOGLE_ADS_BASE = "https://ads.google.com/aw";
-
 /**
- * A link that lands on the exact entity.
+ * The exact link, or nothing.
  *
- * The account id is always included: without it Google opens whichever account
- * the session last used, which may not be the one the plan describes.
+ * Google serves `deepLinkUrl` when it can address the entity. When it does not,
+ * this returns null and the surface says the exact link is not available —
+ * because a link assembled from an account id we were never given is either a
+ * crash (the previous `.replace()` on `undefined`) or a link to the wrong
+ * account, and both are worse than no link.
  */
-export function googleDeepLink(step: Pick<ServedRecommendation, "accountId" | "entityType" | "entityId">): string {
-  const account = step.accountId.replace(/-/g, "");
-  if (!step.entityId || !step.entityType) {
-    return `${GOOGLE_ADS_BASE}/overview?__e=${encodeURIComponent(account)}`;
+export function googleDeepLink(
+  step: Pick<ServedRecommendation, "deepLinkUrl" | "executionTargetId" | "executionTargetType">,
+): string | null {
+  const url = step.deepLinkUrl?.trim();
+  if (!url) return null;
+  // Only absolute Google URLs are followed; anything else is not a destination
+  // this surface can vouch for.
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !parsed.hostname.endsWith("google.com")) return null;
+    return parsed.toString();
+  } catch {
+    return null;
   }
-  const path =
-    step.entityType === "campaign"
-      ? "campaigns"
-      : step.entityType === "ad_group"
-        ? "adgroups"
-        : step.entityType === "keyword"
-          ? "keywords"
-          : "assetgroups";
-  return `${GOOGLE_ADS_BASE}/${path}?__e=${encodeURIComponent(account)}&id=${encodeURIComponent(step.entityId)}`;
 }
+
+export const LINK_WITHHELD =
+  "Google did not serve a direct link for this item. Open the entity from the Google Ads UI.";
 
 /* ------------------------------------------------------------- copy / CSV */
 
@@ -109,6 +140,8 @@ export function planToText(steps: readonly PlanStep[]): string {
     .map((step) => {
       const lines = [`${step.position}. ${step.title}`];
       if (step.entityName) lines.push(`   Entity: ${step.entityName} (${step.entityId ?? "id not served"})`);
+      const link = googleDeepLink(step);
+      if (!link) lines.push("   Link: not served by Google");
       if (step.rationale) lines.push(`   Why: ${step.rationale}`);
       for (const weakness of step.weaknesses) lines.push(`   Caveat: ${weakness}`);
       return lines.join("\n");
@@ -119,9 +152,8 @@ export function planToText(steps: readonly PlanStep[]): string {
 export const CSV_COLUMNS = [
   "position",
   "title",
-  "account_id",
-  "entity_type",
-  "entity_id",
+  "execution_target_type",
+  "execution_target_id",
   "entity_name",
   "rationale",
   "caveats",
@@ -149,13 +181,12 @@ export function planToCsv(steps: readonly PlanStep[]): string {
     [
       step.position,
       step.title,
-      step.accountId,
-      step.entityType ?? "",
-      step.entityId ?? "",
+      step.executionTargetType ?? "",
+      step.executionTargetId ?? step.entityId ?? "",
       step.entityName ?? "",
       step.rationale ?? "",
       step.weaknesses.join(" "),
-      googleDeepLink(step),
+      googleDeepLink(step) ?? "",
     ]
       .map(csvCell)
       .join(","),
@@ -191,18 +222,11 @@ export function gateBatch(input: {
     };
   }
   const chosen = input.steps.filter((step) => ids.includes(step.id));
-  const types = new Set(chosen.map((step) => step.entityType ?? "unknown"));
+  const types = new Set(chosen.map((step) => step.executionTargetType ?? "unknown"));
   if (types.size > 1) {
     return {
       ok: false,
-      reason: `A batch must be one entity type. This selection spans ${[...types].join(", ")}.`,
-    };
-  }
-  const accounts = new Set(chosen.map((step) => step.accountId));
-  if (accounts.size > 1) {
-    return {
-      ok: false,
-      reason: `A batch must be one account. This selection spans ${accounts.size} accounts.`,
+      reason: `A batch must be one execution target type. This selection spans ${[...types].join(", ")}.`,
     };
   }
   return { ok: true, ids };

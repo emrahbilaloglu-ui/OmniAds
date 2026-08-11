@@ -13,14 +13,12 @@ import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import {
-  MAX_BULK_ADS,
+  BULK_WITHHELD_REASON,
   TEMPLATE_IMMUTABILITY_NOTE,
   WHAT_DOES_NOT_EXIST,
   WHAT_WORKS_TODAY,
   disabledLaunchActions,
   firstBlockingField,
-  gateBulkRequest,
-  type BulkItemOutcome,
   type ValidationFinding,
 } from "@/lib/zero-base/launchpad/launchpad-contract";
 
@@ -32,25 +30,25 @@ export interface LaunchpadTemplate {
 
 export function LaunchpadView({
   templates,
+  drafts,
   findings,
+  error,
+  onCreateDraft,
+  onValidate,
   onDuplicateTemplate,
   onDeleteTemplate,
-  bulk,
 }: {
   templates: readonly LaunchpadTemplate[];
+  drafts: readonly { id: string; name: string; createdAt?: string }[];
   findings: readonly ValidationFinding[];
-  onDuplicateTemplate?: (id: string) => void;
+  error?: string | null;
+  onCreateDraft?: (name: string, payload: Record<string, unknown>) => void;
+  onValidate?: (payload: Record<string, unknown>) => void;
+  onDuplicateTemplate?: (id: string, name: string) => void;
   onDeleteTemplate?: (id: string) => void;
-  /** Absent unless the server enabled the mutation UI. */
-  bulk?: {
-    candidates: readonly { adId: string; name: string }[];
-    onApply: (adIds: string[]) => Promise<BulkItemOutcome[]>;
-  };
 }) {
   const actions = disabledLaunchActions();
-  const [selected, setSelected] = useState<string[]>([]);
-  const [bulkError, setBulkError] = useState<string | null>(null);
-  const [outcomes, setOutcomes] = useState<BulkItemOutcome[] | null>(null);
+  const [draftName, setDraftName] = useState("");
   const fieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const blockingField = firstBlockingField(findings);
@@ -60,6 +58,12 @@ export function LaunchpadView({
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         Meta Launchpad
       </h1>
+
+      {error ? (
+        <p role="status" data-launchpad-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          {error}
+        </p>
+      ) : null}
 
       {/* -------------------------------------------------- what works today */}
       <section aria-label="What works today">
@@ -101,6 +105,41 @@ export function LaunchpadView({
             </ul>
           </div>
         ))}
+      </section>
+
+      {/* ---------------------------------------------------------- drafts */}
+      <section aria-label="Drafts">
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Drafts</h2>
+        {drafts.length === 0 ? (
+          <p data-drafts="empty" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+            No drafts have been saved for this account.
+          </p>
+        ) : (
+          <ul data-drafts="ready" style={{ margin: "6px 0 8px", paddingLeft: 18 }}>
+            {drafts.map((draft) => (
+              <li key={draft.id} data-draft={draft.id} style={{ fontSize: 12.5 }}>
+                {draft.name}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div style={{ maxWidth: 360 }}>
+          <TextInput
+            label="New draft name"
+            data-draft-field="draftName"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+          />
+        </div>
+        <Button
+          variant="secondary"
+          data-draft-create=""
+          style={{ marginTop: 8 }}
+          state={draftName.trim() ? { kind: "enabled" } : { kind: "disabled", reason: "A draft needs a name." }}
+          onClick={() => onCreateDraft?.(draftName.trim(), { name: draftName.trim() })}
+        >
+          Save draft
+        </Button>
       </section>
 
       {/* ----------------------------------------------------- validation */}
@@ -152,6 +191,14 @@ export function LaunchpadView({
             }}
           />
         </div>
+        <Button
+          variant="secondary"
+          data-validate-run=""
+          style={{ marginTop: 8 }}
+          onClick={() => onValidate?.({ name: fieldRefs.current.name?.value ?? "" })}
+        >
+          Run validation
+        </Button>
       </section>
 
       {/* ------------------------------------------------------- templates */}
@@ -175,7 +222,11 @@ export function LaunchpadView({
               // whatever already used it.
               render: (row) => (
                 <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <Button variant="secondary" data-template-duplicate={row.id} onClick={() => onDuplicateTemplate?.(row.id)}>
+                  <Button
+                    variant="secondary"
+                    data-template-duplicate={row.id}
+                    onClick={() => onDuplicateTemplate?.(row.id, `${row.name} (copy)`)}
+                  >
                     Duplicate
                   </Button>
                   <Button variant="danger" data-template-delete={row.id} onClick={() => onDeleteTemplate?.(row.id)}>
@@ -189,64 +240,16 @@ export function LaunchpadView({
       </section>
 
       {/* ------------------------------------------------------------ bulk */}
-      {bulk ? (
-        <section aria-label="Bulk ad status">
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Bulk ad status</h2>
-          <p style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-            Up to {MAX_BULK_ADS} ads per request.
-          </p>
-          <div data-bulk-candidates="" style={{ display: "grid", gap: 4 }}>
-            {bulk.candidates.map((candidate) => (
-              <label key={candidate.adId} style={{ fontSize: 12.5, display: "flex", gap: 6 }}>
-                <input
-                  type="checkbox"
-                  data-bulk-select={candidate.adId}
-                  checked={selected.includes(candidate.adId)}
-                  onChange={(event) =>
-                    setSelected((current) =>
-                      event.target.checked
-                        ? [...current, candidate.adId]
-                        : current.filter((id) => id !== candidate.adId),
-                    )
-                  }
-                />
-                {candidate.name}
-              </label>
-            ))}
-          </div>
-          {bulkError ? (
-            <p role="status" data-bulk-error="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
-              {bulkError}
-            </p>
-          ) : null}
-          <Button
-            variant="secondary"
-            data-bulk-apply=""
-            style={{ marginTop: 8 }}
-            onClick={async () => {
-              const gate = gateBulkRequest({ mutationUiEnabled: true, adIds: selected });
-              if (!gate.ok) {
-                setBulkError(gate.reason);
-                setOutcomes(null);
-                return;
-              }
-              setBulkError(null);
-              setOutcomes(await bulk.onApply(gate.adIds));
-            }}
-          >
-            Apply to selected
-          </Button>
-          {outcomes ? (
-            <ul data-bulk-outcomes="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-              {outcomes.map((outcome) => (
-                <li key={outcome.adId} data-bulk-outcome={outcome.status} style={{ fontSize: 12.5 }}>
-                  {outcome.adId}: {outcome.detail}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
+      <section aria-label="Bulk ad status">
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Bulk ad status</h2>
+        {/* Withheld even when the mutation flag is on: this page cannot build
+            the handler's exact per-item contract, and a button that can only
+            400 is worse than an absent one. */}
+        <p data-bulk-withheld="" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          {BULK_WITHHELD_REASON}
+        </p>
+      </section>
+
     </div>
   );
 }

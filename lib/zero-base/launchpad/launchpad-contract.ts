@@ -82,18 +82,43 @@ export function disabledLaunchActions(): DisabledAction[] {
   ];
 }
 
-/** Plain statement of the surface's real reach. */
+/**
+ * Plain statement of the surface's real reach.
+ *
+ * Acceptance review found the first version of this list claiming drafts,
+ * templates and validation that were never wired — the client only listed and
+ * deleted templates. Every line below now corresponds to a mounted, tested
+ * call against the real endpoint, and a claim is removed the moment its action
+ * is not.
+ */
 export const WHAT_WORKS_TODAY = [
-  "Drafts can be created and edited here, and they are saved.",
-  "Templates can be created, read and deleted. They cannot be edited — change one by duplicating it, so the original stays exactly as whatever used it saw it.",
-  "Validation runs against your draft and reports what it finds.",
+  "Drafts are listed from your saved drafts, and a new draft can be created with a name and payload.",
+  "Templates are listed, created, and deleted. They cannot be edited — change one by duplicating it, which copies the served payload into a new template, so the original stays exactly as whatever used it saw it.",
+  "Validation runs your draft payload through the validator and reports what it finds.",
   "Nothing on this page creates, changes or launches anything in Meta.",
 ] as const;
 
 export const WHAT_DOES_NOT_EXIST = [
   "There is no rollback for a launch. Nothing here can undo provider objects once they exist.",
   "There is no Google Launchpad. This surface is Meta only, and no part of it applies to Google.",
+  "Bulk ad status is not available from this page. See the reason next to it.",
 ] as const;
+
+/**
+ * Why bulk is withheld even when the mutation flag is on.
+ *
+ * The real `/api/launchpad/meta/bulk-ad-status` handler requires a canonical
+ * per-item decision-origin contract: exact ad and creative identity, an action
+ * origin, and a dry-run declaration, per item. This page holds none of that.
+ * Assembling it in the browser would mean inventing exact target, creative and
+ * origin fields — precisely the client-supplied authority the write contracts
+ * refuse — and building a second source for it would be a parallel authority.
+ *
+ * So the control is withheld with this reason rather than shipped as a button
+ * that can only 400.
+ */
+export const BULK_WITHHELD_REASON =
+  "Bulk ad status needs the exact per-item ad and creative identity and a canonical action origin, which this page does not hold. Building them here would mean the browser inventing the authority the write contract exists to refuse.";
 
 /* ------------------------------------------------------------- templates */
 
@@ -154,9 +179,17 @@ export type BulkGate =
 export function gateBulkRequest(input: {
   mutationUiEnabled: boolean;
   adIds: readonly string[];
+  /** Whether this surface can build the handler's exact per-item contract. */
+  canBuildExactContract?: boolean;
 }): BulkGate {
   if (!input.mutationUiEnabled) {
     return { ok: false, reason: "Bulk status changes are not enabled in this environment." };
+  }
+  // The flag being on is not sufficient. Without the exact per-item contract
+  // the request cannot be valid, so it is refused here rather than by the
+  // handler after a pointless round trip.
+  if (input.canBuildExactContract !== true) {
+    return { ok: false, reason: BULK_WITHHELD_REASON };
   }
   const adIds = [...new Set(input.adIds.map((id) => id.trim()).filter(Boolean))];
   if (adIds.length === 0) {

@@ -18,6 +18,7 @@ import {
   MAX_BATCH_ITEMS,
   REFERENCE_WRITE_STATES,
   gateBatch,
+  LINK_WITHHELD,
   googleDeepLink,
   planToCsv,
   planToText,
@@ -109,17 +110,26 @@ export function GooglePlanView({
             {
               id: "link",
               header: "Open in Google",
-              render: (row) => (
-                <a
-                  href={googleDeepLink(row)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-plan-link={row.id}
-                  style={{ color: "var(--ledger-accent-action)" }}
-                >
-                  Open
-                </a>
-              ),
+              render: (row) => {
+                const href = googleDeepLink(row);
+                // Withheld rather than guessed: a link assembled from an
+                // account we were never given points at the wrong account.
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-plan-link={row.id}
+                    style={{ color: "var(--ledger-accent-action)" }}
+                  >
+                    Open
+                  </a>
+                ) : (
+                  <span data-plan-link-withheld={row.id} style={{ color: "var(--ledger-ink-tertiary)", fontSize: 11 }}>
+                    {LINK_WITHHELD}
+                  </span>
+                );
+              },
             },
             {
               id: "select",
@@ -173,7 +183,7 @@ export function GooglePlanView({
           </p>
         ))}
         <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
-          A batch would be one entity type in one account, up to {MAX_BATCH_ITEMS} items.
+          A batch would be one execution target type, up to {MAX_BATCH_ITEMS} items.
         </p>
         <Button
           variant="secondary"

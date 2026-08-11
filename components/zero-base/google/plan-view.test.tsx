@@ -18,10 +18,11 @@ function rec(o: Partial<ServedRecommendation> = {}): ServedRecommendation {
     rank: 1,
     title: "Raise budget on Brand",
     rationale: "Impression share lost to budget.",
-    accountId: "123-456-7890",
-    entityType: "campaign",
     entityId: "c-1",
     entityName: "Brand",
+    executionTargetType: "campaign",
+    executionTargetId: "c-1",
+    deepLinkUrl: "https://ads.google.com/aw/campaigns?__e=1234567890&id=c-1",
     ...o,
   };
 }
@@ -114,16 +115,16 @@ describe("reference write states", () => {
   });
 
   it("validates a batch selection without executing anything", async () => {
-    plan([rec({ id: "a", entityType: "campaign" }), rec({ id: "b", rank: 2, entityType: "keyword" })]);
+    plan([rec({ id: "a", executionTargetType: "campaign" }), rec({ id: "b", rank: 2, executionTargetType: "keyword" })]);
     const user = userEvent.setup();
     await user.click(document.querySelector('[data-plan-select="a"]') as HTMLElement);
     await user.click(document.querySelector('[data-plan-select="b"]') as HTMLElement);
     await user.click(document.querySelector("[data-batch-validate]") as HTMLElement);
-    expect(document.querySelector("[data-batch-error]")!.textContent).toMatch(/one entity type/);
+    expect(document.querySelector("[data-batch-error]")!.textContent).toMatch(/one execution target type/);
   });
 
   it("states the batch shape including the 250 cap", () => {
     plan();
-    expect(document.body.textContent).toMatch(/one entity type in one account, up to 250 items/);
+    expect(document.body.textContent).toMatch(/up to 250 items/);
   });
 });

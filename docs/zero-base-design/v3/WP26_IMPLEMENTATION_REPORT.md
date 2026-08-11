@@ -462,3 +462,138 @@ Chrome), an Android device or emulator (TalkBack + Chrome), and a macOS/iOS
 device (VoiceOver + Safari) performs the eleven passes above and records
 tester name, date, browser, assistive technology and result. Nothing local can
 substitute for it, and no scope reduction is requested.
+
+---
+
+# WP-26 — third pass (commits `7bf0100ed` … `dec4a2e1d`)
+
+Two of the five items raised against the second pass are now **complete**; three
+are partially advanced and named precisely below. G9 stays RED for manual AT.
+
+## A. EN/TR locale — COMPLETE (`4d4d76057`, `b39205dd4`, `5392fe934`)
+
+```
+npm run test:zero-base:locale
+  components wired to the catalogue   46 / 69
+  inline literals found               3
+  reviewed exemptions                 3
+  unexplained operator copy           0
+PASS: zero unexplained inline operator copy.
+```
+
+307 inline strings converted to 0 unexplained. The ceiling is gone: the gate now
+fails on any operator-facing string that neither routes through
+`lib/zero-base/copy.ts` nor appears in `REVIEWED_EXEMPTIONS` with its reason.
+
+The three exemptions are all provider identifiers from `NON_TRANSLATABLE_TERMS`
+— `Meta`, `Google Ads`, `GA4 and Shopify` — which must render byte-identical in
+both languages.
+
+Three real judgments the tests forced, none of them an exemption hack:
+
+- `"Search performance"` contained the bare token `Search`, the Google Ads
+  campaign type. English is now `"Search Console performance"`.
+- `Search`/`Shopping`/`Display` are campaign types **when capitalised** and
+  ordinary nouns when not. The glossary check is now case-sensitive for exactly
+  those three, with a test asserting both directions.
+- The global overlay's title `"Search"` became `"Find"`/`"Bul"` rather than an
+  exemption.
+
+Tests: 12 catalogue tests (parity, no-placeholder, no byte-identical TR,
+glossary with a negative control, real-length) and 16 mounted tests including
+one EN and one TR case per surface family — reports, integrations, team, agency,
+ops. The ops case reads the **accessible name**, because an `aria-label` left in
+English is exactly what a screen-reader user hits.
+
+Two scanner corrections: `=> Promise<T>` was counted as JSX text (a type
+annotation's `>` looks like a tag close), and files already binding `copy` to a
+clipboard handler or terminal-copy lookup use a `t` alias rather than a forced
+collision.
+
+## B. Executable flow matrix — COMPLETE (`7bf0100ed`, `f2ae08ee5`)
+
+```
+npm run test:zero-base:flows
+  flows declared              13
+  required cases              71
+  executed & passing cases    71
+PASS: 71/71 required flow cases executed and passed across all 13 flows.
+```
+
+The previous reconciler grepped source for `"Flow X"` and a viewport number — a
+comment satisfied it. That is deleted. 71 mounted cases now drive real surfaces
+and assert branches: success plus the applicable permission, empty, partial,
+failure and read-back branches. Flows A/B/I/L run at 1440/1280/768/390/320.
+
+A case is recorded **only after its assertions pass**, into
+`playwright/artifacts/flow-results/<commit>.json`. The reconciler reads that and
+nothing else.
+
+Verified non-circular two ways: with the manifest removed it fails with no
+results; with Flow J's cases stripped it reports `Flow J 0/3 INCOMPLETE` and
+names the three missing ids.
+
+Fixtures were corrected against the real components — the real
+`AgencyDirectoryPageData` shape, the real `InviteState` union, the real
+`${name}:${kind}` ceremony marker, and `CeremonyOutcome`'s real `unknown`
+member (typecheck caught an invented `"ambiguous"`).
+
+## C. Frame reconciliation — still 13/92, now FAILING CLOSED (`dec4a2e1d`)
+
+Unchanged in coverage, but no longer able to pass silently. The reconciler exits
+non-zero below the full 92 denominator, so `test:zero-base:release` is now RED
+over it. It was only green before because the weakest gate could not fail.
+
+79 frames still have no crosswalk and are listed by id in the script output.
+**G10 is not green.**
+
+## D. G11 — measured, one threshold still exceeded
+
+Unchanged from the second pass: vitals are inside budget on four reachable
+leaves, and the **491.9 KB shared client baseline still exceeds the 400 KB
+threshold**. Authenticated heavy leaves remain unmeasured. Per the instruction,
+this is treated as **failing**, not "evidenced, in budget".
+
+## E. Release aggregate — now complete and honest (`dec4a2e1d`)
+
+`test:zero-base:release` runs contract, typecheck, lint, route matrix,
+legibility, locale, flows, frames, design, a11y and responsive. No required
+suite is omitted. **It currently exits 1**, because frames are at 13/92 — which
+is the correct signal.
+
+G6 state truth, G7 interaction, and authenticated-role HTTP smoke are **not yet
+re-evidenced**.
+
+## Gate status after this pass
+
+| Gate | Status | Change |
+|---|---|---|
+| G1 contract | green | — |
+| G2 compile | green — typecheck 0, lint 0 | — |
+| G3 data | green — **1261 zero-base tests**, full suite green | +10 |
+| G4 decision safety | green | — |
+| G5 routes | green (unauthenticated posture, 74/74) | authenticated roles still to add |
+| G6 state truth | **not re-evidenced** | — |
+| G7 interaction | **not re-evidenced** | — |
+| G8 responsive | **green for flows (71/71)**; geometry 84/84 | was 2/13 |
+| G9 accessibility | **RED** — manual AT unavailable | unchanged |
+| G10 visual | **RED** — 13/92, now fails closed | was silently passing |
+| G11 performance | **RED** — baseline 491.9 KB > 400 KB; authenticated leaves unmeasured | reclassified honestly |
+| G12 deployment | out of scope | — |
+
+## Remaining local work, exactly
+
+1. **G10** — crosswalk and capture the 79 unmapped frames, or record explicit
+   plan-authorized no-frame contracts; add dimension and identity verification
+   to the capture.
+2. **G11** — reduce the shared baseline below 400 KB; measure authenticated
+   heavy leaves with seeded sessions; re-measure and report before/after.
+3. **G5 authenticated half** — seeded guest/collaborator/admin/reviewer/demo
+   sessions against Client/Agency/Ops leaves.
+4. **G6 / G7** — re-evidence state truth and the 142 interaction contracts.
+
+## Residual manual AT — unchanged
+
+Still RED, still the only allowed residual, still no substitute offered. The
+matrix and the smallest human next action are recorded in the previous section
+and are unchanged.

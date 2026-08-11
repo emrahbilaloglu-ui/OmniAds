@@ -17,8 +17,18 @@
 
 export type RepairPhase = "idle" | "running" | "settled";
 
+/**
+ * Whether anything independently observed the state after the action.
+ *
+ * `not_performed` is the honest default for endpoints that return only what the
+ * mutation said. `confirmed` may be set **only** when a re-read actually ran
+ * and agreed — the type previously had one member, so the confirmed path was
+ * forced to stamp `not_performed` on a result it had genuinely re-read.
+ */
+export type RepairReadBack = "not_performed" | "confirmed";
+
 export type RepairOutcome =
-  | { kind: "accepted"; action: string; detail: string; readBack: "not_performed" }
+  | { kind: "accepted"; action: string; detail: string; readBack: RepairReadBack }
   | { kind: "refused"; action: string; detail: string }
   | { kind: "ambiguous"; action: string; detail: string };
 
@@ -185,8 +195,8 @@ export function resolveRepairWithSemantics(input: {
     kind: "accepted",
     action: base.action,
     detail: `${base.detail} The re-read confirms the condition is clear.`,
-    // This path really did re-read, so the marker reflects that.
-    readBack: "not_performed" as const,
+    // This path really did re-read and the re-read agreed.
+    readBack: "confirmed" as const,
     confirmed: true,
   };
 }

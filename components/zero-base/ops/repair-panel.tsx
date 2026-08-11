@@ -24,12 +24,23 @@ export function OpsRepairPanel({
   action,
   onRun,
   onRecheck,
+  /** Withholds the action entirely, with the reason stated. */
+  blockedReason,
+  /**
+   * Named before the action runs. This is a consequential provider call, so the
+   * operator confirms a specific workspace, provider and action rather than a
+   * bare "Run".
+   */
+  confirmation,
 }: {
   action: string;
   /** Performs the real PATCH and returns its raw result. */
   onRun: () => Promise<{ httpOk: boolean; status: number | null; body: unknown; transportFailed: boolean }>;
   onRecheck?: () => void;
+  blockedReason?: string | null;
+  confirmation?: { workspace: string; provider: string };
 }) {
+  const [confirming, setConfirming] = useState(false);
   const [phase, setPhase] = useState<RepairPhase>("idle");
   const [outcome, setOutcome] = useState<RepairOutcome | null>(null);
 
@@ -48,16 +59,59 @@ export function OpsRepairPanel({
         ? "var(--ledger-semantic-warn)"
         : "var(--ledger-ink-secondary)";
 
+  if (blockedReason) {
+    return (
+      <section data-ops-repair={action} aria-label="Repair" style={{ display: "grid", gap: 8 }}>
+        <Button
+          variant="secondary"
+          data-repair-run={action}
+          state={{ kind: "disabled", reason: blockedReason }}
+        >
+          Run {action}
+        </Button>
+        <p data-repair-blocked={action} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {blockedReason}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section data-ops-repair={action} aria-label="Repair" style={{ display: "grid", gap: 8 }}>
       <Button
         variant="secondary"
         data-repair-run={action}
         state={phase === "running" ? { kind: "busy", label: "Running…" } : { kind: "enabled" }}
-        onClick={() => void run()}
+        onClick={() => (confirmation ? setConfirming(true) : void run())}
       >
         Run {action}
       </Button>
+
+      {confirming && confirmation ? (
+        <div data-repair-confirm={action} role="group" aria-label="Confirm repair" style={{ display: "grid", gap: 6 }}>
+          {/* The scope is spelled out: an operator confirming this must be able
+              to see which workspace they are about to act on. */}
+          <p data-repair-confirm-scope="" style={{ margin: 0, fontSize: 12.5 }}>
+            Run <strong>{action}</strong> against <strong>{confirmation.provider}</strong> for{" "}
+            <strong>{confirmation.workspace}</strong>? This calls the provider.
+          </p>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Button
+              variant="secondary"
+              data-repair-confirm-yes={action}
+              onClick={() => {
+                setConfirming(false);
+                void run();
+              }}
+            >
+              Run it
+            </Button>
+            <Button variant="quiet" data-repair-confirm-cancel={action} onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <p role="status" aria-live="polite" data-repair-progress={phase} style={{ margin: 0, fontSize: 12.5, minHeight: 16 }}>
         {phase === "running" ? "The repair is running…" : ""}

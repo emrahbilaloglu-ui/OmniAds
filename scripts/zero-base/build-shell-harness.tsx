@@ -34,6 +34,7 @@ import {
   PublicShareUnavailable,
 } from "@/components/zero-base/creative/public-share-page";
 import { toPublicShare } from "@/lib/zero-base/creative/public-share";
+import { CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { IntelligenceView } from "@/components/zero-base/meta/intelligence/intelligence-view";
 import { buildProviderPostures } from "@/lib/zero-base/meta/automation-posture";
 import { navGroupsFor } from "@/lib/zero-base/navigation";
@@ -263,6 +264,22 @@ function publicShareMarkup(width: number): string {
           ],
         } as never)}
       />,
+    ),
+  );
+}
+
+/** Flow J: the critical incident path, at Ops widths. */
+function opsIncidentMarkup(width: number): string {
+  return frame(
+    width,
+    renderToStaticMarkup(
+      <div>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Integration health</h1>
+        <p style={{ margin: "6px 0 16px", fontSize: 12.5 }}>
+          Shopify webhooks are failing for one workspace.
+        </p>
+        <CriticalIncidentPath />
+      </div>,
     ),
   );
 }
@@ -644,6 +661,22 @@ function main() {
   }
 
   // The remaining Flow I surfaces and the mirror provider case.
+  for (const width of [1280, 768, 390]) {
+    const body = opsIncidentMarkup(width);
+    for (const theme of HARNESS_THEMES) {
+      const html = `<!doctype html>
+<html lang="en" ${THEME_ATTRIBUTE}="${theme}">
+<head><meta charset="utf-8"><title>Ops incident ${width} ${theme}</title>
+<style>html,body{margin:0;padding:0;height:100%}</style>
+<style>${css}</style>
+</head>
+<body>${body}</body>
+</html>`;
+      writeFileSync(path.join(OUT_DIR, `ops-incident-${width}-${theme}.html`), html);
+      count += 1;
+    }
+  }
+
   for (const [name, markup] of [
     ["automation-mirror", automationMirrorMarkup],
     ["public-share", publicShareMarkup],

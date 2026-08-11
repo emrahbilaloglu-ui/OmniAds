@@ -614,3 +614,48 @@ for (const width of [1440, 390, 320]) {
     });
   }
 }
+
+/**
+ * WP-24 · Flow J — the critical incident path at Ops widths.
+ *
+ * Ops is an operator console, so its widths are 1280/768/390 rather than the
+ * buyer trio. The load-bearing assertion is the last step: the path must end in
+ * a re-read, because the repair action itself confirms nothing.
+ */
+for (const width of [1280, 768, 390]) {
+  for (const theme of THEMES) {
+    test(`ops critical incident — ${width}px ${theme}`, async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width, height: 900 },
+        colorScheme: theme,
+      });
+      const page = await context.newPage();
+      const file = path.join(HARNESS_DIR, `ops-incident-${width}-${theme}.html`);
+      if (!existsSync(file)) {
+        throw new Error(`missing harness page ${file}. Run: npm run zero-base:shell:harness`);
+      }
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        overflow.scrollWidth,
+        `ops incident scrolls horizontally at ${width}px`,
+      ).toBeLessThanOrEqual(overflow.clientWidth);
+
+      // All four steps survive at every width — a truncated path would drop
+      // the re-read, which is the only step that confirms anything.
+      expect(await page.locator("[data-incident-step]").count()).toBe(4);
+      await expect(page.locator('[data-incident-step="reread"]')).toContainText(
+        "Only this shows whether the condition is actually resolved",
+      );
+      await expect(page.locator('[data-incident-step="act"]')).toContainText(
+        "accepted, refused, or ambiguous",
+      );
+
+      await context.close();
+    });
+  }
+}

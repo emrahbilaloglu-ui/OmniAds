@@ -5,6 +5,7 @@ import {
   LANDING_PAGE_PAGE_SIZE,
   LANDING_PAGE_ROW_CAP,
   PUBLIC_SHARE_GONE,
+  buildCreateBriefRequest,
   canCreateBrief,
   landingPageCap,
   rotationInvalidates,
@@ -51,10 +52,41 @@ describe("landing-page cap semantics", () => {
 });
 
 describe("briefs are lineage-safe and undeletable", () => {
+  const SNAPSHOT = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+  const full = { creativeId: "cr-1", accountId: "act_1", snapshotId: SNAPSHOT, trigger: "manual" };
+
   it("refuses creation without both creative and account identity", () => {
-    expect(canCreateBrief({ creativeId: null, accountId: "act_1" }).ok).toBe(false);
-    expect(canCreateBrief({ creativeId: "cr-1", accountId: "  " }).ok).toBe(false);
-    expect(canCreateBrief({ creativeId: "cr-1", accountId: "act_1" }).ok).toBe(true);
+    expect(canCreateBrief({ ...full, creativeId: null }).ok).toBe(false);
+    expect(canCreateBrief({ ...full, accountId: "  " }).ok).toBe(false);
+    expect(canCreateBrief(full).ok).toBe(true);
+  });
+
+  it("refuses before POST when no decision snapshot is in scope", () => {
+    // The route's lineage is a decision snapshot, not merely a creative id;
+    // posting without one earns a 400 the operator cannot act on.
+    const gate = canCreateBrief({ ...full, snapshotId: null });
+    expect(gate.ok).toBe(false);
+    expect(!gate.ok && gate.reason).toMatch(/derived from a decision snapshot/);
+  });
+
+  it("refuses a snapshot id the route would reject as non-UUID", () => {
+    expect(canCreateBrief({ ...full, snapshotId: "not-a-uuid" }).ok).toBe(false);
+  });
+
+  it("refuses when the snapshot records no trigger", () => {
+    expect(canCreateBrief({ ...full, trigger: null }).ok).toBe(false);
+  });
+
+  it("builds the exact body the route parses", () => {
+    const body = buildCreateBriefRequest({
+      lineage: full,
+      content: { keep: " k ", change: "c", next: "n" },
+      idempotencyKey: "idem-1",
+    });
+    expect(body.sourceDecision).toEqual({ snapshotId: SNAPSHOT, trigger: "manual" });
+    expect(body.providerAccountId).toBe("act_1");
+    expect(body.idempotencyKey).toBe("idem-1");
+    expect(body.content.keep).toBe("k");
   });
 
   it("discloses a brief whose origin was never recorded", () => {

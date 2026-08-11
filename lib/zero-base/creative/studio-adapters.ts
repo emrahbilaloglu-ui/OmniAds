@@ -93,17 +93,40 @@ export function toBriefRow(brief: ServedBrief): BriefRow {
   };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
- * Whether a brief may be created from this source.
+ * The exact body `/api/meta/creative-briefs` requires.
  *
- * Lineage-safe: a brief is only created when the creative and account it comes
- * from are both known. Creating one without them produces a document nobody can
- * trace back, which is worse than not creating it.
+ * Read from `parseCreateMetaCreativeBriefRequest`: business, provider account,
+ * an idempotency key, an immutable `sourceDecision` carrying a UUID snapshot
+ * id and its trigger, and the three content fields.
  */
-export function canCreateBrief(input: {
+export interface CreateBriefRequest {
+  businessId: string;
+  providerAccountId: string;
+  idempotencyKey: string;
+  sourceDecision: { snapshotId: string; trigger: string };
+  content: { keep: string; change: string; next: string };
+}
+
+export interface BriefLineage {
   creativeId: string | null;
   accountId: string | null;
-}): { ok: true } | { ok: false; reason: string } {
+  /** The decision snapshot this brief would be derived from. */
+  snapshotId: string | null;
+  trigger: string | null;
+}
+
+/**
+ * Whether a brief may be created — checked BEFORE any POST.
+ *
+ * The route's lineage is a decision snapshot, not merely a creative id. A
+ * creative surface that has no snapshot cannot produce a traceable brief, and
+ * posting anyway would earn a 400 the operator cannot act on. So the block
+ * names the specific missing piece.
+ */
+export function canCreateBrief(input: BriefLineage): { ok: true } | { ok: false; reason: string } {
   if (!input.creativeId?.trim() || !input.accountId?.trim()) {
     return {
       ok: false,
@@ -111,7 +134,49 @@ export function canCreateBrief(input: {
         "A brief can only be created from a creative whose identity and account are both known.",
     };
   }
+  if (!input.snapshotId?.trim()) {
+    return {
+      ok: false,
+      reason:
+        "A brief is derived from a decision snapshot, and none is in scope here. Open this creative from a decision to create a brief from it.",
+    };
+  }
+  if (!UUID.test(input.snapshotId.trim())) {
+    // The route requires a UUID; a malformed one would 400 after the round trip.
+    return {
+      ok: false,
+      reason: "The decision snapshot in scope is not a valid identifier, so no brief can be traced to it.",
+    };
+  }
+  if (!input.trigger?.trim()) {
+    return {
+      ok: false,
+      reason: "The decision snapshot in scope records no trigger, which the brief contract requires.",
+    };
+  }
   return { ok: true };
+}
+
+/** Build the exact request body. Only called after `canCreateBrief` passes. */
+export function buildCreateBriefRequest(input: {
+  lineage: BriefLineage;
+  content: { keep: string; change: string; next: string };
+  idempotencyKey: string;
+}): CreateBriefRequest {
+  return {
+    businessId: "",
+    providerAccountId: input.lineage.accountId!.trim(),
+    idempotencyKey: input.idempotencyKey,
+    sourceDecision: {
+      snapshotId: input.lineage.snapshotId!.trim().toLowerCase(),
+      trigger: input.lineage.trigger!.trim(),
+    },
+    content: {
+      keep: input.content.keep.trim(),
+      change: input.content.change.trim(),
+      next: input.content.next.trim(),
+    },
+  };
 }
 
 /* ------------------------------------------------------- inbox and copies */

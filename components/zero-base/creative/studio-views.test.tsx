@@ -199,3 +199,95 @@ describe("public share media", () => {
     expect(document.querySelector('[data-share-media="missing"]')!.textContent).toMatch(/No media/);
   });
 });
+
+/* ------------------------------------------------- creation flows are real */
+
+describe("share creation carries the acknowledgement the server requires", () => {
+  function shareForm(onCreate = vi.fn()) {
+    render(
+      <ZeroBasePortalHost>
+        <SharesView rows={[]} onCreate={onCreate} />
+      </ZeroBasePortalHost>,
+    );
+    return onCreate;
+  }
+
+  it("shows no acknowledgement for a creator share", () => {
+    shareForm();
+    expect(document.querySelector("[data-share-ack-block]")).toBeNull();
+  });
+
+  it("requires the acknowledgement before a buyer share can be submitted", async () => {
+    const onCreate = shareForm();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Title"), "Q3 creatives");
+    await user.type(screen.getByLabelText("Expires at"), "2026-09-01");
+    await user.click(document.querySelector('[data-share-audience="buyer"]') as HTMLElement);
+
+    // The warning text itself is what the operator is attesting to.
+    expect(document.querySelector("[data-share-ack-block]")!.textContent).toMatch(
+      /attribution-window dependent/,
+    );
+    await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+    expect(onCreate).not.toHaveBeenCalled();
+
+    await user.click(document.querySelector("[data-share-acknowledge]") as HTMLElement);
+    await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "Q3 creatives",
+      audience: "buyer",
+      expiresAt: "2026-09-01",
+    });
+  });
+
+  it("creates a creator share without an acknowledgement", async () => {
+    const onCreate = shareForm();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Title"), "Internal");
+    await user.type(screen.getByLabelText("Expires at"), "2026-09-01");
+    await user.click(document.querySelector("[data-share-create]") as HTMLElement);
+    expect(onCreate).toHaveBeenCalledWith({
+      title: "Internal",
+      audience: "creator",
+      expiresAt: "2026-09-01",
+    });
+  });
+});
+
+describe("brief creation is blocked before POST when lineage is missing", () => {
+  it("offers no create control and names the missing snapshot", () => {
+    render(
+      <ZeroBasePortalHost>
+        <BriefsView
+          rows={[]}
+          canCreate={false}
+          createBlockedReason="A brief is derived from a decision snapshot, and none is in scope here."
+        />
+      </ZeroBasePortalHost>,
+    );
+    expect(document.querySelector("[data-brief-create]")).toBeNull();
+    expect(document.querySelector("[data-brief-create-blocked]")!.textContent).toMatch(
+      /derived from a decision snapshot/,
+    );
+  });
+
+  it("offers create when the lineage is complete", async () => {
+    const onCreate = vi.fn();
+    render(
+      <ZeroBasePortalHost>
+        <BriefsView rows={[]} canCreate createBlockedReason={null} onCreate={onCreate} />
+      </ZeroBasePortalHost>,
+    );
+    await userEvent.setup().click(document.querySelector("[data-brief-create]") as HTMLElement);
+    expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a create failure verbatim", () => {
+    render(
+      <ZeroBasePortalHost>
+        <BriefsView rows={[]} canCreate createBlockedReason={null} error="sourceDecision.snapshotId must be a UUID." />
+      </ZeroBasePortalHost>,
+    );
+    expect(document.querySelector("[data-brief-error]")!.textContent).toMatch(/must be a UUID/);
+  });
+});

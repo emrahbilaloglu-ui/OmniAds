@@ -18,12 +18,14 @@ import {
 } from "@/components/zero-base/creative/studio-views";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
 import {
+  buildCreateBriefRequest,
   canCreateBrief,
   toBriefRow,
   toShareRow,
   type ServedBrief,
   type ServedShare,
 } from "@/lib/zero-base/creative/studio-adapters";
+import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
 import type { SurfaceState } from "@/lib/zero-base/state-types";
 
 interface ScopeProps {
@@ -92,14 +94,61 @@ function scoped(base: string, scope: ScopeProps, extra: Record<string, string> =
 
 /* ---------------------------------------------------------------- briefs */
 
-export function CreativeBriefsClient(props: ScopeProps) {
-  const { data, surface } = useJson<{ briefs?: ServedBrief[] }>(
+export function CreativeBriefsClient(
+  props: ScopeProps & {
+    /** Lineage from the URL. A brief is derived from a decision snapshot. */
+    creativeId?: string | null;
+    snapshotId?: string | null;
+    trigger?: string | null;
+  },
+) {
+  const { data, surface, refresh } = useJson<{ briefs?: ServedBrief[] }>(
     scoped("/api/meta/creative-briefs", props),
     "Creative briefs",
   );
-  // A brief needs a creative and an account to be traceable; without a selected
-  // account there is nothing safe to derive one from.
-  const gate = canCreateBrief({ creativeId: null, accountId: props.providerAccountId });
+  const [error, setError] = useState<string | null>(null);
+
+  const lineage = {
+    creativeId: props.creativeId ?? null,
+    accountId: props.providerAccountId,
+    snapshotId: props.snapshotId ?? null,
+    trigger: props.trigger ?? null,
+  };
+  const gate = canCreateBrief(lineage);
+
+  const create = useCallback(
+    async (content: { keep: string; change: string; next: string }) => {
+      // Blocked before any POST: the route's lineage is a decision snapshot,
+      // and posting without one earns a 400 the operator cannot act on.
+      const check = canCreateBrief(lineage);
+      if (!check.ok) {
+        setError(check.reason);
+        return;
+      }
+      setError(null);
+      const body = {
+        ...buildCreateBriefRequest({
+          lineage,
+          content,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+        businessId: props.businessId,
+      };
+      const response = await fetch("/api/meta/creative-briefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      if (!response?.ok) {
+        const json = (await response?.json().catch(() => null)) as { message?: string } | null;
+        setError(json?.message ?? "The brief could not be created.");
+        return;
+      }
+      // Read back rather than assuming: the list is the record.
+      refresh();
+    },
+    [lineage, props.businessId, refresh],
+  );
 
   return (
     <SurfaceStateBoundary state={surface}>
@@ -107,6 +156,8 @@ export function CreativeBriefsClient(props: ScopeProps) {
         rows={(data?.briefs ?? []).map(toBriefRow)}
         canCreate={gate.ok}
         createBlockedReason={gate.ok ? null : gate.reason}
+        error={error}
+        onCreate={() => void create({ keep: "", change: "", next: "" })}
       />
     </SurfaceStateBoundary>
   );
@@ -216,6 +267,50 @@ export function CreativeSharesClient(props: ScopeProps) {
     [props.businessId, refresh],
   );
 
+  /**
+   * Create a share.
+   *
+   * A buyer share carries the acknowledgement the server requires; without it
+   * the POST is a 400 by design, so the UI sends it explicitly rather than
+   * hoping. Creator shares do not carry it, matching the server contract.
+   */
+  const create = useCallback(
+    async (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => {
+      setBusy("new");
+      setError(null);
+      try {
+        const response = await fetch("/api/creatives/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: props.businessId,
+            providerAccountId: props.providerAccountId,
+            title: input.title,
+            dateRange: `${props.start}..${props.end}`,
+            expiresAt: input.expiresAt,
+            metrics: [],
+            creatives: [],
+            audience: input.audience,
+            ...(input.audience === "buyer"
+              ? { acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE }
+              : {}),
+          }),
+        });
+        if (!response.ok) {
+          const json = (await response.json().catch(() => null)) as { message?: string } | null;
+          setError(json?.message ?? `The share could not be created (HTTP ${response.status}).`);
+          return;
+        }
+        refresh();
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "The share API could not be reached.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [props.businessId, props.providerAccountId, props.start, props.end, refresh],
+  );
+
   const now = new Date();
   return (
     <SurfaceStateBoundary state={surface}>
@@ -223,6 +318,7 @@ export function CreativeSharesClient(props: ScopeProps) {
         rows={(data?.shares ?? []).map((share) => toShareRow(share, now))}
         busyToken={busyToken}
         error={error}
+        onCreate={create}
         onRevoke={(token) => void mutate(token, "revoke")}
         onRotate={(token) => void mutate(token, "rotate")}
       />

@@ -8,8 +8,12 @@
  * why — and the share ledger separates revoked from expired for the owner while
  * the public surface deliberately cannot.
  */
+import { useState } from "react";
+
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
+import { BUYER_FINANCIAL_WARNING } from "@/lib/zero-base/creative/share-acknowledgement";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   BACKEND_CAP_NOT_SUPPLIED,
@@ -35,12 +39,14 @@ export function BriefsView({
   canCreate,
   createBlockedReason,
   onCreate,
+  error,
   unavailableReason,
 }: {
   rows: readonly BriefRow[];
   canCreate: boolean;
   createBlockedReason: string | null;
   onCreate?: () => void;
+  error?: string | null;
   unavailableReason?: string | null;
 }) {
   if (unavailableReason) {
@@ -53,6 +59,11 @@ export function BriefsView({
   return (
     <Surface title="Creative briefs">
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
+        {error ? (
+          <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+            {error}
+          </p>
+        ) : null}
         <div>
           {canCreate ? (
             <Button variant="secondary" data-brief-create="" onClick={onCreate}>
@@ -212,6 +223,7 @@ export function SharesView({
   rows,
   onRevoke,
   onRotate,
+  onCreate,
   busyToken,
   error,
   unavailableReason,
@@ -219,10 +231,16 @@ export function SharesView({
   rows: readonly ShareRow[];
   onRevoke?: (token: string) => void;
   onRotate?: (token: string) => void;
+  onCreate?: (input: { title: string; audience: "buyer" | "creator"; expiresAt: string }) => void;
   busyToken?: string | null;
   error?: string | null;
   unavailableReason?: string | null;
 }) {
+  const [title, setTitle] = useState("");
+  const [audience, setAudience] = useState<"buyer" | "creator">("creator");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [acknowledged, setAcknowledged] = useState(false);
+  const canSubmit = Boolean(title.trim() && expiresAt.trim() && (audience === "creator" || acknowledged));
   if (unavailableReason) {
     return (
       <Surface title="Shares">
@@ -237,6 +255,58 @@ export function SharesView({
           {error}
         </p>
       ) : null}
+      <section aria-label="Create a share" style={{ marginBottom: 16, display: "grid", gap: 8, maxWidth: 420 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Create a share</h2>
+        <TextInput label="Title" data-share-title="" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <TextInput label="Expires at" data-share-expires="" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+        <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
+          <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>Audience</legend>
+          {(["creator", "buyer"] as const).map((option) => (
+            <label key={option} style={{ fontSize: 12.5, display: "flex", gap: 6 }}>
+              <input
+                type="radio"
+                name="share-audience"
+                data-share-audience={option}
+                checked={audience === option}
+                onChange={() => setAudience(option)}
+              />
+              {option === "buyer" ? "Buyer (outside this workspace)" : "Creator (inside this workspace)"}
+            </label>
+          ))}
+        </fieldset>
+        {audience === "buyer" ? (
+          <label data-share-ack-block="" style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <input
+              type="checkbox"
+              data-share-acknowledge=""
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+            />
+            <span>{BUYER_FINANCIAL_WARNING}</span>
+          </label>
+        ) : null}
+        <div>
+          <Button
+            variant="secondary"
+            data-share-create=""
+            state={
+              canSubmit
+                ? { kind: "enabled" }
+                : {
+                    kind: "disabled",
+                    reason:
+                      audience === "buyer" && !acknowledged
+                        ? "A buyer share requires the financial acknowledgement."
+                        : "A share needs a title and an expiry.",
+                  }
+            }
+            onClick={() => onCreate?.({ title: title.trim(), audience, expiresAt: expiresAt.trim() })}
+          >
+            Create share
+          </Button>
+        </div>
+      </section>
+
       <DataTable
         caption="Share ledger"
         rows={[...rows]}

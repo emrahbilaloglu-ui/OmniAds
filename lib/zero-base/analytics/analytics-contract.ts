@@ -17,6 +17,9 @@
  *   is the whole of what the engine found.
  */
 
+// Type-only: erased at build time, so no server module reaches the client.
+import type { IntegrationStatusResponse } from "@/lib/integration-status";
+
 export type Adapted<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -71,7 +74,14 @@ export const SOURCE_LABEL: Record<SourceKind, string> = {
   search_console: "Search Console",
 };
 
-/** Adapt the `sources` object the GEO and SEO endpoints actually return. */
+/**
+ * Adapt the `sources` object the **GEO** endpoint returns.
+ *
+ * Only GEO emits one. A re-audit found this being called on the analytics and
+ * SEO payloads, which carry no `sources` key at all — so a perfectly healthy
+ * GA4 read displayed GA4 and Search Console as down. Connection state now comes
+ * from the integration authority instead; see `sourcePanelsFromIntegrations`.
+ */
 export function adaptSources(raw: unknown): SourcePanel[] {
   const sources = isRecord(raw) && isRecord(raw.sources) ? raw.sources : {};
   const read = (key: string): { connected: boolean; error: string | null } => {
@@ -115,6 +125,69 @@ export function dualSourceState(panels: readonly SourcePanel[]): {
     kind: "partial",
     reason: `${down.map((p) => p.label).join(" and ")} did not answer, so anything derived from it is missing rather than zero.`,
   };
+}
+
+/**
+ * Provider panels from the real integration authority.
+ *
+ * `/api/integrations/status` returns a flat `{meta, google, shopify, ...}`
+ * boolean map. That is a **connection** fact and nothing more — it says a
+ * provider is linked, not that this window's numbers came from it, which is why
+ * `measurementNote` is separate and why a Shopify metric is never implied by a
+ * Shopify connection.
+ */
+export function sourcePanelsFromIntegrations(input: {
+  raw: unknown;
+  /** Which providers this surface actually reads from. */
+  providers: readonly SourceKind[];
+  /** Null when the status read itself failed. */
+  readFailed?: boolean;
+}): SourcePanel[] {
+  const status = isRecord(input.raw) ? input.raw : {};
+  // Keys come from the real producer's own type, so a rename there breaks this
+  // at compile time instead of silently reporting every provider as down.
+  const KEY: Record<SourceKind, keyof IntegrationStatusResponse> = {
+    ga4: "ga4",
+    shopify: "shopify",
+    search_console: "search_console",
+  };
+  return input.providers.map((kind) => {
+    if (input.readFailed) {
+      return {
+        kind,
+        label: SOURCE_LABEL[kind],
+        connected: false,
+        // Unknown, not down: we failed to ask.
+        error: "The integration status could not be read, so this connection is unknown.",
+        required: true,
+      };
+    }
+    const connected = status[KEY[kind]] === true;
+    return {
+      kind,
+      label: SOURCE_LABEL[kind],
+      connected,
+      error: connected ? null : `${SOURCE_LABEL[kind]} is not connected for this business.`,
+      required: true,
+    };
+  });
+}
+
+/**
+ * Connection is not measurement.
+ *
+ * A connected provider whose read served nothing is a different state from a
+ * disconnected one, and a surface that shows only the connection invites the
+ * reader to assume the numbers came from it.
+ */
+export function measurementNote(input: {
+  connected: boolean;
+  served: boolean;
+  label: string;
+}): string | null {
+  if (!input.connected) return null;
+  if (input.served) return null;
+  return `${input.label} is connected but supplied no figures for this window.`;
 }
 
 /* ------------------------------------------------------------------- GEO */

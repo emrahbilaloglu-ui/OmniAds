@@ -25,7 +25,8 @@ import {
   adaptLandingPages,
   adaptLatestInsight,
   adaptSeoOverview,
-  adaptSources,
+  sourcePanelsFromIntegrations,
+  type SourceKind,
   analyticsValue,
   seoRoleState,
   type AdaptedAnalyticsOverview,
@@ -108,6 +109,46 @@ function useInsight(businessId: string): AdaptedInsight {
   return insight;
 }
 
+/**
+ * Provider connection state, read from the integration authority.
+ *
+ * A re-audit caught the previous version reading a `sources` object off the
+ * report payload. Only GEO emits one, so on analytics and SEO every provider
+ * rendered as "not reported" no matter how healthy the read was. Connection is
+ * its own fact and comes from its own endpoint.
+ */
+function useIntegrationSources(businessId: string, providers: readonly SourceKind[]): SourcePanel[] {
+  const [raw, setRaw] = useState<unknown>(null);
+  const [readFailed, setReadFailed] = useState(false);
+  const key = providers.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/integrations/status?businessId=${encodeURIComponent(businessId)}`,
+          { cache: "no-store" },
+        );
+        if (cancelled) return;
+        if (!response.ok) {
+          setReadFailed(true);
+          return;
+        }
+        setRaw(await response.json());
+        setReadFailed(false);
+      } catch {
+        if (!cancelled) setReadFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, key]);
+
+  return sourcePanelsFromIntegrations({ raw, providers, readFailed });
+}
+
 export function AnalyticsSourceClient({ businessId }: Props) {
   const { raw, reason, surface } = useEndpoint(
     "/api/analytics/overview",
@@ -118,7 +159,9 @@ export function AnalyticsSourceClient({ businessId }: Props) {
   const insight = useInsight(businessId);
   const adapted = adaptAnalyticsOverview(raw);
   const overview: AdaptedAnalyticsOverview | null = adapted.ok ? adapted.value : null;
-  const panels: SourcePanel[] = adaptSources(raw);
+  // GA4 only. The overview handler reads GA4; nothing here came from Shopify,
+  // so no Shopify panel is shown beside these numbers.
+  const panels: SourcePanel[] = useIntegrationSources(businessId, ["ga4"]);
 
   return (
     <SurfaceStateBoundary state={surface}>
@@ -140,11 +183,12 @@ export function AnalyticsLandingPagesClient({ businessId }: Props) {
     (body) => (adaptLandingPages(body).ok ? body : null),
   );
   const adapted = adaptLandingPages(raw);
+  const landingPanels = useIntegrationSources(businessId, ["ga4"]);
   return (
     <SurfaceStateBoundary state={surface}>
       <AnalyticsTableView
         title="Landing pages"
-        panels={adaptSources(raw)}
+        panels={landingPanels}
         rows={
           adapted.ok
             ? adapted.value.rows.map((row) => ({
@@ -180,10 +224,12 @@ export function SeoClient({ businessId, role }: Props) {
   );
   const adapted = adaptSeoOverview(raw);
   const seo: AdaptedSeo | null = adapted.ok ? adapted.value : null;
+  // Search Console is the SEO authority; GA4 does not serve this surface.
+  const seoPanels = useIntegrationSources(businessId, ["search_console"]);
   return (
     <SurfaceStateBoundary state={surface}>
       <SeoView
-        panels={adaptSources(raw)}
+        panels={seoPanels}
         role={seoRoleState(role ?? null)}
         seo={seo}
         unavailableReason={reason}

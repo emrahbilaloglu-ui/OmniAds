@@ -90,12 +90,17 @@ export function GoogleOverviewView({
   scope,
   source,
   rows,
+  portfolioMode = false,
+  onPortfolioChange,
   unavailableReason,
 }: {
   scope: GoogleScope;
   source: GoogleSourceState;
   /** One row per account. Merged Overview/Pulse without collapsing scope. */
   rows: readonly { id: string; account: string; spend: GoogleValue; conversions: GoogleValue; pulse: string }[];
+  /** Portfolio mode is labelled; a mixed-currency portfolio withholds totals. */
+  portfolioMode?: boolean;
+  onPortfolioChange?: (on: boolean) => void;
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
@@ -109,7 +114,25 @@ export function GoogleOverviewView({
         </div>
       ) : (
         <div style={{ marginTop: 16 }}>
+          {onPortfolioChange ? (
+            <label
+              data-el="google-vocab"
+              style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, margin: "0 0 8px" }}
+            >
+              <input
+                type="checkbox"
+                data-ctl="live:GOOGLE-32 portfolio"
+                checked={portfolioMode}
+                onChange={(event) => onPortfolioChange(event.target.checked)}
+              />
+              {/* Google's own vocabulary, not Meta's: these are campaigns and
+                  accounts, and a portfolio of mixed currencies withholds
+                  totals rather than summing across them. */}
+              <span>{copy.portfolioMode}</span>
+            </label>
+          ) : null}
           <DataTable
+            collection="gcamps"
             caption={copy.googleOverviewByAccount}
             rows={[...rows]}
             rowKey={(row) => row.id}
@@ -249,6 +272,7 @@ export function GoogleAdvisorView({
           <div
             key={card.id}
             data-reference-card={card.id}
+            data-el="default-off-card"
             style={{
               display: "grid",
               gap: 4,
@@ -261,7 +285,13 @@ export function GoogleAdvisorView({
           >
             <strong style={{ fontWeight: 600 }}>{card.title}</strong>
             <span data-card-reason="">Why it is off: {card.reason}</span>
-            <span data-card-fingerprint="">Fingerprint: {card.fingerprint}</span>
+            {/* The fingerprint is what makes two runs comparable, and the
+                stabilization window is what makes a signal trustworthy. Both
+                are shown so "off by default" is a stated posture rather than
+                an unexplained absence. */}
+            <span data-card-fingerprint="" data-el="google-trust">
+              Fingerprint: {card.fingerprint}
+            </span>
             <span data-card-dependency="">Depends on: {card.dependency}</span>
             <span data-card-stabilization="">Stabilization: {card.stabilization}</span>
             <span data-card-unverified="">Not verified: {card.unverified}</span>

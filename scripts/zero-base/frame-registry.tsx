@@ -505,6 +505,8 @@ const googlePlan = (withLink = true, gap = true) => (
 );
 
 const googleOverview = () => (
+  <div style={{ display: "grid", gap: 16 }}>
+    {trendBoard("Google spend & ROAS trend", "google-overview")}
   <GoogleOverviewView
     scope={GOOGLE_SCOPE}
     source={GOOGLE_SERVING}
@@ -517,7 +519,9 @@ const googleOverview = () => (
         pulse: "Steady",
       },
     ]}
+    onPortfolioChange={() => {}}
   />
+  </div>
 );
 
 const googleAdvisor = () => (
@@ -535,7 +539,8 @@ const googleAdvisor = () => (
         reason: "Google writeback is off by default and is not enabled for this business.",
         fingerprint: "rebalance:v3:c1",
         dependency: "A verified write path and a stable 14-day signal.",
-        stabilizationDays: 14,
+        stabilization: "14 days of a stable signal.",
+        unverified: "Adsecute has not verified this against Google.",
       },
     ] as never}
     onBucketChange={() => {}}
@@ -1084,9 +1089,14 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H29–H33: google ---- */
   { id: "H29", leaf: "L-C-G-OVERVIEW", state: "google-overview", width: 1440, theme: "light", render: () => googleOverview() },
   { id: "H30", leaf: "L-C-G-ADV", state: "advisor", width: 1440, theme: "light", render: () => googleAdvisor() },
-  { id: "H31", leaf: "L-C-G-ADV", state: "default-off-card", width: 1440, theme: "light", render: () => googleAdvisor() },
+  { id: "H31", leaf: "L-C-G-ADV", state: "default-off-card", width: 1440, theme: "light", render: () => (
+    <div style={{ display: "grid", gap: 16 }}>
+      {googleAdvisor()}
+      {googlePlan()}
+    </div>
+  ) },
   { id: "H32", leaf: "L-C-G-PLAN", state: "google-plan", width: 1440, theme: "light", render: () => googlePlan() },
-  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-reference", width: 1440, theme: "light", render: () => googlePlan(false, false) },
+  { id: "H33", leaf: "L-C-G-PLAN", state: "batch-partial", width: 1440, theme: "light", render: () => googlePlan(true, false) },
 
   /* ---- H34–H36: analytics ---- */
   { id: "H34", leaf: "L-C-AN-GA", state: "analytics-ga4", width: 1440, theme: "light", render: () => analyticsOverview() },

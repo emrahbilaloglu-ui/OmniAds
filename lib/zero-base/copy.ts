@@ -32,7 +32,9 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
-    searchHistory: "Search history",
+    // Not "Search history": capitalised Search is the Google Ads campaign type
+    // in the glossary, and this is the verb.
+    searchHistory: "Find in history",
     historySearchIsServerSide: "Searches the whole history, not only the rows loaded here.",
     outcome: "Outcome",
     replay: "Replay",

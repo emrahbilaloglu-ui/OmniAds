@@ -713,3 +713,127 @@ checking out the prior sources and re-running each group.
 5. The workspace list is walked to at most 50 pages (1,500 workspaces). Beyond
    that the list is disclosed as incomplete rather than silently truncated.
 6. The three baseline smoke failures remain, unchanged and unrelated.
+
+---
+
+## 13 · Fourth audit — corrections at `c80fb9791`
+
+The audit of `6467a7d80` independently passed 121 targeted tests, typecheck and
+lint, and rejected completion for three contract defects. All three shared a
+shape: **the UI claimed more than the handlers support.** All three are closed.
+
+### 13.1 · Flow H permission posture
+
+`IntegrationsClient` already received the real workspace role, and every start
+route for Meta, Google, GA4 and Search Console calls
+`requireBusinessAccess({minRole: "collaborator"})`. Guests were nevertheless
+shown enabled Connect and Reconnect controls and navigated into a JSON 403 — an
+error document, not a surface.
+
+Both controls are now gated by `oauthStartPermission`, which mirrors that same
+requirement. A guest sees a stated read-only reason and no enabled
+authorization control. The server gate remains the authority; this only stops
+the UI offering an action it already knows will be refused.
+
+Five mounted tests: guest denied on `not_connected`, guest denied on
+`needs_reconnect`, guest click starts no navigation, collaborator may connect,
+admin may reconnect.
+
+### 13.2 · Shopify was falsely classified as a completable OAuth start
+
+`oauthStartUrl` emitted `/api/oauth/shopify/start?businessId=…&returnTo=…` with
+no `shop`. Invoking the real handler shows what that does:
+
+| request | result |
+|---|---|
+| no `shop` | 302 to `/shopify/connect`; **`businessId` and `returnTo` are dropped** |
+| valid `shop` | 302 to `https://<shop>/admin/oauth/authorize`, state carrying `businessId` + sanitized `returnTo`, `shopify_oauth_state` cookie set |
+
+So the generic Connect could never complete, and the "can actually complete"
+claim on `OAUTH_START_PROVIDERS` was false for Shopify. Shopify is removed from
+that map and given its own entry:
+
+- **No known shop** → "Open Shopify setup", linking to `/shopify/connect`, the
+  surface the handler itself redirects to, with copy stating that authorization
+  starts in Shopify and that the result cannot be confirmed here. No automatic
+  return or read-back is claimed.
+- **Authoritative shop domain** → the audit permitted a direct reauthorization
+  *only after verifying the contract*. Verified: the handler reads the session
+  and honours `businessId` and a sanitized `returnTo` when a `shop` is present.
+  That path is offered only for a `provider_account_id` the stored integration
+  supplied and only when it matches the real `myshopify.com` pattern — never a
+  domain this surface guessed or asked an operator to type.
+
+The pathname-only assertion is replaced by `shopify-entry.test.ts`, which
+invokes the handler for both outcomes and asserts the dropped context on the
+no-shop path.
+
+### 13.3 · Flow J accepted a non-health body
+
+`readHealthBody({businessId: expected}, expected)` returned a non-null object,
+and the test encoded that as valid — so a 200 carrying no health at all was
+stamped as a successful re-read.
+
+A health claim now requires a **health core**: a `status` object with `state`
+(non-empty string) and `connected` (boolean). Optional fields may be absent —
+ordinary, and still rendered honestly as null — but a *present, malformed* value
+no longer gets silently downgraded to "not reported" under a successful
+receipt; it makes the whole reading unknown. `auth` must be an object if
+present, and `missingRequiredScopes` must be an array of strings.
+
+Seven unit assertions plus four mounted regressions: `{businessId}` only,
+malformed status, malformed optional field, and a real producer-shaped payload
+whose visible fields are rendered.
+
+### 13.4 · Gates at `c80fb9791`
+
+```
+npm run typecheck                                     → 0 errors
+npm run lint                                          → 0 problems
+npx vitest run                                        → 8947 passed / 0 failed
+                                                        (813 files passed, 4 skipped;
+                                                         61 skipped, 63 todo — pre-existing)
+npm run creative:v2:safety                            → exit 0
+npm run creative:decision:native-ad-frozen-acceptance → exit 0 (22/22)
+npm run zero-base:contract:verify                     → exit 0
+npm run zero-base:contracts:check                     → exit 0
+npm run zero-base:fonts:verify                        → exit 0
+npm run test:zero-base:contract                       → exit 0 (17/17)
+npm run test:zero-base:design                         → exit 0 (26/26)
+npm run test:migrations-from-zero                     → PASS, all DB seams clean
+npm run test:selection-race-seam                      → PASS (S1–S7)
+npm run build                                         → compiled successfully
+npm run test:zero-base:responsive                     → 84/84
+credential-free smoke                                 → 95 passed / 3 failed / 1 skipped
+```
+
+Smoke was run against an ephemeral PostgreSQL created for the run, migrated from
+zero, and destroyed afterwards; the throwaway `.env.local` is gitignored and was
+deleted. No production or tunnelled database was used. The three failures are
+the same three spec names as the accepted Phase D baseline —
+`reviewer-smoke.spec.ts:71`, `commercial-truth-smoke.spec.ts:322`,
+`commercial-truth-smoke.spec.ts:367`.
+
+18 tests fail against `6467a7d80`, verified by checking out the prior sources
+and re-running. `git diff 1d769b534..c80fb9791` touches no resolver or
+decision-output file.
+
+### 13.5 · Residual limitations
+
+1. **Shopify cannot support a first-time in-product round trip, and this is now
+   represented truthfully rather than worked around.** Installation is owned by
+   the Shopify App Store or store admin; the product links to its own setup
+   surface and states that the result cannot be confirmed here. Only
+   reauthorization of an already-connected store completes in product, because
+   only then does an authoritative shop domain exist.
+2. Shopify's start route enforces no `minRole` of its own — it is
+   session-authenticated only — so the collaborator gate applied to the other
+   four providers is not claimed for it.
+3. Account assignment still covers Meta and Google Ads only; GA4 and Search
+   Console have their own selection panels.
+4. The Shopify repair endpoint still performs no read-back of its own; the
+   surface shows what a separate health GET returned, labelled as such.
+5. OAuth error redirects firing before the state is decoded cannot carry
+   `returnTo`.
+6. The workspace list is walked to at most 50 pages and discloses truncation.
+7. The three baseline smoke failures remain, unchanged and unrelated.

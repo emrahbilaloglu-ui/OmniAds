@@ -1022,7 +1022,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },
 
   /* ---- H21–H28: creative ---- */
-  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
+  { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" onPresetChange={() => {}} onSortChange={() => {}} onActionStateChange={() => {}} onLoadMore={() => {}} /> },
   { id: "H22", leaf: "L-C-CR-DETAIL", state: "creative-detail-actionable", width: 1440, theme: "light", render: () => creativeDetail(true) },
   { id: "H23", leaf: "L-C-CR-DETAIL", state: "creative-detail-shadow", width: 1440, theme: "light", render: () => creativeDetail(false) },
   { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} canCreate createBlockedReason={null} onCreate={() => {}} /> },

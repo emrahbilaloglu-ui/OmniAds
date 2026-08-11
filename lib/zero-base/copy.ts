@@ -32,6 +32,9 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    preset: "Preset",
+    sort: "Sort by",
+    actionState: "Action state",
     horizon: "Horizon",
     // Not "Search history": capitalised Search is the Google Ads campaign type
     // in the glossary, and this is the verb.
@@ -346,6 +349,9 @@ export const ZERO_BASE_COPY = {
     cancel: "Vazgeç",
     save: "Kaydet",
     close: "Kapat",
+    preset: "Hazır görünüm",
+    sort: "Sıralama",
+    actionState: "Eylem durumu",
     horizon: "Ufuk",
     searchHistory: "Geçmişte ara",
     historySearchIsServerSide: "Yalnızca yüklenen satırlarda değil, tüm geçmişte arar.",

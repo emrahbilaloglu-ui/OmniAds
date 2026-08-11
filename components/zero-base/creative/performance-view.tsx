@@ -12,6 +12,7 @@
 import Link from "next/link";
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { postureView, type EnginePosture } from "@/lib/zero-base/creative/engine-posture";
 import {
@@ -45,10 +46,25 @@ export function CreativePerformanceView({
   model,
   businessId,
   unavailableReason,
+  preset = "all",
+  onPresetChange,
+  sort = "spend",
+  onSortChange,
+  actionState = "any",
+  onActionStateChange,
+  onLoadMore,
 }: {
   model: PerformanceViewModel;
   businessId: string;
   unavailableReason?: string | null;
+  preset?: string;
+  onPresetChange?: (value: string) => void;
+  sort?: string;
+  onSortChange?: (value: string) => void;
+  /** Includes the legacy null state, which is a real value and not "any". */
+  actionState?: string;
+  onActionStateChange?: (value: string) => void;
+  onLoadMore?: () => void;
 }) {
   const t = useCopy();
   const copy = useCopy();
@@ -88,6 +104,64 @@ export function CreativePerformanceView({
       >
         {model.disclosure.text}
       </p>
+
+      {onPresetChange || onSortChange || onActionStateChange ? (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 12 }}>
+          {onPresetChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              {copy.preset}
+              <select
+                data-ctl="live:CREATIVE-12 preset"
+                value={preset}
+                onChange={(event) => onPresetChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {["all", "scaling", "watch", "cut"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {onSortChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              {copy.sort}
+              <select
+                data-ctl="live:CREATIVE-12 sort"
+                value={sort}
+                onChange={(event) => onSortChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {["spend", "roas", "cpa", "purchases"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {onActionStateChange ? (
+            <label style={{ fontSize: 12, display: "grid", gap: 4 }}>
+              {copy.actionState}
+              <select
+                data-ctl="live:CREATIVE-13 filter"
+                value={actionState}
+                onChange={(event) => onActionStateChange(event.target.value)}
+                style={{ minHeight: 44, padding: "6px 8px" }}
+              >
+                {/* "unset" is the legacy null state and a real value: rows
+                    recorded before the engine assigned one are not "any". */}
+                {["any", "acted", "deferred", "unset"].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 16 }}>
         <DataTable
@@ -153,6 +227,16 @@ export function CreativePerformanceView({
             },
           ]}
         />
+        {onLoadMore ? (
+          <Button
+            variant="secondary"
+            data-ctl="live:META-DEC-05 load-more"
+            onClick={onLoadMore}
+            style={{ marginTop: 8 }}
+          >
+            {copy.loadMore}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

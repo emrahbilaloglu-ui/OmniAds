@@ -154,6 +154,24 @@ export function ReportLibraryView({
               },
             ]}
           />
+          {onLoadMore ? (
+            <Button
+              variant="secondary"
+              data-report-load-more=""
+              data-ctl="live:REPORT-01 load-more"
+              onClick={onLoadMore}
+              style={{ marginTop: 8 }}
+            >
+              {copy.loadMore}
+            </Button>
+          ) : null}
+          {/* Restated after paging, so "how much is left" never has to be
+              inferred from the row count. */}
+          <p data-reports-disclosure="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+            {totalCount === null || totalCount === undefined
+              ? `Showing ${reports.length} reports.`
+              : `Showing ${reports.length} of ${totalCount} reports.`}
+          </p>
         </div>
       )}
     </div>

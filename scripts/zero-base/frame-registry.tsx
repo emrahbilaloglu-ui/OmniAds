@@ -927,11 +927,15 @@ const members = [
   { membershipId: "m2", userId: "u2", name: "Bo Reeves", email: "bo@x.test", role: "guest", status: "active" },
 ];
 
+const ACCESS_REQUESTS = [
+  { membershipId: "m9", name: "Rae Okonkwo", email: "rae@halcyonsupply.example", role: "collaborator", status: "pending" },
+];
+
 const team = (permissions: { membersWrite: unknown; invitesWrite: unknown; accessRequests: unknown }, write = NO_WRITE) => (
   <TeamView
     members={members as never}
     invites={[]}
-    accessRequests={[]}
+    accessRequests={ACCESS_REQUESTS as never}
     workspaces={[]}
     permissions={permissions as never}
     write={write as never}
@@ -985,7 +989,12 @@ const tr = (node: React.ReactElement) => <ZeroBaseCopyProvider language="tr">{no
 export const FRAMES: readonly FrameSpec[] = [
   /* ---- H01–H08: agency, home, auth ---- */
   { id: "H01", leaf: "L-AG-TODAY", state: "agency-today", width: 1440, theme: "light", render: () => agencyDesk() },
-  { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => <WithheldExplainer /> },
+  { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => (
+    <>
+      {agencyDesk()}
+      <WithheldExplainer />
+    </>
+  ) },
   { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => homeFrame(true) },
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
   { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" failure={{ message: "That email and password do not match an account.", retryAfterSeconds: null, offline: false }} /> },
@@ -1059,7 +1068,7 @@ export const FRAMES: readonly FrameSpec[] = [
     </>
   ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
-  { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "ops", width: 1440, theme: "light", render: () => <CriticalIncidentPath /> },
+  { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "admin-incident", width: 1440, theme: "light", render: () => repair({ confirmation: { workspace: "Halcyon Supply Co.", provider: "Shopify", action: "Re-run the customer backfill" } }) },
   { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <PublicSharePage share={publicShare("image")} /> },
 
   /* ---- H50–H59: mobile / narrow core flows ---- */

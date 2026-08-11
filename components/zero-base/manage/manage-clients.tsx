@@ -17,7 +17,12 @@ import {
 } from "@/components/zero-base/manage/manage-views";
 import { SurfaceStateBoundary } from "@/components/zero-base/states/surface-state";
 import {
+  adaptCommercialTarget,
+  adaptCostModel,
   adaptProviderHealth,
+  adaptRecommendedMode,
+  confirmDeletionFromList,
+  oauthStartUrl,
   resolveCeremony,
   type CeremonyOutcome,
   type EconomicsField,
@@ -61,33 +66,57 @@ export function IntegrationsClient({ businessId }: { businessId: string }) {
     };
   }, [read, nonce]);
 
+  /**
+   * Reconnecting is an OAuth round trip, not a POST.
+   *
+   * `/api/integrations` has GET and DELETE only — the previous POST answered
+   * 405 every time. The operator leaves for the provider and comes back, so
+   * this navigates rather than mutating.
+   */
   const reconnect = useCallback(
-    async (provider: string) => {
-      setOutcome({ kind: "submitted" });
-      const response = await fetch(`/api/integrations?businessId=${encodeURIComponent(businessId)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, provider, action: "reconnect" }),
-      }).catch(() => null);
+    (provider: string) => {
+      const url = oauthStartUrl({ provider, businessId });
+      if (!url) {
+        setOutcome({
+          kind: "failed",
+          detail: `There is no OAuth start route for ${provider}, so a reconnect cannot begin here.`,
+        });
+        return;
+      }
+      window.location.assign(url);
+    },
+    [businessId],
+  );
 
-      // Independent read-back. The POST's own body is an acknowledgement.
+  /**
+   * On return from the provider, re-read status and report only what was
+   * observed. The redirect having happened is not evidence of anything.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const returned = params.get("reconnected");
+    if (!returned) return;
+    let cancelled = false;
+    (async () => {
       const body = await read();
+      if (cancelled) return;
       const rows = body === null ? null : adaptProviderHealth(body, PROVIDERS);
       const observed =
-        rows === null ? null : rows.find((r) => r.provider === provider)?.state.kind === "connected";
-
+        rows === null ? null : rows.find((r) => r.provider === returned)?.state.kind === "connected";
       setOutcome(
         resolveCeremony({
-          accepted: Boolean(response?.ok),
-          acceptError: response?.ok ? null : `The reconnect was refused (HTTP ${response?.status ?? "no response"}).`,
+          accepted: true,
+          acceptError: null,
           observed,
           observeError: body === null ? "The confirming read failed." : null,
         }),
       );
-      setNonce((v) => v + 1);
-    },
-    [businessId, read],
-  );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [read]);
 
   return (
     <SurfaceStateBoundary state={surface}>
@@ -147,24 +176,55 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/business-cost-model?businessId=${encodeURIComponent(businessId)}`, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((json: Record<string, unknown> | null) => {
-        if (cancelled) return;
-        const model = json && typeof json === "object" ? json : {};
-        setEconomics([
-          {
-            key: "targetRoas",
-            label: "Target ROAS",
+    (async () => {
+      const q = `businessId=${encodeURIComponent(businessId)}`;
+      // Three different authorities. The cost model carries no target ROAS and
+      // no recommended mode; reading them off it produced empty rows forever.
+      const [costRaw, commercialRaw, modeRaw] = await Promise.all([
+        fetch(`/api/business-cost-model?${q}`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`/api/business-commercial-settings?${q}`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch(`/api/business-operating-mode?${q}`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ]);
+      if (cancelled) return;
+
+      const cost = adaptCostModel(costRaw);
+      const commercial = adaptCommercialTarget(commercialRaw);
+      const fields: EconomicsField[] = [];
+
+      if (cost) {
+        for (const [key, label] of [
+          ["cogsPercent", "COGS %"],
+          ["shippingPercent", "Shipping %"],
+          ["feePercent", "Fees %"],
+          ["fixedCost", "Fixed cost"],
+        ] as const) {
+          fields.push({
+            key,
+            label,
             source: "Cost model",
-            consumers: ["Decision engine"],
-            value: model.targetRoas === undefined ? null : String(model.targetRoas),
-          },
-        ]);
-        setMode(typeof model.recommendedMode === "string" ? model.recommendedMode : null);
-        setSurface({ kind: "ready" });
-      })
-      .catch(() => setSurface({ kind: "ready" }));
+            consumers: ["Decision engine", "Reports"],
+            value: cost[key] === null ? null : String(cost[key]),
+          });
+        }
+      }
+      fields.push({
+        key: "targetRoas",
+        label: "Target ROAS",
+        source: "Commercial settings",
+        consumers: ["Decision engine"],
+        value: commercial?.targetRoas === null || commercial === null ? null : String(commercial.targetRoas),
+      });
+
+      setEconomics(fields);
+      setMode(adaptRecommendedMode(modeRaw));
+      setSurface({ kind: "ready" });
+    })();
     return () => {
       cancelled = true;
     };
@@ -177,19 +237,23 @@ export function BusinessClient({ businessId, role }: { businessId: string; role:
       headers: { "Content-Type": "application/json" },
     }).catch(() => null);
 
-    // Separate read: deletion is confirmed only by a read that no longer finds
-    // the business. A 200 alone must never say "deleted".
-    const check = await fetch(`/api/businesses/${encodeURIComponent(businessId)}`, {
-      cache: "no-store",
-    }).catch(() => null);
-    const observed = check === null ? null : check.status === 404;
+    // Separate read from the LIST endpoint. `/api/businesses/[businessId]` has
+    // no GET, so re-reading it answered 405 every time and the ceremony could
+    // never confirm. Absence from the list is the read that can answer.
+    const check = await fetch("/api/businesses", { cache: "no-store" }).catch(() => null);
+    const listBody = check?.ok ? await check.json().catch(() => null) : null;
+    const observed = confirmDeletionFromList({
+      listOk: Boolean(check?.ok) && listBody !== null,
+      businesses: (listBody as { businesses?: unknown } | null)?.businesses,
+      deletedId: businessId,
+    });
 
     setOutcome(
       resolveCeremony({
         accepted: Boolean(response?.ok),
         acceptError: response?.ok ? null : `The delete was refused (HTTP ${response?.status ?? "no response"}).`,
         observed,
-        observeError: check === null ? "The confirming read failed." : null,
+        observeError: observed === null ? "The confirming read failed." : null,
       }),
     );
   }, [businessId]);

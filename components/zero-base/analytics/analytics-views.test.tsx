@@ -156,7 +156,10 @@ describe("the AI insight is read only", () => {
     render(
       <SourceOverviewView
         panels={[]}
-        overview={adaptAnalyticsOverview(OVERVIEW_PAYLOAD).ok ? adaptAnalyticsOverview(OVERVIEW_PAYLOAD).value : null}
+        overview={(() => {
+          const a = adaptAnalyticsOverview(OVERVIEW_PAYLOAD);
+          return a.ok ? a.value : null;
+        })()}
         insight={{ text: null, generatedAt: null, absentReason: "No AI insight has been generated yet." }}
       />,
     );

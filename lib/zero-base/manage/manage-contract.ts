@@ -207,3 +207,105 @@ export const BILLING_ENDPOINT = "/api/billing";
 /** Plan gates nothing. Stated so the absence of gating is deliberate. */
 export const PLAN_GATES_NOTHING =
   "Your plan is shown for reference. No route or control in this product is gated by it.";
+
+/* ============================================================================
+ * Real endpoint contracts.
+ *
+ * Added after a transition audit found three boundaries that could never work:
+ *
+ * - `/api/integrations` has GET and DELETE only, so the reconnect POST always
+ *   answered 405. Reconnect is an OAuth start, not a mutation on that route.
+ * - `/api/business-cost-model` returns `{costModel}`, and the client read the
+ *   wrapper itself while asking for `targetRoas`/`recommendedMode`, neither of
+ *   which the cost model carries. Those live on two other endpoints.
+ * - `/api/businesses/[businessId]` has no GET, so the deletion read-back always
+ *   saw 405 and could never confirm.
+ * ========================================================================== */
+
+/** Providers with a real OAuth start route on disk. */
+export const OAUTH_START_PROVIDERS = {
+  meta: "/api/oauth/meta/start",
+  google: "/api/oauth/google/start",
+  shopify: "/api/oauth/shopify/start",
+  klaviyo: "/api/oauth/klaviyo/start",
+  ga4: "/api/oauth/google-analytics/start",
+  search_console: "/api/oauth/search_console/start",
+} as const satisfies Record<ProviderId | "klaviyo", string>;
+
+/**
+ * The URL that begins a reconnect.
+ *
+ * Reconnecting is an OAuth round trip through the provider, not a POST this
+ * product can make on the user's behalf. Returning null for an unknown provider
+ * keeps the surface from rendering a link that 404s.
+ */
+export function oauthStartUrl(input: {
+  provider: string;
+  businessId: string;
+}): string | null {
+  const base = (OAUTH_START_PROVIDERS as Record<string, string>)[input.provider];
+  if (!base) return null;
+  return `${base}?businessId=${encodeURIComponent(input.businessId)}`;
+}
+
+/** `{ costModel: { cogsPercent, shippingPercent, feePercent, fixedCost } }`. */
+export interface AdaptedCostModel {
+  cogsPercent: number | null;
+  shippingPercent: number | null;
+  feePercent: number | null;
+  fixedCost: number | null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function adaptCostModel(raw: unknown): AdaptedCostModel | null {
+  if (!isRecord(raw) || !isRecord(raw.costModel)) return null;
+  const model = raw.costModel as Record<string, unknown>;
+  return {
+    cogsPercent: nullableNumber(model.cogsPercent),
+    shippingPercent: nullableNumber(model.shippingPercent),
+    feePercent: nullableNumber(model.feePercent),
+    fixedCost: nullableNumber(model.fixedCost),
+  };
+}
+
+/** `{ snapshot, revision, permissions }` from business-commercial-settings. */
+export function adaptCommercialTarget(raw: unknown): { targetRoas: number | null; canEdit: boolean } | null {
+  if (!isRecord(raw) || !isRecord(raw.snapshot)) return null;
+  const snapshot = raw.snapshot as Record<string, unknown>;
+  const permissions = isRecord(raw.permissions) ? raw.permissions : {};
+  return {
+    targetRoas: nullableNumber(snapshot.targetRoas) ?? nullableNumber(snapshot.target_roas),
+    canEdit: permissions.canEdit === true,
+  };
+}
+
+/** `recommendedMode` from the operating-mode payload. */
+export function adaptRecommendedMode(raw: unknown): string | null {
+  if (!isRecord(raw)) return null;
+  const value = raw.recommendedMode;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Confirm a business deletion from the LIST endpoint.
+ *
+ * `/api/businesses/[businessId]` has no GET, so re-reading it always answered
+ * 405 and the ceremony could never confirm. The list is the read that can
+ * actually answer the question, and only its absence counts.
+ */
+export function confirmDeletionFromList(input: {
+  listOk: boolean;
+  businesses: unknown;
+  deletedId: string;
+}): boolean | null {
+  if (!input.listOk || !Array.isArray(input.businesses)) return null;
+  const ids = input.businesses
+    .map((item) => (isRecord(item) ? item.id : null))
+    .filter((id): id is string => typeof id === "string");
+  // An empty list from a failed-but-ok read would be a false confirmation, so
+  // the caller must only pass a genuinely successful list read.
+  return !ids.includes(input.deletedId);
+}

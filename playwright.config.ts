@@ -73,6 +73,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
+      name: "zero-base-frames-chromium",
+      testMatch: /zero-base-frames\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "zero-base-visual-chromium",
       testMatch: /zero-base-visual\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },

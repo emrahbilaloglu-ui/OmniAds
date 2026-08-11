@@ -75,3 +75,4 @@ certificates
 /docs/full-ui-redesign/playwright-smoke-artifacts/html-report/
 /docs/full-ui-redesign/playwright-smoke-artifacts/test-results/
 playwright/.harness/
+playwright/.frames/

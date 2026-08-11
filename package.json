@@ -184,7 +184,9 @@
     "test:zero-base:locale": "vitest run lib/zero-base/copy.test.ts components/zero-base/i18n && node --import tsx scripts/zero-base/verify-locale-coverage.ts",
     "zero-base:seed:roles": "node scripts/zero-base/seed-role-matrix.mjs",
     "test:zero-base:routes:roles": "node --import tsx scripts/zero-base/route-role-matrix.ts",
-    "test:zero-base:states": "vitest run components/zero-base/states/state-matrix.test.tsx components/zero-base/interactions && node --import tsx scripts/zero-base/reconcile-states.ts"
+    "test:zero-base:states": "vitest run components/zero-base/states/state-matrix.test.tsx components/zero-base/interactions && node --import tsx scripts/zero-base/reconcile-states.ts",
+    "zero-base:frames:build": "node --import tsx scripts/zero-base/build-frame-harness.tsx",
+    "test:zero-base:frames": "npm run zero-base:frames:build && PLAYWRIGHT_USE_WEBSERVER=0 playwright test --project=zero-base-frames-chromium && node --import tsx scripts/zero-base/reconcile-frames.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

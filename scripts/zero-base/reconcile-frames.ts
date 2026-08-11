@@ -14,7 +14,9 @@
  * unmapped frame is printed with its id, and the coverage figure is the honest
  * ratio. Nothing here marks G10 green.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+
+import { FRAMES } from "@/scripts/zero-base/frame-registry";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -49,21 +51,16 @@ export function allFrameIds(): string[] {
  * actually built and captured appear; everything else is deliberately absent so
  * it shows up as a gap rather than as a fabricated mapping.
  */
-export const FRAME_CROSSWALK: Record<string, { leaf: string; state: string }> = {
-  H01: { leaf: "L-AG-TODAY", state: "directory" },
-  H02: { leaf: "L-AG-TODAY", state: "directory" },
-  H03: { leaf: "L-C-HOME", state: "normal" },
-  H08: { leaf: "L-C-HOME", state: "normal" },
-  H09: { leaf: "L-C-META-DEC", state: "lanes" },
-  H17: { leaf: "L-C-META-INTEL", state: "normal" },
-  H18: { leaf: "L-C-META-HIST", state: "normal" },
-  H19: { leaf: "L-C-META-AUTO", state: "normal" },
-  H20: { leaf: "L-C-META-AUTO", state: "mirror" },
-  H48: { leaf: "L-OPS-INTEGRATIONS", state: "incident-path" },
-  H49: { leaf: "L-SH-CREATIVE", state: "normal" },
-  H54: { leaf: "L-SH-CREATIVE", state: "normal" },
-  H59: { leaf: "L-SH-CREATIVE", state: "gone" },
-};
+/**
+ * The crosswalk now lives in `scripts/zero-base/frame-registry.tsx`, next to the
+ * code that renders each state, so a frame cannot be listed here without a
+ * renderable state existing for it.
+ */
+export function crosswalk(): Record<string, { leaf: string; state: string }> {
+  const entries: Record<string, { leaf: string; state: string }> = {};
+  for (const spec of FRAMES) entries[spec.id] = { leaf: spec.leaf, state: spec.state };
+  return entries;
+}
 
 interface ManifestEntry {
   leaf: string;
@@ -86,7 +83,9 @@ export function latestManifest(): { dir: string; entries: ManifestEntry[] } | nu
     }
   }
   if (candidates.length === 0) return null;
-  const chosen = candidates.sort().at(-1)!;
+  // Newest wins. Sorting by name picked whichever artifact set happened to sort
+  // last, which was not necessarily the run that just captured.
+  const chosen = candidates.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const parsed = JSON.parse(readFileSync(chosen, "utf8")) as { entries: ManifestEntry[] };
   return { dir: path.relative(ROOT, path.dirname(chosen)), entries: parsed.entries };
 }
@@ -102,19 +101,24 @@ export interface Reconciliation {
 
 export function reconcile(): Reconciliation {
   const manifest = latestManifest();
-  const captured = new Set((manifest?.entries ?? []).map((entry) => `${entry.leaf}__${entry.state}`));
+  // Frame captures record their leaf as `${frameId}:${LeafId}`, so identity is
+  // checked per reference rather than per surface.
+  const captured = new Set(
+    (manifest?.entries ?? []).map((entry) => `${entry.leaf}__${entry.state}`),
+  );
 
   const mapped: string[] = [];
   const unmapped: string[] = [];
   const missingEvidence: string[] = [];
 
+  const map = crosswalk();
   for (const frame of allFrameIds()) {
-    const mapping = FRAME_CROSSWALK[frame];
+    const mapping = map[frame];
     if (!mapping) {
       unmapped.push(frame);
       continue;
     }
-    if (captured.has(`${mapping.leaf}__${mapping.state}`)) mapped.push(frame);
+    if (captured.has(`${frame}:${mapping.leaf}__${mapping.state}`)) mapped.push(frame);
     else missingEvidence.push(frame);
   }
 

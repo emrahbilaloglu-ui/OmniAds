@@ -126,6 +126,7 @@ describe("the Shopify round trip is gated on collaborator at its own handlers", 
     const callback = await import("@/app/api/oauth/shopify/callback/route");
     const finalize = await import("@/app/api/oauth/shopify/finalize/route");
     expect(typeof callback.GET).toBe("function");
-    expect(typeof finalize.POST === "function" || typeof finalize.GET === "function").toBe(true);
+    // finalize is a POST; there is no GET on it.
+    expect(typeof finalize.POST).toBe("function");
   });
 });

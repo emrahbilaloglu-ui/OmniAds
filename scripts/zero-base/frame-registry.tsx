@@ -491,6 +491,8 @@ const googleAdvisor = () => (
         stabilizationDays: 14,
       },
     ] as never}
+    onBucketChange={() => {}}
+    onOpenCard={() => {}}
   />
 );
 

@@ -138,11 +138,18 @@ export function GoogleAdvisorView({
   source,
   items,
   referenceCards,
+  bucket = null,
+  onBucketChange,
+  onOpenCard,
 }: {
   scope: GoogleScope;
   source: GoogleSourceState;
   items: readonly ServedAdvisorItem[];
   referenceCards: readonly ReferenceCard[];
+  /** Null shows every horizon. */
+  bucket?: string | null;
+  onBucketChange?: (horizon: string | null) => void;
+  onOpenCard?: (id: string) => void;
 }) {
   const t = useCopy();
   const copy = useCopy();
@@ -152,7 +159,44 @@ export function GoogleAdvisorView({
       <GoogleScopeHeader title={copy.googleAdvisor} scope={scope} />
       <GoogleSourceBadge state={source} />
 
-      {groups.map((group) => (
+      {/*
+        Bucket filters. The horizons come from the server's own urgency, so the
+        filter narrows what is shown and never re-ranks: deciding priority is
+        the advisor's job, not this surface's.
+      */}
+      <div
+        data-el="advisor-buckets"
+        role="group"
+        aria-label={copy.horizon}
+        style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}
+      >
+        {groups.map((group) => (
+          <button
+            key={group.horizon}
+            type="button"
+            data-ctl="live:GOOGLE-13 bucket"
+            aria-pressed={bucket === group.horizon}
+            onClick={() => onBucketChange?.(bucket === group.horizon ? null : group.horizon)}
+            style={{
+              minHeight: 32,
+              padding: "4px 10px",
+              fontSize: 12.5,
+              borderRadius: "var(--ledger-radius-control)",
+              border: "1px solid var(--ledger-border-control)",
+              background:
+                bucket === group.horizon ? "var(--ledger-accent-tint)" : "var(--ledger-bg-surface)",
+              color: "var(--ledger-ink-primary)",
+              cursor: "pointer",
+            }}
+          >
+            {ADVISOR_HORIZON_LABEL[group.horizon as AdvisorHorizon]} ({group.items.length})
+          </button>
+        ))}
+      </div>
+
+      {groups
+        .filter((group) => bucket === null || group.horizon === bucket)
+        .map((group) => (
         <section key={group.horizon} aria-label={group.label} style={{ marginTop: 16 }}>
           <h2 data-advisor-horizon={group.horizon} style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
             {ADVISOR_HORIZON_LABEL[group.horizon as AdvisorHorizon]}
@@ -165,7 +209,26 @@ export function GoogleAdvisorView({
             <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
               {group.items.map((item) => (
                 <li key={item.id} data-advisor-item={group.horizon} style={{ fontSize: 12.5 }}>
-                  {item.title}
+                  {onOpenCard ? (
+                    <button
+                      type="button"
+                      data-ctl="live:GOOGLE-16 open-card"
+                      onClick={() => onOpenCard(item.id)}
+                      style={{
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        color: "var(--ledger-accent-action)",
+                        cursor: "pointer",
+                        fontSize: 12.5,
+                        textAlign: "left",
+                      }}
+                    >
+                      {item.title}
+                    </button>
+                  ) : (
+                    item.title
+                  )}
                   {item.rationale ? (
                     <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>{item.rationale}</span>
                   ) : null}

@@ -32,6 +32,7 @@ export const ZERO_BASE_COPY = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    horizon: "Horizon",
     // Not "Search history": capitalised Search is the Google Ads campaign type
     // in the glossary, and this is the verb.
     searchHistory: "Find in history",
@@ -345,6 +346,7 @@ export const ZERO_BASE_COPY = {
     cancel: "Vazgeç",
     save: "Kaydet",
     close: "Kapat",
+    horizon: "Ufuk",
     searchHistory: "Geçmişte ara",
     historySearchIsServerSide: "Yalnızca yüklenen satırlarda değil, tüm geçmişte arar.",
     outcome: "Sonuç",

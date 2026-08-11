@@ -65,6 +65,7 @@ import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { LoginView } from "@/components/zero-base/auth/login-view";
+import { SearchOverlay } from "@/components/zero-base/search/search-overlay";
 import { AccountSecurityView } from "@/components/zero-base/account/account-security-view";
 import { LanguageView } from "@/components/zero-base/account/language-view";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
@@ -852,6 +853,46 @@ const BRIEF_ROWS = [
   },
 ];
 
+
+/* --------------------------------------------------------------- search */
+
+const searchOverlay = () => (
+  <SearchOverlay
+    open
+    onOpenChange={() => {}}
+    query="prospecting"
+    onQueryChange={() => {}}
+    envelope={{
+      items: [
+        {
+          entityType: "campaign" as const,
+          entityId: "c1",
+          name: "Prospecting — Broad US",
+          businessId: "biz",
+          businessName: "Halcyon Supply Co.",
+          href: "/c/biz/meta/decisions?selected=c1",
+          group: "Campaigns",
+        },
+        {
+          entityType: "ad" as const,
+          entityId: "cr1",
+          name: "Summer hero",
+          businessId: "biz",
+          businessName: "Halcyon Supply Co.",
+          href: "/c/biz/creative/cr1",
+          group: "Ads",
+        },
+      ],
+      servedCount: 2,
+      totalCount: 2,
+      cap: null,
+      nextCursor: null,
+      truncated: false,
+      disclosure: null,
+    }}
+  />
+);
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -948,7 +989,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => homeFrame(true) },
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
   { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <LoginView invitedEmail="ada@example.test" failure={{ message: "That email and password do not match an account.", retryAfterSeconds: null, offline: false }} /> },
-  { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => <EmptyState reason="No results were served for that query." /> },
+  { id: "H06", leaf: "L-C-HOME", state: "global-search", width: 1440, theme: "light", render: () => searchOverlay() },
   { id: "H07", leaf: "L-C-HOME", state: "switch-reset", width: 1440, theme: "light", render: () => <LoadingState label="Switching workspace" /> },
   { id: "H08", leaf: "L-C-HOME", state: "home-dark", width: 1440, theme: "dark", render: () => homeFrame(true) },
 
@@ -1092,7 +1133,6 @@ export function frameFileName(spec: FrameSpec): string {
  */
 export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
   [
-    ["H06", "renders EmptyState, not the global search overlay"],
     ["H07", "renders LoadingState, not the switch-reset composition"],
     ["H11", "renders LoadingState, not the workflow overlay"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],

@@ -63,15 +63,16 @@ export function OpsRepairPanel({
 
   if (blockedReason) {
     return (
-      <section data-ops-repair={action} aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
+      <section data-ops-repair={action} data-el="admin-incident" aria-label={copy.repair} style={{ display: "grid", gap: 8 }}>
         <Button
           variant="secondary"
           data-repair-run={action}
+        data-ctl="gated:ADMIN-12 repair"
           state={{ kind: "disabled", reason: blockedReason }}
         >
           Run {action}
         </Button>
-        <p data-repair-blocked={action} style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-repair-blocked={action} data-el="admin-receipt-gap" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {blockedReason}
         </p>
       </section>

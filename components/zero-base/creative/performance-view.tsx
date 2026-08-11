@@ -76,6 +76,7 @@ export function CreativePerformanceView({
       {/* The posture is stated on the surface, not implied by what is absent. */}
       <p
         data-engine-posture={posture.posture}
+        data-el="engine-posture"
         style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
       >
         <strong style={{ fontWeight: 600 }}>{posture.label}.</strong> {posture.explanation}
@@ -90,6 +91,7 @@ export function CreativePerformanceView({
 
       <div style={{ marginTop: 16 }}>
         <DataTable
+          collection="creatives"
           caption={copy.creativePerformance}
           rows={model.rows}
           rowKey={(row) => row.id}
@@ -108,6 +110,7 @@ export function CreativePerformanceView({
                         accountId: row.accountId,
                       })}
                       data-creative-detail-link={row.creativeId}
+                      data-ctl="live:CREATIVE-02 open"
                       style={{ color: "var(--ledger-accent-action)", fontWeight: 600 }}
                     >
                       {row.name}

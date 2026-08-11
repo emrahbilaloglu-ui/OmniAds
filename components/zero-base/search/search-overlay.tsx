@@ -140,7 +140,14 @@ export function SearchOverlay({
           {SEARCH_ZERO_RESULT}
         </p>
       ) : (
-        <ul id={listboxId} role="listbox" aria-label={SEARCH_SCOPE_LABEL} style={{ listStyle: "none", margin: "12px 0 0", padding: 0 }}>
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label={SEARCH_SCOPE_LABEL}
+          data-el="search-results"
+          data-collection="search"
+          style={{ listStyle: "none", margin: "12px 0 0", padding: 0 }}
+        >
           {items.map((item, index) => (
             <li
               key={`${item.entityType}:${item.entityId}`}
@@ -154,6 +161,7 @@ export function SearchOverlay({
             >
               {item.href ? (
                 <Link
+                  data-ctl="live:SCOPE-12 result"
                   href={item.href}
                   onClick={() => onOpenChange(false)}
                   style={{ display: "block", minHeight: 44, padding: "10px 12px", fontSize: 13, textDecoration: "none", color: "var(--ledger-ink-primary)" }}

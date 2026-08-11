@@ -70,7 +70,13 @@ export function CreativeDetailView({
       <section aria-label={copy.decision}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.decision}</h2>
         {band.kind === "band" ? (
-          <p data-decision-band={band.label} style={{ margin: "4px 0 0", fontSize: 13 }}>
+          <p
+            data-decision-band={band.label}
+            // The band is only meaningful with the hysteresis that produced it:
+            // a creative flips between Scale and Keep on noise otherwise.
+            data-el="hysteresis-note"
+            style={{ margin: "4px 0 0", fontSize: 13 }}
+          >
             {band.label}
             {band.detail ? (
               <span style={{ display: "block", color: "var(--ledger-ink-secondary)" }}>{band.detail}</span>
@@ -80,6 +86,7 @@ export function CreativeDetailView({
           // No band and no action: the reason is the posture's own words.
           <p
             data-decision-band-none=""
+            data-el="shadow-review-band"
             style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
           >
             {band.reason}
@@ -87,7 +94,12 @@ export function CreativeDetailView({
         )}
         {decisionsHref ? (
           <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
-            <Link href={decisionsHref} data-detail-decision-link="" style={{ color: "var(--ledger-accent-action)" }}>
+            <Link
+              href={decisionsHref}
+              data-detail-decision-link=""
+              data-ctl="live:CREATIVE-07 brief"
+              style={{ color: "var(--ledger-accent-action)" }}
+            >
               {copy.openInDecisions}
             </Link>
           </p>
@@ -101,7 +113,7 @@ export function CreativeDetailView({
             {copy.noEvidenceServed}
           </p>
         ) : (
-          <dl data-evidence="ready" style={{ display: "grid", gap: 6, margin: "8px 0 0" }}>
+          <dl data-evidence="ready" data-el="enrichment-label" style={{ display: "grid", gap: 6, margin: "8px 0 0" }}>
             {evidence.map((item) => (
               <div key={item.label}>
                 <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{item.label}</dt>

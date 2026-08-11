@@ -26,7 +26,15 @@ interface Manifest {
   interactions: { required: number; executed: number; missing: string[]; cases: string[] };
 }
 
-export function latestResults(): { file: string; manifest: Manifest } | null {
+/**
+ * Union every fragment written by this run.
+ *
+ * Each test file writes its own fragment because vitest isolates workers. The
+ * union is safe in the only direction that matters: a fragment records a case
+ * only after its assertions passed, so merging can add coverage but never
+ * invent it.
+ */
+export function latestResults(): { files: string[]; states: Set<string>; interactions: Set<string> } | null {
   const dir = path.join(ROOT, STATE_RESULTS_DIR);
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
@@ -34,7 +42,15 @@ export function latestResults(): { file: string; manifest: Manifest } | null {
     .map((name) => path.join(dir, name))
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   if (files.length === 0) return null;
-  return { file: files[0], manifest: JSON.parse(readFileSync(files[0], "utf8")) as Manifest };
+
+  const states = new Set<string>();
+  const interactions = new Set<string>();
+  for (const file of files) {
+    const manifest = JSON.parse(readFileSync(file, "utf8")) as Manifest;
+    for (const id of manifest.states?.cases ?? []) states.add(id);
+    for (const key of manifest.interactions?.cases ?? []) interactions.add(key);
+  }
+  return { files: files.map((file) => path.relative(ROOT, file)), states, interactions };
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
@@ -54,12 +70,11 @@ if (isMain) {
     process.exit(1);
   }
 
-  const states = new Set(results.manifest.states.cases);
-  const interactions = new Set(results.manifest.interactions.cases);
+  const { states, interactions } = results;
   const missingStates = requiredStates.filter((id) => !states.has(id));
   const missingKeys = requiredKeys.filter((key) => !interactions.has(key));
 
-  console.log(`  evidence                   ${path.relative(ROOT, results.file)}\n`);
+  console.log(`  evidence                   ${results.files.join(", ")}\n`);
 
   for (const matrix of MATRIX_SPECS) {
     const need = requiredStates.filter((id) => id.startsWith(`${matrix.id}::`));

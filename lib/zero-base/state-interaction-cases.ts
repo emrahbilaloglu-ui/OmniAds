@@ -104,10 +104,19 @@ export function recordInteraction(key: string): void {
 
 export const STATE_RESULTS_DIR = path.join("playwright", "artifacts", "state-results");
 
-export function writeStateResults(commit: string): string {
+/**
+ * Write this worker's fragment.
+ *
+ * Vitest runs each test file in its own worker, so a single shared module
+ * instance cannot accumulate every case. Each file writes a fragment tagged
+ * with its own name and the reconciler unions them — which is also why a
+ * fragment can never overstate coverage: it only ever contains what that
+ * worker actually executed.
+ */
+export function writeStateResults(commit: string, tag = "states"): string {
   const dir = path.resolve(process.cwd(), STATE_RESULTS_DIR);
   mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${commit}.json`);
+  const file = path.join(dir, `${commit}.${tag}.json`);
 
   const requiredStates = requiredStateCases();
   const requiredKeys = requiredInteractionKeys();

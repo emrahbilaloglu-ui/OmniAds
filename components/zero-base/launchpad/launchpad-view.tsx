@@ -62,7 +62,7 @@ export function LaunchpadView({
       </h1>
 
       {error ? (
-        <p role="status" data-launchpad-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p role="status" data-launchpad-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {error}
         </p>
       ) : null}
@@ -72,14 +72,14 @@ export function LaunchpadView({
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.whatWorksToday}</h2>
         <ul data-what-works="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {WHAT_WORKS_TODAY.map((line) => (
-            <li key={line} style={{ fontSize: 12.5, lineHeight: "18px" }}>
+            <li key={line} style={{ fontSize: 12, lineHeight: "18px" }}>
               {line}
             </li>
           ))}
         </ul>
         <ul data-what-does-not-exist="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {WHAT_DOES_NOT_EXIST.map((line) => (
-            <li key={line} style={{ fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-semantic-warn)" }}>
+            <li key={line} style={{ fontSize: 12, lineHeight: "18px", color: "var(--ledger-semantic-warn)" }}>
               {line}
             </li>
           ))}
@@ -116,13 +116,13 @@ export function LaunchpadView({
       <section aria-label={copy.drafts}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.drafts}</h2>
         {drafts.length === 0 ? (
-          <p data-drafts="empty" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-drafts="empty" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {copy.noDrafts}
           </p>
         ) : (
           <ul data-drafts="ready" style={{ margin: "6px 0 8px", paddingLeft: 18 }}>
             {drafts.map((draft) => (
-              <li key={draft.id} data-draft={draft.id} style={{ fontSize: 12.5 }}>
+              <li key={draft.id} data-draft={draft.id} style={{ fontSize: 12 }}>
                 {draft.name}
               </li>
             ))}
@@ -152,7 +152,7 @@ export function LaunchpadView({
       <section aria-label={copy.validation}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.validation}</h2>
         {findings.length === 0 ? (
-          <p data-validation="clean" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+          <p data-validation="clean" style={{ margin: "4px 0 0", fontSize: 12 }}>
             {copy.validationSilent}
           </p>
         ) : (
@@ -163,7 +163,7 @@ export function LaunchpadView({
                   key={finding.id}
                   data-finding={finding.severity}
                   style={{
-                    fontSize: 12.5,
+                    fontSize: 12,
                     color:
                       finding.severity === "error"
                         ? "var(--ledger-semantic-danger)"
@@ -185,7 +185,7 @@ export function LaunchpadView({
                         padding: 0,
                         color: "var(--ledger-accent-action)",
                         cursor: "pointer",
-                        fontSize: 12.5,
+                        fontSize: 12,
                       }}
                     >
                       {copy.fixThis}
@@ -276,7 +276,7 @@ export function LaunchpadView({
         {/* Withheld even when the mutation flag is on: this page cannot build
             the handler's exact per-item contract, and a button that can only
             400 is worse than an absent one. */}
-        <p data-bulk-withheld="" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-bulk-withheld="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {BULK_WITHHELD_REASON}
         </p>
       </section>

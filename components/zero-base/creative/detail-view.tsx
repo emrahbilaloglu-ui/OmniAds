@@ -90,20 +90,20 @@ export function CreativeDetailView({
           <p
             data-decision-band-none=""
             data-el="shadow-review-band"
-            style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
+            style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}
           >
             {band.reason}
           </p>
         )}
         {shareHref ? (
-          <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+          <p style={{ margin: "6px 0 0", fontSize: 12 }}>
             <Link href={shareHref} data-ctl="live:CREATIVE-10 share" style={{ color: "var(--ledger-accent-action)" }}>
               {copy.shareThisCreative}
             </Link>
           </p>
         ) : null}
         {decisionsHref ? (
-          <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+          <p style={{ margin: "6px 0 0", fontSize: 12 }}>
             <Link
               href={decisionsHref}
               data-detail-decision-link=""
@@ -119,7 +119,7 @@ export function CreativeDetailView({
       <section aria-label={copy.evidence}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.evidence}</h2>
         {evidence.length === 0 ? (
-          <p data-evidence="none" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-evidence="none" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {copy.noEvidenceServed}
           </p>
         ) : (
@@ -150,7 +150,7 @@ export function CreativeDetailView({
               padding: "10px 14px",
               borderRadius: "var(--ledger-radius-card)",
               border: "1px solid var(--ledger-semantic-warn)",
-              fontSize: 12.5,
+              fontSize: 12,
               color: "var(--ledger-semantic-warn)",
             }}
           >
@@ -159,7 +159,7 @@ export function CreativeDetailView({
         ) : null}
         <div style={{ marginTop: 8 }}>
           {history.length === 0 ? (
-            <p data-creative-history="empty" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+            <p data-creative-history="empty" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {copy.nothingRecordedCreative}
             </p>
           ) : (

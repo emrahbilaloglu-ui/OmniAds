@@ -38,7 +38,7 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
   if (outcome.kind === "unstarted") return null;
   if (outcome.kind === "submitted") {
     return (
-      <p role="status" data-ceremony={`${name}:submitted`} style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+      <p role="status" data-ceremony={`${name}:submitted`} style={{ margin: "6px 0 0", fontSize: 12 }}>
         Applying, then reading the result back…
       </p>
     );
@@ -52,7 +52,7 @@ export function CeremonyResult({ outcome, name }: { outcome: CeremonyOutcome; na
       // An unknown outcome is the reconciliation state: the write was sent and
       // the confirming read did not settle it either way.
       data-el={outcome.kind === "unknown" ? "reconciliation-state" : undefined}
-      style={{ margin: "6px 0 0", fontSize: 12.5, color: tone }}
+      style={{ margin: "6px 0 0", fontSize: 12, color: tone }}
     >
       {outcome.detail}
     </p>
@@ -99,18 +99,18 @@ export function SelectionPanel({
     <section data-selection-panel={kind} aria-label={title} style={{ marginTop: 20 }}>
       <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{title}</h3>
 
-      <p data-selection-current={kind} style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+      <p data-selection-current={kind} style={{ margin: "4px 0 0", fontSize: 12 }}>
         {selected
           ? `Currently selected: ${selected}`
           : "Nothing is selected, or the current selection could not be read."}
       </p>
 
       {discoveryError ? (
-        <p data-selection-unavailable={kind} style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-selection-unavailable={kind} style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {discoveryError}
         </p>
       ) : !permission.ok ? (
-        <p data-selection-blocked={kind} style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-selection-blocked={kind} style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {permission.reason}
         </p>
       ) : (
@@ -135,7 +135,7 @@ export function SelectionPanel({
             {state.pending ? "Saving…" : state.confirmed ?? ""}
           </p>
           {state.error ? (
-            <p data-selection-error={kind} style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+            <p data-selection-error={kind} style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
               {state.error}
             </p>
           ) : null}
@@ -391,18 +391,18 @@ function AssignmentPanel({
       ) : null}
 
       {unavailable ? (
-        <p data-assignment-unavailable="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-assignment-unavailable="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {unavailable}
         </p>
       ) : !permission.ok ? (
-        <p data-assignment-blocked="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-assignment-blocked="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {permission.reason}
         </p>
       ) : (
         <>
           <ul data-assignment-accounts="" data-collection="accounts" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
             {accounts.map((account) => (
-              <li key={account.id} style={{ fontSize: 12.5 }}>
+              <li key={account.id} style={{ fontSize: 12 }}>
                 <label style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}>
                   <input
                     type="checkbox"
@@ -430,7 +430,7 @@ function AssignmentPanel({
             {state.pending ? "Saving\u2026" : state.confirmed ?? ""}
           </p>
           {state.error ? (
-            <p data-assignment-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+            <p data-assignment-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
               {state.error}
             </p>
           ) : null}
@@ -523,17 +523,17 @@ export function TeamView({
   return (
     <Shell title={copy.teamTitle}>
       {/* One live region for every write on this surface. */}
-      <p role="status" aria-live="polite" data-team-progress={write.pending ?? ""} style={{ margin: "8px 0 0", fontSize: 12.5, minHeight: 16 }}>
+      <p role="status" aria-live="polite" data-team-progress={write.pending ?? ""} style={{ margin: "8px 0 0", fontSize: 12, minHeight: 16 }}>
         {write.pending ? "Working\u2026" : write.confirmed ? write.confirmed : ""}
       </p>
       {write.error ? (
-        <p data-team-error="" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-team-error="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {write.error}
         </p>
       ) : null}
 
       {permissions.membersWrite.ok ? null : (
-        <p data-team-blocked="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-team-blocked="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {permissions.membersWrite.reason}
         </p>
       )}
@@ -659,7 +659,7 @@ export function TeamView({
             </div>
           </div>
         ) : (
-          <p data-invite-blocked="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+          <p data-invite-blocked="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
             {permissions.invitesWrite.reason}
           </p>
         )}
@@ -734,7 +734,7 @@ export function TeamView({
             />
           </div>
         ) : (
-          <p data-access-blocked="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+          <p data-access-blocked="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
             {permissions.accessRequests.reason}
           </p>
         )}
@@ -783,7 +783,7 @@ export function BusinessView({
       <section aria-label={copy.workspaceSettings} style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.workspaceSettings}</h2>
         {settings === null ? (
-          <p data-settings-unavailable="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p data-settings-unavailable="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {copy.settingsUnreadable}
           </p>
         ) : settingsPermission.ok ? (
@@ -816,7 +816,7 @@ export function BusinessView({
               {settingsState.pending ? "Saving\u2026" : settingsState.confirmed ?? ""}
             </p>
             {settingsState.error ? (
-              <p data-settings-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+              <p data-settings-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
                 {settingsState.error}
               </p>
             ) : null}
@@ -833,10 +833,10 @@ export function BusinessView({
           </div>
         ) : (
           <div style={{ marginTop: 8 }}>
-            <p data-settings-readonly="" style={{ margin: 0, fontSize: 12.5 }}>
+            <p data-settings-readonly="" style={{ margin: 0, fontSize: 12 }}>
               {settings.name} &middot; {settings.currency || "currency not served"}
             </p>
-            <p data-settings-blocked="" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+            <p data-settings-blocked="" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
               {settingsPermission.reason}
             </p>
           </div>
@@ -846,11 +846,11 @@ export function BusinessView({
       <section aria-label={copy.economics} style={{ marginTop: 16 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.economics}</h2>
         {divergence.diverged ? (
-          <p data-economics-divergence="" data-el="econ-divergence" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p data-economics-divergence="" data-el="econ-divergence" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {divergence.message}
           </p>
         ) : (
-          <p data-economics-agree="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-economics-agree="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {copy.economicsAgree}
           </p>
         )}
@@ -887,7 +887,7 @@ export function BusinessView({
 
       <section aria-label={copy.deleteBusiness} style={{ marginTop: 24 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.deleteThisBusiness}</h2>
-        <p data-delete-note="" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-delete-note="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {DELETE_CEREMONY_NOTE}
         </p>
         <Button
@@ -925,7 +925,7 @@ export function PlanView({ planName, features }: { planName: string | null; feat
       </p>
       <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
         {features.map((feature) => (
-          <li key={feature} style={{ fontSize: 12.5 }}>
+          <li key={feature} style={{ fontSize: 12 }}>
             {feature}
           </li>
         ))}

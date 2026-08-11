@@ -216,7 +216,7 @@ export function ReportBuilderClient({
 
   if (loadError) {
     return (
-      <p role="status" data-report-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+      <p role="status" data-report-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
         {loadError}
       </p>
     );
@@ -224,7 +224,7 @@ export function ReportBuilderClient({
 
   if (!loaded) {
     return (
-      <p role="status" data-builder-loading="" style={{ margin: 0, fontSize: 12.5 }}>
+      <p role="status" data-builder-loading="" style={{ margin: 0, fontSize: 12 }}>
         Loading this report&rsquo;s layout&hellip;
       </p>
     );
@@ -233,7 +233,7 @@ export function ReportBuilderClient({
   return (
     <>
       {error ? (
-        <p role="status" data-report-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p role="status" data-report-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {error}
         </p>
       ) : null}
@@ -384,13 +384,13 @@ export function ReportViewerClient({
       <div data-reports-surface={print ? "print" : "viewer"} style={{ display: "grid", gap: 20 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{report?.name ?? "Report"}</h1>
         {report?.dateRangeLabel ? (
-          <p data-report-range="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+          <p data-report-range="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
             {report.dateRangeLabel}
             {report.generatedAt ? ` · generated ${report.generatedAt}` : ""}
           </p>
         ) : null}
         {reason ? (
-          <p data-report-unavailable="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p data-report-unavailable="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {reason}
           </p>
         ) : null}

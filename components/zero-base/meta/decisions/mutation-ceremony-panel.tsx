@@ -306,7 +306,7 @@ export function MutationCeremonyPanel({
       </p>
 
       {denial ? (
-        <p data-mutation-denied="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-mutation-denied="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {denial}
         </p>
       ) : (
@@ -340,7 +340,7 @@ export function MutationCeremonyPanel({
       )}
 
       {step.kind === "preflighting" ? (
-        <p data-mutation-step="preflighting" style={{ margin: 0, fontSize: 12.5 }}>
+        <p data-mutation-step="preflighting" style={{ margin: 0, fontSize: 12 }}>
           Checking persisted provider state…
         </p>
       ) : null}
@@ -349,7 +349,7 @@ export function MutationCeremonyPanel({
         <p
           data-mutation-step="refused"
           data-mutation-refusal={step.code}
-          style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+          style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}
         >
           {step.message}
         </p>
@@ -394,7 +394,7 @@ export function MutationCeremonyPanel({
           {problems.length > 0 ? (
             <ul data-mutation-problems="" style={{ margin: 0, paddingLeft: 16 }}>
               {problems.map((problem) => (
-                <li key={problem} style={{ fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+                <li key={problem} style={{ fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
                   {problem}
                 </li>
               ))}
@@ -437,7 +437,7 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "stale" ? (
-        <div data-mutation-step="stale" data-el="preflight-age" style={{ fontSize: 12.5 }}>
+        <div data-mutation-step="stale" data-el="preflight-age" style={{ fontSize: 12 }}>
           <p style={{ margin: 0, color: "var(--ledger-semantic-warn)" }}>
             {t.checkOlderThan15}
           </p>
@@ -453,13 +453,13 @@ export function MutationCeremonyPanel({
       ) : null}
 
       {step.kind === "changed" ? (
-        <p data-mutation-step="changed" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-mutation-step="changed" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {step.detail}
         </p>
       ) : null}
 
       {step.kind === "dispatching" ? (
-        <p data-mutation-step="dispatching" style={{ margin: 0, fontSize: 12.5 }}>
+        <p data-mutation-step="dispatching" style={{ margin: 0, fontSize: 12 }}>
           Sending…
         </p>
       ) : null}
@@ -556,7 +556,7 @@ function TerminalPanel({
       // Ambiguous is the reconciliation state: recorded, but not settled either
       // way, and it must not read as either success or failure.
       data-el={outcome.outcome === "provider_outcome_ambiguous" ? "reconciliation-state" : undefined}
-      style={{ display: "grid", gap: 6, fontSize: 12.5 }}
+      style={{ display: "grid", gap: 6, fontSize: 12 }}
     >
       <strong style={{ fontWeight: 600 }}>{copy.title}</strong>
       <span>{copy.body}</span>

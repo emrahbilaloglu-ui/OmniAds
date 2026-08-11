@@ -43,7 +43,7 @@ export function AgencyDeskView({
         <p
           data-el="agency-return"
           data-flow-a-direction="return"
-          style={{ margin: "0 0 12px", fontSize: 12.5, lineHeight: "18px" }}
+          style={{ margin: "0 0 12px", fontSize: 12, lineHeight: "18px" }}
         >
           <span data-el="flow-a-direction-return">Returned from {returnedFrom.name}.</span>{" "}
           <Link href={returnedFrom.href} style={{ color: "var(--ledger-accent-action)" }}>

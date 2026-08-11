@@ -42,7 +42,7 @@ export function PublicSharePage({ share }: { share: PublicShare }) {
       <header>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{share.title}</h1>
         {share.dateRange ? (
-          <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>{share.dateRange}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{share.dateRange}</p>
         ) : null}
       </header>
 
@@ -54,7 +54,7 @@ export function PublicSharePage({ share }: { share: PublicShare }) {
             padding: "10px 14px",
             border: "1px solid #b8860b",
             borderRadius: 8,
-            fontSize: 12.5,
+            fontSize: 12,
             lineHeight: "18px",
           }}
         >

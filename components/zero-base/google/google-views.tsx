@@ -27,7 +27,7 @@ export function GoogleScopeHeader({ title, scope }: { title: string; scope: Goog
     <header>
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{title}</h1>
       {scope.kind === "none" ? (
-        <p data-google-scope="none" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-google-scope="none" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {scope.reason}
         </p>
       ) : (
@@ -117,7 +117,7 @@ export function GoogleOverviewView({
           {onPortfolioChange ? (
             <label
               data-el="google-vocab"
-              style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, margin: "0 0 8px" }}
+              style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, margin: "0 0 8px" }}
             >
               <input
                 type="checkbox"
@@ -203,7 +203,7 @@ export function GoogleAdvisorView({
             style={{
               minHeight: 32,
               padding: "4px 10px",
-              fontSize: 12.5,
+              fontSize: 12,
               borderRadius: "var(--ledger-radius-control)",
               border: "1px solid var(--ledger-border-control)",
               background:
@@ -225,13 +225,13 @@ export function GoogleAdvisorView({
             {ADVISOR_HORIZON_LABEL[group.horizon as AdvisorHorizon]}
           </h2>
           {group.items.length === 0 ? (
-            <p data-advisor-empty={group.horizon} style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+            <p data-advisor-empty={group.horizon} style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               {copy.nothingInHorizon}
             </p>
           ) : (
             <ul data-collection="advisor" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
               {group.items.map((item) => (
-                <li key={item.id} data-advisor-item={group.horizon} style={{ fontSize: 12.5 }}>
+                <li key={item.id} data-advisor-item={group.horizon} style={{ fontSize: 12 }}>
                   {onOpenCard ? (
                     <button
                       type="button"
@@ -243,7 +243,7 @@ export function GoogleAdvisorView({
                         padding: 0,
                         color: "var(--ledger-accent-action)",
                         cursor: "pointer",
-                        fontSize: 12.5,
+                        fontSize: 12,
                         textAlign: "left",
                       }}
                     >
@@ -280,7 +280,7 @@ export function GoogleAdvisorView({
               marginTop: 8,
               borderRadius: "var(--ledger-radius-card)",
               border: "1px dashed var(--ledger-border-control)",
-              fontSize: 12.5,
+              fontSize: 12,
             }}
           >
             <strong style={{ fontWeight: 600 }}>{card.title}</strong>

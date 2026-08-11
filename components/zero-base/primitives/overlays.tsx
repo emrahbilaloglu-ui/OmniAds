@@ -404,7 +404,7 @@ export function ZeroBaseSheet({
             <RadixDialog.Description
               style={{
                 margin: "4px 0 0",
-                fontSize: 12.5,
+                fontSize: 12,
                 lineHeight: "18px",
                 color: "var(--ledger-ink-secondary)",
               }}

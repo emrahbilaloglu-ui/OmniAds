@@ -46,7 +46,7 @@ export function LanguageView({ current }: { current: AppLanguage }) {
           padding: "10px 14px",
           borderRadius: "var(--ledger-radius-card)",
           border: "1px dashed var(--ledger-border-control)",
-          fontSize: 12.5,
+          fontSize: 12,
           lineHeight: "18px",
           color: "var(--ledger-ink-secondary)",
         }}

@@ -274,7 +274,7 @@ export function WorkflowPanel({
       </p>
 
       {loadState.kind === "error" ? (
-        <p data-workflow-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-workflow-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {loadState.reason}
         </p>
       ) : null}
@@ -282,18 +282,18 @@ export function WorkflowPanel({
       {posture.kind !== "write" ? (
         <p
           data-workflow-posture={posture.kind}
-          style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
+          style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}
         >
           {posture.reason}
         </p>
       ) : refusal ? (
-        <p data-workflow-refusal="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p data-workflow-refusal="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {refusal}
         </p>
       ) : loadState.kind === "ready" && record ? (
         <div data-workflow-menu="" data-el="blocker-chip" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {transitions.length === 0 ? (
-            <span data-workflow-menu-empty="" style={{ fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+            <span data-workflow-menu-empty="" style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
               No workflow transition applies to a decision that is{" "}
               {WORKFLOW_STATE_LABEL[record.state]}.
             </span>
@@ -451,7 +451,7 @@ function ConflictPanel({
         padding: "10px 14px",
         borderRadius: "var(--ledger-radius-card)",
         border: "1px solid var(--ledger-semantic-warn)",
-        fontSize: 12.5,
+        fontSize: 12,
       }}
     >
       <strong style={{ fontWeight: 600 }}>{conflict.message}</strong>

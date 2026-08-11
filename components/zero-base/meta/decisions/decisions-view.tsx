@@ -409,7 +409,7 @@ export function DecisionsView({
       ) : null}
 
       {shareViewHref ? (
-        <p style={{ margin: "8px 0 0", fontSize: 12.5 }}>
+        <p style={{ margin: "8px 0 0", fontSize: 12 }}>
           {/* The exact view, not "Decisions": a shared link that lands on a
               different filter is a different set of decisions. */}
           <Link href={shareViewHref} data-ctl="live:INV-18 share-view" style={{ color: "var(--ledger-accent-action)" }}>
@@ -521,7 +521,7 @@ function DecisionInspector({
                 <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.gaps}</dt>
                 <dd
                   data-el="provenance-gap"
-                  style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+                  style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}
                 >
                   {/* Named, not smoothed over: a metric missing at this grain
                       is a different fact from a metric that is zero. */}
@@ -573,7 +573,7 @@ function DecisionInspector({
       ) : null}
 
       {briefHref ? (
-        <p data-el="row-action" style={{ margin: 0, fontSize: 12.5 }}>
+        <p data-el="row-action" style={{ margin: 0, fontSize: 12 }}>
           <Link href={briefHref} data-ctl="live:CREATIVE-07 brief" style={{ color: "var(--ledger-accent-action)" }}>
             {copy.openTheBrief}
           </Link>

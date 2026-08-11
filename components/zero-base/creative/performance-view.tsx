@@ -94,7 +94,7 @@ export function CreativePerformanceView({
       <p
         data-engine-posture={posture.posture}
         data-el="engine-posture"
-        style={{ margin: "8px 0 0", fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
+        style={{ margin: "8px 0 0", fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)" }}
       >
         <strong style={{ fontWeight: 600 }}>{posture.label}.</strong> {posture.explanation}
       </p>

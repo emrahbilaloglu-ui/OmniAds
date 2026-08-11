@@ -66,13 +66,13 @@ export function BriefsView({
   return (
     <Surface title={copy.creativeBriefs}>
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
-        <p style={{ margin: 0, fontSize: 12.5 }}>
+        <p style={{ margin: 0, fontSize: 12 }}>
           <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>
             {copy.backToCreatives}
           </Link>
         </p>
         {error ? (
-          <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {error}
           </p>
         ) : null}
@@ -87,7 +87,7 @@ export function BriefsView({
               {copy.createBriefFromCreative}
             </Button>
           ) : (
-            <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+            <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
               {createBlockedReason}
             </p>
           )}
@@ -158,7 +158,7 @@ export function SourcedListView({
   return (
     <Surface title={title}>
       {rows.length === 0 ? (
-        <p data-sourced-empty="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-sourced-empty="" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {emptyReason}
         </p>
       ) : (
@@ -283,7 +283,7 @@ export function SharesView({
   return (
     <Surface title={copy.shares}>
       {error ? (
-        <p role="status" data-share-error="" style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+        <p role="status" data-share-error="" style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
           {error}
         </p>
       ) : null}
@@ -300,7 +300,7 @@ export function SharesView({
         <fieldset style={{ border: 0, margin: 0, padding: 0 }}>
           <legend style={{ fontSize: 12, color: "var(--ledger-ink-secondary)" }}>{copy.audience}</legend>
           {(["creator", "buyer"] as const).map((option) => (
-            <label key={option} style={{ fontSize: 12.5, display: "flex", gap: 6 }}>
+            <label key={option} style={{ fontSize: 12, display: "flex", gap: 6 }}>
               <input
                 type="radio"
                 name="share-audience"
@@ -314,7 +314,7 @@ export function SharesView({
           ))}
         </fieldset>
         {audience === "buyer" ? (
-          <label data-share-ack-block="" data-el="share-tiers" style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "flex-start" }}>
+          <label data-share-ack-block="" data-el="share-tiers" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "flex-start" }}>
             <input
               type="checkbox"
               data-share-acknowledge=""

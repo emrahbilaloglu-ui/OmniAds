@@ -88,7 +88,7 @@ export function ReportLibraryView({
         </Button>
       </div>
       {reports.length === 0 ? (
-        <p data-reports="empty" style={{ marginTop: 12, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-reports="empty" style={{ marginTop: 12, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {copy.noReports}
         </p>
       ) : (
@@ -562,7 +562,7 @@ export function RenderedWidgetCard({
       {widget.errorMessage ? (
         <div data-widget-state="error">
           {/* Inside the widget frame: a failed source must not blank the page. */}
-          <p style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>{widget.errorMessage}</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-semantic-warn)" }}>{widget.errorMessage}</p>
           {widget.retryable ? (
             <Button variant="secondary" data-widget-retry={widget.id} onClick={onRetry}>
               {copy.retry}
@@ -574,7 +574,7 @@ export function RenderedWidgetCard({
           )}
         </div>
       ) : widget.emptyMessage ? (
-        <p data-widget-state="empty" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+        <p data-widget-state="empty" style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
           {widget.emptyMessage}
         </p>
       ) : widget.type === "metric" ? (
@@ -617,7 +617,7 @@ export function RenderedWidgetCard({
         </div>
       ) : widget.type === "text" || widget.type === "section" ? (
         <div data-widget-state="ready">
-          <p data-widget-text={widget.id} style={{ margin: 0, fontSize: 12.5, lineHeight: "18px" }}>
+          <p data-widget-text={widget.id} style={{ margin: 0, fontSize: 12, lineHeight: "18px" }}>
             {widget.text ?? ""}
           </p>
         </div>
@@ -715,7 +715,7 @@ export function ReportShareDisabled() {
       style={{ marginTop: 20 }}
     >
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sharing}</h2>
-      <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+      <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
         {copy.sharingUnavailable}
       </p>
       <ul data-share-prerequisites="" style={{ margin: "6px 0 0", paddingLeft: 18 }}>

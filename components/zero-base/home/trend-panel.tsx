@@ -130,7 +130,7 @@ export function TrendPanel({
             borderRadius: "var(--ledger-radius-control)",
             color: "var(--ledger-ink-secondary)",
             cursor: "pointer",
-            fontSize: 12.5,
+            fontSize: 12,
             lineHeight: "18px",
             padding: "4px 10px",
           }}

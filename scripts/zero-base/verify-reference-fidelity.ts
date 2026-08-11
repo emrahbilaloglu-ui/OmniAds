@@ -233,14 +233,19 @@ export function compareFrame(
     // position is *relative placement*, which is compared below.
 
     // Typography: family and weight exactly, size to the reference's own scale.
-    // Family is compared only where the reference resolved to one of the two
-    // faces the design actually ships. The mock falls back to Arial in places
-    // its own styling does not reach, and holding the implementation to a
-    // reference fallback would be comparing against a gap in the mock.
-    const wantFamily = want.fontFamily.split(",")[0].replace(/["']/g, "").trim().toLowerCase();
+    // Family: the implementation must resolve to one of the two faces the
+    // design ships.
+    //
+    // Not equality with the reference's family. The mock is one long document
+    // whose blocks inherit whatever their author set — the same kind of region
+    // is drawn in mono on one artboard and sans on another — so holding the
+    // implementation to it flags a real difference on one artboard and its
+    // exact opposite on the next. What the reference does establish is the
+    // typeface *pair*, and a control falling back to Arial or Times is a real
+    // regression this still catches.
     const gotFamily = got.fontFamily.split(",")[0].replace(/["']/g, "").trim().toLowerCase();
-    if (LEDGER_FACES.has(wantFamily) && gotFamily && wantFamily !== gotFamily) {
-      add(key, "typography", `font family ${gotFamily} where the reference uses ${wantFamily}`);
+    if (gotFamily && !LEDGER_FACES.has(gotFamily)) {
+      add(key, "typography", `rendered in ${gotFamily}, which is not a Ledger face`);
     }
     if (got.fontSizePx > 0 && nearestStep(got.fontSizePx, typeScale) !== got.fontSizePx) {
       add(

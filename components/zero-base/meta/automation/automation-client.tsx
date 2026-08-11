@@ -120,7 +120,7 @@ export function AutomationClient({
         onEngage={() => void run()}
       />
       {pending ? (
-        <p role="status" data-stop-pending="" style={{ fontSize: 12.5, marginTop: 8 }}>
+        <p role="status" data-stop-pending="" style={{ fontSize: 12, marginTop: 8 }}>
           Applying the change, then reading the state back…
         </p>
       ) : null}
@@ -128,7 +128,7 @@ export function AutomationClient({
         <p
           role="status"
           data-stop-failed=""
-          style={{ fontSize: 12.5, marginTop: 8, color: "var(--ledger-semantic-warn)" }}
+          style={{ fontSize: 12, marginTop: 8, color: "var(--ledger-semantic-warn)" }}
         >
           {failure} Nothing was changed.
         </p>

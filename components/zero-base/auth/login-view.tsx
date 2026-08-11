@@ -70,7 +70,7 @@ export function LoginView({
       data-login-surface=""
       style={{ maxWidth: 420, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}
     >
-      <nav aria-label={copy.public} style={{ display: "flex", gap: 12, fontSize: 12.5 }}>
+      <nav aria-label={copy.public} style={{ display: "flex", gap: 12, fontSize: 12 }}>
         <Link href="/product" data-ctl="live:PUBLIC-03" style={{ color: "var(--ledger-accent-action)" }}>
           {copy.product}
         </Link>
@@ -93,7 +93,7 @@ export function LoginView({
             border: "1px solid var(--ledger-semantic-danger)",
             borderRadius: "var(--ledger-radius-card)",
             padding: "10px 14px",
-            fontSize: 12.5,
+            fontSize: 12,
             lineHeight: "18px",
             color: "var(--ledger-semantic-danger)",
           }}
@@ -155,7 +155,7 @@ export function LoginView({
         </Button>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12.5 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12 }}>
         <Link href="/reset" data-ctl="live:AUTH-05 forgot" style={{ color: "var(--ledger-accent-action)" }}>
           {copy.forgotPassword}
         </Link>

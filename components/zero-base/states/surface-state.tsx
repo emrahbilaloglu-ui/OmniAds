@@ -70,7 +70,7 @@ function Panel({
         {title}
       </p>
       {children ? (
-        <div style={{ marginTop: 2, color: "var(--ledger-ink-secondary)", fontSize: 12.5 }}>{children}</div>
+        <div style={{ marginTop: 2, color: "var(--ledger-ink-secondary)", fontSize: 12 }}>{children}</div>
       ) : null}
       {code ? (
         <p

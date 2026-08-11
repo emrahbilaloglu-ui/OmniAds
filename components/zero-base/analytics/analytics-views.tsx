@@ -39,7 +39,7 @@ export function SourcePanels({ panels }: { panels: readonly SourcePanel[] }) {
             // A disconnected source is the surface's missing-source state; it
             // is named so the gate can tell it apart from a healthy panel.
             data-el={panel.connected ? undefined : "source-missing-state"}
-            style={{ fontSize: 12.5 }}
+            style={{ fontSize: 12 }}
           >
             <strong style={{ fontWeight: 600 }}>{panel.label}:</strong>{" "}
             {panel.connected ? (
@@ -159,7 +159,7 @@ export function SourceOverviewView({
           {overview.insights.length > 0 ? (
             <ul data-ga4-insights="" style={{ margin: "12px 0 0", paddingLeft: 18 }}>
               {overview.insights.map((text) => (
-                <li key={text} style={{ fontSize: 12.5 }}>
+                <li key={text} style={{ fontSize: 12 }}>
                   {text}
                 </li>
               ))}
@@ -171,7 +171,7 @@ export function SourceOverviewView({
       <section aria-label={copy.latestAiInsight} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.latestAiInsight}</h2>
         {insight.absentReason ? (
-          <p data-insight="absent" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          <p data-insight="absent" data-el="lp-ai-commentary" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
             {insight.absentReason}
           </p>
         ) : (
@@ -228,7 +228,7 @@ export function AnalyticsTableView({
           {insight ? (
             <p
               data-el="lp-ai-commentary"
-              style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
+              style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}
             >
               {/* Read-only: this surface shows commentary, it never writes it. */}
               {insight.text ?? insight.absentReason}
@@ -263,7 +263,7 @@ export function AnalyticsTableView({
 function SeoList({ id, title, items }: { id: string; title: string; items: readonly { id: string; label: string }[] }) {
   if (items.length === 0) {
     return (
-      <p data-seo-empty={id} style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+      <p data-seo-empty={id} style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
         {title}: nothing was served for this window.
       </p>
     );
@@ -273,7 +273,7 @@ function SeoList({ id, title, items }: { id: string; title: string; items: reado
       <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{title}</h2>
       <ul data-seo-list={id} style={{ margin: "4px 0 0", paddingLeft: 18 }}>
         {items.map((item) => (
-          <li key={item.id} data-seo-item={id} style={{ fontSize: 12.5 }}>
+          <li key={item.id} data-seo-item={id} style={{ fontSize: 12 }}>
             {item.label}
           </li>
         ))}
@@ -304,7 +304,7 @@ export function SeoView({
     <Shell title="SEO">
       <SourcePanels panels={panels} />
       {role.allowed ? null : (
-        <p data-seo-role-blocked="" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-seo-role-blocked="" style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {role.reason}
         </p>
       )}
@@ -363,7 +363,7 @@ export function SeoView({
           <SeoList id="recommendations" title={copy.recommendations} items={seo.recommendations} />
 
           {seo.aiBriefHeadline ? (
-            <p data-seo-ai-brief="" data-el="seo-gen-states" style={{ margin: "12px 0 0", fontSize: 12.5 }}>
+            <p data-seo-ai-brief="" data-el="seo-gen-states" style={{ margin: "12px 0 0", fontSize: 12 }}>
               {seo.aiBriefHeadline}
               <span style={{ display: "block", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 {copy.servedBriefReadOnly}
@@ -414,7 +414,7 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.topPriorities}</h2>
         <ol data-geo-priorities="" data-collection="geo" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {geo.priorities.map((item) => (
-            <li key={item.title} data-geo-priority={item.priority} style={{ fontSize: 12.5 }}>
+            <li key={item.title} data-geo-priority={item.priority} style={{ fontSize: 12 }}>
               {item.title}
               {item.detail ? (
                 <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>{item.detail}</span>

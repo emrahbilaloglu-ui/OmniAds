@@ -43,7 +43,7 @@ function Swatch({ token, label, meaning }: { token: string; label: string; meani
           border: "1px solid var(--ledger-border-control)",
         }}
       />
-      <span style={{ fontSize: 12.5, lineHeight: "18px" }}>
+      <span style={{ fontSize: 12, lineHeight: "18px" }}>
         {/* The word carries the meaning; the colour only reinforces it. */}
         <strong style={{ fontWeight: 600 }}>{label}</strong>
         <span style={{ display: "block", color: "var(--ledger-ink-secondary)" }}>{meaning}</span>
@@ -59,7 +59,7 @@ export function ThemeAcceptanceBoard() {
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>
         {copy.themeAcceptance}
       </h1>
-      <p style={{ margin: "4px 0 12px", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+      <p style={{ margin: "4px 0 12px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
         {copy.themeAcceptanceNote}
       </p>
       <ZeroBaseTabs

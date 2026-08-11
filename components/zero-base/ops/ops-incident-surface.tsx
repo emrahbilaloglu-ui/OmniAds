@@ -348,7 +348,7 @@ export function OpsIncidentSurface({ businessId }: { businessId?: string }) {
             {/* The state this GET actually returned. Pointing the operator at a
                 separate legacy board would be pointing them at something this
                 read did not update. */}
-            <dl data-ops-health="" style={{ margin: "4px 0 0", fontSize: 12.5, display: "grid", gap: 2 }}>
+            <dl data-ops-health="" style={{ margin: "4px 0 0", fontSize: 12, display: "grid", gap: 2 }}>
               <div>
                 <dt style={{ display: "inline", fontWeight: 600 }}>Condition: </dt>
                 <dd data-health-state="" style={{ display: "inline", margin: 0 }}>

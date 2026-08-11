@@ -95,7 +95,7 @@ export function OpsRepairPanel({
         <div data-repair-confirm={action} role="group" aria-label={copy.confirmRepair} style={{ display: "grid", gap: 6 }}>
           {/* The scope is spelled out: an operator confirming this must be able
               to see which workspace they are about to act on. */}
-          <p data-repair-confirm-scope="" style={{ margin: 0, fontSize: 12.5 }}>
+          <p data-repair-confirm-scope="" style={{ margin: 0, fontSize: 12 }}>
             {copy.run} <strong>{action}</strong> against <strong>{confirmation.provider}</strong> for{" "}
             <strong>{confirmation.workspace}</strong>? This calls the provider.
           </p>
@@ -126,13 +126,13 @@ export function OpsRepairPanel({
         // Stated until a receipt actually arrives, not only while running:
         // "we asked" and "it happened" are different facts throughout.
         data-el={outcome ? undefined : "admin-receipt-gap"}
-        style={{ margin: 0, fontSize: 12.5, minHeight: 16 }}
+        style={{ margin: 0, fontSize: 12, minHeight: 16 }}
       >
         {phase === "running" ? "The repair is running…" : ""}
       </p>
 
       {outcome ? (
-        <p data-repair-outcome={outcome.kind} style={{ margin: 0, fontSize: 12.5, color: tone }}>
+        <p data-repair-outcome={outcome.kind} style={{ margin: 0, fontSize: 12, color: tone }}>
           {outcome.detail}
         </p>
       ) : null}
@@ -162,7 +162,7 @@ export function CriticalIncidentPath() {
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.ifSomethingIsFailing}</h2>
       <ol data-collection="sync" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
         {CRITICAL_INCIDENT_PATH.map((step) => (
-          <li key={step.id} data-incident-step={step.id} style={{ fontSize: 12.5, lineHeight: "18px" }}>
+          <li key={step.id} data-incident-step={step.id} style={{ fontSize: 12, lineHeight: "18px" }}>
             <strong style={{ fontWeight: 600 }}>{step.label}</strong>
             <span style={{ display: "block", color: "var(--ledger-ink-tertiary)" }}>{step.evidence}</span>
           </li>

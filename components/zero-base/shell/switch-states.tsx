@@ -92,7 +92,7 @@ export function ScopeSwitchPanel({
           {copy.client}
         </Button>
       </div>
-      <a href="/a/desk" data-ctl="live:nav" style={{ fontSize: 12.5, color: "var(--ledger-accent-action)" }}>
+      <a href="/a/desk" data-ctl="live:nav" style={{ fontSize: 12, color: "var(--ledger-accent-action)" }}>
         {copy.agencyDesk}
       </a>
       <Button
@@ -133,7 +133,7 @@ export function ContextResetNotice({
         padding: "10px 14px",
         display: "grid",
         gap: 8,
-        fontSize: 12.5,
+        fontSize: 12,
         lineHeight: "18px",
       }}
     >

@@ -122,7 +122,7 @@ export function AutomationView({
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, lineHeight: "22px" }}>
           {META_STOP_LABEL}
         </h2>
-        <p data-stop-scope="" style={{ fontSize: 12.5, lineHeight: "18px", color: "var(--ledger-ink-secondary)", marginTop: 4 }}>
+        <p data-stop-scope="" style={{ fontSize: 12, lineHeight: "18px", color: "var(--ledger-ink-secondary)", marginTop: 4 }}>
           {META_STOP_SCOPE_NOTE}
         </p>
 

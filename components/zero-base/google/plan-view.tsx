@@ -95,7 +95,7 @@ export function GooglePlanView({
       {/* ------------------------------------------- manual path, first */}
       <section aria-label={t.manualPlan}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.yourPlan}</h2>
-        <p data-manual-primary="" style={{ margin: "4px 0 8px", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+        <p data-manual-primary="" style={{ margin: "4px 0 8px", fontSize: 12, color: "var(--ledger-ink-secondary)" }}>
           {t.carryOutInGoogle}
         </p>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
@@ -271,13 +271,13 @@ export function GooglePlanView({
       {/* ---------------------------------------------- activity / pending */}
       <section aria-label={t.activity}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{t.activity}</h2>
-        <p data-google-pending="" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+        <p data-google-pending="" style={{ margin: "4px 0 0", fontSize: 12 }}>
           {GOOGLE_PENDING_COPY}
         </p>
         {supportsPartiallyApplied(servedStatuses) ? (
           <p
             data-partially-applied=""
-            style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+            style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
           >
             Some changes report as partially applied: part of the change took effect in Google and
             part did not. Open the entity to see which.
@@ -292,7 +292,7 @@ export function GooglePlanView({
           <p
             key={state.mode}
             data-reference-write={state.mode}
-            style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}
+            style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-ink-secondary)" }}
           >
             <strong style={{ fontWeight: 600 }}>{state.mode === "single" ? "Single" : "Batch"}:</strong>{" "}
             {state.reason}
@@ -304,7 +304,7 @@ export function GooglePlanView({
         {batchPartial ? (
           <p
             data-el="batch-partial"
-            style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+            style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
           >
             {/* Neither "applied" nor "failed" describes a batch where some
                 steps landed. Saying either would be wrong about the rest. */}
@@ -313,7 +313,7 @@ export function GooglePlanView({
         ) : null}
         <ul data-collection="batch" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
           {steps.map((step) => (
-            <li key={step.id} style={{ fontSize: 12.5 }}>
+            <li key={step.id} style={{ fontSize: 12 }}>
               {step.title}
             </li>
           ))}
@@ -340,7 +340,7 @@ export function GooglePlanView({
           {t.checkThisSelection}
         </Button>
         {batchError ? (
-          <p role="status" data-batch-error="" style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          <p role="status" data-batch-error="" style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ledger-semantic-warn)" }}>
             {batchError}
           </p>
         ) : null}
@@ -358,7 +358,7 @@ export function GooglePlanView({
             <p
               role="alert"
               data-journal-error=""
-              style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--ledger-semantic-danger)" }}
+              style={{ margin: "0 0 8px", fontSize: 12, color: "var(--ledger-semantic-danger)" }}
             >
               {markError}
             </p>
@@ -366,7 +366,7 @@ export function GooglePlanView({
           {journal.hasGap ? (
             <p
               data-el="journal-gap"
-              style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}
+              style={{ margin: "0 0 8px", fontSize: 12, color: "var(--ledger-semantic-warn)" }}
             >
               {journal.gapReason}
             </p>

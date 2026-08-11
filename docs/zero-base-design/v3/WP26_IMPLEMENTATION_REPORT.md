@@ -245,3 +245,220 @@ In dependency order:
    automation can substitute for it.
 
 Only after 1–4 does WP-27A's precondition hold.
+
+---
+
+# WP-26 — second pass (commits `ed65286cf` … `520b1c22d`)
+
+The first pass stopped at the manual-AT blocker while substantial unblocked work
+was still undone. That stop was wrong: a blocker on G9 does not block G5, G8,
+G10 or G11. This pass completes the locally achievable items and, where an item
+is genuinely large, replaces a guess with a **measurement**.
+
+**WP-26 is still not complete and G9 remains RED.** Nothing below claims
+otherwise, and WP-27A was not started.
+
+## A. Behavioural HTTP route smoke — step 1, second half (`98066d1cd`)
+
+`npm run test:zero-base:routes:http` against a built server on an ephemeral,
+migrated PostgreSQL.
+
+```
+leaves probed   74 / 74
+serves          16/16
+refuses         56/56
+token_gated      2/2
+PASS
+```
+
+Asserts the unauthenticated posture of every leaf: Public serves, Auth/Client/
+Agency/Ops refuse via login redirect or 404, Share is token-gated, and any 5xx
+fails. Dynamic segments carry deterministic non-existent ids, so a caller must
+be refused *before* the id resolves.
+
+**Exception, declared explicitly rather than by loosening a rule:**
+`L-AUTH-SHOPIFY` (`/shopify/connect`) serves unauthenticated, because Shopify
+App Store installs land there before the merchant has an app session. Verified
+rather than assumed — the page reads no session and its response carries no
+tenant data. One exception is named; the other 56 refusing leaves stay strict.
+
+Verified non-vacuous: pointed at a dead port, all 74 report unreachable and the
+run fails.
+
+## B. G11 performance — step 10 (`e02ea7c0c`)
+
+`npm run test:zero-base:perf` (vitals) and `npm run zero-base:perf:bundles`.
+
+| Leaf | LCP | CLS | TBT | First-load API calls |
+|---|---|---|---|---|
+| L-PUB-ROOT | 136 ms | 0.000 | 0 ms | 0 |
+| L-PUB-PRODUCT | 64 ms | 0.000 | 0 ms | 0 |
+| L-PUB-PRICING | 56 ms | 0.000 | 0 ms | 0 |
+| L-AUTH-LOGIN | 40 ms | 0.000 | 0 ms | 1 |
+
+Budgets: LCP ≤ 2500 ms, CLS ≤ 0.1, TBT ≤ 300 ms, ≤ 12 first-load API calls. All
+inside budget with wide margin; no query waterfall on any measured leaf.
+
+Shared client baseline: **491.9 KB**, which exceeds the 400 KB investigation
+threshold and is reported as a note rather than passed silently. Two chunks
+account for 378 KB of it.
+
+**Scope stated, not implied:** authenticated leaves need seeded fixtures and are
+reported as unmeasured. An average over only the cheap public pages would read
+as whole-product evidence.
+
+One harness defect was found and fixed rather than blamed on the page:
+`networkidle` never fired on `/login`, so the measurement timed out. The page is
+fine — 33 static requests, ten of them fonts, no polling — and `networkidle` is
+not a rendering signal.
+
+## C. H/B/P/M reconciliation — step 3 (`520b1c22d`)
+
+`npm run zero-base:reconcile:frames`. Denominators read from the design
+package's own `export/audit.json`, not restated in code.
+
+```
+denominators: H 66 · B 9 · P 8 · M 9  =  92
+evidence set: playwright/artifacts/zero-base/f1b0755cde/wp-26-f1b0755cde
+
+frames with a crosswalk AND a captured frame   13
+frames with a crosswalk but no capture          0
+frames with no crosswalk at all                 79
+
+RECONCILED: 13/92 (14.1%)
+```
+
+Evidenced: H01, H02, H03, H08, H09, H17, H18, H19, H20, H48, H49, H54, H59.
+The 79 unmapped frames are listed by id in the script output. **G10 is not
+green.**
+
+## D. Flow × viewport matrix — step 2 (`520b1c22d`)
+
+`npm run zero-base:reconcile:flows`. The 13 flows are parsed from
+`spec/flows.js`, so the denominator is the authority's.
+
+```
+flows in the design spec           13
+flows with executable evidence      5
+flows meeting their width matrix    2
+
+RECONCILED: 2/13
+```
+
+| Flow | Status |
+|---|---|
+| I — Meta automation safety | ok, all five widths |
+| J — Admin incident response | ok, all five widths |
+| A — Honest agency entry | evidence, no width assertions |
+| H — Integration recovery | evidence, no width assertions |
+| K — Onboarding & invite | evidence, no width assertions |
+| B, C, D, E, F, G, L, M | no evidence |
+
+**G8's flow half is not green.**
+
+## E. EN/TR locale — step 7 (`ed65286cf`)
+
+A real EN/TR catalogue (`lib/zero-base/copy.ts`), a provider/hook, 11 catalogue
+tests and 6 mounted tests. The glossary rule is enforced with a negative
+control: `preservesGlossary("Target ROAS for Meta", "Meta için hedef YG")`
+returns `["ROAS"]`, so the checker demonstrably fails when a term is dropped.
+The shared state grammar now renders from the catalogue on every leaf.
+
+`npm run zero-base:locale` reports the truth rather than a pass:
+
+```
+components wired to the catalogue   2 / 69
+inline operator-facing strings      307 (ceiling 309)
+files still holding inline copy     46
+```
+
+A codemod for the 27 mechanically convertible strings was attempted and
+**reverted**: it could not place the hook safely in files that already bound
+`copy`. Those remain counted rather than half-applied.
+
+**Locale parity is NOT complete.** The remaining 307 strings are individual
+sentences needing individual translation.
+
+A deliberate limit: this does not add Turkish to `LANGUAGE_OPTIONS`. That list
+is gated on the legacy console dictionary also shipping Turkish, and offering a
+language only half the product renders is the silent-drop bug `66753e017`
+removed.
+
+## F. Gate status after this pass
+
+| Gate | Status | Change |
+|---|---|---|
+| G1 contract | green | — |
+| G2 compile | green | — |
+| G3 data | green — Vitest **8971 passed / 0 failed** | +17 |
+| G4 decision safety | green | — |
+| G5 routes | **green (local)** — structural 74/74 + behavioural 74/74 | was partial |
+| G6 state truth | not re-evidenced | — |
+| G7 interaction | not re-evidenced | — |
+| G8 responsive | **partial** — 84/84 geometry; flow matrix 2/13 | measured |
+| G9 accessibility | **RED** — automated 85/85; manual AT unavailable | unchanged |
+| G10 visual | **partial** — manifest + 78 frames; reconciliation 13/92 | measured |
+| G11 performance | **evidenced, within budget** on measurable leaves | was RED |
+| G12 deployment | out of scope | — |
+
+## G. Commands run this pass
+
+```
+npm run typecheck                       → 0 errors
+npm run lint                            → 0 problems
+npx vitest run                          → 8971 passed / 0 failed
+npm run test:zero-base:routes           → PASS (74 leaves, 0 findings)
+npm run test:zero-base:routes:http      → PASS (74/74 posture)
+npm run zero-base:legibility            → PASS (both themes)
+npm run test:zero-base:a11y             → 85/85
+npm run test:zero-base:responsive       → 84/84
+npm run test:zero-base:perf             → 5/5 within budget
+npm run zero-base:perf:bundles          → 491.9 KB baseline (noted)
+npm run zero-base:locale                → 307 inline (ceiling 309)
+npm run zero-base:reconcile:frames      → 13/92
+npm run zero-base:reconcile:flows       → 2/13
+npm run test:zero-base:release          → all constituents pass
+npm run test:migrations-from-zero       → PASS, all DB seams
+npm run test:selection-race-seam        → PASS (S1–S7)
+npm run build                           → compiled
+credential-free smoke                   → 11 passed / 3 failed / 1 skipped
+```
+
+The three smoke failures are the accepted Phase D baseline spec names, unchanged.
+`pnpm-lock.yaml` and `package-lock.json` are untouched; no dependency was added.
+
+## H. What still remains, and its class
+
+| Item | Class |
+|---|---|
+| 307 inline strings across 46 components | product work, quantified |
+| 79 unmapped H/B/P/M frames | product/capture work, enumerated |
+| 11 of 13 flows short of their width matrix | test work, enumerated |
+| Authenticated-leaf vitals | needs seeded fixtures |
+| 491.9 KB shared client baseline | investigate, above threshold |
+| G6 / G7 re-evidence | not attempted this pass |
+| **Manual AT (§13.5)** | **environment — external** |
+
+## I. Residual manual-AT matrix
+
+Unchanged and still RED. No automated scan, DOM inspection, screenshot,
+accessibility-tree dump or simulated keystroke is offered in its place.
+
+| §13.5 requirement | Status | Environment fact |
+|---|---|---|
+| NVDA + Chrome desktop, all 13 flows | UNPROVEN | macOS host; no Windows machine, no VM software installed |
+| VoiceOver + Safari macOS — shell, Decisions, builder, shares | UNPROVEN | VoiceOver present but off; enabling it is a system-settings change I may not make, and certifying speech output requires hearing it |
+| VoiceOver + Safari iOS — A/B/I/L at 390 | UNPROVEN | no iOS device or paired simulator with VoiceOver |
+| TalkBack + Chrome Android — A/B/I/L at 320/390 | UNPROVEN | no `adb`, no Android emulator, no device |
+| Keyboard-only, all 13 flows | PARTIAL (automated only) | automated reachability passes; a human pass is still required |
+| 200% / 400% zoom | AUTOMATED ✓ | reflow asserted, no page-level horizontal scroll |
+| Print/PDF from the real report renderer | PARTIAL | print media asserted on harness; the real renderer needs a seeded report |
+| Live regions — counts, preflight age, progress, outcome, copy, grid position | UNPROVEN | announcement order and politeness need a real screen reader |
+| Reduced motion | AUTOMATED ✓ | no movement animates under the query |
+| Dialog/drawer focus trap, Escape, origin return | PARTIAL (automated only) | human AT confirmation still required |
+
+**Smallest human next action:** one tester with a Windows machine (NVDA +
+Chrome), an Android device or emulator (TalkBack + Chrome), and a macOS/iOS
+device (VoiceOver + Safari) performs the eleven passes above and records
+tester name, date, browser, assistive technology and result. Nothing local can
+substitute for it, and no scope reduction is requested.

@@ -556,3 +556,160 @@ sources and re-running.
    covers Meta and Google Ads, the two providers with a real discovery route on
    disk. `getProviderFetchPath` returns null for the others, and the panel
    offers only what it can actually read.
+
+---
+
+## 12 · Third audit — corrections at `4077db0c9`
+
+The audit of `4a51ed4ee` rejected the completion claim and named four
+production paths that were unreachable or dishonest in the mounted UI. All four
+are closed. One item is a correction of **this report**, not only of the code:
+§11.6 claimed GA4 property and Search Console site selection were "not offered"
+because no discovery route existed. That claim was false — the routes and the
+GA4 picker helpers were already on disk. The scope had simply never been
+surfaced, and the report asserted a limitation instead of checking.
+
+### 12.1 · Flow H — first-time connection was unreachable (`32636db96`)
+
+`IntegrationsView` rendered `Reconnect` only for `needs_reconnect` and a dash
+for `not_connected`. A provider that had never been connected had **no entry
+point at all** on the canonical surface: Flow H did not exist in production.
+
+Connect now uses the same OAuth start and the same sanitized `returnTo` as
+reconnect — the provider does not distinguish them, and two return paths would
+be two chances to get the return wrong. Support is computed from whether a real
+start route exists (`oauthStartUrl(...) !== null`) rather than assumed, so a
+provider whose route intentionally refuses renders as unavailable and
+non-clickable with the reason stated. Reconnect behaviour and the post-return
+status read are unchanged.
+
+Five mounted tests, including one asserting each of the five supported
+providers targets its own real start path. All five fail against `4a51ed4ee`.
+
+### 12.2 · GA4 property and Search Console site selection (`03771fc44`)
+
+Reuses `fetchGa4Properties` and `saveGa4PropertySelection` rather than
+re-deriving the request shapes, so discovery, authorization, stale-generation
+protection and persistence stay owned by the real routes.
+
+Confirmation never comes from the write response:
+
+| surface | read-back authority | why |
+|---|---|---|
+| GA4 property | `GET /api/google-analytics/properties` → `selectedPropertyId` | the discovery route reports the current selection |
+| Search Console site | `GET /api/integrations?provider=search_console` → `provider_account_id` | the sites route reports **no** selection at all |
+
+The existing dashboard flow confirms from the write response; this one does not.
+Identifier comparison follows the routes' own normalization — GA4 ids compared
+bare because both sides carry the `properties/` prefix, and a trailing-slash
+difference on a site URL is the same site because `select-site` runs URLs
+through `new URL(...).toString()`. A 409 `connection_changed` saved nothing and
+is reported as a refusal.
+
+Ten mounted tests (success, permission denial, unreadable discovery, failed
+write, mismatched read-back, reassignment) plus ten route-bound tests that
+import the four route modules and assert their verbs.
+
+### 12.3 · Flow J workspace scope and health read-back (`b07309539`)
+
+Three defects, all real:
+
+1. The surface requested `?limit=200`, but `/api/admin/businesses` **hardcodes
+   `limit = 30`** and ignores the parameter. A superadmin could not select the
+   31st workspace, and the truncated list looked complete. Pages are now walked
+   using the route's own reported `total`/`limit`; a failed page is disclosed as
+   an incomplete list; a failed first page reads as unreadable rather than an
+   empty estate. A 50-page ceiling guards against a nonsense `total`.
+2. `isReadableHealthBody` accepted any object containing a `businessId`, so a
+   response about a **different** workspace satisfied it. Reading now requires
+   the echoed `businessId` to equal the selected one.
+3. The confirmation stamped a timestamp and told the operator to "read the board
+   above" — a legacy board this GET did not update. It now renders what the GET
+   returned: `status.state`, `auth.shopDomain`, token validity with its reported
+   reason, `auth.productionMode`, and named blockers built from
+   `missingRequiredScopes`,
+   `historicalCoverageBlockedByMissingReadAllOrders` and
+   `returnsRepairBlockedByMissingReadReturns`. A read with no blockers says so.
+
+Stale health is dropped when the workspace changes. Nine new mounted tests
+(74 workspaces across three pages, page-2 failure, page-1 failure,
+wrong-business body, visible health, workspace change); all nine fail against
+`4a51ed4ee`. `verify_webhooks` is still never actually run.
+
+### 12.4 · Report CSV export was a dead affordance (`4077db0c9`)
+
+`ReportViewerClient` rendered every card without `onExportCsv`, so eligible
+tables showed an **enabled button wired to nothing** in front of a real,
+working endpoint.
+
+Export now calls `GET /api/reports/[reportId]/export?widgetId=…`. The id
+matters: the route falls back to the first table widget when it cannot resolve
+one, so omitting it would quietly export a different widget than the operator
+clicked. `startDate`/`endDate` from the rendered payload are passed through so
+the file covers the window on screen, and `dateRangePreset` is sent only when it
+is one of the three values the route honours.
+
+The request is fetched rather than navigated so a refusal can be shown — the
+route answers 400 `table_widget_required` with a message that a bare location
+change would drop. On success the response becomes a blob and a real download
+fires, honouring the route's `Content-Disposition` filename. Eligibility is now
+two guards: the catalog's per-source rule **and** whether the route would accept
+the widget at all, so a metric card and a table that served no rows are both
+explicitly blocked with the reason they would be refused.
+
+Five mounted tests; all five fail against `4a51ed4ee`.
+
+### 12.5 · Gates at `4077db0c9`
+
+Commands run, in this worktree:
+
+```
+npm run typecheck                                  → 0 errors
+npm run lint                                       → 0 problems
+npx vitest run                                     → 8927 passed / 0 failed
+                                                     (812 files passed, 4 skipped;
+                                                      61 skipped, 63 todo — all pre-existing)
+npm run creative:v2:safety                         → 0 violations
+npm run creative:decision:native-ad-frozen-acceptance → 22/22
+npm run zero-base:contract:verify                  → PASS
+npm run zero-base:contracts:check                  → current (exit 0)
+npm run zero-base:fonts:verify                     → ok
+npm run test:zero-base:contract                    → 17/17
+npm run test:zero-base:design                      → 26/26
+npm run test:migrations-from-zero                  → PASS, all DB seams clean
+npm run test:selection-race-seam                   → PASS (S1–S7)
+npm run build                                      → compiled, 219 static pages
+npm run test:zero-base:responsive                  → 84/84
+credential-free smoke                              → 95 passed / 3 failed / 1 skipped
+```
+
+The smoke needs a local database for its two auth-setup projects. It was run
+against an **ephemeral PostgreSQL** created for the run, migrated from zero, and
+destroyed afterwards; the throwaway `.env.local` is gitignored and was deleted.
+No production or tunnelled database was used.
+
+The three smoke failures are the same three spec names as the accepted Phase D
+baseline — `reviewer-smoke.spec.ts:71`, `commercial-truth-smoke.spec.ts:322`,
+`commercial-truth-smoke.spec.ts:367` — unchanged by any Phase E work.
+
+Twenty-eight tests across the four groups fail against `4a51ed4ee`, verified by
+checking out the prior sources and re-running each group.
+
+`git diff 1d769b534..4077db0c9` touches no resolver or decision-output file.
+
+### 12.6 · Residual limitations
+
+1. `§11.6` of this report wrongly declared GA4/Search Console selection absent.
+   That claim is withdrawn; the scope is implemented in `03771fc44`.
+2. Account assignment still covers Meta and Google Ads only.
+   `getProviderFetchPath` returns null for other providers, so the panel offers
+   only what it can actually discover. GA4 and Search Console are handled by
+   their own selection panels rather than that generic one.
+3. The Shopify repair endpoint still performs no read-back of its own. The
+   surface now shows the state a **separate** health GET returned, which is a
+   different fact and is labelled as such.
+4. OAuth error redirects that fire before the state is decoded still cannot
+   carry `returnTo`; the value has not been read at that point.
+5. The workspace list is walked to at most 50 pages (1,500 workspaces). Beyond
+   that the list is disclosed as incomplete rather than silently truncated.
+6. The three baseline smoke failures remain, unchanged and unrelated.

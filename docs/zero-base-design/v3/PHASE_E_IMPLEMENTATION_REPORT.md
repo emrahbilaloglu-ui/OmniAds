@@ -392,3 +392,167 @@ unchanged by any Phase E work.
    rows, it renders its catalog empty grammar rather than fabricated data.
 4. Reconnect completes outside this product, in the provider's OAuth flow. The
    surface proves only what the post-return status read observed.
+
+---
+
+## 11 · Second transition audit — corrections at `d25fbb18a`
+
+The re-audit of `07935bad3` rejected the completion claim again and named five
+defect groups. All five are closed. The audit's central charge was fair and is
+recorded here plainly: **a passing test encoded a field the real producer does
+not emit**, and that test is why the defect survived the first correction round.
+
+### 11.1 · A — analytics source truth (`0827fdee0`)
+
+`AnalyticsSourceClient`, `AnalyticsLandingPagesClient` and `SeoClient` called
+`adaptSources(raw)` on their own report payload. Only `/api/geo/overview` emits
+a `sources` object, so on analytics and SEO **every** provider rendered as "not
+reported" — the surface told the operator GA4 was down while displaying GA4's
+own numbers.
+
+Connection state now comes from `/api/integrations/status`, keyed off the
+producer's own `IntegrationStatusResponse` type so a rename there is a compile
+error rather than a silent all-down report. (The first draft of this fix guessed
+the key `google_analytics`; the real keys are `ga4` and `search_console`, which
+is precisely why the mapping is now bound to the producer's type.)
+
+GEO keeps its real dual-source payload untouched. Connection is separated from
+measurement: analytics claims only GA4, so a connected Shopify no longer implies
+it supplied the figures beside it, and an unreadable authority reads as unknown
+rather than down.
+
+Five mounted tests; four fail against `07935bad3`.
+
+### 11.2 · B — the real report model (`04f6b3cb0`)
+
+`RenderedReportWidget` has no `dataSource`. The renderer reads `dataSource` off
+the widget **definition** and never echoes it. `report-documents.test.ts`
+invented one in its `RENDERED` fixture and `adaptRenderedReport` read it, so the
+test passed while production resolved every widget to `""` — identical React
+keys for every card, and all metric, trend and text content dropped through a
+rows-only table.
+
+- The fixture is now typed as `RenderedReportPayload`, making an invented field
+  a compile error. A regression asserts no rendered widget carries `dataSource`.
+- `adaptRenderedReport` passes `RenderedReportWidget` through whole.
+- `RenderedWidgetCard` renders by type: `value`/`deltaLabel` for metrics,
+  `points`/`series` for trends, `rows`/`columns` for tables, `text` for text —
+  with `emptyMessage`, `warning` and per-widget error preserved. Retry appears
+  only where the renderer marked the failure retryable.
+- The CSV guard reads the stored definition, because the rendered payload cannot
+  answer it, and fails closed when the definition is unreadable.
+- `ReportBuilderView` captured `initial` once while the client loaded
+  asynchronously; the client now gates on load, and the view adopts a later
+  `initial`. An unreadable record refuses rather than showing a blank canvas.
+- Saving rebuilt the document from the grid, destroying `metricKey`, `yMetrics`,
+  `breakdown`, `accountId`, `limit`, `columns`, `tableDimension`, `axisMode`,
+  `text`, `subtitle` and the document-level settings. It now mutates only
+  geometry against the stored document.
+- Reading a document back dropped `text`/`section` widgets for having no
+  `dataSource`, which deleted them on the next save. **This was found by the
+  new round-trip test, not by inspection.**
+- A newly added source arrives with the configuration its type needs, taken from
+  the shipped templates, so a fresh metric widget no longer renders "Metric
+  unavailable" purely because the builder omitted a `metricKey`.
+- `Math.random` row keys are gone; `DataTable.rowKey` now receives the index.
+
+Nine mounted flow tests; seven fail against `07935bad3`.
+
+### 11.3 · C — the complete Manage scope (`d25fbb18a`)
+
+**OAuth.** `oauthStartUrl` omitted `returnTo` while the client waited for a
+`reconnected` parameter no callback emitted. Every offered start route now takes
+a sanitized `returnTo` — Google and Shopify already did; Meta and GA4 carry it
+through their OAuth state; Search Console forwards it to the Google start it
+delegates to — and each callback re-sanitizes it on the way out to the shared
+callback page, which already honours it. The parameter is no longer invented: it
+is part of our own return URL, and the real flow carries it. Klaviyo is no
+longer offered, because its start route answers 501 by design.
+
+**Team.** Implemented on the actual handlers: members GET/PATCH/DELETE including
+the `update_workspaces` branch, invites GET/POST/PATCH, access-requests GET/POST,
+workspaces GET. The previous surface read `member.id`; the handler selects
+`membership_id`, so every row fell back to its array index. Guest, reviewer and
+admin see the handlers' own gates, refusals name the required role, and a
+reviewer never requests the admin-only access-request queue. Every write shows
+progress, surfaces the handler's message, and confirms only after an independent
+re-read — a re-read that disagrees is reported unresolved.
+
+**Assignment.** Reuses `provider-assignment-drawer-support` rather than
+reimplementing it, so the snake_case `account_ids` body, the two distinct
+discovery routes and the lane/authorization semantics behind them are untouched.
+The selection is seeded from the served `assigned` flags. That helper echoes the
+draft back on failure, so its return value is never treated as evidence.
+
+**Business settings.** Name and currency were absent; they now use the real
+PATCH contract, which takes both together and refuses a name under two
+characters. The route has no GET, so current values and the confirming read come
+from the business collection.
+
+**Plan** stays static, with no `/api/billing` call, asserted by test.
+
+Eighteen contract tests and eighteen mounted flow tests; twenty-two fail against
+`07935bad3`.
+
+### 11.4 · D — Flow J made executable (`338117398`)
+
+`OpsIncidentSurface` was mounted with no `businessId` on both `/ops` and
+`/ops/integrations`, while the Shopify handler reads `businessId` from the PATCH
+body and the GET query. **Every click on the shipped button was a 400.**
+
+Ops has no business in its route, so the surface now asks: a workspace selector
+backed by `GET /api/admin/businesses`, with the action withheld and the reason
+stated until a workspace is chosen, and withheld when the list cannot be read.
+Because this calls a provider, running it requires a confirmation naming the
+workspace, the provider and the action. The no-read-back disclosure is unchanged.
+
+The re-read stamped "Health re-read at …" unconditionally, including after a 400.
+It now reports success only after `response.ok` **and** a body the handler
+recognisably produced, reports failure or unknown otherwise, and drops a stale
+result when the workspace changes.
+
+`RepairOutcome.readBack` had a single member, so the one path that genuinely
+re-read and agreed was forced to stamp `not_performed` on itself. It can now say
+`confirmed`, and only that path does.
+
+`verify_webhooks` is never actually run: `fetch` is stubbed at the network
+boundary for every test in the file. Fifteen mounted tests at 1280/768/390; all
+fifteen fail against `07935bad3`.
+
+The superadmin gate, 16 tuples, zero buyer links and legacy `/admin` are
+unchanged.
+
+### 11.5 · E — gates at `d25fbb18a`
+
+typecheck 0 · lint 0 · **Vitest 8888 passed / 0 failed** (812 files; 61 skipped,
+63 todo, 4 skipped files — all pre-existing) · migrations-from-zero PASS with
+all DB seams · selection-race seam PASS (S1–S7) · creative:v2:safety 0 · frozen
+acceptance 22/22 · contract verify / freshness / fonts 0 · zero-base contract
+17/17 · design 26/26 · responsive Playwright 84/84 · production build clean ·
+credential-free smoke **95 passed / 3 failed**.
+
+The three smoke failures are the same three spec names as the accepted Phase D
+baseline (`reviewer-smoke.spec.ts:71`, `commercial-truth-smoke.spec.ts:322`,
+`commercial-truth-smoke.spec.ts:367`), unchanged by any Phase E work.
+
+Each defect group ships with tests that fail against `07935bad3` — 48 failing
+tests in total across the four groups, verified by checking out the prior
+sources and re-running.
+
+`git diff 1d769b534..d25fbb18a` touches no resolver or decision-output file.
+
+### 11.6 · Remaining limitations, restated honestly
+
+1. The Shopify repair endpoint still performs no read-back. That is the
+   endpoint's property, preserved deliberately and disclosed on the surface.
+2. The three baseline smoke failures remain, unchanged.
+3. OAuth **error** redirects that fire before the state is decoded cannot carry
+   `returnTo` — the value has not been read yet. Those land on the shared
+   callback page, which reports the error. Success paths and post-decode errors
+   carry it.
+4. Reconnect completes outside this product. The surface proves only what the
+   post-return status read observed.
+5. GA4 property and Search Console site selection are not offered: assignment
+   covers Meta and Google Ads, the two providers with a real discovery route on
+   disk. `getProviderFetchPath` returns null for the others, and the panel
+   offers only what it can actually read.

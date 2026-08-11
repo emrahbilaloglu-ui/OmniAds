@@ -18,6 +18,9 @@
  */
 import { useMemo, useRef, useState } from "react";
 
+import Link from "next/link";
+
+import { Button } from "@/components/zero-base/primitives/button";
 import { Collection } from "@/components/zero-base/collections/collection";
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
@@ -83,6 +86,7 @@ export function DecisionsView({
   adsManagerHref,
   workflow,
   mutation,
+  stickyBar,
 }: {
   model: DecisionsViewModel;
   state: DecisionsUrlState;
@@ -92,6 +96,15 @@ export function DecisionsView({
   workflow?: DecisionsWorkflow;
   /** Server-owned. Absent whenever the mutation UI is not enabled. */
   mutation?: MutationCeremonySeed;
+  /**
+   * The narrow terminus bar (INV-17).
+   *
+   * At 390 the decision detail is the end of Flow A, and the Meta-stop path has
+   * to stay one tap away rather than several screens back up the rail. Passed
+   * by the caller that knows the viewport; absent at desktop widths, where the
+   * rail already carries it.
+   */
+  stickyBar?: { metaStopHref: string; onOpenManual?: () => void };
 }) {
   const copy = useCopy();
   const [search, setSearch] = useState(state.search);
@@ -345,6 +358,41 @@ export function DecisionsView({
             ) : null,
         }))}
       />
+
+      {stickyBar && selectedRow ? (
+        <div
+          data-decision-sticky-bar=""
+          style={{
+            position: "sticky",
+            bottom: 0,
+            display: "flex",
+            gap: 8,
+            padding: "8px 0",
+            background: "var(--ledger-bg-surface)",
+            borderTop: "1px solid var(--ledger-border-subtle)",
+          }}
+        >
+          <Button
+            variant="secondary"
+            data-ctl="gated:META-WRITE-01"
+            onClick={stickyBar.onOpenManual}
+          >
+            {copy.openManualAction}
+          </Button>
+          <Link
+            href={stickyBar.metaStopHref}
+            data-ctl="live:nav"
+            style={{
+              alignSelf: "center",
+              color: "var(--ledger-accent-action)",
+              fontSize: 13,
+              textDecoration: "none",
+            }}
+          >
+            {copy.metaStop}
+          </Link>
+        </div>
+      ) : null}
 
       <ZeroBaseSheet
         open={selectedRow !== null}

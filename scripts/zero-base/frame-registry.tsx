@@ -308,7 +308,7 @@ const DECISION_VIEWER = {
 };
 
 /** The Decisions workspace, optionally with its inspector open. */
-const decisions = (selected: string | null = null, rows = 3) => {
+const decisions = (selected: string | null = null, rows = 3, sticky = false) => {
   const items = Array.from({ length: rows }, (_, index) =>
     metaRecommendation({ id: `d${index + 1}`, title: `Prospecting — Broad US ${index + 1}` }),
   );
@@ -325,6 +325,10 @@ const decisions = (selected: string | null = null, rows = 3) => {
       demo={false}
       onStateChange={() => {}}
       adsManagerHref="https://adsmanager.facebook.com/"
+      mutation={ceremonySeed()}
+      stickyBar={
+        sticky ? { metaStopHref: "/c/biz/meta/automation", onOpenManual: () => {} } : undefined
+      }
     />
   );
 };
@@ -1078,12 +1082,12 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H50–H59: mobile / narrow core flows ---- */
   { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
   { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1") },
+  { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H53", leaf: "L-C-G-PLAN", state: "mobile-google-plan", width: 390, theme: "light", render: () => googlePlan() },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
   { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
-  { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1") },
+  { id: "H57", leaf: "L-C-META-DEC", state: "narrow-decision-detail", width: 390, theme: "light", render: () => decisions("d1", 3, true) },
   { id: "H58", leaf: "L-C-G-PLAN", state: "narrow-google-plan", width: 320, theme: "light", render: () => googlePlan() },
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
 

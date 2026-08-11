@@ -1,0 +1,287 @@
+"use client";
+
+/**
+ * The five creative studio surfaces (Flow D) plus the share ledger (Flow L).
+ *
+ * Each renders what its backend served and discloses what it did not. The
+ * briefs surface has no delete control anywhere in it — see the adapter for
+ * why — and the share ledger separates revoked from expired for the owner while
+ * the public surface deliberately cannot.
+ */
+import { DataTable } from "@/components/zero-base/collections/data-table";
+import { Button } from "@/components/zero-base/primitives/button";
+import { UnavailableState } from "@/components/zero-base/states/surface-state";
+import {
+  BACKEND_CAP_NOT_SUPPLIED,
+  landingPageCap,
+  sourceState,
+  type BriefRow,
+  type ShareRow,
+} from "@/lib/zero-base/creative/studio-adapters";
+
+function Surface({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{title}</h1>
+      <div style={{ marginTop: 16 }}>{children}</div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- briefs */
+
+export function BriefsView({
+  rows,
+  canCreate,
+  createBlockedReason,
+  onCreate,
+  unavailableReason,
+}: {
+  rows: readonly BriefRow[];
+  canCreate: boolean;
+  createBlockedReason: string | null;
+  onCreate?: () => void;
+  unavailableReason?: string | null;
+}) {
+  if (unavailableReason) {
+    return (
+      <Surface title="Creative briefs">
+        <UnavailableState reason={unavailableReason} />
+      </Surface>
+    );
+  }
+  return (
+    <Surface title="Creative briefs">
+      <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
+        <div>
+          {canCreate ? (
+            <Button variant="secondary" data-brief-create="" onClick={onCreate}>
+              Create brief from this creative
+            </Button>
+          ) : (
+            <p data-brief-create-blocked="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-secondary)" }}>
+              {createBlockedReason}
+            </p>
+          )}
+        </div>
+
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
+          {/* Stated rather than discovered by trying: a brief is lineage. */}
+          Briefs cannot be deleted. Something downstream may have been created from one, and
+          removing it would break that trail silently.
+        </p>
+
+        <DataTable
+          caption="Creative briefs"
+          rows={[...rows]}
+          rowKey={(row) => row.id}
+          columns={[
+            { id: "title", header: "Brief", render: (row) => row.title },
+            { id: "created", header: "Created", render: (row) => row.createdAt },
+            { id: "status", header: "Status", render: (row) => row.status },
+            {
+              id: "lineage",
+              header: "Derived from",
+              render: (row) =>
+                row.lineage.known ? (
+                  <span data-brief-lineage={row.id}>
+                    {row.lineage.creativeId} · {row.lineage.accountId}
+                  </span>
+                ) : (
+                  <span data-brief-lineage-missing={row.id} style={{ color: "var(--ledger-semantic-warn)" }}>
+                    {row.lineage.reason}
+                  </span>
+                ),
+            },
+          ]}
+        />
+      </div>
+    </Surface>
+  );
+}
+
+/* ------------------------------------------------------- inbox and copies */
+
+export interface SourcedRow {
+  id: string;
+  label: string;
+  detail: string | null;
+  source: string | null;
+}
+
+export function SourcedListView({
+  title,
+  rows,
+  emptyReason,
+  unavailableReason,
+}: {
+  title: string;
+  rows: readonly SourcedRow[];
+  emptyReason: string;
+  unavailableReason?: string | null;
+}) {
+  if (unavailableReason) {
+    return (
+      <Surface title={title}>
+        <UnavailableState reason={unavailableReason} />
+      </Surface>
+    );
+  }
+  return (
+    <Surface title={title}>
+      {rows.length === 0 ? (
+        <p data-sourced-empty="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-ink-tertiary)" }}>
+          {emptyReason}
+        </p>
+      ) : (
+        <DataTable
+          caption={title}
+          rows={[...rows]}
+          rowKey={(row) => row.id}
+          columns={[
+            { id: "label", header: "Item", render: (row) => row.label },
+            { id: "detail", header: "Detail", render: (row) => row.detail ?? "—" },
+            {
+              id: "source",
+              header: "Source",
+              render: (row) => {
+                const state = sourceState(row.source);
+                return state.kind === "sourced" ? (
+                  <span data-row-source={row.id}>{state.source}</span>
+                ) : (
+                  <span data-row-unsourced={row.id} style={{ color: "var(--ledger-ink-tertiary)" }}>
+                    {state.reason}
+                  </span>
+                );
+              },
+            },
+          ]}
+        />
+      )}
+    </Surface>
+  );
+}
+
+/* -------------------------------------------------------- landing pages */
+
+export function LandingPagesView({
+  rows,
+  served,
+  unavailableReason,
+}: {
+  rows: readonly { id: string; path: string; sessions: string; conversions: string }[];
+  served: { rowCap?: number | null; pageSize?: number | null };
+  unavailableReason?: string | null;
+}) {
+  const cap = landingPageCap(served);
+  if (unavailableReason) {
+    return (
+      <Surface title="Landing pages">
+        <UnavailableState reason={unavailableReason} />
+      </Surface>
+    );
+  }
+  return (
+    <Surface title="Landing pages">
+      <p
+        data-landing-cap={cap.rowCap === null && cap.pageSize === null ? "not-supplied" : "served"}
+        style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+      >
+        {cap.text}
+        {cap.text === BACKEND_CAP_NOT_SUPPLIED
+          ? " — this surface does not know how many rows the backend will return."
+          : ""}
+      </p>
+      <DataTable
+        caption="Landing pages"
+        rows={[...rows]}
+        rowKey={(row) => row.id}
+        columns={[
+          { id: "path", header: "Page", render: (row) => row.path },
+          { id: "sessions", header: "Sessions", numeric: true, render: (row) => row.sessions },
+          { id: "conversions", header: "Conversions", numeric: true, render: (row) => row.conversions },
+        ]}
+      />
+    </Surface>
+  );
+}
+
+/* --------------------------------------------------------------- shares */
+
+export function SharesView({
+  rows,
+  onRevoke,
+  onRotate,
+  busyToken,
+  error,
+  unavailableReason,
+}: {
+  rows: readonly ShareRow[];
+  onRevoke?: (token: string) => void;
+  onRotate?: (token: string) => void;
+  busyToken?: string | null;
+  error?: string | null;
+  unavailableReason?: string | null;
+}) {
+  if (unavailableReason) {
+    return (
+      <Surface title="Shares">
+        <UnavailableState reason={unavailableReason} />
+      </Surface>
+    );
+  }
+  return (
+    <Surface title="Shares">
+      {error ? (
+        <p role="status" data-share-error="" style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
+          {error}
+        </p>
+      ) : null}
+      <DataTable
+        caption="Share ledger"
+        rows={[...rows]}
+        rowKey={(row) => row.token}
+        columns={[
+          { id: "title", header: "Share", render: (row) => row.title },
+          { id: "audience", header: "Audience", render: (row) => row.audience },
+          {
+            id: "status",
+            header: "Status",
+            // The owner sees revoked and expired as different facts; the public
+            // surface deliberately cannot tell them apart.
+            render: (row) => <span data-share-status={row.token}>{row.statusText}</span>,
+          },
+          {
+            id: "actions",
+            header: "Actions",
+            render: (row) =>
+              row.status === "active" ? (
+                <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <Button
+                    variant="secondary"
+                    data-share-rotate={row.token}
+                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
+                    onClick={() => onRotate?.(row.token)}
+                  >
+                    Rotate link
+                  </Button>
+                  <Button
+                    variant="danger"
+                    data-share-revoke={row.token}
+                    state={busyToken === row.token ? { kind: "busy", label: "Working…" } : { kind: "enabled" }}
+                    onClick={() => onRevoke?.(row.token)}
+                  >
+                    Revoke
+                  </Button>
+                </span>
+              ) : (
+                <span data-share-actions-none={row.token} style={{ color: "var(--ledger-ink-tertiary)" }}>
+                  No actions — this link is already {row.status}.
+                </span>
+              ),
+          },
+        ]}
+      />
+    </Surface>
+  );
+}

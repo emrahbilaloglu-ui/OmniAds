@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  BUYER_FINANCIAL_WARNING,
+  requireShareAcknowledgement,
+} from "@/lib/zero-base/creative/share-acknowledgement";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import {
   createCreativeShareSnapshot,
@@ -160,6 +164,25 @@ export async function POST(request: NextRequest) {
   if (!audience) {
     return NextResponse.json(
       { error: "invalid_audience", message: "Share audience is invalid." },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  // A buyer share sends provider-reported money outside the workspace on a link
+  // that outlives the conversation. The sender must acknowledge the limitation
+  // explicitly; without it there is no share, rather than a share whose warning
+  // was quietly dropped.
+  const acknowledged = requireShareAcknowledgement({
+    audience,
+    acknowledgement: (body as { acknowledgement?: unknown }).acknowledgement,
+  });
+  if (!acknowledged.ok) {
+    return NextResponse.json(
+      {
+        error: acknowledged.error,
+        message: acknowledged.message,
+        warning: BUYER_FINANCIAL_WARNING,
+      },
       { status: 400, headers: NO_STORE_HEADERS },
     );
   }

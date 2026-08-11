@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { BUYER_ACKNOWLEDGEMENT_VALUE } from "@/lib/zero-base/creative/share-acknowledgement";
 import { NextRequest, NextResponse } from "next/server";
 
 vi.mock("@/lib/access", () => ({
@@ -157,7 +158,17 @@ describe("POST /api/creatives/share", () => {
         outcomeTone: "neutral",
       },
     ]);
-    const response = await POST(postRequest({ ...baseBody, audience: undefined }));
+    // A caller that omits `audience` still resolves to buyer — the
+    // compatibility this test protects. Buyer now also requires the financial
+    // acknowledgement, which is precisely the hole this closes: a legacy
+    // caller could otherwise ship money outside the workspace with no warning.
+    const response = await POST(
+      postRequest({
+        ...baseBody,
+        audience: undefined,
+        acknowledgement: BUYER_ACKNOWLEDGEMENT_VALUE,
+      }),
+    );
 
     expect(response.status).toBe(200);
     expect(clientActionFeed.buildBuyerClientActions).toHaveBeenCalledWith({

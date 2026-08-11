@@ -9,7 +9,7 @@
  */
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, configure, render, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, waitFor } from "@testing-library/react";
 
 /**
  * These flows are two round trips deep — a write, then an independent re-read —
@@ -571,11 +571,22 @@ describe("WP-23 GA4 property and Search Console site selection", () => {
     });
   }
 
+  /**
+   * Choose an option, then save.
+   *
+   * `fireEvent.change` is what React's synthetic onChange listens for, and the
+   * wait is on the *option* React re-rendered as selected — not on the DOM
+   * value the test just assigned. Waiting on the assigned value proved nothing
+   * about React state, so under load the save could fire with a stale draft and
+   * the assertion would fail intermittently.
+   */
   async function save(kind: string, value: string) {
     const select = document.querySelector(`[data-selection-options="${kind}"]`) as HTMLSelectElement;
-    select.value = value;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    await waitFor(() => expect(select.value).toBe(value));
+    fireEvent.change(select, { target: { value } });
+    await waitFor(() => {
+      const chosen = select.querySelector(`option[value="${value}"]`) as HTMLOptionElement | null;
+      expect(chosen?.selected, `${kind}: React did not adopt ${value}`).toBe(true);
+    });
     (document.querySelector(`[data-selection-save="${kind}"]`) as HTMLElement).click();
   }
 

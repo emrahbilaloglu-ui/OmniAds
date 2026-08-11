@@ -265,8 +265,9 @@ describe("CSV is offered only on tables", () => {
       <RenderedWidgetCard widget={rendered({ id: "c2", type: "metric", value: "3" })} sourceId="overview_summary" />,
     );
     expect(document.querySelector('[data-widget-csv="c2"]')).toBeNull();
+    // The route would answer 400 table_widget_required; say exactly that.
     expect(document.querySelector('[data-widget-csv-blocked="c2"]')!.textContent).toMatch(
-      /does not match what you are looking at/,
+      /not a table/,
     );
   });
 

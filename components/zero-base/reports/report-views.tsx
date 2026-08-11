@@ -15,6 +15,7 @@ import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
+import { widgetIsExportable } from "@/lib/zero-base/reports/report-documents";
 import {
   COMING_SOON_SOURCES,
   RENDERABLE_SOURCES,
@@ -307,17 +308,23 @@ export function RenderedWidgetCard({
   sourceId,
   onRetry,
   onExportCsv,
+  exportState,
 }: {
   widget: RenderedReportWidget;
   sourceId: string | null;
   onRetry?: () => void;
   onExportCsv?: () => void;
+  exportState?: { pending: boolean; error: string | null };
 }) {
   const rows = widget.rows ?? [];
   const columns = widget.columns ?? Object.keys(rows[0] ?? {});
-  const csv = sourceId
+  // Two independent guards: the catalog's per-source rule, and whether the
+  // export route would actually accept this widget.
+  const routeGuard = widgetIsExportable(widget);
+  const sourceGuard = sourceId
     ? canExportCsv(sourceId)
     : { ok: false as const, reason: "This widget's source could not be read, so export is withheld." };
+  const csv = !routeGuard.ok ? routeGuard : sourceGuard;
 
   return (
     <section
@@ -422,9 +429,19 @@ export function RenderedWidgetCard({
 
       {csv.ok ? (
         <div>
-          <Button variant="quiet" data-widget-csv={widget.id} onClick={onExportCsv}>
+          <Button
+            variant="quiet"
+            data-widget-csv={widget.id}
+            state={exportState?.pending ? { kind: "busy", label: "Preparing\u2026" } : { kind: "enabled" }}
+            onClick={onExportCsv}
+          >
             Export CSV
           </Button>
+          {exportState?.error ? (
+            <p data-widget-csv-error={widget.id} style={{ margin: "4px 0 0", fontSize: 11, color: "var(--ledger-semantic-warn)" }}>
+              {exportState.error}
+            </p>
+          ) : null}
         </div>
       ) : (
         <p data-widget-csv-blocked={widget.id} style={{ margin: 0, fontSize: 11, color: "var(--ledger-ink-tertiary)" }}>

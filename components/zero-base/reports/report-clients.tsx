@@ -25,6 +25,7 @@ import {
   buildCreateBody,
   buildDuplicateBody,
   buildPatchBody,
+  exportWidgetCsvUrl,
   fromReportDocument,
   toReportDocument,
 } from "@/lib/zero-base/reports/report-documents";
@@ -259,8 +260,11 @@ export function ReportViewerClient({
     name: string;
     dateRangeLabel: string | null;
     generatedAt: string | null;
+    startDate: string | null;
+    endDate: string | null;
     widgets: RenderedReportWidget[];
   } | null>(null);
+  const [exportState, setExportState] = useState<Record<string, { pending: boolean; error: string | null }>>({});
   /** widget id -> stored dataSource, for the per-source CSV guard. */
   const [sources, setSources] = useState<Record<string, string>>({});
   const [surface, setSurface] = useState<SurfaceState>({ kind: "loading", label: "Loading report" });
@@ -322,6 +326,59 @@ export function ReportViewerClient({
     };
   }, [reportId]);
 
+  /**
+   * Export one widget through the real endpoint, as a real download.
+   *
+   * Fetched rather than navigated so a refusal can be shown: the route answers
+   * 400 `table_widget_required` with a message, and a bare location change
+   * would drop it and leave the operator with no file and no explanation.
+   */
+  const exportCsv = useCallback(
+    async (widgetId: string) => {
+      setExportState((current) => ({ ...current, [widgetId]: { pending: true, error: null } }));
+      const url = exportWidgetCsvUrl({
+        reportId,
+        widgetId,
+        startDate: report?.startDate,
+        endDate: report?.endDate,
+      });
+      const response = await fetch(url, { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) {
+        const json = (await response?.json().catch(() => null)) as { message?: string } | null;
+        setExportState((current) => ({
+          ...current,
+          [widgetId]: {
+            pending: false,
+            error: json?.message ?? "The export could not be produced, so no file was downloaded.",
+          },
+        }));
+        return;
+      }
+
+      const blob = await response.blob().catch(() => null);
+      if (!blob) {
+        setExportState((current) => ({
+          ...current,
+          [widgetId]: { pending: false, error: "The export arrived but could not be read as a file." },
+        }));
+        return;
+      }
+      // The route names the file in Content-Disposition; honour it when present.
+      const disposition = response.headers?.get?.("Content-Disposition") ?? "";
+      const named = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = named ?? `${widgetId}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      setExportState((current) => ({ ...current, [widgetId]: { pending: false, error: null } }));
+    },
+    [report?.endDate, report?.startDate, reportId],
+  );
+
   return (
     <SurfaceStateBoundary state={surface}>
       <div data-reports-surface={print ? "print" : "viewer"} style={{ display: "grid", gap: 20 }}>
@@ -345,6 +402,8 @@ export function ReportViewerClient({
             widget={widget}
             sourceId={sources[widget.id] ?? null}
             onRetry={() => setNonce((v) => v + 1)}
+            onExportCsv={() => void exportCsv(widget.id)}
+            exportState={exportState[widget.id]}
           />
         ))}
         {print ? null : <ReportShareDisabled />}

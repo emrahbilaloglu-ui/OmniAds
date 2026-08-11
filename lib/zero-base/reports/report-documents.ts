@@ -254,7 +254,53 @@ export interface AdaptedRenderedReport {
   dateRangeLabel: string | null;
   currency: string | null;
   generatedAt: string | null;
+  /** Carried so a CSV export covers the window the viewer is showing. */
+  startDate: string | null;
+  endDate: string | null;
   widgets: RenderedReportWidget[];
+}
+
+/**
+ * The exact URL `GET /api/reports/[reportId]/export` expects.
+ *
+ * The route resolves the widget by `widgetId`, and **falls back to the first
+ * table widget when it cannot find one** — so omitting the id would silently
+ * export a different widget than the operator clicked. The date parameters are
+ * passed through so the file matches the window on screen; the route only
+ * honours a `dateRangePreset` of 7, 30 or 90, so anything else is left out
+ * rather than sent and ignored.
+ */
+export function exportWidgetCsvUrl(input: {
+  reportId: string;
+  widgetId: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  dateRangePreset?: string | null;
+}): string {
+  const params = new URLSearchParams({ widgetId: input.widgetId });
+  if (input.startDate) params.set("startDate", input.startDate);
+  if (input.endDate) params.set("endDate", input.endDate);
+  if (input.dateRangePreset === "7" || input.dateRangePreset === "30" || input.dateRangePreset === "90") {
+    params.set("dateRangePreset", input.dateRangePreset);
+  }
+  return `/api/reports/${encodeURIComponent(input.reportId)}/export?${params.toString()}`;
+}
+
+/**
+ * Would the export route accept this widget?
+ *
+ * It answers 400 `table_widget_required` unless the widget is a table **with
+ * rows**. Offering an enabled control that can only 400 is the same dead
+ * affordance in a different place.
+ */
+export function widgetIsExportable(widget: RenderedReportWidget): { ok: true } | { ok: false; reason: string } {
+  if (widget.type !== "table") {
+    return { ok: false, reason: "Only table widgets can be exported; this one is not a table." };
+  }
+  if (!widget.rows?.length) {
+    return { ok: false, reason: "This table served no rows, so there is nothing to export." };
+  }
+  return { ok: true };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -287,6 +333,8 @@ export function adaptRenderedReport(raw: unknown): { ok: true; value: AdaptedRen
       dateRangeLabel: report.dateRangeLabel ?? null,
       currency: report.currency ?? null,
       generatedAt: report.generatedAt ?? null,
+      startDate: report.startDate ?? null,
+      endDate: report.endDate ?? null,
       // Passed through whole. Every field the renderer emits — value,
       // deltaLabel, points, series, rows, columns, text, emptyMessage, warning,
       // errorMessage, retryable, axisMode — reaches the view, because the view

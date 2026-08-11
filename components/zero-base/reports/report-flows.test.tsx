@@ -222,3 +222,173 @@ describe("WP-22 viewer renders the real rendered payload", () => {
     expect(document.querySelectorAll("[data-report-widget]").length).toBe(0);
   });
 });
+
+describe("WP-22 CSV export is a live affordance", () => {
+  const TABLE_REPORT: { report: RenderedReportPayload } = {
+    report: {
+      businessId: BUSINESS,
+      name: "Weekly review",
+      dateRangeLabel: "Last 7 days",
+      startDate: "2026-08-01",
+      endDate: "2026-08-07",
+      currency: "USD",
+      generatedAt: "2026-08-11T09:00:00Z",
+      widgets: [
+        { id: "w1", slot: 0, colSpan: 2, rowSpan: 2, type: "table", title: "Top Meta Campaigns", rows: [{ name: "Brand" }], columns: ["name"] },
+        { id: "w2", slot: 8, colSpan: 2, rowSpan: 2, type: "metric", title: "Spend", value: "980.00 USD" },
+        { id: "w3", slot: 16, colSpan: 2, rowSpan: 2, type: "table", title: "Empty table", rows: [], columns: ["name"] },
+      ],
+    },
+  };
+
+  const EXPORT_DEFINITION: CustomReportDocument = {
+    version: 1,
+    dateRangePreset: "7",
+    compareMode: "none",
+    widgets: [
+      { id: "w1", type: "table", slot: 0, colSpan: 2, rowSpan: 2, title: "Top Meta Campaigns", dataSource: "meta_campaigns" },
+      { id: "w2", type: "metric", slot: 8, colSpan: 1, rowSpan: 1, title: "Spend", dataSource: "overview_summary" },
+      { id: "w3", type: "table", slot: 16, colSpan: 2, rowSpan: 2, title: "Empty table", dataSource: "channel_attribution" },
+    ],
+  };
+
+  let clicked: string[] = [];
+  let created: string[] = [];
+  let calls: { url: string }[] = [];
+
+  function stubExport(exportResult: { ok?: boolean; body?: unknown } = {}) {
+    clicked = [];
+    created = [];
+    calls = [];
+    // Capture the download without touching the real navigation.
+    const realCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = realCreate(tag) as HTMLElement;
+      if (tag === "a") {
+        element.addEventListener("click", (event) => {
+          event.preventDefault();
+          clicked.push((element as HTMLAnchorElement).download);
+        });
+      }
+      return element;
+    });
+    // Patch only the two statics; replacing URL itself breaks `new URL(...)`.
+    Object.defineProperty(URL, "createObjectURL", {
+      value: (blob: Blob) => {
+        created.push(String(blob.type));
+        return "blob:zero-base";
+      },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      value: () => {},
+      configurable: true,
+      writable: true,
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push({ url });
+        if (url.includes("/export")) {
+          if (exportResult.ok === false) {
+            const body =
+              exportResult.body ?? { message: "This report does not have an exportable table widget." };
+            return {
+              ok: false,
+              status: 400,
+              json: async () => body,
+              headers: { get: () => null },
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            status: 200,
+            blob: async () => new Blob(["name\nBrand\n"], { type: "text/csv" }),
+            headers: {
+              get: (name: string) =>
+                name.toLowerCase() === "content-disposition"
+                  ? 'attachment; filename="weekly-review-w1.csv"'
+                  : null,
+            },
+          } as unknown as Response;
+        }
+        const body = url.includes("/render")
+          ? TABLE_REPORT
+          : { report: { id: REPORT, definition: EXPORT_DEFINITION } };
+        return { ok: true, status: 200, json: async () => body } as Response;
+      }),
+    );
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("REGRESSION: an eligible table offers export with a live handler", async () => {
+    stubExport();
+    render(<ReportViewerClient businessId={BUSINESS} reportId={REPORT} />);
+    await waitFor(() => expect(document.querySelector('[data-widget-csv="w1"]')).not.toBeNull());
+    // A metric and an empty table are explicitly blocked, not silently enabled.
+    expect(document.querySelector('[data-widget-csv="w2"]')).toBeNull();
+    expect(document.querySelector('[data-widget-csv-blocked="w2"]')!.textContent).toMatch(/not a table/);
+    expect(document.querySelector('[data-widget-csv="w3"]')).toBeNull();
+    expect(document.querySelector('[data-widget-csv-blocked="w3"]')!.textContent).toMatch(/nothing to export/);
+  });
+
+  it("requests the exact export URL the route expects", async () => {
+    stubExport();
+    render(<ReportViewerClient businessId={BUSINESS} reportId={REPORT} />);
+    await waitFor(() => expect(document.querySelector('[data-widget-csv="w1"]')).not.toBeNull());
+    (document.querySelector('[data-widget-csv="w1"]') as HTMLElement).click();
+
+    await waitFor(() => expect(calls.some((call) => call.url.includes("/export"))).toBe(true));
+    const call = calls.find((c) => c.url.includes("/export"))!;
+    const url = new URL(call.url, "https://example.test");
+    expect(url.pathname).toBe(`/api/reports/${REPORT}/export`);
+    // Without widgetId the route falls back to the FIRST table widget.
+    expect(url.searchParams.get("widgetId")).toBe("w1");
+    expect(url.searchParams.get("startDate")).toBe("2026-08-01");
+    expect(url.searchParams.get("endDate")).toBe("2026-08-07");
+  });
+
+  it("initiates a real download on success", async () => {
+    stubExport();
+    render(<ReportViewerClient businessId={BUSINESS} reportId={REPORT} />);
+    await waitFor(() => expect(document.querySelector('[data-widget-csv="w1"]')).not.toBeNull());
+    (document.querySelector('[data-widget-csv="w1"]') as HTMLElement).click();
+
+    await waitFor(() => expect(clicked.length).toBe(1));
+    expect(clicked[0]).toMatch(/\.csv$/);
+    expect(created.length).toBe(1);
+    expect(document.querySelector('[data-widget-csv-error="w1"]')).toBeNull();
+  });
+
+  it("REGRESSION: a failed export is reported and downloads nothing", async () => {
+    stubExport({ ok: false });
+    render(<ReportViewerClient businessId={BUSINESS} reportId={REPORT} />);
+    await waitFor(() => expect(document.querySelector('[data-widget-csv="w1"]')).not.toBeNull());
+    (document.querySelector('[data-widget-csv="w1"]') as HTMLElement).click();
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-widget-csv-error="w1"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-widget-csv-error="w1"]')!.textContent).toMatch(
+      /exportable table widget/,
+    );
+    // No fake success: nothing was downloaded.
+    expect(clicked.length).toBe(0);
+  });
+
+  it("an ineligible widget cannot invoke export at all", async () => {
+    stubExport();
+    render(<ReportViewerClient businessId={BUSINESS} reportId={REPORT} />);
+    await waitFor(() => expect(document.querySelector('[data-widget-csv="w1"]')).not.toBeNull());
+    // There is no control to click for w2/w3, so no request can be made.
+    expect(document.querySelector('[data-widget-csv="w2"]')).toBeNull();
+    expect(document.querySelector('[data-widget-csv="w3"]')).toBeNull();
+    expect(calls.some((call) => call.url.includes("/export"))).toBe(false);
+  });
+});

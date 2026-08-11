@@ -1217,8 +1217,6 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H43", leaf: "L-C-M-TEAM", state: "team", width: 1440, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
   { id: "H44", leaf: "L-C-M-TEAM", state: "reviewer-demo", width: 1440, theme: "light", render: () => (
     <div style={{ display: "grid", gap: 16 }}>
-      <PostureNotice text={REVIEWER_READ_ONLY_COPY} kind="reviewer" />
-      <PostureNotice text={DEMO_BUSINESS_COPY} kind="demo" />
       <Button
         variant="secondary"
         data-ctl="disabled:INV-24 reviewer-block"
@@ -1226,6 +1224,8 @@ export const FRAMES: readonly FrameSpec[] = [
       >
         Pause this ad set
       </Button>
+      <PostureNotice text={REVIEWER_READ_ONLY_COPY} kind="reviewer" />
+      <PostureNotice text={DEMO_BUSINESS_COPY} kind="demo" />
       {team({ membersWrite: DENIED, invitesWrite: DENIED, accessRequests: DENIED })}
     </div>
   ) },

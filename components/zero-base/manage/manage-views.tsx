@@ -1041,15 +1041,6 @@ export function PlanView({ planName, features }: { planName: string | null; feat
   const copy = useCopy();
   return (
     <Shell title={copy.plan}>
-      <p
-        data-el="billing-gated"
-        style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
-      >
-        {/* Stated rather than implied by the absence of a button: an operator
-            looking for an invoice needs to know where it is, not that it is
-            missing here. */}
-        {PLAN_BILLING_ELSEWHERE}
-      </p>
       <p data-plan-name="" style={{ margin: "12px 0 0", fontSize: 13 }}>
         {planName ?? "Not served"}
       </p>
@@ -1067,6 +1058,15 @@ export function PlanView({ planName, features }: { planName: string | null; feat
         style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
       >
         {PLAN_GATES_NOTHING}
+      </p>
+      <p
+        data-el="billing-gated"
+        style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ledger-ink-tertiary)" }}
+      >
+        {/* Stated rather than implied by the absence of a button: an operator
+            looking for an invoice needs to know where it is, not that it is
+            missing here. */}
+        {PLAN_BILLING_ELSEWHERE}
       </p>
     </Shell>
   );

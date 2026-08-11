@@ -499,6 +499,13 @@ function DecisionInspector({
         {evidence ? (
           <>
             <div>
+              <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.asOf}</dt>
+              {/* Snapshot time, not "now": these numbers are as of a moment. */}
+              <dd data-el="asof-row" style={{ margin: 0, fontSize: 13 }}>
+                {evidence.snapshotAt}
+              </dd>
+            </div>
+            <div>
               <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>
                 {copy.evidenceWindow}
               </dt>
@@ -507,13 +514,6 @@ function DecisionInspector({
                   over. */}
               <dd data-el="evidence-window" style={{ margin: 0, fontSize: 13 }}>
                 {evidence.windowLabel}
-              </dd>
-            </div>
-            <div>
-              <dt style={{ fontSize: 12, color: "var(--ledger-ink-tertiary)" }}>{copy.asOf}</dt>
-              {/* Snapshot time, not "now": these numbers are as of a moment. */}
-              <dd data-el="asof-row" style={{ margin: 0, fontSize: 13 }}>
-                {evidence.snapshotAt}
               </dd>
             </div>
             {evidence.gaps.length > 0 ? (

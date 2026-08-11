@@ -77,7 +77,7 @@ export function IntelligenceView({
         </p>
       ) : null}
       {snapshot ? (
-        <div data-el="intel-recs" style={{ marginTop: 12, display: "grid", gap: 6 }}>
+        <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
           <Button
             variant="secondary"
             data-ctl="gated:META-INTEL-09 run-snapshot"
@@ -111,7 +111,7 @@ export function IntelligenceView({
           { id: "window", label: copy.evidenceWindow, content: null },
         ]}
       />
-      <div style={{ marginTop: 16 }}>
+      <div data-el="intel-recs" style={{ marginTop: 16 }}>
         <DataTable
           collection="recs"
           caption={copy.intelligenceSources}

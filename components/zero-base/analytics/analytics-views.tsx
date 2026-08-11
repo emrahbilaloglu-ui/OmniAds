@@ -104,9 +104,9 @@ export function SourceOverviewView({
   const copy = useCopy();
   return (
     <Shell title="GA4 and Shopify">
-      <SourcePanels panels={panels} />
       {/* Two sources, kept apart: a blended figure would hide which one is
-          degraded when only one is. */}
+          degraded when only one is. The choice comes first — which source is
+          being read decides what every panel below is reporting on. */}
       <ZeroBaseTabs
         label={copy.ga4Kpis}
         value="ga4"
@@ -116,6 +116,7 @@ export function SourceOverviewView({
           { id: "shopify", label: "Shopify", content: null },
         ]}
       />
+      <SourcePanels panels={panels} />
       {unavailableReason || !overview ? (
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason ?? "The analytics overview could not be read."} />

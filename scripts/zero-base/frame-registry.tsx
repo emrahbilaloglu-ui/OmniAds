@@ -1107,6 +1107,7 @@ export const FRAMES: readonly FrameSpec[] = [
       onRevoke={() => {}}
       onRotate={() => {}}
       onCreate={() => {}}
+      initialAudience="buyer"
       initialTitle="September review"
       initialExpiresAt="2026-10-01"
       initialAcknowledged

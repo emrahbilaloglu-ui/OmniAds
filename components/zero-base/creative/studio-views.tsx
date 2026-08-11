@@ -246,7 +246,7 @@ export function SharesView({
   error,
   unavailableReason,
   initialTitle = "",
-  initialAudience = "buyer",
+  initialAudience = "creator",
   initialExpiresAt = "",
   initialAcknowledged = false,
 }: {

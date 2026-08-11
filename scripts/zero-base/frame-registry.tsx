@@ -64,6 +64,8 @@ import { LaunchpadView } from "@/components/zero-base/launchpad/launchpad-view";
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { LoginView } from "@/components/zero-base/auth/login-view";
+import { AccountSecurityView } from "@/components/zero-base/account/account-security-view";
+import { LanguageView } from "@/components/zero-base/account/language-view";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
 import { AgencyDeskView } from "@/components/zero-base/agency/agency-desk-view";
 import { PublicSharePage } from "@/components/zero-base/creative/public-share-page";
@@ -959,7 +961,18 @@ export const FRAMES: readonly FrameSpec[] = [
     { key: "targetRoas", label: "Target ROAS", source: "Cost model", consumers: ["Decision engine"], value: "2.0" },
     { key: "targetRoas", label: "Target ROAS", source: "Commercial targets", consumers: ["Reports"], value: "2.6" },
   ]) },
-  { id: "H46", leaf: "L-ME-ACCOUNT", state: "account", width: 1440, theme: "light", render: () => business(ALLOWED) },
+  { id: "H46", leaf: "L-ME-ACCOUNT", state: "account-security", width: 1440, theme: "light", render: () => (
+    <>
+      <AccountSecurityView
+        name="Dana Whitfield"
+        email="dana@halcyonsupply.example"
+        currentSessionId="7f3c9a12b4d5"
+        onSaveProfile={() => {}}
+        onChangePassword={() => {}}
+      />
+      <LanguageView current="en" />
+    </>
+  ) },
   { id: "H47", leaf: "L-C-M-PLAN", state: "plan", width: 1440, theme: "light", render: () => <PlanView planName="Adsecute" features={["Reports", "Decisions"]} /> },
   { id: "H48", leaf: "L-OPS-INTEGRATIONS", state: "ops", width: 1440, theme: "light", render: () => <CriticalIncidentPath /> },
   { id: "H49", leaf: "L-SH-CREATIVE", state: "public-share", width: 1440, theme: "light", render: () => <PublicSharePage share={publicShare("image")} /> },

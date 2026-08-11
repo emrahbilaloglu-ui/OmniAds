@@ -92,6 +92,8 @@ export interface RadioGroupProps<T extends string> {
   options: ReadonlyArray<RadioOption<T>>;
   onChange: (value: T) => void;
   orientation?: "horizontal" | "vertical";
+  /** Contract key the group's inputs satisfy, named by the caller. */
+  ctl?: string;
 }
 
 /**
@@ -105,6 +107,7 @@ export function RadioGroup<T extends string>({
   options,
   onChange,
   orientation = "horizontal",
+  ctl,
 }: RadioGroupProps<T>) {
   const groupId = useId();
 
@@ -147,6 +150,7 @@ export function RadioGroup<T extends string>({
                   id={optionId}
                   type="radio"
                   name={name}
+                  data-ctl={ctl}
                   value={option.value}
                   checked={value === option.value}
                   aria-disabled={disabled || undefined}

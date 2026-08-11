@@ -28,6 +28,7 @@ export function LanguageView({ current }: { current: AppLanguage }) {
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>{copy.language}</h2>
       <div style={{ marginTop: 16 }}>
         <RadioGroup
+          ctl="live:I18N-02 lang"
           legend="Interface language"
           name="language"
           value={language ?? current}

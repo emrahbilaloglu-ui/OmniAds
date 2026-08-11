@@ -123,7 +123,9 @@ export function OpsRepairPanel({
         data-repair-progress={phase}
         // Until a receipt comes back there is a gap between "we asked" and "it
         // happened", and the surface says so rather than implying completion.
-        data-el={phase === "running" ? "admin-receipt-gap" : undefined}
+        // Stated until a receipt actually arrives, not only while running:
+        // "we asked" and "it happened" are different facts throughout.
+        data-el={outcome ? undefined : "admin-receipt-gap"}
         style={{ margin: 0, fontSize: 12.5, minHeight: 16 }}
       >
         {phase === "running" ? "The repair is running…" : ""}

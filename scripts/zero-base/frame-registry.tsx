@@ -674,6 +674,8 @@ const SOURCE_PANELS = [
 ];
 
 const analyticsOverview = () => (
+  <div style={{ display: "grid", gap: 16 }}>
+    {trendBoard("Sessions & revenue trend", "analytics")}
   <SourceOverviewView
     panels={SOURCE_PANELS}
     overview={{
@@ -695,6 +697,7 @@ const analyticsOverview = () => (
       absentReason: null,
     }}
   />
+  </div>
 );
 
 const seoView = () => (

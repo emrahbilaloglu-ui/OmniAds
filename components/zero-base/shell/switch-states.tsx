@@ -90,6 +90,9 @@ export function ScopeSwitchPanel({
           Client
         </Button>
       </div>
+      <a href="/a/desk" data-ctl="live:nav" style={{ fontSize: 12.5, color: "var(--ledger-accent-action)" }}>
+        Agency Desk
+      </a>
       <Button
         variant="secondary"
         data-ctl="live:AUTH-10 business-switcher"

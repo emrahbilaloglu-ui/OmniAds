@@ -9,6 +9,7 @@
  * for, an account to reassign.
  */
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import type { ProviderSourceState } from "@/lib/zero-base/meta/automation-posture";
@@ -101,6 +102,15 @@ export function IntelligenceView({
         </div>
       ) : null}
 
+      <ZeroBaseTabs
+        label={copy.accountIntelligence}
+        value="sources"
+        onValueChange={() => {}}
+        tabs={[
+          { id: "sources", label: copy.intelligenceSources, content: null },
+          { id: "window", label: copy.evidenceWindow, content: null },
+        ]}
+      />
       <div style={{ marginTop: 16 }}>
         <DataTable
           collection="recs"

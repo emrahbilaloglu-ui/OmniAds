@@ -12,6 +12,7 @@
 import Link from "next/link";
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { Button } from "@/components/zero-base/primitives/button";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import { postureView, type EnginePosture } from "@/lib/zero-base/creative/engine-posture";
@@ -104,6 +105,16 @@ export function CreativePerformanceView({
       >
         {model.disclosure.text}
       </p>
+
+      <ZeroBaseTabs
+        label={copy.creativePerformance}
+        value="served"
+        onValueChange={() => {}}
+        tabs={[
+          { id: "served", label: copy.served, content: null },
+          { id: "all", label: copy.all, content: null },
+        ]}
+      />
 
       {onPresetChange || onSortChange || onActionStateChange ? (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 12 }}>

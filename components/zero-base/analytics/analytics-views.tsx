@@ -10,6 +10,7 @@
  */
 import { Button } from "@/components/zero-base/primitives/button";
 import { DataTable } from "@/components/zero-base/collections/data-table";
+import { ZeroBaseTabs } from "@/components/zero-base/primitives/tabs";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   GEO_PROXY_DISCLOSURE,
@@ -104,6 +105,17 @@ export function SourceOverviewView({
   return (
     <Shell title="GA4 and Shopify">
       <SourcePanels panels={panels} />
+      {/* Two sources, kept apart: a blended figure would hide which one is
+          degraded when only one is. */}
+      <ZeroBaseTabs
+        label={copy.ga4Kpis}
+        value="ga4"
+        onValueChange={() => {}}
+        tabs={[
+          { id: "ga4", label: "GA4", content: null },
+          { id: "shopify", label: "Shopify", content: null },
+        ]}
+      />
       {unavailableReason || !overview ? (
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason ?? "The analytics overview could not be read."} />

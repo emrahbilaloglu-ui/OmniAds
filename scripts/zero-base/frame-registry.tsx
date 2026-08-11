@@ -541,6 +541,7 @@ const creativeDetail = (serving: boolean) => (
         : { kind: "none", reason: "The engine is in shadow mode for this account." }
     }
     decisionsHref={serving ? "/c/biz/meta/decisions?selected=c1" : null}
+    shareHref={serving ? "/c/biz/creative/c1/shares" : null}
     history={CREATIVE_HISTORY}
     anyReplayed={false}
   />
@@ -1017,7 +1018,7 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- H17–H20: intelligence, history, automation ---- */
   { id: "H17", leaf: "L-C-META-INTEL", state: "intelligence", width: 1440, theme: "light", render: () => <IntelligenceView sources={intelSources} window={{ startDate: "2026-07-13", endDate: "2026-08-09" }} snapshot={{ canRun: true, reason: null, queued: false }} onRunSnapshot={() => {}} onRespond={() => {}} /> },
-  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} /> },
+  { id: "H18", leaf: "L-C-META-HIST", state: "history", width: 1440, theme: "light", render: () => <HistoryView rows={historyRows} disclosure="Showing the 2 most recent changes; older entries are paged." accountLabel="act_298410771 · Halcyon Main" onClose={() => {}} query="" onQueryChange={() => {}} onOutcomeFilterChange={() => {}} onLoadMore={() => {}} onReplay={() => {}} /> },
   { id: "H19", leaf: "L-C-META-AUTO", state: "automation", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("engage")} onEngage={() => {}} /> },
   { id: "H20", leaf: "L-C-META-AUTO", state: "meta-stop", width: 1440, theme: "light", render: () => <AutomationView postures={automationPostures} guardrails={GUARDRAILS} ceremony={stopCeremony("release")} onEngage={() => {}} /> },
 
@@ -1025,7 +1026,7 @@ export const FRAMES: readonly FrameSpec[] = [
   { id: "H21", leaf: "L-C-CR-PERF", state: "performance", width: 1440, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" onPresetChange={() => {}} onSortChange={() => {}} onActionStateChange={() => {}} onLoadMore={() => {}} /> },
   { id: "H22", leaf: "L-C-CR-DETAIL", state: "creative-detail-actionable", width: 1440, theme: "light", render: () => creativeDetail(true) },
   { id: "H23", leaf: "L-C-CR-DETAIL", state: "creative-detail-shadow", width: 1440, theme: "light", render: () => creativeDetail(false) },
-  { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} canCreate createBlockedReason={null} onCreate={() => {}} /> },
+  { id: "H24", leaf: "L-C-CR-BRIEF", state: "brief-lineage", width: 1440, theme: "light", render: () => <BriefsView rows={BRIEF_ROWS} backHref="/c/biz/creative" canCreate createBlockedReason={null} onCreate={() => {}} /> },
   { id: "H25", leaf: "L-C-LAUNCH", state: "launchpad-validation", width: 1440, theme: "light", render: () => launchpad(true) },
   { id: "H26", leaf: "L-C-LAUNCH", state: "launchpad-execution-disabled", width: 1440, theme: "light", render: () => launchpad(false) },
   { id: "H27", leaf: "L-C-CR-SHARES", state: "share-ledger", width: 1440, theme: "light", render: () => <SharesView rows={SHARE_ROWS} onRevoke={() => {}} onRotate={() => {}} onCreate={() => {}} /> },

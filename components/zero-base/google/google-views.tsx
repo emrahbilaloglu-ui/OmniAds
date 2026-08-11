@@ -206,7 +206,7 @@ export function GoogleAdvisorView({
               {copy.nothingInHorizon}
             </p>
           ) : (
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            <ul data-collection="advisor" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
               {group.items.map((item) => (
                 <li key={item.id} data-advisor-item={group.horizon} style={{ fontSize: 12.5 }}>
                   {onOpenCard ? (

@@ -66,7 +66,7 @@ export function ReportLibraryView({
   const copy = useCopy();
   if (unavailableReason) {
     return (
-      <div data-reports-surface="library" data-el="reports-lib">
+      <div data-reports-surface="library">
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{copy.reportsTitle}</h1>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
@@ -75,7 +75,7 @@ export function ReportLibraryView({
     );
   }
   return (
-    <div data-reports-surface="library">
+    <div data-reports-surface="library" data-el="reports-lib">
       <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.reportsTitle}</h1>
       <div style={{ marginTop: 12 }}>
         <Button
@@ -257,7 +257,12 @@ export function ReportBuilderView({
 
       <section aria-label={copy.sources} style={{ marginTop: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.sources}</h2>
-        <ul data-source-picker="" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+        <ul
+          data-source-picker=""
+          data-el="builder-sources"
+          data-collection="sources"
+          style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}
+        >
           {addable.map((source) => (
             <li key={source.id}>
               <Button

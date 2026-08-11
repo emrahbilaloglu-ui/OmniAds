@@ -31,6 +31,7 @@ export function CreativeDetailView({
   decisionsHref,
   history,
   anyReplayed,
+  shareHref = null,
   unavailableReason,
 }: {
   creativeId: string;
@@ -41,6 +42,8 @@ export function CreativeDetailView({
   decisionsHref: string | null;
   history: readonly HistoryEntryView[];
   anyReplayed: boolean;
+  /** Null where the actor cannot mint a share for this creative. */
+  shareHref?: string | null;
   unavailableReason?: string | null;
 }) {
   const copy = useCopy();
@@ -92,6 +95,13 @@ export function CreativeDetailView({
             {band.reason}
           </p>
         )}
+        {shareHref ? (
+          <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+            <Link href={shareHref} data-ctl="live:CREATIVE-10 share" style={{ color: "var(--ledger-accent-action)" }}>
+              {copy.shareThisCreative}
+            </Link>
+          </p>
+        ) : null}
         {decisionsHref ? (
           <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
             <Link

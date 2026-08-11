@@ -34,6 +34,7 @@ export function HistoryView({
   onOutcomeFilterChange,
   onLoadMore,
   onReplay,
+  onClose,
 }: {
   rows: readonly HistoryRow[];
   /** Search is server-side against the history projection, not a local filter
@@ -46,6 +47,8 @@ export function HistoryView({
   /** Absent at the end of the projection. */
   onLoadMore?: () => void;
   onReplay?: (id: string) => void;
+  /** Closes the history overlay; the selection stays in the URL. */
+  onClose?: () => void;
   /** Names the page cap. Absence of a disclosure is never "this is everything". */
   disclosure?: string | null;
   limitations?: readonly string[];
@@ -59,7 +62,14 @@ export function HistoryView({
   if (unavailableReason) {
     return (
       <div data-history-surface="">
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: "26px" }}>{copy.metaHistory}</h1>
+        {onClose ? (
+          <Button variant="secondary" data-ctl="live:close" onClick={onClose}>
+            {copy.close}
+          </Button>
+        ) : null}
+      </div>
         <div style={{ marginTop: 12 }}>
           <UnavailableState reason={unavailableReason} />
         </div>

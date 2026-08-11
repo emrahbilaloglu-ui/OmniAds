@@ -10,6 +10,8 @@
  */
 import { useState } from "react";
 
+import Link from "next/link";
+
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
 import { TextInput } from "@/components/zero-base/primitives/text-input";
@@ -37,6 +39,7 @@ function Surface({ title, children }: { title: string; children: React.ReactNode
 
 export function BriefsView({
   rows,
+  backHref = null,
   canCreate,
   createBlockedReason,
   onCreate,
@@ -44,6 +47,8 @@ export function BriefsView({
   unavailableReason,
 }: {
   rows: readonly BriefRow[];
+  /** Where the brief was reached from. */
+  backHref?: string | null;
   canCreate: boolean;
   createBlockedReason: string | null;
   onCreate?: () => void;
@@ -61,6 +66,11 @@ export function BriefsView({
   return (
     <Surface title={copy.creativeBriefs}>
       <div data-briefs-surface="" style={{ display: "grid", gap: 12 }}>
+        <p style={{ margin: 0, fontSize: 12.5 }}>
+          <Link href={backHref ?? "/"} data-ctl="live:CREATIVE-02 back" style={{ color: "var(--ledger-accent-action)" }}>
+            {copy.backToCreatives}
+          </Link>
+        </p>
         {error ? (
           <p role="status" data-brief-error="" style={{ margin: 0, fontSize: 12.5, color: "var(--ledger-semantic-warn)" }}>
             {error}

@@ -363,7 +363,7 @@ export function GeoView({ geo, unavailableReason }: { geo: AdaptedGeo | null; un
 
       <section aria-label={copy.priorities} style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{copy.topPriorities}</h2>
-        <ol data-geo-priorities="" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+        <ol data-geo-priorities="" data-collection="geo" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
           {geo.priorities.map((item) => (
             <li key={item.title} data-geo-priority={item.priority} style={{ fontSize: 12.5 }}>
               {item.title}

@@ -23,7 +23,8 @@ export function UserMenu({ name, onLogout }: { name: string; onLogout: () => voi
     <ZeroBasePopover
       label={copy.account}
       trigger={
-        <Button variant="secondary" aria-label={`Account — ${name}`} data-user-menu-trigger="">
+        <Button variant="secondary" aria-label={`Account — ${name}`} data-user-menu-trigger=""
+          data-ctl="live:AUTH-07 user-menu">
           {name}
         </Button>
       }

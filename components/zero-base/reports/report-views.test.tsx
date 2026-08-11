@@ -32,7 +32,7 @@ describe("the source picker shows all nine, disabling four", () => {
   it("offers every renderable source and disables every coming-soon one", () => {
     render(
       <ZeroBasePortalHost>
-        <ReportBuilderView initial={{ widgets: [] }} />
+        <ReportBuilderView initial={{ widgets: [] }} name="Weekly" />
       </ZeroBasePortalHost>,
     );
     expect(document.querySelectorAll("[data-source-add]").length).toBe(RENDERABLE_SOURCES.length);
@@ -48,7 +48,7 @@ describe("the source picker shows all nine, disabling four", () => {
   it("keeps Search Console and Klaviyo visibly separate", () => {
     render(
       <ZeroBasePortalHost>
-        <ReportBuilderView initial={{ widgets: [] }} />
+        <ReportBuilderView initial={{ widgets: [] }} name="Weekly" />
       </ZeroBasePortalHost>,
     );
     expect(screen.getByText("Search Console")).toBeTruthy();
@@ -62,6 +62,7 @@ describe("the builder is operable from the keyboard", () => {
       <ZeroBasePortalHost>
         <ReportBuilderView
           initial={{ widgets: [{ id: "w1", sourceId: "meta_campaigns", x: 2, y: 0, w: 4, h: 2 }] }}
+          name="Weekly"
         />
       </ZeroBasePortalHost>,
     );
@@ -201,5 +202,27 @@ describe("library", () => {
       </ZeroBasePortalHost>,
     );
     expect(document.querySelector('[data-reports="empty"]')).not.toBeNull();
+  });
+});
+
+
+describe("the builder refuses to save without a name", () => {
+  it("disables save until one is given, because both routes require it", () => {
+    render(
+      <ZeroBasePortalHost>
+        <ReportBuilderView initial={{ widgets: [] }} name="" />
+      </ZeroBasePortalHost>,
+    );
+    const button = document.querySelector("[data-builder-save]") as HTMLButtonElement;
+    expect(button.getAttribute("aria-disabled") ?? button.disabled).toBeTruthy();
+  });
+
+  it("collects the name on the surface", () => {
+    render(
+      <ZeroBasePortalHost>
+        <ReportBuilderView initial={{ widgets: [] }} name="Weekly" />
+      </ZeroBasePortalHost>,
+    );
+    expect(document.querySelector("[data-report-name]")).not.toBeNull();
   });
 });

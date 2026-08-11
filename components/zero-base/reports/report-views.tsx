@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { DataTable } from "@/components/zero-base/collections/data-table";
 import { Button } from "@/components/zero-base/primitives/button";
+import { TextInput } from "@/components/zero-base/primitives/text-input";
 import { UnavailableState } from "@/components/zero-base/states/surface-state";
 import {
   COMING_SOON_SOURCES,
@@ -101,9 +102,14 @@ export function ReportLibraryView({
 
 export function ReportBuilderView({
   initial,
+  name,
+  onNameChange,
   onSave,
 }: {
   initial: GridState;
+  /** Both save routes require a name, so the builder collects one. */
+  name?: string;
+  onNameChange?: (name: string) => void;
   onSave?: (state: GridState) => void;
 }) {
   const [history, setHistory] = useState(() => newHistory(initial));
@@ -142,6 +148,16 @@ export function ReportBuilderView({
       <p role="status" aria-live="polite" data-builder-live="" style={{ margin: "6px 0 0", fontSize: 12, minHeight: 16 }}>
         {message}
       </p>
+
+      <section aria-label="Name" style={{ marginTop: 12, maxWidth: 360 }}>
+        <TextInput
+          label="Report name"
+          data-report-name=""
+          value={name ?? ""}
+          onChange={(event) => onNameChange?.(event.target.value)}
+          hint="Required — both save routes refuse a report without one."
+        />
+      </section>
 
       <section aria-label="Sources" style={{ marginTop: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Sources</h2>
@@ -226,7 +242,16 @@ export function ReportBuilderView({
           >
             Undo
           </Button>
-          <Button variant="secondary" data-builder-save="" onClick={() => onSave?.(history.present)}>
+          <Button
+            variant="secondary"
+            data-builder-save=""
+            state={
+              (name ?? "").trim()
+                ? { kind: "enabled" }
+                : { kind: "disabled", reason: "A report needs a name before it can be saved." }
+            }
+            onClick={() => onSave?.(history.present)}
+          >
             Save
           </Button>
         </div>

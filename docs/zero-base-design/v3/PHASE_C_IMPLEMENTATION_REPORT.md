@@ -1,13 +1,31 @@
 # Phase C Implementation Report — WP-11 … WP-15
 
 **Worktree:** `/Users/harmelek/Adsecute-zero-base` · **Branch:** `codex/adsecute-zero-base-implementation`
-**Phase B accepted head:** `da7eb3298` (its last code commit: `aaadbdd58`) · **Phase C head:** `55b442178`
+**Phase B accepted head:** `da7eb3298` (its last code commit: `aaadbdd58`) · **Phase C head:** `8c9e13eb8`
 **Authoritative plan:** `ADSECUTE_ZERO_BASE_APPLICATION_IMPLEMENTATION_MASTER_PLAN_2026-08-10.md`
 (SHA-256 `79b4b4f88b5b89ca06dd52cfaff28c8b21e17d0cde58902fed10594d307ab613`)
 
 `/Users/harmelek/Adsecute` was not modified. Nothing was pushed, deployed, or
 migrated in production; no provider was contacted; no live or remote data was
 read; no rollout was activated; WP-16 and WP-27B were not started.
+
+---
+
+## 0.0 · Acceptance review rejected the first completion claim
+
+**This report originally claimed `PHASE_C_COMPLETE` at `55b442178`. That claim
+was wrong.** Acceptance review found WP-13, WP-14 and WP-15 materially
+incomplete behind green unit tests, and every defect it named was real:
+
+| WP | What the first attempt actually shipped | Correction |
+|---|---|---|
+| 13 | Schema, store, route and tests. **No workflow UI existed at all** — no chip, transition menu, dialog, event history, conflict surface or re-apply anywhere in Decisions. A backend nobody could reach. | `ada7a6bf4` |
+| 14 | A pure model and a preflight branch. **No ceremony was mounted**, and the canonical preflight was **not decision-bound**: it accepted business, account and entity from the client, merely nulled the expected fields, and rejected every grain except `ad`. | `5bbfc2ca7` |
+| 15 | History rendered `rows={[]}` behind a comment promising data "in a later slice". Intelligence read one boolean and drew one row. `AutomationView` received no `onEngage`, so confirming the stop closed a dialog and changed nothing. `buildProviderPostures` hard-coded Google to `serving`, so the UI printed "Serving" for a provider nobody had queried. | `8c9e13eb8` |
+
+The three original commits are retained unmodified; nothing was rewritten or
+relabelled. Sections 3, 4 and 5 below describe each work package as it stands
+after correction, and say plainly which part came from which commit.
 
 ---
 
@@ -105,7 +123,7 @@ Proven by test:
 
 **Visual/AT evidence.** 1440/1280/768/390/320 × light+dark.
 
-## 3 · WP-13 — Versioned workflow overlay (Flow C) · `d3a3e10e9`
+## 3 · WP-13 — Versioned workflow overlay (Flow C) · `d3a3e10e9` → `ada7a6bf4`
 
 **Files.** `lib/zero-base/meta/workflow-schema.ts` (additive migration),
 `lib/decision-workflow-store.ts`, `app/api/meta/decision-workflow/route.ts`,
@@ -144,10 +162,54 @@ The seam proves against real storage what a mock cannot assert:
   business-scoped, so one tenant's retry cannot suppress another's event;
 - a stale `expectedVersion` is refused by the database and writes no event.
 
-**Rollback.** The column and both indexes are additive and nullable; existing
-rows and callers are unaffected.
+### 3.1 · The correction — `ada7a6bf4`
 
-## 4 · WP-14 — Preflight and the manual write ceremony (H13–H16, Flow B) · `4486eaaa4`
+The backend above was real; nothing reached it. `ada7a6bf4` builds the surface.
+
+**Batched read, not N+1.** A new `contract=zero-base.v1` mode on the **same**
+GET takes `decisionKeys` for the whole served page and returns one workflow per
+key, plus the journal for the one decision that is open. A per-row GET would
+be an N+1 that grows with the collection. Over-large batches are **refused**
+(400 `too_many_keys`, cap 200), not truncated — a silently dropped key renders
+"nobody owns this" for a decision somebody does own. The legacy single-key mode
+is asserted byte-identical, down to its exact response keys.
+
+**Components.** `workflow-overlay.tsx` provides the row chip and the inspector
+panel: state chip, transition menu, accessible dialog with the fields each
+transition requires (assignee, snooze wake-up, reject reason, optional due),
+actor/event history, loading/error/empty states and explicit role posture
+(guest reads, collaborator writes, reviewer denied with a reason rather than a
+silent absence).
+
+**The menu cannot offer what the server would refuse.** Available transitions
+are probed through the real state machine with required fields supplied, so a
+form the operator has not filled in yet is not mistaken for a refusal.
+
+**409 is shown, never resolved.** The operator sees the server's current state
+beside what they attempted; re-applying is an explicit act against the
+**refreshed** version, and is withheld entirely when the refreshed state makes
+the action impossible. Nothing is re-sent automatically — a silent retry would
+overwrite whatever the other operator just did with nobody having read it.
+
+**One mutation id per attempt**, not per request, so a double click or a
+retried POST is a replay rather than a second transition that bumps the version
+and shows the operator their own action twice.
+
+**Workflow annotates; it never moves the truth.** A test asserts the served
+verdict bytes and the row order are identical before and after a transition.
+
+**No comments.** No comment action, no comment field, no comment read — and the
+seam proves the projection cannot carry comment text out of the database even
+when the column holds some.
+
+**A defect the UI made visible.** A failed overlay read now renders "Workflow
+unknown". The default "Open" would have claimed nobody owns a decision somebody
+may well own.
+
+**Rollback.** The column and both indexes are additive and nullable; existing
+rows and callers are unaffected. `git revert ada7a6bf4 d3a3e10e9`.
+
+## 4 · WP-14 — Preflight and the manual write ceremony (H13–H16, Flow B) · `4486eaaa4` → `5bbfc2ca7`
 
 **Files.** `lib/zero-base/meta/mutation-ceremony.ts`,
 `app/api/meta/decision-action/preflight/route.ts` (`contract=zero-base.v1`
@@ -189,7 +251,51 @@ never claims the persisted-state preflight contacted Meta. No second preflight
 or generic execute route was added; each action endpoint's own fresh preflight
 is untouched; native and manual authority are not forked.
 
-## 5 · WP-15 — Intelligence, History, Automation, Meta stop (H17–H20, Flow I) · `55b442178`
+### 4.1 · The correction — `5bbfc2ca7`
+
+**The contract is now decision-bound, for all three grains.** A third mode,
+`zero-base.decision.v1`, on the same route. Input is a served decision key plus
+an allowlisted action — nothing else.
+
+- Any attempt to supply `providerAccountId`, `entityId`, `entityType`,
+  `expectedStatus`, `expectedCreativeId` or `expectedParentId` is refused with
+  400 **before any read**, so an override can never even be probed. An explicit
+  `null` is refused too, rather than treated as absent.
+- The server parses the key, resolves the entity **in the authorized business**
+  from that grain's own dimension table, proves the provider account is
+  assigned, and derives the expected state from the row it just read.
+- It refuses rather than guesses: a key naming no single entity (`group:*`,
+  `inactive:*`, `structure-*`, `campaign:unknown:*`), an action with no endpoint
+  at that grain, an entity absent from this business, an unassigned account, an
+  unreadable warehouse, and **two rows for one identity** — picking the newest
+  there would be a guess, and the guess would be a provider write.
+- Legacy mode is untouched: its response keys and its pass-through of a
+  caller's own `expectedStatus` are both asserted unchanged.
+
+D065 framing: this resolves a **`manual_operator_v1`** target — the exact
+server-presented account and entity behind a decision the operator is looking
+at. The decision supplies the *identity*, never the permission; no native
+decision-lineage field passes through, so nothing here manufactures native
+decision authority.
+
+**The ceremony is mounted, and only when the server says so.** With the flag
+off the panel is not rendered, not disabled and not hidden — it is never
+constructed, and with it neither is any preflight or dispatch call. The flag is
+read server-side, appears in no environment file, matches only the exact string
+`true`, and can only narrow: a reviewer or demo viewer never gets the ceremony
+whatever it says.
+
+**The ordered machine is real**: availability → decision-bound persisted-state
+preflight → age (15 min) and change checks → highest required confirmation →
+typed endpoint dispatch → progress → terminal/reconciliation. The dispatch path
+is built from the endpoint the server named and the id the server proved —
+`resolveEndpointPath` fills exactly one placeholder and escapes the id. The
+browser supplies neither path nor entity id.
+
+**Rollback.** `git revert 5bbfc2ca7 4486eaaa4`. The flag is set in no
+environment file, so the UI is unreachable either way.
+
+## 5 · WP-15 — Intelligence, History, Automation, Meta stop (H17–H20, Flow I) · `55b442178` → `8c9e13eb8`
 
 **Files.** `lib/zero-base/meta/automation-posture.ts`,
 `components/zero-base/meta/{intelligence,history,automation}/*-view.tsx`,
@@ -234,6 +340,59 @@ absence above would be a defect: Google row present, exactly one stoppable
 provider, six guardrail values with zero edit affordances, zero status banners,
 no forbidden phrase in the body text, no page-level horizontal scroll.
 
+### 5.1 · The correction — `8c9e13eb8`
+
+The rules above were encoded in a module whose pages were placeholders or
+disconnected. `8c9e13eb8` connects them to real authorities.
+
+**History** reads the existing journal. The account is resolved from this
+business's own assignments and **no account id is accepted from the request**,
+so a cross-business read cannot be asked for. Actor provenance survives in
+three distinct forms — a recorded name, "No human actor (engine)", and "Actor
+not recorded" — and "System" appears nowhere. Replay flags come from the read
+model's own `replay` object, and any replayed row raises a banner with no
+dismiss control. The page cap is disclosed, and never as a total: the cursor
+path does not compute one, so claiming one would be an invention. The read
+model's own limitation messages are carried through verbatim.
+
+**Intelligence** composes all nine named authorities server-side —
+status, pulse, summary, trends, breakdowns, anomalies, labels, and structure +
+recommendations from their shared workspace read model — through
+`Promise.allSettled`, so one failing source degrades one row rather than the
+page. A failed read is `degraded` with the source's **verbatim** error, never
+`unavailable`: those are different facts, and conflating them hides which one
+happened. Partial states keep the read model's own words. A missing collection
+prints "Not reported", never `0`. Every windowed source is scoped to one stated
+window, so two sections cannot silently describe different periods. Several
+assigned accounts resolve to *none* rather than an arbitrary pick.
+
+**Automation** now acts. A client boundary POSTs the existing business-scoped
+engage/release action and then issues a **separate** GET to read the state
+back. The POST returns a control plane of its own, and using its own response
+to confirm itself is not an observation of state. Disagreement and an
+unreadable re-read both resolve to unknown; a refused write is reported as a
+failure that changed nothing. No request is made at all until the typed
+confirmation completes.
+
+**Google's row is read, not assumed.** `buildProviderPostures` now requires a
+`GoogleConnectionRead` and cannot be called without one. Connected, not
+connected, or `unknown` with the reason when the read fails — never `serving`
+for a provider nobody queried. The row carries `basis: "connection_only"`,
+naming it a connection claim rather than a control-plane one, and remains
+always present, always marked unaffected, and never stoppable. There is still
+no Google stop, and the two readiness systems remain separate.
+
+**How Flow I is proven, precisely.** The interactions — engage, release,
+read-back agreement, disagreement, unavailability, refused write, and the
+no-request-before-confirmation rule — are driven with **real user events over
+stubbed fetch** in `components/zero-base/meta/flow-i.test.tsx`. The Playwright
+pages remain **static**, and nothing there is claimed as proof that a request
+was made; they cover the mirror provider case (Meta healthy, Google
+unreadable), real actor and replay rows, and partial plus degraded sources at
+1440/390/320 in both themes. That split is stated here rather than blurred.
+
+**Rollback.** `git revert 8c9e13eb8 55b442178`.
+
 ---
 
 ## 6 · Phase C completion gates
@@ -247,16 +406,16 @@ Run at `55b442178` unless noted.
 | Font provenance | `npm run zero-base:fonts:verify` | exit 0 |
 | Typecheck | `npm run typecheck` | 0 errors |
 | Lint | `npm run lint` | 0 problems |
-| Full Vitest | `npm test` | **8173 passed · 0 failed** (776 files; 61 skipped, 63 todo pre-existing) |
-| Migrations from zero | `npm run test:migrations-from-zero` | PASS (16 seam PASS markers, incl. the new workflow-overlay seam) |
+| Full Vitest | `npm test` | **8314 passed · 0 failed** (781 files; 61 skipped, 63 todo pre-existing) |
+| Migrations from zero | `npm run test:migrations-from-zero` | PASS (incl. the extended workflow-overlay seam and the new decision-bound-target seam) |
 | Provider account selection seam | `npm run test:selection-race-seam` | PASS (S1–S7), exit 0 |
 | Creative V2 safety | `npm run creative:v2:safety` | exit 0 |
 | Native-ad frozen acceptance | `npm run creative:decision:native-ad-frozen-acceptance` | 22/22 |
 | Zero-base contract tests | `npm run test:zero-base:contract` | 17/17 |
 | Zero-base design/theme tests | `npm run test:zero-base:design` | 26/26 |
-| Zero-base responsive + flow + route | `npm run test:zero-base:responsive` | 42/42 (36 harness pages) |
+| Zero-base responsive + flow + route | `npm run test:zero-base:responsive` | 60/60 (54 harness pages) |
 | Production build | `npm run build` | Compiled successfully; all five canonical routes present |
-| Local production smoke | `npm run test:smoke:local` equivalent (§6.2) | 53 passed · 3 failed · 1 skipped — the 3 are pre-existing (§6.2) |
+| Local production smoke | `npm run test:smoke:local` equivalent (§6.2) | 71 passed · 3 failed · 1 skipped — the 3 are pre-existing (§6.2) |
 
 **Resolver / decision-output check.** Taken from `aaadbdd58`, the last Phase B
 code commit — a superset of the change since the accepted head `da7eb3298`,
@@ -268,12 +427,14 @@ pre-existing files Phase C modified is:
 
 ```
 app/api/meta/decision-action/preflight/route.ts
+app/api/meta/decision-action/preflight/route.test.ts
 app/api/meta/decision-workflow/route.ts
 app/api/meta/decision-workflow/route.test.ts
 lib/decision-workflow-store.ts
 lib/migrations.ts
 scripts/ephemeral-postgres-migrations-check.ts
 scripts/ephemeral-postgres-workflow-overlay-seam-child.ts
+scripts/ephemeral-postgres-decision-bound-target-seam-child.ts
 ```
 
 None of these produce a decision verdict or a `buyerAction`. **No resolver need
@@ -296,7 +457,7 @@ no provider request can be formed. Every sync lane and both live-read flags are
 off. `/Users/harmelek/Adsecute/.env.local` was deliberately not used: it points
 at production over an SSH tunnel.
 
-Result at `55b442178`: **53 passed, 3 failed, 1 skipped.** The three failures
+Result at `8c9e13eb8`: **71 passed, 3 failed, 1 skipped.** The three failures
 are:
 
 ```
@@ -308,8 +469,8 @@ commercial-truth-smoke.spec.ts:367  dedicated page, Meta operating mode, Creativ
 These are **not Phase C regressions**, and that is measured rather than
 asserted: the identical smoke, same throwaway cluster and same seed, was run at
 the Phase B accepted head `aaadbdd58` and produced **the same three failures**
-(31 passed there; the 22-test difference is exactly the new zero-base Playwright
-coverage added by WP-11, WP-12 and WP-15). They are legacy surfaces that need
+(31 passed there; the difference is exactly the new zero-base Playwright
+coverage added by WP-11, WP-12 and WP-15 and its corrections). They are legacy surfaces that need
 Meta and commercial data this credential-free local cluster cannot hold. They
 were failing before Phase C began and are unchanged by it.
 
@@ -320,11 +481,11 @@ were failing before Phase C began and are unchanged by it.
 Per work package, newest first:
 
 ```
-git revert 55b442178   # WP-15
-git revert 4486eaaa4   # WP-14
-git revert d3a3e10e9   # WP-13
-git revert ce8e8c389   # WP-12
-git revert 33d16dd5f   # WP-11
+git revert 8c9e13eb8 55b442178   # WP-15 + its correction
+git revert 5bbfc2ca7 4486eaaa4   # WP-14 + its correction
+git revert ada7a6bf4 d3a3e10e9   # WP-13 + its correction
+git revert ce8e8c389             # WP-12
+git revert 33d16dd5f             # WP-11
 ```
 
 Notes: WP-11, WP-12 and WP-15 are additive routes and components — with rollout
@@ -339,21 +500,40 @@ environment file, so its UI is unreachable whether or not the commit is present.
    REQ-27, REQ-28 (`M11`) and REQ-41 are accepted residuals and were not
    laundered green by any Phase C work.
 2. **The mutation UI has never been exercised end to end against a provider**,
-   by design. WP-14's ceremony is proven as a pure function and at the preflight
-   route boundary. `ZERO_BASE_MUTATION_UI_ENABLED` is off everywhere and turning
-   it on is outside this phase's authority.
+   by design. The ceremony is proven as a pure function, at the preflight route
+   boundary, and as a mounted component driven by real user events over stubbed
+   transports. `ZERO_BASE_MUTATION_UI_ENABLED` is off everywhere, turning it on
+   is outside this phase's authority, and no test or E2E run reaches Meta.
 3. **The three legacy smoke failures in §6.2 remain failing.** They predate
    Phase C, they need data a credential-free local cluster cannot hold, and
    nothing here fixes them.
 4. **Harness pages are static compositions.** They prove layout, banner
-   stacking, affordance counts and copy at each width and theme. They are not
-   claimed as evidence that a data-populated route renders; the data-path claims
-   in §1–§5 rest on the unit and component tests against real server payloads.
+   stacking, affordance counts and copy at each width and theme. They are **not**
+   claimed as evidence that a data-populated route renders, nor that any request
+   was made. Every interaction claim in §3.1, §4.1 and §5.1 rests on component
+   tests driven with real user events, and every server claim on route tests and
+   real-PostgreSQL seams.
+6. **Intelligence section facts are deliberately thin** — a state, a reason, an
+   observation time and a served count or status word per source. Richer
+   per-source metrics would mean this surface deciding what a number means,
+   which is the source's job, not the composition's.
 5. **WP-16 was not started**, and neither was WP-27B.
 
 ## 9 · Worktree state
 
-Clean and fully committed at `55b442178` on
+Clean and fully committed at `8c9e13eb8` on
 `codex/adsecute-zero-base-implementation`. Nothing was pushed. `.env.local` was
 written only inside the smoke run and removed by its cleanup trap; it is
 untracked and absent.
+
+Phase C commit chain, in order:
+
+```
+6fef159b5  ledger correction (stale WP-10 figure)
+33d16dd5f  WP-11
+ce8e8c389  WP-12
+d3a3e10e9  WP-13            → ada7a6bf4  WP-13 correction
+4486eaaa4  WP-14            → 5bbfc2ca7  WP-14 correction
+55b442178  WP-15            → 8c9e13eb8  WP-15 correction
+79b33a187  docs             ,  57edb254c  docs
+```

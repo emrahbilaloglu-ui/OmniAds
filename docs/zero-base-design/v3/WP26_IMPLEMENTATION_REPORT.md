@@ -597,3 +597,150 @@ re-evidenced**.
 Still RED, still the only allowed residual, still no substitute offered. The
 matrix and the smallest human next action are recorded in the previous section
 and are unchanged.
+
+---
+
+# WP-26 — fourth pass (commits `948b80326` … `8958459ed`)
+
+## 0. G11 contract corrected first
+
+The plan's G11 is *"representative LCP ≤2.5 s, CLS ≤0.1, TBT ≤300 ms on agreed
+local/staging fixture; no unbounded N+1"*. `grep -c "400 KB"` on the master plan
+returns **0**. The 400 KB figure was mine, and treating it as a blocker invented
+an authority the plan does not grant. It is renamed
+`SHARED_BASELINE_INVESTIGATION_KB` and reported as diagnostic. Bundle weight
+remains evidence; it is not a gate.
+
+## 1. Group 2 — authenticated route/role matrix: COMPLETE
+
+`npm run test:zero-base:routes:roles` — **312/312 executed HTTP cases** against
+an ephemeral migrated database with seeded principals.
+
+| principal | cases | result |
+|---|---|---|
+| admin / collaborator / guest on own workspace | 33 each | render, with `[data-adc-ui="zero-base"]` asserted |
+| each → another tenant | 33 each | refused |
+| non-active membership | 33 | refused |
+| no membership | 33 | refused |
+| each → Ops | 16 each | refused |
+
+Three schema truths corrected the fixtures rather than the reverse:
+`memberships_role_check` permits only admin/collaborator/guest — **there is no
+reviewer membership row**, because reviewer is a seeded account and demo is a
+business flag — `memberships_status_check` has no `inactive` (the non-active
+case uses `pending`), and businesses require an owner.
+
+**Two findings worth stating plainly.** The first run reported every refusal
+passing and every render failing: the login endpoint had rate-limited a repeated
+run, so no principal was signed in and refusals passed *trivially*. That false
+green is now structurally impossible — the matrix aborts if any sign-in fails.
+The second: Client leaves 404'd for a valid admin because the canonical UI sits
+behind `ZERO_BASE_UI_MODE` and my local env used the wrong variable name
+(`ZERO_BASE_UI_ALLOWLIST` instead of `ZERO_BASE_UI_BUSINESS_IDS`). The gate was
+right; the fixture was wrong.
+
+`L-C-M-CB` is declared a redirect contract with its reason — the OAuth landing
+authorizes and returns to Integrations rather than rendering. The other 32
+Client leaves stay strict.
+
+## 2. Group 4 — G11 on heavy authenticated leaves: COMPLETE
+
+`npm run test:zero-base:perf` with a seeded admin session:
+
+| leaf | LCP | CLS | TBT | API calls | duplicated |
+|---|---|---|---|---|---|
+| L-AG-TODAY | 100 ms | 0.000 | 0 ms | 0 | none |
+| L-C-HOME | 60 ms | 0.000 | 0 ms | 0 | none |
+| L-C-META-DEC | 124 ms | 0.000 | 0 ms | 1 | none |
+| L-C-CR-PERF | 104 ms | 0.000 | 0 ms | 2 | none |
+| L-C-AN-GA | 100 ms | 0.000 | 0 ms | 3 | none |
+| L-C-AN-GEO | 116 ms | 0.000 | 0 ms | 1 | none |
+| L-C-REP | 200 ms | 0.000 | 0 ms | 1 | none |
+| L-C-REP-NEW | 96 ms | 0.000 | 0 ms | 0 | none |
+
+Every leaf is inside the plan's budgets with wide margin, and **no leaf issues a
+duplicated identical request on a single load** — the N+1 signature the plan
+names. Sign-in is asserted before measuring, so vitals can never be taken
+against a login redirect. Public leaves also pass (LCP 52–120 ms).
+
+**G11 is green on the plan's own definition.** The 491.9 KB shared baseline is
+reported as diagnostic, above the local investigation trigger, not as a failure.
+
+## 3. Group 3 — G6 COMPLETE, G7 INCOMPLETE
+
+`npm run test:zero-base:states`
+
+```
+M1 4/4   M2 3/3   M3 6/6   M4 7/7   M5 4/4
+M6 3/3   M7 5/5   M8 4/4   M9 2/2
+
+G6 state cases       38/38
+G7 interaction keys  0/142
+FAIL
+```
+
+**G6 is green.** 38 mounted cases across all nine matrices, each asserting the
+branch is *visibly distinct* — loading, success, empty, partial/stale, error,
+rate limit, offline, permission, row-gone, confirmation, progress, and all three
+read-back outcomes. Branch sets are per matrix because requiring every branch
+everywhere would force fabricated cases.
+
+**G7 is 0/142 and fails closed.** `recordInteraction` rejects any key absent
+from the generated registry, so coverage cannot be inflated with invented keys.
+
+## 4. Group 1 — G10 still 13/92
+
+Unchanged this pass and still failing closed.
+
+## 5. Gate status
+
+| Gate | Status |
+|---|---|
+| G1 contract | green |
+| G2 compile | green — typecheck 0, lint 0, build OK |
+| G3 data | green — **9093 passed / 0 failed** |
+| G4 decision safety | green |
+| G5 routes | **green** — 74/74 unauthenticated + 312/312 authenticated |
+| G6 state truth | **green** — 38/38 |
+| G7 interaction | **RED** — 0/142 |
+| G8 responsive | green — flows 71/71, geometry 84/84, a11y 85/85 |
+| G9 accessibility | **RED** — manual AT unavailable |
+| G10 visual | **RED** — 13/92 |
+| G11 performance | **green** on the plan's definition |
+| G12 deployment | out of scope |
+
+## 6. Commands
+
+```
+npx vitest run                        → 9093 passed / 0 failed
+npm run typecheck / lint              → 0 / 0
+npm run test:zero-base:routes         → PASS (74 leaves)
+npm run test:zero-base:routes:http    → PASS (74/74 posture)
+npm run test:zero-base:routes:roles   → PASS (312/312)
+npm run test:zero-base:locale         → PASS (0 unexplained)
+npm run test:zero-base:flows          → PASS (71/71, 13 flows)
+npm run test:zero-base:states         → FAIL (G6 38/38, G7 0/142)
+npm run zero-base:reconcile:frames    → FAIL (13/92)
+npm run test:zero-base:a11y           → 85/85
+npm run test:zero-base:responsive     → 84/84
+npm run test:zero-base:perf           → 12/12 leaves within budget
+npm run test:migrations-from-zero     → PASS with all DB seams
+npm run test:selection-race-seam      → PASS (S1–S7)
+npm run build                         → OK
+credential-free smoke                 → 11 passed / 3 failed (accepted baseline)
+```
+
+## 7. Remaining local work
+
+1. **G7** — 142 interaction contract keys need executed cases.
+2. **G10** — 79 frames need crosswalk plus capture, with dimension/identity and
+   visual comparison verification.
+
+Both fail closed today, so `test:zero-base:release` is RED and cannot be
+mistaken for done.
+
+## 8. Residual manual AT — unchanged, still the only external requirement
+
+RED for NVDA + Chrome, VoiceOver + Safari macOS/iOS, TalkBack + Chrome Android.
+No automated scan, DOM inspection, screenshot or simulated keystroke is offered
+in its place, and no scope reduction is requested.

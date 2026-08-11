@@ -43,7 +43,7 @@ export const WITHHELD_REASONS = [
 export function WithheldExplainer() {
   const copy = useCopy();
   return (
-    <section>
+    <section data-el="withheld-explainer">
       <h2 style={{ fontSize: 20, fontWeight: 700, lineHeight: "26px", margin: 0 }}>
         {copy.whyAgencyNoTotals}
       </h2>

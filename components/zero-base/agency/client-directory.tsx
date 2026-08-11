@@ -175,6 +175,7 @@ export function ClientDirectory({
       <div style={{ maxWidth: 320, marginBottom: 16 }}>
         <TextInput
           label={copy.findAClient}
+          data-ctl="live:SCOPE-11 client-search"
           value={query}
           placeholder={copy.name}
           onChange={(event) => setQuery(event.target.value)}
@@ -205,8 +206,10 @@ export function ClientDirectory({
           void loadMore();
         }}
         loadingMore={loading}
+        loadMoreCtl="live:AGENCY-04 load-more"
       >
         <DataTable
+          collection="clients"
           caption={copy.clientsAlphabetical}
           rows={visible}
           rowKey={(row) => row.businessId}
@@ -218,6 +221,8 @@ export function ClientDirectory({
                 <Link
                   href={hrefFor(row.businessId)}
                   data-open-client={row.businessId}
+                  data-ctl="live:AGENCY-04 open-client"
+                  data-el="flow-a-direction-enter"
                   style={{ color: "var(--ledger-accent-action)", textDecoration: "none" }}
                 >
                   {row.name}

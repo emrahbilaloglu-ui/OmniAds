@@ -38,6 +38,7 @@ import { RenderedWidgetCard, ReportLibraryView, ReportShareDisabled } from "@/co
 import { OpsRepairPanel, CriticalIncidentPath } from "@/components/zero-base/ops/repair-panel";
 import { InviteStatePanel } from "@/components/zero-base/auth/auth-states";
 import { WithheldExplainer } from "@/components/zero-base/agency/withheld-explainer";
+import { AgencyDeskView } from "@/components/zero-base/agency/agency-desk-view";
 import { PublicSharePage } from "@/components/zero-base/creative/public-share-page";
 import {
   EmptyState,
@@ -206,6 +207,27 @@ const publicShare = (kind: "image" | "video") => ({
   ],
 });
 
+
+/** A served agency directory page. */
+const agencyPage = (count: number) => ({
+  items: Array.from({ length: count }, (_, index) => ({
+    businessId: `biz-${index}`,
+    name: ["Halcyon Supply Co.", "Northwind Trading", "Vitahome Living", "Orchard & Fen"][index % 4],
+    role: "Agency collaborator",
+    configuredCurrency: "USD",
+    sourceUpdatedAt: index % 3 === 0 ? null : "2026-08-09",
+    membershipStatus: "active" as const,
+    href: `/c/biz-${index}/home`,
+  })),
+  servedCount: count,
+  totalCount: count + 12,
+  nextCursor: "cursor-2",
+  truncated: true,
+  disclosure: null,
+});
+
+const agencyDesk = () => <AgencyDeskView initialPage={agencyPage(4)} />;
+
 const perf = (
   posture: "serving" | "shadow_only" | "disabled" | "hidden",
   total: number | null,
@@ -297,8 +319,8 @@ const tr = (node: React.ReactElement) => <ZeroBaseCopyProvider language="tr">{no
  */
 export const FRAMES: readonly FrameSpec[] = [
   /* ---- H01–H08: agency, home, auth ---- */
-  { id: "H01", leaf: "L-AG-TODAY", state: "agency-today", width: 1440, theme: "light", render: () => <WithheldExplainer /> },
-  { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => <WithheldState reason="Two clients are withheld: no active membership on either." /> },
+  { id: "H01", leaf: "L-AG-TODAY", state: "agency-today", width: 1440, theme: "light", render: () => agencyDesk() },
+  { id: "H02", leaf: "L-AG-CLIENTS", state: "clients-withheld", width: 1440, theme: "light", render: () => <WithheldExplainer /> },
   { id: "H03", leaf: "L-C-HOME", state: "home-normal", width: 1440, theme: "light", render: () => homeFrame(true) },
   { id: "H04", leaf: "L-C-HOME", state: "home-partial", width: 1440, theme: "light", render: () => homeFrame(false) },
   { id: "H05", leaf: "L-AUTH-LOGIN", state: "login", width: 1440, theme: "light", render: () => <InviteStatePanel state="login_required" token="t" invitedEmail="ada@x.test" /> },
@@ -366,12 +388,12 @@ export const FRAMES: readonly FrameSpec[] = [
 
   /* ---- H50–H59: mobile / narrow core flows ---- */
   { id: "H50", leaf: "L-C-HOME", state: "narrow-home", width: 390, theme: "light", render: () => homeFrame(true) },
-  { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => <WithheldExplainer /> },
+  { id: "H51", leaf: "L-AG-TODAY", state: "narrow-agency", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H52", leaf: "L-C-META-DEC", state: "narrow-decisions", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 4, 4)} businessId="biz" /> },
   { id: "H53", leaf: "L-C-CR-PERF", state: "narrow-creative", width: 390, theme: "light", render: () => <CreativePerformanceView model={perf("serving", 2, 2)} businessId="biz" /> },
   { id: "H54", leaf: "L-SH-CREATIVE", state: "narrow-share", width: 390, theme: "light", render: () => <PublicSharePage share={publicShare("video")} /> },
   { id: "H55", leaf: "L-C-HOME", state: "narrow-320", width: 320, theme: "light", render: () => homeFrame(true) },
-  { id: "H56", leaf: "L-C-REP", state: "narrow-reports", width: 390, theme: "light", render: () => <ReportLibraryView reports={[{ id: "r1", name: "Weekly review", updatedAt: "2026-08-11" }]} /> },
+  { id: "H56", leaf: "L-AG-CLIENTS", state: "narrow-agency-wrapping", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H57", leaf: "L-C-M-INT", state: "narrow-integrations", width: 390, theme: "light", render: () => integrations() },
   { id: "H58", leaf: "L-C-M-TEAM", state: "narrow-team", width: 390, theme: "light", render: () => team({ membersWrite: ALLOWED, invitesWrite: ALLOWED, accessRequests: ALLOWED }) },
   { id: "H59", leaf: "L-SH-CREATIVE", state: "narrow-share-gone", width: 320, theme: "dark", render: () => <PublicSharePage share={publicShare("video")} /> },
@@ -379,11 +401,11 @@ export const FRAMES: readonly FrameSpec[] = [
   /* ---- H60–H66: drawers, scope sheets, switch, return ---- */
   { id: "H60", leaf: "L-C-HOME", state: "drawer-open", width: 390, theme: "light", render: () => <LoadingState label="Opening navigation" /> },
   { id: "H61", leaf: "L-C-HOME", state: "drawer-320", width: 320, theme: "light", render: () => <LoadingState label="Opening navigation" /> },
-  { id: "H62", leaf: "L-AG-CLIENTS", state: "agency-to-client", width: 390, theme: "light", render: () => <LoadingState label="Opening client" /> },
+  { id: "H62", leaf: "L-AG-CLIENTS", state: "agency-to-client", width: 390, theme: "light", render: () => agencyDesk() },
   { id: "H63", leaf: "L-C-HOME", state: "scope-sheet-390", width: 390, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
   { id: "H64", leaf: "L-C-HOME", state: "scope-sheet-320", width: 320, theme: "light", render: () => <EmptyState reason="Scope facts were not served." /> },
   { id: "H65", leaf: "L-C-HOME", state: "switch-states", width: 390, theme: "light", render: () => <ErrorState reason="The workspace switch could not complete." /> },
-  { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => <LoadingState label="Returning to the agency desk" /> },
+  { id: "H66", leaf: "L-AG-TODAY", state: "agency-return", width: 390, theme: "light", render: () => agencyDesk() },
 
   /* ---- B01–B09: 1280/768 geometry and detail/sheet states ---- */
   { id: "B01", leaf: "L-C-HOME", state: "geometry-1280", width: 1280, theme: "light", render: () => homeFrame(true) },
@@ -459,11 +481,9 @@ export const SUBSTITUTED_FRAMES: Record<string, string> = Object.fromEntries(
     ["H52", "renders CreativePerformanceView, not the narrow Decisions composition"],
     ["H60", "renders LoadingState, not the mobile navigation drawer"],
     ["H61", "renders LoadingState, not the 320 navigation drawer"],
-    ["H62", "renders LoadingState, not the agency-to-client transition"],
     ["H63", "renders EmptyState, not the 390 scope sheet"],
     ["H64", "renders EmptyState, not the 320 scope sheet"],
     ["H65", "renders ErrorState, not the switch-state composition"],
-    ["H66", "renders LoadingState, not the agency return composition"],
     ["B02", "renders CreativePerformanceView, not the 1280 Decisions composition"],
     ["B06", "renders CreativePerformanceView, not the 768 Decisions composition"],
     ["M03", "renders CreativePerformanceView, not the mobile Decisions composition"],

@@ -34,6 +34,14 @@ export interface DataTableProps<Row> {
   /** Column whose cell is the row header. Defaults to the first. */
   rowHeaderColumnId?: string;
   density?: TableDensity;
+  /**
+   * Name of the collection this table is, per the accepted design.
+   *
+   * Declared by the caller rather than inferred here: the table primitive has
+   * no way to know whether it is the clients directory or the decisions lane,
+   * and guessing would put the wrong name on the wrong data.
+   */
+  collection?: string;
 }
 
 const ROW_HEIGHT: Record<TableDensity, number> = { comfortable: 48, dense: 40 };
@@ -45,12 +53,14 @@ export function DataTable<Row>({
   rowKey,
   rowHeaderColumnId,
   density = "comfortable",
+  collection,
 }: DataTableProps<Row>) {
   const headerColumnId = rowHeaderColumnId ?? columns[0]?.id;
   const padding = density === "dense" ? "8px 12px" : "12px 14px";
 
   return (
     <table
+      data-collection={collection}
       style={{
         width: "100%",
         borderCollapse: "collapse",

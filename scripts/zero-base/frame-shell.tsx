@@ -91,6 +91,7 @@ export function withFrameShell(
         initialNarrow={isNarrowWidth(options.width)}
         initialDrawerOpen={options.drawerOpen ?? false}
         initialScopeOpen={options.scopeSheetOpen ?? false}
+        agencyReturn={{ href: "/a/desk?q=&cursor=c1&row=biz-0", label: "← Agency Desk" }}
         scopePickers={{
           onSwitchScope: () => {},
           onSwitchBusiness: () => {},

@@ -27,6 +27,8 @@ export interface CollectionProps<T> {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   onRetry?: () => void;
+  /** Contract key the load-more control satisfies, named by the caller. */
+  loadMoreCtl?: string;
 }
 
 export function Collection<T>({
@@ -36,6 +38,7 @@ export function Collection<T>({
   onLoadMore,
   loadingMore,
   onRetry,
+  loadMoreCtl,
 }: CollectionProps<T>) {
   const copy = useCopy();
   const disclosure = envelope.disclosure ?? truncationDisclosure(envelope);
@@ -77,6 +80,7 @@ export function Collection<T>({
                   : { kind: "enabled" }
             }
             onClick={onLoadMore}
+            data-ctl={loadMoreCtl}
             style={{ marginTop: 8 }}
           >
             {copy.loadMore}

@@ -47,9 +47,16 @@ export function AgencyDeskView({ initialPage }: { initialPage: AgencyDirectoryPa
           {AGENCY_MEMBERSHIP_REVOKED}
         </p>
       ) : null}
-      <p style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}>
+      <p
+        data-el="withheld-tile"
+        style={{ fontSize: 13, lineHeight: "19px", color: "var(--ledger-ink-secondary)", margin: "0 0 16px" }}
+      >
         Clients are listed alphabetically. Totals across clients are{" "}
-        <Link href="/a/desk/withheld" style={{ color: "var(--ledger-accent-action)" }}>
+        <Link
+          href="/a/desk/withheld"
+          data-ctl="live:AGENCY-02 withheld-explainer"
+          style={{ color: "var(--ledger-accent-action)" }}
+        >
           withheld for a stated reason
         </Link>
         .

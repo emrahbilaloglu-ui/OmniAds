@@ -13,6 +13,7 @@
  * reduced set — and the context bar compresses to a two-line sticky header
  * that opens the scope sheet. Mobile is never a read-only placeholder.
  */
+import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { ZeroBasePortalHost } from "@/components/zero-base/portal/portal-host";
@@ -65,6 +66,12 @@ export interface AppShellProps {
   initialScopeOpen?: boolean;
   /** Omitted handlers mean the actor cannot re-scope; the row shows no picker. */
   scopePickers?: ScopePickers;
+  /**
+   * Where to go back to, when this client scope was entered from the agency
+   * desk. Absent for an operator who arrived directly, because offering a
+   * "return" to a desk they never came from is a fabricated history.
+   */
+  agencyReturn?: { href: string; label: string } | null;
   children: ReactNode;
 }
 
@@ -81,6 +88,33 @@ function useIsNarrow(initial: boolean): boolean {
   return narrow;
 }
 
+/**
+ * Return to the agency desk, with the desk's own context preserved.
+ *
+ * The href carries the search, cursor and row the operator left from, so
+ * returning lands on the same page of the same list rather than at the top of
+ * a freshly loaded one.
+ */
+function AgencyReturnLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      data-el="agency-return"
+      data-flow-a-direction="return"
+      style={{
+        display: "block",
+        marginBottom: 8,
+        fontSize: 12,
+        lineHeight: "16px",
+        color: "var(--ledger-accent-action)",
+        textDecoration: "none",
+      }}
+    >
+      {label}
+    </Link>
+  );
+}
+
 export function AppShell({
   groups,
   businessId,
@@ -93,6 +127,7 @@ export function AppShell({
   initialDrawerOpen = false,
   initialScopeOpen = false,
   scopePickers,
+  agencyReturn,
   children,
 }: AppShellProps) {
   const narrow = useIsNarrow(initialNarrow);
@@ -118,7 +153,17 @@ export function AppShell({
         <SkipLink />
         <div style={{ display: "flex", flex: "1 1 auto", minHeight: 0 }}>
           {!narrow ? (
-            <Rail groups={groups} businessId={businessId} pathname={pathname} footer={railFooter} />
+            <Rail
+              groups={groups}
+              businessId={businessId}
+              pathname={pathname}
+              footer={
+                <>
+                  {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
+                  {railFooter}
+                </>
+              }
+            />
           ) : null}
 
           <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minWidth: 0 }}>
@@ -139,7 +184,12 @@ export function AppShell({
                   groups={groups}
                   businessId={businessId}
                   pathname={pathname}
-                  footer={railFooter}
+                  footer={
+                    <>
+                      {agencyReturn ? <AgencyReturnLink {...agencyReturn} /> : null}
+                      {railFooter}
+                    </>
+                  }
                   initialOpen={initialDrawerOpen}
                 />
               ) : null}
